@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-manchas
+tema: triagem_criancas
+titulo: "Manchas na pele do bebê com menos de 2 meses"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "apareceram manchas no meu bebê"
+  - "o neném está com pontinhos vermelhos"
+  - "bolinhas na pele do recém-nascido"
+  - "manchas roxas no bebê"
+  - "bebê com brotoeja"
+  - "a pele do neném está com pintinhas de pus"
+  - "manchinha vermelha no corpo do bebê"
+  - "o bebê está cheio de bolinhas"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "Apareceram manchas vermelhas ou roxas, ou pontinhos vermelho-arroxeados que não somem?"
+    sinal: manchas_ou_petequias
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – manchas avermelhadas ou arroxeadas na pele; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – manifestações de sangramento: equimoses, petéquias"
+  - pergunta: "Você mediu a temperatura e deu 37,5 °C ou mais, ou o bebê está frio (35,5 °C ou menos)?"
+    sinal: febre_ou_hipotermia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – febre ≥ 37,5 °C e temperatura ≤ 35,5 °C; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – temperatura axilar < 36 °C ou ≥ 37,5 °C"
+  - pergunta: "Tem muitas bolhinhas ou bolinhas de pus espalhadas pela pele?"
+    sinal: pustulas_extensas
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – pústulas ou vesículas na pele (muitas ou extensas)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Algumas manchinhas na pele do recém-nascido são comuns, mas precisam ser mostradas a um profissional. Evite talco, perfumes e produtos fortes na pele do bebê. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – menores de 2 meses)"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126); §12.6.2 (p. 215-216)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial — pendente jurídico"

@@ -1,0 +1,55 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: mental-alcool-e-drogas
+tema: saude_mental
+titulo: "Álcool e outras drogas (intoxicação, abstinência e uso)"
+publico: adulto
+como_a_pessoa_fala:
+  - "bebi demais"
+  - "meu marido bebeu e não acorda"
+  - "usei droga e estou passando mal"
+  - "parei de beber e estou tremendo"
+  - "não consigo parar de beber"
+  - "acho que estou viciado"
+  - "cheirei cocaína e meu coração está disparado"
+  - "meu filho está usando drogas"
+  - "tomei remédio com bebida"
+  - "estou de ressaca e vomitando muito"
+  - "quero parar de usar e não consigo"
+perguntas_de_alerta:
+  - pergunta: "A pessoa não acorda ou quase não responde, está respirando muito devagar ou fraco, ou teve convulsão (ataque com tremores e perda dos sentidos)?"
+    sinal: rebaixamento_consciencia_respiracao_ou_convulsao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo SUB, Emergência (overdose: ausência de resposta, respiração baixa; abstinência grave: convulsões); Caderno de Atenção Básica 28 vol. II, §2.23, Intoxicação alcoólica aguda (queda do nível de consciência = serviço de urgência); SAMU 192 — Quando chamar (MS, gov.br): intoxicação, crises convulsivas"
+  - pergunta: "Depois de usar cocaína, crack ou outro estimulante, está com dor no peito ou com o coração muito disparado?"
+    sinal: dor_toracica_apos_estimulante
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo SUB, passo 2 (intoxicação por estimulante com dor torácica ou taquiarritmia: transferir para hospital); SAMU 192 — Quando chamar (MS, gov.br): dores no peito de aparecimento súbito"
+  - pergunta: "A pessoa parou ou diminuiu a bebida (ou o remédio calmante) nos últimos dias e agora está com tremedeira, suando muito, vomitando, muito agitada, confusa ou vendo coisas que não existem?"
+    sinal: abstinencia_moderada_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Síndrome de abstinência do álcool (SAA grave: atendimento hospitalar); mhGAP 2.0 (OPAS/OMS), módulo SUB, Emergência e passo 2; TelessaúdeRS Psiquiatria Adulto, Protocolo 6 (abstinência moderada a grave = urgência/emergência)"
+  - pergunta: "Junto com o uso de álcool ou drogas, você tem pensado em se machucar ou em acabar com a sua vida?"
+    sinal: ideacao_suicida
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Transtornos agudos relacionados ao álcool (alcoolizados em maior risco de suicídio); mhGAP 2.0 (OPAS/OMS), módulo SUB, passo 2 (pós-intoxicação: atenção a pensamentos suicidas, ir para SUI)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: Psiquiatria
+  fonte: "TelessaúdeRS Psiquiatria Adulto, Protocolo 6 (Transtornos por uso de substâncias); Resolução CFM 2.380/2024"
+orientacao_final: "Não deixe a pessoa sozinha enquanto ela estiver sob efeito de álcool ou droga, e se ela estiver sonolenta, deite-a de lado. Para quem quer diminuir ou parar, a equipe de saúde pode ajudar sem julgamento, e parar de beber de uma vez pode trazer sintomas que precisam de acompanhamento. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.23, Transtornos agudos relacionados ao uso abusivo de álcool (intoxicação aguda, SAA)"
+  - nome: "mhGAP — Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "Quadros emergenciais; módulo SUB (Emergência, passos 1 e 2)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: intoxicação exógena; dores no peito súbitas; crises convulsivas"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Psiquiatria Adulto (revisão 2021)"
+    secao: "Protocolo 6"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"
+# Nota para revisão: 'deitar de lado' vem do mhGAP SUB (decúbito lateral para evitar aspiração); confirmar se é aceitável como orientação leiga.

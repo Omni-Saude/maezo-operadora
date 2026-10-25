@@ -1,0 +1,48 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-tosse-falta-de-ar
+tema: triagem_criancas
+titulo: "Tosse, chiado ou falta de ar (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está com tosse"
+  - "a criança está com chiado no peito"
+  - "minha filha está com falta de ar"
+  - "o bebê está cansado para respirar"
+  - "tosse que não passa"
+  - "meu filho está com bronquite atacada"
+  - "a criança está respirando rápido"
+  - "tosse com catarro e febre"
+  - "peito chiando à noite"
+perguntas_de_alerta:
+  - pergunta: "Ela está com muita dificuldade para respirar: ficando roxa, sem conseguir chorar, falando só palavras soltas, ou está desmaiada / não acorda?"
+    sinal: respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 8-9 (sibilância grave: fala frases incompletas, choro curto ou não consegue chorar, letargia); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - pergunta: "A barriga afunda embaixo das costelas quando ela respira, ou ela faz um barulho rouco ao puxar o ar mesmo parada?"
+    sinal: tiragem_ou_estridor
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 7 (tiragem subcostal, estridor em repouso → PNEUMONIA GRAVE OU DOENÇA MUITO GRAVE)"
+  - pergunta: "Está respirando rápido, ou não consegue beber nem mamar, ou vomita tudo?"
+    sinal: respiracao_rapida_ou_sinal_geral
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – respiração rápida; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 7"
+  - pergunta: "Tem chiado no peito?"
+    sinal: sibilancia
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 8-9 (sibilância moderada ou leve → tratar e reavaliar na unidade)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça líquidos e o peito com frequência e mantenha o nariz limpo. Volte a procurar atendimento se a respiração ficar mais rápida ou difícil. Tosse que dura mais de 2 semanas precisa ser investigada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 7 (tosse ou dificuldade para respirar); p. 8-9 (sibilância)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

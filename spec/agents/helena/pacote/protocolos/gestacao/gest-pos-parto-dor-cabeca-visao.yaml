@@ -1,0 +1,41 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-dor-cabeca-visao
+tema: gestacao
+titulo: "Dor de cabeça forte, visão turva ou inchaço no pós-parto"
+publico: puerpera
+como_a_pessoa_fala:
+  - "dor de cabeça forte depois do parto"
+  - "minha vista está embaçada no resguardo"
+  - "pressão alta depois do parto"
+  - "inchaço no rosto depois de ter o bebê"
+  - "vendo pontos brilhantes no pós-parto"
+  - "dor de cabeça que não passa depois da cesárea"
+  - "tive pré-eclâmpsia e agora estou com dor de cabeça"
+  - "rosto e mãos inchados no pós-parto"
+perguntas_de_alerta:
+  - pergunta: "Você teve convulsão ou desmaio, está confusa, ou com falta de ar forte ou dor no peito?"
+    sinal: emergencia_pos_parto
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – convulsões, desmaio, dor no peito, falta de ar; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas, dores no peito de aparecimento súbito"
+  - pergunta: "A dor de cabeça é forte ou diferente do habitual, ou você está com visão embaçada, pontos luminosos ou escurecimento?"
+    sinal: cefaleia_ou_alteracao_visual
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – dor de cabeça forte ou diferente do habitual; alterações na visão; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41: medir pressão também no pós-parto)"
+  - pergunta: "Teve inchaço de repente no rosto, nas mãos ou nas pernas?"
+    sinal: edema_subito
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – inchaço repentino no rosto, mãos ou pernas"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / consulta pós-parto)"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "Caderneta da Gestante 2026, Parte VI (puerpério) e §6.5 (plano de pós-parto); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "A pressão pode subir também depois do parto, por isso é importante medi-la ainda hoje. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.1 (p. 67-68); §6.2 Seu corpo fala (p. 69)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§4.4.1 (p. 41-42)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

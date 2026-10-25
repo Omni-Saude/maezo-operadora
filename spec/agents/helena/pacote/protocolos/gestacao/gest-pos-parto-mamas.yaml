@@ -1,0 +1,37 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-mamas
+tema: gestacao
+titulo: "Mamas doloridas, vermelhas ou empedradas no pós-parto"
+publico: puerpera
+como_a_pessoa_fala:
+  - "meu peito está empedrado"
+  - "a mama está vermelha e quente"
+  - "estou com dor no seio amamentando"
+  - "acho que estou com mastite"
+  - "o bico do peito está rachado"
+  - "peito duro e febre"
+  - "caroço dolorido na mama"
+  - "leite empedrou"
+perguntas_de_alerta:
+  - pergunta: "Está com febre (37,8 °C ou mais)?"
+    sinal: febre_pos_parto
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – febre ≥ 37,8 °C (procurar serviço imediatamente); Manual de Gestação de Alto Risco (MS, 2022, versão preliminar), cap. 38 Sepse na gestação (p. 397: puerpério e cesárea como risco)"
+  - pergunta: "A mama está com dor forte, vermelha, quente ou com uma área endurecida que dói?"
+    sinal: inflamacao_mamaria
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.1 (p. 68: dor intensa, vermelhidão, febre ou áreas endurecidas dolorosas → procurar serviço, é preciso agir rápido); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 5 (p. 42) – amarelo: ingurgitamento com sinais flogísticos e febre; verde: sem febre"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / consulta pós-parto)"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "Caderneta da Gestante 2026, Parte VI (puerpério) e §6.5 (plano de pós-parto); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Nos primeiros dias, é comum as mamas ficarem cheias, sensíveis e endurecidas quando o leite desce. Observe as mamas todos os dias, evite sutiã apertado e continue amamentando; a equipe de saúde pode ajudar com a pega. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.1 (p. 67-68); §6.2 (p. 69); §6.4 (p. 70-71)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 5 (p. 42)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

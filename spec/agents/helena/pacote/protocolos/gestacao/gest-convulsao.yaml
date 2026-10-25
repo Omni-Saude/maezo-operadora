@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-convulsao
+tema: gestacao
+titulo: "Convulsão na gestação ou no pós-parto"
+publico: gestante
+como_a_pessoa_fala:
+  - "minha esposa grávida teve uma convulsão"
+  - "a gestante ficou tremendo e desmaiou"
+  - "tive uma crise e estou grávida"
+  - "ela ficou dura e babando, está grávida"
+  - "convulsão depois do parto"
+  - "minha filha grávida desmaiou e se debateu"
+  - "ataque epiléptico na gravidez"
+  - "a grávida revirou os olhos"
+perguntas_de_alerta:
+  - pergunta: "A convulsão está acontecendo agora, ou ela ainda não acordou direito / não responde?"
+    sinal: convulsao_ativa_ou_nao_responsiva
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 11 (p. 48) – vermelho: convulsão em atividade, não responsiva; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas"
+  - pergunta: "Ela teve uma convulsão, mesmo que já tenha passado e ela esteja acordada?"
+    sinal: convulsao_recente
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41: eclâmpsia – convulsões – é emergência obstétrica com risco de vida, exige atendimento imediato); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – convulsões; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 11 (p. 48) – laranja: alteração do estado mental"
+  - pergunta: "Está com dor de cabeça forte ou diferente do habitual, visão embaçada, pontos luminosos ou escurecimento da vista, ou dor forte no estômago, logo abaixo das costelas?"
+    sinal: sinais_de_pre_eclampsia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41-42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), fluxogramas 2-8 (laranja: PA ≥ 140/90 com dor de cabeça, de estômago ou alterações visuais)"
+destino_se_nenhum_sinal: PRONTO_SOCORRO_AGORA
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Convulsão na gestação ou no pós-parto é sempre emergência, mesmo em quem já tem epilepsia. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§4.4.1 (p. 41-42)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 11 – Relato de convulsão (p. 48)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

@@ -1,0 +1,53 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: cron-glicose-alta-ou-baixa
+tema: cronicos
+titulo: "Glicose (açúcar no sangue) alta ou baixa"
+publico: adulto
+como_a_pessoa_fala:
+  - "minha glicose está alta"
+  - "minha diabetes atacou"
+  - "o açúcar caiu"
+  - "acho que estou com hipoglicemia"
+  - "estou suando frio e tremendo, sou diabético"
+  - "o aparelho mostrou glicose 400"
+  - "minha mãe diabética está confusa"
+  - "estou com muita sede e urinando muito"
+  - "diabético vomitando"
+  - "a glicemia não baixa"
+perguntas_de_alerta:
+  - pergunta: "A pessoa está desmaiada, muito difícil de acordar, não consegue engolir ou teve convulsão?"
+    sinal: inconsciencia_ou_convulsao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4, Hipoglicemia (quadros graves: alteração de consciência, convulsões) e Hiperglicemia (sonolência, torpor, coma); Caderno de Atenção Básica 36, §4.2.2, Quadro 11 (se não conseguir engolir, levar imediatamente a um serviço de saúde)"
+  - pergunta: "Está com confusão, fala enrolada, agressividade fora do normal, visão embaçada ou dor de cabeça, junto com suor frio ou tremedeira?"
+    sinal: hipoglicemia_moderada_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4, tabela Causas, sinais/sintomas e manejo da hipoglicemia (hipoglicemia moderada a grave: chamar o serviço de atendimento móvel de urgência)"
+  - pergunta: "Está vomitando, com dor de barriga, respiração rápida ou difícil, boca muito seca e olhos fundos, ou hálito com cheiro forte diferente (parecido com acetona)?"
+    sinal: sinais_de_cetoacidose_ou_desidratacao
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4, Hiperglicemia, regra 9 (procurar unidade de emergência); Caderno de Atenção Básica 36, §4.2.1 (cetoacidose); TelessaúdeRS Endocrinologia Adulto, Protocolo 1 (suspeita de cetoacidose = urgência/emergência)"
+  - pergunta: "Se você mediu a glicose: ela ficou acima de 400 por mais de 12 horas? Ou você está com febre alta, vômito ou diarreia e não consegue beber nem líquidos?"
+    sinal: hiperglicemia_persistente_ou_doenca_intercorrente
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4, Hiperglicemia, regra 8 (procurar a unidade de saúde mais próxima)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: Endocrinologia e metabologia
+  fonte: "TelessaúdeRS Endocrinologia Adulto, Protocolo 1 (Diabetes mellitus); Resolução CFM 2.380/2024"
+orientacao_final: "Se você já tem um plano combinado com seu médico para açúcar baixo ou alto, siga esse plano. Não deixe de usar seus remédios do diabetes sem falar com o médico, mesmo em dias de doença, e beba água. Uma consulta ajuda a rever o tratamento e entender o que causou essa alteração. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.4, Descompensação do diabetes mellitus: hipoglicemia e hiperglicemia"
+  - nome: "Caderno de Atenção Básica nº 36 — Diabetes (MS, 2013)"
+    secao: "§4.2.1 Descompensação hiperglicêmica aguda; §4.2.2 Hipoglicemia, Quadro 11"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Endocrinologia Adulto (revisão 2021)"
+    secao: "Protocolo 1 — Diabetes mellitus"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"
+# Nota para revisão: a pergunta 4 usa valor medido (400 por 12 h) porque a fonte usa glicemia capilar medida pelo próprio usuário.
+# A orientação 'não deixar de usar a insulina nos dias de doença' é do §2.4 (regra 3); não damos dose nem ajuste.

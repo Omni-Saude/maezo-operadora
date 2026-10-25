@@ -1,0 +1,39 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-perna
+tema: gestacao
+titulo: "Dor ou inchaço na panturrilha no pós-parto"
+publico: puerpera
+como_a_pessoa_fala:
+  - "minha perna está inchada depois do parto"
+  - "dor na batata da perna no resguardo"
+  - "uma perna está mais grossa que a outra"
+  - "panturrilha vermelha e quente depois da cesárea"
+  - "medo de trombose depois do parto"
+  - "dor na perna ao andar no pós-parto"
+  - "perna dura e doendo"
+  - "inchaço numa perna só"
+perguntas_de_alerta:
+  - pergunta: "Está com falta de ar que começou de repente, dor no peito, ou desmaiou?"
+    sinal: suspeita_embolia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – dor no peito, falta de ar, sensação de desmaio; SAMU 192 – Quando chamar (MS, página gov.br) – dores no peito de aparecimento súbito"
+  - pergunta: "Está com dor, calor ou inchaço em uma perna só, principalmente na batata da perna?"
+    sinal: suspeita_trombose
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – dor, calor ou inchaço em uma das pernas, especialmente na panturrilha (procurar serviço imediatamente); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 12 (p. 49) – amarelo: dor persistente na perna com edema e rigidez da panturrilha; Manual de Gestação de Alto Risco (MS, 2022, versão preliminar), cap. 51 (p. 525)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / consulta pós-parto)"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "Caderneta da Gestante 2026, Parte VI (puerpério) e §6.5 (plano de pós-parto); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Algum inchaço nas duas pernas pode acontecer nos primeiros dias depois do parto. Inchaço ou dor em uma perna só não deve ser ignorado. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.1 (p. 67-68); §6.2 Seu corpo fala (p. 69)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 12 (p. 49)"
+  - nome: "Manual de Gestação de Alto Risco (MS, 2022, versão preliminar)"
+    secao: "cap. 51 Tromboembolismo venoso (p. 525)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

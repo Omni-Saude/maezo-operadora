@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pensamento-de-se-machucar
+tema: gestacao
+titulo: "Pensamento de se machucar no pós-parto"
+publico: puerpera
+como_a_pessoa_fala:
+  - "não aguento mais"
+  - "às vezes penso em sumir"
+  - "tenho vontade de morrer"
+  - "penso em me machucar"
+  - "tenho medo de fazer mal ao bebê"
+  - "seria melhor se eu não existisse"
+  - "não vejo saída"
+  - "pensei em tomar todos os remédios"
+perguntas_de_alerta:
+  - pergunta: "Você já fez algo para se machucar agora, ou tomou remédios ou outra substância para isso?"
+    sinal: tentativa_em_curso
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 – Quando chamar (MS, página gov.br) – tentativas de suicídio; Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.23 (p. 216-234)"
+  - pergunta: "Você está pensando em se machucar, em tirar a própria vida, ou em machucar o bebê?"
+    sinal: ideacao_suicida_ou_de_dano
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – pensamentos de machucar a si mesma ou ao bebê; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.8.4 (p. 78); mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018), SUI Autoagressão/suicídio (p. 131); Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.23"
+  - pergunta: "Você tem sentido que a vida não tem valor, desespero, ou que as coisas não vão melhorar?"
+    sinal: desesperanca
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.8.4 (p. 78) e §4.8 (p. 48): pensamentos de desvalorização da vida, desespero → buscar a equipe o quanto antes"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / pós-parto)"
+  depois: "Psiquiatria"
+  fonte: "Caderneta da Gestante 2026, §6.8.3 e §6.8.5 (acompanhamento em saúde mental); nomes conforme Resolução CFM 2.380/2024"
+orientacao_final: "Você não está sozinha e pedir ajuda é um direito. Fique perto de alguém de confiança e converse com a equipe de saúde hoje. Se os pensamentos ficarem fortes, ligue 188 (CVV, gratuito, 24 horas) ou 192. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§4.8 (p. 47-48); §6.2 (p. 69); §6.8.4 (p. 78)"
+  - nome: "mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "SUI (p. 131)"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.23 (p. 216-234)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO; Caderno 28: não comercial; SAMU: CC BY-ND 3.0 (só referência)"

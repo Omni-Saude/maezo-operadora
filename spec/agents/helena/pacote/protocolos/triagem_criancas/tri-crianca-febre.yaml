@@ -1,0 +1,48 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-febre
+tema: triagem_criancas
+titulo: "Febre na criança de 2 meses a 5 anos"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está com febre"
+  - "a criança está quente"
+  - "minha filha de 2 anos com 38,5"
+  - "febre alta no meu filho"
+  - "o bebê de 8 meses está com febre"
+  - "a febre não baixa"
+  - "meu filho está ardendo em febre"
+  - "criança com febre e moleza"
+  - "minha filha está com febre desde ontem"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão (tremores ou 'ataque'), está desmaiada ou não acorda, ou está com muita dificuldade para respirar (ficando roxa, sem conseguir chorar ou falar)?"
+    sinal: convulsao_inconsciente_ou_respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – convulsões, letárgica ou inconsciente; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 9 (sibilância grave: choro curto ou não consegue chorar)"
+  - pergunta: "Ela está muito sonolenta e difícil de acordar, não consegue beber nem mamar, ou vomita tudo o que come e bebe?"
+    sinal: sinal_geral_de_perigo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Ela está com o pescoço duro (dói ou não consegue encostar o queixo no peito), com a moleira estufada, ou apareceram manchas roxas ou pontinhos vermelho-arroxeados que não somem?"
+    sinal: doenca_febril_muito_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 12-13 (rigidez de nuca, abaulamento de fontanela, petéquias → DOENÇA FEBRIL MUITO GRAVE); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – manchas avermelhadas ou arroxeadas"
+  - pergunta: "A criança tem doença falciforme (anemia falciforme)?"
+    sinal: falciforme_com_febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 13 (todo paciente com doença falciforme que apresentar febre deve ser referido ao hospital)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça líquidos e o peito com mais frequência e deixe a criança com roupa leve. Não dê remédio por conta própria sem orientação. Se a febre continuar por mais de 2 dias, ou se ela tiver febre todos os dias por mais de 5 dias, a criança precisa ser examinada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 12-13 (avaliar e classificar a febre)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

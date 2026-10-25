@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-molinho-sonolento
+tema: triagem_criancas
+titulo: "Criança de 2 meses a 5 anos molinha ou muito sonolenta"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está muito molinho"
+  - "a criança está largada, sem reação"
+  - "minha filha só quer dormir"
+  - "não consigo acordar meu filho direito"
+  - "o bebê está caidinho"
+  - "a criança está muito irritada e não acalma"
+  - "meu filho está estranho, parado"
+  - "criança prostrada"
+perguntas_de_alerta:
+  - pergunta: "Ela não acorda ou não responde quando você chama, ou teve convulsão?"
+    sinal: nao_acorda_ou_convulsao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – letárgica ou inconsciente, convulsões; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas"
+  - pergunta: "Ela está muito sonolenta e difícil de acordar, muito molinha, ou muito irritada sem conseguir acalmar?"
+    sinal: letargia_ou_irritabilidade
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – muito sonolenta, com dificuldade para acordar; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – letárgica; Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024), §2.2.1 Quadro 1 (letargia e/ou irritabilidade)"
+  - pergunta: "Não consegue beber nem mamar, ou vomita tudo o que come e bebe?"
+    sinal: nao_bebe_ou_vomita_tudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Está respirando rápido ou com esforço (a barriga afunda embaixo das costelas), ou faz um barulho rouco ao puxar o ar mesmo parada?"
+    sinal: dificuldade_para_respirar
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – dificuldade para respirar ou respiração rápida; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 7 (tiragem subcostal, estridor em repouso)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Criança que está 'diferente', mais parada que o normal, precisa ser examinada no mesmo dia. Ofereça líquidos e observe se ela acorda, responde e respira bem. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024)"
+    secao: "§2.2.1 Quadro 1 (p. 12-13)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0; Dengue 2024: CC BY-NC-SA 4.0 (versão preliminar) — pendente jurídico"

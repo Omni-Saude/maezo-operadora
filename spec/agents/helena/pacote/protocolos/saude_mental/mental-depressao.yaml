@@ -1,0 +1,51 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: mental-depressao
+tema: saude_mental
+titulo: "Tristeza que não passa (depressão)"
+publico: adulto
+como_a_pessoa_fala:
+  - "ando muito triste"
+  - "acho que estou com depressão"
+  - "perdi a vontade de fazer as coisas"
+  - "não tenho ânimo pra nada"
+  - "choro o tempo todo"
+  - "não sinto prazer em mais nada"
+  - "não consigo sair da cama"
+  - "estou desanimado há semanas"
+  - "me sinto inútil"
+  - "não durmo direito e não tenho fome"
+perguntas_de_alerta:
+  - pergunta: "Você tem tido pensamentos de que seria melhor morrer, de se machucar ou de acabar com a sua vida?"
+    sinal: ideacao_suicida
+    destino_se_sim: CVV_188_E_192
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo DEP, DEP 1 (se houver risco iminente de suicídio, ir para SUI); Caderno de Atenção Básica 28 vol. II, §2.23, Triagem de depressão (pergunta F)"
+  - pergunta: "Você (ou alguém da família) percebeu que está ouvindo vozes, vendo coisas que os outros não veem, ou com ideias muito estranhas ou desconfiadas?"
+    sinal: sintomas_psicoticos
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Psiquiatria Adulto, critérios gerais (sintomas psicóticos agudizados = emergência psiquiátrica); mhGAP 2.0 (OPAS/OMS), módulo DEP, DEP 1 (dica clínica: sintomas psicóticos, consultar especialista)"
+  - pergunta: "Há pelo menos duas semanas você se sente triste ou sem prazer nas coisas quase todos os dias, a ponto de atrapalhar o trabalho, a casa ou a convivência?"
+    sinal: sintomas_depressivos_persistentes
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo DEP, DEP 1 passo 1 (sintomas básicos por no mínimo duas semanas e dificuldade no funcionamento diário); Caderno de Atenção Básica 28 vol. II, §2.23, Triagem de depressão (perguntas 1 e 2)"
+  - pergunta: "Você já teve uma depressão grave, uma tentativa de suicídio ou uma internação psiquiátrica no passado?"
+    sinal: historia_de_episodio_grave
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "TelessaúdeRS Psiquiatria Adulto, Protocolo 1 (episódio depressivo em paciente com episódios prévios graves); Caderno de Atenção Básica 28 vol. II, §2.23, Fatores de risco (passado de tentativa)"
+destino_se_nenhum_sinal: CONSULTA_ROTINA
+especialista:
+  primeiro: Clínico geral
+  depois: Psiquiatria
+  fonte: "TelessaúdeRS Psiquiatria Adulto, Protocolo 1 (Transtornos depressivos); Resolução CFM 2.380/2024"
+orientacao_final: "Sentir-se assim não é fraqueza nem falta de força de vontade, e tem tratamento. Conversar com a equipe de saúde é um bom primeiro passo; se puder, conte também para alguém de confiança. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "mhGAP — Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "Módulo DEP (Depressão), DEP 1"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.23, Triagem de depressão; Risco de suicídio"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Psiquiatria Adulto (revisão 2021)"
+    secao: "Critérios gerais de emergência; Protocolo 1"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

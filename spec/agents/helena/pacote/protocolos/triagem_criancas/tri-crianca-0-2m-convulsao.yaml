@@ -1,0 +1,43 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-convulsao
+tema: triagem_criancas
+titulo: "Convulsão no bebê com menos de 2 meses"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "meu bebê teve uma convulsão"
+  - "o neném ficou tremendo e duro"
+  - "o bebê revirou os olhos"
+  - "recém-nascido teve um ataque"
+  - "o bebê ficou se debatendo"
+  - "neném com movimentos estranhos"
+  - "o bebê ficou roxo e tremendo"
+  - "meu bebê desmaiou"
+perguntas_de_alerta:
+  - pergunta: "Está tendo a crise agora, ou depois dela o bebê não acordou direito ou não reage?"
+    sinal: convulsao_ativa_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – convulsão ou perda da consciência; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, letargia/inconsciência; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas"
+  - pergunta: "Ele ficou roxo ou parou de respirar por alguns segundos?"
+    sinal: apneia_ou_cianose
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – apneia, cianose central"
+  - pergunta: "Teve tremores, 'ataque', olhos revirando ou movimentos estranhos, mesmo que já tenha passado e ele pareça bem?"
+    sinal: convulsao_recente
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – convulsão (tremores ou ataque); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões ou movimentos anormais (DOENÇA GRAVE → referir urgentemente)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Depois de qualquer suspeita de convulsão, o bebê precisa ser examinado. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – menores de 2 meses)"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126); §12.6.2 (p. 215-216)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar (crises convulsivas)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial; SAMU gov.br: CC BY-ND 3.0 (sem derivação; usado só como referência) — pendente jurídico"

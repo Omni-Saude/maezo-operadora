@@ -1,0 +1,52 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-queimadura
+tema: triagem_adultos
+titulo: "Queimadura"
+publico: adulto
+como_a_pessoa_fala:
+  - "me queimei"
+  - "derramei água fervendo no braço"
+  - "queimei a mão no fogão"
+  - "levei um choque elétrico"
+  - "queimei com óleo quente"
+  - "apareceu bolha depois que me queimei"
+  - "caiu produto químico na minha pele e queimou"
+  - "me queimei com álcool"
+  - "estou com queimadura de sol muito forte"
+perguntas_de_alerta:
+  - pergunta: "A pessoa respirou fumaça ou fogo em lugar fechado, está com o rosto, a boca ou o nariz chamuscados, com dificuldade para respirar ou confusa, ou a queimadura foi por choque elétrico ou raio?"
+    sinal: lesao_inalatoria_ou_eletrica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.17, Figura 38 (atendimento imediato), p. 166; SAMU 192 — Quando chamar (MS, gov.br): queimaduras graves e choque elétrico"
+  - pergunta: "A queimadura é grande, ou pegou rosto, mãos, pés, partes íntimas ou dobras como joelho e cotovelo, ou foi por produto químico, ou a pele ficou dura, acinzentada ou esbranquiçada e quase sem dor, ou houve outra lesão junto, como fratura?"
+    sinal: queimadura_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.17, 'Remoção imediata' e classificação (terceiro grau); TelessaúdeRS Cirurgia Plástica, Protocolo 8 – Anormalidades cicatriciais (urgência/emergência em queimados)"
+  - pergunta: "Formaram bolhas na pele queimada?"
+    sinal: queimadura_com_bolhas
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.17, classificação (segundo grau = bolhas) e 'Atendimento aos pacientes com queimaduras de espessura parcial' (encaminhar ao pronto atendimento)"
+  - pergunta: "A dor está moderada, ou nos dias seguintes a queimadura ficou mais vermelha, inchada, escura, com pus ou com febre?"
+    sinal: dor_moderada_ou_infeccao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.17, Figura 38 (atendimento prioritário: dor moderada, inflamação ou infecção local), p. 166, e 'Prevenção de infecção'"
+# Caderno: dor leve = "atendimento no dia"; adaptado para CONSULTA_EM_BREVE (decisão a validar pelo médico)
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  # sequela/cicatriz de queimadura: Cirurgia plástica (TelessaúdeRS Cirurgia Plástica, Protocolo 8)
+  depois: "Cirurgia plástica"
+  fonte: "TelessaúdeRS Cirurgia Plástica, Protocolo 8 – Anormalidades cicatriciais (queimadura, queloide, cicatriz hipertrófica); Resolução CFM 2.380/2024 (área de atuação: Atendimento ao queimado)"
+orientacao_final: "Queimaduras pequenas e sem bolhas costumam sarar bem, mas precisam ser acompanhadas. Não fure bolhas e não passe produtos caseiros na pele queimada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.17 Queimaduras (classificação; Remoção imediata; Figura 38; Prevenção de infecção)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cirurgia Plástica (s/d)"
+    secao: "Protocolo 8 – Anormalidades cicatriciais"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: queimaduras graves; choque elétrico"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades e áreas de atuação"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

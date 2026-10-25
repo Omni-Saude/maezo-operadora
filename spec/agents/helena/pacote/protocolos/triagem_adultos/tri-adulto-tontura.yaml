@@ -1,0 +1,54 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-tontura
+tema: triagem_adultos
+titulo: "Tontura e vertigem"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com tontura"
+  - "tudo está girando"
+  - "fico tonto quando levanto da cama"
+  - "estou com labirintite"
+  - "quase desmaiei"
+  - "desmaiei hoje"
+  - "sinto que vou cair"
+  - "minha cabeça está rodando e estou vomitando"
+  - "fico zonzo quando viro a cabeça"
+  - "estou sem equilíbrio para andar"
+perguntas_de_alerta:
+  - pergunta: "A tontura começou de repente junto com fala enrolada, boca torta, fraqueza ou dormência de um lado do corpo, visão dupla ou dificuldade para andar?"
+    sinal: sinais_neurologicos_suspeita_avc
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.20, 'Encaminhamento ao pronto-socorro'; TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 1 – Vertigem (urgência/emergência); SAMU 192 — Quando chamar (MS, gov.br): suspeita de AVC"
+  - pergunta: "Você desmaiou e, junto, sentiu dor no peito, falta de ar ou o coração disparado ou batendo errado, ou o desmaio foi durante um esforço?"
+    sinal: sincope_de_provavel_origem_cardiaca
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 4 – Síncope ou perda transitória da consciência; SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios e dor no peito súbita"
+  - pergunta: "Junto com a tontura veio uma dor de cabeça nova e forte, principalmente na nuca, ou você parou de ouvir de um lado de repente?"
+    sinal: cefaleia_nova_ou_surdez_subita
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 1 – Vertigem (urgência/emergência); Caderno de Atenção Básica 28 vol. II, §2.20, 'Acompanhamento'"
+  - pergunta: "A tontura está tão forte, com muitos vômitos, que você não consegue ficar em pé nem tomar líquidos?"
+    sinal: vertigem_muito_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.20, 'Encaminhamento ao pronto-socorro' (manifestações vertiginosas muito graves)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  # desmaios com doença do coração ou histórico familiar de morte súbita: Cardiologia (TelessaúdeRS Cardiologia Adulto, Protocolo 4)
+  depois: "Otorrinolaringologia"
+  fonte: "TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 1 – Vertigem; TelessaúdeRS Cardiologia Adulto (2022), Protocolo 4 – Síncope; Resolução CFM 2.380/2024"
+orientacao_final: "A maior parte das tonturas pode ser acompanhada pelo clínico. Enquanto isso, levante-se devagar da cama ou da cadeira e evite dirigir ou subir em lugares altos enquanto estiver tonto. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.20 Tonturas e vertigens (Figura 42; Encaminhamento ao pronto-socorro; Acompanhamento)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Otorrinolaringologia Adulto (2023)"
+    secao: "Protocolo 1 – Vertigem"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cardiologia Adulto (2022)"
+    secao: "Protocolo 4 – Síncope ou perda transitória da consciência"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

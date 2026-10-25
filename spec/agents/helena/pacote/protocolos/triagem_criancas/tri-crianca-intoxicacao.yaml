@@ -1,0 +1,41 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-intoxicacao
+tema: triagem_criancas
+titulo: "Intoxicação ou envenenamento (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho tomou remédio sem eu ver"
+  - "a criança bebeu água sanitária"
+  - "minha filha engoliu produto de limpeza"
+  - "o bebê comeu veneno de rato"
+  - "a criança tomou vários comprimidos"
+  - "meu filho bebeu querosene"
+  - "a criança comeu uma planta"
+  - "engoliu o remédio do avô"
+  - "cheirou produto e está passando mal"
+perguntas_de_alerta:
+  - pergunta: "A criança está desmaiada ou não acorda, teve convulsão, ou está com dificuldade para respirar?"
+    sinal: intoxicacao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 – Quando chamar (MS, página gov.br) – intoxicação exógena e envenenamento; Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (sinais de perigo); Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.15 (p. 136, Figura 36: classificação de risco da exposição a substância tóxica)"
+  - pergunta: "Ela engoliu, bebeu, cheirou ou passou na pele remédio, produto de limpeza, veneno (de rato, formiga, inseto), querosene, álcool ou planta — ou você suspeita disso?"
+    sinal: exposicao_toxica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 64 (Atenção: acidentes com materiais de limpeza, medicamentos e substâncias tóxicas → procurar urgentemente um serviço de saúde, Samu 192 ou Centro de Informação Toxicológica)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Leve a embalagem do produto ou do remédio ao atendimento. O Centro de Informação Toxicológica (Disque-Intoxicação, 0800 722 6001) também orienta por telefone. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 61-64 (prevenção de intoxicação e envenenamento; Atenção p. 64)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.15 (p. 135-137)"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; Caderno 28: reprodução citando a fonte, não comercial; SAMU gov.br: CC BY-ND 3.0 (só referência) — pendente jurídico"

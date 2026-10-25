@@ -1,0 +1,50 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-de-ouvido
+tema: triagem_adultos
+titulo: "Dor de ouvido"
+publico: adulto
+como_a_pessoa_fala:
+  - "tô com dor de ouvido"
+  - "meu ouvido está doendo muito"
+  - "estou com dor na orelha"
+  - "meu ouvido está entupido e doendo"
+  - "está saindo secreção do meu ouvido"
+  - "saiu sangue do meu ouvido"
+  - "meu ouvido está latejando"
+  - "parei de escutar de um lado"
+  - "acho que estou com otite"
+  - "a orelha está inchada e dolorida"
+perguntas_de_alerta:
+  - pergunta: "Junto com a dor de ouvido, você está muito sonolento, confuso ou com muita dificuldade para respirar?"
+    sinal: alteracao_consciencia_ou_falta_de_ar_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.10, Figura 30 (fluxograma de classificação de risco), p. 110"
+  - pergunta: "A dor é muito forte, ou você está com febre alta, ou está saindo muito sangue do ouvido sem parar?"
+    sinal: dor_severa_febre_alta_ou_sangramento_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.10, Figura 30, p. 110; §2.10 'Encaminhamento' (febre com dor de cabeça intensa = hospital)"
+  - pergunta: "Um lado do rosto ficou torto ou parado, ou a região atrás da orelha está inchada, vermelha e dolorida, com a orelha mais para fora?"
+    sinal: paralisia_facial_ou_mastoidite
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 5 – Otite (urgência/emergência); Caderno de Atenção Básica 28 vol. II, §2.10 'Encaminhamento' (mastoidite)"
+  - pergunta: "A dor começou depois de uma batida na cabeça, ou você parou de ouvir de repente, ou tem tontura, febre, sangramento pequeno pelo ouvido ou a orelha ficou roxa e inchada?"
+    sinal: trauma_perda_auditiva_aguda_ou_febre
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.10, Figura 30 (atendimento prioritário), p. 110"
+# Caderno: dor leve/recente = "atendimento no dia" pela enfermagem; adaptado para CONSULTA_EM_BREVE (decisão a validar pelo médico)
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Otorrinolaringologia"
+  fonte: "TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 5 – Otite; Resolução CFM 2.380/2024"
+orientacao_final: "Dor de ouvido costuma ter causas simples, mas precisa de avaliação para ver o que é. Evite colocar objetos ou cotonetes dentro do ouvido. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.10 Dor de ouvido (Quadro 37; Figura 30; Encaminhamento)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Otorrinolaringologia Adulto (2023)"
+    secao: "Protocolo 5 – Otite"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

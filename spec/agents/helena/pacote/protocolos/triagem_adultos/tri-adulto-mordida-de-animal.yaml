@@ -1,0 +1,47 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Escopo: mordida, arranhão ou lambida de mamíferos (risco de raiva). Picada de cobra, escorpião ou aranha (animais peçonhentos) NÃO está coberta aqui.
+id: tri-adulto-mordida-de-animal
+tema: triagem_adultos
+titulo: "Mordida, arranhão ou lambida de animal"
+publico: adulto
+como_a_pessoa_fala:
+  - "um cachorro me mordeu"
+  - "fui arranhado por um gato"
+  - "um morcego encostou em mim"
+  - "o cachorro da rua me atacou"
+  - "levei uma mordida de macaco"
+  - "meu gato me mordeu a mão"
+  - "o cachorro lambeu um machucado meu"
+  - "preciso tomar vacina de raiva?"
+  - "fui mordido e está sangrando"
+perguntas_de_alerta:
+  - pergunta: "Foi morcego, ou um animal silvestre (como macaco, raposa, gambá, quati) ou de criação (como boi, cavalo, porco, cabra)?"
+    sinal: animal_de_risco_para_raiva
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.16, 'Características do animal envolvido no acidente' (toda agressão por morcego é grave) e 'Tratamento e acompanhamento' (iniciar a prevenção o mais cedo possível)"
+  - pergunta: "O machucado foi na cabeça, rosto, pescoço, mão, ponta dos dedos ou sola do pé, ou é fundo, sangrou, são vários, ou o animal lambeu sua boca, olho ou uma ferida?"
+    sinal: acidente_grave
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.16, 'Características do ferimento' (acidentes graves)"
+  - pergunta: "O cão ou gato atacou sem motivo, parecia doente, é de rua ou não vai dar para observar o animal por 10 dias?"
+    sinal: animal_suspeito_ou_sem_observacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.16, 'Características do animal' (estado de saúde, observação por dez dias, hábitos de vida)"
+  - pergunta: "Nos dias depois da mordida, o animal mudou de comportamento, adoeceu, sumiu ou morreu?"
+    sinal: animal_com_sinais_de_raiva
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.16, 'Tratamento e acompanhamento' (mudança de comportamento do animal: contatar imediatamente a equipe)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Clínico geral"
+  fonte: "Sem protocolo TelessaúdeRS para mordedura; Caderno de Atenção Básica 28 vol. II, §2.16 (profilaxia em serviço de referência); Resolução CFM 2.380/2024"
+orientacao_final: "Mordidas e arranhões de animais precisam ser avaliados por um profissional de saúde, que vai decidir se é preciso vacina. Se o animal for seu ou de um vizinho, não o sacrifique: ele precisa ser observado por 10 dias. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.16 Mordedura de animais (características do ferimento e do animal; tratamento e acompanhamento; Quadro 52)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico"

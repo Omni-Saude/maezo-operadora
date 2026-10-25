@@ -1,0 +1,1857 @@
+# Protocolo QUAL ESPECIALISTA da Helena — mapa QUEIXA -> ESPECIALISTA (rascunho dev, 25/10/2026)
+#
+# Status: rascunho escrito por IA para dev. REVISÃO MÉDICA PENDENTE antes de qualquer uso real.
+# Regras (C:\vc\protocolos\MODELO.md): não diagnosticar; não dar dose nem conduta; nada de link;
+# fonte só pelo nome; sem prazo da ANS; linguagem leiga; nunca "você tem X".
+#
+# Como ler cada entrada:
+#   especialista_primeiro       quem a pessoa pode procurar primeiro (quase sempre clínico geral / médico de família).
+#   especialista_depois         especialidade(s) com o nome da Resolução CFM 2.380/2024 (ou profissão, quando não é médica).
+#   quando_vai_direto_ao_especialista
+#                               SÓ as situações em que o protocolo do TelessaúdeRS manda ao especialista sem exigir
+#                               antes tratamento/investigação na atenção primária. Lista vazia = a fonte pede o
+#                               primeiro cuidado com o clínico. USO INTERNO (a Helena não lê isto para a pessoa).
+#   fonte_indica_especialista_quando
+#                               resumo leigo das condições de encaminhamento da fonte. USO INTERNO.
+#   sinais_de_emergencia_citados_na_fonte
+#                               SÓ REFERÊNCIA para alimentar a triagem (protocolos tri-*). O destino_sugerido segue a
+#                               tradução do MODELO.md ("urgência/emergência" -> PRONTO_SOCORRO_AGORA; LIGAR_192_AGORA só
+#                               com risco de vida). A Helena NÃO usa esta lista sozinha: a triagem é que pergunta.
+#   sinais_de_alarme_sem_emergencia
+#                               sinais que a fonte cita como "investigar logo", mas não emergência -> CONSULTA_EM_BREVE.
+#   esp_id_na_base              ids dos arquivos spec/conhecimento/saude/especialidade/esp-*.yaml (origin/main) que
+#                               existem; null quando a especialidade não está na base.
+#   lacuna                      true quando o TelessaúdeRS (53 protocolos RegulaSUS) não tem protocolo para a queixa e o
+#                               mapa usa só a lista do CFM + "clínico geral primeiro". "parcial" quando a fonte cobre só
+#                               parte da queixa.
+#
+# Fontes usadas (todas pelo nome, sem link):
+#   - TelessaúdeRS-UFRGS / SES-RS — Protocolos de Regulação Ambulatorial (RegulaSUS), 53 protocolos, baixados pela API
+#     do site em 25/10/2026. Citados como "TelessaúdeRS <protocolo> (nº do documento), protocolo N – <tema>".
+#   - Resolução CFM nº 2.380/2024 (Portaria CME nº 01/2024) — nomes oficiais das 55 especialidades e 62 áreas de atuação.
+# Atenção licença/fonte: o TelessaúdeRS NÃO está na lista fechada de fontes da base de saúde (spec/conhecimento/saude/
+# FONTES.md). Aqui ele serve de REFERÊNCIA TÉCNICA para o mapa (não é texto citado para a pessoa). Para creditá-lo em
+# resposta é preciso PR em FONTES.md + ADR-0064 + classificar_fonte e parecer jurídico sobre a licença do TelessaúdeRS.
+#
+# Nomes de documento do TelessaúdeRS (nº = id na API):
+#   4 Andrologia | 5 Cardiologia Adulto | 6 Cirurgia e Traumatologia Bucomaxilofacial | 7 Cirurgia Geral |
+#   11 Cirurgia Vascular | 12 Dermatologia | 13 Estomatologia Adulto | 14 Gastroenterologia | 16 Endocrinologia Pediátrica |
+#   18 Endocrinologia Adulto | 19 Planejamento Reprodutivo | 21 Ginecologia Adulto | 22 Infertilidade | 23 Hematologia Adulto |
+#   25 Hematologia Pediátrica | 26 Genética | 27 Infectologia (em revisão) | 29 Mastologia | 30 Imunologia |
+#   32 Neurocirurgia Adulto | 33 Neurologia Pediátrica | 35 Neurologia Adulto | 37 Nefrologia Adulto |
+#   38 Obstetrícia (Pré-Natal de Alto Risco) | 40 Oftalmologia Adulto | 41 Oftalmologia Pediátrica | 42 Ortopedia Adulto |
+#   45 Pneumologia Adulto | 47 Otorrinolaringologia Adulto | 49 Proctologia Adulto | 53 Reabilitação Auditiva Pediátrico |
+#   55 Saúde Mental Infantil | 56 Psiquiatria Adulto | 57 Tratamento da Dor (em revisão) | 59 Reumatologia |
+#   63 Urologia Pediátrica | 64 Urologia Adulto | 73 Doenças relacionadas ao trabalho
+
+versao: "0.1-rascunho-dev"
+data: "2026-10-25"
+tema: especialista
+revisao_medica: pendente
+licenca_atencao: "TelessaúdeRS: termos de uso não verificados e fora da lista fechada FONTES.md — uso só como referência técnica interna até parecer jurídico. CFM: ato normativo público."
+
+# ---------------------------------------------------------------------------------------------------------------
+# Portas de entrada (quem procurar primeiro), por público
+# ---------------------------------------------------------------------------------------------------------------
+portas_de_entrada:
+  adulto: &porta_adulto
+    nome_leigo: "Clínico geral ou médico de família"
+    cfm: ["Clínica médica", "Medicina de família e comunidade"]
+    esp_id: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade]
+  crianca: &porta_crianca
+    nome_leigo: "Pediatra"
+    cfm: ["Pediatria"]
+    esp_id: [esp-pediatria]
+  idoso: &porta_idoso
+    nome_leigo: "Clínico geral, médico de família ou geriatra"
+    cfm: ["Clínica médica", "Medicina de família e comunidade", "Geriatria"]
+    esp_id: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-geriatria]
+  gestante: &porta_gestante
+    nome_leigo: "Obstetra que acompanha o pré-natal"
+    cfm: ["Ginecologia e obstetrícia"]
+    esp_id: [esp-ginecologia-e-obstetricia]
+  dentista: &porta_dentista
+    nome_leigo: "Dentista"
+    cfm: []      # Odontologia não é especialidade médica (é do CFO); fica fora da Resolução CFM 2.380/2024.
+    esp_id: [esp-odontologia]
+
+# ---------------------------------------------------------------------------------------------------------------
+# Regras por público (valem ANTES do mapa por parte do corpo)
+# ---------------------------------------------------------------------------------------------------------------
+regras_por_publico:
+  - id: esp-regra-crianca
+    publico: [crianca_0_2m, crianca_2m_5a, crianca_5_12a, adolescente]
+    regra: "Para criança e adolescente, a porta de entrada é sempre o pediatra, qualquer que seja a queixa. O pediatra decide se precisa de especialista (as especialidades pediátricas são áreas de atuação no CFM: neurologia pediátrica, endocrinologia pediátrica etc.)."
+    especialista_primeiro: *porta_crianca
+    especialista_depois:
+      - {cfm: "Cirurgia pediátrica", esp_id: esp-cirurgia-pediatrica}
+      - {cfm: "Pediatria (áreas de atuação: Neurologia pediátrica, Endocrinologia pediátrica, Hematologia e hemoterapia pediátrica, Psiquiatria da infância e adolescência, Medicina do adolescente)", esp_id: esp-pediatria}
+    excecoes:
+      - "Dentes e gengiva: dentista (odontopediatria), mesmo em criança."
+      - "Gravidez na adolescência: obstetra do pré-natal (regra da gestante vale junto)."
+    fonte: "Resolução CFM 2.380/2024 (Pediatria e áreas de atuação pediátricas); TelessaúdeRS Neurologia Pediátrica (33), Endocrinologia Pediátrica (16), Hematologia Pediátrica (25), Oftalmologia Pediátrica (41), Urologia Pediátrica (63), Saúde Mental Infantil (55), Reabilitação Auditiva Pediátrico (53) — todos partem da atenção primária"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "criança com risco agudo de suicídio ou de se machucar", destino_sugerido: CVV_188_E_192, fonte: "TelessaúdeRS Saúde Mental Infantil (55), protocolo 6"}
+      - {sinal: "dor de cabeça com sinais de alerta (por exemplo, vômitos, confusão, convulsão, fraqueza de um lado)", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Neurologia Pediátrica (33), protocolo 1, quadro 1"}
+    nota: "A triagem infantil (AIDPI, protocolos tri-crianca-*) vem antes deste mapa."
+    esp_id_na_base: [esp-pediatria, esp-cirurgia-pediatrica]
+    lacuna: parcial    # o TelessaúdeRS não tem protocolo de pediatria geral; a regra "pediatra como porta" vem do CFM/base.
+
+  - id: esp-regra-idoso
+    publico: [adulto]
+    criterio: "pessoa com 60 anos ou mais (Estatuto da Pessoa Idosa), ou quem diz 'minha mãe idosa', 'meu avô'"
+    regra: "Para a pessoa idosa, o clínico geral, o médico de família ou o geriatra podem cuidar da saúde como um todo e organizar os encaminhamentos. Para queixas específicas, vale o mesmo especialista do adulto."
+    especialista_primeiro: *porta_idoso
+    especialista_depois:
+      - {cfm: "Geriatria", esp_id: esp-geriatria}
+    quando_vai_direto_ao_especialista: []
+    fonte: "Resolução CFM 2.380/2024 (Geriatria)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-geriatria]
+    lacuna: true       # o TelessaúdeRS não tem protocolo de geriatria.
+
+  - id: esp-regra-gestante
+    publico: [gestante, puerpera]
+    regra: "Na gravidez, qualquer queixa deve ser contada ao obstetra que acompanha o pré-natal. Ele decide se precisa de outro especialista ou de pré-natal de alto risco."
+    especialista_primeiro: *porta_gestante
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia (pré-natal de alto risco; área de atuação Medicina fetal)", esp_id: esp-ginecologia-e-obstetricia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "a fonte lista condições para o pré-natal de alto risco (pressão alta, diabetes, problemas de tireoide, perdas de gravidez anteriores, alterações no ultrassom, entre outras), sempre a partir do pré-natal habitual"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "pré-eclâmpsia (a fonte manda avaliar primeiro na emergência obstétrica)", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Obstetrícia (38), protocolo 1"}
+    nota: "Sinais de alerta da gestação vêm dos protocolos gest-* (Caderno/Obstetrícia), não deste mapa."
+    fonte: "TelessaúdeRS Obstetrícia — Pré-Natal de Alto Risco (38); Resolução CFM 2.380/2024"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia]
+    lacuna: false
+
+# ---------------------------------------------------------------------------------------------------------------
+# Mapa do ADULTO, por parte do corpo / sistema
+# ---------------------------------------------------------------------------------------------------------------
+mapa:
+
+# ============================== CABEÇA ==============================
+  - id: esp-queixa-dor-de-cabeca
+    grupo: cabeca
+    queixa: "dor de cabeça que volta ou não passa"
+    como_a_pessoa_fala: ["tenho muita dor de cabeça", "minha cabeça dói quase todo dia", "dor de cabeça que não passa", "vivo com dor de cabeça", "cefaleia", "dor na nuca e na cabeça", "pressão na cabeça", "acordo com dor de cabeça", "remédio pra dor de cabeça não resolve mais"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "enxaqueca ou dor de cabeça tensional que não melhora com o tratamento preventivo feito com o clínico"
+      - "dor de cabeça de outro tipo, que não é enxaqueca nem tensional"
+      - "Neurocirurgia só quando um exame de imagem mostra alteração com possível indicação de cirurgia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor de cabeça que começou de repente e muito forte ('a pior da vida')", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de cabeça com fraqueza, formigamento, fala enrolada ou visão alterada de um lado", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de cabeça com febre, nuca dura, manchinhas roxas na pele ou confusão", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de cabeça depois de batida forte na cabeça", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor de cabeça com pressão muito alta e confusão", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de cabeça com olho vermelho e dolorido", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "padrão novo de dor de cabeça em quem tem câncer, HIV ou usa anticoagulante", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    sinais_de_alarme_sem_emergencia:
+      - "dor de cabeça diferente do padrão de sempre, ou que mudou há pouco tempo"
+      - "dor de cabeça que começou depois dos 50 anos"
+      - "dor que acorda a pessoa durante o sono"
+      - "dor que aparece com esforço, tosse ou relação sexual"
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 1 – Cefaleia, quadro 1; TelessaúdeRS Neurocirurgia Adulto (32), protocolo 7 – Cefaleia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia, esp-neurocirurgia]
+    lacuna: false
+
+  - id: esp-queixa-enxaqueca
+    grupo: cabeca
+    queixa: "enxaqueca"
+    como_a_pessoa_fala: ["tenho enxaqueca", "minha enxaqueca piorou", "crise de enxaqueca toda semana", "dor de cabeça latejando de um lado", "dor de cabeça com enjoo e luz incomodando", "enxaqueca com aura", "vejo luzinhas antes da dor de cabeça"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "enxaqueca que não melhora com o tratamento preventivo feito com o clínico (a fonte cita pelo menos duas tentativas por 3 meses)"
+    sinais_de_emergencia_citados_na_fonte: "mesmos de esp-queixa-dor-de-cabeca (quadro 1)"
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 1 – Cefaleia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia]
+    lacuna: false
+
+  - id: esp-queixa-tontura-vertigem
+    grupo: cabeca
+    queixa: "tontura ou vertigem"
+    como_a_pessoa_fala: ["tô com tontura", "tudo gira", "labirintite", "sinto o chão rodando", "tontura quando deito ou viro na cama", "zonzeira", "vertigem", "perco o equilíbrio", "crise de labirinto"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+      - {cfm: "Neurologia", esp_id: esp-neurologia, quando: "tontura de origem central, depois de avaliada na emergência"}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de doença de Ménière (crises de tontura com zumbido, ouvido tampado e perda de audição) -> Otorrinolaringologia"
+    fonte_indica_especialista_quando:
+      - "tontura posicional que volta mais de 3 vezes mesmo após as manobras feitas pelo clínico -> Otorrinolaringologia"
+      - "labirintite que não melhora em cerca de 15 dias de tratamento -> Otorrinolaringologia"
+      - "tontura sem causa clara depois da investigação com o clínico -> Otorrinolaringologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "tontura com fraqueza, formigamento, fala enrolada, visão dupla ou falta de coordenação", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "tontura com dor de cabeça nova, principalmente na nuca", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "tontura com perda súbita da audição de um lado", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "labirintite sem nenhuma melhora após 7 dias, ou que impede a pessoa de fazer as coisas", destino_sugerido: ATENDIMENTO_HOJE}
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 9 – Vertigem; TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 1 – Vertigem"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia, esp-neurologia]
+    lacuna: false
+
+  - id: esp-queixa-desmaio
+    grupo: cabeca
+    queixa: "desmaio ou quase desmaio"
+    como_a_pessoa_fala: ["desmaiei", "apaguei do nada", "tive um desmaio", "quase desmaiei", "a vista escureceu e caí", "perdi os sentidos", "tive um apagão", "desmaio quando fico muito tempo em pé"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia, quando: "desmaio com sinais de origem no coração"}
+      - {cfm: "Neurologia", esp_id: esp-neurologia, quando: "episódio que parece crise convulsiva"}
+      - {cfm: "Clínica médica", esp_id: esp-clinica-medica, quando: "desmaio de causa não esclarecida (a fonte diz Medicina Interna)"}
+    quando_vai_direto_ao_especialista:
+      - "desmaio em quem já tem doença do coração -> Cardiologia"
+      - "desmaio com falta de ar, dor no peito, sopro ou durante exercício -> Cardiologia"
+      - "desmaio em quem tem pais ou irmãos com morte súbita antes dos 40 anos -> Cardiologia"
+      - "episódio que lembra convulsão -> Neurologia"
+    fonte_indica_especialista_quando:
+      - "o desmaio comum (por ficar muito tempo em pé, por dor, medo ou ver sangue, com suor e vista escura antes) normalmente não precisa de especialista"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "desmaio com dor no peito ou suspeita de infarto", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "desmaio com falta de ar ou coração muito acelerado ou irregular que começou agora", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "desmaio durante exercício", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Cardiologia Adulto (5), protocolo 4 – Síncope; TelessaúdeRS Neurologia Adulto (35), protocolo 4 – Síncope"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cardiologia, esp-neurologia]
+    lacuna: false
+
+# ============================== OLHOS ==============================
+  - id: esp-queixa-visao-embacada
+    grupo: olhos
+    queixa: "visão embaçada ou piorando aos poucos"
+    como_a_pessoa_fala: ["minha vista tá embaçada", "tô enxergando mal", "preciso de óculos", "não enxergo de perto", "vista cansada", "grau aumentou", "catarata", "visão turva", "não consigo ler letra pequena"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Oftalmologia", esp_id: esp-oftalmologia}
+    quando_vai_direto_ao_especialista:
+      - "queixa de visão diminuindo aos poucos, sem causa aguda -> Oftalmologia (a fonte aceita avaliação oftalmológica direta)"
+      - "suspeita de catarata -> Oftalmologia"
+      - "usuário de lente de contato sem acompanhamento com oftalmologista -> Oftalmologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "perda de visão de repente", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "sombra ou 'cortina' cobrindo parte da visão", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "flashes de luz ou muitas 'moscas' novas na visão", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "imagens tortas ou deformadas de repente", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Oftalmologia Adulto (40), protocolo 1 – Distúrbios de refração, protocolo 2 – Catarata"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-oftalmologia]
+    lacuna: false
+
+  - id: esp-queixa-olho-vermelho
+    grupo: olhos
+    queixa: "olho vermelho, irritado ou com secreção"
+    como_a_pessoa_fala: ["meu olho tá vermelho", "conjuntivite", "olho irritado", "olho remelando", "olho seco", "areia no olho", "olho coçando", "carne crescida no olho", "terçol que não sai"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Oftalmologia", esp_id: esp-oftalmologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "olho seco ou carne crescida (pterígio) que não alivia com o tratamento inicial"
+      - "terçol ou calázio que volta ou não melhora com o tratamento"
+      - "pálpebra caída, virada ou com lesão suspeita"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "produto químico caiu no olho", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "olho vermelho de repente com dor ou visão pior", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "conjuntivite com muito pus que começou em menos de um dia", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "qualquer dor, secreção ou queda de visão em quem usa lente de contato", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "batida forte no olho ou corte na pálpebra; algo espetado no olho", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "olho 'saltado' de repente ou inchaço vermelho e dolorido no canto do olho", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Oftalmologia Adulto (40), protocolo 5 – Pálpebras, vias lacrimais e órbita; protocolo 7 – Córnea e superfície ocular"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-oftalmologia]
+    lacuna: false
+
+  - id: esp-queixa-dor-no-olho
+    grupo: olhos
+    queixa: "dor no olho"
+    como_a_pessoa_fala: ["meu olho tá doendo", "dor no olho", "dor atrás do olho", "olho dói com a luz", "dor no olho e enjoo", "pressão no olho", "glaucoma"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Oftalmologia", esp_id: esp-oftalmologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de glaucoma (pressão do olho alta em exame) -> Oftalmologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor forte no olho que começou de repente, com olho vermelho, enjoo ou vômito", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor no olho com olho vermelho em volta da parte colorida e incômodo forte com a luz", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "queda súbita da visão ou aumento repentino de 'moscas'", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Oftalmologia Adulto (40), protocolo 6 – Glaucoma; protocolo 8 – Uveítes"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-oftalmologia]
+    lacuna: false
+
+# ============================== OUVIDO, NARIZ E GARGANTA ==============================
+  - id: esp-queixa-dor-de-ouvido
+    grupo: ouvido_nariz_garganta
+    queixa: "dor ou secreção no ouvido"
+    como_a_pessoa_fala: ["meu ouvido tá doendo", "dor de ouvido", "otite", "ouvido escorrendo", "sai pus do ouvido", "ouvido tampado", "tímpano furado", "otite de repetição"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de colesteatoma -> Otorrinolaringologia"
+    fonte_indica_especialista_quando:
+      - "tímpano furado que não fechou 6 semanas depois da otite"
+      - "ouvido escorrendo por mais de 3 meses, ou otite crônica com perda de audição"
+      - "líquido atrás do tímpano por mais de 3 meses"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor e inchaço atrás da orelha", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "rosto torto (paralisia de um lado) junto com otite", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "otite com febre, nuca dura ou confusão", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de ouvido muito forte que não alivia, principalmente em diabético", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 5 – Otite"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia]
+    lacuna: false
+
+  - id: esp-queixa-perda-de-audicao
+    grupo: ouvido_nariz_garganta
+    queixa: "perda de audição"
+    como_a_pessoa_fala: ["tô ouvindo mal", "tô ficando surdo", "não escuto direito", "perdi a audição de um lado", "preciso de aparelho de surdez", "minha mãe não escuta mais", "aparelho auditivo", "escuto abafado"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+      - {profissao: "Fonoaudiologia (reabilitação auditiva, aparelho auditivo)", esp_id: esp-fonoaudiologia}
+      - {cfm: "Medicina do trabalho", esp_id: esp-medicina-do-trabalho, quando: "perda ligada a barulho no trabalho"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "perda de um lado que vai piorando -> Otorrinolaringologia"
+      - "perda confirmada em audiometria com outras alterações do ouvido -> Otorrinolaringologia"
+      - "perda confirmada em audiometria com vontade de usar aparelho -> Reabilitação auditiva"
+      - "perda com exposição a barulho no trabalho -> Medicina do trabalho"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "perda de audição de repente, sem causa clara", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "perda de audição com fraqueza, fala enrolada, visão dupla ou dor de cabeça forte", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "perda de audição depois de batida na cabeça ou barulho muito forte de repente", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Primeiro o clínico afasta causas simples (como cera no ouvido)."
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 6 – Hipoacusia, quadro 13; TelessaúdeRS Reabilitação Auditiva Adulto (54); TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolo 5"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia, esp-fonoaudiologia, esp-medicina-do-trabalho]
+    lacuna: false
+
+  - id: esp-queixa-zumbido
+    grupo: ouvido_nariz_garganta
+    queixa: "zumbido no ouvido"
+    como_a_pessoa_fala: ["tenho zumbido no ouvido", "chiado no ouvido", "barulho no ouvido que não para", "apito no ouvido", "ouço um 'piii'", "zumbido à noite não me deixa dormir", "ouvido zunindo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "zumbido forte de um lado só, que começou de repente", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolo 5"}
+    nota: "O TelessaúdeRS não tem protocolo próprio de zumbido; ele aparece como sintoma em Vertigem/Ménière (47, protocolo 1) e em perda auditiva por ruído (73, protocolo 5)."
+    fonte: "Resolução CFM 2.380/2024 (Otorrinolaringologia); TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolo 5 (só o sinal de emergência)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia]
+    lacuna: parcial
+
+  - id: esp-queixa-sinusite-nariz-entupido
+    grupo: ouvido_nariz_garganta
+    queixa: "sinusite, rinite ou nariz entupido"
+    como_a_pessoa_fala: ["vivo com sinusite", "nariz sempre entupido", "rinite", "desvio de septo", "não respiro pelo nariz", "carne esponjosa", "pólipo no nariz", "sinusite de repetição", "espirro o dia todo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+      - {cfm: "Alergia e imunologia", esp_id: esp-alergia-e-imunologia, quando: "rinite alérgica que não controla"}
+    quando_vai_direto_ao_especialista:
+      - "nariz entupido por causa estrutural (desvio de septo, adenoide, pólipos com sintomas fortes) -> Otorrinolaringologia"
+    fonte_indica_especialista_quando:
+      - "sinusite crônica que não melhora após cerca de 3 meses de tratamento, ou sinusite bacteriana 4 ou mais vezes no ano -> Otorrinolaringologia"
+      - "rinite alérgica que não controla após cerca de 3 meses de tratamento e cuidados com o ambiente -> Alergia e imunologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "sinusite com inchaço em volta do olho ou na bochecha, olho 'saltado' ou visão alterada", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "sinusite com confusão, nuca dura ou outro sinal neurológico", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "objeto preso no nariz", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    sinais_de_alarme_sem_emergencia:
+      - "nariz entupido de um lado só que não melhora, com sangramento ou secreção com pus"
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 2 – Obstrução nasal e protocolo 3 – Rinossinusite; TelessaúdeRS Imunologia (30), protocolo 3 – Rinite alérgica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia, esp-alergia-e-imunologia]
+    lacuna: false
+
+  - id: esp-queixa-ronco-apneia
+    grupo: ouvido_nariz_garganta
+    queixa: "ronco ou paradas de respiração durante o sono"
+    como_a_pessoa_fala: ["ronco muito", "minha esposa diz que paro de respirar dormindo", "apneia do sono", "acordo cansado", "durmo o dia todo", "sono durante o dia", "ronco alto", "acordo engasgado de noite"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia, quando: "ronco com obstrução no nariz ou garganta"}
+      - {cfm: "Pneumologia", esp_id: esp-pneumologia}
+      - {cfm: "Área de atuação Medicina do sono (CFM)", esp_id: null}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de apneia com algo obstruindo nariz ou garganta (desvio de septo, pólipos, amígdalas grandes) -> Otorrinolaringologia"
+    fonte_indica_especialista_quando:
+      - "suspeita de apneia (2 de 3: ronco, sono demais durante o dia, paradas de respiração vistas por outra pessoa) -> exame do sono (polissonografia)"
+      - "apneia moderada ou grave na polissonografia -> Pneumologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Pneumologia Adulto (45), protocolo 5 – SAHOS; TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 4 – SAHOS; Resolução CFM 2.380/2024 (área de atuação Medicina do sono)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia, esp-pneumologia]
+    lacuna: false
+
+  - id: esp-queixa-rouquidao
+    grupo: ouvido_nariz_garganta
+    queixa: "rouquidão que não passa"
+    como_a_pessoa_fala: ["tô rouco há semanas", "minha voz sumiu", "voz falhando", "rouquidão", "calo na corda vocal", "perdi a voz", "professora com problema de voz"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia}
+      - {profissao: "Fonoaudiologia", esp_id: esp-fonoaudiologia}
+      - {cfm: "Medicina do trabalho", esp_id: esp-medicina-do-trabalho, quando: "problema de voz ligado ao trabalho"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "rouquidão por 3 semanas ou mais em quem fuma ou bebe, ou com dificuldade de engolir ou perda de peso"
+      - "rouquidão por 3 semanas ou mais sem causa encontrada, ou depois de cirurgia/intubação"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "rouquidão com dificuldade para engolir, engasgos, perda de peso ou caroço no pescoço"
+    fonte: "TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 7 – Disfonia; TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolo 7"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-otorrinolaringologia, esp-fonoaudiologia, esp-medicina-do-trabalho]
+    lacuna: false
+
+  - id: esp-queixa-dificuldade-para-engolir
+    grupo: ouvido_nariz_garganta
+    queixa: "dificuldade para engolir ou dor de garganta que não passa"
+    como_a_pessoa_fala: ["comida trava na garganta", "dificuldade pra engolir", "engasgo muito", "bola na garganta", "dor de garganta que não passa", "dói pra engolir", "amigdalite de repetição", "garganta inflamada toda hora"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Gastroenterologia", esp_id: esp-gastroenterologia, quando: "sensação de comida parada no peito"}
+      - {cfm: "Otorrinolaringologia", esp_id: esp-otorrinolaringologia, quando: "dificuldade no começo da engolida, garganta, amígdalas"}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor de garganta muito forte com dificuldade de engolir a própria saliva (babando) ou dificuldade de respirar", destino_sugerido: LIGAR_192_AGORA}
+    sinais_de_alarme_sem_emergencia:
+      - "dificuldade de engolir com perda de peso ou que vai piorando"
+    nota: "Amigdalite de repetição: o TelessaúdeRS adulto não tem protocolo específico (lacuna parcial)."
+    fonte: "TelessaúdeRS Gastroenterologia (14), protocolo 11 – Disfagia; TelessaúdeRS Otorrinolaringologia Adulto (47), protocolo 8 – Disfagia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-gastroenterologia, esp-otorrinolaringologia]
+    lacuna: parcial
+
+# ============================== BOCA E DENTES ==============================
+  - id: esp-queixa-dente-gengiva
+    grupo: boca_dentes
+    queixa: "dor de dente, gengiva ou cárie"
+    como_a_pessoa_fala: ["dor de dente", "dente quebrado", "gengiva sangrando", "cárie", "dente mole", "siso nascendo", "dente inflamado", "canal", "aparelho nos dentes", "dentadura machucando"]
+    especialista_primeiro: *porta_dentista
+    especialista_depois:
+      - {profissao: "Odontologia (Cirurgia e traumatologia bucomaxilofacial, Estomatologia — especialidades odontológicas)", esp_id: esp-odontologia}
+    quando_vai_direto_ao_especialista:
+      - "problemas de dente e gengiva são do dentista desde o início"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Odontologia não está na Resolução CFM (é do Conselho Federal de Odontologia). Atendimento odontológico depende do plano: a Helena NÃO promete cobertura; direciona à central."
+    fonte: "Base da Helena esp-odontologia; Saúde de A a Z — Saúde bucal (Ministério da Saúde); TelessaúdeRS não tem protocolo de odontologia geral do adulto"
+    esp_id_na_base: [esp-odontologia]
+    lacuna: true
+
+  - id: esp-queixa-ferida-na-boca
+    grupo: boca_dentes
+    queixa: "ferida, mancha ou caroço na boca"
+    como_a_pessoa_fala: ["ferida na boca que não sara", "afta que não passa", "mancha branca na boca", "caroço na boca", "bolinha no lábio", "lesão na língua", "ferida na gengiva"]
+    especialista_primeiro: {nome_leigo: "Dentista ou clínico geral", cfm: ["Clínica médica"], esp_id: [esp-odontologia, esp-clinica-medica]}
+    especialista_depois:
+      - {profissao: "Estomatologia (especialidade odontológica)", esp_id: esp-odontologia}
+      - {profissao: "Cirurgia e traumatologia bucomaxilofacial (odontológica)", esp_id: esp-odontologia}
+      - {cfm: "Cirurgia de cabeça e pescoço", esp_id: esp-cirurgia-de-cabeca-e-pescoco, quando: "suspeita de câncer de boca"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "lesão que cresce rápido, sem causa irritativa (dente quebrado, prótese), e que não regride em 14 dias -> Estomatologia"
+      - "lesão com aspecto muito suspeito de câncer -> serviço de oncologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "ferida na boca que não cicatriza em cerca de 2 semanas"
+    fonte: "TelessaúdeRS Estomatologia Adulto (13), protocolo 1 – Lesão bucal; Saúde de A a Z — Câncer de boca"
+    esp_id_na_base: [esp-odontologia, esp-clinica-medica, esp-cirurgia-de-cabeca-e-pescoco]
+    lacuna: false
+
+  - id: esp-queixa-mandibula-atm
+    grupo: boca_dentes
+    queixa: "dor na mandíbula ou estalo ao abrir a boca"
+    como_a_pessoa_fala: ["minha mandíbula estala", "dor no maxilar", "dor ao mastigar", "ATM", "trinco os dentes", "bruxismo", "boca trava ao abrir"]
+    especialista_primeiro: *porta_dentista
+    especialista_depois:
+      - {profissao: "Cirurgia e traumatologia bucomaxilofacial (odontológica)", esp_id: esp-odontologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "dor forte ou dificuldade de abrir a boca que não melhora após cerca de 6 meses de tratamento conservador"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Cirurgia e Traumatologia Bucomaxilofacial (6), protocolo 4 – Disfunção de ATM"
+    esp_id_na_base: [esp-odontologia]
+    lacuna: false
+
+# ============================== CORAÇÃO ==============================
+  - id: esp-queixa-dor-no-peito-nao-aguda
+    grupo: coracao
+    queixa: "dor ou aperto no peito que vem e vai (não é crise agora)"
+    como_a_pessoa_fala: ["sinto um aperto no peito quando subo escada", "dor no peito de vez em quando", "pontada no peito", "angina", "dor no peito quando faço esforço", "queimação no peito ao caminhar", "já tive infarto e quero acompanhar"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia}
+    quando_vai_direto_ao_especialista:
+      - "doença do coração já conhecida com sintomas apesar do tratamento -> Cardiologia"
+    fonte_indica_especialista_quando:
+      - "suspeita de doença das coronárias pela história e pelos fatores de risco, quando a investigação não é feita com o clínico"
+      - "dor no peito com eletrocardiograma alterado ou falta de ar/suor que piora com esforço e melhora em repouso"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor no peito forte agora, ou que não passa com repouso (suspeita de infarto)", destino_sugerido: LIGAR_192_AGORA}
+    nota: "Dor no peito AGORA vai para o alerta universal (uni-) antes deste mapa."
+    fonte: "TelessaúdeRS Cardiologia Adulto (5), protocolo 1 – Cardiopatia isquêmica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cardiologia]
+    lacuna: false
+
+  - id: esp-queixa-palpitacao
+    grupo: coracao
+    queixa: "palpitação ou coração disparado"
+    como_a_pessoa_fala: ["coração dispara", "sinto o coração bater forte", "coração acelerado do nada", "batedeira", "coração falhando", "arritmia", "coração batendo fora do ritmo", "fibrilação"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia}
+    quando_vai_direto_ao_especialista:
+      - "fibrilação atrial ou flutter já diagnosticados com critérios da fonte -> Cardiologia"
+    fonte_indica_especialista_quando:
+      - "palpitação que se repete e continua sem causa depois da investigação inicial com o clínico"
+      - "coração muito lento com sintomas, depois de avaliado na emergência"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "palpitação com desmaio", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "palpitação com falta de ar ou dor no peito", destino_sugerido: LIGAR_192_AGORA}
+    fonte: "TelessaúdeRS Cardiologia Adulto (5), protocolo 3 – Arritmias"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cardiologia]
+    lacuna: false
+
+  - id: esp-queixa-pressao-alta
+    grupo: coracao
+    queixa: "pressão alta"
+    como_a_pessoa_fala: ["tenho pressão alta", "minha pressão não abaixa", "hipertensão", "pressão sempre 15 por 10", "tomo três remédios e a pressão continua alta", "pressão alta jovem", "pressão subiu"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia}
+      - {cfm: "Nefrologia", esp_id: esp-nefrologia, quando: "suspeita de causa nos rins ou pressão difícil em quem tem doença renal"}
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia, quando: "suspeita de causa hormonal"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "pressão fora do alvo mesmo com três remédios em dose plena, depois de revisar o uso correto"
+      - "suspeita de pressão alta causada por outra doença (rim, hormônio)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "pressão muito alta com dor de cabeça forte e confusão", destino_sugerido: LIGAR_192_AGORA, fonte: "TelessaúdeRS Neurologia Adulto (35), quadro 1"}
+      - {sinal: "pressão muito alta com sintomas de emergência (falta de ar, dor no peito, inchaço importante)", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Nefrologia Adulto (37), protocolo 2"}
+    nota: "A Helena não pede para a pessoa medir a pressão (MODELO: perguntas que um leigo responde)."
+    fonte: "TelessaúdeRS Cardiologia Adulto (5), protocolo 5 – Hipertensão; TelessaúdeRS Nefrologia Adulto (37), protocolo 5 – Hipertensão; Saúde de A a Z — Hipertensão"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cardiologia, esp-nefrologia, esp-endocrinologia-e-metabologia]
+    lacuna: false
+
+# ============================== PULMÃO ==============================
+  - id: esp-queixa-tosse-cronica
+    grupo: pulmao
+    queixa: "tosse que não passa"
+    como_a_pessoa_fala: ["tosse há mais de um mês", "tosse que não para", "tosse seca toda noite", "tosse crônica", "pigarro constante", "tosse com catarro há semanas", "tusso desde que tive covid"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Pneumologia", esp_id: esp-pneumologia}
+      - {cfm: "Cirurgia torácica", esp_id: esp-cirurgia-toracica, quando: "exame de imagem do tórax com suspeita de tumor"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "tosse crônica sem causa encontrada depois da investigação com o clínico e do tratamento das causas comuns"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "tosse com muito sangue", destino_sugerido: LIGAR_192_AGORA, fonte: "TelessaúdeRS Infectologia (27), protocolo 1 – Tuberculose"}
+      - {sinal: "tosse com falta de ar forte", destino_sugerido: LIGAR_192_AGORA, fonte: "TelessaúdeRS Infectologia (27), protocolo 1"}
+    nota: "Tosse por 3 semanas ou mais pode ser investigada para tuberculose pelo clínico (ver esp-queixa-infeccao-tuberculose)."
+    fonte: "TelessaúdeRS Pneumologia Adulto (45), protocolo 4 – Tosse crônica e dispneia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-pneumologia, esp-cirurgia-toracica]
+    lacuna: false
+
+  - id: esp-queixa-falta-de-ar-cronica
+    grupo: pulmao
+    queixa: "falta de ar que vem aos poucos ou com esforço"
+    como_a_pessoa_fala: ["canso fácil", "falta de ar pra subir escada", "fôlego curto", "enfisema", "DPOC", "bronquite crônica", "falta de ar e pernas inchadas", "não consigo deitar reto de tanta falta de ar"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Pneumologia", esp_id: esp-pneumologia}
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia, quando: "suspeita de insuficiência cardíaca"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "DPOC muito grave ou com crises frequentes apesar do tratamento -> Pneumologia"
+      - "avaliação para oxigênio em casa -> Pneumologia"
+      - "suspeita de insuficiência cardíaca quando o ecocardiograma não é feito com o clínico, ou piora apesar do tratamento -> Cardiologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "falta de ar forte, lábios roxos, confusão", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "falta de ar com desmaio", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "falta de ar de repente com dor no peito (suspeita de embolia)", destino_sugerido: LIGAR_192_AGORA, fonte: "TelessaúdeRS Cirurgia Vascular (11), protocolo 1"}
+    fonte: "TelessaúdeRS Pneumologia Adulto (45), protocolo 1 – DPOC e protocolo 4; TelessaúdeRS Cardiologia Adulto (5), protocolo 2 – Insuficiência cardíaca"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-pneumologia, esp-cardiologia]
+    lacuna: false
+
+  - id: esp-queixa-asma
+    grupo: pulmao
+    queixa: "asma ou chiado no peito"
+    como_a_pessoa_fala: ["tenho asma", "chiado no peito", "bronquite asmática", "crise de asma", "bombinha não resolve", "peito chiando", "asma piorou", "falta de ar com poeira"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Pneumologia", esp_id: esp-pneumologia}
+      - {cfm: "Alergia e imunologia", esp_id: esp-alergia-e-imunologia, quando: "asma com alergia alimentar"}
+      - {cfm: "Medicina do trabalho", esp_id: esp-medicina-do-trabalho, quando: "asma causada ou piorada no trabalho"}
+    quando_vai_direto_ao_especialista:
+      - "asma com crises que começam de repente e graves, sem a pessoa perceber o início -> Pneumologia"
+      - "pessoa com indicador de risco de crise fatal (a fonte lista no quadro 7) -> Pneumologia"
+    fonte_indica_especialista_quando:
+      - "asma que continua com sintomas ou crises mesmo com tratamento forte por 3 meses, conferido o uso da bombinha"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "crise de asma com dificuldade de falar (frases cortadas)", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "crise com lábios ou unhas roxos, suor, exaustão, confusão ou sonolência", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "falta de ar muito forte na crise", destino_sugerido: LIGAR_192_AGORA}
+    fonte: "TelessaúdeRS Pneumologia Adulto (45), protocolo 2 – Asma, quadro 5; TelessaúdeRS Imunologia (30), protocolo 2 – Asma; Saúde de A a Z — Asma"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-pneumologia, esp-alergia-e-imunologia, esp-medicina-do-trabalho]
+    lacuna: false
+
+# ============================== ESTÔMAGO E INTESTINO ==============================
+  - id: esp-queixa-azia-refluxo
+    grupo: estomago_intestino
+    queixa: "azia, refluxo, gastrite ou má digestão"
+    como_a_pessoa_fala: ["muita azia", "refluxo", "queimação no estômago", "gastrite", "comida volta", "estômago estufado", "má digestão", "dor no estômago depois de comer", "úlcera"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Gastroenterologia", esp_id: esp-gastroenterologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "sintomas que não melhoram com cerca de 2 meses de tratamento -> endoscopia ou Gastroenterologia"
+      - "má digestão que começou depois dos 50 anos -> endoscopia ou Gastroenterologia"
+      - "úlcera que persiste após tratamento -> Gastroenterologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "dificuldade ou dor para engolir"
+      - "perda de peso sem querer"
+      - "vômitos que não param"
+      - "anemia sem causa, sangramento digestivo"
+      - "caroço na parte de cima da barriga"
+      - "parente de primeiro grau com câncer de estômago ou esôfago"
+    nota: "Vômito com sangue ou fezes pretas agora vai para o alerta universal."
+    fonte: "TelessaúdeRS Gastroenterologia (14), protocolo 9 – Dispepsia e protocolo 10 – Doença do refluxo"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-gastroenterologia]
+    lacuna: false
+
+  - id: esp-queixa-dor-de-barriga-cronica
+    grupo: estomago_intestino
+    queixa: "dor de barriga que vai e volta há tempo"
+    como_a_pessoa_fala: ["dor de barriga há meses", "cólica intestinal sempre", "barriga dói direto", "intestino irritável", "dor do lado direito da barriga", "dor na barriga depois de comida gordurosa", "pedra na vesícula", "barriga inchada e dolorida"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Gastroenterologia", esp_id: esp-gastroenterologia}
+      - {cfm: "Cirurgia geral", esp_id: esp-cirurgia-geral, quando: "pedra na vesícula com sintomas"}
+    quando_vai_direto_ao_especialista:
+      - "pedra na vesícula que dá sintoma -> Cirurgia geral"
+    fonte_indica_especialista_quando:
+      - "dor de origem na barriga com investigação inconclusiva com o clínico -> Gastroenterologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor forte na barriga com febre, pele ou olhos amarelos (suspeita de inflamação da vesícula ou pâncreas)", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Cirurgia Geral (7), protocolo 1"}
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 7 e Urologia Adulto (64), protocolo 11 (dor de origem abdominal -> Gastroenterologia); TelessaúdeRS Cirurgia Geral (7), protocolo 1 – Colelitíase"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-gastroenterologia, esp-cirurgia-geral]
+    lacuna: parcial    # o TelessaúdeRS não tem protocolo de "dor abdominal crônica" em si.
+
+  - id: esp-queixa-prisao-de-ventre
+    grupo: estomago_intestino
+    queixa: "prisão de ventre ou mudança no intestino"
+    como_a_pessoa_fala: ["intestino preso", "fico dias sem evacuar", "prisão de ventre", "não consigo fazer cocô", "intestino mudou", "diarreia há semanas", "intestino desregulado", "alterno diarreia e intestino preso"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Gastroenterologia", esp_id: esp-gastroenterologia}
+      - {cfm: "Coloproctologia", esp_id: esp-coloproctologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "prisão de ventre que não melhora com 12 semanas de tratamento -> Gastroenterologia"
+      - "diarreia por mais de 4 semanas sem diagnóstico, ou suspeita de doença inflamatória do intestino -> Gastroenterologia"
+      - "mudança do hábito do intestino com suspeita de tumor, quando a colonoscopia não é feita com o clínico -> Gastroenterologia ou Coloproctologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "mudança do intestino que persiste, com perda de peso, sangue nas fezes ou anemia"
+    fonte: "TelessaúdeRS Gastroenterologia (14), protocolo 13 – Diarreia e protocolo 14 – Constipação; TelessaúdeRS Proctologia Adulto (49), protocolos 8 e 9"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-gastroenterologia, esp-coloproctologia]
+    lacuna: false
+
+  - id: esp-queixa-sangue-nas-fezes
+    grupo: estomago_intestino
+    queixa: "sangue nas fezes"
+    como_a_pessoa_fala: ["saiu sangue no cocô", "sangue no papel higiênico", "fezes com sangue", "sangramento pelo ânus", "cocô escuro", "sangue vivo quando evacuo", "sangue nas fezes há semanas"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Coloproctologia", esp_id: esp-coloproctologia}
+      - {cfm: "Gastroenterologia", esp_id: esp-gastroenterologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "a fonte indica colonoscopia (pedida pelo clínico) quando o sangue persiste sem causa no ânus, em quem tem mais de 50 anos, ou com sinais de alarme"
+      - "diagnóstico de tumor confirmado -> cirurgia oncológica / coloproctologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "dor na barriga ou no ânus sem outra causa"
+      - "mudança do intestino que persiste"
+      - "perda de peso sem querer"
+      - "anemia sem causa"
+      - "caroço na barriga"
+    nota: "Sangramento grande agora, tontura ou desmaio vão para o alerta universal."
+    fonte: "TelessaúdeRS Proctologia Adulto (49), protocolo 6 – Suspeita de neoplasia do trato gastrointestinal inferior; TelessaúdeRS Gastroenterologia (14), protocolo 12"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-coloproctologia, esp-gastroenterologia]
+    lacuna: false
+
+  - id: esp-queixa-hemorroida
+    grupo: estomago_intestino
+    queixa: "hemorroida, fissura ou dor no ânus"
+    como_a_pessoa_fala: ["tenho hemorroida", "bolinha no ânus", "dor pra evacuar", "fissura anal", "coceira no ânus", "caroço perto do ânus", "fístula", "cisto pilonidal"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Coloproctologia", esp_id: esp-coloproctologia}
+    quando_vai_direto_ao_especialista:
+      - "fissura junto com fístula -> Coloproctologia"
+    fonte_indica_especialista_quando:
+      - "hemorroida que continua dando sintomas após cerca de 2 meses de tratamento"
+      - "fissura que volta ou não melhora em 2 meses de tratamento"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "hemorroida que saiu, ficou presa, muito dolorida e não volta para dentro", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Proctologia Adulto (49), protocolos 1 – Hemorroidas, 2 – Fissura, 3 – Fístula, 4 – Doença pilonidal"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-coloproctologia]
+    lacuna: false
+
+  - id: esp-queixa-hernia
+    grupo: estomago_intestino
+    queixa: "hérnia (caroço na virilha, umbigo ou cicatriz)"
+    como_a_pessoa_fala: ["acho que tenho hérnia", "caroço na virilha", "hérnia umbilical", "umbigo estufado", "bola que aparece quando faço força", "hérnia na cicatriz da cirurgia", "diástase"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cirurgia geral", esp_id: esp-cirurgia-geral}
+    quando_vai_direto_ao_especialista:
+      - "hérnia inguinal, epigástrica, incisional e umbilical com sintoma -> Cirurgia geral"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "hérnia que ficou dura, muito dolorida e não volta para dentro", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Na gravidez a fonte orienta esperar o fim da gestação para a cirurgia eletiva (só referência — a Helena não orienta conduta)."
+    fonte: "TelessaúdeRS Cirurgia Geral (7), protocolo 3 – Hérnias de parede abdominal"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cirurgia-geral]
+    lacuna: false
+
+  - id: esp-queixa-figado
+    grupo: estomago_intestino
+    queixa: "fígado (gordura no fígado, hepatite, exame do fígado alterado)"
+    como_a_pessoa_fala: ["gordura no fígado", "esteatose", "hepatite B", "hepatite C", "exame do fígado alterado", "TGO e TGP altos", "cirrose", "fígado inchado"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Gastroenterologia (área de atuação Hepatologia)", esp_id: esp-gastroenterologia}
+      - {cfm: "Infectologia", esp_id: esp-infectologia, quando: "hepatite B ou C, conforme o serviço"}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de cirrose -> Gastroenterologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "hepatite com sangramentos, confusão ou sonolência", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Gastroenterologia (14), protocolos 1 a 6; TelessaúdeRS Infectologia (27), protocolos 6 e 7; Saúde de A a Z — Esteatose hepática, Hepatites virais"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-gastroenterologia, esp-infectologia]
+    lacuna: false
+
+# ============================== URINÁRIO E PRÓSTATA ==============================
+  - id: esp-queixa-dificuldade-para-urinar
+    grupo: urinario
+    queixa: "dificuldade para urinar, jato fraco ou urinar muitas vezes"
+    como_a_pessoa_fala: ["jato de urina fraco", "levanto várias vezes à noite pra urinar", "demoro pra começar a urinar", "sensação de que não esvaziou", "urina pingando no final", "vontade toda hora de urinar", "próstata aumentada"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia}
+    quando_vai_direto_ao_especialista:
+      - "sintomas urinários com pedra na bexiga, doença neurológica ou cirurgia/radioterapia na pelve -> Urologia"
+      - "retenção crônica de urina -> Urologia"
+    fonte_indica_especialista_quando:
+      - "sintomas que não melhoram com o tratamento clínico da próstata"
+      - "infecção urinária que se repete"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "não consegue urinar nada, com a bexiga cheia e dolorida", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolo 1 – Sintomas do trato urinário inferior"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia]
+    lacuna: false
+
+  - id: esp-queixa-dor-ou-ardencia-ao-urinar
+    grupo: urinario
+    queixa: "ardência ou dor ao urinar, infecção urinária de repetição"
+    como_a_pessoa_fala: ["arde pra fazer xixi", "infecção urinária", "cistite", "infecção urinária toda hora", "dor no pé da barriga ao urinar", "urina com cheiro forte", "bexiga dolorida"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia, quando: "alteração anatômica ou neurológica que causa infecções"}
+      - {cfm: "Nefrologia", esp_id: esp-nefrologia, quando: "infecções que continuam mesmo com prevenção adequada"}
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia, quando: "alteração ginecológica que causa infecções"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "infecção de repetição = 2 ou mais em 6 meses, ou 3 ou mais em um ano"
+      - "bexiga dolorida crônica sem infecção que não melhora em 3 meses -> Urologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Infecção urinária isolada é cuidada pelo clínico; o TelessaúdeRS não tem protocolo da cistite simples. Febre com dor nas costas vai para a triagem."
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolo 9 – ITU recorrente e protocolo 11; TelessaúdeRS Nefrologia Adulto (37), protocolo 3"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia, esp-nefrologia, esp-ginecologia-e-obstetricia]
+    lacuna: parcial
+
+  - id: esp-queixa-sangue-na-urina
+    grupo: urinario
+    queixa: "sangue na urina"
+    como_a_pessoa_fala: ["urina com sangue", "xixi vermelho", "urina cor de coca-cola", "deu sangue no exame de urina", "hematúria", "coágulo na urina"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia}
+      - {cfm: "Nefrologia", esp_id: esp-nefrologia, quando: "sangue de origem no rim (glomérulo)"}
+    quando_vai_direto_ao_especialista:
+      - "sangue visível na urina com coágulos, sem infecção -> Urologia"
+    fonte_indica_especialista_quando:
+      - "sangue visível confirmado em exame, sem sinais de doença do rim -> Urologia"
+      - "sangue só no exame, confirmado duas vezes, conforme risco -> Urologia ou Nefrologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "sangue na urina e não consegue urinar", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "sangue na urina com febre alta, tontura ou dor muito forte", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "A fonte pede descartar antes causas comuns (infecção, menstruação, trauma)."
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolo 8 – Hematúria; TelessaúdeRS Nefrologia Adulto (37), protocolo 7 – Hematúria"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia, esp-nefrologia]
+    lacuna: false
+
+  - id: esp-queixa-incontinencia
+    grupo: urinario
+    queixa: "perda de urina"
+    como_a_pessoa_fala: ["escapa xixi quando tusso", "perco urina", "não seguro o xixi", "uso fralda por causa da urina", "bexiga caída", "incontinência urinária", "molho a calcinha quando espirro"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia}
+      - {cfm: "Urologia", esp_id: esp-urologia}
+      - {profissao: "Fisioterapia (pélvica)", esp_id: esp-fisioterapia}
+    quando_vai_direto_ao_especialista:
+      - "perda de urina com 'bola na vagina' (prolapso) e desejo de cirurgia -> Ginecologia"
+    fonte_indica_especialista_quando:
+      - "perda de urina que não melhora com cerca de 3 meses de tratamento -> Ginecologia ou Urologia"
+      - "perda de urina com infecções de repetição, dor pélvica, doença neurológica ou cirurgia/radioterapia na pelve -> Ginecologia ou Urologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "O TelessaúdeRS tem material ao paciente sobre exercícios do assoalho pélvico (Kegel) e treinamento vesical (referência)."
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 6 – Incontinência urinária e protocolo 5 – Estática pélvica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ginecologia-e-obstetricia, esp-urologia, esp-fisioterapia]
+    lacuna: false
+
+  - id: esp-queixa-calculo-renal
+    grupo: urinario
+    queixa: "pedra no rim"
+    como_a_pessoa_fala: ["tenho pedra no rim", "cálculo renal", "já tive crise de cólica renal", "pedra no rim de novo", "ultrassom mostrou pedra", "dor nas costas que vai para a virilha"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia}
+      - {cfm: "Nefrologia", esp_id: esp-nefrologia, quando: "pedras que se repetem por causa metabólica"}
+    quando_vai_direto_ao_especialista:
+      - "pedra no ureter maior que 10 mm, pedra no rim maior que 10 mm, pedra grande ramificada ou pedra na bexiga -> Urologia"
+      - "pedra no rim que dá crises repetidas de dor -> Urologia"
+    fonte_indica_especialista_quando:
+      - "pedra pequena no ureter que não saiu em 4 semanas -> Urologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor de pedra no rim que não alivia com o tratamento", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "pedra no rim com febre ou calafrios", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolo 5 – Litíase renal; TelessaúdeRS Nefrologia Adulto (37), protocolo 4"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia, esp-nefrologia]
+    lacuna: false
+
+  - id: esp-queixa-prostata
+    grupo: urinario
+    queixa: "próstata (exame, PSA alterado, acompanhamento)"
+    como_a_pessoa_fala: ["quero fazer exame de próstata", "PSA alto", "toque retal", "próstata", "novembro azul", "meu pai teve câncer de próstata", "PSA subiu"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita clínica de câncer de próstata (por exame) -> Urologia / cirurgia oncológica urológica"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "suspeita de câncer de próstata e não consegue urinar, ou urina com muito sangue e coágulos", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "suspeita de câncer de próstata com fraqueza nas pernas, dormência na região das nádegas ou perda de controle de xixi/cocô", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Se a pessoa pergunta se deve fazer o exame: a decisão é conversada com o médico (INCA). A Helena não recomenda rastreamento."
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolo 2 – Neoplasia de próstata; INCA — Câncer de próstata (versão para população); Saúde de A a Z — Câncer de próstata"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia]
+    lacuna: false
+
+  - id: esp-queixa-saude-sexual-masculina
+    grupo: urinario
+    queixa: "ereção, ejaculação ou testículo"
+    como_a_pessoa_fala: ["não tenho ereção", "impotência", "ejaculação precoce", "pênis torto", "caroço no testículo", "saco inchado", "varicocele", "quero fazer vasectomia"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia}
+    quando_vai_direto_ao_especialista:
+      - "curvatura do pênis com placa/caroço e impossibilidade de relação (doença de Peyronie) -> Urologia"
+      - "vasectomia (planejamento reprodutivo) -> Urologia"
+    fonte_indica_especialista_quando:
+      - "disfunção erétil que não melhora com o tratamento inicial ou com contraindicação a ele"
+      - "ejaculação precoce que não melhora em 3 meses de tratamento"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Dor forte e súbita no testículo é emergência pela triagem universal (não está nesta fonte). Andrologia não é especialidade CFM: é parte da Urologia."
+    fonte: "TelessaúdeRS Urologia Adulto (64), protocolos 3 e 4; TelessaúdeRS Andrologia (4), protocolo 1; TelessaúdeRS Planejamento Reprodutivo (60)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia]
+    lacuna: false
+
+# ============================== MULHER ==============================
+  - id: esp-queixa-corrimento
+    grupo: mulher
+    queixa: "corrimento ou coceira na região íntima"
+    como_a_pessoa_fala: ["tô com corrimento", "corrimento com cheiro", "coceira na vagina", "candidíase de repetição", "ardência na região íntima", "corrimento amarelo", "ferida na vulva", "verruga na região íntima"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia}
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia, quando: "lesão na vulva que não resolve"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "lesão na vulva que não resolve com o tratamento inicial -> Ginecologia ou Dermatologia"
+      - "verrugas genitais extensas com indicação de cirurgia -> Ginecologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "ferida na vulva que não cicatriza, mancha que muda de cor ou sangra"
+    nota: "O TelessaúdeRS não tem protocolo de corrimento (vulvovaginites); só de lesões vulvares e verrugas."
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 12 – Condiloma e protocolo 13 – Lesões vulvares; Resolução CFM 2.380/2024; Saúde de A a Z — IST"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia]
+    lacuna: parcial
+
+  - id: esp-queixa-menstruacao
+    grupo: mulher
+    queixa: "menstruação desregulada, muito forte ou que parou"
+    como_a_pessoa_fala: ["menstruação muito forte", "sangro fora do período", "menstruação atrasada há meses", "menstruação não vem", "fluxo intenso com coágulos", "mioma", "pólipo no útero", "sangramento depois da menopausa"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia}
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia, quando: "falta de menstruação por causa hormonal"}
+    quando_vai_direto_ao_especialista:
+      - "mioma submucoso ou mioma em quem deseja engravidar -> Ginecologia"
+      - "menina com mais de 13 anos sem sinais de puberdade, ou mais de 15 anos sem menstruar -> Ginecologia ou Endocrinologia"
+    fonte_indica_especialista_quando:
+      - "sangramento anormal que não melhora com 3 meses de tratamento, afastadas outras causas"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "sangramento forte com falta de ar, coração disparado, tontura ou desmaio", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "A fonte pede sempre afastar gravidez primeiro."
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 1 – Sangramento uterino anormal, protocolo 4 – Miomatose, protocolo 11 – Amenorreia"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-endocrinologia-e-metabologia]
+    lacuna: false
+
+  - id: esp-queixa-colica-dor-pelvica
+    grupo: mulher
+    queixa: "cólica forte ou dor no pé da barriga há meses"
+    como_a_pessoa_fala: ["cólica muito forte", "dor no pé da barriga", "endometriose", "dor na relação", "dor pélvica há meses", "adenomiose", "cisto no ovário"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia}
+      - {cfm: "Área de atuação Dor (CFM)", esp_id: null, quando: "dor pélvica crônica sem causa, que não melhora em 3 meses"}
+    quando_vai_direto_ao_especialista:
+      - "dor pélvica com exame sugestivo de endometriose ou adenomiose -> Ginecologia"
+    fonte_indica_especialista_quando:
+      - "dor ginecológica por mais de 6 meses que não melhora com o tratamento"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Dor forte e súbita, com atraso menstrual ou febre, vai para a triagem universal."
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 7 – Dor pélvica crônica; protocolo 3 – Massa anexial; Saúde de A a Z — Endometriose"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]
+    lacuna: false
+
+  - id: esp-queixa-menopausa
+    grupo: mulher
+    queixa: "menopausa (calores, secura, alterações)"
+    como_a_pessoa_fala: ["tô na menopausa", "calorão", "fogacho", "climatério", "secura vaginal", "reposição hormonal", "menstruação parando"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "sintomas que continuam após 6 meses de tratamento"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "sangramento depois da menopausa"
+    fonte: "TelessaúdeRS Ginecologia Adulto (21), protocolo 8 – Climatério; TelessaúdeRS SERMulher (71), protocolo 6"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]
+    lacuna: false
+
+  - id: esp-queixa-mama
+    grupo: mulher
+    queixa: "caroço, dor ou secreção na mama"
+    como_a_pessoa_fala: ["caroço no seio", "nódulo na mama", "dor no seio", "sai líquido do mamilo", "mamografia deu alterada", "BI-RADS", "cisto na mama", "íngua no sovaco"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Mastologia", esp_id: esp-mastologia}
+    quando_vai_direto_ao_especialista:
+      - "exame da mama muito suspeito, íngua na axila sem causa ou mamografia/ultrassom BI-RADS 4 ou 5 -> Mastologia/Oncologia"
+      - "nódulo palpável conforme os critérios da fonte -> Mastologia"
+      - "cisto que volta ou incomoda -> Mastologia"
+    fonte_indica_especialista_quando:
+      - "secreção de leite pelos dois lados sem causa -> Mastologia (ou Endocrinologia se o hormônio prolactina estiver alto)"
+      - "mulher com alto risco para câncer de mama (história familiar forte) -> Mastologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Dor na mama isolada: o TelessaúdeRS não tem critério próprio (lacuna parcial) — clínico/ginecologista primeiro."
+    fonte: "TelessaúdeRS Mastologia (29), protocolos 1, 2 e 5; INCA — Câncer de mama (versão para população); Saúde de A a Z — Câncer de mama"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-mastologia]
+    lacuna: false
+
+  - id: esp-queixa-gravidez-planejamento
+    grupo: mulher
+    queixa: "quero engravidar, não consigo engravidar ou quero evitar gravidez"
+    como_a_pessoa_fala: ["tento engravidar há mais de um ano", "infertilidade", "quero colocar DIU", "quero fazer laqueadura", "anticoncepcional", "quero engravidar", "acho que estou grávida"]
+    especialista_primeiro: {nome_leigo: "Ginecologista, clínico geral ou médico de família", cfm: ["Ginecologia e obstetrícia", "Clínica médica", "Medicina de família e comunidade"], esp_id: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade]}
+    especialista_depois:
+      - {cfm: "Ginecologia e obstetrícia (área de atuação Reprodução assistida)", esp_id: esp-ginecologia-e-obstetricia}
+      - {cfm: "Urologia", esp_id: esp-urologia, quando: "avaliação do parceiro ou vasectomia"}
+    quando_vai_direto_ao_especialista:
+      - "laqueadura -> Ginecologia (planejamento reprodutivo)"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Gravidez confirmada -> regra da gestante (pré-natal)."
+    fonte: "TelessaúdeRS Infertilidade (22); TelessaúdeRS Planejamento Reprodutivo (19); TelessaúdeRS SERMulher (71), protocolo 7; Saúde de A a Z — Gravidez"
+    esp_id_na_base: [esp-ginecologia-e-obstetricia, esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia]
+    lacuna: false
+
+# ============================== PELE, CABELO E UNHAS ==============================
+  - id: esp-queixa-manchas-na-pele
+    grupo: pele
+    queixa: "manchas na pele"
+    como_a_pessoa_fala: ["manchas no rosto", "melasma", "mancha branca na pele", "vitiligo", "pano branco", "manchas escuras", "mancha que não coça e não dói", "mancha dormente na pele"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+    quando_vai_direto_ao_especialista:
+      - "vitiligo que se espalha rápido ou ocupa área grande -> Dermatologia"
+    fonte_indica_especialista_quando:
+      - "melasma que atrapalha muito e não melhora em 3 meses de tratamento com proteção solar"
+      - "vitiligo que não responde a 6 meses de tratamento"
+      - "mancha com perda de sensibilidade (suspeita de hanseníase) segue o protocolo de hanseníase da fonte"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Dermatologia (12), protocolos 13 – Melasma, 14 – Vitiligo, 15 – Hanseníase; Saúde de A a Z — Hanseníase"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia]
+    lacuna: false
+
+  - id: esp-queixa-coceira-alergia-pele
+    grupo: pele
+    queixa: "coceira, vermelhidão, urticária ou eczema"
+    como_a_pessoa_fala: ["coceira no corpo todo", "urticária", "placas vermelhas que coçam", "alergia na pele", "eczema", "dermatite", "pele descamando", "psoríase", "pele inchada e vermelha"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+      - {cfm: "Alergia e imunologia", esp_id: esp-alergia-e-imunologia, quando: "inchaço (angioedema) que se repete, ou urticária ligada a alimento"}
+    quando_vai_direto_ao_especialista:
+      - "psoríase extensa ou forma grave -> Dermatologia"
+      - "inchaço em lábios/olhos que se repete sem urticária -> Alergia e imunologia"
+    fonte_indica_especialista_quando:
+      - "urticária que dura mais de 6 semanas e não melhora com tratamento -> Dermatologia"
+      - "coceira sem lesão e sem causa após investigação -> Dermatologia"
+      - "eczema grave, extenso ou que não melhora -> Dermatologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "urticária ou inchaço com falta de ar, chiado, inchaço na garganta ou tontura/desmaio", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "pele vermelha no corpo todo com bolhas, pus ou febre, ou feridas na boca e nos olhos depois de remédio", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Dermatologia (12), protocolos 4, 5, 7 – Psoríase, 9 – Urticária, 10 – Prurido; TelessaúdeRS Imunologia (30), protocolos 1 e 6"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia, esp-alergia-e-imunologia]
+    lacuna: false
+
+  - id: esp-queixa-pintas
+    grupo: pele
+    queixa: "pinta, sinal ou ferida na pele que mudou"
+    como_a_pessoa_fala: ["pinta mudou de cor", "sinal cresceu", "pinta que sangra", "ferida que não cicatriza na pele", "quero tirar uma pinta", "verruga", "caroço embaixo da pele", "lipoma", "cisto sebáceo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+      - {cfm: "Cirurgia geral", esp_id: esp-cirurgia-geral, quando: "retirada de lesão benigna de pele/subcutâneo"}
+      - {cfm: "Cirurgia plástica", esp_id: esp-cirurgia-plastica, quando: "lesões em áreas delicadas, conforme a fonte"}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de melanoma: a fonte pede avaliação em serviço de referência com brevidade"
+      - "pessoa com alto risco para melanoma -> Dermatologia"
+      - "lesão suspeita pequena com indicação de retirada -> Dermatologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "pinta que muda de cor, forma ou tamanho, sangra ou coça"
+      - "ferida na pele que não cicatriza"
+    fonte: "TelessaúdeRS Dermatologia (12), protocolos 2 – Melanoma, 3 – Câncer de pele não melanoma e lesões benignas, 11 – Verrugas; TelessaúdeRS Cirurgia Geral (7), protocolo 4; Saúde de A a Z — Câncer de pele"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia, esp-cirurgia-geral, esp-cirurgia-plastica]
+    lacuna: false
+
+  - id: esp-queixa-queda-de-cabelo
+    grupo: pele
+    queixa: "queda de cabelo"
+    como_a_pessoa_fala: ["meu cabelo tá caindo muito", "falha no cabelo", "calvície", "alopecia", "cabelo caindo em tufos", "entradas aumentando", "buraco no cabelo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+    quando_vai_direto_ao_especialista:
+      - "queda com cicatriz no couro cabeludo, ou falha grande (mais de 30% da cabeça) ou em faixa -> Dermatologia"
+    fonte_indica_especialista_quando:
+      - "queda há pelo menos 6 meses sem causa"
+      - "falhas que não melhoram em 3 meses de tratamento; calvície que não melhora em 12 meses"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Dermatologia (12), protocolo 8 – Alopecia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia]
+    lacuna: false
+
+  - id: esp-queixa-unhas
+    grupo: pele
+    queixa: "unhas (micose, unha encravada, alteração)"
+    como_a_pessoa_fala: ["micose na unha", "unha amarela e grossa", "unha encravada", "unha descolando", "frieira", "pé de atleta", "mancha escura na unha"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+    quando_vai_direto_ao_especialista:
+      - "tumor de unha (mancha ou caroço suspeito) -> Dermatologia"
+    fonte_indica_especialista_quando:
+      - "micose de unha que não melhora com tratamento e causa dor, infecções de pele na mesma perna, ou parece não ser fungo"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Unha encravada não tem protocolo no TelessaúdeRS (lacuna parcial)."
+    fonte: "TelessaúdeRS Dermatologia (12), protocolo 6 – Micoses e protocolo 3"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia]
+    lacuna: parcial
+
+  - id: esp-queixa-acne
+    grupo: pele
+    queixa: "espinhas (acne) ou rosácea"
+    como_a_pessoa_fala: ["muita espinha", "acne", "espinha inflamada", "cravos", "rosto vermelho com espinhas", "rosácea", "marcas de espinha"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia}
+    quando_vai_direto_ao_especialista:
+      - "acne muito grave, com nódulos, secreção e cicatrizes, ou que surge de repente com febre -> Dermatologia"
+    fonte_indica_especialista_quando:
+      - "acne leve a moderada que atrapalha a vida e não melhora com 4 meses de tratamento"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Dermatologia (12), protocolo 1 – Acne e protocolo 12 – Rosácea"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-dermatologia]
+    lacuna: false
+
+# ============================== OSSOS, MÚSCULOS E ARTICULAÇÕES ==============================
+  - id: esp-queixa-dor-nas-costas
+    grupo: ossos_articulacoes
+    queixa: "dor nas costas (lombar)"
+    como_a_pessoa_fala: ["dor nas costas", "dor na lombar", "travei as costas", "dor ciática", "dor que desce pela perna", "hérnia de disco", "bico de papagaio", "coluna doendo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+      - {cfm: "Neurocirurgia", esp_id: esp-neurocirurgia}
+      - {cfm: "Reumatologia", esp_id: esp-reumatologia, quando: "suspeita de doença inflamatória da coluna"}
+      - {cfm: "Medicina física e reabilitação", esp_id: esp-medicina-fisica-e-reabilitacao, quando: "dor crônica sem indicação de cirurgia"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "dor que continua após o tratamento clínico, com exame de imagem mostrando alteração que pode ter indicação de cirurgia -> Ortopedia ou Neurocirurgia"
+      - "dor crônica sem indicação de cirurgia -> fisiatria, acupuntura ou equipe de dor"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor nas costas com perda de controle do xixi ou do cocô, ou dormência na região das nádegas/entre as pernas", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "fraqueza nas pernas que vai piorando", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor muito forte que não alivia com o tratamento", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor nas costas depois de queda ou batida forte", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor nas costas com febre, em quem tem imunidade baixa ou usa droga injetável", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor nas costas nova em quem tem câncer", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    sinais_de_alarme_sem_emergencia:
+      - "dor que começou depois dos 60 anos ou antes dos 20"
+      - "dor em quem já teve câncer ou tem imunidade baixa"
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 1 – Dor lombar, quadro 1; TelessaúdeRS Neurocirurgia Adulto (32), protocolo 1; TelessaúdeRS Reumatologia (59), protocolo 5; TelessaúdeRS Tratamento da Dor (57), protocolo 2"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia, esp-neurocirurgia, esp-reumatologia, esp-medicina-fisica-e-reabilitacao]
+    lacuna: false
+
+  - id: esp-queixa-dor-no-pescoco
+    grupo: ossos_articulacoes
+    queixa: "dor no pescoço"
+    como_a_pessoa_fala: ["dor no pescoço", "torcicolo", "cervical doendo", "dor que desce para o braço", "pescoço travado", "formigamento no braço com dor no pescoço", "hérnia cervical"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+      - {cfm: "Neurocirurgia", esp_id: esp-neurocirurgia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "dor que continua após o tratamento clínico com exame de imagem alterado -> Ortopedia ou Neurocirurgia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "dor no pescoço com fraqueza nos braços ou pernas que vai piorando", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor no pescoço depois de acidente ou batida forte", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor no pescoço com febre, em quem tem imunidade baixa", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "dor no pescoço nova em quem tem câncer", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 2 – Dor cervical; TelessaúdeRS Neurocirurgia Adulto (32), protocolo 2"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia, esp-neurocirurgia]
+    lacuna: false
+
+  - id: esp-queixa-ombro
+    grupo: ossos_articulacoes
+    queixa: "dor no ombro"
+    como_a_pessoa_fala: ["dor no ombro", "não consigo levantar o braço", "tendinite no ombro", "bursite no ombro", "ombro deslocou", "manguito rotador", "ombro dói à noite"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+    quando_vai_direto_ao_especialista:
+      - "ruptura completa do tendão (confirmada em exame) com perda de função -> Ortopedia"
+      - "primeira luxação do ombro, conforme a fonte -> Ortopedia"
+    fonte_indica_especialista_quando:
+      - "ruptura parcial com sintomas após 3 meses de tratamento"
+      - "dor no ombro que não melhora em 6 meses de tratamento"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "ombro deslocado ou suspeita de fratura", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "ombro quente, vermelho, muito dolorido em repouso, com febre", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "estalo com perda súbita de força no braço (rompimento de tendão)", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 8 – Dor no ombro; TelessaúdeRS OCI Ortopedia (69), protocolo 3"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia]
+    lacuna: false
+
+  - id: esp-queixa-cotovelo
+    grupo: ossos_articulacoes
+    queixa: "dor no cotovelo"
+    como_a_pessoa_fala: ["dor no cotovelo", "cotovelo de tenista", "epicondilite", "dor no cotovelo ao pegar peso", "formigamento no dedinho", "bursite no cotovelo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "dor que continua após 6 meses de tratamento"
+      - "formigamento no lado do dedinho com perda de força ou que não melhora em 3 a 6 meses"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "estalo com perda súbita da força para dobrar o braço", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "cotovelo quente, vermelho e muito dolorido", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "perda de força ou formigamento forte que vai piorando", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 6 – Dor no cotovelo"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia]
+    lacuna: false
+
+  - id: esp-queixa-mao-punho
+    grupo: ossos_articulacoes
+    queixa: "dor ou formigamento na mão e no punho"
+    como_a_pessoa_fala: ["mão formigando à noite", "túnel do carpo", "dor no punho", "dedo travando", "dedos tortos e doloridos", "tendinite no punho", "LER", "perdi força na mão"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+      - {cfm: "Cirurgia da mão", esp_id: esp-cirurgia-da-mao}
+      - {cfm: "Neurocirurgia", esp_id: esp-neurocirurgia, quando: "túnel do carpo, conforme a fonte"}
+      - {cfm: "Medicina do trabalho", esp_id: esp-medicina-do-trabalho, quando: "problema da mão ligado ao trabalho há mais de 3 meses"}
+    quando_vai_direto_ao_especialista:
+      - "túnel do carpo com perda de força ou músculo da mão afinando -> Neurocirurgia ou Ortopedia"
+    fonte_indica_especialista_quando:
+      - "túnel do carpo com dormência contínua por 3 meses, ou sem melhora em 6 meses de tratamento"
+      - "artrose da mão com deformidade e perda de função, ou dor que não melhora em 6 meses -> Ortopedia"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Neurocirurgia Adulto (32), protocolo 3 – Túnel do carpo; TelessaúdeRS Ortopedia Adulto (42), protocolos 3 e 5; TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolo 2"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia, esp-cirurgia-da-mao, esp-neurocirurgia, esp-medicina-do-trabalho]
+    lacuna: false
+
+  - id: esp-queixa-joelho
+    grupo: ossos_articulacoes
+    queixa: "dor no joelho"
+    como_a_pessoa_fala: ["dor no joelho", "joelho inchado", "artrose no joelho", "menisco", "ligamento do joelho", "joelho falseia", "joelho estalando e doendo", "desgaste no joelho"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+      - {cfm: "Medicina física e reabilitação", esp_id: esp-medicina-fisica-e-reabilitacao, quando: "dor crônica sem indicação de cirurgia"}
+    quando_vai_direto_ao_especialista:
+      - "lesão de menisco ou ligamento com possível indicação de cirurgia -> Ortopedia"
+    fonte_indica_especialista_quando:
+      - "artrose do joelho com dor que não melhora em 6 meses de tratamento, ou que atrapalha muito o dia a dia -> Ortopedia"
+      - "rótula que sai do lugar repetidamente"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "suspeita de fratura ou joelho deslocado", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "joelho quente, vermelho, inchado e com febre", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 7 – Dor no joelho; TelessaúdeRS OCI Ortopedia (69), protocolos 2 e 6"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia, esp-medicina-fisica-e-reabilitacao]
+    lacuna: false
+
+  - id: esp-queixa-quadril
+    grupo: ossos_articulacoes
+    queixa: "dor no quadril"
+    como_a_pessoa_fala: ["dor no quadril", "dor na virilha ao andar", "artrose no quadril", "bursite no quadril", "dor na lateral da coxa", "prótese de quadril"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+    quando_vai_direto_ao_especialista:
+      - "necrose da cabeça do fêmur, ou impacto do quadril confirmado em exame -> Ortopedia"
+    fonte_indica_especialista_quando:
+      - "artrose com dor que não melhora em 6 meses ou que atrapalha muito o dia a dia"
+      - "bursite ou tendinite que não melhora em 6 meses"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "queda com dor forte no quadril e dificuldade de apoiar a perna", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "quadril muito dolorido com febre", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 9 – Dor no quadril; TelessaúdeRS OCI Ortopedia (69), protocolos 1 e 5"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia]
+    lacuna: false
+
+  - id: esp-queixa-pe-tornozelo
+    grupo: ossos_articulacoes
+    queixa: "dor no pé ou no tornozelo"
+    como_a_pessoa_fala: ["dor no pé", "torci o tornozelo", "joanete", "esporão", "dor no calcanhar", "fascite plantar", "tornozelo inchado depois de torção", "dor na sola do pé"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Ortopedia e traumatologia", esp_id: esp-ortopedia-e-traumatologia}
+    quando_vai_direto_ao_especialista:
+      - "tendão rompido que não foi operado na emergência -> Ortopedia"
+    fonte_indica_especialista_quando:
+      - "torção com dor e inchaço que continuam após 6 meses de tratamento"
+      - "joanete com dor ou dificuldade que não melhora em 6 meses"
+      - "tendinite crônica com deformidade ou sem melhora em 6 meses"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "suspeita de fratura ou tornozelo deslocado", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "torção com suspeita de ligamento rompido", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Pé de diabético com ferida: triagem própria (não está neste protocolo)."
+    fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolo 10 – Tornozelo e pé"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-ortopedia-e-traumatologia]
+    lacuna: false
+
+  - id: esp-queixa-varias-articulacoes
+    grupo: ossos_articulacoes
+    queixa: "dor e inchaço em várias juntas"
+    como_a_pessoa_fala: ["dor em várias juntas", "juntas inchadas", "dedos das mãos inchados de manhã", "reumatismo", "artrite", "lúpus", "acordo com as mãos duras", "gota", "ácido úrico alto com dor no dedão"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Reumatologia", esp_id: esp-reumatologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita ou diagnóstico de artrite reumatoide -> Reumatologia"
+      - "suspeita de doença articular inflamatória -> Reumatologia"
+    fonte_indica_especialista_quando:
+      - "gota com 3 ou mais crises por ano mesmo com tratamento -> Reumatologia"
+      - "suspeita de lúpus, Sjögren ou artrite psoriásica, conforme os critérios da fonte -> Reumatologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "junta quente, vermelha, muito dolorida e com febre", destino_sugerido: PRONTO_SOCORRO_AGORA, fonte: "TelessaúdeRS Ortopedia Adulto (42), protocolos 7 a 9 (artrite séptica)"}
+    fonte: "TelessaúdeRS Reumatologia (59), protocolos 1 – Artrite reumatoide, 2, 3 – Lúpus, 4, 6 – Gota; TelessaúdeRS Ortopedia Adulto (42), protocolo 4; Saúde de A a Z — Lúpus"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-reumatologia]
+    lacuna: false
+
+  - id: esp-queixa-dor-no-corpo-todo
+    grupo: ossos_articulacoes
+    queixa: "dor no corpo todo (fibromialgia)"
+    como_a_pessoa_fala: ["dor no corpo inteiro", "fibromialgia", "dói tudo", "dor muscular espalhada", "cansaço e dor no corpo todo", "pontos doloridos no corpo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Reumatologia", esp_id: esp-reumatologia, quando: "suspeita de doença articular inflamatória"}
+      - {cfm: "Área de atuação Dor (CFM) / Medicina física e reabilitação / Acupuntura", esp_id: esp-medicina-fisica-e-reabilitacao}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de doença inflamatória das juntas -> Reumatologia"
+    fonte_indica_especialista_quando:
+      - "fibromialgia sem melhora após 6 meses de tratamento -> equipe de tratamento da dor (fisiatria, acupuntura, dor)"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Reumatologia (59), protocolo 8 – Fibromialgia; TelessaúdeRS Tratamento da Dor (57), protocolo 1"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-reumatologia, esp-medicina-fisica-e-reabilitacao, esp-acupuntura]
+    lacuna: false
+
+  - id: esp-queixa-osteoporose
+    grupo: ossos_articulacoes
+    queixa: "osteoporose ou ossos fracos"
+    como_a_pessoa_fala: ["tenho osteoporose", "osteopenia", "ossos fracos", "densitometria deu alterada", "quebrei o osso com queda boba", "perda de massa óssea"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia}
+      - {cfm: "Reumatologia", esp_id: esp-reumatologia}
+      - {cfm: "Geriatria", esp_id: esp-geriatria, quando: "pessoa idosa"}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "O TelessaúdeRS não tem protocolo de osteoporose; a especialidade é a usual pelo CFM. Revisão médica deve confirmar."
+    fonte: "Resolução CFM 2.380/2024 (Endocrinologia e metabologia, Reumatologia, Geriatria; área de atuação Densitometria óssea)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-endocrinologia-e-metabologia, esp-reumatologia, esp-geriatria]
+    lacuna: true
+
+# ============================== CIRCULAÇÃO ==============================
+  - id: esp-queixa-varizes
+    grupo: circulacao
+    queixa: "varizes ou vasinhos"
+    como_a_pessoa_fala: ["tenho varizes", "veias saltadas na perna", "vasinhos", "perna pesada no fim do dia", "variz doendo", "ferida na perna que não fecha", "úlcera varicosa", "mancha escura na canela"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cirurgia vascular", esp_id: esp-cirurgia-vascular}
+      - {cfm: "Angiologia", esp_id: esp-angiologia}
+      - {cfm: "Dermatologia", esp_id: esp-dermatologia, quando: "ferida na perna que não parece ser de circulação"}
+    quando_vai_direto_ao_especialista:
+      - "ferida de variz (úlcera venosa) que não cicatriza -> Cirurgia vascular"
+    fonte_indica_especialista_quando:
+      - "varizes com inchaço, mancha escura ou endurecimento da pele que não melhoram com 6 meses de cuidados (meias, elevar as pernas, exercício)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "uma perna inchada de repente, dolorida, com a panturrilha dura (suspeita de trombose)", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Vasinhos só estéticos: sem critério na fonte."
+    fonte: "TelessaúdeRS Cirurgia Vascular (11), protocolo 2 – Insuficiência venosa crônica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cirurgia-vascular, esp-angiologia, esp-dermatologia]
+    lacuna: false
+
+  - id: esp-queixa-perna-inchada
+    grupo: circulacao
+    queixa: "perna inchada"
+    como_a_pessoa_fala: ["perna inchada", "pés inchados", "tornozelo inchado no fim do dia", "inchaço numa perna só", "perna pesada e inchada", "já tive trombose", "inchaço que afunda o dedo"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cirurgia vascular", esp_id: esp-cirurgia-vascular}
+      - {cfm: "Angiologia", esp_id: esp-angiologia}
+      - {cfm: "Hematologia e hemoterapia", esp_id: esp-hematologia-e-hemoterapia, quando: "trombose sem causa, para investigação"}
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia, quando: "inchaço nas duas pernas com falta de ar"}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "sequela de trombose com dor, inchaço ou ferida que não melhora em 6 meses -> Cirurgia vascular"
+      - "trombose sem causa aparente com critérios da fonte -> Hematologia ou Clínica médica"
+      - "o controle do anticoagulante é feito pelo clínico, não pelo cirurgião vascular"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "uma perna só inchada de repente, dolorida, com a panturrilha dura", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "perna inchada com falta de ar de repente ou dor no peito", destino_sugerido: LIGAR_192_AGORA}
+    fonte: "TelessaúdeRS Cirurgia Vascular (11), protocolo 1 – Tromboembolismo venoso, quadro 1; Saúde de A a Z — Trombose"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cirurgia-vascular, esp-angiologia, esp-hematologia-e-hemoterapia, esp-cardiologia]
+    lacuna: false
+
+  - id: esp-queixa-dor-na-perna-ao-andar
+    grupo: circulacao
+    queixa: "dor na perna ao caminhar que melhora parando"
+    como_a_pessoa_fala: ["dor na panturrilha quando ando", "preciso parar de andar por causa da dor na perna", "perna fria", "pé arroxeado", "má circulação", "entupimento na perna", "ferida no pé que não sara"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cirurgia vascular", esp_id: esp-cirurgia-vascular}
+      - {cfm: "Angiologia", esp_id: esp-angiologia}
+    quando_vai_direto_ao_especialista:
+      - "dor em repouso, ferida ou necrose por falta de circulação -> Cirurgia vascular"
+    fonte_indica_especialista_quando:
+      - "dor ao caminhar que limita o dia a dia e não melhora com 6 meses de tratamento e controle dos fatores de risco"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "perna ou pé de repente frio, pálido, muito dolorido, dormente ou sem força", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Cirurgia Vascular (11), protocolo 3 – Doença arterial periférica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cirurgia-vascular, esp-angiologia]
+    lacuna: false
+
+# ============================== NERVOS E CÉREBRO ==============================
+  - id: esp-queixa-formigamento
+    grupo: nervos
+    queixa: "formigamento ou dormência"
+    como_a_pessoa_fala: ["pés formigando", "dormência nas mãos", "queimação nos pés", "perdi sensibilidade no pé", "neuropatia", "formigamento nas pernas", "choque nos pés"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "sintomas sem causa definida depois da investigação inicial com o clínico"
+      - "sintomas atípicos, que pioram ou não melhoram com o tratamento da causa (diabetes, álcool etc.)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "fraqueza ou formigamento que sobe rápido pelas pernas em dias", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "formigamento ou fraqueza de um lado do corpo de repente, com boca torta ou fala enrolada", destino_sugerido: LIGAR_192_AGORA, fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 6 – AVC"}
+    nota: "Formigamento na mão à noite -> ver esp-queixa-mao-punho."
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 8 – Polineuropatia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia]
+    lacuna: false
+
+  - id: esp-queixa-tremor
+    grupo: nervos
+    queixa: "tremor ou movimentos involuntários"
+    como_a_pessoa_fala: ["minha mão treme", "tremor", "Parkinson", "tremedeira nas mãos", "movimentos que não controlo", "andar arrastado e tremor", "cabeça treme"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de Parkinson sem uso de remédio que possa causar o tremor -> Neurologia"
+    fonte_indica_especialista_quando:
+      - "tremor essencial que não melhora com o tratamento"
+      - "outros distúrbios de movimento conforme a fonte"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 5 – Tremores e protocolo 7 – Distúrbios do movimento"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia]
+    lacuna: false
+
+  - id: esp-queixa-memoria
+    grupo: nervos
+    queixa: "esquecimento ou perda de memória"
+    como_a_pessoa_fala: ["tô esquecendo tudo", "minha mãe está esquecida", "Alzheimer", "demência", "perde as coisas e se confunde", "esquece o caminho de casa", "repete as mesmas perguntas"]
+    especialista_primeiro: *porta_idoso
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+      - {cfm: "Geriatria", esp_id: esp-geriatria}
+      - {cfm: "Psiquiatria (área de atuação Psicogeriatria)", esp_id: esp-psiquiatria}
+    quando_vai_direto_ao_especialista:
+      - "piora rápida da memória ou do comportamento (em menos de 2 anos) -> Neurologia"
+    fonte_indica_especialista_quando:
+      - "perda de memória depois de afastadas causas tratáveis e problemas emocionais descompensados -> Neurologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Confusão que começou de repente vai para a triagem universal. O TelessaúdeRS cita Neurologia; Geriatria/Psicogeriatria vêm do CFM."
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 2 – Demência; Saúde de A a Z — Alzheimer; Resolução CFM 2.380/2024"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-geriatria, esp-neurologia, esp-psiquiatria]
+    lacuna: false
+
+  - id: esp-queixa-convulsao-epilepsia
+    grupo: nervos
+    queixa: "convulsão ou epilepsia (acompanhamento)"
+    como_a_pessoa_fala: ["tive uma convulsão", "epilepsia", "ataque epilético", "crise convulsiva", "desmaiei e me debati", "minhas crises voltaram", "quero parar o remédio da epilepsia"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+    quando_vai_direto_ao_especialista:
+      - "primeiro episódio que parece convulsão, sem causa reversível -> Neurologia"
+      - "dúvida se foi convulsão -> Neurologia"
+    fonte_indica_especialista_quando:
+      - "epilepsia mal controlada apesar do tratamento, ou com efeitos colaterais difíceis"
+      - "epilepsia controlada há 2 anos ou mais com desejo de rever o tratamento"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "convulsão que dura mais de 5 minutos, ou crises seguidas sem acordar entre elas", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "convulsão com febre e nuca dura, ou com sinais de AVC", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "convulsão em quem parou de beber de repente", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 3 – Convulsão/Epilepsia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia]
+    lacuna: false
+
+  - id: esp-queixa-avc-sequela
+    grupo: nervos
+    queixa: "acompanhamento depois de AVC (derrame)"
+    como_a_pessoa_fala: ["tive AVC", "meu pai teve derrame", "isquemia cerebral", "sequela de derrame", "carótida entupida", "AIT", "mini derrame"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Neurologia", esp_id: esp-neurologia}
+      - {cfm: "Cirurgia vascular", esp_id: esp-cirurgia-vascular, quando: "estreitamento da carótida conforme a fonte"}
+      - {cfm: "Medicina física e reabilitação", esp_id: esp-medicina-fisica-e-reabilitacao, quando: "reabilitação"}
+    quando_vai_direto_ao_especialista:
+      - "AVC ou AIT em pessoa com menos de 45 anos -> Neurologia"
+      - "AVC hemorrágico sem causa definida -> Neurologia"
+      - "AVC/AIT com investigação incompleta na emergência -> Neurologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "boca torta, fraqueza de um lado, fala enrolada ou perda de visão de repente", destino_sugerido: LIGAR_192_AGORA}
+    fonte: "TelessaúdeRS Neurologia Adulto (35), protocolo 6 – AVC; TelessaúdeRS Reabilitação Física (52); Saúde de A a Z — AVC"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia, esp-cirurgia-vascular, esp-medicina-fisica-e-reabilitacao]
+    lacuna: false
+
+# ============================== HORMÔNIOS ==============================
+  - id: esp-queixa-diabetes
+    grupo: hormonios
+    queixa: "diabetes ou açúcar alto"
+    como_a_pessoa_fala: ["tenho diabetes", "açúcar no sangue alto", "glicose alta", "pré-diabetes", "diabetes tipo 1", "uso insulina e não controla", "glicemia descontrolada"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia}
+      - {profissao: "Nutrição", esp_id: esp-nutricao}
+    quando_vai_direto_ao_especialista:
+      - "suspeita ou diagnóstico de diabetes tipo 1 -> Endocrinologia"
+      - "diabetes com doença renal avançada -> Endocrinologia"
+    fonte_indica_especialista_quando:
+      - "diabetes sem controle mesmo com insulina em dose alta e boa adesão"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "diabético com muita sede, urinando muito, vômitos, respiração ofegante ou sonolência/confusão", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Endocrinologia Adulto (18), protocolo 1 – Diabetes Mellitus; Saúde de A a Z — Diabetes"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-endocrinologia-e-metabologia, esp-nutricao]
+    lacuna: false
+
+  - id: esp-queixa-tireoide
+    grupo: hormonios
+    queixa: "tireoide (hipotireoidismo, hipertireoidismo, nódulo, bócio)"
+    como_a_pessoa_fala: ["problema de tireoide", "hipotireoidismo", "hipertireoidismo", "nódulo na tireoide", "papo no pescoço", "TSH alterado", "bócio", "tireoide acelerada"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia}
+      - {cfm: "Cirurgia de cabeça e pescoço", esp_id: esp-cirurgia-de-cabeca-e-pescoco, quando: "indicação de cirurgia"}
+    quando_vai_direto_ao_especialista:
+      - "hipertireoidismo (inclusive o leve, só no exame) -> Endocrinologia"
+      - "nódulo com indicação de punção ou com sinais suspeitos -> Endocrinologia"
+    fonte_indica_especialista_quando:
+      - "hipotireoidismo comum é acompanhado pelo clínico; vai ao endócrino em situações específicas da fonte"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Endocrinologia Adulto (18), protocolos 2 a 5"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-endocrinologia-e-metabologia, esp-cirurgia-de-cabeca-e-pescoco]
+    lacuna: false
+
+  - id: esp-queixa-obesidade
+    grupo: hormonios
+    queixa: "obesidade ou dificuldade para perder peso"
+    como_a_pessoa_fala: ["não consigo emagrecer", "obesidade", "quero fazer bariátrica", "engordei muito", "preciso perder peso", "cirurgia do estômago para emagrecer", "IMC alto"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia, quando: "suspeita de causa hormonal"}
+      - {cfm: "Cirurgia do aparelho digestivo / Cirurgia geral (área de atuação Cirurgia bariátrica)", esp_id: esp-cirurgia-do-aparelho-digestivo}
+      - {profissao: "Nutrição", esp_id: esp-nutricao}
+      - {cfm: "Nutrologia", esp_id: esp-nutrologia}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de obesidade por causa hormonal -> Endocrinologia"
+    fonte_indica_especialista_quando:
+      - "cirurgia bariátrica: a fonte usa faixas de IMC e tempo de tratamento clínico (IMC 50 ou mais; 40 a 49,9 após 2 anos de tratamento; outras faixas com doenças associadas)"
+      - "obesidade causada por remédio não precisa de endócrino"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Endocrinologia Adulto (18), protocolo 6 – Obesidade"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-endocrinologia-e-metabologia, esp-cirurgia-do-aparelho-digestivo, esp-nutricao, esp-nutrologia]
+    lacuna: false
+
+# ============================== SANGUE ==============================
+  - id: esp-queixa-anemia
+    grupo: sangue
+    queixa: "anemia"
+    como_a_pessoa_fala: ["tenho anemia", "ferro baixo", "hemoglobina baixa", "fraqueza e palidez", "anemia que não melhora", "anemia falciforme", "traço falciforme"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Hematologia e hemoterapia", esp_id: esp-hematologia-e-hemoterapia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "anemia sem causa após investigação ou que não responde ao tratamento, conforme a fonte"
+      - "quem só tem traço falciforme ou de talassemia não precisa de especialista"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "anemia com falta de ar, coração disparado ou tontura forte", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "doença falciforme com crise de dor forte, febre alta, falta de ar, dor no peito, ereção dolorosa que não passa ou sinais neurológicos", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    sinais_de_alarme_sem_emergencia:
+      - "anemia com sangue nas fezes ou perda de peso"
+    fonte: "TelessaúdeRS Hematologia Adulto (23), protocolo 2 – Anemia; Saúde de A a Z — Doença falciforme, Talassemia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-hematologia-e-hemoterapia]
+    lacuna: false
+
+  - id: esp-queixa-manchas-roxas
+    grupo: sangue
+    queixa: "manchas roxas fáceis ou sangramentos"
+    como_a_pessoa_fala: ["aparecem manchas roxas sem bater", "sangro muito quando me corto", "gengiva sangra muito", "menstruação muito forte desde sempre", "hematomas sem motivo", "plaquetas baixas", "sangramento que não para"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Hematologia e hemoterapia", esp_id: esp-hematologia-e-hemoterapia}
+    quando_vai_direto_ao_especialista:
+      - "sangramento exagerado em cortes pequenos, roxos espontâneos ou parente próximo com doença de sangramento -> Hematologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "sangramento que não para, ou muitas manchas roxas com febre ou fraqueza intensa", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Hematologia Adulto (23), protocolo 8 – Distúrbios hemorrágicos e protocolo 4 – Trombocitopenia"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-hematologia-e-hemoterapia]
+    lacuna: false
+
+  - id: esp-queixa-inguas
+    grupo: sangue
+    queixa: "ínguas (caroços no pescoço, axila ou virilha)"
+    como_a_pessoa_fala: ["íngua no pescoço", "caroço na axila", "gânglio inchado", "íngua que não some", "linfonodo aumentado", "caroço na virilha que não dói"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Clínica médica", esp_id: esp-clinica-medica}
+      - {cfm: "Hematologia e hemoterapia", esp_id: esp-hematologia-e-hemoterapia}
+      - {cfm: "Infectologia", esp_id: esp-infectologia, quando: "suspeita de infecção como tuberculose ou fungo"}
+      - {cfm: "Cirurgia geral", esp_id: esp-cirurgia-geral, quando: "biópsia do gânglio"}
+    quando_vai_direto_ao_especialista:
+      - "íngua com febre, suor à noite e perda de peso -> Hematologia/Oncologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    sinais_de_alarme_sem_emergencia:
+      - "íngua com febre, suor noturno e emagrecimento"
+    fonte: "TelessaúdeRS Hematologia Adulto (23), protocolo 10; TelessaúdeRS Infectologia (27), protocolo 3; TelessaúdeRS Cirurgia Geral (7), protocolo 6"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-hematologia-e-hemoterapia, esp-infectologia, esp-cirurgia-geral]
+    lacuna: false
+
+# ============================== RIM ==============================
+  - id: esp-queixa-rim
+    grupo: rim
+    queixa: "rim fraco, creatinina alta ou proteína na urina"
+    como_a_pessoa_fala: ["meu rim está fraco", "creatinina alta", "doença renal", "proteína na urina", "urina com espuma", "insuficiência renal", "faço hemodiálise", "cisto no rim"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Nefrologia", esp_id: esp-nefrologia}
+      - {cfm: "Urologia", esp_id: esp-urologia, quando: "cistos ou massas no rim"}
+    quando_vai_direto_ao_especialista:
+      - "doença renal crônica avançada (estágios 4 e 5) -> Nefrologia"
+    fonte_indica_especialista_quando:
+      - "doença renal com complicações ou piora rápida, conforme os critérios da fonte"
+      - "proteína na urina com critérios da fonte -> Nefrologia"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "doente renal com inchaço e falta de ar que não melhoram", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "doente renal com fraqueza muscular forte, vômitos, confusão ou sonolência", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Nefrologia Adulto (37), protocolos 1 – DRC, 2 – Proteinúria, 6 – Massas e cistos; Saúde de A a Z — Doença renal crônica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-nefrologia, esp-urologia]
+    lacuna: false
+
+# ============================== SAÚDE MENTAL ==============================
+  - id: esp-queixa-ansiedade
+    grupo: saude_mental
+    queixa: "ansiedade, nervosismo ou crises de pânico"
+    como_a_pessoa_fala: ["tenho muita ansiedade", "crise de pânico", "coração dispara de nervoso", "vivo preocupado", "TOC", "medo de sair de casa", "nervoso o tempo todo", "não consigo me acalmar"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Psiquiatria", esp_id: esp-psiquiatria}
+      - {profissao: "Psicologia", esp_id: esp-psicologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "ansiedade que não melhora após duas estratégias de tratamento (com ou sem remédio) por pelo menos 8 semanas cada"
+      - "ansiedade com pensamentos de morte que continuam após 12 semanas de acompanhamento"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Psicologia não é especialidade médica (CFP); entra como profissional de saúde mental. Pensamento de se matar -> protocolo mental-* com CVV 188 e 192."
+    fonte: "TelessaúdeRS Psiquiatria Adulto (56), protocolo 2 – Ansiedade e TOC; protocolo 3 – Estresse pós-traumático; Saúde de A a Z — Saúde mental"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-psiquiatria, esp-psicologia]
+    lacuna: false
+
+  - id: esp-queixa-depressao
+    grupo: saude_mental
+    queixa: "tristeza que não passa ou depressão"
+    como_a_pessoa_fala: ["tô deprimido", "tristeza profunda", "não tenho vontade de nada", "depressão", "choro todo dia", "perdi o gosto pelas coisas", "depressão pós-parto", "acho que estou com depressão"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Psiquiatria", esp_id: esp-psiquiatria}
+      - {profissao: "Psicologia", esp_id: esp-psicologia}
+    quando_vai_direto_ao_especialista:
+      - "depressão com sintomas psicóticos (ouvir vozes, ideias fora da realidade) -> Psiquiatria"
+      - "depressão em quem já teve episódio grave (tentativa de suicídio, internação) -> Psiquiatria"
+    fonte_indica_especialista_quando:
+      - "depressão que não melhora após duas estratégias de tratamento por 8 semanas cada"
+      - "pensamentos de morte que continuam após 12 semanas de acompanhamento"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "pensamento de se matar ou de se machucar agora", destino_sugerido: CVV_188_E_192, fonte: "MODELO.md (destino) / TelessaúdeRS Saúde Mental Infantil (55), protocolo 6 (risco agudo -> emergência)"}
+    fonte: "TelessaúdeRS Psiquiatria Adulto (56), protocolo 1 – Transtornos depressivos; protocolo 4 – Bipolar; Saúde de A a Z — Depressão, Depressão pós-parto, Prevenção do suicídio"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-psiquiatria, esp-psicologia]
+    lacuna: false
+
+  - id: esp-queixa-insonia
+    grupo: saude_mental
+    queixa: "insônia ou dificuldade para dormir"
+    como_a_pessoa_fala: ["não consigo dormir", "insônia", "acordo de madrugada e não durmo mais", "durmo mal há meses", "dependo de remédio pra dormir", "mente acelerada à noite", "sono picado"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Psiquiatria", esp_id: esp-psiquiatria}
+      - {cfm: "Área de atuação Medicina do sono (CFM; exige Clínica médica, Neurologia, Pneumologia, Psiquiatria, Otorrinolaringologia, Cardiologia ou Pediatria)", esp_id: null}
+      - {profissao: "Psicologia", esp_id: esp-psicologia}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "O TelessaúdeRS não tem protocolo de insônia; ela aparece só como sintoma em depressão/ansiedade. Ronco e paradas de respiração -> esp-queixa-ronco-apneia."
+    fonte: "Resolução CFM 2.380/2024 (área de atuação Medicina do sono); Saúde de A a Z — Melatonina (conferir)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-psiquiatria, esp-psicologia]
+    lacuna: true
+
+  - id: esp-queixa-alcool-drogas
+    grupo: saude_mental
+    queixa: "uso de álcool, cigarro ou outras drogas"
+    como_a_pessoa_fala: ["bebo demais", "quero parar de beber", "quero parar de fumar", "vício", "dependência química", "uso droga e quero ajuda", "meu marido bebe todo dia"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Psiquiatria", esp_id: esp-psiquiatria}
+      - {profissao: "Psicologia", esp_id: esp-psicologia}
+    quando_vai_direto_ao_especialista:
+      - "uso de substância na gravidez ou amamentação -> serviço de saúde mental"
+    fonte_indica_especialista_quando:
+      - "provável dependência com vontade de tratar, depois de esgotados os recursos com o clínico"
+      - "tabagismo: o tratamento é feito pelo clínico (a fonte de Pneumologia diz isso)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "abstinência moderada a grave (tremores fortes, confusão, ver coisas, convulsão) ao parar de beber ou usar", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Psiquiatria Adulto (56), protocolo 6 – Uso de substâncias; TelessaúdeRS Pneumologia Adulto (45), protocolos 1 e 2 (tabagismo)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-psiquiatria, esp-psicologia]
+    lacuna: false
+
+# ============================== ALERGIA ==============================
+  - id: esp-queixa-alergia
+    grupo: alergia
+    queixa: "alergia (a alimento, remédio, picada) ou reação alérgica forte no passado"
+    como_a_pessoa_fala: ["tenho alergia a camarão", "alergia a remédio", "alergia a dipirona", "já tive choque anafilático", "inchei todo depois de comer", "alergia a picada de abelha", "teste de alergia", "alergia a leite"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Alergia e imunologia", esp_id: esp-alergia-e-imunologia}
+    quando_vai_direto_ao_especialista:
+      - "quem já teve reação grave (anafilaxia) -> Alergia e imunologia"
+      - "sintomas alérgicos no corpo todo ligados a alimento, ou alergias alimentares múltiplas -> Alergia e imunologia"
+    fonte_indica_especialista_quando:
+      - "alergia a remédio: a fonte cita critérios (reações que começaram após 48 horas de uso, sem sintomas graves, não precisam de especialista)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "reação alérgica com falta de ar, chiado, inchaço na boca ou garganta, tontura ou desmaio", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "reação a remédio com bolhas, pele descolando, feridas na boca e olhos, ou febre", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Imunologia (30), protocolos 4 – Anafilaxia, 5 – Alergia alimentar, 6 – Alergia medicamentosa"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-alergia-e-imunologia]
+    lacuna: false
+
+  - id: esp-queixa-infeccoes-de-repeticao
+    grupo: alergia
+    queixa: "infecções que se repetem muito (imunidade baixa)"
+    como_a_pessoa_fala: ["vivo doente", "pego infecção toda hora", "imunidade baixa", "pneumonia de repetição", "minha imunidade é fraca", "infecções graves várias vezes"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Alergia e imunologia", esp_id: esp-alergia-e-imunologia}
+      - {cfm: "Infectologia", esp_id: esp-infectologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "suspeita de imunidade fraca de nascença (erro inato da imunidade) quando há 2 ou mais sinais de alerta da fonte, afastadas outras causas — por exemplo: várias pneumonias ou sinusites graves no ano, abscessos que voltam, precisar de antibiótico na veia, infecções graves no sangue, história na família -> Imunologia"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "A lista de sinais do adulto no protocolo 8 deve ser conferida na revisão médica."
+    fonte: "TelessaúdeRS Imunologia (30), protocolo 8 – Erros inatos da imunidade"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-alergia-e-imunologia, esp-infectologia]
+    lacuna: parcial
+
+# ============================== INFECÇÃO ==============================
+  - id: esp-queixa-ist-hiv
+    grupo: infeccao
+    queixa: "HIV, sífilis ou outras infecções sexualmente transmissíveis"
+    como_a_pessoa_fala: ["acho que peguei uma IST", "HIV positivo", "sífilis", "teste de HIV", "doença venérea", "ferida no pênis", "PrEP", "transei sem camisinha"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Infectologia", esp_id: esp-infectologia}
+    quando_vai_direto_ao_especialista:
+      - "pessoa vivendo com HIV com imunidade muito baixa -> serviço especializado em HIV ou Infectologia"
+      - "suspeita de neurossífilis -> Infectologia (após emergência, se precisar)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "pessoa com HIV com fraqueza de um lado, perda de visão de repente, nuca dura, falta de ar forte ou febre que não passa", destino_sugerido: PRONTO_SOCORRO_AGORA}
+      - {sinal: "sífilis com sintomas neurológicos ou nos olhos que começaram há pouco", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    nota: "Exposição de risco recente (PEP) é tema de triagem/tempo, não deste mapa."
+    fonte: "TelessaúdeRS Infectologia (27), protocolos 4 – Sífilis e 5 – HIV; Saúde de A a Z — Aids/HIV, IST, Sífilis"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-infectologia]
+    lacuna: false
+
+  - id: esp-queixa-tuberculose
+    grupo: infeccao
+    queixa: "tuberculose (suspeita ou tratamento)"
+    como_a_pessoa_fala: ["tosse há 3 semanas", "tuberculose", "contato com quem tem tuberculose", "suor à noite e emagrecendo", "teste de tuberculose", "tratamento de tuberculose"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Infectologia", esp_id: esp-infectologia}
+      - {cfm: "Pneumologia", esp_id: esp-pneumologia}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "o diagnóstico e o tratamento comum são feitos na atenção primária; vai ao especialista em situações da fonte (resistência, efeitos colaterais, tuberculose fora do pulmão)"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "tosse com muito sangue", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "falta de ar forte", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "dor de cabeça, nuca dura ou confusão em quem tem tuberculose", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Infectologia (27), protocolo 1 – Tuberculose; Saúde de A a Z — Tuberculose"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-infectologia, esp-pneumologia]
+    lacuna: false
+
+  - id: esp-queixa-febre-ou-infeccao-sem-causa
+    grupo: infeccao
+    queixa: "febre que vai e volta ou infecção sem explicação"
+    como_a_pessoa_fala: ["febre há semanas", "febre baixa todo dia", "infecção que não cura", "voltei de viagem com febre", "doença de Chagas", "toxoplasmose", "micose profunda"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Infectologia", esp_id: esp-infectologia}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "O TelessaúdeRS não tem protocolo de 'febre sem causa'; há protocolos específicos (Chagas, toxoplasmose, micoses). Febre aguda vai para a triagem."
+    fonte: "TelessaúdeRS Infectologia (27), protocolos 2, 8 e 9 (temas específicos); Resolução CFM 2.380/2024 (Infectologia; área de atuação Medicina tropical)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-infectologia]
+    lacuna: true
+
+# ============================== DOR CRÔNICA ==============================
+  - id: esp-queixa-dor-cronica
+    grupo: dor_cronica
+    queixa: "dor crônica que não melhora"
+    como_a_pessoa_fala: ["dor crônica", "convivo com dor há anos", "nenhum remédio tira minha dor", "dor no rosto em choque", "neuralgia do trigêmeo", "dor depois do herpes-zóster", "dor do membro amputado", "clínica de dor"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Área de atuação Dor (CFM; exige Acupuntura, Anestesiologia, Clínica médica, Medicina física e reabilitação, Neurocirurgia, Neurologia, Ortopedia, Pediatria ou Reumatologia)", esp_id: null}
+      - {cfm: "Neurologia", esp_id: esp-neurologia, quando: "neuralgia do trigêmeo, dor de nervo"}
+      - {cfm: "Medicina física e reabilitação", esp_id: esp-medicina-fisica-e-reabilitacao}
+      - {cfm: "Acupuntura", esp_id: esp-acupuntura}
+      - {cfm: "Anestesiologia", esp_id: esp-anestesiologia, quando: "equipes de dor costumam ser lideradas por anestesiologistas"}
+    quando_vai_direto_ao_especialista:
+      - "suspeita de neuralgia do trigêmeo -> Neurologia ou Tratamento da dor"
+      - "dor do membro fantasma, síndrome dolorosa complexa regional, dor depois de AVC ou lesão da medula -> Tratamento da dor"
+    fonte_indica_especialista_quando:
+      - "dores crônicas específicas (fibromialgia, lombar, artrose, túnel do carpo operado) que não melhoram com tratamento por 3 a 6 meses -> equipe de dor"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "A base da Helena não tem esp-*.yaml para a área de atuação Dor (lacuna da base, não da fonte)."
+    fonte: "TelessaúdeRS Tratamento da Dor (57), protocolos 1 a 11 (em revisão)"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-neurologia, esp-medicina-fisica-e-reabilitacao, esp-acupuntura, esp-anestesiologia]
+    lacuna: false
+
+# ============================== OUTROS ==============================
+  - id: esp-queixa-doenca-do-trabalho
+    grupo: outros
+    queixa: "problema de saúde causado pelo trabalho"
+    como_a_pessoa_fala: ["LER", "doença do trabalho", "acidente de trabalho", "meu trabalho me deixou doente", "burnout", "perdi audição por barulho na fábrica", "alergia de pele por produto do trabalho", "problema de voz por dar aula"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Medicina do trabalho", esp_id: esp-medicina-do-trabalho}
+    quando_vai_direto_ao_especialista:
+      - "necessidade de avaliar se a doença tem relação com o trabalho (nexo) -> Medicina do trabalho / saúde do trabalhador"
+    sinais_de_emergencia_citados_na_fonte:
+      - {sinal: "acidente de trabalho com risco de vida (intoxicação, tentativa de suicídio), corte grave ou amputação", destino_sugerido: LIGAR_192_AGORA}
+      - {sinal: "acidente de trabalho com risco de perder um membro", destino_sugerido: PRONTO_SOCORRO_AGORA}
+    fonte: "TelessaúdeRS Doenças relacionadas ao trabalho (73), protocolos 1 a 7; Saúde de A a Z — Síndrome de burnout"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-medicina-do-trabalho]
+    lacuna: false
+
+  - id: esp-queixa-genetica
+    grupo: outros
+    queixa: "doença genética na família ou aconselhamento genético"
+    como_a_pessoa_fala: ["doença genética na família", "aconselhamento genético", "teste genético", "câncer em muitas pessoas da família", "casamento entre primos e quero ter filhos", "síndrome de Down"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Genética médica", esp_id: esp-genetica-medica}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "critérios específicos da fonte (oncogenética, cromossomopatias, erros inatos do metabolismo, aconselhamento)"
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "TelessaúdeRS Genética (26), protocolos 2 e 7"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-genetica-medica]
+    lacuna: false
+
+  - id: esp-queixa-cirurgia-plastica-reparadora
+    grupo: outros
+    queixa: "cirurgia plástica reparadora (pele sobrando, mama muito grande, cicatriz)"
+    como_a_pessoa_fala: ["pele sobrando depois da bariátrica", "abdômen em avental", "seio muito grande que dá dor nas costas", "queloide", "cicatriz feia", "pálpebra caída", "orelha de abano"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cirurgia plástica", esp_id: esp-cirurgia-plastica}
+    quando_vai_direto_ao_especialista: []
+    fonte_indica_especialista_quando:
+      - "critérios funcionais da fonte (não estéticos), como pele sobrando que causa feridas depois da bariátrica"
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "A Helena não promete cobertura de cirurgia plástica: só informa a especialidade."
+    fonte: "TelessaúdeRS Cirurgia Plástica (8), protocolos 1 a 8"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cirurgia-plastica]
+    lacuna: false
+
+  - id: esp-queixa-check-up
+    grupo: outros
+    queixa: "check-up, exames de rotina ou não sei qual médico procurar"
+    como_a_pessoa_fala: ["quero fazer um check-up", "não sei qual médico procurar", "quero fazer exames de rotina", "médico pra tudo", "clínico geral", "consulta de rotina", "faz tempo que não vou ao médico"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois: []
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Resposta padrão quando a queixa não está no mapa. Mulher: o ginecologista também faz consultas de rotina."
+    fonte: "Resolução CFM 2.380/2024 (Clínica médica; Medicina de família e comunidade); base da Helena esp-clinica-medica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade]
+    lacuna: true

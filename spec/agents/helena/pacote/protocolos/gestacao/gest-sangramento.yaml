@@ -1,0 +1,48 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-sangramento
+tema: gestacao
+titulo: "Sangramento na gestação"
+publico: gestante
+como_a_pessoa_fala:
+  - "estou grávida e sangrando"
+  - "saiu sangue na calcinha"
+  - "sangramento com 10 semanas de gravidez"
+  - "estou perdendo sangue na gestação"
+  - "tive um sangramento depois da relação, estou grávida"
+  - "borra de café na gravidez"
+  - "escape de sangue grávida"
+  - "sangue vermelho vivo na gravidez"
+  - "estou com medo de estar abortando"
+perguntas_de_alerta:
+  - pergunta: "Você desmaiou, ou está muito tonta, pálida, suando frio ou confusa?"
+    sinal: sinais_de_choque
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – vermelho: sinais de choque, não responsiva; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), descritor c (p. 50: palidez, sudorese fria, alteração de consciência); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – desmaio"
+  - pergunta: "O sangramento está forte, encharcando mais de 2 absorventes grandes (noturnos) em 20 minutos, ou sai muito sangue de uma vez?"
+    sinal: sangramento_intenso
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – vermelho: hemorragia exanguinante; laranja: sangramento intenso (> 2 absorventes noturnos em 20 min)"
+  - pergunta: "Tem dor forte na barriga, a barriga está dura o tempo todo, ou contrações a cada 2 minutos?"
+    sinal: dor_intensa_ou_hipertonia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – laranja: dor intensa 7-10/10, hipertonia uterina, contrações a cada 2 min; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – dor abdominal forte"
+  - pergunta: "Está com dor de cabeça forte ou diferente do habitual, visão embaçada, pontos luminosos ou escurecimento da vista, ou dor forte no estômago, logo abaixo das costelas?"
+    sinal: sinais_de_pre_eclampsia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41-42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), fluxogramas 2-8 (laranja: PA ≥ 140/90 com dor de cabeça, de estômago ou alterações visuais)"
+destino_se_nenhum_sinal: PRONTO_SOCORRO_AGORA
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Qualquer sangramento vaginal na gestação deve ser avaliado logo, mesmo que seja pouco. Evite relação sexual e esforço até ser avaliada e leve sua caderneta da gestante. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 8 – Perda de sangue via vaginal (p. 45)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.5 (p. 27)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

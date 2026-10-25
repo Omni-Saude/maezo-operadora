@@ -1,0 +1,164 @@
+# Protocolo QUAL ESPECIALISTA — frases reutilizáveis da Helena (rascunho dev, 25/10/2026)
+#
+# Status: rascunho escrito por IA. REVISÃO MÉDICA E DE TOM PENDENTES.
+# Regras (MODELO.md + memória do dono): sem diagnóstico ("você tem X" é proibido); sem dose nem conduta;
+# NENHUM link; fonte só pelo nome; SEM prazo da ANS; sem promessa de cobertura; frases curtas (até 20 palavras).
+# Propósito da Helena: navegadora de saúde. Na dúvida, uma pessoa (equipe) — nunca inventar.
+#
+# Variáveis:
+#   {queixa}         campo "queixa" da entrada do mapa (já em linguagem leiga, minúscula).
+#   {especialista}   nome leigo com artigo, da tabela nomes_leigos abaixo (ex.: "o neurologista").
+#   {especialista2}  segundo nome leigo, quando a entrada tem dois especialistas comuns.
+# Ordem de uso: (1) a triagem/alerta universal roda ANTES; (2) a Helena escolhe UM modelo abaixo;
+# (3) junta a frase de como marcar; (4) termina SEMPRE com a frase de segurança.
+
+versao: "0.1-rascunho-dev"
+revisao_medica: pendente
+
+# ---------------------------------------------------------------------------------------------------------------
+# 1. Modelos principais
+# ---------------------------------------------------------------------------------------------------------------
+modelos:
+  padrao:
+    uso: "entrada com especialista_depois definido e lacuna: false"
+    texto: "Para {queixa}, o especialista costuma ser {especialista}. O clínico geral também pode fazer a primeira avaliação e encaminhar, se for preciso."
+
+  dois_especialistas:
+    uso: "entrada com dois especialistas comuns (ex.: tontura -> otorrino ou neurologista; perda de urina -> ginecologista ou urologista)"
+    texto: "Para {queixa}, quem costuma cuidar é {especialista} ou {especialista2}, conforme o caso. O clínico geral pode fazer a primeira avaliação e indicar o mais adequado."
+
+  clinico_primeiro:
+    uso: "lacuna: true ou parcial, ou quando a fonte pede o primeiro cuidado com o clínico"
+    texto: "Para {queixa}, um bom começo é o clínico geral ou o médico de família. Se for preciso, ele encaminha para {especialista}."
+
+  nao_sei:
+    uso: "queixa que não bate com nenhuma entrada do mapa"
+    texto: "Para isso, o melhor começo é o clínico geral ou o médico de família. Ele avalia e, se for preciso, indica o especialista certo."
+
+  crianca:
+    uso: "regra esp-regra-crianca (qualquer queixa de criança ou adolescente)"
+    texto: "Para crianças e adolescentes, a porta de entrada é o pediatra. Ele avalia e, se for preciso, encaminha para um especialista."
+
+  idoso:
+    uso: "regra esp-regra-idoso"
+    texto: "Para a pessoa idosa, o clínico geral, o médico de família ou o geriatra cuidam da saúde como um todo. Eles organizam os encaminhamentos."
+
+  gestante:
+    uso: "regra esp-regra-gestante (qualquer queixa na gravidez ou logo após o parto)"
+    texto: "Na gravidez, conte sobre {queixa} ao obstetra que acompanha o seu pré-natal. Ele avalia e, se for preciso, indica outro especialista."
+
+  dentista:
+    uso: "grupo boca_dentes com porta dentista"
+    texto: "Para {queixa}, quem cuida é o dentista. Para saber onde marcar, fale com a central de atendimento."
+    nota: "Não usar a frase de marcação padrão: atendimento odontológico depende do plano e a Helena não promete cobertura."
+
+  saude_mental:
+    uso: "ansiedade, tristeza, insônia, álcool e drogas (depois do protocolo mental-*)"
+    texto: "Para {queixa}, podem ajudar o psiquiatra e o psicólogo. O clínico geral ou o médico de família também podem começar o cuidado e encaminhar."
+
+  area_de_atuacao:
+    uso: "quando o especialista é área de atuação do CFM sem arquivo na base (Dor, Medicina do sono)"
+    texto: "Para {queixa}, existem médicos com formação em {especialista}. O clínico geral pode avaliar primeiro e indicar quem procurar."
+
+# ---------------------------------------------------------------------------------------------------------------
+# 2. Como marcar (sempre logo depois do modelo, exceto no modelo "dentista")
+# ---------------------------------------------------------------------------------------------------------------
+como_marcar:
+  texto: "Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento."
+  proibido_acrescentar:
+    - prazo de atendimento (nem o da ANS, nem estimativa)
+    - link ou endereço de site
+    - 'dizer que o plano cobre, que está coberto ou que não precisa de autorização'
+
+# ---------------------------------------------------------------------------------------------------------------
+# 3. Frases de segurança (a ÚLTIMA frase de toda resposta deste protocolo)
+# ---------------------------------------------------------------------------------------------------------------
+seguranca:
+  padrao: "Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+  saude_mental: "Se vierem pensamentos de se machucar ou de não querer viver, ligue 188 (CVV) ou 192. Você não está sozinho."
+  crianca: "Se a criança piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+  gestante: "Se piorar ou aparecer algum sinal de alerta, procure a maternidade ou ligue 192."
+
+# ---------------------------------------------------------------------------------------------------------------
+# 4. Ponte com a triagem (quando a pessoa descreve sintoma, não só pergunta o especialista)
+# ---------------------------------------------------------------------------------------------------------------
+ponte_triagem:
+  antes_de_indicar: "Antes de indicar o especialista, quero ter certeza de que não é caso de atendimento hoje. Posso fazer uma pergunta rápida?"
+  depois_sem_alerta: "Obrigada. Pelo que você contou, dá para marcar uma consulta."
+  nota: "As perguntas vêm dos protocolos tri-* (no máximo 4). Se algum sinal der SIM, a Helena segue o destino da triagem e NÃO usa este protocolo."
+
+# ---------------------------------------------------------------------------------------------------------------
+# 5. Exemplos montados (para teste do dono; conferir tom)
+# ---------------------------------------------------------------------------------------------------------------
+exemplos:
+  - entrada: esp-queixa-dor-de-cabeca
+    resposta: "Para dor de cabeça que volta ou não passa, o especialista costuma ser o neurologista. O clínico geral também pode fazer a primeira avaliação e encaminhar, se for preciso. Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+  - entrada: esp-queixa-tontura-vertigem
+    resposta: "Para tontura ou vertigem, quem costuma cuidar é o otorrinolaringologista ou o neurologista, conforme o caso. O clínico geral pode fazer a primeira avaliação e indicar o mais adequado. Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+  - entrada: esp-queixa-insonia
+    resposta: "Para insônia ou dificuldade para dormir, um bom começo é o clínico geral ou o médico de família. Se for preciso, ele encaminha para o psiquiatra. Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+  - entrada: esp-regra-crianca
+    resposta: "Para crianças e adolescentes, a porta de entrada é o pediatra. Ele avalia e, se for preciso, encaminha para um especialista. Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento. Se a criança piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+
+# ---------------------------------------------------------------------------------------------------------------
+# 6. Nomes leigos (CFM -> como a Helena fala). Usar com artigo.
+# ---------------------------------------------------------------------------------------------------------------
+nomes_leigos:
+  "Clínica médica": "o clínico geral"
+  "Medicina de família e comunidade": "o médico de família"
+  "Pediatria": "o pediatra"
+  "Geriatria": "o geriatra"
+  "Ginecologia e obstetrícia": "o ginecologista"          # na gestação: "o obstetra"
+  "Mastologia": "o mastologista"
+  "Cardiologia": "o cardiologista"
+  "Pneumologia": "o pneumologista"
+  "Neurologia": "o neurologista"
+  "Neurocirurgia": "o neurocirurgião"
+  "Otorrinolaringologia": "o otorrinolaringologista (otorrino)"
+  "Oftalmologia": "o oftalmologista"
+  "Gastroenterologia": "o gastroenterologista"
+  "Coloproctologia": "o coloproctologista (proctologista)"
+  "Cirurgia geral": "o cirurgião geral"
+  "Cirurgia do aparelho digestivo": "o cirurgião do aparelho digestivo"
+  "Cirurgia vascular": "o cirurgião vascular"
+  "Angiologia": "o angiologista"
+  "Cirurgia plástica": "o cirurgião plástico"
+  "Cirurgia da mão": "o cirurgião de mão"
+  "Cirurgia de cabeça e pescoço": "o cirurgião de cabeça e pescoço"
+  "Cirurgia torácica": "o cirurgião torácico"
+  "Urologia": "o urologista"
+  "Nefrologia": "o nefrologista"
+  "Endocrinologia e metabologia": "o endocrinologista"
+  "Hematologia e hemoterapia": "o hematologista"
+  "Reumatologia": "o reumatologista"
+  "Ortopedia e traumatologia": "o ortopedista"
+  "Dermatologia": "o dermatologista"
+  "Psiquiatria": "o psiquiatra"
+  "Infectologia": "o infectologista"
+  "Alergia e imunologia": "o alergista"
+  "Medicina do trabalho": "o médico do trabalho"
+  "Medicina física e reabilitação": "o fisiatra"
+  "Genética médica": "o geneticista"
+  "Acupuntura": "o médico acupunturista"
+  "Nutrologia": "o nutrólogo"
+  "Área de atuação Dor": "tratamento da dor"               # modelo area_de_atuacao
+  "Área de atuação Medicina do sono": "medicina do sono"   # modelo area_de_atuacao
+  # profissões (não médicas)
+  "Psicologia": "o psicólogo"
+  "Odontologia": "o dentista"
+  "Fonoaudiologia": "o fonoaudiólogo"
+  "Fisioterapia": "o fisioterapeuta"
+  "Nutrição": "o nutricionista"
+
+# ---------------------------------------------------------------------------------------------------------------
+# 7. O que a Helena NUNCA diz neste protocolo (para os testes de cerca de saída)
+# ---------------------------------------------------------------------------------------------------------------
+proibido:
+  - 'diagnóstico: "você tem ...", "isso é ...", "parece ser ..."'
+  - 'conduta: "tome ...", "use ...", qualquer remédio, dose ou exame a fazer'
+  - 'minimizar: "não é grave", "é normal", "pode esperar"' 
+  - prazo da ANS ou qualquer prazo para conseguir consulta
+  - link, endereço de site ou QR code
+  - 'cobertura: "o plano cobre", "tem cobertura", "está no rol"'
+  - 'ordem de rota: "você precisa ir direto ao especialista" (o campo quando_vai_direto_ao_especialista é de uso interno)' 
+  - ler para a pessoa a lista de sinais de emergência do mapa (quem pergunta é a triagem)

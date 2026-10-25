@@ -1,0 +1,50 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-diarreia-e-vomito
+tema: triagem_adultos
+titulo: "Diarreia e vômito"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com diarreia"
+  - "não paro de vomitar"
+  - "estou com dor de barriga e indo toda hora ao banheiro"
+  - "acho que comi algo estragado"
+  - "estou com virose"
+  - "estou enjoado e vomitando"
+  - "intestino solto desde ontem"
+  - "tudo o que eu como eu vomito"
+  - "estou com intoxicação alimentar"
+perguntas_de_alerta:
+  - pergunta: "Você está muito fraco, desmaiou, ou está confuso, muito pálido e suando frio?"
+    sinal: choque_ou_alteracao_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.5, Figura 8 (sinais de choque, alteração do nível de consciência = atendimento médico imediato e acionar serviço móvel de urgência)"
+  - pergunta: "Você vomitou sangue ou algo parecido com borra de café, ou as fezes estão pretas ou com sangue?"
+    sinal: sangramento_digestivo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.5, Figura 8 (hematêmese, hematoquezia, melena ou retorragia = atendimento médico imediato) e Quadro 21 (sangue no vômito sugere hemorragia digestiva alta)"
+  - pergunta: "Você está com uma dor de barriga muito forte?"
+    sinal: dor_severa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.5, Figura 8 (dor severa = atendimento médico imediato)"
+  - pergunta: "Você não consegue beber nada sem vomitar, ou está com sinais de desidratação (boca muito seca, muita sede, quase sem urinar), ou a diarreia está muito intensa?"
+    sinal: vomitos_persistentes_ou_desidratacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.5, Figura 8 (diarreia intensa, sinais de desidratação, vômitos persistentes = atendimento prioritário), Quadro 16 (sinais de desidratação) e texto 'Vômitos – Tratamento' (vômitos incoercíveis ou desidratação → serviço de urgência)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Gastroenterologia"
+  fonte: "TelessaúdeRS Gastroenterologia Adulto (3ª ed., 2025), Protocolo 13 – Diarreia (diarreia há mais de 4 semanas); Resolução CFM 2.380/2024"
+orientacao_final: "Na maioria das vezes, diarreia e vômito passam em poucos dias. O mais importante é beber líquidos aos poucos e com frequência. Não use remédio para 'prender' a diarreia sem orientação. Se durar mais de alguns dias, procure o clínico. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.5 Diarreia e vômito (Quadros 16 e 21; Figura 8; 'Importante' sobre medicamentos para cortar a diarreia)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Gastroenterologia Adulto (3ª ed., 2025)"
+    secao: "Protocolo 13 – Diarreia"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando não chamar (vômito e diarreia)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

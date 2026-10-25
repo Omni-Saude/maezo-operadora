@@ -1,0 +1,43 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-5-12a-convulsao
+tema: triagem_criancas
+titulo: "Convulsão na criança de 5 a 12 anos"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "meu filho teve uma convulsão"
+  - "a criança desmaiou e tremeu"
+  - "minha filha teve uma crise de epilepsia"
+  - "ficou dura e babando"
+  - "a criança teve um ataque na escola"
+  - "revirou os olhos e caiu"
+  - "crise convulsiva"
+  - "meu filho epiléptico teve crise"
+perguntas_de_alerta:
+  - pergunta: "Está tendo a crise agora, ou depois dela a criança não acordou ou não responde?"
+    sinal: convulsao_ativa_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão) – convulsão ou perda da consciência; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas"
+  - pergunta: "Ela ficou roxa, está com dificuldade para respirar, ou se machucou muito na queda?"
+    sinal: cianose_respiracao_ou_trauma
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 – Quando chamar (MS, página gov.br) – problemas cardiorrespiratórios, acidentes/traumas com vítimas"
+  - pergunta: "Foi a primeira convulsão da vida dela, ou veio junto com febre, dor de cabeça forte ou batida na cabeça?"
+    sinal: primeira_crise_ou_febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão); Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.3 Crise epiléptica e epilepsia (p. 39-48: primeira crise exige avaliação)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se a crise não parar ou a criança não acordar, ligue 192. Se ela já tem epilepsia e a crise foi igual às de costume, avise o médico que a acompanha. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.3 (p. 39-48)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; SAMU gov.br: CC BY-ND 3.0 (sem derivação; usado só como referência); Caderno 28: reprodução citando a fonte, não comercial — pendente jurídico"

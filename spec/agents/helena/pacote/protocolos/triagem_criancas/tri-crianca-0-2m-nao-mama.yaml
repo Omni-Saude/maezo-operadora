@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-nao-mama
+tema: triagem_criancas
+titulo: "Bebê com menos de 2 meses que não mama ou mama mal"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "meu bebê não quer mamar"
+  - "o neném não pega o peito"
+  - "recém-nascido está mamando muito pouco"
+  - "bebê recusando a mamadeira"
+  - "meu filho de 3 semanas não está mamando direito"
+  - "o bebê dorme e não mama"
+  - "neném está fraco para sugar"
+  - "bebê parou de mamar"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "Ele não consegue mamar nada ou vomita tudo o que mama?"
+    sinal: nao_mama_ou_vomita_tudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – não consegue mamar; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – não consegue mamar ou beber nada, vomita tudo"
+  - pergunta: "Ele está respirando muito rápido ou com esforço: gemendo a cada respiração, abrindo e fechando as narinas, ou a pele embaixo das costelas afunda quando ele puxa o ar?"
+    sinal: dificuldade_para_respirar
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – cansaço, dificuldade ou respiração muito rápida; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – tiragem subcostal grave, batimento de asas do nariz, gemido, FR ≥ 60"
+  - pergunta: "Você mediu a temperatura e deu 37,5 °C ou mais, ou o bebê está frio (35,5 °C ou menos)?"
+    sinal: febre_ou_hipotermia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – febre ≥ 37,5 °C e temperatura ≤ 35,5 °C; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – temperatura axilar < 36 °C ou ≥ 37,5 °C"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Bebê pequeno que mama mal precisa ser avaliado no mesmo dia. Se o problema for a pega ou a amamentação, a equipe de saúde também pode ajudar. Não ofereça chá ou água no lugar do leite. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – menores de 2 meses)"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126); §12.6.2 (p. 215-216)"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 24 (amamentação)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial — pendente jurídico"

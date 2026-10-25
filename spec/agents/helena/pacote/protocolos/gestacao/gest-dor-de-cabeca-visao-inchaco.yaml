@@ -1,0 +1,48 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-dor-de-cabeca-visao-inchaco
+tema: gestacao
+titulo: "Dor de cabeça forte, visão turva ou inchaço na gestação (pré-eclâmpsia)"
+publico: gestante
+como_a_pessoa_fala:
+  - "estou grávida com dor de cabeça forte"
+  - "minha vista está embaçada na gravidez"
+  - "estou vendo pontinhos brilhantes"
+  - "meu rosto inchou de repente"
+  - "minhas mãos e pés incharam muito"
+  - "dor no estômago e dor de cabeça grávida"
+  - "minha pressão subiu na gravidez"
+  - "medo de pré-eclâmpsia"
+  - "dor de cabeça que não passa com 34 semanas"
+perguntas_de_alerta:
+  - pergunta: "Você teve convulsão ou desmaio, ou está confusa ou difícil de acordar?"
+    sinal: eclampsia_ou_alteracao_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41: eclâmpsia é emergência que coloca em risco a vida); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – convulsões, desmaio; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 3 (p. 40) – laranja: alteração de consciência"
+  - pergunta: "A dor de cabeça é forte ou diferente do habitual, ou você está com visão embaçada, pontos luminosos, flashes ou escurecimento da vista?"
+    sinal: cefaleia_ou_alteracao_visual
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 3 (p. 40) – laranja: PA ≥ 140/90 com sintomas; dor intensa de início abrupto; perda da visão"
+  - pergunta: "Está com dor forte na parte de cima da barriga, logo abaixo das costelas ou entre as mamas?"
+    sinal: dor_epigastrica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 3 (p. 40) – laranja: PA ≥ 140/90 com dor de estômago"
+  - pergunta: "Teve inchaço de repente no rosto, nas mãos ou nas pernas?"
+    sinal: edema_subito
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – inchaço repentino; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 42)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "A pressão alta na gestação pode não dar sintomas no começo, por isso é importante medir a pressão ainda hoje e não faltar às consultas de pré-natal. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§4.4.1 Hipertensão, pré-eclâmpsia e eclâmpsia (p. 41-42)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 3 – Dor de cabeça, tontura, vertigem (p. 40)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

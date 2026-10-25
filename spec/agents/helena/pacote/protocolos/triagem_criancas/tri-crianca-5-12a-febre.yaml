@@ -1,0 +1,49 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-5-12a-febre
+tema: triagem_criancas
+titulo: "Febre na criança de 5 a 12 anos"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "meu filho de 7 anos está com febre"
+  - "minha filha de 10 anos com 39 graus"
+  - "febre que não baixa na criança"
+  - "criança com febre e dor no corpo"
+  - "acho que meu filho está com dengue"
+  - "febre há 4 dias"
+  - "a febre volta toda noite"
+  - "criança com febre e dor de cabeça"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão, está desmaiada ou não acorda, ou está com muita dificuldade para respirar (lábios roxos, sem conseguir falar)?"
+    sinal: convulsao_inconsciente_ou_respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão); SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas, problemas cardiorrespiratórios"
+  - pergunta: "Ela está muito sonolenta ou confusa, não consegue beber nada, ou vomita tudo o que come e bebe?"
+    sinal: sinal_geral_de_perigo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão)"
+  - pergunta: "Ela está com o pescoço duro (dói ou não consegue encostar o queixo no peito), ou apareceram manchas roxas ou pontinhos vermelho-arroxeados que não somem?"
+    sinal: sinal_meningeo_ou_petequias
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão) – manchas avermelhadas ou arroxeadas; Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.10 (p. 108: sinais meníngeos → hospital); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 12-13 (rigidez de nuca, petéquias – por analogia, quadro até 5 anos)"
+  - pergunta: "Principalmente quando a febre começa a baixar: ela está com dor forte na barriga que não passa, vômitos que não param, sangramento pela gengiva ou nariz, ou muito sonolenta ou muito irritada?"
+    sinal: sinais_de_alarme_dengue
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024), §2.2.1 Quadro 1 (p. 12-13: sinais de alarme) e §2.4 (p. 18: na criança o agravamento é súbito)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça bastante líquido e deixe a criança descansar com roupa leve. Não dê remédio por conta própria sem orientação. Febre que dura vários dias, ou que vai e volta, precisa ser avaliada pelo pediatra. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024)"
+    secao: "§2.2.1 Quadro 1 (p. 12-13); §2.4 (p. 18)"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.10 (p. 108)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 12-13 (por analogia)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; Dengue 2024: CC BY-NC-SA 4.0 (versão preliminar); Caderno 28: reprodução citando a fonte, não comercial; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

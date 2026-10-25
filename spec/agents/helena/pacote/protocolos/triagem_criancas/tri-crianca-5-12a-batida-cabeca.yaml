@@ -1,0 +1,46 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-5-12a-batida-cabeca
+tema: triagem_criancas
+titulo: "Queda ou batida na cabeça (5 a 12 anos)"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "meu filho bateu a cabeça na escola"
+  - "a criança caiu da bicicleta"
+  - "minha filha caiu e bateu a cabeça"
+  - "bateu a cabeça jogando bola"
+  - "caiu do beliche"
+  - "galo na cabeça"
+  - "bateu a cabeça e está com dor"
+  - "caiu do muro"
+perguntas_de_alerta:
+  - pergunta: "Depois da batida, ela teve convulsão ou está difícil de acordar / não responde?"
+    sinal: convulsao_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito) – convulsão, sonolência excessiva; SAMU 192 – Quando chamar (MS, página gov.br) – acidentes/traumas com vítimas"
+  - pergunta: "Ela desmaiou, mesmo que por pouco tempo, vomitou 3 vezes ou mais, ou saiu sangue ou líquido claro pelo nariz ou pelo ouvido?"
+    sinal: sinais_de_alerta_tce
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito)"
+  - pergunta: "Ela está confusa, muito irritada, com a fala enrolada, fraqueza num braço ou perna, dificuldade para andar ou vendo dobrado?"
+    sinal: alteracao_neurologica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito)"
+  - pergunta: "A queda foi de mais de 1,5 m de altura?"
+    sinal: mecanismo_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'O que é considerado um mecanismo de trauma grave?' (reescrito) – altura acima de 1,5 m em maiores de 2 anos"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se a criança está bem, ela pode dormir normalmente, mas observe de perto nas próximas horas. Evite esportes e brincadeiras de impacto até ser avaliada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025)"
+    secao: "Quando devo levar meu filho ao hospital?; mecanismo de trauma grave"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "SBP direitos reservados: reescrito, pedir autorização; SAMU gov.br: CC BY-ND 3.0 (só referência)"

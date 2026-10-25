@@ -1,0 +1,50 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-sinusite-gripe
+tema: triagem_adultos
+titulo: "Gripe, resfriado e sinusite"
+publico: adulto
+como_a_pessoa_fala:
+  - "tô gripado"
+  - "estou com febre, tosse e dor no corpo"
+  - "acho que estou com sinusite"
+  - "nariz entupido e dor na testa"
+  - "estou com coriza e espirrando muito"
+  - "dor no rosto e catarro amarelo"
+  - "resfriado que não passa"
+  - "estou com sintomas de gripe faz uma semana"
+  - "tosse e febre desde ontem"
+  - "minha cabeça pesa quando abaixo, acho que é sinusite"
+perguntas_de_alerta:
+  - pergunta: "Você está com muita falta de ar ou respirando muito rápido, ou está confuso, muito sonolento, teve convulsão ou perdeu a força de algum lado do corpo?"
+    sinal: falta_de_ar_grave_ou_alteracao_neurologica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.18, Figura 39 (fluxograma síndrome gripal), p. 174, e 'Avaliação em adultos' (sinais de alerta)"
+  - pergunta: "Apareceu inchaço em volta do olho ou na bochecha, o olho ficou saltado, a visão mudou, ou você está com o pescoço duro?"
+    sinal: complicacao_de_sinusite
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.18, Quadro 57 e 'Quando encaminhar'; TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 3 – Rinossinusite (urgência/emergência)"
+  - pergunta: "Você está com febre, ou tem 60 anos ou mais, está grávida, tem doença crônica (coração, pulmão, rim, fígado, diabetes, obesidade grave) ou imunidade baixa?"
+    sinal: febre_ou_grupo_de_risco
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.18, Figura 39 (atendimento prioritário: febre, fatores e grupos de risco), p. 174; 'Fatores e grupos de risco'"
+  - pergunta: "Os sintomas já passaram de 10 dias sem melhorar, ou melhoraram e depois pioraram de novo depois do quinto dia?"
+    sinal: sintomas_persistentes_ou_piora_tardia
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.18, Quadro 54 (sinais sugestivos de rinossinusite bacteriana)"
+# Caderno: história de febre/tosse sem sinais = "atendimento no dia"; adaptado para CONSULTA_EM_BREVE (decisão a validar pelo médico)
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Otorrinolaringologia"
+  fonte: "TelessaúdeRS Otorrinolaringologia Adulto (2023), Protocolo 3 – Rinossinusite (sinusite crônica ou recorrente); Resolução CFM 2.380/2024"
+orientacao_final: "Gripe e resfriado costumam melhorar sozinhos em alguns dias. Descanse, beba bastante líquido e evite contato próximo com outras pessoas enquanto estiver com sintomas. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.18 Rinossinusites/síndromes gripais (Quadros 54, 55, 57; Figura 39; Avaliação em adultos)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Otorrinolaringologia Adulto (2023)"
+    secao: "Protocolo 3 – Rinossinusite"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

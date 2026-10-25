@@ -1,0 +1,49 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-ao-urinar
+tema: triagem_adultos
+titulo: "Dor ou ardência para urinar"
+publico: adulto
+como_a_pessoa_fala:
+  - "está ardendo para fazer xixi"
+  - "dor ao urinar"
+  - "acho que estou com infecção urinária"
+  - "estou com cistite"
+  - "vontade de urinar toda hora e sai pouquinho"
+  - "meu xixi está com cheiro forte"
+  - "dificuldade para urinar"
+  - "queimação no xixi"
+  - "dor no pé da barriga quando urino"
+perguntas_de_alerta:
+  - pergunta: "Você (ou a pessoa) está confusa, muito sonolenta, desmaiando, ou muito pálida e suando frio?"
+    sinal: choque_ou_alteracao_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.7, Figura 13 (sinais de choque, alteração do nível de consciência, pessoa não responsiva = atendimento médico imediato e acionar serviço móvel de urgência)"
+  - pergunta: "Você está com febre, calafrios, dor forte nas costas ou no lado da barriga, ou vômitos?"
+    sinal: suspeita_de_infeccao_no_rim
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.7, Figura 13 (febre, febre alta, dor forte = atendimento prioritário) e texto 'Pielonefrite' (dor nos flancos, febre, náusea, vômito)"
+  - pergunta: "Você está vendo sangue na urina?"
+    sinal: hematuria_visivel
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.7, Figura 13 (hematúria franca = atendimento prioritário)"
+  - pergunta: "Você está grávida, tem diabetes, ou é homem?"
+    sinal: infeccao_urinaria_de_maior_risco
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.7 (em gestantes o tratamento é imprescindível; no diabético a infecção pode evoluir mais rápido para complicações; no homem a cistite é considerada infecção complicada e exige exames)"
+# Gestantes: o protocolo de gestação (gest-) tem prioridade quando a pessoa sabe que está grávida.
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Urologia"
+  fonte: "TelessaúdeRS Urologia Adulto (2023), Protocolos 1 – Sintomas do trato urinário inferior e 9 – Infecção urinária recorrente (Nefrologia ou Ginecologia conforme a causa); Resolução CFM 2.380/2024"
+orientacao_final: "Ardência para urinar costuma ser resolvida pelo clínico, mas precisa de avaliação nos próximos dias; não use antibiótico por conta própria. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.7 Disúria (Figura 13; Pielonefrite; populações especiais)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Urologia Adulto (2023)"
+    secao: "Protocolo 1 – Sintomas do trato urinário inferior; Protocolo 9 – Infecção urinária recorrente"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

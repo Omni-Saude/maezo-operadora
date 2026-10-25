@@ -1,0 +1,41 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-bebe-mexendo-menos
+tema: gestacao
+titulo: "Bebê mexendo menos ou parou de mexer"
+publico: gestante
+como_a_pessoa_fala:
+  - "o bebê não está mexendo"
+  - "meu bebê parou de mexer"
+  - "não sinto o bebê desde cedo"
+  - "o bebê está mexendo bem menos"
+  - "estou com 30 semanas e não sinto o bebê"
+  - "o neném está quietinho na barriga"
+  - "faz horas que o bebê não se mexe"
+  - "fiquei preocupada, o bebê não mexe"
+perguntas_de_alerta:
+  - pergunta: "Além disso, você está com sangramento, dor forte na barriga, ou a barriga está dura o tempo todo?"
+    sinal: sangramento_ou_dor_intensa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 10 (p. 47) – laranja/amarelo: dor intensa; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – amarelo: ausência de movimentos fetais ≥ 22 semanas"
+  - pergunta: "Está com dor de cabeça forte ou diferente do habitual, visão embaçada, pontos luminosos ou escurecimento da vista, ou dor forte no estômago, logo abaixo das costelas?"
+    sinal: sinais_de_pre_eclampsia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41-42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), fluxogramas 2-8 (laranja: PA ≥ 140/90 com dor de cabeça, de estômago ou alterações visuais)"
+  - pergunta: "Você está com 20 semanas ou mais e o bebê ficou mais de 4 horas sem se mexer, ou está mexendo bem menos que o normal?"
+    sinal: reducao_movimentos_fetais
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – mais de 4 horas sem se mexer após 20 semanas (buscar atendimento imediatamente); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 10 (p. 47) – amarelo: ausência ou redução por mais de 12 h com ≥ 26 semanas"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se tiver dúvida sobre os movimentos do bebê, procure avaliação: é melhor ser vista do que esperar. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 10 – Parada/redução de movimentos fetais (p. 47)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"
