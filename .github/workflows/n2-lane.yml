@@ -1,6 +1,8 @@
 name: N2 lane (ROOT manual)
 
-# Manual-only: the provider N2 served lane (scope v16, sealed parent n2fix-r14).
+# Manual-only: the provider N2 served lane (sealed parent ref taken from the
+# dispatched scope — tag-carrying scopes v24+, digest scopes fall back to the
+# tag the release's images.tar.gz loads).
 # Runs on a clock-stable hosted Linux runner — the local macOS/Colima host steps
 # its wall clock backward, which the instrument's anti-tamper correctly refuses.
 # Never on push/PR. Budget: ~30-40 min per dispatch.
@@ -47,6 +49,7 @@ jobs:
       - name: Download lane inputs (draft release)
         env:
           GH_TOKEN: ${{ github.token }}
+          N2_SCOPE: ${{ inputs.scope }}
         run: |
           gh release download "$N2_RELEASE" --repo "$GITHUB_REPOSITORY" \
             --pattern 'images.tar.gz' --pattern 'lane-harness.tar.gz' --dir /tmp
@@ -57,15 +60,34 @@ jobs:
           DJ
           sudo systemctl restart docker
           docker info --format 'containerd={{.DriverStatus}}'
-          docker load < /tmp/images.tar.gz
+          LOAD_OUT="$(docker load < /tmp/images.tar.gz)"
+          echo "$LOAD_OUT"
           docker pull postgres:16
           docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
           mkdir -p /tmp/lane-x && tar xzf /tmp/lane-harness.tar.gz -C /tmp/lane-x
           ls -la /tmp/lane-x/lane
+          # Sealed parent ref comes from the scope in use. Scopes v24+ carry
+          # candidate.sealed_parent_ref as a TAG (survives docker save/load);
+          # older scopes pin a @sha256 digest, which save/load re-identifies —
+          # for those, fall back to the tag this release's tarball just loaded.
+          N2_SCOPE_FILE="/tmp/lane-x/lane/${N2_SCOPE:-N2-LANE-SCOPE-v16.json}"
+          N2_PARENT_REF="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["candidate"]["sealed_parent_ref"])' "$N2_SCOPE_FILE")"
+          case "$N2_PARENT_REF" in
+            *@sha256:*)
+              LOADED_PARENT_TAG="$(sed -n 's/^Loaded image: maezo-provider-vertical-e0-parent://p' <<<"$LOAD_OUT" | head -n1)"
+              if [ -z "$LOADED_PARENT_TAG" ]; then
+                echo "FATAL: scope pins a digest but images.tar.gz loaded no maezo-provider-vertical-e0-parent tag" >&2
+                exit 1
+              fi
+              N2_PARENT_REF="maezo-provider-vertical-e0-parent:$LOADED_PARENT_TAG"
+              ;;
+          esac
+          echo "N2_PARENT_REF=$N2_PARENT_REF" >> "$GITHUB_ENV"
+          echo "N2_PARENT_REF=$N2_PARENT_REF"
           # repro probe for the docker-cp-from-created-container failure
           docker version --format 'client={{.Client.Version}} server={{.Server.Version}}'
           docker info --format 'driver={{.Driver}} status={{.DriverStatus}}'
-          docker create --name cp-probe maezo-provider-vertical-e0-parent:n2fix-r14 true
+          docker create --name cp-probe "$N2_PARENT_REF" true
           docker cp cp-probe:/camunda/BUILDING.txt /tmp/cp-probe-out.txt 2>&1 | head -3
           ls -la /tmp/cp-probe-out.txt 2>/dev/null || echo "CP-PROBE FAILED"
           docker rm -f cp-probe >/dev/null 2>&1 || true
@@ -79,10 +101,12 @@ jobs:
           sed -i "s|WORKTREE = Path(\"/Users/familia/code/maezo-operadora/.claude/worktrees/provider-implementation\")|WORKTREE = Path(\"$GITHUB_WORKSPACE\")|" "$LANE_DIR/runner.py"
           grep -n "^WORKTREE" "$LANE_DIR/runner.py"
           # save/load across storage drivers re-identifies the image (config digest
-          # changes) — @sha256 refs cannot survive the transport. Swap to the loaded
-          # tags; the CONTENT binding stays with the lane's own runtime sha pins
-          # (native_jar/support/instrument digests verified inside the container).
-          sed -i 's|maezo-provider-vertical-e0-parent@sha256:10ed013a2b6fe0d75eb8e302ff53450429a1842f545782539b8e230ae29cd652|maezo-provider-vertical-e0-parent:n2fix-r14|g; s|maezo-n2-collector@sha256:b6bfdf16a9500a962051a95e33ffb79070a74b18e9c9084a7872136654bca62c|maezo-n2-collector:v1|g' "$LANE_DIR/${N2_SCOPE:-N2-LANE-SCOPE-v16.json}"
+          # changes) — @sha256 refs cannot survive the transport, so swap them to the
+          # resolved N2_PARENT_REF (a no-op when the scope already carries the loaded
+          # tag, as v24+ scopes do); the CONTENT binding stays with the lane's own
+          # runtime sha pins (native_jar/support/instrument digests verified inside
+          # the container).
+          sed -i "s|maezo-provider-vertical-e0-parent@sha256:10ed013a2b6fe0d75eb8e302ff53450429a1842f545782539b8e230ae29cd652|${N2_PARENT_REF}|g; s|maezo-n2-collector@sha256:b6bfdf16a9500a962051a95e33ffb79070a74b18e9c9084a7872136654bca62c|maezo-n2-collector:v1|g" "$LANE_DIR/${N2_SCOPE:-N2-LANE-SCOPE-v16.json}"
           mkdir -p "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/root-successor-20261006/p3-rebuild/n2"
           gh release download "$N2_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern 'lane-extra.tar.gz' --dir /tmp
           tar xzf /tmp/lane-extra.tar.gz -C /tmp
