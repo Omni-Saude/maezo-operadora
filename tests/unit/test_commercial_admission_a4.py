@@ -51,6 +51,7 @@ from maezo.gateway.commercial_acceptance_admission import (
 )
 from maezo.gateway.commercial_admission import (
     CoverageGatedCodec,
+    SupportGatedCodec,
     compose_commercial_gateway,
     compose_public_catalog_gateway,
 )
@@ -264,6 +265,32 @@ def recovered_payload(state, reason=None):
 
 def operation_request(codec):
     return codec.parse_command(encode(envelope("operation.get", {"target_command_ref": "SYN-ORIGINAL"})))
+
+
+FAILED_ORIGINAL_REASONS = {
+    "denied": "purpose_denied",
+    "conflict": "stale_revision",
+    "uncertain": "reconciliation_required",
+    "unavailable": "source_unavailable",
+}
+
+
+def failed_original_result(status):
+    """The contract's non-succeeded `OriginalOperationalResult` variant (`data` is null)."""
+    return {
+        "schema_version": "omni-commercial.proposed.v1",
+        "status": status,
+        "operation_ref": "SYN-OP" if status == "uncertain" else None,
+        "reason_code": FAILED_ORIGINAL_REASONS[status],
+        "data": None,
+    }
+
+
+def failed_recovery_payload(status):
+    """Source wire for `operation.get` whose recovered `journey.get` did not succeed."""
+    data = recovery("journey.get", {})
+    data["original_result"] = failed_original_result(status)
+    return encode(outcome(data))
 
 
 def test_frozen_contract_pin_lineage(schema_bytes):
@@ -505,6 +532,73 @@ def test_recovered_unknown_rendering_stays_byte_exact(schema_bytes):
     parsed = codec.parse_result(recovered_payload("unknown", "source_unavailable"), operation_request(codec))
     disclosed = json.loads(parsed.wire_bytes)["data"]["original_result"]["data"]["journeys"][0]["coverage"]
     assert disclosed == coverage_arm("unknown", "source_unavailable")
+
+
+@pytest.mark.parametrize("status", ["denied", "conflict", "uncertain", "unavailable"])
+def test_recovered_original_that_did_not_succeed_passes_byte_exact(schema_bytes, status):
+    # The recovery envelope's non-succeeded `OriginalOperationalResult` variant (contract
+    # status enum {denied, conflict, uncertain, unavailable}) carries `data: null` — no
+    # coverage arm exists in it to gate — so the gated codec returns exactly what the
+    # plain wire returns: no TypeError, no refusal, no synthesized replacement.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    reference = CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins())
+    payload = failed_recovery_payload(status)
+    command = operation_request(codec)
+    assert codec.parse_result(payload, command) == reference.parse_result(payload, command)
+
+
+@pytest.mark.parametrize("status", ["denied", "conflict", "uncertain", "unavailable"])
+def test_composed_gates_pass_a_failed_original_byte_exact(schema_bytes, status):
+    # The shipped composition wraps the coverage gate in the support gate, so the same
+    # non-succeeded shape has to cross BOTH closed dimensions byte-exact — the repair is
+    # pinned on the composition the gateway actually wires, not on the inner codec alone.
+    wire = CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins())
+    codec = SupportGatedCodec(CoverageGatedCodec(wire, gated=True), gated=True)
+    reference = CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins())
+    payload = failed_recovery_payload(status)
+    command = operation_request(codec)
+    assert codec.parse_result(payload, command) == reference.parse_result(payload, command)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["denied", "uncertain"])
+async def test_gateway_serves_a_recovered_failed_original_without_custody_error(schema_bytes, status):
+    # End to end: the recovery POST dispatches exactly once and the source's own answer —
+    # an original that did not succeed, `data: null` — is disclosed byte-exact with 200.
+    # Before the guard hardening this path died inside a codec TypeError that the
+    # gateway's `except Exception` converted into the custody family
+    # `uncertain/reconciliation_required`: fail-closed, but an error where the contract
+    # ships an answer.
+    calls = []
+    data = recovery("journey.get", {})
+    data["original_result"] = failed_original_result(status)
+
+    def transport(request):
+        calls.append(request)
+        command = json.loads(request.content)["command"]
+        body = outcome(data) if command == "operation.get" else wire_result()
+        return httpx.Response(200, json=body)
+
+    scope_authority = JourneyScopeAuthority()
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=scope_authority,
+        source_authority=CurrentResultSource(scope_authority.scope),
+        delivery_origins=DeliveryOrigins(),
+        sales_admission=a2_admission(),
+        transport=httpx.MockTransport(transport),
+    )
+    app.include_router(commercial_router)
+    served = await post_command(app, envelope("operation.get", {"target_command_ref": "SYN-ORIGINAL"}))
+    assert served.status_code == 200
+    body = served.json()
+    assert body["status"] == "succeeded"
+    assert body["data"]["original_result"]["status"] == status
+    assert body["data"]["original_result"]["data"] is None
+    assert len(calls) == 1  # one dispatch: the recovery read itself, never a replay
 
 
 def test_recovery_of_other_commands_is_untouched_by_the_gate(schema_bytes):
