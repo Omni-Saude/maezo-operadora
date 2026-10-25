@@ -50,6 +50,7 @@ import structlog
 
 from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
+from maezo.gateway.commercial_suppression_admission import SuppressionAdmission
 from maezo.gateway.seams import SeamContext, rate_limit_configured
 from maezo.gateway.seams.dmn import GatedDmnTransport
 from maezo.gateway.seams.fhir import GatedFhirReader
@@ -62,6 +63,7 @@ from maezo.gateway.tool_registry import (
     build_worker_seam_context,
     effect_seams_gated,
 )
+from maezo.gateway.vendor_suppression import SuppressionStore
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import (
@@ -268,6 +270,8 @@ def register_default_workers(
     kafka: AioKafkaEventsProducer | None = None,
     dossier_dispatcher: DelegationDispatcher | None = None,
     document_request_host_installed: bool = False,
+    suppression_admission: SuppressionAdmission | None = None,
+    suppression_store: SuppressionStore | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -321,8 +325,28 @@ def register_default_workers(
     all three handlers fail-neutral with a disclosed gap marker; the human User Tasks always
     still open.
 
+    `suppression_admission` + `suppression_store` (admission A6 — GP11 não-contato,
+    `gateway/commercial_suppression_admission`): the REGISTERED key the GP11 execution
+    dimension opens. Without the parsed `SuppressionAdmission` the composition NEVER
+    threads the `suppression_store` seam — `vendor.suppression.verify_subject` keeps
+    refusing `ERR_SUPP_SUBJECT_UNRESOLVED` (UNKNOWN, never zero) on every tick, the
+    shipped fail-closed state — and threading a store WITHOUT the admission is a
+    composition bug refused LOUD at boot (`ValueError("commercial_suppression_admission_invalid")`).
+    The record opens the source seam only: it never fabricates a source (an admission
+    without a store keeps the per-tick refusal) and never touches the effect PEP —
+    `SP-OP-SUPP-001` stays agent-unstartable by design (`KNOWN_PROCESS_KEYS`, ADR-0016
+    at 15). The admitted `honrado` clock transition still demands the honored-list
+    evidence (`vendor_suppression.HonoredListEvidence`) — `registered ≠ honored` is
+    structural, not admission-conditional.
+
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
+    if suppression_store is not None and (
+        suppression_admission is None or suppression_admission.admission_id != "A6"
+    ):
+        # The registered A6 record is the ONLY key; an object of another admission family
+        # (or a bare store) never threads the GP11 seam — loud at boot, never a silent serve.
+        raise ValueError("commercial_suppression_admission_invalid")
     register_all_workers(
         harness,
         dmn=dmn,
@@ -333,6 +357,9 @@ def register_default_workers(
         kafka=kafka,
         dossier_dispatcher=dossier_dispatcher,
         document_request_host_installed=document_request_host_installed,
+        # A6: the store rides the same `**seams` catch-all every bootstrap already accepts;
+        # only a composition holding the REGISTERED A6 admission may pass it at all.
+        **({"suppression_store": suppression_store} if suppression_store is not None else {}),
     )
 
 

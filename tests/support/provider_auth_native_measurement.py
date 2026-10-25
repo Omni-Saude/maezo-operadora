@@ -87,8 +87,33 @@ _SNAPSHOT_SQL = (
 # witness 'in progress' while the fresh T2 snapshot no longer lists it. This
 # re-reads the SAME commit-log verdict exactly once, after the snapshot, on the
 # same connection inside the same read-only transaction: one statement, never a
-# retry, never a wait, never a poll.
+# retry, never a poll.
+#
+# v26 (ADENDO 2) T3-deferred: the v25 T3 ran at T2+ε and LOST the race against
+# the commit itself (run 40160133432 read the 'in progress' literal ~1-3 ms
+# before the commit became visible). The disambiguating read therefore happens
+# only after ONE unconditional, bounded, protocol-derived wait below — the
+# commit-log verdict is terminal there, so a single read decides. Doctrine
+# (clarified, unchanged in force): an unconditional bounded wait scheduled once
+# before the single decisive read is AGENDAMENTO, not retry/poll — the
+# prohibited patterns are conditional or unbounded re-reads, and none exist
+# here: no condition gates the wait on a previous verdict, and the read runs
+# exactly once.
 _STRADDLE_SQL = "SELECT pg_catalog.txid_status($1::bigint) AS witness_xact_status"
+# T3' deferral (ADENDO 2, REFUSAL-63-CLASSIFICATION-v1.md, option 1 — sanctioned
+# repair of the v25 run 40160133432 failure): the measured physics of the
+# protocol pins emit->commit at +35.4 / +36.3 / +37.2 ms across three runs,
+# stable at ±1 ms (ADENDO 2 §B.2/§B.7 pins), while any immediate extra read
+# inside the post-emit hot window (~emit+[20,37] ms) disputes that same horizon
+# and lost it by <2 ms. The delay is ~5x the observed maximum commit horizon
+# (0.2 s / 37.2 ms ≈ 5.4), so the deferred verdict reads the clog AFTER the
+# commit is visible and is terminal. It is unconditional on the in-gap corner —
+# every path that reaches it waits the SAME delay, exactly once, never repeated
+# and never conditioned on any prior read — and bounded (Δ×18 ≈ 3.6 s/run, and
+# the per-read guard cap is untouched). A real commit slower than Δ is an
+# anomaly the T3' still reports correctly: the 'in progress' literal keeps the
+# exact refusal.
+_T3_DEFERRED_SECONDS: float = 0.2
 
 
 def sha(raw: bytes) -> str:
@@ -239,11 +264,16 @@ def installed_measurement_origin(
 #   that state stays non-decisive and refused. At THAT exact corner only,
 #   acquire_pg_checkpoint performs ONE further decisive read (T3) of the same
 #   commit-log verdict AFTER the snapshot, on the same connection inside the
-#   same single read-only observation — never retried, never waited, never
-#   polled. The exact committed literal admits through the T3 sub-source below;
-#   EVERY other T3 outcome is discarded and the T1 verdict keeps its exact
-#   refusal. Like the T1 verdict, the T3 value never enters the capture
-#   document; only the admitted source distinguishes it.
+#   same single read-only observation — never retried, never polled.
+#   v26/ADENDO 2 clarifies the wait doctrine: the T3 read is DEFERRED by one
+#   unconditional, bounded, protocol-derived delay (_T3_DEFERRED_SECONDS), so
+#   the verdict is read after the measured commit horizon and is terminal.
+#   Agendamento incondicional limitado ≠ retry/poll: no re-read loop, no
+#   conditional or repeated waiting exists. The exact committed literal admits
+#   through the T3 sub-source below; EVERY other T3 outcome is discarded and
+#   the T1 verdict keeps its exact refusal. Like the T1 verdict, the T3 value
+#   never enters the capture document; only the admitted source distinguishes
+#   it.
 XID_SOURCE_IN_PROGRESS = "pg_snapshot_xip-in-progress"
 XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
 # v25 REFUSAL-63 sub-source: a zero-candidate capture admitted by the T3
@@ -415,14 +445,20 @@ async def acquire_pg_checkpoint(
             row = dict(row)
             witness_status = row["witness_xact_status"]
             row["active_full_xids"] = list(snapshot_row["active_full_xids"])
-            # v25 REFUSAL-63: at the exact straddle corner only (T1 in progress,
-            # fresh snapshot without the assigned witness) ONE decisive re-read
-            # of the commit-log verdict runs AFTER the snapshot — same
-            # connection, same read-only transaction, no retry/wait/poll. The
-            # exact 'committed' literal admits via the T3 sub-source; every
-            # other outcome is discarded and the T1 verdict keeps its exact
-            # refusal inside full_xid().
+            # v25 REFUSAL-63, deferred per ADENDO 2: at the exact straddle
+            # corner only (T1 in progress, fresh snapshot without the assigned
+            # witness) ONE decisive re-read of the commit-log verdict runs AFTER
+            # the snapshot — same connection, same read-only transaction, no
+            # retry/wait/poll. The read is deferred by the unconditional,
+            # bounded _T3_DEFERRED_SECONDS wait (every path reaching this corner
+            # waits the same Δ exactly once, unconditioned on any prior read):
+            # v25 proved the immediate read loses the race against the commit
+            # itself (run 40160133432, commit = emit+37.2 ms vs T3 at T2+ε), so
+            # the deferred verdict is terminal. The exact 'committed' literal
+            # admits via the T3 sub-source; every other outcome is discarded and
+            # the T1 verdict keeps its exact refusal inside full_xid().
             if _witness_in_gap(row["active_full_xids"], witness_txid, witness_status):
+                await asyncio.sleep(_T3_DEFERRED_SECONDS)
                 straddle_status = await connection.fetchval(
                     _STRADDLE_SQL, int(witness_txid), timeout=remaining(guard)
                 )
