@@ -66,9 +66,13 @@ DEFAULTS_EXIGIDOS: tuple[tuple[Path, str, str, object], ...] = (
     (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+    # D-40 (2026-10-25): o painel staff READ-ONLY da area `administration` — a ligacao exige
+    # TAMBEM o perfil de capabilities que nomeia `staff_admin_read`, e o bootstrap SC1 de
+    # producao nao consegue nomea-lo; virar qualquer uma das duas chaves e ato da onda ROLL.
+    (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
 )
 
-#: As cinco flags dark do programa e os nomes de env EXATOS que as ligam. Os tres primeiros
+#: As seis flags dark do programa e os nomes de env EXATOS que as ligam. Os quatro primeiros
 #: derivam de `env_prefix` + campo (conferidos contra a arvore pela cerca 3); os dois ultimos
 #: sao constantes de modulo em `identity_bridges.py` (cerca 5). `bridge_flag_enabled` so'
 #: habilita com o literal `true` — OFF e' todo o resto, inclusive ausente.
@@ -76,6 +80,7 @@ ENV_FLAGS_PROGRAMA: tuple[str, ...] = (
     "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
     "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
     "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+    "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
     "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
     "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
 )
@@ -243,8 +248,9 @@ def main() -> int:
             print(f"  - {a}", file=sys.stderr)
         return 1
     print(
-        "check_program_dark_flags: ok — as 5 flags dark do programa com default literal OFF no "
-        "codigo, zero mencao em deploy/** e os nomes de env das pontes batendo com os pinos."
+        f"check_program_dark_flags: ok — as {len(ENV_FLAGS_PROGRAMA)} flags dark do programa com "
+        "default literal OFF no codigo (painel flags), zero mencao em deploy/** e os nomes de "
+        "env das pontes batendo com os pinos."
     )
     return 0
 

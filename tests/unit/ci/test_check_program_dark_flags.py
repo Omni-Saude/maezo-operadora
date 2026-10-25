@@ -45,13 +45,14 @@ def test_cerca_verde_na_arvore_real() -> None:
 
 
 def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
-    # Os 3 campos estao la, exatamente uma vez, com default literal False — se algum
+    # Os 4 campos estao la, exatamente uma vez, com default literal False — se algum
     # sumir/renamear SEM tocar a cerca, o teste acima fica vermelho; este fixa a CONTAGEM.
     texto = _CONFIG_REAL.read_text(encoding="utf-8")
     for _relativo, classe, campo, _esperado in (
         (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+        (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
     ):
         declaracoes = [linha for linha in texto.splitlines() if linha.strip().startswith(f"{campo}: bool = ")]
         assert len(declaracoes) == 1, f"{classe}.{campo} declarado {len(declaracoes)}x"
@@ -61,11 +62,12 @@ def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
     assert any((_REPO_ROOT / "deploy").rglob("*")), "deploy vazio — a cerca estaria varrendo nada"
 
 
-def test_os_cinco_nomes_de_env_pinados_sao_os_do_programa() -> None:
+def test_os_seis_nomes_de_env_pinados_sao_os_do_programa() -> None:
     assert ENV_FLAGS_PROGRAMA == (
         "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
         "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
         "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+        "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
         "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
         "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
     )

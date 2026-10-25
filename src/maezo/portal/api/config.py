@@ -69,13 +69,33 @@ class PortalSettings(BaseSettings):
     #: superfície visível. A autorização de leitura continua inteira no plano publicado; o sinal
     #: não concede nada. Nenhum `deploy/**` pode ligá-la neste programa.
     staff_operations_panel: bool = False
+    #: D-40 (decisão do dono, 2026-10-25). Painel staff READ-ONLY da área `administration`
+    #: (o roster de vínculos administrativos revisados: papéis/grupos, bindings por recurso,
+    #: revisão, prazo de revisão, revogação), sobre a única rota GET nova de
+    #: `admin_read.py` — `/api/v1/portal/administration/memberships`. ZERO mutação: o router
+    #: só monta GET, e a cerca `portal/admin/*` ("never public portal routes";
+    #: `assignments.py:1-8`: no BFF routes call this service) permanece — a conexão
+    #: administrativa independente continua sendo a única escritora. DARK: OFF por padrão —
+    #: virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeados, e
+    #: exige TAMBÉM o perfil de capabilities que nomeia `staff_admin_read` (abaixo; o
+    #: bootstrap SC1 de produção não consegue nomeá-lo). OFF projeta a sessão sem o sinal e o
+    #: portal mantém o stub exato de hoje. Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_admin_panel: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.
     #: The fourth profile exists since VW1-P4 (OP16 vendor submission route); the DEFAULT is
     #: untouched, so no deployment projects `vendor` without naming this exact string.
+    #: D-40 adds the administrative READ profile: `staff_admin_read` exists in NO default
+    #: profile and the SC1 production bootstrap (`PortalProductionSettings`) cannot name this
+    #: fifth string at all — a production-bootstrap deployment that sets it refuses to boot.
+    #: Naming it is a deliberate owner act (the D-* read-authority decision), never a default.
     capabilities: Literal[
-        "identity", "identity,staff_cases", "identity,staff_cases,human", "identity,staff_cases,human,vendor"
+        "identity",
+        "identity,staff_cases",
+        "identity,staff_cases,human",
+        "identity,staff_cases,human,vendor",
+        "identity,staff_cases,human,staff_admin_read",
     ] = "identity"
 
     @model_validator(mode="after")

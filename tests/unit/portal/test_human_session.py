@@ -222,38 +222,81 @@ async def test_session_projects_exactly_the_configured_capabilities(
 
 
 @pytest.mark.parametrize(
-    "declared", ["staff_cases", "identity,human", "identity,staff_cases,human,phi", "IDENTITY"]
+    "declared",
+    [
+        "staff_cases",
+        "identity,human",
+        "identity,staff_cases,human,phi",
+        "IDENTITY",
+        # D-40: the administrative READ capability is only projectable inside its ONE exact
+        # profile — partial orders, the lone capability and trailing punctuation all refuse.
+        "staff_admin_read",
+        "identity,staff_admin_read",
+        "identity,staff_cases,human,staff_admin_read,",
+        "identity,staff_admin_read,human,staff_cases",
+    ],
 )
-def test_capabilities_outside_the_three_profiles_are_refused(declared: str) -> None:
+def test_capabilities_outside_the_named_profiles_are_refused(declared: str) -> None:
     with pytest.raises(ValueError):
         config(capabilities=declared)
 
 
-@pytest.mark.parametrize(
-    ("documents", "operations", "projected"),
-    [
-        (False, False, []),
-        (True, False, ["staff_documents_panel"]),
-        (False, True, ["staff_operations_panel"]),
-        (True, True, ["staff_documents_panel", "staff_operations_panel"]),
-    ],
-)
-async def test_session_projects_the_shadow_signals_exactly(
-    documents: bool, operations: bool, projected: list[str]
-) -> None:
-    """W5 CLNT 5.5: the staff panel signals are deployment-owned and closed.
+async def test_session_projects_the_admin_read_profile_exactly() -> None:
+    """D-40: the administrative READ profile exists, is NOT a default, and projects closed.
 
-    OFF — the shipped, dark state — projects an empty tuple, so the browser keeps every stub
-    exactly as it ships. A signal names a surface only; the routes behind each panel keep
-    refusing on their own published authority. Both on: the projection follows the literal's
-    canonical order regardless of the settings declaration order.
+    The default profile stays `identity`; only a deployment that names the exact fifth
+    string projects `staff_admin_read`, and the projection is byte-closed (no drift into
+    `vendor` or any other capability).
     """
     store = LocalTestIdentityStore("test-tenant")
     store.memberships[(ISSUER, SUBJECT)] = membership()
     idp = SignedTestIdP()
     oidc = httpx.AsyncClient(transport=httpx.MockTransport(idp.handle))
     app = create_app(
-        config(staff_documents_panel=documents, staff_operations_panel=operations),
+        config(capabilities="identity,staff_cases,human,staff_admin_read"),
+        store=store,
+        oidc_client=oidc,
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
+        harness = Harness(client, store, idp, app)
+        assert (await harness.login()).status_code == 303
+        data = (await client.get(PREFIX + "/session")).json()
+    await oidc.aclose()
+    assert data["capabilities"] == ["identity", "staff_cases", "human", "staff_admin_read"]
+    assert data["flags"] == []
+
+
+@pytest.mark.parametrize(
+    ("documents", "operations", "admin", "projected"),
+    [
+        (False, False, False, []),
+        (True, False, False, ["staff_documents_panel"]),
+        (False, True, False, ["staff_operations_panel"]),
+        (True, True, False, ["staff_documents_panel", "staff_operations_panel"]),
+        (False, False, True, ["staff_admin_panel"]),
+        (True, True, True, ["staff_documents_panel", "staff_operations_panel", "staff_admin_panel"]),
+    ],
+)
+async def test_session_projects_the_shadow_signals_exactly(
+    documents: bool, operations: bool, admin: bool, projected: list[str]
+) -> None:
+    """W5 CLNT 5.5 + D-40: the staff panel signals are deployment-owned and closed.
+
+    OFF — the shipped, dark state — projects an empty tuple, so the browser keeps every stub
+    exactly as it ships. A signal names a surface only; the routes behind each panel keep
+    refusing on their own published authority. All on: the projection follows the literal's
+    canonical order (documents, operations, admin) regardless of the declaration order.
+    """
+    store = LocalTestIdentityStore("test-tenant")
+    store.memberships[(ISSUER, SUBJECT)] = membership()
+    idp = SignedTestIdP()
+    oidc = httpx.AsyncClient(transport=httpx.MockTransport(idp.handle))
+    app = create_app(
+        config(
+            staff_documents_panel=documents,
+            staff_operations_panel=operations,
+            staff_admin_panel=admin,
+        ),
         store=store,
         oidc_client=oidc,
     )
