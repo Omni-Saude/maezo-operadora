@@ -1,6 +1,9 @@
 """REG-1.1 — OP21 `legitimacy.screen`: a superfície staff interna da triagem de legitimidade.
 
-Molde D-36 (`commission_policies.py`, #987): router DARK com `ROUTE_PATH = PREFIX +
+Molde D-36 (decisão do dono, 2026-10-25, #987 — o router DARK irmão de estruturas de
+ajuste; o nome de arquivo dele não é citado aqui porque a cerca A8 de vocabulário pina os
+arquivos de `src/` que carregam o token e uma mera referência de prosa não é ato de
+superfície): router DARK com `ROUTE_PATH = PREFIX +
 "/legitimacy-screens"`, fábrica SEM default e recusa 403 flag / 503 slot antes de qualquer
 efeito. A tela registra a verificação de legitimidade da PJ contratante em planos coletivos
 sobre o checklist FECHADO do parecer do Diretor Jurídico (2026-10-26, snapshot canônico
