@@ -351,13 +351,17 @@ async def test_sem_clareza_repergunta_so_as_duvidosas_e_depois_oferece_a_equipe_
     assert final2["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE and not _starts(cib2)
 
 
-async def test_leitura_que_falha_vale_como_sem_clareza() -> None:
+async def test_leitura_que_falha_pede_para_repetir_e_guarda_as_perguntas() -> None:
+    # Teste do dono (26/10/2026): JSON invalido duas vezes e' falha TECNICA, nao "sem clareza" da pessoa.
+    from maezo.agents.helena.graph import RESPOSTA_PECA_REENVIO
+
     modelo = _Modelo([decisao_v7("sintoma", responde=True)], leitura=["", ""])
     grafo, whatsapp, cib = _grafo(modelo)
-    await grafo.ainvoke(
+    final = await grafo.ainvoke(
         _estado("hmm", [n.texto_das_perguntas(_URINAR)], pendente=n.codigo_do_alerta(_URINAR.id))
     )
-    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_URINAR, (1, 2, 3, 4)) and not _starts(cib)
+    assert whatsapp.enviados[-1] == RESPOSTA_PECA_REENVIO and not _starts(cib)
+    assert final["coleta_pendente"] == n.codigo_do_alerta(_URINAR.id)
 
 
 # --- (iv) a mesma queixa respondida nunca recebe a pergunta de alerta de novo ----------------------------
