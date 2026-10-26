@@ -96,6 +96,8 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 
 4.1 reconstruir SESSION-CLOSE-QUIESCENCE.json (ledger `23c106f3` + SV-01…10; re-pin) [F-M14] · 4.2 fechar recusa #60 (opção de desenho → v23 → 1º N2 POSITIVO → cauda) [F-P01] · 4.3 lane Linux estável (n2-lane.yml entra em CI; hoje manual-only) [F-P08] · 4.4 GP3/GP4 admitir-ou-aposentar [F-M05]. Aceitação: kit c/ hash; #60 fechado/escalado c/ evidência; lane rodando em CI.
 
+**Status 2026-10-26:** discriminador P4 executado (runs 40396401996 d0 / 40396951024 d200) — recusa não-decisiva em ambos os Δ (física medida 3,22s), D2' provado mecanicamente; adjudicação no kit `P4-RESULT-v1` (gate cego Tier-2 PASS). **D-42** rota v28 = novo regime Δ≥3,5s; **D-45** reparo §6-1 + P0' como PR standalone IMEDIATO.
+
 ## W5 CLNT — plano de capacidades cliente/admin, em shadow (M/L)
 
 5.1 PRs de habilitação dark por flag (flags de habilitação dark conforme `docs/plans/w5-5-1-flags-reancoragem.md` — inventário real: **31 interruptores/6 grupos**; a citação original a `settings.py:337-591` estava driftada, provado em #953/#967; revisor nomeado + janela de evidência por linha do `docs/review-queue.md`; flags SEGUEM OFF — ROLL flippa) · 5.2 endpoint HTTP de DSR (não existe) + resolução do guard `decisao_dsr` · 5.3 os 3 strict-xfails DSR (consertar fonte antes; flip 1 PR cada c/ delta do censo) · 5.4 as 2 pontes de identidade do erasure construídas dark (**41/41** decisões DPO — ver `docs/compliance/human-windows/LUCAS-DPO-OPERACAO-PACKAGE.md` — permanecem humanas) · 5.5 admin 7/7 (Documents/Operations/Administration hoje stubs + BFF de assignments) ou disposição por área · 5.6 pacotes de evidência para cada pendência humana (médico-auditor clínico; jurídico/DPO/operação do lucas). Aceitação: flags provadamente OFF em prod; e2e DSR verde; censo xfail com delta; 0 linhas DRAFT sem revisor nomeado.
@@ -103,6 +105,8 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 ## W6 DISC — gates, gaps e burn-down de ledger (M)
 
 6.1 os 11 gates NOT-RUN: execução cega ou aposentadoria formal cada [F-M05/F-P09] · 6.2 marcador/annotação OP13 [F-M04] · 6.3 disposição OP17/OP19 [F-M03] · 6.4 fato Q10 [F-M13] · 6.5 triagem dos 130 itens de ledger {programa|ROLL|aposentar} [F-P05] · 6.6 244 DEFER-OWNER em janelas batched [F-P06] · 6.7 verificação dos 285/528 rows unverified. Aceitação: tabela de gates com zero NOT-RUN-sem-disposição (reconciliação maquinável); contagens antes/depois ratificadas pelo dono.
+
+**Status 2026-10-26 (D-44):** janela própria da W6 após a conclusão do OP21; nenhum item W6 tem deadline (W8 alvo 2027-01-26).
 
 ## W7 HARD — contínuo (S)
 
@@ -148,6 +152,15 @@ Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 
 | D-39 | **DSR send_response mantém shadow** | sem flip até exercício mais longo do endpoint #955 |
 | D-40 | **Administration = perfil de leitura (novo D-*) + admin read-only a construir** | proposta do D-* vem no pacote; assinatura é do dono |
 | D-41 | **Próxima janela começa pela cadeia D2' do N2** | design update → implementação → v27 → discriminador |
+
+## §Decisões registradas (2026-10-26, dono, sessão interativa)
+
+| ID | Decisão | Efeito |
+|---|---|---|
+| D-42 | **Rota v28 N2 = (a) novo regime Δ≥3,5s** (blob novo com Δ≈4s — 3,22s medido + margem — §6-1/P0' no ramo de recusa EMBARCADOS na mesma cerimônia se couber, re-pin, v28; cadência §10.8 sancionada) | lane N2: primeiro N2 positivo viável via admissão clog-committed-t3-straddle; se recusar, escalar para (b) D2 pós-commit |
+| D-43 | **OP21: PR3 (guard shadow) + PR4 (enforcing provado) na próxima janela**; PR5 (docs/registry) na sequência | prazo merge 2026-12-15 mantido com folga; exceções E-1..E-6 seguem em janelas humanas paralelas |
+| D-44 | **W6 DISC: janela própria após conclusão do OP21** | nenhum item W6 tem deadline; W8 alvo 2027-01-26 |
+| D-45 | **Reparo §6-1 + P0' como PR standalone IMEDIATO** (não dobrado no blob v28) | records de recusa voltam a carregar t3_* e a testemunha P0' já na próxima rodada; custo aceito: dois re-pins seguidos do módulo |
 
 ## §HDR — Registro de decisões humanas (agentes preparam pacotes, nunca decidem)
 
