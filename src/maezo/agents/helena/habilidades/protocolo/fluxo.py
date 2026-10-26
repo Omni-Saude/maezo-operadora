@@ -267,6 +267,17 @@ def _por_aqui(texto: str) -> bool:
     return " por aqui" in f" {plano}" or "pelo whats" in plano or "com voce" in plano
 
 
+def protocolo_na_conversa(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
+    """Algum protocolo ja' foi conduzido nesta conversa (as perguntas dele estao nas falas da Helena)? Entao o
+    agendamento recebe o especialista DESSA queixa junto dos canais (`conduzir`)."""
+    from maezo.agents.helena import graph as _g
+
+    catalogo = self._protocolos
+    if catalogo is None or catalogo.textos is None:
+        return False
+    return bool(_n.protocolos_na_conversa(_g._falas_da_helena(state), catalogo))
+
+
 async def conduzir(
     self: HelenaGraph, state: Mapping[str, Any], decisao: Any, antes: str | None, alarme: str | None
 ) -> dict[str, Any] | None:
@@ -338,4 +349,4 @@ async def conduzir(
     return _texto(self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id))
 
 
-__all__ = ["conduzir", "e_texto_do_protocolo", "responder_alerta"]
+__all__ = ["conduzir", "e_texto_do_protocolo", "protocolo_na_conversa", "responder_alerta"]

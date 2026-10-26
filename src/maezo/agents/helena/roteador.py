@@ -546,7 +546,11 @@ async def _classify_ativo_decidido(
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
         return {**oferta, "habilidade_roteador": "equipe"}
-    if alarme is None and not antes:
+    agendamento_da_queixa = _agendar.pergunta_de_agendamento(texto) and _protocolo.protocolo_na_conversa(
+        self, state
+    )
+    if alarme is None and not antes and not agendamento_da_queixa:
+        # Com um protocolo ja' conduzido, o agendamento vai ao protocolo (especialista da queixa + canais).
         fixo = await _texto_fixo_de_conversa(self, state, texto)
         if fixo is not None:
             return fixo
