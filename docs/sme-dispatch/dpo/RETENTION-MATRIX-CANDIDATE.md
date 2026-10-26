@@ -309,6 +309,23 @@ escopo_b:
         Forma 1 pelos tres papeis (comercial+legal+DPO) como MIGRACAO sucessora; sem coluna de
         titular e sem ponte (o id do alvo e o principal_ref do editor nao alcanca conversation_id nem
         a referencia DSR); retencao a ratificar quando a habilitacao do dono criar prazo relevante
+    - camada: legitimidade_tela
+      tabelas: [portal_legitimacy_screens]
+      motivo: >-
+        fora do escopo B; 0030 (substrato DARK do screen de legitimidade da PJ contratante em planos
+        coletivos, OP21/REG-1.1, desenho e parecer do juridico de 26/10/2026) guarda so' a VERIFICACAO
+        (criterio→resultado→referencia tipada em JSONB FECHADO: id do criterio, resultado, ancora
+        normativa limitada, referencias kind+locator+sha256 — NUNCA bytes de documento; a custodia fica
+        com a operadora/administradora, RN 557/2022 arts. 12 e 15 §3º), refs opacas da PJ contratante e
+        da oportunidade, enums de tipo/forma de contratacao, estado da verificacao, would_block, a
+        sinalizacao do art. 39 com ancora literal e os carimbos de auditoria do operador staff interno
+        (created_by); beneficiario nao e' titular aqui — nenhum CPF, nascimento, nome, telefone, dado de
+        saude (o firewall PHI mantem dado clinico fora do insumo comercial) ou texto livre. A linha so'
+        pode existir em status `valid/invalid/pending` (CHECK no banco), enforcing e' postura sucessora
+        (nunca estado), revalidacao = nova screen_revision; a superficie e' DARK (nenhum escritor no
+        substrato, tabela vazia por padrao); sem coluna de titular e sem ponte (as refs de PJ e o
+        created_by do editor nao alcanca conversation_id nem a referencia DSR); retencao a ratificar
+        quando a habilitacao do dono criar prazo relevante
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

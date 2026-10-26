@@ -607,10 +607,12 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # Limite de falhas por CPF (0028) adds `acesso_falhas_por_cpf`, also NOT covered (sem coluna de titular).
     # D-36 (0029) adds `commission_adjustment_policies`, also NOT covered (sem coluna de titular;
     # rascunho DRAFT dark — estrutura de ajuste, nunca dado de titular).
-    assert len(covered | uncovered) == 42  # 41 + o rascunho de comissao (0029)
-    assert len(uncovered) == 31  # 30 + o rascunho de comissao (sem probe)
-    assert len((covered | uncovered) - journal) == 36
-    assert len(uncovered - journal) == 25
+    # OP21/REG-1.1 (0030) adds `portal_legitimacy_screens`, also NOT covered (sem coluna de
+    # titular; substrato DARK dark — verificacao de PJ contratante, nunca dado de titular).
+    assert len(covered | uncovered) == 43  # 42 + o screen de legitimidade (0030)
+    assert len(uncovered) == 32  # 31 + o screen de legitimidade (sem probe)
+    assert len((covered | uncovered) - journal) == 37
+    assert len(uncovered - journal) == 26
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

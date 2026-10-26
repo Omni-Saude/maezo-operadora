@@ -25,8 +25,8 @@ JSONB), no modelo (pydantic `extra="forbid"`) e no store.
   da TELA, que é PR 2). As formas "RN 659/2025, art. 23-A" e "RN 557/659" são IMPRECISAS e
   REFUSADAS em âncora persistida — na camada de modelo (`_anchor_sem_forma_imprecisa`) e na
   camada de banco (CHECK da migração 0030 sobre o JSONB).
-- **Custódia** — RN 557/2022, art. 12: o `kind` da referência é a ATRIBUIÇÃO DE CUSTÓDIA
-  (`operadora` | `administradora`), domínio fechado que torna o canal/corretor
+- **Custódia** — RN 557/2022, art. 12: o `kind` da referência diz QUEM TEM A GUARDA do
+  documento (`operadora` | `administradora`), domínio fechado que torna o canal/corretor
   estruturalmente irrepresentável como custodiante (parecer §3 — "o canal, em si, não seria
   alcançado"; recomendação técnica de não caracterizá-lo). O rol documental operacional por
   critério é RATIFY-LATER (desenho §9 E-4): o enum de `kind` pode crescer POR MIGRAÇÃO
@@ -125,9 +125,9 @@ CriterionResultKind = Literal["proven", "not_proven", "not_applicable", "pending
 #: Estado da verificação persistida — o PIN estrutural da 0030. O enforcing não é estado.
 LegitimacyScreenStatus = Literal["valid", "invalid", "pending"]
 
-#: Atribuição de custódia da evidência (RN 557/2022, art. 12): QUEM guarda o documento
-#: apontado. Fechado em exatamente os dois custodiantes do parecer §5 — o canal nunca é
-#: custodiante representável (parecer §3). Cresce só por migração sucessora (E-4).
+#: Guarda da evidência (RN 557/2022, art. 12): QUEM retém o documento apontado. Fechado em
+#: exatamente os dois custodiantes do parecer §5 — o canal nunca é custodiante representável
+#: (parecer §3). Cresce só por migração sucessora (E-4).
 EvidenceRefKind = Literal["operadora", "administradora"]
 
 #: Referência de screen — molde `policy_ref` da 0029, espelhado byte a byte no CHECK.
@@ -173,8 +173,8 @@ class LegitimacyEvidenceRef(_Closed):
     """Referência TIPADA a um documento sob custódia — nunca o documento.
 
     Exatamente três campos e nenhum outro (o fechado é a fronteira anti-custódia: não
-    existe slot para conteúdo, preview, base64 ou "só o primeiro parágrafo"). `kind` é a
-    atribuição de custódia do art. 12; `locator` é o ponteiro opaco no repositório DO
+    existe slot para conteúdo, preview, base64 ou "só o primeiro parágrafo"). `kind` diz
+    quem tem a GUARDA do art. 12; `locator` é o ponteiro opaco no repositório DO
     CUSTODIANTE; `document_sha256` é o digest do documento apontado, que permite conferir
     integridade SEM transportar o objeto. Custódia é da operadora e/ou da administradora
     (RN 557/2022, art. 12; parecer §5 "Registros").
