@@ -342,7 +342,9 @@ async def test_nao_e_emergencia_nao_acende_alerta_e_recebe_navegacao() -> None:
     )
 
     assert resultado.get("escalation_motivo") != "red_flag_clinico"
-    assert whatsapp.enviados == [RESPOSTA_NAVEGACAO_CASO_ABERTO]
+    # Teste do dono (25/10/2026, noite): a navegacao sem o caso de carona.
+    assert whatsapp.enviados == [RESPOSTA_NAVEGACAO]
+    assert RESPOSTA_NAVEGACAO_CASO_ABERTO not in whatsapp.enviados
     assert _starts(cib) == antes
 
 
@@ -373,7 +375,9 @@ async def test_encerramento_recebe_despedida_curta_sem_aviso_de_caso(mensagem: s
 
     await grafo.ainvoke(_entrada(mensagem, [RESPOSTA_HANDOFF_RECUSADA]))
 
-    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA_CASO_ABERTO]
+    # Teste do dono (25/10/2026, noite): a despedida sem o caso de carona.
+    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA]
+    assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in whatsapp.enviados
     assert _starts(cib) == antes
 
 

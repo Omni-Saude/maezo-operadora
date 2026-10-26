@@ -41,11 +41,8 @@ def _resposta_fixa_de_conversa(self: HelenaGraph, estado: Mapping[str, Any]) -> 
         # RODADA 3: encerramento (inclusive ironico) e pedido do telefone da central. Com sinal de saude
         # ("ok obrigado, mas estou com sangramento") nunca e' despedida.
         if _e_encerramento(texto) and not _mensagem_de_saude(estado):
-            return (
-                RESPOSTA_DESPEDIDA_CASO_ABERTO
-                if _caso_aberto_afirmavel(estado) is not None
-                else RESPOSTA_DESPEDIDA
-            )
+            # Teste do dono (25/10/2026, noite): a despedida nao leva o caso aberto de carona.
+            return RESPOSTA_DESPEDIDA
         if _agendar.pergunta_de_agendamento(texto) and not _mensagem_de_saude(estado):
             # Teste do dono (25/10/2026, caso d): a Helena nao agenda; os canais (texto do pacote).
             return _agendar.texto_do_agendamento(self._textos, texto)
@@ -80,10 +77,10 @@ def _resposta_fixa_de_conversa(self: HelenaGraph, estado: Mapping[str, Any]) -> 
 
 
 def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
-    """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192), com o caso de saude
-    mencionado quando ele esta' aberto."""
-    if _caso_aberto_afirmavel(estado) == CASO_ABERTO_CLINICO:
-        return RESPOSTA_NAVEGACAO_CASO_ABERTO
+    """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192). Teste do dono
+    (25/10/2026, noite): sem "a nossa equipe de saude ja' esta' com o seu caso" de carona — a pessoa
+    perguntou onde ir."""
+    del estado
     return RESPOSTA_NAVEGACAO
 
 
@@ -99,19 +96,15 @@ def _reclamacao_sem_pedido(self: HelenaGraph, state: Mapping[str, Any], texto: s
 from maezo.agents.helena.graph import (  # noqa: E402
     _INTENTS_QUE_VIRAM_COBRANCA,
     _QUERO_UMA_PESSOA,
-    CASO_ABERTO_CLINICO,
     CONVERSA_DUVIDA_DE_SAUDE,
     CONVERSA_RECUSA_DE_EQUIPE,
     RESPOSTA_CANAIS_DO_PLANO,
     RESPOSTA_DEPENDENTES,
     RESPOSTA_DESPEDIDA,
-    RESPOSTA_DESPEDIDA_CASO_ABERTO,
     RESPOSTA_DUVIDA_DE_SAUDE,
     RESPOSTA_NAVEGACAO,
-    RESPOSTA_NAVEGACAO_CASO_ABERTO,
     RESPOSTA_O_QUE_SEI_DE_VOCE,
     RESPOSTA_TELEFONE_DA_CENTRAL,
-    _caso_aberto_afirmavel,
     _conversa_sem_relato_clinico,
     _e_encerramento,
     _mensagem_de_saude,

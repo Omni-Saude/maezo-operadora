@@ -216,3 +216,67 @@ def resposta_curta(texto: str) -> bool:
     if "?" in texto or _PERGUNTA_NOVA.search(plano):
         return False
     return len(plano.split()) <= 6
+
+
+#: Teste do dono (25/10/2026, noite): a RECUSA de contato/atendimento, lida sem o modelo. Depois de um P1
+#: falso, "nao quero que ninguem entre em contato", "EU QUERO QUE ENCERRE..." e "nao autorizo" foram lidos
+#: como pedido da equipe ("seu pedido ja' esta' com a equipe"). Cada trecho casado e' RECUSA; quem chama
+#: confere se sobrou pedido explicito de pessoa fora dele ("..., quero um atendente": o pedido vence).
+_RECUSA_DE_CONTATO: Final[re.Pattern[str]] = re.compile(
+    # "nao quero que ninguem entre em contato", "nao preciso que me liguem", "nao quero que voces me procurem"
+    r"\bnao (?:quero|preciso|precisa|gostaria|queria)(?: mais)?(?: que)?"
+    r"(?: (?:ninguem|alguem|voces|vcs|a equipe|ela|eles|elas))?(?: me)?"
+    r" (?:entre|entrem|entrar|ligue|liguem|ligar|procure|procurem|procurar|retorne|retornem|retornar"
+    r"|contate|contatem|contatar|incomode|incomodem|incomodar)\b(?: em contato)?(?: comigo)?"
+    r"|\bninguem (?:precisa |pode |deve )?(?:me )?(?:entrar em contato|ligar|procurar|retornar)\b"
+    r"|\bnao (?:quero|preciso)(?: de)?(?: mais)?(?: nenhum| nenhuma)? (?:contato|ligacao|ligacoes|retorno)\b"
+    r"|\bnao (?:me )?(?:ligue|liguem|procure|procurem)\b"
+    # "para de me mandar mensagem", "chega de mensagem", "me deixa em paz"
+    r"|\b(?:para|pare|parem|parar|chega) de (?:me )?(?:mandar|enviar|ligar|incomodar|perturbar)\b"
+    r"(?: (?:mensagens?|msg|msgs|isso|nada))?"
+    r"|\bchega de (?:mensagens?|msg|ligac\w+)\b"
+    r"|\bnao (?:me )?(?:mande|mandem|envie|enviem) mais\b(?: (?:mensagens?|msg|nada))?"
+    r"|\bnao quero (?:mais )?receber (?:mensage\w*|msg|ligac\w*|contato)"
+    r"|\bme deix(?:a|e|em) em paz\b"
+    # "nao autorizo", "nao dou autorizacao", "nao permito" (sozinho ou com o alvo do contato/atendimento)
+    r"|\bnao (?:autorizo|autorizei|permito|dou (?:a )?(?:minha )?autorizacao|dou permissao)"
+    r"(?=$| (?:nada|isso|ninguem|contato|ligac\w*|o encaminh\w*|encaminh\w*|o atendimento|atendimento"
+    r"|a equipe|equipe|voces|que|mais|nao|de jeito)\b)"
+)
+#: "encerre", "EU QUERO QUE ENCERRE", "pode encerrar isso", "finaliza o atendimento" — sem negacao antes
+#: ("nao encerre", "nao quero que encerre" = manter) e sem falar do PLANO (encerrar o plano e' cancelamento,
+#: assunto do Lucas).
+_PEDE_ENCERRAR: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:(?:eu )?(?:quero|queria|preciso) que (?:voce |vc )?|pode |podem |favor |por favor )?"
+    r"(?:encerr|finaliz)(?:e|em|a|ar|ando)\b"
+    r"(?: (?:o |a |esse |essa |este |esta |meu |minha )?"
+    r"(?:atendimento|caso|chamado|conversa|isso|tudo|aqui))?"
+    r"|\bfech(?:e|em|a|ar) (?:o |a |esse |essa |este |esta |meu |minha )?"
+    r"(?:atendimento|caso|chamado|conversa)\b"
+)
+_NEGA_ENCERRAR: Final[re.Pattern[str]] = re.compile(r"\bnao (?:\w+ ){0,3}(?:encerr|finaliz|fech)\w*")
+#: Fala de OUTRO assunto (plano, cobranca, dados, consulta): "encerrar o plano" e' cancelamento, "para de me
+#: mandar boleto" e' cobranca, "nao autorizo o debito" e' do Lucas. Ai' o codigo nao le' recusa: o modelo
+#: decide.
+_OUTRO_ASSUNTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:plano|contrato|convenio|assinatura|boleto|boletos|fatura|mensalidade|cobranca|debito|pagamento"
+    r"|reajuste|cartao|pix|dados|e ?mail|carteirinha|carencia|prazo|horario|expediente|consulta|exame"
+    r"|internacao|tratamento|cirurgia|reembolso)\b"
+)
+
+
+def sem_recusa_de_contato(texto: str) -> str:
+    """O texto NORMALIZADO sem os trechos de recusa de contato/atendimento ("" quando era so' recusa)."""
+    plano = normalizar(texto)
+    if _OUTRO_ASSUNTO.search(plano):
+        return plano
+    sem = _RECUSA_DE_CONTATO.sub(" ", plano)
+    if not _NEGA_ENCERRAR.search(plano):
+        sem = _PEDE_ENCERRAR.sub(" ", sem)
+    return " ".join(sem.split())
+
+
+def e_recusa_de_contato(texto: str) -> bool:
+    """A mensagem RECUSA contato/atendimento? (Sem conferir pedido de pessoa no resto da frase: isso e' de
+    `habilidades.atendimento_humano.recusa`.)"""
+    return sem_recusa_de_contato(texto) != normalizar(texto)

@@ -122,9 +122,11 @@ INSTRUCOES_PADRAO: Final[str] = "\n".join(
         "retoma X (volta a assunto antigo da conversa). 'voce nao entendeu' retoma o ultimo assunto da "
         "pessoa.",
         "9 multiple_requests so' com 2+ pedidos diferentes (a habilidade do primeiro vai em skill).",
-        "10 refusal_of_team: true quando a pessoa recusa ou desiste da equipe/atendimento/caso ('nao, deixa, "
-        "desisto', 'ja' resolvi'). correction: true quando corrige o que disse ou o que o assistente "
-        "entendeu ('e' "
+        "10 refusal_of_team: true quando a pessoa recusa ou desiste da equipe/atendimento/caso/contato "
+        "('nao, deixa, desisto', 'ja' resolvi', 'nao quero que ninguem entre em contato', 'encerre', "
+        "'EU QUERO QUE ENCERRE', 'nao autorizo', 'nao quero falar com ninguem', 'para de me mandar "
+        "mensagem'), inclusive em maiusculas, irritada ou depois de um alerta; recusa NUNCA e' pedido de "
+        "pessoa. correction: true quando corrige o que disse ou o que o assistente entendeu ('e' "
         "pra mim, me confundi').",
         "11 needs_clarifying_question so' quando nao da' para agir sem perguntar (para quem e', qual das "
         "perguntas, "

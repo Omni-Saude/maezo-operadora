@@ -469,7 +469,9 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
         return {**resultado_sempre, "habilidade_roteador": None}
     # Contrato v7: a leitura do modelo vale no turno inteiro (as habilidades leem sim/nao, opcao e recusa
-    # por ela, no lugar dos leitores de palavra).
+    # por ela, no lugar dos leitores de palavra). Teste do dono (25/10/2026, noite): a recusa que o modelo nao
+    # leu ("EU QUERO QUE ENCERRE", "nao autorizo") e' lida no codigo ANTES de a habilidade da equipe agir.
+    decisao = _recusa.com_recusa_lida(decisao, str(state.get("message_body") or ""))
     marca_v7 = _rv7.LEITURA_DO_TURNO.set(decisao.v7)
     try:
         resultado = await _classify_ativo_decidido(self, state, decisao, antes, ms)
@@ -573,7 +575,11 @@ async def _classify_ativo_decidido(
         v7.recusa_equipe
         and dona not in ("sintoma", "saude")
         and not str(antes or "").startswith(PENDENTE_ENCERRAR_CASO)
-        and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        and (
+            # "para de me ligar" casa o "me ligar" do pedido: a leitura da recusa no codigo ja' tira o trecho.
+            _recusa.e_recusa_da_equipe(texto)
+            or not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        )
     ):
         # Recusa da equipe ("nao, deixa, desisto", "ja' resolvi"), lida pelo modelo: encerra os casos P2/P3
         # da conversa; caso P1/grave nunca se encerra por recusa (o texto do caso grave, com 192).
@@ -881,5 +887,6 @@ from maezo.agents.helena.graph import (  # noqa: E402
     logger,
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402

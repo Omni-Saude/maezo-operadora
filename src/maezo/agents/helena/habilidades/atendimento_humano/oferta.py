@@ -82,6 +82,8 @@ def resposta_a_oferta(texto: str) -> str | None:
         curta in ("nao", "encerrar")
         or (v7 is not None and v7.recusa_equipe)
         or _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE
+        # Teste do dono (25/10/2026, noite): "nao autorizo", "para de me mandar mensagem", "encerre".
+        or _recusa.e_recusa_da_equipe(texto)
     ):
         return "nao"
     aceite = bool(_SIM_A_OFERTA.search(plano))
@@ -220,3 +222,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _sem_prefixo,
     logger,
 )
+from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
