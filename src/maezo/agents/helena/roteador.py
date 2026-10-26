@@ -463,10 +463,13 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         logger.info(
             "helena_roteador_caminho_de_sempre", motivo="trava" if trava else (falha or "sem_decisao")
         )
+        if trava is None and (prot := await _protocolo.sem_roteador(self, state, antes)) is not None:
+            return {**prot, "habilidade_roteador": None}  # PROTOCOLOS: a resposta ao protocolo sem o roteador
         st_sempre: HelenaState = state
         if duvida_antes:
             st_sempre = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
         resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
+        resultado_sempre = await _protocolo.sem_alerta_geral(self, state, antes, resultado_sempre)
         return {**resultado_sempre, "habilidade_roteador": None}
     # Contrato v7: a leitura do modelo vale no turno inteiro (as habilidades leem sim/nao, opcao e recusa
     # por ela, no lugar dos leitores de palavra). Teste do dono (25/10/2026, noite): a recusa que o modelo nao
