@@ -353,12 +353,18 @@ def duvida_sem_queixa(texto: str, v7: Any = None) -> bool:
     from maezo.conhecimento import base_saude as _bs
     from maezo.conhecimento import saude_gerativa as _sg
 
+    plano = _g._plano(texto)
+    if relata_sintoma(plano):
+        return False
+    # Rodada de 26/10/2026: "fui diagnosticada com mioma, e' perigoso?" e' duvida sobre o DIAGNOSTICO,
+    # sem queixa: a resposta de saude, mesmo que o roteador leia "sintoma_proprio".
+    if _sg.pergunta_pessoal_de_saude(plano, texto, assunto_de_saude=True):
+        return True
     if v7 is not None and getattr(v7, "tipo", None) in _TIPOS_DE_QUEIXA:
         return False
-    plano = _g._plano(texto)
     resultado = _bs.resultado_pessoal(plano) and _PALAVRA_DE_RESULTADO.search(plano) is not None
     duvida = resultado or _bs.pergunta_informativa(plano) or _sg.e_duvida_educativa(plano)
-    return duvida and not relata_sintoma(plano)
+    return bool(duvida)
 
 
 async def conduzir(

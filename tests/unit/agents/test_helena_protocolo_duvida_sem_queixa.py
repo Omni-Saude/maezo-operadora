@@ -49,3 +49,26 @@ class _V7:
 def test_roteador_que_le_queixa_manda_ao_protocolo(fala: str, tipo: str) -> None:
     assert not duvida_sem_queixa(fala, _V7(tipo))
     assert duvida_sem_queixa(fala, _V7("duvida_geral"))
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Fui diagnosticada com mioma, é perigoso?",
+        "tenho SOP, isso tem cura?",
+        "meu médico disse que tenho hipotireoidismo, o que é isso?",
+    ],
+)
+def test_duvida_do_diagnostico_vai_a_resposta_de_saude_mesmo_com_o_roteador_lendo_queixa(fala: str) -> None:
+    assert duvida_sem_queixa(fala, _V7("sintoma_proprio"))
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "tenho enxaqueca e estou com dor de cabeça agora",
+        "fui diagnosticada com mioma e estou sangrando muito",
+    ],
+)
+def test_diagnostico_com_queixa_continua_no_protocolo(fala: str) -> None:
+    assert not duvida_sem_queixa(fala, _V7("sintoma_proprio"))
