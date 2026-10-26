@@ -6280,10 +6280,7 @@ class HelenaGraph:
             return None
         if (oferta := _oferta.responder(self, state)) is not None:
             return oferta  # avaliacao r5 (25/10): o "sim"/"nao" a oferta da equipe, decidido no codigo
-        if (
-            _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE
-            or _recusa.e_recusa_da_equipe(texto)  # teste do dono (25/10, noite): "encerre", "nao autorizo"
-        ):
+        if _recusa.e_recusa_na_conversa(texto):
             update = self._update_sem_modelo(state)
             abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
             if abertos:

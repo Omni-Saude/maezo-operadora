@@ -52,6 +52,16 @@ def e_recusa_da_equipe(texto: str) -> bool:
     return not (_pedido_explicito_com_verbo(resto) or _pedido_explicito_de_pessoa(resto))
 
 
+def e_recusa_na_conversa(texto: str) -> bool:
+    """A recusa da equipe sem modelo (`_decidir_sem_modelo` do grafo): a de sempre
+    (`CONVERSA_RECUSA_DE_EQUIPE`) ou a do teste do dono (25/10, noite: "encerre", "nao autorizo")."""
+    from maezo.agents.helena import graph as _g
+
+    if _g._conversa_sem_relato_clinico(texto) == _g.CONVERSA_RECUSA_DE_EQUIPE:
+        return True
+    return e_recusa_da_equipe(texto)
+
+
 def com_recusa_lida(decisao: Any, texto: str) -> Any:
     """A decisao do roteador com `refusal_of_team` ligado quando o CODIGO le' a recusa que o modelo nao leu.
     O resto da leitura do modelo (habilidade, sim/nao, alarme) fica como veio."""
