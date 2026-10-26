@@ -2257,6 +2257,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
 #: PROPRIOS.
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
 TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
+    "helena_replays_dono": (795, 796, 797),
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
     "helena_fases_18_10": (
         *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
@@ -2511,6 +2512,104 @@ HELENA_CARTEIRINHA_COMPLETA: tuple[Segmento, ...] = (
     ),
 )
 
+# ================================================================================================
+# Roteiro `helena_replays_dono` — as conversas de teste do dono (22/10 e 25/10/2026), PARAFRASEADAS
+# ================================================================================================
+# Plano de protocolos (dono, 25/10/2026, 22:50 BRT): as tres conversas que falharam no teste do dono, com as
+# mesmas situacoes e outras palavras. Na allowlist (795..797: protocolos, roteador ativo). Mede o que o dono
+# viu dar errado: 192 falso, pergunta generica de peito/AVC para queixa que nao e' de peito, a mesma
+# pergunta de alerta repetida, o cadastro inteiro no pedido de agendamento e o prazo da ANS.
+_192_AGORA = r"ligue 192 \(samu\) agora"
+_PERGUNTA_GENERICA_PEITO_AVC = r"(boca torta|fraqueza de um lado)"
+_DESPEJO_DO_CADASTRO = r"(segmentacao: |vigencia desde|acomodacao: )"
+_PRAZO_DA_ANS = r"dias uteis"
+_NAO_DEVE_SEMPRE = (_192_AGORA, _PRAZO_DA_ANS, _ENCAMINHOU)
+
+HELENA_REPLAYS_DONO: tuple[Segmento, ...] = (
+    Segmento(
+        "1-manha-25-10-queda-e-dor-nas-costas",
+        (
+            _p(
+                "Bom dia, eu caí de uma escada uns dias atrás e estou com dor nas costas",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(*_NAO_DEVE_SEMPRE, _DESPEJO_DO_CADASTRO),
+            ),
+            _p(
+                "Não, nada disso",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(*_NAO_DEVE_SEMPRE, "entendi: "),
+            ),
+            _p(
+                "Então eu já posso procurar um médico pra marcar uma consulta?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(aplicativo|portal|central)",),
+                nao_deve=(*_NAO_DEVE_SEMPRE, "sim ou nao", _DESPEJO_DO_CADASTRO),
+            ),
+            _p(
+                "Mas eu já tinha te falado que não sobre isso",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(*_NAO_DEVE_SEMPRE, "sim ou nao", r"voce prefere: 1\)"),
+            ),
+        ),
+        resolveu=(
+            "a queda com dor nas costas recebeu as perguntas de alerta UMA vez, sem 192; o pedido de "
+            "agendamento recebeu os canais (sem o cadastro) e a reclamacao da repeticao seguiu sem repetir a "
+            "pergunta nem as opcoes; nenhum prazo da ANS"
+        ),
+    ),
+    Segmento(
+        "2-noite-25-10-urina-e-agendamento",
+        (
+            _p(
+                "Estou tendo dificuldade pra urinar desde ontem",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(*_NAO_DEVE_SEMPRE, _PERGUNTA_GENERICA_PEITO_AVC),
+            ),
+            _p(
+                "Não, mas o que dor no peito tem a ver com isso?",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=_NAO_DEVE_SEMPRE,
+            ),
+            _p(
+                "Tá. Consigo agendar uma consulta por aqui?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(aplicativo|portal|central)",),
+                nao_deve=(*_NAO_DEVE_SEMPRE, _DESPEJO_DO_CADASTRO),
+            ),
+        ),
+        resolveu=(
+            "a dificuldade para urinar nunca recebeu a pergunta generica de peito/AVC; a pergunta sobre dor "
+            "no peito (sem sentir) nao abriu 192 nem caso; o pedido de agendamento recebeu os canais, sem o "
+            "cadastro do plano"
+        ),
+    ),
+    Segmento(
+        "3-22-10-dor-nas-costas-e-seguimento",
+        (
+            _p(
+                "Estou com uma dor nas costas faz uns três dias",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=_NAO_DEVE_SEMPRE,
+            ),
+            _p(
+                "Não, nenhum desses",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=_NAO_DEVE_SEMPRE,
+            ),
+            _p(
+                "Será que foi porque eu dormi de mau jeito?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("medic",),
+                nao_deve=(*_NAO_DEVE_SEMPRE, "sim ou nao"),
+            ),
+        ),
+        resolveu=(
+            "a dor nas costas recebeu as perguntas de alerta uma vez; depois do 'nao', a pergunta de causa "
+            "recebeu 'quem avalia e o medico' sem repetir a pergunta de alerta e sem 192"
+        ),
+    ),
+)
+
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "dono_v1": DONO_V1,
     "triagem_v2": TRIAGEM_V2,
@@ -2525,6 +2624,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
+    "helena_replays_dono": HELENA_REPLAYS_DONO,
 }
 #: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
 SUJEITO_DO_ROTEIRO: dict[str, str] = {
