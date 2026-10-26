@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
+from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
 from maezo.agents.helena.habilidades.sintoma.textos import CHAVE_OFERTA_EQUIPE
@@ -358,6 +359,7 @@ async def conduzir(
     if escolha is None:
         publico = _publico_do_estado(state)
         escolha = _n.Escolha("crianca" if publico == "crianca_2m_5a" else publico, "desconhecida", None)
+    afirmado = _g._plano(texto_afirmado(texto, ultima_fala(_g._falas_da_helena(state))))
     continua = v7 is not None and v7.continuacao
     if ultimo is not None and (escolha.protocolo in feitos or (escolha.protocolo is None and continua)):
         # A MESMA queixa ja' respondida: nunca a pergunta de alerta de novo ("dormi de mau jeito, sera' que e'
@@ -377,7 +379,53 @@ async def conduzir(
     if protocolo is None:
         return None
     logger.info("helena_protocolo_escolhido", protocolo=protocolo.id, rascunho=protocolo.rascunho)
-    return _texto(self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id))
+    return await _perguntar_o_que_falta(self, state, protocolo, conversa, mensagem, afirmado=bool(afirmado))
+
+
+async def _perguntar_o_que_falta(
+    self: HelenaGraph,
+    state: Mapping[str, Any],
+    protocolo: _p.Protocolo,
+    conversa: str,
+    mensagem: str,
+    *,
+    afirmado: bool,
+) -> dict[str, Any]:
+    """Simulador de 26/10/2026: nunca perguntar o que a pessoa acabou de contar ("cai da escada" ja' responde
+    "veio depois de uma queda?"). O modelo marca as perguntas ja' respondidas; a REGRA decide: "sim" urgente
+    -> o destino na hora; o resto -> so' as perguntas que faltam; tudo respondido -> o destino. Sem leitura
+    (ou sem frase afirmada), todas as perguntas, como antes."""
+    k = len(protocolo.perguntas_de_alerta)
+    pre: tuple[str, ...] | None = await _chamar(
+        self,
+        state,
+        _n.prompt_da_pre_leitura(protocolo, bloco_conversa=conversa, bloco_mensagem=mensagem),
+        lambda bruto: _n.ler_pre_leitura(bruto, k),
+        "pre_leitura",
+    )
+    if pre is not None and not afirmado:
+        # Mensagem so' de pergunta/negacao/hipotese: "sim" nao conta (mesmo espirito da frase afirmada).
+        pre = tuple("nao_dito" if r == "sim" else r for r in pre)
+    if pre is None or all(r == "nao_dito" for r in pre):
+        return _texto(
+            self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id)
+        )
+    plano = _n.plano_das_perguntas(protocolo, pre)
+    logger.info(
+        "helena_protocolo_ja_respondidas",
+        protocolo=protocolo.id,
+        sim=pre.count("sim"),
+        nao=pre.count("nao"),
+        faltam=len(plano.faltam),
+    )
+    if plano.decisao is not None:
+        return _executar(self, state, protocolo, plano.decisao)
+    return _texto(
+        self,
+        state,
+        _n.texto_das_perguntas(protocolo, plano.faltam, primeira=True),
+        pendente=_n.codigo_do_alerta(protocolo.id, 0, plano.faltam),
+    )
 
 
 __all__ = [

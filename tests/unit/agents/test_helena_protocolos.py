@@ -60,6 +60,7 @@ class _Modelo:
         escolha: list[str] | None = None,
         leitura: list[str] | None = None,
         mapa: list[str] | None = None,
+        pre: list[str] | None = None,
         outras: list[str] | None = None,
     ) -> None:
         self.filas = {
@@ -67,6 +68,7 @@ class _Modelo:
             "escolha": list(escolha or []),
             "leitura": list(leitura or []),
             "mapa": list(mapa or []),
+            "pre": list(pre or []),
             "outras": list(outras or [_classify(intent="symptom", intensidade="moderada")] * 4),
         }
         self.prompts: dict[str, list[str]] = {k: [] for k in self.filas}
@@ -79,6 +81,8 @@ class _Modelo:
             tipo = "escolha"
         elif "PERGUNTAS DE ALERTA que um assistente" in prompt:
             tipo = "leitura"
+        elif "JA RESPONDIDAS" in prompt:
+            tipo = "pre"
         elif "QUEIXA sobre a qual a pessoa pergunta" in prompt:
             tipo = "mapa"
         else:
@@ -576,3 +580,164 @@ async def test_conversa_do_dono_22_10_dor_nas_costas() -> None:
     for texto, estado in saidas:
         _limpo(texto)
         assert not _escalou(estado)
+
+
+# --- Simulador de 26/10/2026: nunca perguntar o que a pessoa acabou de contar; queda/trauma tem prioridade --
+def _pre(*respostas: str) -> str:
+    return json.dumps({"respostas": list(respostas)})
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Bom dia, eu caí de uma escada uns dias atrás e estou com dor nas costas",
+        "levei um tombo e o joelho dói",
+        "escorreguei e bati as costas no chão",
+        "bati o carro e estou com dor no pescoço",
+        "torci o pé e está inchado",
+    ],
+)
+async def test_queda_ou_trauma_escolhido_pelo_modelo_faz_as_perguntas_de_trauma(fala: str) -> None:
+    """A prioridade da queda/trauma e' do MODELO (regra 5 do prompt; sonda de 26/10 com o zai.glm-5: 48/48
+    nas 3 rodadas), sem troca por palavra no codigo."""
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)])
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    texto = whatsapp.enviados[-1]
+    assert texto == n.texto_das_perguntas(_QUEDA)
+    assert "A dor veio depois de uma queda" not in texto
+    assert final["coleta_pendente"] == n.codigo_do_alerta(_QUEDA.id) and not _starts(cib)
+    assert "QUEDA/TRAUMA" in modelo.prompts["escolha"][0]
+
+
+@pytest.mark.parametrize(
+    ("fala", "escolhido"),
+    [
+        ("bati papo com a vizinha e depois fiquei com dor de cabeça", "tri-adulto-dor-de-cabeca"),
+        ("meu pai sofreu um acidente ano passado e eu estou com dor nas costas", _COSTAS.id),
+        ("minha mãe caiu semana passada, eu estou com dor de garganta", "tri-adulto-dor-de-garganta"),
+    ],
+)
+async def test_palavra_de_trauma_nao_troca_a_escolha_do_modelo(fala: str, escolhido: str) -> None:
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(escolhido)])
+    grafo, whatsapp, _ = _grafo(modelo)
+    await grafo.ainvoke(_estado(fala))
+    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_CATALOGO.protocolos[escolhido])
+
+
+@pytest.mark.parametrize(
+    "fala", ["estou com dor nas costas há 3 dias", "costas doendo desde segunda", "não caí, só dói"]
+)
+async def test_controle_dor_nas_costas_sem_trauma_continua_com_as_perguntas_dela(fala: str) -> None:
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_COSTAS.id)])
+    grafo, whatsapp, _ = _grafo(modelo)
+    await grafo.ainvoke(_estado(fala))
+    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_COSTAS)
+
+
+@pytest.mark.parametrize(
+    ("fala", "pre", "faltam"),
+    [
+        (
+            "caí da escada e não bati a cabeça, as costas doem",
+            ("nao_dito", "nao_dito", "nao", "nao_dito"),
+            (1, 2, 4),
+        ),
+        ("levei um tombo, não desmaiei e não bati a cabeça", ("nao", "nao_dito", "nao", "nao_dito"), (2, 4)),
+        ("escorreguei, consigo mexer tudo, só dói", ("nao_dito", "nao_dito", "nao_dito", "nao"), (1, 2, 3)),
+    ],
+)
+async def test_pergunta_ja_respondida_sai_e_so_as_outras_sao_feitas(
+    fala: str, pre: tuple[str, ...], faltam: tuple[int, ...]
+) -> None:
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)], pre=[_pre(*pre)])
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    texto = whatsapp.enviados[-1]
+    assert texto == n.texto_das_perguntas(_QUEDA, faltam, primeira=True)
+    assert texto.startswith(n.cabecalho(_QUEDA))
+    assert final["coleta_pendente"] == n.codigo_do_alerta(_QUEDA.id, 0, faltam) and not _starts(cib)
+    # A resposta seguinte le' SO' as perguntas que faltavam, e "nao" leva a orientacao sem 192.
+    modelo2 = _Modelo([decisao_v7("sintoma", responde=True)], leitura=[_leitura(*("nao",) * len(faltam))])
+    grafo2, whatsapp2, cib2 = _grafo(modelo2)
+    final2 = await grafo2.ainvoke(_estado("não", [texto], pendente=final["coleta_pendente"]))
+    assert whatsapp2.enviados[-1] == n.texto_sem_sinal(_QUEDA, _TEXTOS)
+    assert not _escalou(final2) and not _starts(cib2)
+
+
+@pytest.mark.parametrize(
+    ("fala", "pre"),
+    [
+        ("caí da escada e agora não consigo apoiar a perna", ("nao_dito", "nao_dito", "nao_dito", "sim")),
+        ("levei um tombo, bati a cabeça e estou com enjoo", ("nao_dito", "nao_dito", "sim", "nao_dito")),
+        ("tropecei e o braço ficou torto", ("nao", "nao", "nao", "sim")),
+    ],
+)
+async def test_sinal_urgente_ja_dito_vai_direto_ao_destino(fala: str, pre: tuple[str, ...]) -> None:
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)], pre=[_pre(*pre)])
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    assert whatsapp.enviados[-1] == n.texto_do_destino_por_sinal("PRONTO_SOCORRO_AGORA", "adulto")
+    assert not final.get("coleta_pendente") and not _starts(cib)
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "caí agora há pouco e fiquei muito confuso",
+        "levei um tombo e estou meio sonolento",
+        "bati o carro e estou confuso",
+    ],
+)
+async def test_sinal_de_192_ja_dito_escala_na_hora(fala: str) -> None:
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha(_QUEDA.id)],
+        pre=[_pre("sim", "nao_dito", "nao_dito", "nao_dito")],
+    )
+    grafo, _, _ = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    assert final["escalation_motivo"] == "red_flag_clinico"
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "caí da escada, não bati a cabeça, não desmaiei, mexo tudo e a dor é leve",
+        "levei um tombo mas está tudo bem, sem nada disso, só uma dorzinha",
+        "escorreguei; nada de desmaio, sangue, cabeça ou inchaço",
+    ],
+)
+async def test_tudo_ja_respondido_sem_sim_vai_ao_destino_sem_sinal(fala: str) -> None:
+    modelo = _Modelo(
+        [decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)], pre=[_pre("nao", "nao", "nao", "nao")]
+    )
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    assert whatsapp.enviados[-1] == n.texto_sem_sinal(_QUEDA, _TEXTOS)
+    assert not _escalou(final) and not _starts(cib)
+
+
+@pytest.mark.parametrize(
+    "fala",
+    ["será que se eu cair da escada vou ficar confuso?", "e se eu bater a cabeça?", "pode dar tontura?"],
+)
+async def test_sim_so_conta_em_frase_afirmada(fala: str) -> None:
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha(_QUEDA.id)],
+        pre=[_pre("sim", "nao_dito", "sim", "nao_dito")],
+    )
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_estado(fala))
+    assert not _escalou(final) and not _starts(cib)
+    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_QUEDA)
+
+
+def test_plano_das_perguntas_regra() -> None:
+    primeiro = n.plano_das_perguntas(_COSTAS, ("sim", "nao_dito", "nao_dito", "nao_dito"))
+    assert primeiro.decisao == n.Decisao(
+        "destino", "PRONTO_SOCORRO_AGORA", _COSTAS.perguntas_de_alerta[0].sinal
+    )
+    assert n.plano_das_perguntas(_COSTAS, ("nao", "nao_dito", "nao", "nao_dito")).faltam == (2, 4)
+    assert n.plano_das_perguntas(_COSTAS, ("nao",) * 4).decisao == n.Decisao("destino", "CONSULTA_ROTINA")

@@ -96,15 +96,91 @@ def cabecalho(protocolo: _p.Protocolo) -> str:
     return f"Sobre {rotulo(protocolo)}, me diga se acontece alguma destas coisas agora:"
 
 
-def texto_das_perguntas(protocolo: _p.Protocolo, indices: Sequence[int] | None = None) -> str:
-    """As perguntas de alerta do protocolo, numeradas, numa mensagem so' (texto do protocolo, sem modelo).
-    `indices` (1..N): a re-pergunta so' das que ficaram sem clareza, com a numeracao original."""
+def texto_das_perguntas(
+    protocolo: _p.Protocolo, indices: Sequence[int] | None = None, *, primeira: bool = False
+) -> str:
+    """As perguntas de alerta do protocolo, numeradas 1..k, numa mensagem so' (texto do protocolo, sem
+    modelo). `indices` (1..N): so' estas perguntas — na re-pergunta (as sem clareza) ou, com `primeira`, na
+    primeira vez quando a pessoa ja' respondeu as outras no que contou (26/10/2026)."""
     perguntas = protocolo.perguntas_de_alerta
     if indices is None:
         linhas = [f"{i}) {q.pergunta}" for i, q in enumerate(perguntas, start=1)]
         return "\n".join([cabecalho(protocolo), *linhas, RODAPE_DAS_PERGUNTAS])
-    linhas = [f"{i}) {perguntas[i - 1].pergunta}" for i in indices]
+    linhas = [f"{n}) {perguntas[i - 1].pergunta}" for n, i in enumerate(indices, start=1)]
+    if primeira:
+        return "\n".join([cabecalho(protocolo), *linhas, RODAPE_DAS_PERGUNTAS])
     return "\n".join([TEXTO_DA_REPERGUNTA, *linhas, RODAPE_DA_REPERGUNTA])
+
+
+# --- Perguntas JA' respondidas no que a pessoa contou (teste do simulador de 26/10/2026) ---------------
+PRE_RESPOSTAS: Final[tuple[str, ...]] = ("sim", "nao", "nao_dito")
+#: Destinos urgentes: um "sim" ja' dito leva direto a eles, sem perguntar o resto.
+DESTINOS_URGENTES: Final[frozenset[str]] = frozenset(
+    {"LIGAR_192_AGORA", "CVV_188_E_192", "PRONTO_SOCORRO_AGORA", "ATENDIMENTO_HOJE"}
+)
+
+
+def prompt_da_pre_leitura(protocolo: _p.Protocolo, *, bloco_conversa: str, bloco_mensagem: str) -> str:
+    perguntas = "\n".join(f"{n}) {q.pergunta}" for n, q in enumerate(protocolo.perguntas_de_alerta, 1))
+    k = len(protocolo.perguntas_de_alerta)
+    return "\n".join(
+        [
+            "Voce confere quais destas perguntas JA RESPONDIDAS pela pessoa no que ela contou (mensagem "
+            "nova e conversa), ANTES de um assistente de saude pergunta-las. Para CADA pergunta, na ordem:",
+            '- "sim": a pessoa AFIRMOU claramente, sobre agora, TUDO o que a pergunta pede, inclusive a '
+            "intensidade ('cai da escada' responde 'veio depois de uma queda?' = sim; 'dor nas costas' NAO "
+            "responde 'dor forte nas costas?');",
+            '- "nao": a pessoa NEGOU claramente ("nao bati a cabeca" = nao para a pergunta da cabeca);',
+            '- "nao_dito": nao foi dito, foi so\' perguntado, hipotese ("sera\' que", "e se"), duvida.',
+            "Nunca invente. Na duvida, nao_dito.",
+            f'Responda SO\' um JSON numa linha: {{"respostas":[{k} valores sim|nao|nao_dito]}}',
+            "PERGUNTAS:",
+            perguntas,
+            "CONVERSA:",
+            bloco_conversa or "(vazia)",
+            "MENSAGEM NOVA:",
+            bloco_mensagem,
+        ]
+    )
+
+
+def ler_pre_leitura(bruto: str, quantas: int) -> tuple[tuple[str, ...] | None, list[str]]:
+    dado = _json(bruto)
+    respostas = dado.get("respostas") if dado is not None else None
+    if (
+        not isinstance(respostas, list)
+        or len(respostas) != quantas
+        or any(r not in PRE_RESPOSTAS for r in respostas)
+    ):
+        return None, ["respostas"]
+    return tuple(str(r) for r in respostas), []
+
+
+@dataclass(frozen=True)
+class PlanoDasPerguntas:
+    """O que fazer com as respostas ja' ditas: `decisao` (destino) ou `faltam` (so' estas)."""
+
+    decisao: Decisao | None
+    faltam: tuple[int, ...]
+
+
+def plano_das_perguntas(protocolo: _p.Protocolo, pre: Sequence[str]) -> PlanoDasPerguntas:
+    """A REGRA sobre as respostas ja' ditas: "sim" urgente -> o destino dele na hora; perguntas nao ditas ->
+    so' elas; tudo dito sem "sim" (ou "sim" so' de consulta) -> a decisao com o que foi dito."""
+    n = len(protocolo.perguntas_de_alerta)
+    todos = tuple(range(1, n + 1))
+    respostas = tuple("nao" if r == "nao_dito" else r for r in pre)
+    urgentes = [
+        i
+        for i, r in zip(todos, pre, strict=True)
+        if r == "sim" and protocolo.perguntas_de_alerta[i - 1].destino_se_sim in DESTINOS_URGENTES
+    ]
+    if urgentes:
+        return PlanoDasPerguntas(decidir(protocolo, todos, respostas, 0), ())
+    faltam = tuple(i for i, r in zip(todos, pre, strict=True) if r == "nao_dito")
+    if faltam:
+        return PlanoDasPerguntas(None, faltam)
+    return PlanoDasPerguntas(decidir(protocolo, todos, respostas, 0), ())
 
 
 def protocolos_na_conversa(falas_da_helena: Sequence[str], catalogo: _p.Catalogo) -> list[str]:
@@ -354,6 +430,9 @@ def prompt_da_escolha(catalogo: _p.Catalogo, *, bloco_conversa: str, bloco_mensa
             "3 protocolo: o id da lista do publico (e da faixa) que corresponde a queixa; nenhum protocolo "
             'especifico corresponde: "nenhum". Nunca invente id.',
             "4 Gravidez tem prioridade: queixa de gestante usa os protocolos [gestante].",
+            "5 Queda ou trauma junto com dor ('cai da escada e doem as costas', 'levei um tombo', 'bati o "
+            "carro', 'torci o pe'') usa o protocolo de QUEDA/TRAUMA (adulto: tri-adulto-queda-ou-trauma; "
+            "crianca que bateu a cabeca: o de queda ou batida na cabeca da faixa), nao o da parte do corpo.",
             'Responda SO\' um JSON numa linha: {"publico":"adulto|crianca|gestante|puerpera",'
             '"faixa_crianca":"0_2m|2m_5a|5_12a|adolescente|desconhecida|nao_se_aplica",'
             '"protocolo":"<id>|nenhum"}',
