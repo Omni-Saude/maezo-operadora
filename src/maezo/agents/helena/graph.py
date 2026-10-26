@@ -153,6 +153,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.conhecimento import base_saude as _bs
+from maezo.conhecimento import protocolos as _pr
 from maezo.conhecimento import saude_gerativa as _sg
 
 # P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
@@ -4649,6 +4650,7 @@ class HelenaGraph:
         roteador_instrucoes: str | None = None,
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
+        helena_protocolos_enabled: bool = False,
     ) -> None:
         self._llm = inference
         # TEXTOS DO PACOTE (ADR-0067 §4): o texto de cada chave vem do pacote de comportamento, quando ha';
@@ -4683,6 +4685,8 @@ class HelenaGraph:
                 self._roteador_prazo_s = float(roteador_prazo_s or self._roteador_contrato.prazo_s or 6.0)
             except (_rc.ContratoInvalidoError, OSError, ValueError) as exc:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
+        # PROTOCOLOS CLINICOS (dono, 25/10/2026): so' no roteador ativo; `None` = o caminho de antes.
+        self._protocolos = _pr.catalogo_do_ambiente() if helena_protocolos_enabled is True else None
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -8166,6 +8170,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # TEXTOS DO PACOTE (ADR-0067 §4): os textos fixos que o pacote de comportamento trouxer.
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
+        helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
     ).compile_graph()
 
 

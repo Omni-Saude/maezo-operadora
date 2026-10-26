@@ -96,7 +96,7 @@ def sim_a_oferta_pendente(state: Mapping[str, Any]) -> bool:
 
 
 #: As perguntas pendentes que sao da SAUDE (sintoma em curso, oferta da saude, ficha clinica).
-_PENDENTES_DE_SAUDE: Final[tuple[str, ...]] = ("V4_", "SAUDE_OFERTA", "PERGUNTAR_FICHA_")
+_PENDENTES_DE_SAUDE: Final[tuple[str, ...]] = ("V4_", "SAUDE_OFERTA", "PERGUNTAR_FICHA_", "PROT_")
 
 
 def contexto_de_saude(state: Mapping[str, Any]) -> bool:

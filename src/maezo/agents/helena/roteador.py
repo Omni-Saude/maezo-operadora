@@ -534,6 +534,10 @@ async def _classify_ativo_decidido(
     v7 = cast("_rv7.DecisaoV7", decisao.v7)
     duvida_antes = bool(antes and antes.startswith(_rt.PREFIXO_DUVIDA))
     dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
+    if (protocolo := await _protocolo.responder_alerta(self, state, decisao, antes)) is not None:
+        # PROTOCOLOS (dono, 25/10/2026): a resposta as perguntas de alerta do protocolo, lida pelo modelo
+        # pergunta a pergunta e decidida pela regra (o sinal NOVO fora delas volta ao alarme abaixo).
+        return {**protocolo, "habilidade_roteador": "sintoma"}
     alarme = _alarme_do_modelo(self, state, v7)
     if alarme == "claro":
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
@@ -542,10 +546,17 @@ async def _classify_ativo_decidido(
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
         return {**oferta, "habilidade_roteador": "equipe"}
-    if alarme is None and not antes:
+    agendamento_da_queixa = _agendar.pergunta_de_agendamento(texto) and _protocolo.protocolo_na_conversa(
+        self, state
+    )
+    if alarme is None and not antes and not agendamento_da_queixa:
+        # Com um protocolo ja' conduzido, o agendamento vai ao protocolo (especialista da queixa + canais).
         fixo = await _texto_fixo_de_conversa(self, state, texto)
         if fixo is not None:
             return fixo
+    if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
+        # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.
+        return {**protocolo, "habilidade_roteador": "sintoma"}
     opcoes = decisao.opcoes_da_duvida()
     if opcoes is not None:
         x, y = opcoes
@@ -757,6 +768,8 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
+    if self._protocolos is not None and _protocolo.e_texto_do_protocolo(texto):
+        return True  # PROTOCOLOS: o texto fixo que a habilidade montou neste turno (sem modelo)
     if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
         # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
         return True
@@ -868,4 +881,5 @@ from maezo.agents.helena.graph import (  # noqa: E402
     logger,
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402
