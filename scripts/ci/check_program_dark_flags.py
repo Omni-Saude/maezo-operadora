@@ -249,7 +249,7 @@ def main() -> int:
             print(f"  - {a}", file=sys.stderr)
         return 1
     print(
-        "check_program_dark_flags: ok — as 5 flags dark do programa com default literal OFF no "
+        "check_program_dark_flags: ok — as 6 flags dark do programa com default literal OFF no "
         "codigo, zero mencao em deploy/** e os nomes de env das pontes batendo com os pinos."
     )
     return 0
