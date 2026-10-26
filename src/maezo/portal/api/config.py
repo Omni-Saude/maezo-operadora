@@ -81,6 +81,18 @@ class PortalSettings(BaseSettings):
     #: bootstrap SC1 de produção não consegue nomeá-lo). OFF projeta a sessão sem o sinal e o
     #: portal mantém o stub exato de hoje. Nenhum `deploy/**` pode ligá-la neste programa.
     staff_admin_panel: bool = False
+    #: D-36 (decisão do dono, 2026-10-25). Superfície INTERNA de gestão de ESTRUTURAS de ajuste
+    #: de comissão (produto/canal/corretor; múltiplos ajustes, vigências, precedência), com
+    #: dados entrando no FUTURO — todo slot de valor é anulável e o único estado é `DRAFT`
+    #: (pinado também por CHECK na tabela `commission_adjustment_policies`, migração 0029).
+    #: Nada calcula, publica ou liquida: não existe endpoint de cálculo/ativação/liquidação por
+    #: desenho, e ativação é ato FUTURO que exige a ratificação A8 Forma 1 pelos três papéis
+    #: (`comercial` + `legal` + `DPO`) e chega como MIGRAÇÃO sucessora — nunca como update
+    #: nem por esta chave. DARK: OFF por padrão — virar esta chave é ato do dono, com janela de
+    #: evidência e revisor nomeados; OFF responde 403 `operation_forbidden` antes de qualquer
+    #: efeito, e o slot de fábrica segue sem default (503). Nenhum `deploy/**` pode ligá-la
+    #: neste programa.
+    staff_commission_policies: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.

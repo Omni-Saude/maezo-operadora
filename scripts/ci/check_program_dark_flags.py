@@ -4,10 +4,12 @@
 Por que esta cerca existe
 --------------------------
 `docs/plans/maezo-completion-program.md` §W5 5.1 tem, como criterio de aceitacao,
-"flags provadamente OFF em prod". As cinco flags do programa foram construidas dark
-(#955 canal DSR, #960/#963 paineis staff, #965 pontes de erasure) e a SENTENCA que cada
-docstring delas declara e' sempre a mesma: virar a chave e ato da onda ROLL e **nenhum
-`deploy/**` pode liga-la neste programa** (`src/maezo/portal/api/config.py:51,60,70`;
+"flags provadamente OFF em prod". As flags dark registradas nesta cerca foram construidas
+dark (#955 canal DSR, #960/#963 paineis staff, #965 pontes de erasure; D-36 do dono,
+25/10/2026, a superficie interna de estruturas de ajuste de comissao) e a SENTENCA que cada
+docstring delas declara e' sempre a mesma: virar a chave e ato da onda ROLL (ou, na D-36,
+ato proprio do dono pos-ratificacao A8 Forma 1) e **nenhum `deploy/**` pode liga-la neste
+programa** (`src/maezo/portal/api/config.py:51,60,70,83`;
 `src/maezo/platform/identity_bridges.py:24`). Ate este pacote essa proibicao era so' prosa:
 a cerca de DL-0049 (`check_portal_direct_completion.py`) cobre SOMENTE
 `MAEZO_PORTAL_DIRECT_COMPLETION`/`MAEZO_PORTAL_CORS_ORIGINS`, e a reconciliacao de env
@@ -15,15 +17,15 @@ a cerca de DL-0049 (`check_portal_direct_completion.py`) cobre SOMENTE
 
 O que ela reprova
 ------------------
-  1. O default deixando de ser `False` literal no codigo para qualquer uma das tres flags
-     de `PortalSettings` — um default ligado abre a superficie em todo ambiente que NAO a
+  1. O default deixando de ser `False` literal no codigo para qualquer uma das flags
+     registradas de `PortalSettings` — um default ligado abre a superficie em todo ambiente que NAO a
      declara, o contrario de dark.
   2. A flag deixando de existir (exatamente uma vez) na classe — cerca cega reprovada, nao
      silenciada.
   3. O `env_prefix` de `PortalSettings` deixando de ser o literal `"MAEZO_PORTAL_"` — os
      nomes de env pinados abaixo so' significam o que dizem sob esse prefixo.
-  4. O nome de env de qualquer uma das cinco flags (tres do portal + as DUAS pontes de
-     erasure) aparecendo em QUALQUER arquivo de `deploy/**` — um template nao tem ambiente
+  4. O nome de env de qualquer uma das flags registradas (quatro do portal + as DUAS
+     pontes de erasure) aparecendo em QUALQUER arquivo de `deploy/**` — um template nao tem ambiente
      provavel, e a sentenca de cada flag e' "nenhum `deploy/**` pode liga-la": mencao nenhuma
      e' aceitavel neste programa, nem comentada, nem "desligada" (o mesmo padrao de
      `_fora_do_terraform` da cerca de DL-0049).
@@ -66,16 +68,20 @@ DEFAULTS_EXIGIDOS: tuple[tuple[Path, str, str, object], ...] = (
     (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+    (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
 )
 
-#: As cinco flags dark do programa e os nomes de env EXATOS que as ligam. Os tres primeiros
-#: derivam de `env_prefix` + campo (conferidos contra a arvore pela cerca 3); os dois ultimos
-#: sao constantes de modulo em `identity_bridges.py` (cerca 5). `bridge_flag_enabled` so'
-#: habilita com o literal `true` — OFF e' todo o resto, inclusive ausente.
+#: As flags dark registradas nesta cerca e os nomes de env EXATOS que as ligam. Os quatro
+#: primeiros derivam de `env_prefix` + campo (conferidos contra a arvore pela cerca 3); os
+#: dois ultimos sao constantes de modulo em `identity_bridges.py` (cerca 5).
+#: `bridge_flag_enabled` so' habilita com o literal `true` — OFF e' todo o resto, inclusive
+#: ausente. (A flag `staff_admin_panel` do D-40 segue o registro do PR dela, fora desta
+#: cerca — acrescentar o flag DE OUTRO pacote aqui e' decisao do pacote dele.)
 ENV_FLAGS_PROGRAMA: tuple[str, ...] = (
     "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
     "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
     "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+    "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
     "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
     "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
 )
@@ -243,7 +249,7 @@ def main() -> int:
             print(f"  - {a}", file=sys.stderr)
         return 1
     print(
-        "check_program_dark_flags: ok — as 5 flags dark do programa com default literal OFF no "
+        "check_program_dark_flags: ok — as 6 flags dark do programa com default literal OFF no "
         "codigo, zero mencao em deploy/** e os nomes de env das pontes batendo com os pinos."
     )
     return 0

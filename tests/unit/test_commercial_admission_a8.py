@@ -523,11 +523,29 @@ def test_the_pending_dossier_never_appears_in_src() -> None:
 
 def test_src_tree_keeps_zero_commission_vocabulary_beyond_this_loader() -> None:
     # The ONLY "commission"/"comissão"/"comissionamento" occurrences in `src/` are this
-    # loader's: the package adds no commission calculation/display surface — 0 hits
-    # before it (GAP-CATALOG §2/A8(ii) — "0 hits de 'commission' em src/"), and the pin
-    # makes any future appearance a conscious, gate-visible act.
+    # loader's and the D-36 DARK draft-STRUCTURE surface's: the package adds no commission
+    # calculation/display surface — 0 hits before it (GAP-CATALOG §2/A8(ii) — "0 hits de
+    # 'commission' em src/"), and the pin makes any future appearance a conscious,
+    # gate-visible act. D-36 (dono, 2026-10-25) registered the internal draft surface
+    # through this very fence: draft STRUCTURE only (all value slots nullable, single
+    # `DRAFT` state), the A8 structural guard consumed at its boundary, ZERO
+    # calculation/activation/liquidation endpoint (absent by construction) — the same
+    # recorded limit, now with a drafting table, never a toggle.
     root = Path(__file__).resolve().parents[2] / "src" / "maezo"
-    allowed = {(root / "gateway" / "commercial_commission_admission.py").resolve()}
+    allowed = {
+        (root / "gateway" / "commercial_commission_admission.py").resolve(),
+        # D-36: the DARK internal adjustment-STRUCTURE drafts (migration 0029, the flag in
+        # the portal settings, the closed contracts, the draft-only route/service and its
+        # tenant-scoped store) plus the BFF wiring that mounts them unbound and the
+        # LGPD erasure enumeration of the draft table (name only — structure, no values).
+        (root / "platform" / "migrations" / "versions" / "0029_commission_adjustment_policies.py").resolve(),
+        (root / "platform" / "lifecycle" / "erasure_plan.py").resolve(),
+        (root / "portal" / "api" / "config.py").resolve(),
+        (root / "portal" / "contracts" / "commission_policies.py").resolve(),
+        (root / "portal" / "api" / "commission_policies.py").resolve(),
+        (root / "portal" / "api" / "commission_policies_postgres.py").resolve(),
+        (root / "portal" / "api" / "app.py").resolve(),
+    }
     found: dict[Path, list[int]] = {}
     for path in root.rglob("*.py"):
         lines = [
@@ -538,6 +556,58 @@ def test_src_tree_keeps_zero_commission_vocabulary_beyond_this_loader() -> None:
         if lines:
             found[path.resolve()] = lines
     assert set(found) == allowed, found
+
+
+def test_d36_modules_consume_only_the_a8_guard_and_define_no_action_verb() -> None:
+    # The D-36 boundary consumes EXACTLY the admission-independent structural guard of the
+    # loader (`refuse_commission_policy_payload` + the stub schema constant + its error)
+    # and NEVER the admission record machinery — reading/validating an owner record stays
+    # the A8 loader's exclusive job. And the draft surface defines NO callable whose name
+    # carries a calculation/activation/liquidation verb: the absent endpoints are absent
+    # by construction, not by flag (the companion evidence is the route table pin in
+    # tests/unit/portal/test_commission_policies_endpoint.py).
+    d36_modules = (
+        Path(__file__).resolve().parents[2] / "src" / "maezo" / "portal" / "api" / "commission_policies.py",
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "maezo"
+        / "portal"
+        / "api"
+        / "commission_policies_postgres.py",
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "maezo"
+        / "portal"
+        / "contracts"
+        / "commission_policies.py",
+    )
+    forbidden_imports = (
+        "parse_commission_admission",
+        "read_commission_admission",
+        "CommissionAdmission",
+        "CommissionAdmissionError",
+    )
+    forbidden_verbs = (
+        "def settle",
+        "def calculate",
+        "def activate",
+        "def liquidate",
+        "def rank",
+        "def compute",
+    )
+    for module in d36_modules:
+        text = module.read_text(errors="replace")
+        for symbol in forbidden_imports:
+            assert symbol not in text, (module, symbol)
+        for verb in forbidden_verbs:
+            assert verb not in text, (module, verb)
+    route_text = d36_modules[0].read_text(errors="replace")
+    for guard_symbol in (
+        "refuse_commission_policy_payload",
+        "COMMISSION_POLICY_STUB_SCHEMA",
+        "CommissionPayloadError",
+    ):
+        assert guard_symbol in route_text, guard_symbol
 
 
 def test_src_tree_attribution_vocabulary_is_exactly_the_name_adjacent_non_commission_set() -> None:

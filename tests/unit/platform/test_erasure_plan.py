@@ -819,9 +819,13 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # VW4/GP11 wiring grew it by one (`portal_vendor_suppressions`, migration 0021, OP20 —
     # insumos aceitos pelo dono, sha ab262f7b…).
     # D-04 (15/10/2026) grew it by one (`acesso_falhas_por_cpf`, migration 0028).
-    assert len(camadas) == 41, [entry["tabela"] for entry in camadas]
+    # D-36 (25/10/2026) grew it by one (`commission_adjustment_policies`, migration 0029) —
+    # draft STRUCTURE only, `SEM_COLUNA_DE_TITULAR`: no titular column exists (the symbolic
+    # target id and the internal editor principal_ref reach no data subject), the surface is
+    # DARK and the table empty by default.
+    assert len(camadas) == 42, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 41, pendentes
+    assert len(pendentes) == 42, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

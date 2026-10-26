@@ -605,10 +605,12 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # DL-0083 (0022) adds `acesso_beneficiario`/`conversa_acesso_beneficiario`, also NOT covered.
     # Lembrete de cobranca (0027) adds `lembrete_cobranca_enviado` and `_optout`, also NOT covered.
     # Limite de falhas por CPF (0028) adds `acesso_falhas_por_cpf`, also NOT covered (sem coluna de titular).
-    assert len(covered | uncovered) == 41  # 38 + as duas do lembrete (0027) + a do limite por CPF (0028)
-    assert len(uncovered) == 30  # 27 + as duas do lembrete + a do limite por CPF (sem probe)
-    assert len((covered | uncovered) - journal) == 35
-    assert len(uncovered - journal) == 24
+    # D-36 (0029) adds `commission_adjustment_policies`, also NOT covered (sem coluna de titular;
+    # rascunho DRAFT dark — estrutura de ajuste, nunca dado de titular).
+    assert len(covered | uncovered) == 42  # 41 + o rascunho de comissao (0029)
+    assert len(uncovered) == 31  # 30 + o rascunho de comissao (sem probe)
+    assert len((covered | uncovered) - journal) == 36
+    assert len(uncovered - journal) == 25
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {
