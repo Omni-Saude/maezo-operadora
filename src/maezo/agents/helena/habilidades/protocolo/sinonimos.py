@@ -64,6 +64,9 @@ _SEM_CONTEUDO: Final[frozenset[str]] = frozenset(
         "muitas", "tambem", "porque", "mae", "pai", "marido", "esposa", "filho", "filha", "pessoa", "ele",
         "ela", "nas", "nos", "das", "dos", "pelo", "pela", "sobre", "alguma", "algum", "saude", "problema",
         "sintoma", "estranho", "estranha", "sei", "explicar", "passando", "ruim", "repente", "errado",
+        # Ambiguas sozinhas ("pressao estranha" pode ser no peito; "crise" de ansiedade ou de pressao) e a
+        # pergunta pelo profissional: sem o modelo, nao escolhem protocolo (o alerta universal pergunta tudo).
+        "pressa", "crise", "profis", "procur", "devo", "medico", "consul", "tipo", "qual",
     }
 )  # fmt: skip
 _MINIMO: Final[int] = 4
@@ -78,12 +81,17 @@ def _raiz(palavra: str) -> str:
     return palavra[:6]
 
 
+#: As palavras sem conteudo na MESMA forma das raizes comparadas ("estranha" -> "estran", "sentindo" ->
+#: "sentin"): sem isso, as palavras longas da lista nunca casavam.
+_SEM_CONTEUDO_RAIZ: Final[frozenset[str]] = frozenset({*_SEM_CONTEUDO, *(_raiz(p) for p in _SEM_CONTEUDO)})
+
+
 def _raizes(texto: str) -> list[str]:
     return [_raiz(p) for p in _bs.normalizar(texto).split()]
 
 
 def _conteudo(texto: str) -> set[str]:
-    return {r for r in _raizes(texto) if len(r) >= _MINIMO and r not in _SEM_CONTEUDO}
+    return {r for r in _raizes(texto) if len(r) >= _MINIMO and r not in _SEM_CONTEUDO_RAIZ}
 
 
 def _posicao(raizes: list[str], termo: list[str]) -> int | None:
@@ -123,7 +131,7 @@ def escolher(catalogo: _p.Catalogo, base: _bs.BaseSaude, texto: str, publico: st
         if assunto is None:
             continue
         for sinonimo in (*assunto.sinonimos, assunto.titulo):
-            termo = [r for r in _raizes(sinonimo) if len(r) >= 3 and r not in _SEM_CONTEUDO]
+            termo = [r for r in _raizes(sinonimo) if len(r) >= 3 and r not in _SEM_CONTEUDO_RAIZ]
             _forte(pid, _posicao(raizes, termo) if termo else None)
     if fortes:
         primeiro = min(fortes.values())

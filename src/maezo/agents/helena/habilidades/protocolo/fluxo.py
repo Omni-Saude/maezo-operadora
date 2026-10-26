@@ -331,7 +331,8 @@ async def responder_alerta(
         # Teste do dono (26/10/2026): a resposta OBVIA ("nehuma", "ja' respondi nao para todas", "a 2 sim") e'
         # lida pelo codigo, sem esperar o modelo (que caia no prazo e virava re-pergunta e oferta da equipe).
         logger.info("helena_protocolo_lido_sem_modelo", protocolo=protocolo.id, sim=sem_modelo.count("sim"))
-        return _executar(self, state, protocolo, _n.decidir(protocolo, indices, sem_modelo, pend.rodada))
+        regra_sem_modelo = _n.decidir(protocolo, indices, sem_modelo, pend.rodada)
+        return await _executar_com_especialista(self, state, protocolo, regra_sem_modelo)
     conversa, mensagem = _blocos(self, state)
     leitura: _n.Leitura | None = await _chamar(
         self,
@@ -353,6 +354,14 @@ async def responder_alerta(
     ):
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
     regra = _n.decidir(protocolo, indices, leitura.respostas, pend.rodada)
+    return await _executar_com_especialista(self, state, protocolo, regra)
+
+
+async def _executar_com_especialista(
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: Any, regra: Any
+) -> dict[str, Any]:
+    """A decisao da regra; sem sinal e com a pergunta "qual profissional?" na abertura, o especialista do mapa
+    (a mesma saida com a leitura do modelo ou a leitura sem modelo)."""
     especialista = None
     if _sem_sinal_de_consulta(protocolo, regra) and _esp.pergunta_qual_especialista(
         _pergunta_que_abriu(state, protocolo)
