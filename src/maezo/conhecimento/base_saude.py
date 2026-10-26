@@ -887,8 +887,9 @@ NEGATIVAS_DE_SINAL: Final[frozenset[str]] = frozenset({"sem", "nao", "nem", "nen
 LIGACOES_DA_NEGATIVA: Final[frozenset[str]] = frozenset(
     {"tem", "teve", "tinha", "ha", "houve", "apresentou", "apresenta", "sentiu", "sente", "senti", "sinto",
      "esta", "ta", "estou", "to", "com", "de", "o", "a", "os", "as", "um", "uma", "qualquer", "sinal",
-     "sinais", "foi", "deu", "notei", "percebi", "vi"}
+     "sinais", "foi", "deu", "notei", "percebi", "vi", "tenho", "tive", "estava", "tava", "sentindo"}
 )  # fmt: skip
+#: (25/10/2026, caso b do teste do dono: "nao tenho dor no peito" e' negacao; tenho/tive/sentindo ligam.)
 _MAX_LIGACOES: Final[int] = 3
 
 

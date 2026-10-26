@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
-from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
+from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME
+from maezo.agents.helena.frase_afirmada import ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
 from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
@@ -374,7 +375,9 @@ def _roteador_entrada(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str 
     pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
     trava = _rt.trava_de_entrada(
         str(state.get("message_body") or ""),
-        alarme=lambda t: self._roteador_alarme(t, antes, self._falas_da_pessoa(state)),
+        alarme=lambda t: self._roteador_alarme(
+            t, antes, self._falas_da_pessoa(state), ultima_fala(_falas_da_helena(state))
+        ),
         risco=lambda t: _sg.tem_risco(_plano(t)),
     )
     return antes, pendente, trava
@@ -434,7 +437,7 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         # Rodada de 24/10/2026: com trava (alarme, risco, dados pessoais) a TABELA responde primeiro: o turno
         # nao espera o modelo do roteador (era ate' 4 s a mais antes do 192).
         decisao, falha, ms = None, "trava", 0
-        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        alarme = alarme_afirmado(state)
         if trava == _rt.TRAVA_ALARME and alarme is not None:
             # Alarme da tabela deterministica: o escalonamento SEM esperar nem o classificador.
             logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme, sem_modelo=True)
@@ -836,3 +839,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     logger,
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from maezo.agents.helena.travas_entrada import alarme_afirmado  # noqa: E402

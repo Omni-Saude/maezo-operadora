@@ -243,6 +243,7 @@ from .consultas_plano import (
     NomesDoTurno,
     texto_para_cerca,
 )
+from .frase_afirmada import texto_afirmado as _texto_afirmado
 from .habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
 from .habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_DE_EQUIPE as RESPOSTA_RECUSA_DE_EQUIPE
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
@@ -1300,7 +1301,8 @@ def _texto_dos_sinais(texto: str) -> str:
 def _sinal_afirmado(padrao: re.Pattern[str], texto: str) -> bool:
     """O sinal do lexico aparece e NAO esta' negado ("sem falta de ar", "nao teve desmaio"): a trava de
     alarme le a negacao como negacao (r4 de 22/10/2026, `base_saude.negado`). Do lado seguro: se a
-    pontuacao partia o trecho (so' casa sem ela), o sinal vale."""
+    pontuacao partia o trecho (so' casa sem ela), o sinal vale. Sinal so' em PERGUNTA nao conta (25/10)."""
+    texto = _texto_afirmado(texto)
     if not padrao.search(_texto_dos_sinais(texto)):
         return False
     pontuado = _NEGACAO_DE_URGENCIA.sub(" ", _normalizar_texto(texto or ""))
@@ -1375,7 +1377,7 @@ def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
         return True
     if e_agravamento(_plano(texto)):
         return True
-    categoria = alarme_no_relato(_plano(texto))
+    categoria = alarme_no_relato(_plano(_texto_afirmado(texto)))
     return categoria is not None and categoria != alarme_no_relato(_plano(anteriores))
 
 
@@ -3665,7 +3667,8 @@ def mensagem_urgente(texto: str) -> bool:
     """Sinal CLARO de emergencia ou de risco na mensagem (lexicos e alarme deterministico de sempre): o
     esperar-e-juntar (etapa 9) nao espera — o 192 sai na hora."""
     plano = _plano(texto)
-    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(plano) or _sg.tem_risco(plano))
+    afirmado = _plano(_texto_afirmado(texto))
+    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(afirmado) or _sg.tem_risco(plano))
 
 
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
@@ -5454,7 +5457,7 @@ class HelenaGraph:
         # sinal, crianca com febre e prostrada, ingestao de muitos comprimidos/veneno, dor do lado direito da
         # barriga piorando) escala NA HORA como alerta clinico P1 com 192 — antes da tabela, que dependia do
         # codigo e da idade gestacional ditos. Nunca rebaixa nada: sem o termo, o caminho de sempre.
-        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        alarme = _travas_entrada.alarme_afirmado(state)
         if alarme is not None:
             logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme)
             update["intent"] = "symptom"
@@ -5892,14 +5895,15 @@ class HelenaGraph:
         (equipe, conversa, cobranca, plano, cobertura, pedidos) e SEM conteudo clinico na propria mensagem, o
         sintoma que o modelo trouxe do historico nao vai a tabela de alarme ("quero falar com uma pessoa" no
         meio das perguntas da dor de cabeca virava 192). Sinal de emergencia na mensagem continua decidindo
-        (trava de entrada)."""
+        (trava de entrada). 25/10/2026: tambem com o alerta ja' respondido e com sinal so' em pergunta/eco
+        (`travas_entrada.motivo_sem_sintoma_do_historico`)."""
         roteada = _HABILIDADE_DO_TURNO.get()
-        if roteada is None or roteada in ("sintoma", "saude") or not extraction.get("sintoma_codigo"):
+        motivo = _travas_entrada.motivo_sem_sintoma_do_historico(self, state, roteada, extraction)
+        if motivo is None:
             return
-        texto = str(state.get("message_body") or "")
-        if _conteudo_clinico(texto) or _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto):
-            return
-        logger.info("helena_habilidade_sem_sintoma_do_historico", node="classify", habilidade=roteada)
+        logger.info(
+            "helena_habilidade_sem_sintoma_do_historico", node="classify", habilidade=roteada, motivo=motivo
+        )
         extraction["sintoma_codigo"] = None
         extraction["intensidade"] = "desconhecida"
         update["sintoma_codigo"] = None
