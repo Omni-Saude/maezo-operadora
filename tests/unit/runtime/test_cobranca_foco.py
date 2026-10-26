@@ -29,6 +29,8 @@ def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
                 # Red team de 15/10/2026 (L-02 e L-04): consequencia de nao pagar e link suspeito.
                 "consequencia_do_atraso",
                 "link_suspeito",
+                # Avaliacao r5b (25/10/2026): o protocolo do pedido ja' feito (posto pela Helena, nunca o lexico).
+                "protocolo",
             }
         )
         == COBRANCA_FOCOS

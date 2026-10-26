@@ -4602,6 +4602,7 @@ from .habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
+from .habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from .habilidades.conversa import fluxo as _conversa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.plano.consulta` (importado AQUI, depois
@@ -4948,6 +4949,9 @@ class HelenaGraph:
         if risco is not None:
             return risco
 
+        depois_do_lucas = _depois_do_lucas.decidir(self, state)  # r5b: "ok" e "qual meu protocolo?"
+        if depois_do_lucas is not None:
+            return depois_do_lucas
         seguimento = self._seguimento_com_o_lucas(state)
         if seguimento is not None:
             return seguimento
