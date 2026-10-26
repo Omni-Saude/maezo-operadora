@@ -39,3 +39,21 @@ textos:
   saude_oferta_medico: >-
     Para ir além disso, quem pode te orientar é o médico. Quer que eu te mostre onde marcar a consulta ou
     prefere falar com a equipe de saúde?
+
+  # --- Conversa (teste do dono, 25/10/2026): onde baixar o aplicativo, SEM link (a fonte vai so' pelo nome).
+  app_onde_baixar: >-
+    Procure por 'Austa Clínicas' na loja de aplicativos do seu celular (Google Play ou App Store).
+
+  # --- Agendamento (teste do dono, 25/10/2026, caso d): a Helena nao agenda. A orientacao dos canais, sem
+  # consultar o plano; com queixa na mensagem, segue a oferta de dizer o especialista.
+  agendar_orientacao: >-
+    Por aqui eu não agendo. Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela
+    central de atendimento do plano.
+  agendar_oferta_especialista: >-
+    Se me disser o que está sentindo, eu digo qual especialista procurar.
+
+  # --- Reembolso (avaliacao r5b, 25/10/2026): fora do escopo (pausado). Nunca confirmar que e' possivel;
+  # so' os canais oficiais. A trava de saida `sem_confirmar_reembolso` troca qualquer confirmacao por este texto.
+  reembolso_fora: >-
+    Por aqui eu não trato de reembolso. Você consegue essa informação pelo aplicativo Austa Clínicas,
+    pelo portal do plano ou pela central de atendimento do plano.

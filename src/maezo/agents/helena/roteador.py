@@ -27,9 +27,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
-from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
+from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME
+from maezo.agents.helena.frase_afirmada import sinais_do_modelo_afirmados, ultima_fala
+from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
+from maezo.agents.helena.habilidades.conversa import agendar as _agendar
+from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.conversa import reembolso as _reembolso
+from maezo.agents.helena.habilidades.conversa import reexplicar as _rx
 from maezo.agents.helena.historico import historico_em_texto
 from maezo.agents.helena.roteador_contrato import (
     DUVIDA,
@@ -336,20 +342,34 @@ async def _roteador_decidir(
     except PROGRAMMING_ERRORS:
         raise
     except TimeoutError:
+        logger.info("helena_roteador_falhou", falha=_rt.FALHA_PRAZO, causa="TimeoutError")
         return None, _rt.FALHA_PRAZO, int((time.monotonic() - inicio) * 1000)
-    except EXTERNAL_DEPENDENCY_FAILURES:
+    except EXTERNAL_DEPENDENCY_FAILURES as exc:
         ms_falha = int((time.monotonic() - inicio) * 1000)
-        return (
-            None,
-            (_rt.FALHA_PRAZO if ms_falha >= prazo_s * 1000 else _rt.FALHA_MODELO),
-            ms_falha,
-        )
+        # Rodada de 25/10/2026 (item 8): as 4 falhas "modelo" do dia eram PRAZO de leitura do provedor
+        # (ReadTimeoutError a ~5-6 s, antes do prazo cheio): o tipo do erro decide, nao so' o tempo.
+        causa = type(exc).__name__
+        # O provedor regional embrulha o erro do SDK: pelo nome nao se ve' o prazo. Rodada de 26/10/2026:
+        # 14 de 16 falhas "modelo" eram ReadTimeoutError a 5,1-6,2 s (prazo 6 s); erro de verdade volta
+        # rapido. Falha perto do prazo (>= 80%) e' PRAZO.
+        prazo = ms_falha >= prazo_s * 800 or _e_erro_de_prazo(causa)
+        falha_externa = _rt.FALHA_PRAZO if prazo else _rt.FALHA_MODELO
+        logger.info("helena_roteador_falhou", falha=falha_externa, causa=causa, ms=ms_falha)
+        return None, falha_externa, ms_falha
     finally:
         self._roteador_em_curso -= 1
     ms = int((time.monotonic() - inicio) * 1000)
     if v7 is None:
+        # So' os NOMES dos campos invalidos (nunca o texto do modelo): JSON ilegivel x campo fora do enum.
+        logger.info("helena_roteador_falhou", falha=_rt.FALHA_JSON, campos=sorted(set(ruins))[:6], ms=ms)
         return None, _rt.FALHA_JSON, ms
     return _rt.decisao_do_v7(v7, tipo_pendente, contrato.dona_da_pendencia(codigo)), None, ms
+
+
+def _e_erro_de_prazo(nome_da_classe: str) -> bool:
+    """O erro do provedor e' de PRAZO (ReadTimeoutError, ConnectTimeoutError, ReadTimeout...), pelo NOME da
+    classe (so' o token de classe sai do `except`, nunca o texto do erro)."""
+    return "timeout" in nome_da_classe.lower()
 
 
 def _roteador_entrada(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str | None, Any, str | None]:
@@ -360,7 +380,9 @@ def _roteador_entrada(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str 
     pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
     trava = _rt.trava_de_entrada(
         str(state.get("message_body") or ""),
-        alarme=lambda t: self._roteador_alarme(t, antes, self._falas_da_pessoa(state)),
+        alarme=lambda t: self._roteador_alarme(
+            t, antes, self._falas_da_pessoa(state), ultima_fala(_falas_da_helena(state))
+        ),
         risco=lambda t: _sg.tem_risco(_plano(t)),
     )
     return antes, pendente, trava
@@ -411,16 +433,25 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
     """
     from maezo.agents.helena import roteador as _rt
 
-    if state.get("error") or self._seguimento_com_o_lucas(state) is not None:
-        # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
+    if (
+        state.get("error")
+        or self._seguimento_com_o_lucas(state) is not None
+        or _depois_do_lucas.aplica(self, state)
+    ):
+        # Falha do proprio turno (`receive`), conversa em seguimento com o Lucas, fechamento logo depois dele
+        # ou a pergunta do protocolo do pedido (avaliacao r5b): o caminho de sempre, sem o modelo do roteador.
         return await self.classify(state)
+    if (claro := self._sinal_claro_pelo_texto(state)) is not None:
+        # Rodada de seguranca de 25/10/2026: sinal CLARO afirmado (desmaiou, parou de respirar,
+        # convulsionando, roxo, nao acorda) da' 192 antes do roteador, da pendencia e dos protocolos.
+        return {**claro, "habilidade_roteador": None}
     antes, pendente, trava = self._roteador_entrada(state)
     falha: str | None
     if trava is not None:
         # Rodada de 24/10/2026: com trava (alarme, risco, dados pessoais) a TABELA responde primeiro: o turno
         # nao espera o modelo do roteador (era ate' 4 s a mais antes do 192).
         decisao, falha, ms = None, "trava", 0
-        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        alarme = alarme_afirmado(state)
         if trava == _rt.TRAVA_ALARME and alarme is not None:
             # Alarme da tabela deterministica: o escalonamento SEM esperar nem o classificador.
             logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme, sem_modelo=True)
@@ -441,13 +472,18 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         logger.info(
             "helena_roteador_caminho_de_sempre", motivo="trava" if trava else (falha or "sem_decisao")
         )
+        if trava is None and (prot := await _protocolo.sem_roteador(self, state, antes)) is not None:
+            return {**prot, "habilidade_roteador": None}  # PROTOCOLOS: a resposta ao protocolo sem o roteador
         st_sempre: HelenaState = state
         if duvida_antes:
             st_sempre = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
         resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
+        resultado_sempre = await _protocolo.sem_alerta_geral(self, state, antes, resultado_sempre)
         return {**resultado_sempre, "habilidade_roteador": None}
     # Contrato v7: a leitura do modelo vale no turno inteiro (as habilidades leem sim/nao, opcao e recusa
-    # por ela, no lugar dos leitores de palavra).
+    # por ela, no lugar dos leitores de palavra). Teste do dono (25/10/2026, noite): a recusa que o modelo nao
+    # leu ("EU QUERO QUE ENCERRE", "nao autorizo") e' lida no codigo ANTES de a habilidade da equipe agir.
+    decisao = _recusa.com_recusa_lida(decisao, str(state.get("message_body") or ""))
     marca_v7 = _rv7.LEITURA_DO_TURNO.set(decisao.v7)
     try:
         resultado = await _classify_ativo_decidido(self, state, decisao, antes, ms)
@@ -512,10 +548,29 @@ async def _classify_ativo_decidido(
     v7 = cast("_rv7.DecisaoV7", decisao.v7)
     duvida_antes = bool(antes and antes.startswith(_rt.PREFIXO_DUVIDA))
     dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
+    if (protocolo := await _protocolo.responder_alerta(self, state, decisao, antes)) is not None:
+        # PROTOCOLOS (dono, 25/10/2026): a resposta as perguntas de alerta do protocolo, lida pelo modelo
+        # pergunta a pergunta e decidida pela regra (o sinal NOVO fora delas volta ao alarme abaixo).
+        return {**protocolo, "habilidade_roteador": "sintoma"}
     alarme = _alarme_do_modelo(self, state, v7)
     if alarme == "claro":
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
     texto = str(state.get("message_body") or "")
+    if (oferta := _oferta.responder(self, state)) is not None:
+        # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
+        # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
+        return {**oferta, "habilidade_roteador": "equipe"}
+    agendamento_da_queixa = _agendar.pergunta_de_agendamento(texto) and _protocolo.protocolo_na_conversa(
+        self, state
+    )
+    if alarme is None and not antes and not agendamento_da_queixa:
+        # Com um protocolo ja' conduzido, o agendamento vai ao protocolo (especialista da queixa + canais).
+        fixo = await _texto_fixo_de_conversa(self, state, texto)
+        if fixo is not None:
+            return fixo
+    if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
+        # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.
+        return {**protocolo, "habilidade_roteador": "sintoma"}
     opcoes = decisao.opcoes_da_duvida()
     if opcoes is not None:
         x, y = opcoes
@@ -532,7 +587,11 @@ async def _classify_ativo_decidido(
         v7.recusa_equipe
         and dona not in ("sintoma", "saude")
         and not str(antes or "").startswith(PENDENTE_ENCERRAR_CASO)
-        and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        and (
+            # "para de me ligar" casa o "me ligar" do pedido: a leitura da recusa no codigo ja' tira o trecho.
+            _recusa.e_recusa_da_equipe(texto)
+            or not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        )
     ):
         # Recusa da equipe ("nao, deixa, desisto", "ja' resolvi"), lida pelo modelo: encerra os casos P2/P3
         # da conversa; caso P1/grave nunca se encerra por recusa (o texto do caso grave, com 192).
@@ -587,6 +646,11 @@ async def _classify_ativo_decidido(
         pendencia_mantida=mantem,
         ms=ms,
     )
+    if habilidade == "cobertura" and _lc.ler_resposta(texto) in ("nao", "encerrar"):
+        # Avaliacao r5 (25/10/2026): "esquece, nao precisa mais" depois do aviso da cobertura ia para a
+        # cobertura e repetia o aviso (e o loop abria caso). A recusa curta do assunto so' e' reconhecida.
+        cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
+        return {**cortesia, "habilidade_roteador": "conversa"}
     if habilidade == "cobertura":
         # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
         return {**self._texto_da_cobertura_fora(state), "habilidade_roteador": habilidade}
@@ -614,18 +678,76 @@ async def _classify_ativo_decidido(
     }
 
 
+async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: str) -> dict[str, Any] | None:
+    """Teste do dono (25/10/2026), sem pergunta pendente e sem alarme, qualquer que seja a habilidade do
+    roteador: "nao entendi" reexplica a ULTIMA resposta (`reexplicar.py`) e "onde baixo o aplicativo?" recebe
+    o texto do pacote (sem link). `None` = o caminho de sempre."""
+    if _pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto):
+        return None
+    if _reembolso.pergunta_de_reembolso(texto) and not (
+        _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
+    ):
+        # Avaliacao r5b (25/10/2026): reembolso e' fora do escopo; o texto do pacote, nunca a redacao do
+        # modelo (que confirmou "e' possivel pedir reembolso").
+        logger.info("helena_texto_do_reembolso", node="classify")
+        return {
+            **self._base_texto_fixo(
+                self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA]
+            ),
+            "habilidade_roteador": "conversa",
+        }
+    if _agendar.pergunta_de_agendamento(texto) and not (
+        _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
+    ):
+        # Teste do dono (25/10/2026, caso d): "consigo agendar uma consulta por aqui?" nunca vai ao
+        # cadastro do plano, ainda que o roteador diga `plano`: a orientacao dos canais (o texto do pacote).
+        logger.info("helena_texto_de_agendamento", node="classify")
+        return {
+            **self._base_texto_fixo(
+                self._update_sem_modelo(state), _agendar.texto_do_agendamento(self._textos, texto)
+            ),
+            "habilidade_roteador": "conversa",
+        }
+    if _app.pergunta_onde_baixar_o_app(texto):
+        logger.info("helena_texto_do_app", node="classify")
+        texto_app = self._textos[_app.CHAVE_APP_ONDE_BAIXAR]
+        return {
+            **self._base_texto_fixo(self._update_sem_modelo(state), texto_app),
+            "habilidade_roteador": "conversa",
+        }
+    if not _rx.pede_reexplicacao(texto):
+        return None
+    reexplicado = await _rx.reexplicar(self, state)
+    if reexplicado is None:
+        return None
+    tipo = reexplicado.pop("tipo", None)
+    logger.info("helena_reexplicacao", node="classify", tipo=tipo)
+    saida = self._base_texto_fixo(self._update_sem_modelo(state), str(reexplicado.pop("response_text")))
+    return {**saida, **reexplicado, "habilidade_roteador": "conversa"}
+
+
 def _alarme_do_modelo(self: HelenaGraph, state: HelenaState, v7: _rv7.DecisaoV7) -> str | None:
     """ "claro" (192 na hora), "incerto" (pergunta de alerta) ou `None` (sem sinal que conte).
 
     So' o sinal no VOCABULARIO DA TABELA vale como claro ("vomito" sozinho nao e'); o alarme ja' tratado
-    nesta conversa, sem sinal NOVO, nao conta de novo (trava "sem segundo 192")."""
-    sinais = [s.sinal for s in v7.sinais_atuais()]
+    nesta conversa, sem sinal NOVO, nao conta de novo (trava "sem segundo 192").
+
+    Rodada de seguranca de 25/10/2026 (frase afirmada): o sinal que esta' LITERALMENTE na mensagem so'
+    conta se estiver numa frase afirmada (nunca so' numa pergunta, negacao ou eco da Helena); o sinal dito
+    com outras palavras, numa mensagem sem frase afirmada, vira no maximo "incerto" (nunca 192 de
+    pergunta)."""
+    texto = str(state.get("message_body") or "")
+    afirmado = texto_afirmado_do_turno(state)
+    todos = [s.sinal for s in v7.sinais_atuais()]
+    sinais = sinais_do_modelo_afirmados(todos, texto, afirmado)
+    if len(sinais) < len(todos):
+        logger.info("helena_alarme_do_modelo_fora_da_frase_afirmada", descartados=len(todos) - len(sinais))
     if not sinais:
         return None
     if _alarme_ja_tratado(state) and not self._sinal_do_modelo_e_novo(state, sinais):
         return None
     validos = [s for s in sinais if self._sinal_do_modelo_na_tabela(s)]
-    claro = v7.confianca_alarme == "clear" and bool(validos)
+    claro = v7.confianca_alarme == "clear" and bool(validos) and bool(afirmado.strip())
     logger.info("helena_alarme_do_modelo", claro=claro, sinais=len(sinais), validos=len(validos))
     return "claro" if claro else "incerto"
 
@@ -668,10 +790,23 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
         encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim", leitura="sim")
         if encerrado is not None:
             return encerrado
-    return self._base_texto_fixo(update, RESPOSTA_RECUSA_DE_EQUIPE)
+    # Avaliacao r5 (25/10/2026): a recusa curta so' com oferta pendente; sem oferta nem caso, so' o
+    # reconhecimento (antes, o paragrafo longo da recusa saia fora de contexto).
+    texto = _oferta.texto_da_recusa(state, caso_aberto=bool(abertos))
+    update.update({"coleta_pendente": None, "coleta_contexto": ""})
+    return self._base_texto_fixo(update, texto)
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
+    if self._protocolos is not None and _protocolo.e_texto_do_protocolo(texto):
+        return True  # PROTOCOLOS: o texto fixo que a habilidade montou neste turno (sem modelo)
+    if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
+        # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
+        return True
+    if texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO):
+        # Avaliacao r5b (25/10/2026): a resposta curta de cortesia e' texto fixo com ou sem o roteador ativo
+        # (o fechamento logo depois do Lucas nao vira rascunho do modelo).
+        return True
     if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
         return False
     inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
@@ -683,6 +818,7 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
         texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO, RESPOSTA_RECUSA_DE_EQUIPE)
         or texto in retomadas
         or texto.startswith(inicio_da_duvida)
+        or _rx.e_reexplicacao(texto)
     )
 
 
@@ -773,6 +909,13 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _pedido_explicito_com_verbo,
     _pedido_explicito_de_pessoa,
     _plano,
+    _sinal_forte_de_emergencia,
+    _sinal_fraco_de_emergencia,
     caso_grave_para_encerrar,
     logger,
 )
+from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
+from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
+from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
+from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402

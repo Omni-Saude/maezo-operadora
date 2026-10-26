@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-falta-de-ar
+tema: gestacao
+titulo: "Falta de ar na gestação"
+publico: gestante
+como_a_pessoa_fala:
+  - "estou grávida e com falta de ar"
+  - "não consigo respirar direito na gravidez"
+  - "cansaço para respirar, gestante"
+  - "falta de ar de repente com 30 semanas"
+  - "dor no peito e falta de ar grávida"
+  - "estou ofegante"
+  - "tosse e falta de ar na gravidez"
+  - "sinto o ar curto deitada"
+perguntas_de_alerta:
+  - pergunta: "Seus lábios ou dedos estão roxos, você não consegue falar frases inteiras, ou desmaiou?"
+    sinal: insuficiencia_respiratoria
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 4 (p. 41) – vermelho: saturação ≤ 89%, sinais de choque; laranja: padrão respiratório ineficaz (frases entrecortadas, cianose); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – desmaio"
+  - pergunta: "A falta de ar começou de repente, ou veio com dor forte no peito?"
+    sinal: dispneia_subita_ou_dor_toracica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – dor forte no peito, falta de ar; SAMU 192 – Quando chamar (MS, página gov.br) – dores no peito de aparecimento súbito"
+  - pergunta: "Está com dor, calor ou inchaço em uma perna só (principalmente na batata da perna)?"
+    sinal: suspeita_trombose
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 4 (p. 41) – amarelo: edema unilateral de membro inferior ou dor em panturrilha; Manual de Gestação de Alto Risco (MS, 2022, versão preliminar), cap. 51 Tromboembolismo venoso (p. 525)"
+  - pergunta: "Está com febre (37,8 °C ou mais)?"
+    sinal: febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – febre ≥ 37,8 °C (buscar atendimento imediatamente); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 5 (p. 42) – amarelo: febre 38,0-39,9 °C"
+destino_se_nenhum_sinal: PRONTO_SOCORRO_AGORA
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "A Caderneta da Gestante orienta buscar atendimento imediato quando há falta de ar. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 4 – Falta de ar/sintomas respiratórios (p. 41)"
+  - nome: "Manual de Gestação de Alto Risco (MS, 2022, versão preliminar)"
+    secao: "cap. 51 (p. 525)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

@@ -315,6 +315,12 @@ it.each([
   { ...session(), flags: ["staff_documents_panel", "staff_documents_panel"] },
   { ...session(), flags: ["staff_operations_panel", "staff_operations_panel"] },
   { ...session(), flags: ["staff_operations_panel", "staff_documents_panel"] },
+  // D-40: a ordem canônica dos sinais é (documents, operations, admin) e das capabilities
+  // é (identity, staff_cases, human, vendor, staff_admin_read); fora dela, falha.
+  { ...session(), flags: ["staff_admin_panel", "staff_operations_panel"] },
+  { ...session(), flags: ["staff_admin_panel", "staff_admin_panel"] },
+  { ...session(), capabilities: ["identity", "staff_admin_read", "human"] },
+  { ...session(), capabilities: ["identity", "staff_cases", "staff_admin_read", "human"] },
 ])("falha fechada para schema, sinal ou público inesperado %#", async (payload) => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
   render(<App />);

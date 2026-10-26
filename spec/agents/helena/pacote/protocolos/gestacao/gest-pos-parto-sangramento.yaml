@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-sangramento
+tema: gestacao
+titulo: "Sangramento no pós-parto"
+publico: puerpera
+como_a_pessoa_fala:
+  - "estou sangrando muito depois do parto"
+  - "o sangramento do resguardo aumentou"
+  - "sangue com mau cheiro depois do parto"
+  - "encharco o absorvente rápido"
+  - "saiu um coágulo grande"
+  - "o sangramento voltou depois de 2 semanas do parto"
+  - "lóquios com cheiro forte"
+  - "estou sangrando e tonta depois do parto"
+perguntas_de_alerta:
+  - pergunta: "Você desmaiou, ou está muito tonta, pálida, suando frio ou confusa?"
+    sinal: sinais_de_choque
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – vermelho: sinais de choque, não responsiva; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), descritor c (p. 50: palidez, sudorese fria, alteração de consciência); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – desmaio"
+  - pergunta: "O sangramento está encharcando o absorvente rapidamente (mais de 2 absorventes grandes em 20 minutos)?"
+    sinal: sangramento_intenso
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – sangramento intenso que encharca o absorvente rapidamente; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 8 (p. 45) – laranja: sangramento intenso"
+  - pergunta: "O sangramento está com mau cheiro, ou você está com febre (37,8 °C ou mais)?"
+    sinal: sangramento_com_mau_cheiro_ou_febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – sangramento com mau cheiro; febre ≥ 37,8 °C"
+  - pergunta: "Tem dor forte e contínua na barriga ou na pelve?"
+    sinal: dor_intensa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – dor forte e persistente no abdome ou na pelve"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / consulta pós-parto)"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "Caderneta da Gestante 2026, Parte VI (puerpério) e §6.5 (plano de pós-parto); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "É normal sangrar depois do parto, com o sangramento diminuindo aos poucos por cerca de 6 semanas. Fale sobre o sangramento na consulta de pós-parto. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.1 (p. 67-68); §6.2 Seu corpo fala (p. 69)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 8 (p. 45)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

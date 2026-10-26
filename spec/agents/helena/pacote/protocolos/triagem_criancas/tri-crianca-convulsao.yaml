@@ -1,0 +1,43 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-convulsao
+tema: triagem_criancas
+titulo: "Convulsão na criança de 2 meses a 5 anos"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho teve uma convulsão"
+  - "a criança ficou dura e tremendo"
+  - "minha filha revirou os olhos e desmaiou"
+  - "convulsão por febre"
+  - "a criança teve um ataque"
+  - "meu filho ficou se debatendo"
+  - "a criança ficou roxa e tremendo"
+  - "crise convulsiva no meu filho"
+perguntas_de_alerta:
+  - pergunta: "Está tendo a crise agora, ou depois dela a criança não acordou ou não responde?"
+    sinal: convulsao_ativa_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – convulsão ou perda da consciência; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo); SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas"
+  - pergunta: "Ela ficou roxa ou está com dificuldade para respirar?"
+    sinal: cianose_ou_respiracao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – dificuldade para respirar; SAMU 192 – Quando chamar (MS, página gov.br) – problemas cardiorrespiratórios"
+  - pergunta: "Teve convulsão (tremores, 'ataque', olhos virados, corpo duro ou se debatendo) nas últimas 72 horas, mesmo que já tenha passado?"
+    sinal: convulsao_recente
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – convulsões há menos de 72 h (sinal geral de perigo → referir urgentemente); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se a crise não parar ou a criança não acordar, ligue 192. Depois de uma convulsão, a criança precisa ser examinada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar (crises convulsivas)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0; SAMU gov.br: CC BY-ND 3.0 (sem derivação; usado só como referência) — pendente jurídico"

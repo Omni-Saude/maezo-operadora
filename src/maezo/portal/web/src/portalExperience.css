@@ -290,6 +290,9 @@
 .dependency-detail dt { font-weight: 600; }
 .dependency-detail dd { margin: 0; overflow-wrap: anywhere; }
 .dependency-summary { border-left: 0.2rem solid currentcolor; margin: 0; padding-left: 0.75rem; white-space: pre-wrap; }
+/* Administração do colaborador: roster read-only de vínculos (D-40). */
+.staff-admin { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.admin-vinculo { border-top: 1px solid color-mix(in srgb, currentcolor 25%, transparent); padding-top: 0.75rem; display: grid; gap: 0.5rem; }
 .case-queue-heading,
 .case-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .case-queue-heading h2 { margin-bottom: 0.35rem; }

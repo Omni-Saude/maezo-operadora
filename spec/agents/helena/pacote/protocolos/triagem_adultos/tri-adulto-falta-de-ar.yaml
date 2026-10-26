@@ -1,0 +1,51 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-falta-de-ar
+tema: triagem_adultos
+titulo: "Falta de ar"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com falta de ar"
+  - "não consigo respirar direito"
+  - "estou cansado só de falar"
+  - "minha respiração está curta"
+  - "estou com chiado no peito"
+  - "minha asma atacou"
+  - "sinto o ar faltando"
+  - "estou sufocando"
+  - "fico sem fôlego para andar"
+perguntas_de_alerta:
+  - pergunta: "Você está com tanta falta de ar que não consegue falar uma frase inteira, respira muito rápido mesmo parado, ou está muito sonolento ou confuso?"
+    sinal: dispneia_grave_ou_alteracao_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.6, Figura 12 (dispneia grave; incapacidade de articular frases; aumento da frequência respiratória em repouso; alteração do nível de consciência = atendimento médico imediato); SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios"
+  - pergunta: "A falta de ar veio junto com dor no peito, ou começou de repente depois de uma batida ou acidente?"
+    sinal: dispneia_com_dor_toracica_ou_trauma
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.6, Figura 12 (dor torácica; início agudo pós-traumático = atendimento médico imediato); SAMU 192 — Quando chamar (MS, gov.br): dores no peito de aparecimento súbito; acidentes/traumas"
+  - pergunta: "A falta de ar começou logo depois de comer algo, tomar um remédio ou levar uma picada, com inchaço no rosto, boca ou garganta?"
+    sinal: suspeita_de_anafilaxia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.1 Anafilaxia (absoluta emergência, acionar serviço móvel de urgência) e Figura 2"
+  - pergunta: "Você está com febre, ou tem asma, pressão alta, diabetes ou doença do coração?"
+    sinal: febre_ou_doenca_de_base
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.6, Figura 12 (febre; história de asma, hipertensão, diabetes ou cardiopatia = atendimento prioritário)"
+# Sem sinal de alerta: Figura 12 indica 'atendimento no dia' (história de febre ou tosse); por ser falta de ar, mantido ATENDIMENTO_HOJE.
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Pneumologia"
+  fonte: "TelessaúdeRS Pneumologia Adulto (rev. 2023), Protocolo 4 – Tosse crônica e dispneia (e Protocolo 2 – Asma); Resolução CFM 2.380/2024"
+orientacao_final: "Falta de ar precisa ser avaliada hoje por um profissional. Evite esforço até ser examinado. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.6 Dispneia (Figura 12); §2.1 Anafilaxia (Figura 2)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Pneumologia Adulto (rev. 2023)"
+    secao: "Protocolo 2 – Asma; Protocolo 4 – Tosse crônica e dispneia"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

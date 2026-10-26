@@ -1,0 +1,49 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-dor-de-garganta
+tema: triagem_criancas
+titulo: "Dor de garganta (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está com dor de garganta"
+  - "a garganta da criança está com pus"
+  - "minha filha não quer engolir"
+  - "amigdalite de novo"
+  - "garganta inflamada e febre"
+  - "ínguas no pescoço da criança"
+  - "o bebê está com a garganta vermelha"
+  - "placas brancas na garganta"
+perguntas_de_alerta:
+  - pergunta: "Ela está com muita dificuldade para respirar, ou ficou roxa?"
+    sinal: obstrucao_respiratoria
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.11 (p. 114: abscesso pode causar obstrução alta aguda e potencialmente fatal); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - pergunta: "A dor está muito forte e ela não consegue abrir a boca direito, a voz ficou abafada ('voz de batata quente'), ou tem uma placa acinzentada grudada na garganta?"
+    sinal: infeccao_grave_garganta
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.11 (p. 114: dor muito intensa, trismo, voz de batata quente); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 16-17 (abaulamento de palato, membranas branco-acinzentadas → INFECÇÃO GRAVE DE GARGANTA)"
+  - pergunta: "Ela está muito sonolenta e difícil de acordar, não consegue beber nem mamar, ou vomita tudo o que come e bebe?"
+    sinal: sinal_geral_de_perigo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Tem ínguas doloridas no pescoço ou pontos de pus nas amígdalas?"
+    sinal: infeccao_moderada_garganta
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 16-17 (gânglios aumentados e dolorosos, amígdalas com pontos purulentos → INFECÇÃO MODERADA DE GARGANTA)"
+destino_se_nenhum_sinal: CONSULTA_ROTINA
+especialista:
+  primeiro: "Pediatria"
+  depois: "Otorrinolaringologia"
+  fonte: "Caderno 28 vol. II, §2.11 (p. 114: abscesso de amígdala → otorrinolaringologista); Pediatria como porta de entrada (regra fixa do levantamento); nomes conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça líquidos e alimentos frios ou pastosos, que costumam ser mais fáceis de engolir. Dor de garganta com resfriado costuma melhorar sozinha; se não melhorar em alguns dias, procure o pediatra. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 16-17 (dor de garganta)"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.11 Dor de garganta (p. 110-115)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0; Caderno 28: reprodução citando a fonte, não comercial — pendente jurídico"

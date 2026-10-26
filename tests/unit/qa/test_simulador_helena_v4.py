@@ -206,9 +206,12 @@ def test_a_carteirinha_sem_o_codigo_mascarado_reprova_o_roteiro() -> None:
     assert ac.avaliar_passo(helena, [("helena", texto)], [], None) != []
 
 
-def test_o_roteiro_reprova_o_texto_que_nao_usa_o_que_a_pessoa_disse() -> None:
+def test_o_roteiro_reprova_o_eco_literal_do_que_a_pessoa_disse() -> None:
+    # Teste do dono de 25/10/2026 (item 5): o eco literal ("Entendi: <a frase da pessoa>.") saiu.
     nome = "6-sintoma-leve-nao-e-opcao-1"
     passo = {s.nome: s for s in ac.HELENA_V4}[nome].passos[1]
     sem_eco = v4.texto_final_do_sintoma(v4.ECO_GENERICO)
-    falhas = ac.avaliar_passo(passo, [("helena", sem_eco)], [], None)
-    assert any("dor nas costas desde ontem" in f for f in falhas), falhas
+    assert ac.avaliar_passo(passo, [("helena", sem_eco)], [], None) == []
+    com_eco = sem_eco.replace("Entendi.", "Entendi: dor nas costas desde ontem.", 1)
+    falhas = ac.avaliar_passo(passo, [("helena", com_eco)], [], None)
+    assert any("entendi: " in f for f in falhas), falhas

@@ -84,7 +84,12 @@ def marcar_retomado(lista: Sequence[Mapping[str, Any]], topico: str) -> list[dic
 
 
 def texto_de_retomada(modelo: str, topico: str) -> str:
-    return modelo.format(assunto=NOMES_DOS_ASSUNTOS[topico])
+    # Este texto sai pela costura (depois da resposta do Lucas), fora do no' de resposta: as travas de
+    # saida da Helena valem aqui tambem (o modelo vem do pacote).
+    # Import tardio: `textos` importa este modulo (o padrao da retomada) e `travas_saida` importa `textos`.
+    from maezo.agents.helena.travas_saida import na_saida
+
+    return na_saida(modelo.format(assunto=NOMES_DOS_ASSUNTOS[topico]))
 
 
 __all__ = [

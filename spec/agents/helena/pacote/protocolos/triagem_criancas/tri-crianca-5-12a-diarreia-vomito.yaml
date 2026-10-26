@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-5-12a-diarreia-vomito
+tema: triagem_criancas
+titulo: "Diarreia, vômito ou desidratação (5 a 12 anos)"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "meu filho de 6 anos está vomitando"
+  - "a criança está com diarreia"
+  - "minha filha não para de vomitar"
+  - "virose com vômito e diarreia"
+  - "sangue no cocô da criança"
+  - "criança desidratada"
+  - "dor de barriga e diarreia"
+  - "vomitou a noite toda"
+perguntas_de_alerta:
+  - pergunta: "Ela teve convulsão, está desmaiada ou não acorda?"
+    sinal: convulsao_ou_inconsciente
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão); SAMU 192 – Quando chamar (MS, página gov.br)"
+  - pergunta: "Está muito sonolenta ou molinha, não consegue beber nada, vomita tudo, ou a pele da barriga, puxada de leve, demora muito para voltar?"
+    sinal: desidratacao_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão) – vomita tudo, pele com pouca elasticidade"
+  - pergunta: "Tem sinais de desidratação: olhos fundos, muita sede, boca seca ou faz pouco xixi?"
+    sinal: desidratacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 21 (sinais de desidratação → levar ao serviço de saúde); Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.5 Diarreia e vômito (p. 56-61)"
+  - pergunta: "Tem sangue no cocô, ou a diarreia já dura 14 dias ou mais?"
+    sinal: disenteria_ou_persistente
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.5 (p. 56-57: sangue nas fezes, diarreia persistente ≥ 14 dias)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça líquidos em pequenos goles e com frequência, e alimentos leves. O soro de reidratação oral ajuda a evitar a desidratação. Lave bem as mãos. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 20-22"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.5 Diarreia e vômito (p. 56-61)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; Caderno 28: reprodução citando a fonte, não comercial — pendente jurídico"

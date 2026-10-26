@@ -1,0 +1,51 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-convulsao
+tema: triagem_adultos
+titulo: "Convulsão (crise convulsiva)"
+publico: adulto
+como_a_pessoa_fala:
+  - "meu marido está tendo uma convulsão"
+  - "ela teve um ataque e se debateu"
+  - "tive uma crise de epilepsia"
+  - "a pessoa caiu tremendo e babando"
+  - "meu irmão desmaiou e ficou se mexendo"
+  - "tive uma convulsão hoje"
+  - "minha crise voltou"
+  - "ele ficou com o olho virado e duro"
+perguntas_de_alerta:
+  - pergunta: "A crise está acontecendo agora, durou mais de 5 minutos, ou veio uma crise atrás da outra sem a pessoa acordar entre elas?"
+    sinal: crise_em_curso_ou_prolongada
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 — Quando chamar (MS, gov.br): crises convulsivas; TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 3 – Convulsão/Epilepsia (crise que dura mais que 5 minutos ou crises que recorrem sem recuperação completa da consciência → urgência/emergência); Caderno de Atenção Básica 28 vol. II, §2.3, Figura 5"
+  - pergunta: "A crise já passou, mas a pessoa continua confusa, sonolenta ou diferente do normal, ou está com dificuldade para respirar?"
+    sinal: nao_recupera_apos_crise
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.3, Figura 5 (comprometimento de vias aéreas, alteração do nível de consciência = atendimento médico imediato) e 'Encaminhar o paciente para o pronto-socorro' item 2 (não retorna à função normal após a crise)"
+  - pergunta: "A pessoa está com febre, pescoço duro ou dor de cabeça forte?"
+    sinal: crise_com_febre_ou_meningismo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.3, 'Encaminhar o paciente para o pronto-socorro' item 1 (crise com febre: considerar meningite ou encefalite) e Figura 5 (sinais de meningismo, cefaleia forte); TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 3 (suspeita de infecção do sistema nervoso central)"
+  - pergunta: "A crise veio depois de uma batida na cabeça, de bebida alcoólica ou de remédio ou veneno em excesso, ou foi mais de uma crise no mesmo dia?"
+    sinal: trauma_intoxicacao_ou_crises_repetidas
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.3, Figura 5 (história de envenenamento, abuso de medicação ou trauma = atendimento prioritário) e 'Encaminhar o paciente para o pronto-socorro' item 3 (mais de uma crise generalizada em um único dia); TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 3 (abstinência de álcool → urgência/emergência)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Neurologia"
+  fonte: "TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 3 – Convulsão/Epilepsia (primeira crise sem causa reconhecível; epilepsia sem controle); Caderno 28 vol. II, §2.3 'Encaminhar o paciente ao neurologista'; Resolução CFM 2.380/2024"
+orientacao_final: "Depois de qualquer convulsão, a pessoa precisa ser avaliada por um médico; quem já trata epilepsia deve contar ao médico que teve nova crise. Não pare nem mude o remédio por conta própria. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+# Primeiros socorros durante a crise (para leigo) não estão nas fontes lidas — lacuna; o atendente do 192 orienta na ligação.
+# 'Não parar o remédio': Caderno 28 vol. II, §2.3 ('cuidado com a retirada abrupta de medicações').
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.3 Crise epiléptica e epilepsia (Figura 5; Quadro 13; quando encaminhar ao pronto-socorro e ao neurologista)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Neurologia Adulto (rev. 2020)"
+    secao: "Protocolo 3 – Convulsão/Epilepsia"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar (crises convulsivas)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

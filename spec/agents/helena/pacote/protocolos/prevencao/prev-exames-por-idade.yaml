@@ -1,0 +1,122 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Tabela de referência (não é triagem). Itens do Caderno 29 (2010) marcados conferir_atualizacao: true.
+# Mama e colo do útero seguem o INCA (atualizado 30/09/2025), que substitui o Caderno 29 nesses dois itens.
+id: prev-exames-por-idade
+tema: prevencao
+titulo: "Exames de prevenção por idade e sexo (adultos)"
+publico: adulto
+como_a_pessoa_fala:
+  - "quais exames devo fazer na minha idade?"
+  - "preciso fazer check-up?"
+  - "com que idade faço mamografia?"
+  - "de quanto em quanto tempo faço o preventivo?"
+  - "preciso fazer exame de próstata?"
+  - "quando devo medir o colesterol?"
+  - "tenho 50 anos, que exames faço?"
+  - "o que é o teste de HPV?"
+  - "preciso fazer exame do intestino?"
+  - "faz tempo que não faço exames de rotina"
+recomendacoes:
+  - item: "Mamografia (exame das mamas)"
+    faixa_etaria: "50 a 74 anos"
+    sexo: "mulheres (inclui homens trans e pessoas não binárias designadas mulher ao nascer que mantêm as mamas)"
+    frequencia: "a cada 2 anos"
+    fonte: "INCA — Detecção precoce do câncer de mama (atualizado 30/09/2025), Rastreamento"
+    conferir_atualizacao: false
+    observacao: "Mulheres com alto risco hereditário têm acompanhamento individualizado com o médico. Em qualquer idade, nódulo, retração ou secreção com sangue no mamilo é motivo de consulta, não de esperar o exame de rotina."
+  - item: "Teste de DNA-HPV (preventivo do colo do útero)"
+    faixa_etaria: "25 a 64 anos, para quem já teve atividade sexual"
+    sexo: "mulheres e qualquer pessoa com colo do útero (inclui homens trans e pessoas não binárias designadas mulher ao nascer)"
+    frequencia: "a cada 5 anos, se o resultado for negativo; após os 60 anos, com resultado negativo, não precisa repetir"
+    fonte: "INCA — Detecção precoce do câncer do colo do útero (atualizado 30/09/2025), Diretrizes do rastreamento (Portaria Conjunta SAES/SECTICS nº 13/2025)"
+    conferir_atualizacao: false
+    observacao: "Pessoas com HIV ou imunidade baixa seguem regra especial. Quem não teve atividade sexual ou retirou o útero por motivo que não foi câncer não entra no rastreamento."
+  - item: "Exame de Papanicolau (onde o teste de DNA-HPV ainda não estiver disponível)"
+    faixa_etaria: "25 a 64 anos, para quem já teve atividade sexual"
+    sexo: "mulheres e qualquer pessoa com colo do útero"
+    frequencia: "a cada 3 anos, depois de dois exames normais seguidos feitos com 1 ano de intervalo"
+    fonte: "INCA — Detecção precoce do câncer do colo do útero (atualizado 30/09/2025), Diretrizes do rastreamento"
+    conferir_atualizacao: false
+    observacao: "Continua válido onde o teste de DNA-HPV não foi implantado."
+  - item: "Medida da pressão arterial"
+    faixa_etaria: "acima de 18 anos"
+    sexo: "todos"
+    frequencia: "a cada 2 anos se a pressão estiver normal; todo ano se estiver no limite"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.3 e Quadro 6.6"
+    conferir_atualizacao: true
+    observacao: "Para quem não sabe se é hipertenso."
+  - item: "Colesterol e outras gorduras do sangue"
+    faixa_etaria: "homens a partir de 35 anos; homens de 20 a 35 anos e mulheres a partir de 20 anos só se tiverem risco alto para doença do coração"
+    sexo: "homens e mulheres (regras diferentes)"
+    frequencia: "a cada 5 anos se o resultado for normal (intervalo menor se o risco for maior)"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.2"
+    conferir_atualizacao: true
+    observacao: "O médico avalia o risco do coração para decidir."
+  - item: "Glicose (diabetes tipo 2)"
+    faixa_etaria: "adultos com pressão alta persistente (acima de 13,5 por 8)"
+    sexo: "todos"
+    frequencia: "conforme avaliação médica (o Caderno não fixa intervalo)"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.4"
+    conferir_atualizacao: true
+    observacao: "O Caderno 29 não recomenda o exame só por idade, obesidade ou história familiar; conferir com diretriz atual de diabetes."
+  - item: "Pergunta sobre cigarro (tabagismo)"
+    faixa_etaria: "todos os adultos, incluindo gestantes"
+    sexo: "todos"
+    frequencia: "em todas as consultas"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.5"
+    conferir_atualizacao: true
+    observacao: "Não é exame de laboratório: é conversa com a equipe, com oferta de ajuda para parar."
+  - item: "Pergunta sobre uso de álcool"
+    faixa_etaria: "todos os adultos, incluindo gestantes"
+    sexo: "todos"
+    frequencia: "nas consultas (sem intervalo definido)"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.6"
+    conferir_atualizacao: true
+    observacao: "Conversa e aconselhamento na atenção primária."
+  - item: "Peso e altura (cálculo do IMC)"
+    faixa_etaria: "adultos e crianças acima de 6 anos"
+    sexo: "todos"
+    frequencia: "na consulta periódica (sem intervalo definido)"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §6.7"
+    conferir_atualizacao: true
+    observacao: ""
+  - item: "Exame para câncer de intestino (sangue oculto nas fezes; colonoscopia se alterado)"
+    faixa_etaria: "50 a 75 anos"
+    sexo: "todos"
+    frequencia: "pesquisa de sangue oculto nas fezes a cada 1 ou 2 anos"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §9.4"
+    conferir_atualizacao: true
+    observacao: "De 76 a 85 anos não é de rotina (decisão individual com o médico); acima de 85 anos não é recomendado."
+  - item: "Exame de próstata (PSA e toque)"
+    faixa_etaria: "não há faixa recomendada para rastreamento"
+    sexo: "homens"
+    frequencia: "não recomendado como exame de rotina; decisão conversada com o médico"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §9.3 e §8.3"
+    conferir_atualizacao: true
+    observacao: "Abaixo de 75 anos a evidência é insuficiente; acima de 75 anos o Caderno recomenda não fazer. O médico deve explicar riscos e benefícios."
+  - item: "Exame de rotina da pele e da boca para câncer"
+    faixa_etaria: "não há faixa recomendada para rastreamento"
+    sexo: "todos"
+    frequencia: "sem exame de rotina recomendado"
+    fonte: "Caderno de Atenção Básica nº 29 (MS, 2010), §9.5 e §9.6"
+    conferir_atualizacao: true
+    observacao: "Evidência insuficiente. Ferida ou mancha que muda, ou lesão na boca que não cicatriza, é motivo de consulta."
+especialista:
+  primeiro: Clínico geral
+  depois: "Ginecologia e obstetrícia (mama e colo do útero)"
+  fonte: "Levantamento Protocolos_Helena_Fontes.xlsx, Seus exemplos (Clínico / Ginecologia); Resolução CFM 2.380/2024"
+orientacao_final: "Esses exames são para quem não tem sintomas. O seu médico pode indicar exames diferentes conforme a sua história e a da sua família. Se você tem algum sintoma, como nódulo, sangramento fora do normal ou mudança no intestino, marque uma consulta sem esperar o exame de rotina."
+fontes:
+  - nome: "INCA — Detecção precoce do câncer de mama (atualizado 30/09/2025)"
+    secao: "Rastreamento; Diagnóstico precoce"
+  - nome: "INCA — Detecção precoce do câncer do colo do útero (atualizado 30/09/2025)"
+    secao: "Diretrizes do rastreamento"
+  - nome: "Caderno de Atenção Básica nº 29 — Rastreamento (MS, 2010)"
+    secao: "§6.2 a §6.7 (adultos); §8.3 (saúde do homem); §9.3 a §9.6 (câncer)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; INCA/gov.br: CC BY-ND 3.0 (sem derivações) — pendente jurídico"
+# Fora do escopo deste arquivo: rastreamentos do recém-nascido e da criança (Caderno 29, §7 — teste do pezinho, orelhinha, olhinho).
+# O especialista 'depois' não vem de protocolo TelessaúdeRS: veio do quadro 'Seus exemplos' do levantamento.

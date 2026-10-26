@@ -1,0 +1,55 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: mental-risco-de-suicidio
+tema: saude_mental
+titulo: "Pensamentos de morte ou de se machucar (risco de suicídio)"
+publico: adulto
+como_a_pessoa_fala:
+  - "não aguento mais"
+  - "eu preferia estar morto"
+  - "quero sumir"
+  - "penso em acabar com a minha vida"
+  - "sou um peso para os outros"
+  - "os outros vão ficar melhor sem mim"
+  - "não posso fazer mais nada"
+  - "tenho vontade de me machucar"
+  - "tomei um monte de remédio de propósito"
+  - "não vejo mais saída"
+  - "estou pensando em me matar"
+perguntas_de_alerta:
+  - pergunta: "Você já fez alguma coisa para tirar a sua vida agora há pouco, como tomar muitos remédios ou veneno, ou se feriu e está sangrando?"
+    sinal: tentativa_de_suicidio_em_curso
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo SUI, SUI 1 passo 1 (ato de autoagressão grave: envenenamento, sangramento, perda de consciência); SAMU 192 — Quando chamar (MS, gov.br): tentativas de suicídio"
+  - pergunta: "Você está pensando em fazer isso agora ou hoje, ou já tem em mãos o que usaria (remédios, arma, veneno)?"
+    sinal: risco_alto_plano_meios_intencao
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Risco de suicídio (avaliação: plano, meios e data; risco alto); mhGAP 2.0 (OPAS/OMS), módulo SUI, SUI 1 passo 2 (risco iminente)"
+  - pergunta: "Você tem tido pensamentos de que seria melhor morrer, de acabar com a sua vida ou de se machucar, mesmo sem um plano?"
+    sinal: ideacao_suicida_atual
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Risco de suicídio (frases de alerta; risco baixo e médio); mhGAP 2.0 (OPAS/OMS), módulo SUI, SUI 1 passo 2"
+  - pergunta: "No último ano você chegou a tentar se machucar ou tirar a sua vida, mesmo que hoje esteja sem esses pensamentos?"
+    sinal: tentativa_previa_ultimo_ano
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo SUI, SUI 1 passo 2 (ato no último ano: ainda pode persistir algum risco, protocolo 3); Caderno de Atenção Básica 28 vol. II, §2.23, Fatores de risco (passado de tentativa)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: Psiquiatria
+  fonte: "TelessaúdeRS Psiquiatria Adulto, critérios gerais (risco agudo de suicídio = emergência psiquiátrica); Resolução CFM 2.380/2024"
+orientacao_final: "Obrigada por me contar, isso é importante e você merece cuidado. Se puder, não fique sozinho agora: chame alguém de confiança para ficar com você e afaste remédios, armas ou outras coisas que possam machucar. A equipe de saúde pode te acompanhar nos próximos dias. Você não está sozinho: ligue 188 (CVV, 24 horas, gratuito) ou 192 em caso de risco imediato."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.23, Risco de suicídio (fatores de risco, avaliação, classificação baixo/médio/alto, manejo)"
+  - nome: "mhGAP — Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "Quadros emergenciais; módulo SUI (Autoagressão/suicídio), SUI 1"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: tentativas de suicídio"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Psiquiatria Adulto (revisão 2021)"
+    secao: "Condições para emergência psiquiátrica (todos os transtornos)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"
+# Nota para revisão: o CVV 188 não está nos documentos do levantamento (vem da regra da Helena e do MODELO.md).

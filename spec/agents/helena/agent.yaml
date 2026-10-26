@@ -101,7 +101,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v14              # 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
+  response: response-v15              # 25/10/2026: sem ordem de contar palavras; so' texto (sem convite a
+                                     # mandar foto/audio/arquivo). v14 — 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
                                      # forma aprovada. v13 — 13/10/2026 (DL-0089): uma assistente virtual; nunca negar dado de
                                      # cobranca; nunca recomendar conduta clinica; regua de tom mais dura.
                                      # v12 — 12/10/2026 (DL-0088): nunca dizer que nao ve dado nenhum da pessoa;
@@ -143,7 +144,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # para um texto que nunca existiu.
   coleta: coleta-v2                   # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
                                      # pessoa; recem-nascido). v1 — passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v11         # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
+  recusa_de_saida: recusa-v12         # 25/10/2026 (r5b): "vou te encaminhar"/"a equipe vai te responder" sao
+                                      # mencao de encaminhamento (sem caso = troca pelo texto honesto).
+                                      # v11 e antes — 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
                                       # sobre o tratamento dos dados (DL-0064).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
@@ -329,8 +332,10 @@ escalation:
       # "loop" deste gatilho (e da regra `r6` de escalation_routing.dmn, "Falha tecnica do agente
       # (loop, tool down)") e' a Helena prestes a mandar, pela N+1-esima vez SEGUIDA, a MESMA resposta
       # (>= 60 caracteres, comparada sem o prefixo de variacao) que ja' saiu nas N falas anteriores dela
-      # no historico curto. Escala `falha_tecnica`, severidade `null` (HEL-04), pelo mesmo start
-      # idempotente e com o mesmo texto fixo de handoff; nunca com caso ja' aberto na conversa.
+      # no historico curto. REVISTO na avaliacao r5 (25/10/2026): o loop NAO abre caso sozinho; a Helena
+      # OFERECE a equipe (pendencia `EQ_OFERTA`) e o caso so' abre com o "sim" da pessoa
+      # (`solicitacao_humano`). O aviso fixo da cobertura (DL-0154) nunca conta como loop; nunca com caso
+      # ja' aberto na conversa.
       # A pessoa repetindo a pergunta NAO conta aqui (e' o "frustracao 2x" de AGJ-HELENA-TRIAGE,
       # `solicitacao_humano`, outro gatilho). O parametro mora em `escalation.loop` logo abaixo (cada
       # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).

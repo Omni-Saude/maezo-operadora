@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-umbigo
+tema: triagem_criancas
+titulo: "Umbigo do bebê vermelho, com pus ou mau cheiro"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "o umbigo do bebê está vermelho"
+  - "o coto do umbigo está com pus"
+  - "umbigo do neném com mau cheiro"
+  - "está saindo secreção do umbigo"
+  - "o umbigo do bebê não caiu ainda"
+  - "umbiguinho sangrando um pouco"
+  - "a pele em volta do umbigo está inchada"
+  - "o umbigo está molhado e fedendo"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "A vermelhidão em volta do umbigo está se espalhando pela pele da barriga?"
+    sinal: onfalite_extensa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – secreção purulenta do umbigo com eritema que se estende para a pele ao redor"
+  - pergunta: "O bebê está com febre (37,5 °C ou mais), não consegue mamar ou está muito molinho?"
+    sinal: sinal_geral_de_perigo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.3.3 (p. 62: febre junto com alteração do coto)"
+  - pergunta: "O umbigo está com pus, secreção amarelada, mau cheiro ou vermelho só em volta?"
+    sinal: infeccao_localizada_umbigo
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 17 (vermelhidão, secreção amarelada, pus e mau cheiro: levar imediatamente a um profissional); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – INFECÇÃO LOCALIZADA (umbigo com secreção sem estender para a pele); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.3.3"
+destino_se_nenhum_sinal: CONSULTA_ROTINA
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "O coto do umbigo costuma cair até o fim da segunda semana. Mantenha o local limpo e seco e não coloque faixas, moedas ou outras coisas sobre ele. Mostre o umbigo na próxima consulta do bebê. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 17 (cuidados com o umbigo); p. 23"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§5.3.3 (p. 62)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial; Caderneta da Gestante 2026: CC BY-NC-SA 4.0 — pendente jurídico"

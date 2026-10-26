@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-perda-de-liquido
+tema: gestacao
+titulo: "Perda de líquido pela vagina / bolsa rompeu"
+publico: gestante
+como_a_pessoa_fala:
+  - "acho que minha bolsa estourou"
+  - "está escorrendo água pela perna"
+  - "saiu um líquido transparente, estou grávida"
+  - "minha calcinha está molhada o tempo todo"
+  - "a bolsa rompeu"
+  - "saiu um líquido verde"
+  - "perdi líquido com 32 semanas"
+  - "estou molhando a roupa sem ser xixi"
+perguntas_de_alerta:
+  - pergunta: "Está com vontade incontrolável de fazer força, ou aparece alguma parte do bebê ou do cordão pela vagina?"
+    sinal: periodo_expulsivo_ou_prolapso
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 2 (p. 39) – vermelho: período expulsivo, prolapso de cordão, exteriorização de partes fetais; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 7 (p. 44) – vermelho; SAMU 192 – Quando chamar (MS, página gov.br) – trabalho de parto com risco de morte da mãe ou do bebê"
+  - pergunta: "O líquido está verde, amarelado ou escuro, ou você está com dor muito forte ou contrações a cada 2 minutos?"
+    sinal: liquido_meconial_ou_tp_intenso
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 7 (p. 44) – laranja: líquido esverdeado espesso, dor intensa, contrações a cada 2 min; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.2.2 (p. 58: líquido verde ou amarelo pode indicar mecônio)"
+  - pergunta: "Está com febre (37,8 °C ou mais)?"
+    sinal: febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – febre ≥ 37,8 °C (buscar atendimento imediatamente); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 5 (p. 42) – amarelo: febre 38,0-39,9 °C"
+  - pergunta: "Saiu bastante líquido claro, molhando a roupa ou escorrendo pelas pernas?"
+    sinal: bolsa_rota
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 7 (p. 44) – amarelo: perda de líquido claro em grande quantidade; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.2.2 (p. 57-58: dúvida sobre ruptura da bolsa → procurar serviço de saúde)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se a bolsa rompeu, vá à maternidade de referência hoje, mesmo sem dor, levando a caderneta. Observe a cor do líquido. Você não precisa ter certeza: ser avaliada faz parte de um cuidado seguro. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 7 – Perda de líquido via vaginal/secreções (p. 44)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§5.2.2 As fases do trabalho de parto (p. 57-58); §2.6 (p. 28)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

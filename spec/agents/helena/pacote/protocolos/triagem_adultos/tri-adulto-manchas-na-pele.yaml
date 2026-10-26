@@ -1,0 +1,53 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-manchas-na-pele
+tema: triagem_adultos
+titulo: "Manchas, coceira ou feridas na pele"
+publico: adulto
+como_a_pessoa_fala:
+  - "apareceram manchas vermelhas no meu corpo"
+  - "estou com o corpo todo empolado"
+  - "estou com uma coceira que não passa"
+  - "apareceram manchas roxas sem eu bater"
+  - "estou com bolinhas pelo corpo e febre"
+  - "minha pele está descascando e ardendo"
+  - "tenho uma ferida que não sara"
+  - "acho que é alergia na pele"
+  - "apareceram bolhas na pele"
+  - "minha perna está vermelha, quente e inchada"
+perguntas_de_alerta:
+  - pergunta: "Junto com as manchas, a boca, a língua ou o rosto incharam, ou você está com dificuldade para respirar, ou ficou confuso?"
+    sinal: angioedema_ou_comprometimento_respiratorio
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.8, Figura 28 (fluxograma de classificação de risco), p. 91; TelessaúdeRS Dermatologia (2023), Protocolo 9 – Urticária e angioedema (urgência/emergência)"
+  - pergunta: "Você está com febre e apareceram manchas roxas ou pontinhos roxos ou vermelho-escuros na pele?"
+    sinal: purpura_com_febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.8, Figura 28 (púrpura associada a febre = atendimento imediato), p. 91"
+  - pergunta: "As manchas estão espalhadas pelo corpo junto com febre, ou são placas que coçam muito, ou a dor ou a coceira estão muito fortes?"
+    sinal: exantema_febre_urticaria_ou_dor_intensa
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.8, Figura 28 (atendimento prioritário: dor/prurido intenso, urticária, exantema ou febre), p. 91"
+  - pergunta: "Aparecem manchas roxas sem você ter batido, ou qualquer corte pequeno sangra muito e demora a parar?"
+    sinal: manchas_roxas_espontaneas_ou_sangramento_facil
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "TelessaúdeRS Hematologia Adulto (2023), Protocolo 8 – Distúrbios hemorrágicos (encaminhamento para Hematologia)"
+# Caderno: dor/prurido leve = "atendimento no dia"; adaptado para CONSULTA_EM_BREVE (decisão a validar pelo médico)
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Dermatologia"
+  # manchas roxas espontâneas ou sangramento fácil: Hematologia e hemoterapia (TelessaúdeRS Hematologia Adulto, Protocolo 8)
+  fonte: "TelessaúdeRS Dermatologia (2023), Protocolos 1–16; TelessaúdeRS Hematologia Adulto (2023), Protocolo 8; Resolução CFM 2.380/2024"
+orientacao_final: "Muitas manchas e coceiras na pele têm causas simples, mas precisam de avaliação para saber o que é. Evite coçar e não use pomada por conta própria. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.8 Doenças de pele (Figura 28)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Dermatologia (2023)"
+    secao: "Protocolo 9 – Urticária e angioedema"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Hematologia Adulto (2023)"
+    secao: "Protocolo 8 – Distúrbios hemorrágicos"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

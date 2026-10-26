@@ -14,7 +14,7 @@ Cabeçalho de estado do programa: `state: PLANO` → `ATIVO` (após D-01) → `P
 
 **Cercas permanentes:** (1) `docs/processes/New_BPMN/*_v3.bpmn` intocáveis (WIP do orquestrador paralelo; linhagem = **v4** em `Adapted_BPMN/`, rastreado); CA_1 exige broker via COORDINATION. (2) As 2 regiões de conflito do PLANS.md (~`:1248-1252` e `:1314-6178`) jamais resolvidas (F-P07). (3) Cadeia de merge da casa: autor → revisão adversarial → reparo → delta PASS → squash pinado → byte-check 0-diff. (4) Agentes jamais preenchem blocos de aprovação/ratificação (ADR-0007).
 
-**Prazos (verdade externa):** 1º/1/2027 escalonamento OP21 (RN 489/2022 art. 23-A, multa-base R$ 506.250) · 2027-01-26 fim da janela de evidências C2 · 2027-02-09 muro shadow + revisão C2 (renovado pelo dono 2026-09-20, PR fix/d7-exception-renewal-2027; F-P04 emendado GOV-0.2). O caminho crítico corre por **humanos**: ativação da security-team e pareceres jurídicos são os dois postes longos — ambos pré-estacionados na W0.
+**Prazos (verdade externa):** 1º/1/2027 escalonamento OP21 (RN 489/2022, art. 23-A (redação dada pela RN 659/2025), multa-base R$ 506.250) · 2027-01-26 fim da janela de evidências C2 · 2027-02-09 muro shadow + revisão C2 (renovado pelo dono 2026-09-20, PR fix/d7-exception-renewal-2027; F-P04 emendado GOV-0.2). O caminho crítico corre por **humanos**: ativação da security-team e pareceres jurídicos são os dois postes longos — ambos pré-estacionados na W0.
 
 ```
 W0 GOV ─┬→ W1 REG (jurídico-gated; deadline)   ─┐
@@ -80,6 +80,10 @@ R-051 herda: se nenhuma das pessoas puder atuar, registrar deferral datado do do
 
 Aceitação: teste negativo bloqueia venda a PJ ilegítima no CI (`gateway-platform`+`restante`); re-sweep mapeia 7+8 touchpoints; gate cego no diff; OP21 em main até 2026-12-15.
 
+**Status 2026-10-26:** parecer do jurídico recebido e registrado (`docs/compliance/legal/PARECER-OP21-RESPOSTA-LUCAS-2026-10-26.md`) — D-03/D-04 respondidos; âncoras OP21 validadas; REG-1.1 despachável; merge ≤ 2026-12-15.
+
+**Status 2026-10-26 (reparo de citação, per parecer §3 item 2):** forma canônica OBRIGATÓRIA em todos os materiais do controle OP21 — "RN 489/2022, art. 23-A (redação dada pela RN 659/2025)"; na tela, forma curta "RN 489/2022, art. 23-A"; "RN 659/2025, art. 23-A" é IMPRECISA (a RN 659/2025 apenas alterou a RN 489/2022, onde o artigo está). Varredura em origin/main (1ee44e91): nenhum material VIVO rastreado carrega a forma imprecisa (o controle ainda não está implementado — REG-1.1 pendente); o registro GP7 com "RN 557/659" vive em `docs/audits/VENDOR-XP-2026-10/` (gitignored, elisão declarada) e foi emendado IN LOCO com desdobro por assunto — contratação = RN 557/2022 (arts. 5º/9º-14/15/16/29/39); penalidade = RN 489/2022, art. 23-A (redação dada pela RN 659/2025). O implementador do REG-1.1 e a ratificação do `GP7-MATRIZ-V1` (dossiê ANSWERS-V1, congelado p/ assinatura) devem consumir a forma canônica — sem re-decisão (D-03/D-04 já respondidas).
+
 ## W2 CORP — corpus v4 + F-M01 (M/L; owner-gated)
 
 Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos IA-02/03/04 **incl. a regressão própria do v4** (restaurar messageFlow a `UT_ES_CancelamentoPrestador`) · 2.2 produtores/defaults dos 8 timers/7 vars · 2.3 planos DI (2 sem id, 11 sobreposições) · 2.4 catcher do sinal `Signal_CA_AlertaDS` + nota `SEM_SLOT_EQUIVALENTE` · 2.5 as 2 notas de precisão do CORRECOES · 2.6 pinar o fix F-E01 como asserção de regressão · **2.7 disposição F-M01 (D-02; recomendação = re-scope)**: mapa elemento→capacidade→código/teste dos 355 elementos v4, emenda do INTEGRATION-PLAN, reconciliação re-rodada (zero none-por-silêncio); opção (b) ponte runtime = programa à parte. Aceitação: 5-gate PASS ×4 c/ Gate-3 set-level limpo; query de grafo prova o messageFlow do prestador.
@@ -94,7 +98,7 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 
 ## W5 CLNT — plano de capacidades cliente/admin, em shadow (M/L)
 
-5.1 PRs de habilitação dark por flag (16 flags do `settings.py:337-591`; revisor nomeado + janela de evidência por linha do `docs/review-queue.md`; flags SEGUEM OFF — ROLL flippa) · 5.2 endpoint HTTP de DSR (não existe) + resolução do guard `decisao_dsr` · 5.3 os 3 strict-xfails DSR (consertar fonte antes; flip 1 PR cada c/ delta do censo) · 5.4 as 2 pontes de identidade do erasure construídas dark (16/16 decisões DPO permanecem humanas) · 5.5 admin 7/7 (Documents/Operations/Administration hoje stubs + BFF de assignments) ou disposição por área · 5.6 pacotes de evidência para cada pendência humana (médico-auditor clínico; jurídico/DPO/operação do lucas). Aceitação: flags provadamente OFF em prod; e2e DSR verde; censo xfail com delta; 0 linhas DRAFT sem revisor nomeado.
+5.1 PRs de habilitação dark por flag (flags de habilitação dark conforme `docs/plans/w5-5-1-flags-reancoragem.md` — inventário real: **31 interruptores/6 grupos**; a citação original a `settings.py:337-591` estava driftada, provado em #953/#967; revisor nomeado + janela de evidência por linha do `docs/review-queue.md`; flags SEGUEM OFF — ROLL flippa) · 5.2 endpoint HTTP de DSR (não existe) + resolução do guard `decisao_dsr` · 5.3 os 3 strict-xfails DSR (consertar fonte antes; flip 1 PR cada c/ delta do censo) · 5.4 as 2 pontes de identidade do erasure construídas dark (**41/41** decisões DPO — ver `docs/compliance/human-windows/LUCAS-DPO-OPERACAO-PACKAGE.md` — permanecem humanas) · 5.5 admin 7/7 (Documents/Operations/Administration hoje stubs + BFF de assignments) ou disposição por área · 5.6 pacotes de evidência para cada pendência humana (médico-auditor clínico; jurídico/DPO/operação do lucas). Aceitação: flags provadamente OFF em prod; e2e DSR verde; censo xfail com delta; 0 linhas DRAFT sem revisor nomeado.
 
 ## W6 DISC — gates, gaps e burn-down de ledger (M)
 
@@ -127,16 +131,30 @@ Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 
 | D-30 | **Broker agora, 3 arquivos primeiro** (W2 começa em CA_0/CA_2/CA_3; proposta de coordenação CA_1 via canal broker) | CORP |
 | D-31a | GAP-REGISTER = **espelho rastreado** `docs/compliance/GAP-REGISTER.yaml` gerado dos registros vivos + cerca CI anti-citação-pendente | GOV-0.8 |
 | D-31b | deriva-dev = **ausência aceita** (nota datada do dono; sem novo papel AWS) | GOV-0.9 |
+| D-33 | **Coordenação de PRs externos** (AMH #149; revisão do #907) — constava do §HDR sem linha nesta tabela; acrescida por acréscimo em 2026-10-25 | BRDG-3.1 concluída: #907 merged, base do congelamento C6-4 (`CONTRACT-FREEZE-C6-4-REGISTER.json`: `merge_pr: 907`) |
 | Q10 | **Não** — canal vendor NÃO vende a entes públicos | OP17 desbloqueado do lado do fato (DISC-6.3/6.4) |
 
 **Ruling D-02 (racional):** ponte total (44 beans AI) duplicaria capacidades que já existem no gateway/agentes (eventClassifierAI ≈ roteador helena; authorizationRequestService ≈ workers SP-OP-AUTH; recommendationRankingService ≈ NBA) criando forquilha de autoridade de efeitos — viola o chokepoint único (`start_process_idempotent`, PEP subtrativo, allowlist). Mapa-sozinho deixaria a riqueza normativa do v4 como documentação morta. A alternativa escolhida preserva autoridade única de runtime (SP-OP/engine), mantém o v4 como especificação viva (cada elemento ganha casa real), e reutiliza o substrato verificado/ratificado — impacto nas demais builds: W3 já é SP-OP-nativa (intacta), W5 ganha process-keys concretos, lanes do GUIA mapeiam sobre filas de workers existentes.
+
+## §Decisões registradas (2026-10-25, dono, sessão interativa)
+
+| ID | Decisão | Efeito |
+|---|---|---|
+| D-34 | **Admissões A1+A2+A3 registradas EM CONJUNTO** (sessão de compra completa; atos owner-only na prateleira do portal) | BRDG-3.4 liberado quando os 3 registros existirem |
+| D-35 | **A7 = teto `admitted_ceiling_orientation_only`** (literal do dossiê A7; única forma admitida do loader `commercial_portability_admission.py`) | Forma 1/fonte própria só por freeze sucessor |
+| D-36 | **Interface de comissões a construir** (múltiplos ajustes por produto/canal/corretor; dados inseridos no futuro; interna/dark) | o dossiê A8 do contrato permanece `pending` — nem `admitted_out_of_scope` nem Forma 1 |
+| D-37 | **A9 = recusa registrada (`refused`)** — literal do dossiê A9; loader `commercial_analytics_admission.py` | UNMEASURED persiste |
+| D-38 | **A6+A10 em janela conjunta** | Track B grants/membership/canal + registros A6 (owner+DPO) e A10 (origem+comercial) juntos, na janela BRDG-3.4 |
+| D-39 | **DSR send_response mantém shadow** | sem flip até exercício mais longo do endpoint #955 |
+| D-40 | **Administration = perfil de leitura (novo D-*) + admin read-only a construir** | proposta do D-* vem no pacote; assinatura é do dono |
+| D-41 | **Próxima janela começa pela cadeia D2' do N2** | design update → implementação → v27 → discriminador |
 
 ## §HDR — Registro de decisões humanas (agentes preparam pacotes, nunca decidem)
 
 **Dono:** D-01 retomada+escopo · D-02 F-M01 (a)/(b) · D-05 valor PT48H · D-07 LA-02 · D-10 ações de prazo · D-11 ratificar supercessão v3↔v4 · D-12 alvos de completude (de 9,0% → ?) · D-15 congelamento do contrato · D-16 erguer A1–A10 · D-21 ingresso Lucas · D-29 go/no-go + fechamento · D-30 broker CA_1 · D-31 papel deriva + casa do GAP-REGISTER · D-33 coordenação de PRs externos (AMH #149; revisão do #907).
 **Security-team:** D-14 ativação (GOV-0.10, 6 passos) + o APPROVED do #907 — poste mais longo; pré-estacionado.
 **Jurídico:** D-03/D-04 (COUNSEL-2/3; bloqueiam OP21) · D-06 (COUNSEL-5) · D-08 (COUNSEL-6) · D-09 (COUNSEL-4 NBA) · COUNSEL-1/7/8 como insumos do REG-1.13.
-**DPO:** D-25 16 contras-assinaturas do erasure + insumos GP11/M2 + VW4 · D-26 pontes de identidade. **Médico-auditor:** ratificação auth-criteria (nada ratificado hoje), 4 DMNs de triage, C2 até 2027-02-09. **Jurídico/operação/financeiro:** R1–R5 (bloqueiam OP17); revisões de habilitação do lucas.
+**DPO:** **D-25 41 contras-assinaturas do erasure** (16 originais + 25 relações acréscidas — 9 de ADR-0049 nas migrações 0001-0014 e 16 de migrações 0015-0028; correção 2026-10-25; contagem viva em `src/maezo/platform/lifecycle/erasure_plan.py:9-12` e `docs/compliance/human-windows/LUCAS-DPO-OPERACAO-PACKAGE.md` §0/§1.3) + insumos GP11/M2 + VW4 · D-26 pontes de identidade. **Médico-auditor:** ratificação auth-criteria (nada ratificado hoje), 4 DMNs de triage, C2 até 2027-02-09. **Jurídico/operação/financeiro:** R1–R5 (bloqueiam OP17); revisões de habilitação do lucas.
 
 ## Cobertura de findings, verificação e riscos
 

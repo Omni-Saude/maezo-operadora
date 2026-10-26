@@ -6,7 +6,9 @@ pessoa que dizia "obrigado, tchau" lia "seu atendimento continua com a equipe", 
 historico curto da conversa. Aqui, contra o CIB Seven da stack (ADR-0011: nunca um motor falso):
 
   1. a Helena REAL abre SP-OP-ESCALATION-001 (`solicitacao_humano`) pelo transporte HTTP real;
-  2. ANTES de a tarefa ser concluida, "obrigado, tchau" com o historico -> `RESPOSTA_DESPEDIDA_CASO_ABERTO`;
+  2. ANTES de a tarefa ser concluida, "obrigado, tchau" com o historico -> o caso e' CONFIRMADO no motor,
+     mas a despedida e' a comum (`RESPOSTA_DESPEDIDA`): teste do dono de 25/10/2026, item 7c (#993), o caso
+     aberto nao vai de carona nas outras respostas;
   3. o atendente sintetico conclui `UT_TratarEscalonamento` com `resultado=resolvido_humano` e a instancia
      termina; o MESMO turno, com o MESMO historico -> `RESPOSTA_DESPEDIDA` (nunca a de caso aberto).
 
@@ -206,7 +208,7 @@ async def test_despedida_so_afirma_caso_aberto_enquanto_a_instancia_esta_ativa_n
     assert len(ativas) == 1
     instancia = str(ativas[0]["id"])
 
-    # 2. Caso ATIVO no motor: a despedida diz que o caso continua.
+    # 2. Caso ATIVO no motor: confirmado, mas a despedida nao leva o caso de carona (dono, 25/10, item 7c).
     antes, enviados_antes = await _turno(
         engine_base_url,
         audit_sink,
@@ -215,7 +217,8 @@ async def test_despedida_so_afirma_caso_aberto_enquanto_a_instancia_esta_ativa_n
         _entrada(audit_tenant, conversa, "obrigado, tchau", historico),
     )
     assert antes["caso_aberto_confirmado"] == "administrativo"
-    assert enviados_antes == [RESPOSTA_DESPEDIDA_CASO_ABERTO]
+    assert enviados_antes == [RESPOSTA_DESPEDIDA]
+    assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in enviados_antes
 
     # 3. O atendente conclui a tarefa: a instancia termina.
     tarefa = await wait_for_task(engine_client, instancia)

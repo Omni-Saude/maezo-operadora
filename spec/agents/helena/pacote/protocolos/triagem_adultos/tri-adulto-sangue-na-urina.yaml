@@ -1,0 +1,50 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-sangue-na-urina
+tema: triagem_adultos
+titulo: "Sangue na urina"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou urinando sangue"
+  - "minha urina está vermelha"
+  - "saiu um coágulo quando fiz xixi"
+  - "meu xixi está cor de coca-cola"
+  - "deu sangue no meu exame de urina"
+  - "urina com sangue e dor"
+  - "fiz xixi e estava rosado"
+  - "não consigo urinar e saiu sangue"
+perguntas_de_alerta:
+  - pergunta: "Você desmaiou, está muito pálido, muito fraco ou confuso?"
+    sinal: instabilidade_hemodinamica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "TelessaúdeRS Urologia Adulto (2023), Protocolo 8 – Hematúria (urgência/emergência: instabilidade hemodinâmica); Caderno de Atenção Básica 28 vol. II, §2.7, Figura 13 (atendimento imediato), p. 80"
+  - pergunta: "Você não consegue urinar (a bexiga está cheia e a urina não sai), ou a dor está muito forte e não passa?"
+    sinal: obstrucao_urinaria_ou_dor_dificil
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Urologia Adulto (2023), Protocolo 8 – Hematúria (urgência/emergência: obstrução do trato urinário e dor de difícil manejo); TelessaúdeRS Nefrologia Adulto (2023), Protocolo 7 – Hematúria"
+  - pergunta: "Junto com o sangue você está com febre alta, calafrios e se sentindo muito mal?"
+    sinal: suspeita_sepse_urinaria
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Urologia Adulto (2023), Protocolo 8 – Hematúria (urgência/emergência: sepse urinária)"
+  - pergunta: "Dá para ver o sangue na urina (urina vermelha, rosada, cor de coca-cola ou com coágulos), ou você está com febre?"
+    sinal: hematuria_visivel_ou_febre
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.7, Figura 13 (atendimento prioritário: hematúria franca, febre), p. 80"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  # sangue sem coágulos com sinais de doença do rim (achados de exame): Nefrologia (TelessaúdeRS Nefrologia Adulto, Protocolo 7)
+  depois: "Urologia"
+  fonte: "TelessaúdeRS Urologia Adulto (2023), Protocolo 8 – Hematúria; TelessaúdeRS Nefrologia Adulto (2023), Protocolo 7 – Hematúria; Resolução CFM 2.380/2024"
+orientacao_final: "Sangue na urina pode ter causas simples, como infecção, mas sempre precisa ser investigado pelo médico, mesmo que tenha parado. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Urologia Adulto (2023)"
+    secao: "Protocolo 8 – Hematúria"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Nefrologia Adulto (2023)"
+    secao: "Protocolo 7 – Hematúria"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.7 Disúria (Figura 13)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

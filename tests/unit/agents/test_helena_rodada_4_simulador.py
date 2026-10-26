@@ -56,7 +56,9 @@ async def test_despedida_com_espera_de_atendente_nao_vira_aviso_de_caso_aberto()
         )
     )
 
-    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA_CASO_ABERTO]
+    # Teste do dono (25/10/2026, noite): a despedida sai sem o caso aberto de carona.
+    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA]
+    assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in whatsapp.enviados
     assert not resultado.get("escalation_started")
     assert _starts(cib) == antes
 

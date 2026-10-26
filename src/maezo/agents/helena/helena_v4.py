@@ -11,7 +11,7 @@ pelo dono para DEV, revisao juridica/clinica antes de producao):
 
   1. CONSULTAR UM ESPECIALISTA. A Helena NAO pesquisa especialidade nem agenda neste canal: responde com
      o texto da coluna "HOJE" (segmentacao do cadastro, quando houver; onde marcar — aplicativo Austa
-     Clinicas, portal do plano ou central; prazo da ANS; oferta de pessoa). Sem prometer cobertura e sem
+     Clinicas, portal do plano ou central; oferta de pessoa, sem prazo da ANS). Sem prometer cobertura e sem
      citar nome de medico, clinica ou endereco.
   2. CARTEIRINHA. Plano, segmentacao, vigencia e numero ANS do plano, com o codigo MASCARADO, e o cartao
      completo no aplicativo/portal. Nunca CNS, codigo inteiro, nome ou data de nascimento.
@@ -23,13 +23,8 @@ pelo dono para DEV, revisao juridica/clinica antes de producao):
 TODO O CONTEUDO CLINICO AQUI E' DRAFT — pendente do medico-auditor (ainda nao ha medico). Nenhum sinal
 de alarme foi inventado: cada pergunta cita, nos comentarios, as linhas A*/C*/N* do catalogo v1.
 
-PRAZOS DA ANS (RN 566/2022; `docs/compliance/rn-currency-review.md` §2.1):
-  * consulta BASICA (pediatria, clinica medica, cirurgia geral, ginecologia e obstetricia): 7 dias uteis —
-    ja' conferido no texto-base e usado pela triagem v2;
-  * demais ESPECIALIDADES MEDICAS: 14 dias uteis — RASCUNHO / A CONFIRMAR PELO JURIDICO (so' a pagina do
-    consumidor da ANS foi lida; ver `PRAZO_ESPECIALISTA_DIAS_UTEIS`);
-  * fonoaudiologia, nutricao, psicologia, terapia ocupacional e fisioterapia: 10 dias uteis — OUTRO prazo,
-    por isso ficam FORA do lexico (a v4 nao responde 14 para eles).
+SEM PRAZO DA ANS (decisao do dono, 25/10/2026): nenhum texto da Helena cita prazo de atendimento da ANS
+(7, 10 ou 14 dias uteis); a orientacao e' so' o caminho (onde marcar) e a oferta da equipe.
 """
 
 from __future__ import annotations
@@ -47,14 +42,6 @@ from .triagem_v2 import (
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
 )
 
-# --- Prazos ----------------------------------------------------------------------------------------
-#: RASCUNHO / A CONFIRMAR PELO JURIDICO: demais especialidades medicas, RN 566/2022, em dias uteis
-#: (`docs/compliance/rn-currency-review.md`, §2.1, linha 67: "demais especialidades 14 d.u."). Valor lido da
-#: pagina do consumidor da ANS; a confirmacao do texto-base da norma esta' pendente.
-PRAZO_ESPECIALISTA_DIAS_UTEIS: Final[int] = 14
-#: Consulta basica, RN 566/2022 art. 3, I — o valor ja' conferido (usado pela triagem v2).
-PRAZO_CONSULTA_BASICA_DIAS_UTEIS: Final[int] = 7
-
 # --- Especialista: o lexico (PEQUENO e FECHADO) -----------------------------------------------------
 #: `(nome que a Helena diz, padrao sobre o texto normalizado, e' consulta basica?)`.
 #:
@@ -63,13 +50,12 @@ PRAZO_CONSULTA_BASICA_DIAS_UTEIS: Final[int] = 7
 #: tem o MESMO prazo (otorrino, gastro, pneumo, reumato). Novas entram por PR, uma a uma.
 #:
 #: DECISOES, documentadas (16/10/2026):
-#:  * GINECOLOGISTA e OBSTETRA sao consulta BASICA na RN 566 (ginecologia e obstetricia): 7 dias uteis, nao
-#:    14. O lexico os reconhece, mas o texto diz "consulta basica" com 7 dias — dizer 14 seria falso e
-#:    contradiria o texto de gestante da triagem v2. PEDIATRA e CLINICO GERAL idem. A CONFIRMAR com o dono.
+#:  * GINECOLOGISTA e OBSTETRA sao consulta BASICA (ginecologia e obstetricia); PEDIATRA e CLINICO GERAL idem.
+#:    O texto diz "consulta basica", sem prazo. A CONFIRMAR com o dono.
 #:  * PSIQUIATRA e PSICOLOGO ficam FORA: saude mental pede acolhimento e a tabela de risco psicossocial; o
-#:    caminho de hoje continua. Psicologia tem prazo de 10 dias uteis, nao 14.
-#:  * FISIOTERAPIA, NUTRICIONISTA e FONOAUDIOLOGO ficam FORA: 10 dias uteis (outro prazo, nao conferido).
-#:  * ONCOLOGISTA fica FORA: o assunto pede uma pessoa, e alta complexidade tem prazo proprio.
+#:    caminho de hoje continua.
+#:  * FISIOTERAPIA, NUTRICIONISTA e FONOAUDIOLOGO ficam FORA do lexico.
+#:  * ONCOLOGISTA fica FORA: o assunto pede uma pessoa.
 #:  * "especialista" sozinho fica FORA: sem a especialidade o texto nao teria o que dizer.
 _ESPECIALIDADES: Final[tuple[tuple[str, re.Pattern[str], bool], ...]] = (
     ("cardiologista", re.compile(r"\bcardiolog(?:ista|istas|ia)\b"), False),
@@ -83,7 +69,7 @@ _ESPECIALIDADES: Final[tuple[tuple[str, re.Pattern[str], bool], ...]] = (
     ("gastroenterologista", re.compile(r"\bgastroenterolog(?:ista|istas|ia)\b"), False),
     ("pneumologista", re.compile(r"\bpneumolog(?:ista|istas|ia)\b"), False),
     ("reumatologista", re.compile(r"\breumatolog(?:ista|istas|ia)\b"), False),
-    # Consulta BASICA (7 dias uteis):
+    # Consulta BASICA:
     ("ginecologista", re.compile(r"\bginecolog(?:ista|istas|ia)\b"), True),
     ("obstetra", re.compile(r"\bobstetras?\b"), True),
     ("pediatra", re.compile(r"\bpediatras?\b"), True),
@@ -126,23 +112,14 @@ def texto_do_especialista(
     """
     if basica:
         abertura = f"Consulta com {especialidade} é consulta básica."
-        prazo = (
-            f"Pelas regras da ANS, a consulta básica deve ser oferecida em até "
-            f"{PRAZO_CONSULTA_BASICA_DIAS_UTEIS} dias úteis."
-        )
     else:
         abertura = f"Consulta com {especialidade} é consulta de especialista."
-        prazo = (
-            f"Pelas regras da ANS, o plano deve oferecer consulta com especialista em até "
-            f"{PRAZO_ESPECIALISTA_DIAS_UTEIS} dias úteis."
-        )
     partes = [
         abertura,
         f"No cadastro, seu plano consta com segmentação {segmentacao}." if segmentacao else None,
         "Por aqui eu não pesquiso especialistas nem marco consulta.",
         "Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento "
         "do plano.",
-        prazo,
         frase_cobertura,
         "Se quiser falar com uma pessoa da equipe, é só me pedir.",
     ]
@@ -464,8 +441,11 @@ def texto_da_pergunta_de_alerta(
     perguntas = " ".join(escolhido.perguntas)
     if repetida:
         return modelo_da_repergunta.format(sinais=escolhido.sinais)
+    # Teste do dono de 25/10/2026 (item 5): sem o ECO literal da frase da pessoa ("Entendi: eu sofri uma
+    # queda...", na primeira pessoa dela). `eco` fica na assinatura so' por compatibilidade.
+    del eco
     return (
-        f"Entendi: {eco}. Antes de te mostrar o caminho, preciso de uma informação rápida. "
+        "Entendi. Antes de te mostrar o caminho, preciso de uma informação rápida. "
         f"{perguntas} {_PEDIDO_DE_RESPOSTA}"
     )
 
@@ -474,29 +454,39 @@ def texto_final_do_sintoma(eco: str, populacao: str = POPULACAO_ADULTO) -> str:
     """A resposta depois do "nao" — NO FORMATO DO DONO (v4, coluna "RECEBERIA", 16/10/2026). As duas opcoes
     tem tratamento deterministico (`escolha_da_resposta`).
 
-    Decisao do dono de 23/10/2026 (DL-0154): o "nao" leva ao CAMINHO (consulta pelo plano com o prazo da ANS)
+    Decisao do dono de 23/10/2026 (DL-0154): o "nao" leva ao CAMINHO (consulta pelo plano, sem prazo da ANS)
     ou a equipe, e FECHA — sem orientar o sintoma nem explicar causa; o profissional vem pela idade (adulto:
     clinico geral; crianca: pediatra), nunca "clinico geral ou pediatra" para um adulto."""
     profissional = "pediatra" if populacao == POPULACAO_CRIANCA else "clínico geral"
+    del eco  # teste do dono de 25/10/2026 (item 5): sem o eco literal do relato
     return (
-        f"Entendi: {eco}. Eu não avalio sintomas, mas te ajudo com o caminho. "
-        f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
-        "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
+        "Entendi. Eu não avalio sintomas, mas te ajudo com o caminho. "
+        f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano; "
+        "ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
     )
 
 
 _ABERTURA_FINAL: Final[re.Pattern[str]] = re.compile(
-    r"^Entendi: [^.]{1,200}\. Eu não avalio sintomas, mas te ajudo com o caminho\. Você prefere: 1\) "
+    r"^Entendi(?:: [^.]{1,200})?\. Eu não avalio sintomas, mas te ajudo com o caminho\. Você prefere: 1\) "
 )
 
 
-def texto_da_opcao_1(populacao: str) -> str:
+#: Teste do dono de 25/10/2026 (item 2): a pessoa reclama da repeticao ("eu ja' tinha te respondido que nao"):
+#: o pedido de desculpa e o caminho, sem oferecer de novo as mesmas opcoes.
+DESCULPA_DA_REPETICAO: Final[str] = "Desculpe, você já tinha me respondido."
+
+
+def texto_da_opcao_1(populacao: str, *, desculpa: bool = False) -> str:
     """Opcao 1: como marcar consulta pelo plano, SEM diagnostico — o T05 da triagem v2 (ja' conferido contra
-    as cercas): adulto -> clinico geral; crianca -> pediatra."""
-    if populacao == POPULACAO_CRIANCA:
-        return RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA
-    return RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
+    as cercas): adulto -> clinico geral; crianca -> pediatra. `desculpa`: com o pedido de desculpa pela
+    repeticao antes (texto fixo tambem)."""
+    texto = (
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA
+        if populacao == POPULACAO_CRIANCA
+        else RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
+    )
+    return f"{DESCULPA_DA_REPETICAO} {texto}" if desculpa else texto
 
 
 # --- O codigo de "onde a conversa parou" (vai em `coleta_pendente`) ---------------------------------
@@ -726,7 +716,12 @@ def resumo_do_caso(pendente: object, relato: object, *, alerta: AlertaDoGrupo | 
 # --- Os textos fixos que `inform` deixa passar ------------------------------------------------------
 #: Os textos FIXOS (sem parte variavel) que a v4 deixa prontos para `inform`.
 TEXTOS_FIXOS_V4: Final[frozenset[str]] = frozenset(
-    {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO, RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA}
+    {
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+        f"{DESCULPA_DA_REPETICAO} {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO}",
+        f"{DESCULPA_DA_REPETICAO} {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA}",
+    }
 )
 
 
@@ -744,6 +739,7 @@ def e_texto_da_v4(texto: object) -> bool:
 
 __all__ = [
     "ALERTAS",
+    "DESCULPA_DA_REPETICAO",
     "ECO_GENERICO",
     "TEXTO_DA_REPERGUNTA",
     "e_agravamento",
@@ -762,8 +758,6 @@ __all__ = [
     "NAO_CONSTA",
     "POPULACAO_ADULTO",
     "POPULACAO_CRIANCA",
-    "PRAZO_CONSULTA_BASICA_DIAS_UTEIS",
-    "PRAZO_ESPECIALISTA_DIAS_UTEIS",
     "PREFIXO_PENDENTE",
     "LEITURA_NAO",
     "LEITURA_SIM",

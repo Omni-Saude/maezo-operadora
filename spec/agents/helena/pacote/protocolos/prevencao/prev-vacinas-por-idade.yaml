@@ -1,0 +1,191 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Tabela de referência (não é triagem). Transcrito da página pública do Calendário Nacional de Vacinação (gov.br),
+# consultada em 25/10/2026. A página não mostra data de 'atualizado em'; o calendário muda com frequência: conferir antes de produção.
+# Só número de doses e idade; nenhuma informação de quantidade (mg/ml).
+id: prev-vacinas-por-idade
+tema: prevencao
+titulo: "Vacinas por idade (Calendário Nacional de Vacinação)"
+publico: todas_as_idades   # fora da lista do MODELO.md (tabela de referência para criança, adolescente, adulto, idoso e gestante)
+como_a_pessoa_fala:
+  - "quais vacinas eu preciso tomar?"
+  - "minha vacina está atrasada"
+  - "que vacina meu bebê toma com 2 meses?"
+  - "adulto precisa tomar vacina?"
+  - "idoso toma quais vacinas?"
+  - "grávida pode tomar vacina?"
+  - "quando é o reforço do tétano?"
+  - "com que idade toma a vacina do HPV?"
+  - "perdi meu cartão de vacina"
+  - "tem vacina da dengue para minha filha?"
+recomendacoes:
+  # CRIANÇA (0 a 9 anos)
+  - item: "Hepatite B; BCG (tuberculose)"
+    faixa_etaria: "ao nascer"
+    sexo: "todos"
+    frequencia: "1 dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Penta (difteria, tétano, coqueluche, Haemophilus b, hepatite B); poliomielite inativada (VIP); rotavírus; pneumocócica 20-valente"
+    faixa_etaria: "2 meses"
+    sexo: "todos"
+    frequencia: "1ª dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: "Rotavírus tem idade-limite para cada dose; se a 1ª não for feita no período, perde-se a 2ª."
+  - item: "Meningocócica C"
+    faixa_etaria: "3 meses (1ª dose) e 5 meses (2ª dose)"
+    sexo: "todos"
+    frequencia: "2 doses"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Penta; VIP; rotavírus; pneumocócica (2ª dose)"
+    faixa_etaria: "4 meses"
+    sexo: "todos"
+    frequencia: "2ª dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: "A página lista a pneumocócica 10-valente aos 4 meses e a 20-valente aos 2 e 12 meses; conferir na versão vigente."
+  - item: "Penta; VIP (3ª dose); gripe (influenza); covid-19 (1ª dose)"
+    faixa_etaria: "6 meses"
+    sexo: "todos"
+    frequencia: "3ª dose de penta e VIP; gripe todo ano de 6 meses a menores de 6 anos (2 doses na primeira vez); covid-19 em 3 doses (6, 7 e 9 meses)"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Febre amarela"
+    faixa_etaria: "9 meses (1ª dose) e 4 anos (reforço)"
+    sexo: "todos"
+    frequencia: "1 dose + 1 reforço"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: "De 6 a 8 meses só em casos excepcionais (área com circulação do vírus). Viajantes: pelo menos 10 dias antes da viagem."
+  - item: "Pneumocócica 20-valente (reforço); meningocócica ACWY; tríplice viral (sarampo, caxumba, rubéola)"
+    faixa_etaria: "12 meses"
+    sexo: "todos"
+    frequencia: "1 dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "DTP (1º reforço); VIP (1º reforço); tríplice viral (2ª dose); varicela (catapora, 1ª dose); hepatite A"
+    faixa_etaria: "15 meses"
+    sexo: "todos"
+    frequencia: "1 dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: "Na falta da varicela isolada, pode ser usada a tetraviral."
+  - item: "DTP (2º reforço); VIP (2º reforço); varicela (2ª dose); febre amarela (reforço)"
+    faixa_etaria: "4 anos"
+    sexo: "todos"
+    frequencia: "1 dose de cada"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança"
+    conferir_atualizacao: false
+    observacao: "Depois, reforço de difteria e tétano (dT) a cada 10 anos."
+  - item: "HPV"
+    faixa_etaria: "9 a 14 anos"
+    sexo: "todos"
+    frequencia: "1 dose"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Criança e Adolescente e Jovem"
+    conferir_atualizacao: false
+    observacao: "Em atraso, até 14 anos, 11 meses e 29 dias; de 15 a 19 anos, ver estratégia de cada estado."
+  # ADOLESCENTE E JOVEM (10 a 24 anos)
+  - item: "Dengue"
+    faixa_etaria: "10 a 14 anos"
+    sexo: "todos"
+    frequencia: "2 doses, com 3 meses entre elas"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adolescente e Jovem"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Meningocócica ACWY"
+    faixa_etaria: "11 a 14 anos"
+    sexo: "todos"
+    frequencia: "1 dose"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adolescente e Jovem"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Difteria e tétano (dT)"
+    faixa_etaria: "reforços aos 14 e aos 24 anos"
+    sexo: "todos"
+    frequencia: "1 dose em cada idade"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adolescente e Jovem"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Hepatite B; tríplice viral; febre amarela (conforme histórico vacinal)"
+    faixa_etaria: "10 a 24 anos"
+    sexo: "todos"
+    frequencia: "hepatite B 3 doses; tríplice viral 2 doses; febre amarela 1 dose"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adolescente e Jovem"
+    conferir_atualizacao: false
+    observacao: "Só para quem não completou o esquema."
+  # ADULTO (25 a 59 anos)
+  - item: "Hepatite B; difteria e tétano (dT); febre amarela (conforme histórico vacinal)"
+    faixa_etaria: "25 a 59 anos"
+    sexo: "todos"
+    frequencia: "hepatite B 3 doses; dT 3 doses, reforço aos 34 anos e depois a cada 10 anos; febre amarela 1 dose"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adulto"
+    conferir_atualizacao: false
+    observacao: "Reforço da dT pode ser antecipado para 5 anos em caso de ferimento com risco de tétano (decisão do serviço de saúde)."
+  - item: "Tríplice viral (sarampo, caxumba, rubéola)"
+    faixa_etaria: "até 29 anos: 2 doses; 30 a 59 anos: 1 dose"
+    sexo: "todos"
+    frequencia: "conforme histórico vacinal"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Adulto"
+    conferir_atualizacao: false
+    observacao: "Trabalhador da saúde: 2 doses em qualquer idade."
+  # IDOSO (60 anos ou mais)
+  - item: "Gripe (influenza)"
+    faixa_etaria: "60 anos ou mais"
+    sexo: "todos"
+    frequencia: "1 dose por ano (a cada temporada)"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Idoso"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Covid-19"
+    faixa_etaria: "60 anos ou mais"
+    sexo: "todos"
+    frequencia: "1 dose a cada 6 meses"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Idoso"
+    conferir_atualizacao: false
+    observacao: ""
+  - item: "Hepatite B; difteria e tétano (dT) (conforme histórico vacinal)"
+    faixa_etaria: "60 anos ou mais"
+    sexo: "todos"
+    frequencia: "hepatite B 3 doses; dT 3 doses e reforço a cada 10 anos"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Idoso"
+    conferir_atualizacao: false
+    observacao: "Pneumocócica 20-valente só para quem vive acamado ou em instituição de longa permanência e povos indígenas sem vacina anterior; febre amarela só em casos excepcionais, após avaliação."
+  # GESTANTE
+  - item: "Hepatite B; difteria e tétano (dT); gripe; covid-19"
+    faixa_etaria: "gestante, ao saber da gravidez"
+    sexo: "gestantes"
+    frequencia: "hepatite B e dT conforme histórico (até 3 doses); gripe 1 dose por temporada; covid-19 1 dose a cada gestação"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Gestante"
+    conferir_atualizacao: false
+    observacao: "Febre amarela só em casos excepcionais, após avaliação do serviço de saúde."
+  - item: "dTpa (difteria, tétano e coqueluche)"
+    faixa_etaria: "gestante, a partir da 20ª semana"
+    sexo: "gestantes"
+    frequencia: "1 dose em cada gestação"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Gestante"
+    conferir_atualizacao: false
+    observacao: "Protege também o bebê nos primeiros meses."
+  - item: "Vírus sincicial respiratório (VSR)"
+    faixa_etaria: "gestante, a partir da 28ª semana"
+    sexo: "gestantes"
+    frequencia: "1 dose em cada gestação"
+    fonte: "Calendário Nacional de Vacinação (MS, gov.br), Gestante"
+    conferir_atualizacao: false
+    observacao: "Protege o bebê contra bronquiolite e pneumonia nos primeiros meses."
+especialista:
+  primeiro: Clínico geral
+  depois: "Não se aplica (vacinação na sala de vacina da unidade de saúde; condições especiais nos CRIE)"
+  fonte: "Calendário Nacional de Vacinação (MS, gov.br), observação sobre os CRIE; sem protocolo TelessaúdeRS para vacinação"
+orientacao_final: "Leve o seu cartão de vacina (ou o da criança) a uma unidade de saúde para conferir o que está em dia. Quem tem alguma condição especial de saúde pode precisar de vacinas diferentes, nos centros de referência para imunobiológicos especiais."
+fontes:
+  - nome: "Calendário Nacional de Vacinação (MS, gov.br)"
+    secao: "Abas Criança, Adolescente e Jovem, Adulto, Idoso e Gestante (consulta em 25/10/2026; sem data de atualização visível na página)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "gov.br: CC BY-ND 3.0 (sem derivações) — pendente jurídico"
+# Não transcrito em detalhe: vacinas só para grupos específicos (trabalhadores da saúde, povos indígenas, imunocomprometidos) além das notas acima.

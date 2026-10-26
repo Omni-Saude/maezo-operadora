@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-febre-prolongada
+tema: triagem_criancas
+titulo: "Febre há mais de 5 dias ou febre que vai e volta (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está com febre há uma semana"
+  - "a febre vai e volta"
+  - "faz 6 dias que minha filha tem febre"
+  - "toda semana a criança tem febre"
+  - "febre que não passa há dias"
+  - "febre todo dia no fim da tarde"
+  - "a febre sumiu e voltou"
+  - "criança com febre de repetição"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão (tremores ou 'ataque'), está desmaiada ou não acorda, ou está com muita dificuldade para respirar (ficando roxa, sem conseguir chorar ou falar)?"
+    sinal: convulsao_inconsciente_ou_respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – convulsões, letárgica ou inconsciente; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 9 (sibilância grave: choro curto ou não consegue chorar)"
+  - pergunta: "Ela está muito sonolenta e difícil de acordar, não consegue beber nem mamar, ou vomita tudo o que come e bebe?"
+    sinal: sinal_geral_de_perigo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Ela está com o pescoço duro (dói ou não consegue encostar o queixo no peito), com a moleira estufada, ou apareceram manchas roxas ou pontinhos vermelho-arroxeados que não somem?"
+    sinal: doenca_febril_muito_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 12-13 (rigidez de nuca, abaulamento de fontanela, petéquias → DOENÇA FEBRIL MUITO GRAVE); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – manchas avermelhadas ou arroxeadas"
+  - pergunta: "Ela teve febre todos os dias por mais de 5 dias?"
+    sinal: febre_mais_de_5_dias
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 12-13 (febre todos os dias por mais de cinco dias → referir para investigação)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Febre que dura muitos dias ou que se repete precisa ser investigada pelo pediatra. Anote os dias e as temperaturas para mostrar na consulta e mantenha a criança bem hidratada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 12-13 (febre há mais de cinco dias)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

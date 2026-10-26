@@ -23,6 +23,12 @@ from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.portal.api import spa
+from maezo.portal.api.admin_read import (
+    AdminReadServiceFactory,
+    admin_read_error,
+    admin_read_router,
+    is_admin_read_request,
+)
 from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
 from maezo.portal.api.commercial import (
@@ -31,6 +37,12 @@ from maezo.portal.api.commercial import (
     is_commercial_request,
     is_public_catalog_request,
     public_catalog_error,
+)
+from maezo.portal.api.commission_policies import (
+    CommissionPolicyServiceFactory,
+    commission_policy_error,
+    commission_policy_router,
+    is_commission_policy_request,
 )
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
@@ -238,6 +250,8 @@ def create_app(
     communication_service_factory: CommunicationServiceFactory | None = None,
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
     dsr_service_factory: DsrServiceFactory | None = None,
+    admin_read_service_factory: AdminReadServiceFactory | None = None,
+    commission_policy_service_factory: CommissionPolicyServiceFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
@@ -349,6 +363,21 @@ def create_app(
     # before any effect until the ROLL wave binds an audited engine start.
     app.state.dsr_service_factory = dsr_service_factory
     app.include_router(dsr_router)
+    # D-40: the administrative READ roster ships DOCUMENTED and DARK — `staff_admin_panel` is
+    # OFF, no default profile names `staff_admin_read` (the SC1 production bootstrap cannot
+    # even name it) and no default factory exists, so the route refuses (403 flag/profile /
+    # 503 unbound slot) before any effect. The router mounts GET only and never imports
+    # `maezo.portal.admin`: the fence and the independently granted administrative connection
+    # (the only writer) stand.
+    app.state.admin_read_service_factory = admin_read_service_factory
+    app.include_router(admin_read_router)
+    # D-36 (dono, 2026-10-25): the internal commission ADJUSTMENT-STRUCTURE surface ships
+    # DOCUMENTED and DARK — `staff_commission_policies` is OFF, no default factory exists and
+    # the router carries DRAFT CRUD only (no calculation/activation/liquidation endpoint
+    # exists by construction), so the routes refuse (403 flag / 503 unbound slot) before any
+    # effect. Flipping is the owner's future act, after the A8 Forma 1 ratification.
+    app.state.commission_policy_service_factory = commission_policy_service_factory
+    app.include_router(commission_policy_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
     app.state.commercial_gateway = commercial_gateway
     app.state.public_catalog_gateway = public_catalog_gateway
@@ -390,6 +419,10 @@ def create_app(
                 return intake_error("invalid_request")
             if is_dsr_request(request):
                 return dsr_error("invalid_request")
+            if is_admin_read_request(request):
+                return admin_read_error("invalid_request")
+            if is_commission_policy_request(request):
+                return commission_policy_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
             # Completion first: its path lives under the read prefix, so `is_task_read` also
@@ -413,6 +446,10 @@ def create_app(
             return intake_error("invalid_request")
         if is_dsr_request(request):
             return dsr_error("invalid_request")
+        if is_admin_read_request(request):
+            return admin_read_error("invalid_request")
+        if is_commission_policy_request(request):
+            return commission_policy_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
         # 422 with this route's own schema: a body whose `resultado` is absent or outside the
@@ -445,17 +482,18 @@ def create_app(
     async def session(request: Request) -> SessionDTO:
         _query(request, set())
         capabilities = cast(
-            'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
+            'tuple[Literal["identity", "staff_cases", "human", "vendor", "staff_admin_read"], ...]',
             tuple(config.capabilities.split(",")),
         )
         # Same deployment-owned projection as `capabilities` above: the shadow-panel signals
         # name surfaces only and grant nothing. Empty is the shipped, dark state; the tuple
-        # order is the literal's canonical order (documents, operations).
+        # order is the literal's canonical order (documents, operations, admin).
         flags = cast(
-            'tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...]',
+            'tuple[Literal["staff_documents_panel", "staff_operations_panel", "staff_admin_panel"], ...]',
             (
                 *(("staff_documents_panel",) if config.staff_documents_panel else ()),
                 *(("staff_operations_panel",) if config.staff_operations_panel else ()),
+                *(("staff_admin_panel",) if config.staff_admin_panel else ()),
             ),
         )
         return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities, flags=flags)

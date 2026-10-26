@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/portal/administration/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Admin Vinculos */
+        get: operations["read_admin_vinculos_api_v1_portal_administration_memberships_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/auth/callback": {
         parameters: {
             query?: never;
@@ -220,6 +237,42 @@ export interface paths {
         get: operations["command_receipt_api_v1_portal_commands__command_id__receipt_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/commission-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Commission Adjustment Drafts */
+        get: operations["list_commission_adjustment_drafts_api_v1_portal_commission_adjustments_get"];
+        put?: never;
+        /** Create Commission Adjustment Draft */
+        post: operations["create_commission_adjustment_draft_api_v1_portal_commission_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/commission-adjustments/{policy_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Commission Adjustment Draft */
+        get: operations["read_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__get"];
+        put?: never;
+        /** Replace Commission Adjustment Draft */
+        post: operations["replace_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1374,6 +1427,178 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /**
+         * CommissionAdjustmentDraft
+         * @description What the surface PROVES back: the stored structure, always `DRAFT`. Never a verdict.
+         *
+         *     No computed field exists — no total, no effective rate, no currency conversion, no
+         *     ranking, no "next step". The audit columns are WHO/WHEN of the draft edit, not an
+         *     approval: nobody approves anything here, and no field claims otherwise.
+         */
+        CommissionAdjustmentDraft: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Atualizado Em
+             * Format: date-time
+             */
+            atualizado_em: string;
+            /** Atualizado Por */
+            atualizado_por: string;
+            /**
+             * Criado Em
+             * Format: date-time
+             */
+            criado_em: string;
+            /** Criado Por */
+            criado_por: string;
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Policy Ref */
+            policy_ref: string;
+            /** Precedencia */
+            precedencia: number;
+            /** Revision */
+            revision: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Status
+             * @default DRAFT
+             * @constant
+             */
+            status: "DRAFT";
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
+        };
+        /**
+         * CommissionAdjustmentDraftPage
+         * @description The draft list: server-ordered (precedencia, dimensao, policy_ref), no pagination.
+         *
+         *     Dark internal surface, drafts only — the store returns the tenant's whole draft set in
+         *     the declared order; a pagination contract is a future need, not an invented one.
+         */
+        CommissionAdjustmentDraftPage: {
+            /** Count */
+            count: number;
+            /** Drafts */
+            drafts: components["schemas"]["CommissionAdjustmentDraft"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
+         * CommissionAdjustmentDraftReplacement
+         * @description REPLACE a draft's structure (POST-only house posture): full shape + expected revision.
+         *
+         *     The replacement is idempotent over the WHOLE editable structure — absent slots clear
+         *     values (they are nullable by design). `revision` must match the stored one exactly
+         *     (`stale_revision` otherwise, 409): two operators editing the same draft is a conflict to
+         *     surface, never a silent last-write. `status` is NOT an input on this surface at all.
+         */
+        CommissionAdjustmentDraftReplacement: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Precedencia */
+            precedencia: number;
+            /** Revision */
+            revision: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
+        };
+        /**
+         * CommissionAdjustmentDraftSubmission
+         * @description CREATE a draft: what an internal operator may register. Nothing else is an input.
+         */
+        CommissionAdjustmentDraftSubmission: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Precedencia */
+            precedencia: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
+        };
         /** CommunicationPage */
         CommunicationPage: {
             /** Case Ref */
@@ -2508,6 +2733,25 @@ export interface components {
             /** Workload Ref */
             workload_ref: string;
         };
+        /** PortalAdminReadError */
+        PortalAdminReadError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "admin_read_unavailable";
+        };
+        /**
+         * PortalCommissionPolicyError
+         * @description The closed refusal vocabulary of this boundary. Nothing here suggests a next state.
+         */
+        PortalCommissionPolicyError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "commission_policy_fabricated" | "field_not_client_owned" | "resource_unavailable" | "stale_revision" | "dependency_unavailable";
+        };
         /** PortalCompletionError */
         PortalCompletionError: {
             /**
@@ -3033,7 +3277,7 @@ export interface components {
              */
             audience: "staff" | "beneficiary" | "provider" | "vendor";
             /** Capabilities */
-            capabilities: ("identity" | "staff_cases" | "human" | "vendor")[];
+            capabilities: ("identity" | "staff_cases" | "human" | "vendor" | "staff_admin_read")[];
             /** Csrf Token */
             csrf_token: string;
             /**
@@ -3045,7 +3289,7 @@ export interface components {
              * Flags
              * @default []
              */
-            flags: ("staff_documents_panel" | "staff_operations_panel")[];
+            flags: ("staff_documents_panel" | "staff_operations_panel" | "staff_admin_panel")[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */
@@ -3056,6 +3300,78 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+        };
+        /**
+         * StaffAdminBinding
+         * @description One server-verified resource relationship of the reviewed record (opaque reference).
+         */
+        StaffAdminBinding: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "beneficiary" | "provider" | "vendor";
+            /** Resource Ref */
+            resource_ref: string;
+        };
+        /**
+         * StaffAdminMembership
+         * @description One governed permission block of the reviewed record, exactly as reviewed.
+         */
+        StaffAdminMembership: {
+            /** Groups */
+            groups: string[];
+            /** Membership Ref */
+            membership_ref: string;
+            /** Roles */
+            roles: string[];
+        };
+        /**
+         * StaffAdminVinculo
+         * @description The reviewed vínculo of one staff principal, with its review facts. Read-only.
+         */
+        StaffAdminVinculo: {
+            /** Membership Revision */
+            membership_revision: number;
+            /** Memberships */
+            memberships: components["schemas"]["StaffAdminMembership"][];
+            /** Principal Ref */
+            principal_ref: string;
+            /**
+             * Reviewed Until
+             * Format: date-time
+             */
+            reviewed_until: string;
+            /** Revoked */
+            revoked: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked";
+            /** Subject Bindings */
+            subject_bindings: components["schemas"]["StaffAdminBinding"][];
+        };
+        /**
+         * StaffAdminVinculos
+         * @description The whole read-only roster answer: every reviewed staff vínculo of this tenant.
+         */
+        StaffAdminVinculos: {
+            /** Count */
+            count: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Vinculos */
+            vinculos: components["schemas"]["StaffAdminVinculo"][];
         };
         /**
          * StaffDetail
@@ -3377,6 +3693,62 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_admin_vinculos_api_v1_portal_administration_memberships_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAdminVinculos"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+        };
+    };
     callback_api_v1_portal_auth_callback_get: {
         parameters: {
             query?: never;
@@ -4368,6 +4740,341 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    list_commission_adjustment_drafts_api_v1_portal_commission_adjustments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraftPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    create_commission_adjustment_draft_api_v1_portal_commission_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommissionAdjustmentDraftSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    read_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    replace_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommissionAdjustmentDraftReplacement"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
                 };
             };
         };

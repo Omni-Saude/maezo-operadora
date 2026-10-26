@@ -57,7 +57,6 @@ _TEXTOS_COM_192 = (
     "RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA",
     "RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
     "RESPOSTA_DUVIDA_DE_SAUDE",
-    "RESPOSTA_RECUSA_DE_EQUIPE",
 )
 #: DL-0089 (rodada 2 do simulador): textos ADMINISTRATIVOS nao falam em 192/SAMU ("PARA DE ME MANDAR PRO
 #: SAMU! E' COBRANCA"). E os de emergencia com caso aberto COMECAM pelo 192.
@@ -70,6 +69,8 @@ _TEXTOS_SEM_192 = (
     "RESPOSTA_PLANO_POR_CANAIS",
     "RESPOSTA_CANAIS_DO_PLANO",
     "RESPOSTA_COBERTURA_NA_PASSAGEM",
+    # Avaliacao r5 (25/10/2026): a recusa curta da equipe, so' com oferta pendente (sem tema de saude).
+    "RESPOSTA_RECUSA_DE_EQUIPE",
 )
 _TEXTOS_192_PRIMEIRO = (
     "RESPOSTA_CASO_ABERTO_EMERGENCIA",

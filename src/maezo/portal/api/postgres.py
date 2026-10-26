@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from maezo.portal.api.records import LoginTransaction, MembershipRecord, SessionRecord
+from maezo.portal.api.store import RosterUnavailableError
 
 if TYPE_CHECKING:
     from maezo.gateway.intake.native_authority import AuthProductionComposition
@@ -155,6 +156,43 @@ class PostgresIdentityStore:
                 )
             ).scalar_one_or_none()
             return MembershipRecord.model_validate_json(value) if value is not None else None
+
+    async def staff_memberships(self) -> tuple[MembershipRecord, ...]:
+        """D-40 read-only staff roster over the SAME reviewed rows sessions already read.
+
+        Plain-identity deployments only, and read-only by construction (`SET TRANSACTION
+        READ ONLY` + `statement_timeout`, the `PostgresStaffGranteeSource` discipline): the
+        projection never writes and never locks. A row whose columns diverge from its own
+        payload is refused whole — an incoherent source is never projected as a roster.
+        With the AUTH lifecycle installed this store is NOT the membership reader anymore
+        (its tables move behind the participant's own roles/schema), so the roster refuses
+        instead of reading with the wrong role — the D-40 owner decision (D-*) decides
+        whether and how the AUTH participant exposes a reviewed roster read.
+        """
+        if self._auth_composition is not None:
+            raise RosterUnavailableError()
+        async with self._engine.connect() as connection:
+            await self._without_auth(connection)
+            await connection.execute(text("SET TRANSACTION READ ONLY"))
+            await connection.execute(text("SET LOCAL statement_timeout = '5s'"))
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT issuer, subject, payload FROM portal_memberships "
+                        "WHERE tenant=:tenant ORDER BY issuer, subject"
+                    ),
+                    {"tenant": self.tenant},
+                )
+            ).all()
+            await connection.rollback()
+        records = []
+        for row in rows:
+            record = MembershipRecord.model_validate_json(row.payload)
+            if record.tenant != self.tenant or (row.issuer, row.subject) != (record.issuer, record.subject):
+                raise RosterUnavailableError()
+            if record.audience == "staff":
+                records.append(record)
+        return tuple(sorted(records, key=lambda record: record.principal_ref))
 
     async def purge_expired(self, now: datetime) -> None:
         if self._auth_composition is not None:

@@ -107,18 +107,17 @@ NECESSIDADES: Final[frozenset[str]] = NECESSIDADES_DE_SINTOMA | frozenset(
 # --- Textos (aba "5 Textos") -----------------------------------------------------------------------
 #: T05 — orientar o caminho depois da ficha, sem alarme (R13/R14).
 #: RASCUNHO — pendente de aprovacao do dono (D14). Adaptado do T05 do catalogo so' para caber na regua de
-#: CLAREZA (frase <= 20 palavras, DL-0087) e na cerca de canal (nomes confirmados por inteiro). Prazo da
-#: ANS: SO' o valor conferido no texto-base da RN 566/2022 (art. 3, I: consulta basica — pediatria, clinica
-#: medica, cirurgia geral, ginecologia e obstetricia — em 7 dias uteis).
+#: CLAREZA (frase <= 20 palavras, DL-0087) e na cerca de canal (nomes confirmados por inteiro). SEM prazo da
+#: ANS (decisao do dono, 25/10/2026).
 #: 15/10/2026 (aceite em dev): ENXUTO (~10 frases era longo demais; 6 frases sem perder nada — nao avalia;
-#: consulta na rede pelo aplicativo/portal/central; prazo da ANS; UBS; piorou -> pronto-atendimento;
+#: consulta na rede pelo aplicativo/portal/central; UBS; piorou -> pronto-atendimento;
 #: emergencia -> 192; oferta de pessoa) e POR POPULACAO: adulto -> clinico geral; crianca -> pediatra;
 #: gestante -> obstetra ou ginecologista (`texto_de_orientacao`).
 RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO: Final[str] = (
     "Eu não avalio sintomas, mas posso te mostrar o caminho. "
     "Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal "
     "ou a central de atendimento do plano. "
-    "Pelas regras da ANS, a consulta com clínico geral deve ser oferecida em até 7 dias úteis. "
+    "A consulta é com clínico geral. "
     "A UBS, pelo SUS, também atende. "
     "Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). "
     "Se quiser falar com uma pessoa da equipe, é só me pedir."
@@ -127,7 +126,7 @@ RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA: Final[str] = (
     "Eu não avalio sintomas, mas posso te mostrar o caminho. "
     "Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal "
     "ou a central de atendimento do plano. "
-    "Pelas regras da ANS, a consulta com pediatra deve ser oferecida em até 7 dias úteis. "
+    "A consulta é com pediatra. "
     "A UBS, pelo SUS, também atende. "
     "Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). "
     "Se quiser falar com uma pessoa da equipe, é só me pedir."
@@ -136,16 +135,16 @@ RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE: Final[str] = (
     "Eu não avalio sintomas, mas posso te mostrar o caminho. "
     "Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal "
     "ou a central de atendimento do plano. "
-    "Pelas regras da ANS, a consulta com obstetra ou ginecologista deve ser oferecida em até 7 dias úteis. "
+    "A consulta é com obstetra ou ginecologista. "
     "A UBS, pelo SUS, também atende. "
     "Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). "
     "Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
 #: BEBE COM MENOS DE 3 MESES (inclusive recem-nascido) SEM alarme ao fim da ficha: NAO manda marcar
-#: consulta em 7 dias uteis — oferece EXPLICITAMENTE falar agora com a equipe de saude (sem abrir caso
+#: consulta — oferece EXPLICITAMENTE falar agora com a equipe de saude (sem abrir caso
 #: automaticamente) e mantem pronto-atendimento/192 se piorar.
 #: RASCUNHO — DECISAO CLINICA PENDENTE (medico-auditor): o corte de 3 meses e a conduta "oferecer a equipe
-#: agora em vez do prazo da ANS" sao do pedido do dono (15/10/2026), sem outro criterio clinico. Ate' a
+#: agora" sao do pedido do dono (15/10/2026), sem outro criterio clinico. Ate' a
 #: ratificacao, nada alem disto muda para essa faixa.
 RESPOSTA_TRIAGEM_BEBE_PEQUENO: Final[str] = (
     "Obrigada pelas respostas. Eu não avalio sintomas. "

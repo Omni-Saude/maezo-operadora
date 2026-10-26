@@ -1,0 +1,48 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-dor-barriga-contracoes
+tema: gestacao
+titulo: "Dor na barriga ou contrações na gestação (inclusive antes de 37 semanas)"
+publico: gestante
+como_a_pessoa_fala:
+  - "estou com dor na barriga e estou grávida"
+  - "minha barriga está endurecendo"
+  - "estou tendo contrações com 33 semanas"
+  - "acho que entrei em trabalho de parto"
+  - "cólica forte na gravidez"
+  - "dor nas costas que vem e vai, grávida"
+  - "a barriga fica dura de tempos em tempos"
+  - "contrações de 5 em 5 minutos"
+  - "dor no pé da barriga na gestação"
+perguntas_de_alerta:
+  - pergunta: "Está com vontade incontrolável de fazer força, ou aparece alguma parte do bebê ou do cordão pela vagina?"
+    sinal: periodo_expulsivo_ou_prolapso
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 2 (p. 39) – vermelho: período expulsivo, prolapso de cordão, exteriorização de partes fetais; Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 7 (p. 44) – vermelho; SAMU 192 – Quando chamar (MS, página gov.br) – trabalho de parto com risco de morte da mãe ou do bebê"
+  - pergunta: "A dor é muito forte (nota 7 a 10 de 10), a barriga fica dura o tempo todo, ou vem junto sangramento forte?"
+    sinal: dor_intensa_hipertonia_sangramento
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 2 (p. 39) – laranja: dor intensa 7-10/10, hipertonia uterina e/ou sangramento genital intenso; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28) – dor abdominal forte ou persistente"
+  - pergunta: "As contrações estão vindo em ritmo, a cada 5 minutos ou menos, e não passam (principalmente se você está com menos de 37 semanas)?"
+    sinal: trabalho_de_parto_ou_prematuro
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), Fluxograma 2 (p. 39) – laranja: contrações a cada 2 min; amarelo: intervalos de 3 a 5 min; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.1.2 (p. 50: sinais de parto esperados a partir de 37 semanas) e §5.2.2 (p. 57: fase ativa → ir para a maternidade); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28)"
+  - pergunta: "Está com dor de cabeça forte ou diferente do habitual, visão embaçada, pontos luminosos ou escurecimento da vista, ou dor forte no estômago, logo abaixo das costelas?"
+    sinal: sinais_de_pre_eclampsia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §2.6 Sinais de alerta na gestação (p. 28); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §4.4.1 (p. 41-42); Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018), fluxogramas 2-8 (laranja: PA ≥ 140/90 com dor de cabeça, de estômago ou alterações visuais)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal)"
+  depois: "Ginecologia e obstetrícia (pré-natal de alto risco, se indicado)"
+  fonte: "Caderneta da Gestante 2026, §4.1.4 e §4.1.5 (pré-natal e alto risco); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Contrações irregulares e leves, que vêm e vão, podem ser 'contrações de treinamento', mas precisam ser avaliadas se você ainda não chegou às 37 semanas. Observe o intervalo entre elas e leve sua caderneta. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§2.6 Sinais de alerta na gestação (p. 28)"
+  - nome: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+    secao: "Fluxograma 2 – Dor abdominal/lombar/contrações uterinas (p. 39)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§5.1.2 (p. 50); §5.2.2 (p. 57-58)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

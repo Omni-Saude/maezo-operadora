@@ -21,7 +21,10 @@ from typing import Final
 
 from .habilidades.cobertura_fora import CHAVE_TEXTO as _CHAVE_COBERTURA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from .habilidades.conversa.agendar import PADRAO as _PADRAO_AGENDAR
+from .habilidades.conversa.app import PADRAO as _PADRAO_APP
 from .habilidades.conversa.assuntos import PADRAO as _PADRAO_ASSUNTOS
+from .habilidades.conversa.reembolso import PADRAO as _PADRAO_REEMBOLSO
 from .habilidades.saude.textos import PADRAO as _PADRAO_SAUDE
 from .habilidades.sintoma.textos import PADRAO as _PADRAO_SINTOMA
 
@@ -36,6 +39,9 @@ PADRAO: Final[Mapping[str, str]] = {
     **_PADRAO_SINTOMA,
     **_PADRAO_SAUDE,
     **_PADRAO_ASSUNTOS,
+    **_PADRAO_APP,
+    **_PADRAO_AGENDAR,
+    **_PADRAO_REEMBOLSO,
 }
 
 #: Link em qualquer forma: esquema, `www.` ou dominio com TLD comum (gov.br, anvisa.gov.br, site.com).

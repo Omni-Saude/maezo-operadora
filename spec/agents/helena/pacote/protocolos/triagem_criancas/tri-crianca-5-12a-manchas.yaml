@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-5-12a-manchas
+tema: triagem_criancas
+titulo: "Manchas no corpo, pontinhos roxos ou suspeita de dengue (5 a 12 anos)"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "manchas vermelhas no corpo do meu filho"
+  - "pontinhos roxos na pele"
+  - "acho que é dengue"
+  - "criança com febre e manchas"
+  - "manchas roxas sem ter batido"
+  - "sangramento no nariz e febre"
+  - "o corpo ficou cheio de pintinhas"
+  - "febre baixou e agora tem dor na barriga"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão, está desmaiada ou não acorda, ou está com muita dificuldade para respirar (lábios roxos, sem conseguir falar)?"
+    sinal: convulsao_inconsciente_ou_respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão); SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas, problemas cardiorrespiratórios"
+  - pergunta: "Principalmente quando a febre começa a baixar: ela está com dor forte na barriga que não passa, vômitos que não param, sangramento pela gengiva ou nariz, ou muito sonolenta ou muito irritada?"
+    sinal: sinais_de_alarme_dengue
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024), §2.2.1 Quadro 1 (p. 12-13: sinais de alarme) e §2.4 (p. 18: na criança o agravamento é súbito)"
+  - pergunta: "Apareceram manchas roxas ou pontinhos vermelho-arroxeados que não somem quando você aperta a pele?"
+    sinal: petequias_ou_purpura
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão) – manchas avermelhadas ou arroxeadas"
+  - pergunta: "Apareceram manchas avermelhadas espalhadas pelo corpo junto com febre?"
+    sinal: manchas_com_febre
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses; a Caderneta acompanha até 9 anos, 10-12 anos por extensão) – manchas avermelhadas ou arroxeadas na pele"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Mantenha a criança bem hidratada e observe se aparecem sangramentos, dor na barriga ou vômitos, principalmente quando a febre começar a baixar. Não dê remédio por conta própria. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "Dengue: diagnóstico e manejo clínico – adulto e criança, 6ª ed. (MS, 2024)"
+    secao: "§2.2.1 Quadro 1 (p. 12-13); §2.4 (p. 18)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; Dengue 2024: CC BY-NC-SA 4.0 (versão preliminar) — pendente jurídico"

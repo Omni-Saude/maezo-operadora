@@ -44,6 +44,9 @@ from maezo.agents.helena.consultas_plano import (
     texto_de_dependentes_com_nomes,
 )
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
+from maezo.agents.helena.habilidades.conversa import agendar as _agendar
+from maezo.agents.helena.habilidades.conversa import app as _app
+from maezo.agents.helena.habilidades.plano import apto as _apto
 from maezo.agents.helena.helena_v4 import fatos_da_carteirinha, texto_da_carteirinha
 from maezo.contratos.identidade_beneficiario import IDENTIDADE_RECONHECIDA
 from maezo.domain.conversa.competencia import hoje_em_brasilia
@@ -141,6 +144,21 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
             "response_text": _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA]),
             "response_kind": "inform",
         }
+    if _agendar.pergunta_de_agendamento(mensagem_do_turno):
+        # Teste do dono (25/10/2026, caso d): pergunta de AGENDAMENTO lida como consulta do plano nunca
+        # recebe o cadastro: a orientacao dos canais (o plano so' responde sobre o plano quando perguntado).
+        logger.info("helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="agendar")
+        return {
+            "response_text": _com_emergencia_se_preciso(
+                state, _agendar.texto_do_agendamento(self._textos, mensagem_do_turno)
+            ),
+            "response_kind": "inform",
+        }
+    if _app.pergunta_onde_baixar_o_app(mensagem_do_turno):
+        # Teste do dono (25/10/2026): "onde eu baixo esse aplicativo?" lido como consulta do plano -> o texto
+        # do pacote (sem link), sem consulta.
+        logger.info("helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="app")
+        return {"response_text": self._textos[_app.CHAVE_APP_ONDE_BAIXAR], "response_kind": "inform"}
     view = await self._ler_consulta(ref, subtipo)
     if subtipo == "dependentes" and isinstance(view, FonteIndisponivel):
         # A rota de dependentes nao esta' carregada neste ambiente: o texto provisorio da rodada 10.
@@ -204,7 +222,17 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
         }
     texto: str | None = None
     recusa: str | None
-    if subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
+    literais = literais_dos_fatos(fatos)
+    if subtipo == "elegibilidade" and _apto.pergunta_se_esta_apto(mensagem_do_turno):
+        # TESTE DO DONO (25/10/2026): "meu plano esta' apto?" recebe a CONCLUSAO, sem modelo (o rascunho caia
+        # na cerca de promessa e saia o cadastro inteiro); a mesma pergunta repetida, so' a conclusao curta.
+        hoje = hoje_em_brasilia(self._relogio())
+        texto = _apto.resposta_de_apto(
+            view, hoje, repetida=_apto.ja_perguntou_apto(state.get("historico_conversa"))
+        )
+        recusa = "pergunta_de_apto"
+        literais = (*literais, *literais_dos_fatos(_apto.fatos_de_apto(view, hoje)))
+    elif subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
         subtipo, fatos, carteirinha_completa=self._carteirinha_completa
     ):
         texto = await self._redigir_consulta(state, subtipo, fatos)
@@ -221,7 +249,9 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
     else:
         # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
         recusa = "subtipo_deterministico"
-    if recusa is not None or not isinstance(texto, str):
+    if recusa == "pergunta_de_apto":
+        pass
+    elif recusa is not None or not isinstance(texto, str):
         texto = resposta_deterministica(
             subtipo,
             fatos,
@@ -253,7 +283,7 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
     return {
         "response_text": texto.strip(),
         "response_kind": "inform",
-        "consulta_literais": literais_dos_fatos(fatos),
+        "consulta_literais": literais,
         # Onda 0 (historico): a resposta carrega dados do plano -> o historico grava so' um marcador.
         "resposta_com_dados_do_plano": True,
     }

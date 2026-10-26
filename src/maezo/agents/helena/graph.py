@@ -153,6 +153,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.conhecimento import base_saude as _bs
+from maezo.conhecimento import protocolos as _pr
 from maezo.conhecimento import saude_gerativa as _sg
 
 # P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
@@ -190,7 +191,6 @@ from maezo.domain.conversa.caso_clinico import (
 from maezo.domain.conversa.cobranca_esclarecimento import (
     e_mensagem_curta_sem_ruido_de_cobranca,
     e_pergunta_de_esclarecimento,
-    e_seguimento_de_cobranca,
 )
 from maezo.domain.conversa.cobranca_foco import (
     FOCO_GERAL,
@@ -243,9 +243,13 @@ from .consultas_plano import (
     NomesDoTurno,
     texto_para_cerca,
 )
+from .frase_afirmada import texto_afirmado as _texto_afirmado
+from .habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from .habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_DE_EQUIPE as RESPOSTA_RECUSA_DE_EQUIPE
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import assuntos as _assuntos
+from .habilidades.conversa import sem_modelo as _sem_modelo
 from .habilidades.sintoma.textos import CHAVE_CASO_MANTIDO, CHAVE_REPERGUNTA, TEXTO_CASO_MANTIDO
 from .helena_v4 import (
     ALERTAS,
@@ -1298,7 +1302,8 @@ def _texto_dos_sinais(texto: str) -> str:
 def _sinal_afirmado(padrao: re.Pattern[str], texto: str) -> bool:
     """O sinal do lexico aparece e NAO esta' negado ("sem falta de ar", "nao teve desmaio"): a trava de
     alarme le a negacao como negacao (r4 de 22/10/2026, `base_saude.negado`). Do lado seguro: se a
-    pontuacao partia o trecho (so' casa sem ela), o sinal vale."""
+    pontuacao partia o trecho (so' casa sem ela), o sinal vale. Sinal so' em PERGUNTA nao conta (25/10)."""
+    texto = _texto_afirmado(texto)
     if not padrao.search(_texto_dos_sinais(texto)):
         return False
     pontuado = _NEGACAO_DE_URGENCIA.sub(" ", _normalizar_texto(texto or ""))
@@ -1366,6 +1371,8 @@ def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
     categoria nova do alarme deterministico) ou agravamento ("piorou, esta' sem ar") e' urgencia nova."""
     texto = str(estado.get("message_body") or "")
     anteriores = " ".join(_falas_do_beneficiario(estado))
+    if _travas_entrada.sinal_claro_afirmado(estado):  # 25/10/2026: o evento agudo e' sempre novo
+        return True
     antes = _texto_dos_sinais(anteriores)
     if _sinal_forte_de_emergencia(texto) and any(
         m.group(0) not in antes for m in _SINAL_FORTE_DE_EMERGENCIA.finditer(_texto_dos_sinais(texto))
@@ -1373,7 +1380,7 @@ def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
         return True
     if e_agravamento(_plano(texto)):
         return True
-    categoria = alarme_no_relato(_plano(texto))
+    categoria = alarme_no_relato(_plano(_texto_afirmado(texto)))
     return categoria is not None and categoria != alarme_no_relato(_plano(anteriores))
 
 
@@ -3130,16 +3137,8 @@ RESPOSTA_DUVIDA_DE_SAUDE: str = (
     "de saúde. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais "
     "próximo."
 )
-#: DL-0088: a resposta a quem NAO quer falar com a equipe. O caso que ja' existe continua (a frase e'
-#: condicional porque este turno nao consulta o motor), nenhuma decisao foi tomada (forma unica do
-#: guia) e a Helena segue ajudando. Nada aqui abre ou fecha processo.
-RESPOSTA_RECUSA_DE_EQUIPE: str = (
-    "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele "
-    "continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. "
-    "Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde "
-    "buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro "
-    "mais próximo."
-)
+#: A recusa da equipe (`RESPOSTA_RECUSA_DE_EQUIPE`, curta) mora em `habilidades.atendimento_humano.textos`
+#: desde a avaliacao r5 de 25/10/2026: so' com oferta pendente (`oferta.texto_da_recusa`).
 
 
 # --- ENCERRAR O CASO A PEDIDO DA PESSOA (ADR-0064, so' com `MAEZO_HELENA_BASE_SAUDE`) ----------------------
@@ -3671,7 +3670,8 @@ def mensagem_urgente(texto: str) -> bool:
     """Sinal CLARO de emergencia ou de risco na mensagem (lexicos e alarme deterministico de sempre): o
     esperar-e-juntar (etapa 9) nao espera — o 192 sai na hora."""
     plano = _plano(texto)
-    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(plano) or _sg.tem_risco(plano))
+    afirmado = _plano(_texto_afirmado(texto))
+    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(afirmado) or _sg.tem_risco(plano))
 
 
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
@@ -4596,9 +4596,12 @@ from . import travas_entrada as _travas_entrada  # noqa: E402
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.atendimento_humano.escalar` (importado
 # AQUI, depois dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.atendimento_humano import escalar as _escalar  # noqa: E402
+from .habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from .habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
+from .habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from .habilidades.conversa import fluxo as _conversa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.plano.consulta` (importado AQUI, depois
@@ -4649,6 +4652,7 @@ class HelenaGraph:
         roteador_instrucoes: str | None = None,
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
+        helena_protocolos_enabled: bool = False,
     ) -> None:
         self._llm = inference
         # TEXTOS DO PACOTE (ADR-0067 §4): o texto de cada chave vem do pacote de comportamento, quando ha';
@@ -4683,6 +4687,8 @@ class HelenaGraph:
                 self._roteador_prazo_s = float(roteador_prazo_s or self._roteador_contrato.prazo_s or 6.0)
             except (_rc.ContratoInvalidoError, OSError, ValueError) as exc:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
+        # PROTOCOLOS CLINICOS (dono, 25/10/2026): so' no roteador ativo; `None` = o caminho de antes.
+        self._protocolos = _pr.catalogo_do_ambiente() if helena_protocolos_enabled is True else None
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -5459,7 +5465,7 @@ class HelenaGraph:
         # sinal, crianca com febre e prostrada, ingestao de muitos comprimidos/veneno, dor do lado direito da
         # barriga piorando) escala NA HORA como alerta clinico P1 com 192 — antes da tabela, que dependia do
         # codigo e da idade gestacional ditos. Nunca rebaixa nada: sem o termo, o caminho de sempre.
-        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        alarme = _travas_entrada.alarme_afirmado(state)
         if alarme is not None:
             logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme)
             update["intent"] = "symptom"
@@ -5468,6 +5474,10 @@ class HelenaGraph:
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
+        if _travas_entrada.sinal_claro_afirmado(
+            state
+        ):  # 25/10/2026: antes de pendencia, protocolo e historico
+            return await _travas_entrada.escalar_sinal_claro(self, state, extraction, update)
 
         # CONTEUDO CLINICO NUNCA VIRA `solicitacao_humano` (rodada 10, regra B). No teste real do dono, "ele
         # deve estar sentindo dor, pois esta' chorando muito" (um recem-nascido, no meio da triagem) saiu
@@ -5569,12 +5579,9 @@ class HelenaGraph:
         if mantido is not None:
             return mantido
         ja_triado = bool(extraction.get("sintoma_codigo"))
-        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("os sintomas de problemas cardiacos
-        # em
-        # mulheres podem ser diferentes? o que devo observar alem da dor no peito?") nao e' quadro atual. A
-        # tabela
-        # de alarme roda SEMPRE, mas so' ESCALA com quadro atual; a duvida vai a redacao. Com sinal grave
-        # explicito e presente ("estou com dor no peito e falta de ar") e' quadro: escala (o lado seguro).
+        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("sintomas cardiacos em mulheres
+        # podem ser diferentes?") nao e' quadro atual. A tabela de alarme roda SEMPRE, mas so' ESCALA com
+        # quadro atual; a duvida vai a redacao. Sinal grave explicito e presente e' quadro: escala.
         duvida_educativa = self._gerativa_para(state) and _sg.e_duvida_educativa(_plano(texto_clinico))
         triou = ja_triado and await self._triar_red_flag(extraction, update)
         if triou and duvida_educativa and update.get("escalation_motivo") == "red_flag_clinico":
@@ -5900,14 +5907,15 @@ class HelenaGraph:
         (equipe, conversa, cobranca, plano, cobertura, pedidos) e SEM conteudo clinico na propria mensagem, o
         sintoma que o modelo trouxe do historico nao vai a tabela de alarme ("quero falar com uma pessoa" no
         meio das perguntas da dor de cabeca virava 192). Sinal de emergencia na mensagem continua decidindo
-        (trava de entrada)."""
+        (trava de entrada). 25/10/2026: tambem com o alerta ja' respondido e com sinal so' em pergunta/eco
+        (`travas_entrada.motivo_sem_sintoma_do_historico`)."""
         roteada = _HABILIDADE_DO_TURNO.get()
-        if roteada is None or roteada in ("sintoma", "saude") or not extraction.get("sintoma_codigo"):
+        motivo = _travas_entrada.motivo_sem_sintoma_do_historico(self, state, roteada, extraction)
+        if motivo is None:
             return
-        texto = str(state.get("message_body") or "")
-        if _conteudo_clinico(texto) or _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto):
-            return
-        logger.info("helena_habilidade_sem_sintoma_do_historico", node="classify", habilidade=roteada)
+        logger.info(
+            "helena_habilidade_sem_sintoma_do_historico", node="classify", habilidade=roteada, motivo=motivo
+        )
         extraction["sintoma_codigo"] = None
         extraction["intensidade"] = "desconhecida"
         update["sintoma_codigo"] = None
@@ -5981,40 +5989,17 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", "COB2:", "SAUDE_OFERTA")):
-            # COBERTURA FORA (DL-0154): uma pergunta pendente da cobertura de antes (estado gravado antes da
-            # retirada) nunca sobrevive ao turno.
+        velhas = ("BS_COBERTURA", "COB2:", "SAUDE_OFERTA", PENDENTE_OFERTA_EQUIPE)
+        if str(state.get("coleta_pendente") or "").startswith(velhas):
+            # COBERTURA FORA (DL-0154) e a oferta da equipe (r5, 25/10): a pendencia vale so' um turno.
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
         return pend_v4, pend_encerrar
 
     _risco_pelo_texto = _travas_entrada._risco_pelo_texto
+    _sinal_claro_pelo_texto = _travas_entrada._sinal_claro_pelo_texto
 
-    def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
-        """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).
-
-        No teste real do dono, "de qual ano?" logo depois do Lucas (coparticipacao de setembro) foi ao Lucas
-        em duas execucoes e, na terceira, o modelo devolveu `consulta_plano`/`elegibilidade` e a Helena
-        respondeu a vigencia do plano. A regra "seguimento enquanto o Lucas esta' ativo e' cobranca" dependia
-        da intencao do modelo. Agora e' decidida ANTES dele, pelo texto: Lucas ativo (a janela de inatividade
-        ja' foi aplicada pelo despachante), mensagem curta de esclarecimento/seguimento, SEM pista de consulta
-        do plano, sem pessoa/saude, sem pedido de pessoa e sem sinal de saude do lexico. Devolve o `update`
-        do turno ja' roteado (handoff), ou `None` para o caminho de sempre."""
-        if (
-            not self._roteador_lucas_enabled
-            or state.get("agente_ativo_conversa") != "lucas"
-            or state.get("sinal_saude_lexico") is not False
-            or state.get("pedido_humano_lexico") is not False
-        ):
-            return None
-        texto = str(state.get("message_body") or "")
-        if (
-            not e_seguimento_de_cobranca(texto)
-            or _pedido_explicito_de_pessoa(texto)
-            or _conteudo_clinico(texto)
-        ):
-            return None
-        return self._handoff_deterministico_ao_lucas(state, texto, "helena_seguimento_com_o_lucas")
+    _seguimento_com_o_lucas = _depois_do_lucas.seguimento_com_o_lucas
 
     def _cobranca_com_caso_de_saude_aberto(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
         """CASO DE SAUDE ABERTO NAO TRAVA A CONVERSA: COBRANCA CURTA VAI AO LUCAS, NAO IMPORTA O MODELO.
@@ -6163,7 +6148,7 @@ class HelenaGraph:
     # tabela de alarme, emergencia com caso aberto, recem-nascido) e, no especialista e no seguimento,
     # sem passar por cima do pedido de pessoa:
     #
-    #   * ESPECIALISTA: texto fixo da coluna "HOJE" (onde marcar + prazo da ANS + oferta de pessoa), sem
+    #   * ESPECIALISTA: texto fixo da coluna "HOJE" (onde marcar + oferta de pessoa, sem prazo da ANS), sem
     #     pesquisar especialidade, sem agendar, sem prometer cobertura;
     #   * CARTEIRINHA: dados mascarados da consulta do plano (`consultar_plano`) e o cartao no aplicativo;
     #   * SINTOMA LEVE: so' perguntas de ALERTA; "nao" -> a resposta final com as opcoes 1/2 do dono;
@@ -6240,6 +6225,9 @@ class HelenaGraph:
             return piorou
         if _sinal_novo_de_alarme(state) or self._v4_pede_pessoa(state, texto):
             return None
+        v7 = _rv7.LEITURA_DO_TURNO.get()
+        if v7 is not None and not v7.sinais_atuais() and v7.skill not in ("saude", "atendimento_humano"):
+            return None  # Avaliacao r5 (25/10/2026): plano, cobertura, conversa e Lucas sao respondidos.
         plano = _plano(texto)
         if (
             _pergunta_do_plano(texto)
@@ -6267,7 +6255,9 @@ class HelenaGraph:
         plano = _plano(texto)
         if not plano or _sg.tem_risco(plano) or state.get("sinal_saude_lexico") is True:
             return None
-        if _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE:
+        if (fixa := _sem_modelo.responder(self, state, texto)) is not None:
+            return fixa  # r5/r5b: o "sim"/"nao" a oferta da equipe; o reembolso fora do escopo (texto fixo)
+        if _recusa.e_recusa_na_conversa(texto):
             update = self._update_sem_modelo(state)
             abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
             if abertos:
@@ -6293,8 +6283,10 @@ class HelenaGraph:
                 return self._base_texto_fixo(
                     update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
                 )
-            logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=False)
-            return _rota_informativa(update)
+            # Avaliacao r5 (25/10): recusa curta so' com oferta ou caso aberto; sem nada, o reconhecimento.
+            caso = bool(await self._motivo_do_caso_aberto(_business_key(state)))
+            logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=caso)
+            return self._base_texto_fixo(update, _oferta.texto_da_recusa(state, caso_aberto=caso))
         cobertura = self._cobertura_fora(state, plano, texto)
         if cobertura is not None:
             return cobertura
@@ -6770,7 +6762,7 @@ class HelenaGraph:
             # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
             # canal na mensagem, sai o texto fixo daquele assunto.
             mensagem = str(state.get("message_body") or "")
-            if _caso_aberto_afirmavel(state) is not None:
+            if _caso_aberto_afirmavel(state) is not None and _recusa.caso_e_a_resposta(mensagem):
                 # RODADA 3 (log de 13/10): com caso aberto o modelo escreve "ja encaminhamos" / "vai entrar
                 # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
                 substituto = RESPOSTA_INFORM_CASO_ABERTO
@@ -6967,31 +6959,12 @@ class HelenaGraph:
             saida = {}
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
-            if _helena_em_loop(state, text):
-                # DL-0147 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
-                # vez, o MESMO start idempotente de todo escalonamento, com o texto fixo de handoff que ele
-                # ja' escolhe pelo motivo. Nenhum texto novo ao beneficiario; o modelo nao decide nada aqui.
-                logger.warning(
-                    "helena_repeticao_escalada",
-                    node="respond",
-                    response_kind=state.get("response_kind"),
-                    repeticoes=_repeticoes_seguidas(state, text),
-                )
-                escalado = await self._start_escalation(
-                    state,
-                    motivo="falha_tecnica",
-                    severidade=None,
-                    response_kind="escalate",
-                    error=ERRO_HELENA_EM_REPETICAO,
-                )
-                state = cast(HelenaState, {**state, **escalado})
-                saida = dict(escalado)
-                if state.get("start_failed") is True:
-                    saida.update(self._start_failure_outcome(state))
-                    text = RESPOSTA_FALHA_TECNICA_START
-                else:
-                    text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
-                    saida.update(cerca)
+            if _helena_em_loop(state, text) and not text.startswith(self._textos[CHAVE_TEXTO_COBERTURA_FORA]):
+                # DL-0147 revisto na avaliacao r5 (25/10/2026): a mesma resposta pela N+1-esima vez OFERECE a
+                # equipe (pendencia de sim/nao) e o caso so' abre com o "sim" da pessoa; nunca `falha_tecnica`
+                # sozinho. O aviso fixo da cobertura (DL-0154, sem oferta da equipe) nunca vira loop.
+                text, oferta = _oferta.oferta_por_repeticao(state)
+                saida.update(oferta)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
         # DL-0131 (decisao do dono): na allowlist, sem o "Entendi."/"Certo." de enfeite na frente de um texto
         # repetido — so' as redacoes alternativas de verdade (`_VARIANTES`).
@@ -7012,6 +6985,10 @@ class HelenaGraph:
             logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
             text = varia
             saida["response_text"] = text
+        if (final := _recusa.texto_final(state, text)) != text:  # dono 25/10: aviso do caso 1x, sem carona
+            text = saida["response_text"] = final
+        # TRAVAS DE SAIDA (etapa 10 e 25/10/2026): sem link, sem contagem vazada, sem convite a mandar midia.
+        text = _travas_saida.na_saida(text)
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
             # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,
@@ -7038,8 +7015,6 @@ class HelenaGraph:
             return {**saida, **self._historico_do_turno(state, None)}
         # DL-0078: o aviso de identidade de PRIMEIRO CONTATO, como mensagem SEPARADA e ANTES da resposta
         # do turno — nunca no lugar dela. Ver `_aviso_de_identidade` (quando sai, quando e' adiado).
-        # TRAVA `sem_link` (etapa 10): nenhum link sai, venha de onde vier; a fonte fica pelo nome.
-        text = _travas_saida.sem_links(text)
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
         enviada = False
         try:
@@ -7209,7 +7184,7 @@ class HelenaGraph:
             )
             return False, False
         try:
-            await self._whatsapp.send(_to_hash_from_state(state), aviso)
+            await self._whatsapp.send(_to_hash_from_state(state), _travas_saida.na_saida(aviso))
         except PROGRAMMING_ERRORS:
             raise
         except Exception as exc:
@@ -7575,7 +7550,7 @@ class HelenaGraph:
         desfecho = DESFECHO_RETOMADA_ENVIADA if erro is None else DESFECHO_RETOMADA_RECUSADA
 
         try:
-            await self._whatsapp.send(_to_hash_from_state(state), texto)
+            await self._whatsapp.send(_to_hash_from_state(state), _travas_saida.na_saida(texto))
         except PROGRAMMING_ERRORS:
             raise
         # ESTREITO (nao `except Exception`): so' falha de DEPENDENCIA vira `RetomadaEnvioFalhouError`.
@@ -8175,6 +8150,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # TEXTOS DO PACOTE (ADR-0067 §4): os textos fixos que o pacote de comportamento trouxer.
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
+        helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
     ).compile_graph()
 
 

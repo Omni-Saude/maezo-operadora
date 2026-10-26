@@ -4,7 +4,8 @@ O modelo conduz; a tabela so' protege:
 - alarme claro e grave -> 192/CVV na hora, sem pergunta (a lista de alarmes reais SEMPRE da' 192/CVV);
 - resposta SEM CLAREZA a pergunta de alerta -> de novo UMA vez, com outras palavras; continuou -> a oferta da
   equipe de saude, SEM 192 e sem caso (aval do medico responsavel recomendado antes de producao);
-- o "nao" -> o caminho (consulta pelo plano, prazo da ANS, profissional pela idade) ou a equipe, e FECHA, sem
+- o "nao" -> o caminho (consulta pelo plano, sem prazo da ANS, profissional por idade) ou a equipe, e FECHA,
+  sem
   orientar o sintoma; a fala seguinte sobre ele -> "quem pode avaliar a causa e' o medico";
 - urgencia que nao trava: o 192 sai UMA vez; sem sinal NOVO claro, "mantive o seu caso"; sinal novo -> 192;
   o pedido de pessoa e' sempre ouvido;
@@ -163,7 +164,8 @@ async def test_nao_dito_de_varios_jeitos_fecha_com_o_caminho_pela_idade(nao: str
     await _com_alerta(conversa)
     fim = await conversa.diz(nao, _INFO)
     texto = _texto(fim)
-    assert "1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis pela ANS)" in texto
+    assert "1) saber onde marcar consulta com clínico geral pelo plano; ou 2)" in texto
+    assert "dias úteis" not in texto and "ANS" not in texto
     assert "pediatra" not in texto
     assert conversa.cib.inicios == []
     assert "responda sim ou não" not in texto.lower()
@@ -306,7 +308,8 @@ async def test_conversa_do_dono_1_dor_nas_costas_sem_192_por_engano() -> None:
     fechou = await conversa.diz("não", _INFO)
     assert "clínico geral" in _texto(fechou) and "pediatra" not in _texto(fechou)
     caminho = await conversa.diz("1", _INFO)
-    assert "7 dias úteis" in _texto(caminho)
+    assert "dias úteis" not in _texto(caminho) and "ANS" not in _texto(caminho)
+    assert "aplicativo Austa Clínicas" in _texto(caminho)
     seguimento = await conversa.diz("eu dormi de mau jeito", _SINTOMA)
     assert _texto(seguimento) == TEXTO_AVALIAR_CAUSA, "nunca a pergunta de alerta de novo"
     recusa = await conversa.diz("não, acho que é só mau jeito mesmo", _SINTOMA)

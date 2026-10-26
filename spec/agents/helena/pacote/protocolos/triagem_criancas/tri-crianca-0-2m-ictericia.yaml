@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-ictericia
+tema: triagem_criancas
+titulo: "Bebê amarelinho (icterícia no recém-nascido)"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "meu bebê está amarelo"
+  - "o neném está amarelinho"
+  - "recém-nascido com amarelão"
+  - "os olhos do bebê estão amarelos"
+  - "bebê com icterícia"
+  - "a pele do meu bebê ficou amarela"
+  - "o cocô do bebê está branco"
+  - "meu bebê está amarelo há 2 semanas"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "O amarelo apareceu nas primeiras 24 horas de vida (no primeiro dia)?"
+    sinal: ictericia_antes_24h
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 17 (a cor da pele: amarelo nas primeiras 24 h → avaliação com urgência); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – icterícia de aparecimento antes de 24 horas"
+  - pergunta: "O amarelo está muito forte ou já pega a barriga abaixo do umbigo, os braços, as pernas, as mãos ou os pés?"
+    sinal: ictericia_extensa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 17 (amarelo muito forte ou espalhado por todo o corpo → avaliação com urgência); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – icterícia até região abaixo do umbigo"
+  - pergunta: "O amarelo já dura mais de 2 semanas, ou o cocô está muito claro (branco, cinza ou amarelo bem clarinho)?"
+    sinal: ictericia_prolongada_ou_fezes_claras
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 17 (amarelo que dura mais de duas semanas → avaliação com urgência) e p. 18 (fezes muito claras → procurar o serviço com urgência)"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "O bebê amarelinho precisa ser visto por um profissional, que avalia se é o amarelado comum dos primeiros dias ou se precisa de cuidado. Continue amamentando com frequência e observe a cor do cocô. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 17 (a cor da pele) e p. 18 (as fezes)"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.1-7.2, Exemplo 9 (p. 126); §12.6.2 (p. 215-216)"
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§5.3.4 (p. 62: pele amarelada intensa)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial; Caderneta da Gestante 2026: CC BY-NC-SA 4.0 — pendente jurídico"

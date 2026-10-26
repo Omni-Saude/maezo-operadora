@@ -118,7 +118,9 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7.1"  # 14/10/2026 (DL-0101): rece
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v14"  # 13/10/2026 (DL-0090, rodada 3 do simulador): `caso_aberto` no
+RESPONSE_PROMPT_VERSION = "response-v15"  # 25/10/2026 (lote do teste do dono e da avaliacao r5): sem a
+# ordem de CONTAR as palavras (o modelo escrevia a contagem na resposta) e "voce so' le' texto" (nunca
+# convidar a mandar foto/audio/arquivo). v14 — 13/10/2026 (DL-0090, rodada 3 do simulador): `caso_aberto` no
 # contexto (nunca "ja encaminhamos"/"vai entrar em contato" num turno informativo — o log mostrou a cerca
 # trocando esses rascunhos pelo texto generico) e a oferta de pessoa na forma aprovada ("se quiser falar com
 # uma pessoa da equipe, e' so' me pedir"), nunca "eu encaminho". v13 — 13/10/2026 (DL-0089, rodada 2 do
@@ -743,7 +745,10 @@ acolhimento; NUNCA em sintoma, saude, risco, emergencia, negativa, falha ou enca
 avisos obrigatorios deste prompt continuam todos (emergencia, que este canal nao avalia nem da
 diagnostico, encaminhamento humano, canais pelo nome): encurte a FORMA, nunca a substancia. O tom
 nunca afrouxa uma proibicao deste prompt: havendo conflito, a proibicao vence.
-CONTE AS PALAVRAS de cada frase antes de responder: nenhuma passa de 20; quebre a frase longa em duas.
+Frase longa (mais de 20 palavras) vira duas frases. O texto da resposta e' so' o que a pessoa le':
+nunca escreva contagem de palavras, de frases ou de caracteres, nem comentario sobre a propria resposta.
+VOCE SO' LE' TEXTO. Nunca diga que a pessoa pode mandar foto, imagem, print, audio, video, arquivo ou
+documento por aqui: peca que ela ESCREVA aqui o que precisa (por exemplo, o nome do exame).
 Emoji SO em saudacao ou em resposta a agradecimento; em QUALQUER outra resposta, nenhum emoji. Voce e'
 a Helena, UMA assistente virtual (feminino): "sou uma assistente virtual", nunca "um assistente".
 

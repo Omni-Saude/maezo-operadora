@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-0-2m-molinho-sonolento
+tema: triagem_criancas
+titulo: "Bebê com menos de 2 meses molinho ou muito sonolento"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "meu bebê está molinho"
+  - "o neném está muito largadinho"
+  - "recém-nascido dormindo demais e não acorda para mamar"
+  - "bebê caidinho, sem força"
+  - "meu filho de 1 mês está diferente, parado"
+  - "o bebê não está bem, muito quieto"
+  - "neném está mole e sonolento"
+  - "não consigo acordar o bebê direito"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "Ele está muito molinho, caidinho, mexendo menos que o normal, ou muito sonolento e difícil de acordar?"
+    sinal: letargia_ou_flacidez
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – muito molinha e caidinha; muito sonolenta, com dificuldade para acordar; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – letargia/inconsciência ou flacidez"
+  - pergunta: "O bebê não consegue mamar ou vomita tudo o que mama?"
+    sinal: nao_mama_ou_vomita_tudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – não consegue mamar; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – não consegue mamar, vomita tudo"
+  - pergunta: "Você mediu a temperatura e deu 37,5 °C ou mais, ou o bebê está frio (35,5 °C ou menos)?"
+    sinal: febre_ou_hipotermia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – febre ≥ 37,5 °C e temperatura ≤ 35,5 °C; Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – temperatura axilar < 36 °C ou ≥ 37,5 °C"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Bebê pequeno que fica 'pouco reativo' ou 'não vai bem' precisa ser examinado no mesmo dia. Continue oferecendo o peito e observe se ele mama, respira e acorda normalmente. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – menores de 2 meses)"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126); §12.6.2 (p. 215-216)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: reprodução citando a fonte, não comercial — pendente jurídico"

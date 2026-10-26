@@ -7,7 +7,6 @@ import re
 
 import pytest
 
-from maezo.agents.helena import helena_v4
 from maezo.agents.helena.graph import RESPOSTA_ESCALONAMENTO_URGENTE
 from maezo.agents.helena.prompts import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from maezo.conhecimento import base_saude as b
@@ -38,7 +37,10 @@ def test_as_jornadas_passam_nas_cercas_e_nao_citam_prestador_nem_agenda() -> Non
         assert "cobre" not in plano and "cobertura" not in plano, nome
         for frase in re.split(r"(?<=[.!?])\s+", texto):
             assert len(frase.split()) <= 20, (nome, frase)
-    assert j.PRAZO_ESPECIALISTA_DIAS_UTEIS == helena_v4.PRAZO_ESPECIALISTA_DIAS_UTEIS
+    assert (
+        "dias úteis" not in j.TEXTOS[j.JORNADA_ESPECIALISTA] and "ANS" not in j.TEXTOS[j.JORNADA_ESPECIALISTA]
+    )
+    assert not hasattr(j, "PRAZO_ESPECIALISTA_DIAS_UTEIS")
 
 
 @pytest.mark.parametrize(

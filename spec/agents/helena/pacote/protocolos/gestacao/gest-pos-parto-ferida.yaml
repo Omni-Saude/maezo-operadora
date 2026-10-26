@@ -1,0 +1,43 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-ferida
+tema: gestacao
+titulo: "Ferida da cesárea ou pontos do parto inflamados"
+publico: puerpera
+como_a_pessoa_fala:
+  - "os pontos da cesárea estão vermelhos"
+  - "a cicatriz está saindo pus"
+  - "os pontos do parto normal estão doendo muito"
+  - "a ferida da cesárea abriu um pouco"
+  - "a cicatriz está inchada e quente"
+  - "mau cheiro nos pontos"
+  - "corte da cesárea com secreção"
+  - "os pontos da episiotomia estão inflamados"
+perguntas_de_alerta:
+  - pergunta: "Você teve convulsão ou desmaio, está confusa, ou com falta de ar forte ou dor no peito?"
+    sinal: emergencia_pos_parto
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – convulsões, desmaio, dor no peito, falta de ar; SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas, dores no peito de aparecimento súbito"
+  - pergunta: "Está com febre (37,8 °C ou mais)?"
+    sinal: febre_pos_parto
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – febre ≥ 37,8 °C (procurar serviço imediatamente); Manual de Gestação de Alto Risco (MS, 2022, versão preliminar), cap. 38 Sepse na gestação (p. 397: puerpério e cesárea como risco)"
+  - pergunta: "A ferida ou os pontos estão com vermelhidão, inchaço, secreção, pus ou mau cheiro?"
+    sinal: infeccao_ferida
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – sinais de infecção: vermelhidão, inchaço, dor local, secreção ou mau cheiro na ferida operatória ou no períneo (procurar serviço imediatamente)"
+  - pergunta: "A dor nos pontos ou na cicatriz está forte e não melhora?"
+    sinal: dor_intensa_persistente
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – dor forte e persistente na cicatriz da cesariana ou nos pontos do períneo; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.1 (p. 67)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / consulta pós-parto)"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "Caderneta da Gestante 2026, Parte VI (puerpério) e §6.5 (plano de pós-parto); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Um pouco de dor e sensibilidade nos pontos é esperado nos primeiros dias e tende a diminuir. Mantenha o local limpo e seco e siga as orientações da equipe. Na gestação, 'pronto-socorro agora' quer dizer ir agora à sua maternidade de referência. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.1 (p. 67-68); §6.2 Seu corpo fala (p. 69)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico"

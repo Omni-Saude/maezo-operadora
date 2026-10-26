@@ -1,0 +1,55 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Lacuna parcial: o Caderno 28 não tem capítulo de dor em braço, perna ou mão; os sinais vêm dos critérios de urgência do
+# TelessaúdeRS (Cirurgia Vascular e Ortopedia, escritos para profissional), adaptados para perguntas de leigo.
+id: tri-adulto-dor-no-braco-ou-perna
+tema: triagem_adultos
+titulo: "Dor no braço, perna ou mão"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com dor na perna"
+  - "minha perna está inchada e doendo"
+  - "dor na batata da perna"
+  - "meu braço está doendo"
+  - "dor na mão e no punho"
+  - "meu joelho está doendo e inchado"
+  - "dor no ombro"
+  - "minha perna está fria e roxa"
+  - "torci o pé"
+  - "dor no tornozelo depois que pisei errado"
+perguntas_de_alerta:
+  - pergunta: "Uma perna ou braço está inchado e dolorido e, junto, você está com falta de ar, dor no peito ou tosse com sangue que começou de repente?"
+    sinal: suspeita_de_embolia_pulmonar
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "TelessaúdeRS Cirurgia Vascular (rev. 2020), Protocolo 1 – Tromboembolismo venoso e Quadro 2 (suspeita de tromboembolismo pulmonar: dor torácica, falta de ar ou hemoptise + sinais de trombose → serviço de emergência); SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios"
+  - pergunta: "O braço ou a perna ficou de repente frio, pálido ou arroxeado, dormente ou sem força, com dor forte mesmo parado?"
+    sinal: suspeita_de_isquemia_aguda
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Cirurgia Vascular (rev. 2020), Protocolo 3 – Doença arterial periférica (suspeita de isquemia crítica aguda: dor constante em repouso, palidez, membro mais frio, alteração de sensibilidade ou força → urgência/emergência)"
+  - pergunta: "Uma das pernas está inchada (a perna toda ou a batata da perna) e dolorida, principalmente se você ficou de cama, fez cirurgia, usou gesso recentemente ou trata câncer?"
+    sinal: suspeita_de_trombose_venosa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Cirurgia Vascular (rev. 2020), Protocolo 1 – Tromboembolismo venoso e Quadro 1 (suspeita de trombose venosa profunda: edema de membro inferior e dor; restrição ao leito, cirurgia, imobilização com gesso, câncer em atividade → serviço de emergência)"
+  - pergunta: "Depois de uma queda, batida ou torção, ficou torto ou muito inchado, ou você não consegue mexer ou apoiar? Ou a junta está vermelha, quente e inchada, com febre?"
+    sinal: suspeita_de_fratura_ou_infeccao_articular
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolos 5, 7, 8, 9 e 10 (suspeita de fratura ou luxação → urgência/emergência; condições traumatológicas devem ir às portas de entrada para trauma) e Protocolos 6 a 9 (suspeita de artrite séptica → urgência/emergência)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Ortopedia e traumatologia"
+  fonte: "TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolos 5–10 (dor por articulação); Cirurgia vascular se problema de circulação (TelessaúdeRS Cirurgia Vascular, Protocolos 2 e 3); Reumatologia se várias juntas inflamadas (TelessaúdeRS Reumatologia, 2022); Resolução CFM 2.380/2024"
+orientacao_final: "A maioria das dores em braço, perna ou mão pode ser avaliada primeiro pelo clínico, que indica o especialista certo (ortopedia, circulação ou reumatologia). Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cirurgia Vascular (rev. 2020)"
+    secao: "Protocolo 1 – Tromboembolismo venoso (Quadros 1 e 2); Protocolo 3 – Doença arterial periférica"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Ortopedia Adulto (2ª ed., rev. 2026)"
+    secao: "Protocolos 5 a 10 (mão e punho, cotovelo, joelho, ombro, quadril, tornozelo e pé)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Reumatologia (2022)"
+    secao: "Protocolos 1 a 10 (apenas para especialista)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada (Vascular 2020, Reumatologia 2022) — pendente jurídico; MS: reprodução citando a fonte, não comercial — pendente jurídico"

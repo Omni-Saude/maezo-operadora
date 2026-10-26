@@ -1984,6 +1984,483 @@
         "title": "ClaimAssignment",
         "type": "object"
       },
+      "CommissionAdjustmentDraft": {
+        "additionalProperties": false,
+        "description": "What the surface PROVES back: the stored structure, always `DRAFT`. Never a verdict.\n\nNo computed field exists — no total, no effective rate, no currency conversion, no\nranking, no \"next step\". The audit columns are WHO/WHEN of the draft edit, not an\napproval: nobody approves anything here, and no field claims otherwise.",
+        "properties": {
+          "ajuste_tipo": {
+            "enum": [
+              "percentual",
+              "valor",
+              "faixa"
+            ],
+            "title": "Ajuste Tipo",
+            "type": "string"
+          },
+          "atualizado_em": {
+            "format": "date-time",
+            "title": "Atualizado Em",
+            "type": "string"
+          },
+          "atualizado_por": {
+            "title": "Atualizado Por",
+            "type": "string"
+          },
+          "criado_em": {
+            "format": "date-time",
+            "title": "Criado Em",
+            "type": "string"
+          },
+          "criado_por": {
+            "title": "Criado Por",
+            "type": "string"
+          },
+          "dimensao": {
+            "enum": [
+              "produto",
+              "canal",
+              "corretor"
+            ],
+            "title": "Dimensao",
+            "type": "string"
+          },
+          "dimensao_ref": {
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "title": "Dimensao Ref",
+            "type": "string"
+          },
+          "faixa_max": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Max"
+          },
+          "faixa_min": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Min"
+          },
+          "moeda": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moeda"
+          },
+          "percentual": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,7})(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentual"
+          },
+          "policy_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "precedencia": {
+            "maximum": 32767.0,
+            "minimum": 1.0,
+            "title": "Precedencia",
+            "type": "integer"
+          },
+          "revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "const": "DRAFT",
+            "default": "DRAFT",
+            "title": "Status",
+            "type": "string"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
+          },
+          "vigencia_fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Fim"
+          },
+          "vigencia_inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Inicio"
+          }
+        },
+        "required": [
+          "policy_ref",
+          "revision",
+          "dimensao",
+          "dimensao_ref",
+          "ajuste_tipo",
+          "precedencia",
+          "criado_por",
+          "criado_em",
+          "atualizado_por",
+          "atualizado_em"
+        ],
+        "title": "CommissionAdjustmentDraft",
+        "type": "object"
+      },
+      "CommissionAdjustmentDraftPage": {
+        "additionalProperties": false,
+        "description": "The draft list: server-ordered (precedencia, dimensao, policy_ref), no pagination.\n\nDark internal surface, drafts only — the store returns the tenant's whole draft set in\nthe declared order; a pagination contract is a future need, not an invented one.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "drafts": {
+            "items": {
+              "$ref": "#/components/schemas/CommissionAdjustmentDraft"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "drafts",
+          "count"
+        ],
+        "title": "CommissionAdjustmentDraftPage",
+        "type": "object"
+      },
+      "CommissionAdjustmentDraftReplacement": {
+        "additionalProperties": false,
+        "description": "REPLACE a draft's structure (POST-only house posture): full shape + expected revision.\n\nThe replacement is idempotent over the WHOLE editable structure — absent slots clear\nvalues (they are nullable by design). `revision` must match the stored one exactly\n(`stale_revision` otherwise, 409): two operators editing the same draft is a conflict to\nsurface, never a silent last-write. `status` is NOT an input on this surface at all.",
+        "properties": {
+          "ajuste_tipo": {
+            "enum": [
+              "percentual",
+              "valor",
+              "faixa"
+            ],
+            "title": "Ajuste Tipo",
+            "type": "string"
+          },
+          "dimensao": {
+            "enum": [
+              "produto",
+              "canal",
+              "corretor"
+            ],
+            "title": "Dimensao",
+            "type": "string"
+          },
+          "dimensao_ref": {
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "title": "Dimensao Ref",
+            "type": "string"
+          },
+          "faixa_max": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Max"
+          },
+          "faixa_min": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Min"
+          },
+          "moeda": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moeda"
+          },
+          "percentual": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,7})(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentual"
+          },
+          "precedencia": {
+            "maximum": 32767.0,
+            "minimum": 1.0,
+            "title": "Precedencia",
+            "type": "integer"
+          },
+          "revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
+          },
+          "vigencia_fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Fim"
+          },
+          "vigencia_inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Inicio"
+          }
+        },
+        "required": [
+          "dimensao",
+          "dimensao_ref",
+          "ajuste_tipo",
+          "precedencia",
+          "revision"
+        ],
+        "title": "CommissionAdjustmentDraftReplacement",
+        "type": "object"
+      },
+      "CommissionAdjustmentDraftSubmission": {
+        "additionalProperties": false,
+        "description": "CREATE a draft: what an internal operator may register. Nothing else is an input.",
+        "properties": {
+          "ajuste_tipo": {
+            "enum": [
+              "percentual",
+              "valor",
+              "faixa"
+            ],
+            "title": "Ajuste Tipo",
+            "type": "string"
+          },
+          "dimensao": {
+            "enum": [
+              "produto",
+              "canal",
+              "corretor"
+            ],
+            "title": "Dimensao",
+            "type": "string"
+          },
+          "dimensao_ref": {
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "title": "Dimensao Ref",
+            "type": "string"
+          },
+          "faixa_max": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Max"
+          },
+          "faixa_min": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faixa Min"
+          },
+          "moeda": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moeda"
+          },
+          "percentual": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,7})(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentual"
+          },
+          "precedencia": {
+            "maximum": 32767.0,
+            "minimum": 1.0,
+            "title": "Precedencia",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]{0,13})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
+          },
+          "vigencia_fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Fim"
+          },
+          "vigencia_inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vigencia Inicio"
+          }
+        },
+        "required": [
+          "dimensao",
+          "dimensao_ref",
+          "ajuste_tipo",
+          "precedencia"
+        ],
+        "title": "CommissionAdjustmentDraftSubmission",
+        "type": "object"
+      },
       "CommunicationPage": {
         "additionalProperties": false,
         "properties": {
@@ -5197,6 +5674,51 @@
         "title": "PendingDecisionAdmission",
         "type": "object"
       },
+      "PortalAdminReadError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "admin_read_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalAdminReadError",
+        "type": "object"
+      },
+      "PortalCommissionPolicyError": {
+        "additionalProperties": false,
+        "description": "The closed refusal vocabulary of this boundary. Nothing here suggests a next state.",
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "commission_policy_fabricated",
+              "field_not_client_owned",
+              "resource_unavailable",
+              "stale_revision",
+              "dependency_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalCommissionPolicyError",
+        "type": "object"
+      },
       "PortalCompletionError": {
         "additionalProperties": false,
         "properties": {
@@ -6806,7 +7328,8 @@
                 "identity",
                 "staff_cases",
                 "human",
-                "vendor"
+                "vendor",
+                "staff_admin_read"
               ],
               "type": "string"
             },
@@ -6827,7 +7350,8 @@
             "items": {
               "enum": [
                 "staff_documents_panel",
-                "staff_operations_panel"
+                "staff_operations_panel",
+                "staff_admin_panel"
               ],
               "type": "string"
             },
@@ -6861,6 +7385,171 @@
           "capabilities"
         ],
         "title": "SessionDTO",
+        "type": "object"
+      },
+      "StaffAdminBinding": {
+        "additionalProperties": false,
+        "description": "One server-verified resource relationship of the reviewed record (opaque reference).",
+        "properties": {
+          "kind": {
+            "enum": [
+              "beneficiary",
+              "provider",
+              "vendor"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "resource_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Resource Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "resource_ref"
+        ],
+        "title": "StaffAdminBinding",
+        "type": "object"
+      },
+      "StaffAdminMembership": {
+        "additionalProperties": false,
+        "description": "One governed permission block of the reviewed record, exactly as reviewed.",
+        "properties": {
+          "groups": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "membership_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Membership Ref",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "membership_ref",
+          "roles",
+          "groups"
+        ],
+        "title": "StaffAdminMembership",
+        "type": "object"
+      },
+      "StaffAdminVinculo": {
+        "additionalProperties": false,
+        "description": "The reviewed vínculo of one staff principal, with its review facts. Read-only.",
+        "properties": {
+          "membership_revision": {
+            "minimum": 0.0,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminMembership"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "principal_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "reviewed_until": {
+            "format": "date-time",
+            "title": "Reviewed Until",
+            "type": "string"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "subject_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminBinding"
+            },
+            "title": "Subject Bindings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "principal_ref",
+          "membership_revision",
+          "memberships",
+          "subject_bindings",
+          "reviewed_until",
+          "revoked",
+          "state"
+        ],
+        "title": "StaffAdminVinculo",
+        "type": "object"
+      },
+      "StaffAdminVinculos": {
+        "additionalProperties": false,
+        "description": "The whole read-only roster answer: every reviewed staff vínculo of this tenant.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "vinculos": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminVinculo"
+            },
+            "title": "Vinculos",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "count",
+          "vinculos"
+        ],
+        "title": "StaffAdminVinculos",
         "type": "object"
       },
       "StaffDetail": {
@@ -7767,6 +8456,64 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/portal/administration/memberships": {
+      "get": {
+        "operationId": "read_admin_vinculos_api_v1_portal_administration_memberships_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAdminVinculos"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Admin Vinculos"
+      }
+    },
     "/api/v1/portal/auth/callback": {
       "get": {
         "operationId": "callback_api_v1_portal_auth_callback_get",
@@ -9009,6 +9756,386 @@
           }
         },
         "summary": "Command Receipt"
+      }
+    },
+    "/api/v1/portal/commission-adjustments": {
+      "get": {
+        "operationId": "list_commission_adjustment_drafts_api_v1_portal_commission_adjustments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommissionAdjustmentDraftPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Commission Adjustment Drafts"
+      },
+      "post": {
+        "operationId": "create_commission_adjustment_draft_api_v1_portal_commission_adjustments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommissionAdjustmentDraftSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommissionAdjustmentDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Commission Adjustment Draft"
+      }
+    },
+    "/api/v1/portal/commission-adjustments/{policy_ref}": {
+      "get": {
+        "operationId": "read_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_ref",
+            "required": true,
+            "schema": {
+              "title": "Policy Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommissionAdjustmentDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Commission Adjustment Draft"
+      },
+      "post": {
+        "operationId": "replace_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_ref",
+            "required": true,
+            "schema": {
+              "title": "Policy Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommissionAdjustmentDraftReplacement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommissionAdjustmentDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCommissionPolicyError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Replace Commission Adjustment Draft"
       }
     },
     "/api/v1/portal/document-uploads/{upload_ref}/complete": {

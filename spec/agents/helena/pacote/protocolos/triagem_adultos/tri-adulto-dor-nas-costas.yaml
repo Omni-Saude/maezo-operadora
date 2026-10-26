@@ -1,0 +1,48 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-nas-costas
+tema: triagem_adultos
+titulo: "Dor nas costas"
+publico: adulto
+como_a_pessoa_fala:
+  - "tô com dor nas costas"
+  - "minha lombar está travada"
+  - "travei a coluna"
+  - "dor no fim das costas"
+  - "dor nas costas que desce pela perna"
+  - "estou com dor no ciático"
+  - "não consigo me abaixar de dor nas costas"
+  - "acordei com as costas doendo"
+  - "dor na coluna"
+perguntas_de_alerta:
+  - pergunta: "A dor veio depois de uma queda ou batida forte?"
+    sinal: trauma
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.12, Quadro 42 (grande trauma); TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolo 1 – Dor lombar (suspeita de fratura ou luxação associada a traumatismo recente → urgência/emergência)"
+  - pergunta: "A perna ficou fraca, você está com dormência na região entre as pernas ou nas nádegas, ou perdeu o controle do xixi ou do cocô?"
+    sinal: deficit_neurologico_ou_cauda_equina
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.12, Quadro 42 (fraqueza muscular; distúrbios urinários ou gastrintestinais; anestesia em sela) e Figura 32; TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolo 1 (suspeita de compressão medular ou síndrome da cauda equina; perda de força progressiva → urgência/emergência)"
+  - pergunta: "A dor é tão forte que você não consegue se mexer, ou veio junto com febre alta ou dor na barriga?"
+    sinal: dor_incapacitante_febre_alta_ou_dor_abdominal
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.12, Figura 32 (dor severa/incapacitante, febre alta, dor abdominal = atendimento médico imediato)"
+  - pergunta: "Você está com febre, perdeu peso sem motivo, já teve câncer, ou a dor piora à noite?"
+    sinal: bandeira_vermelha_sistemica
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.12, Quadro 42 (dor que piora à noite; história de neoplasia; emagrecimento; febre) e Figura 32 (febre = atendimento prioritário); TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolo 1 (sinais de alerta sem indicação de avaliação emergencial)"
+destino_se_nenhum_sinal: CONSULTA_ROTINA
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Ortopedia e traumatologia"
+  fonte: "TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolo 1 – Dor lombar (Neurocirurgia ou Ortopedia; Reumatologia se dor inflamatória antes dos 40 anos); Resolução CFM 2.380/2024"
+orientacao_final: "A maioria das dores nas costas melhora com o tempo e pode ser acompanhada pelo clínico. Procure se manter ativo dentro do possível, sem forçar. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.12 Dor lombar (Quadro 42; Figura 32)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Ortopedia Adulto (2ª ed., rev. 2026)"
+    secao: "Protocolo 1 – Dor lombar e alterações em exame de imagem de coluna lombar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

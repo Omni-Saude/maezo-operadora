@@ -1,0 +1,45 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-5-12a-dor-de-ouvido
+tema: triagem_criancas
+titulo: "Dor de ouvido (5 a 12 anos)"
+publico: crianca_5_12a
+como_a_pessoa_fala:
+  - "meu filho de 9 anos está com dor de ouvido"
+  - "ouvido escorrendo pus"
+  - "dor no ouvido depois da piscina"
+  - "a criança colocou algo no ouvido"
+  - "entrou um bichinho no ouvido"
+  - "orelha inchada e vermelha"
+  - "otite"
+  - "ouvido entupido e doendo"
+perguntas_de_alerta:
+  - pergunta: "Tem inchaço, vermelhidão ou dor ao tocar atrás da orelha (a orelha parece empurrada para frente)?"
+    sinal: mastoidite
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.10 (p. 108: mastoidite → serviço de maior complexidade)"
+  - pergunta: "Além da dor, está com dor de cabeça forte, vômitos, muito sonolenta ou confusa, ou com o pescoço duro?"
+    sinal: sinal_de_complicacao
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.10 (p. 103 e 108: cefaleia, vômitos, alteração do nível de consciência, sinais meníngeos → hospital)"
+  - pergunta: "Ela colocou uma bateria pequena (de relógio, controle ou brinquedo) dentro do ouvido?"
+    sinal: bateria_no_ouvido
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.10 (p. 104-105: pequenas baterias → retirada imediata)"
+  - pergunta: "Está saindo pus ou secreção do ouvido?"
+    sinal: secrecao_no_ouvido
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.10 (p. 103: otorreia); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 14-15 (por analogia)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Otorrinolaringologia"
+  fonte: "Caderno 28 vol. II, §2.10 (p. 108-109: complicações e otite com efusão → otorrinolaringologista); Pediatria como porta de entrada (regra fixa do levantamento); nomes conforme Resolução CFM 2.380/2024"
+orientacao_final: "Não coloque nada dentro do ouvido (cotonete, óleo, remédio caseiro) e não tente tirar objetos sozinho. A dor de ouvido precisa ser avaliada. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.10 Dor de ouvido (p. 102-109)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 14-15 (por analogia)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderno 28: reprodução citando a fonte, não comercial; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

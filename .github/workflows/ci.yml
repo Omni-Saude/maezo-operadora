@@ -114,7 +114,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -134,7 +134,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -302,7 +302,7 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
           df -h / | tail -1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -323,7 +323,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -448,7 +448,7 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
           df -h / | tail -1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -469,7 +469,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -592,7 +592,7 @@ jobs:
         with:
           node-version: "22"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -607,7 +607,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -652,7 +652,7 @@ jobs:
         with:
           node-version: "22"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -667,7 +667,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -735,7 +735,7 @@ jobs:
         with:
           version: "3.15.0"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -750,7 +750,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -989,14 +989,17 @@ jobs:
         run: make check-d7-xfail-expiry
 
       # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 5 flags dark do
-      # Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
-      # `staff_documents_panel` (#960), `staff_operations_panel` (#963) e as duas pontes de
-      # erasure (#965) — seguem com default literal `False` no codigo (sob o
+      # portal do Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
+      # `staff_documents_panel` (#960), `staff_operations_panel` (#963),
+      # `staff_admin_panel` (#985, D-40) e `staff_commission_policies` (#987, D-36) — mais as
+      # duas pontes de erasure (#965) seguem com default literal `False` no codigo (sob o
       # `env_prefix="MAEZO_PORTAL_"` e com as constantes de env das pontes valendo os nomes
-      # pinados) e ZERO mencao a qualquer um dos 5 nomes de env em `deploy/**`, que e' a
+      # pinados) e ZERO mencao a qualquer um dos 7 nomes de env em `deploy/**`, que e' a
       # sentenca shipped de cada docstring ("nenhum `deploy/**` pode liga-la neste
-      # programa"). Fail-closed: arquivo ilegivel, deploy ausente/vazio e constante renomeada
-      # sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca nao decide quando.
+      # programa"). Fail-closed: arquivo ilegivel FORA de `__pycache__` (artefato de sessao
+      # pytest, excluido por path.parts — classe F-1 do #985), deploy ausente/vazio e
+      # constante renomeada sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca
+      # nao decide quando.
       # Belt-and-suspenders com tests/unit/ci/test_check_program_dark_flags.py.
       - name: Program dark-flags provably OFF gate (W5 CLNT 5.1)
         run: make check-program-dark-flags
@@ -1055,7 +1058,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -1070,7 +1073,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1128,7 +1131,7 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
           df -h / | tail -1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -1149,7 +1152,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -1386,7 +1389,7 @@ jobs:
         with:
           version: "3.15.0"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -1401,7 +1404,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1734,7 +1737,7 @@ jobs:
             echo "still runs the full lane on main."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         if: steps.gate.outputs.run == 'true'
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -1752,7 +1755,7 @@ jobs:
 
       - name: Install uv
         if: steps.gate.outputs.run == 'true'
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2068,7 +2071,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -2083,7 +2086,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2355,7 +2358,7 @@ jobs:
               - 'src/maezo/gateway/**'
               - 'tests/evals/**'
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         if: steps.agent_changes.outputs.agents == 'true'
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -2373,7 +2376,7 @@ jobs:
 
       - name: Install uv
         if: steps.agent_changes.outputs.agents == 'true'
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2482,7 +2485,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
 
@@ -2497,7 +2500,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:

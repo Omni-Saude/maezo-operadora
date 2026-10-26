@@ -839,9 +839,7 @@
         "stage_sequence",
         "server_stage_execution_uuid",
         "endpoint",
-        "hold_raw_sha256",
-        "root_capture_before_raw_sha256",
-        "root_capture_after_raw_sha256"
+        "hold_raw_sha256"
       ],
       "type": "object"
     },
@@ -941,6 +939,10 @@
             "COMMITTING"
           ]
         },
+        "hold_to_release_ns": {
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "type": "string"
+        },
         "phase": {
           "enum": [
             "ROOT_FIRST",
@@ -957,6 +959,17 @@
           "maximum": 8,
           "minimum": 0,
           "type": "integer"
+        },
+        "t3_deferred_seconds": {
+          "description": "Effectively waited deferred-T3 interval, seconds with fixed nanosecond precision; measured by monotonic clock around the single wait, never the configured value.",
+          "pattern": "^[0-9]+\\.[0-9]{9}$",
+          "type": "string"
+        },
+        "t3_straddle_raw_status": {
+          "const": "committed"
+        },
+        "t3_straddle_read_at": {
+          "$ref": "#/$defs/Time"
         }
       },
       "required": [
@@ -964,7 +977,8 @@
         "server_stage_execution_uuid",
         "endpoint",
         "phase",
-        "raw_artifact"
+        "raw_artifact",
+        "hold_to_release_ns"
       ],
       "type": "object"
     },
@@ -1059,6 +1073,12 @@
           "const": "fixed-root-pg-checkpoint-query.v1"
         },
         "query_source_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "release_emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "release_raw_sha256": {
           "$ref": "#/$defs/Sha256"
         },
         "root_observed_at": {
@@ -2315,7 +2335,7 @@
       "type": "string"
     }
   },
-  "$id": "urn:maezo:provider-native-independent-measurement:2",
+  "$id": "urn:maezo:provider-native-independent-measurement:3",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {

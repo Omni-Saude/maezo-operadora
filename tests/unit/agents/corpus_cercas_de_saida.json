@@ -1816,10 +1816,10 @@
       }
     },
     {
-      "texto": "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "texto": "Tudo bem, não vou passar para a equipe. Se mudar de ideia, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
-      "origem": "constante — DL-0088: recusa de falar com a equipe, sem start",
+      "origem": "constante — avaliacao r5 (25/10/2026): recusa curta da equipe com oferta pendente, sem start",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -2421,7 +2421,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com clínico geral deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com clínico geral. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05, adulto: clinico geral; enxuto)",
@@ -2432,7 +2432,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com pediatra deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com pediatra. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA (T05, crianca: pediatra)",
@@ -2443,7 +2443,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com obstetra ou ginecologista deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com obstetra ou ginecologista. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE (T05, gestante: obstetra ou ginecologista)",
@@ -2964,6 +2964,39 @@
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_OFERTA_MEDICO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem. Se você já tem um atendimento aberto com a nossa equipe, ele continua lá, sem pressa.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — avaliacao r5 (25/10/2026): recusa com caso aberto, sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Você quer que eu passe o seu atendimento para uma pessoa da nossa equipe? Responda sim ou não.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — avaliacao r5 (25/10/2026): confirma antes de passar a equipe",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Acho que a minha resposta não está te ajudando. Se você quiser, posso passar o seu atendimento para uma pessoa da nossa equipe. Quer? Responda sim ou não.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — avaliacao r5 (25/10/2026): o loop oferece a equipe, sem caso",
       "esperado": {
         "recusa": null,
         "canal": null,

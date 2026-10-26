@@ -1022,8 +1022,8 @@ def opcoes_do_sintoma(crianca: bool) -> str:
     com a especialidade da POPULACAO (pediatra so' para crianca)."""
     especialidade = "pediatra" if crianca else "clínico geral"
     return (
-        f"Você prefere: 1) saber onde marcar consulta pelo plano ({especialidade}: até 7 dias úteis pela "
-        "ANS); ou 2) falar com a nossa equipe de saúde?"
+        f"Você prefere: 1) saber onde marcar consulta pelo plano ({especialidade}); "
+        "ou 2) falar com a nossa equipe de saúde?"
     )
 
 

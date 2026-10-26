@@ -1,0 +1,56 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Helena NÃO orienta o que fazer com a dose esquecida (é conduta): só checa sinais de alerta e encaminha a médico ou farmacêutico.
+id: cron-esqueci-o-remedio
+tema: cronicos
+titulo: "Esqueci ou parei o remédio de uso contínuo"
+publico: adulto
+como_a_pessoa_fala:
+  - "esqueci de tomar o remédio da pressão"
+  - "fiquei sem o remédio do diabetes"
+  - "parei a insulina"
+  - "acabou meu remédio e não tomei"
+  - "esqueci a dose de ontem, tomo duas hoje?"
+  - "parei o remédio por conta própria"
+  - "estou sem tomar o remédio há uns dias"
+  - "não consegui comprar o remédio"
+  - "tomei o remédio duas vezes sem querer"
+  - "posso parar o remédio?"
+perguntas_de_alerta:
+  - pergunta: "Apareceu de repente dor ou aperto forte no peito, falta de ar forte, fraqueza ou dormência em um lado do corpo, boca torta ou fala enrolada?"
+    sinal: sinais_de_infarto_avc_ou_emergencia_hipertensiva
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.14, Manifestações clínicas da emergência hipertensiva; SAMU 192 — Quando chamar (MS, gov.br): suspeita de infarto ou AVC, crises hipertensivas"
+  - pergunta: "A pessoa está muito sonolenta ou difícil de acordar, confusa, não consegue engolir ou teve convulsão?"
+    sinal: alteracao_de_consciencia_ou_convulsao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4 (hipoglicemia e hiperglicemia graves: alteração de consciência, convulsões, torpor); SAMU 192 — Quando chamar (MS, gov.br): crises convulsivas"
+  - pergunta: "Quem tem diabetes: está vomitando, com dor de barriga, respiração rápida, muita sede ou boca muito seca?"
+    sinal: descompensacao_hiperglicemica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.4, Hiperglicemia, regra 9 (procurar unidade de emergência); a suspensão da insulina é causa citada de hiperglicemia grave (§2.4)"
+  - pergunta: "Se você mediu a pressão e deu 18 por 12 ou mais, ou se está com dor de cabeça forte ou tontura desde que ficou sem o remédio?"
+    sinal: pressao_elevada_apos_suspensao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Linha de Cuidado do Adulto com Hipertensão (MS, 2021), Crise hipertensiva e Quadro 5 (relato de suspensão recente de anti-hipertensivos: reavaliar); Caderno de Atenção Básica 28 vol. II, §2.14"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: "Cardiologia ou Endocrinologia e metabologia, conforme a doença"
+  fonte: "TelessaúdeRS Cardiologia Adulto, Protocolo 5; TelessaúdeRS Endocrinologia Adulto, Protocolo 1; Resolução CFM 2.380/2024"
+orientacao_final: "Não tome dose dobrada nem mude o remédio por conta própria. Antes de retomar, pular ou mudar, fale com o seu médico ou com o farmacêutico, que podem dizer o que fazer no seu caso. Se ficou sem o remédio, procure a sua unidade ou o seu médico para não ficar sem tratamento. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.4 (descompensação do diabetes); §2.14 (hipertensão — alterações agudas)"
+  - nome: "Linha de Cuidado do Adulto com Hipertensão Arterial Sistêmica (SAPS/MS, 2021)"
+    secao: "Crise hipertensiva; Quadro 5"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: suspeita de infarto ou AVC; crises hipertensivas; crises convulsivas"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cardiologia Adulto (revisão 2022) e Endocrinologia Adulto (revisão 2021)"
+    secao: "Cardiologia Protocolo 5; Endocrinologia Protocolo 1"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; Linha de Cuidado HAS: CC BY-NC-SA 4.0 — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"
+# Lacuna: nenhuma fonte do levantamento orienta o leigo sobre dose esquecida (é conduta). Cobre só pressão e diabetes;
+# para outros remédios contínuos (convulsão, psiquiátricos, anticoagulantes etc.) usar o uni-alerta-universal e encaminhar a médico/farmacêutico.

@@ -31,7 +31,7 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "classify": ("classify-v5.4", "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"),
     # DL-0088 (12/10/2026): nunca dizer que nao ve dado nenhum da pessoa.
     # DL-0090 (13/10/2026): `caso_aberto` no contexto; oferta de pessoa na forma aprovada.
-    "response": ("response-v14", "f61f0676d365d0e9ea05021af1dcfca256e6ba9e2c56df19601914a73c892bd3"),
+    "response": ("response-v15", "54635b3d4fe49c6b8e350233b35d0f44b407aeb910cb8fe65f3a3863cef92955"),
     # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
         "classify-v7.1",
@@ -50,9 +50,10 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
-    # 15/10/2026 (L-03 do red team): formas indiretas de promessa de contato (ver `docs/decisions-log.md`).
-    "recusa-v11",
-    "85c9d99435fd867d5b431e47793aaed244cff4676a7f32453966e15d687ed905",
+    # 25/10/2026 (avaliacao r5b): "vou te encaminhar", passar/transferir para um humano e "a equipe vai te
+    # responder" passam a ser mencao de encaminhamento (ver `docs/decisions-log.md`).
+    "recusa-v12",
+    "e43025e8b6092f5f335e6bcc83d88fa6f5a8ef4cef427ad6663d23a61387bc88",
 )
 
 

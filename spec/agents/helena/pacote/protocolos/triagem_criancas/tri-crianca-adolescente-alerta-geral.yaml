@@ -1,0 +1,46 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-adolescente-alerta-geral
+tema: triagem_criancas
+titulo: "Adolescente com queixa de saúde (sem protocolo próprio)"
+publico: adolescente
+como_a_pessoa_fala:
+  - "meu filho de 14 anos está passando mal"
+  - "minha filha adolescente desmaiou"
+  - "meu filho de 15 anos bebeu demais"
+  - "adolescente com falta de ar"
+  - "minha filha de 13 anos está muito triste"
+  - "tenho 16 anos e estou passando mal"
+  - "meu filho adolescente tomou remédios"
+  - "adolescente com dor no peito"
+perguntas_de_alerta:
+  - pergunta: "A pessoa tentou se machucar agora, ou tomou remédios, álcool ou outra substância e está passando mal?"
+    sinal: tentativa_ou_intoxicacao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 – Quando chamar (MS, página gov.br) – tentativas de suicídio; intoxicação exógena e envenenamento"
+  - pergunta: "Ela fala em se matar, em sumir ou em se machucar?"
+    sinal: ideacao_suicida
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.23 (p. 216-234: risco de suicídio); mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018), módulo SUI Autoagressão/suicídio (p. 131)"
+  - pergunta: "Teve convulsão, desmaiou e não acorda direito, está com muita falta de ar, ou dor forte no peito que começou de repente?"
+    sinal: emergencia_clinica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 – Quando chamar (MS, página gov.br) – crises convulsivas, problemas cardiorrespiratórios, dores no peito de aparecimento súbito"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Medicina do adolescente (área de atuação) ou Clínica médica, conforme a idade"
+  fonte: "Lacuna: sem protocolo de encaminhamento para adolescentes; Resolução CFM 2.380/2024 (Pediatria; área de atuação Medicina do adolescente)"
+orientacao_final: "Ainda não temos um protocolo específico para adolescentes. Se não houver sinal de alerta, procure uma consulta para avaliação. Conversar com calma e sem julgamento ajuda o adolescente a contar o que está sentindo. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.23 (p. 216-234)"
+  - nome: "mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "SUI (p. 131)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Pediatria; Medicina do adolescente"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "SAMU gov.br: CC BY-ND 3.0 (só referência); Caderno 28: não comercial; mhGAP: CC BY-NC-SA 3.0 IGO — pendente jurídico"

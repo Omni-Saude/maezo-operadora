@@ -17,6 +17,8 @@ import {
 } from "./caseExperienceServiceFactory";
 import { createCaseCommunicationsClient } from "./caseCommunicationsClient";
 import { createStaffCaseClient } from "./staffCaseClient";
+import { StaffAdminPanel } from "./StaffAdminPanel";
+import { createStaffAdminClient } from "./staffAdminClient";
 import { StaffDocumentsPanel } from "./StaffDocumentsPanel";
 import { createStaffDocumentsClient } from "./staffDocumentsClient";
 import { StaffOperationsPanel } from "./StaffOperationsPanel";
@@ -87,6 +89,10 @@ const areaCapability: Partial<Record<StaffArea, PortalCapability>> = {
   // The operations panel reads the SAME human plane the queues read (task basis, command
   // receipt, escalation context), so it rides `human` like the queue areas do.
   operations: "human",
+  // D-40: the administration panel reads the reviewed staff-vínculo roster, which no other
+  // area reads — it rides its own READ capability, projectable only by a deployment that
+  // deliberately names the administrative-read profile.
+  administration: "staff_admin_read",
 };
 
 const areaTitle: Record<StaffArea, string> = {
@@ -166,6 +172,7 @@ export function StaffPortalExperience({
   const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
   const staffDocumentsClient = useMemo(() => createStaffDocumentsClient(), [sessionBinding]);
   const staffOperationsClient = useMemo(() => createStaffOperationsClient(), [sessionBinding]);
+  const staffAdminClient = useMemo(() => createStaffAdminClient(), [sessionBinding]);
 
   let content: React.ReactNode;
   if (notEnabled.has(activeArea)) {
@@ -238,7 +245,19 @@ export function StaffPortalExperience({
           </section>
         );
   } else {
-    content = <UnavailableArea title="Administração">Nenhuma função administrativa está disponível para esta sessão.</UnavailableArea>;
+    // D-40: the read-only roster panel renders only when this deployment turned the shadow
+    // signal on; OFF keeps the shipped stub so the visible surface does not move. The
+    // `staff_admin_read` capability is still required independently — the `notEnabled`
+    // branch above answers for a session without it. The area stays read-only by
+    // construction: no affordance for the administrative mutations exists here.
+    content = flags.includes("staff_admin_panel")
+      ? (
+          <StaffAdminPanel
+            client={staffAdminClient}
+            onSessionUnavailable={onSessionUnavailable}
+          />
+        )
+      : <UnavailableArea title="Administração">Nenhuma função administrativa está disponível para esta sessão.</UnavailableArea>;
   }
 
   return (

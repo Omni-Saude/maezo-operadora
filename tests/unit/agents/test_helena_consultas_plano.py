@@ -324,9 +324,7 @@ async def test_rascunho_que_omite_segmentacao_ou_acomodacao_vira_resposta_determ
     assert "Ambulatorial + Hospitalar" in enviado and "Enfermaria" in enviado
 
 
-@pytest.mark.parametrize(
-    "pergunta", ["meu plano esta ativo?", "to com o plano liberado pra usar?", "meu convênio tá valendo?"]
-)
+@pytest.mark.parametrize("pergunta", ["meu plano esta ativo?", "meu plano ainda está ativo?"])
 async def test_rascunho_certo_de_outra_pergunta_do_plano_nao_vira_o_cadastro_inteiro(pergunta: str) -> None:
     """DL-0154 (etapa 8, "texto do plano no lugar da resposta"): o rascunho que responde a pergunta fica."""
     rascunho = "Sim, seu plano PLANO SINTETICO ENFERMARIA está ativo e com atendimento liberado."
@@ -335,6 +333,19 @@ async def test_rascunho_certo_de_outra_pergunta_do_plano_nao_vira_o_cadastro_int
     await compilado.ainvoke(_entrada(message_body=pergunta))
     assert "está ativo e com atendimento liberado" in sender.sent[-1]
     assert "segmentação" not in sender.sent[-1]
+
+
+@pytest.mark.parametrize("pergunta", ["to com o plano liberado pra usar?", "meu convênio tá valendo?"])
+async def test_pergunta_de_liberado_ou_valendo_recebe_a_conclusao_direta(pergunta: str) -> None:
+    """Teste do dono (25/10/2026): "liberado pra usar?"/"ta' valendo?" e' a pergunta de apto -> a conclusao do
+    cadastro (sem modelo), nunca o cadastro inteiro."""
+    inferencia = _FakeInference([_classify(), "rascunho que nao deve ser usado"])
+    compilado, sender, _ = _grafo(inferencia, _Fonte())
+    await compilado.ainvoke(_entrada(message_body=pergunta))
+    assert sender.sent[-1].startswith(
+        "Sim. Pelo cadastro, o seu plano está ativo e liberado para atendimento"
+    )
+    assert "segmentação" not in sender.sent[-1] and "rascunho" not in sender.sent[-1]
 
 
 def test_omissao_so_vale_para_o_que_o_cadastro_tem() -> None:

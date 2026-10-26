@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-batida-cabeca
+tema: triagem_criancas
+titulo: "Queda ou batida na cabeça (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho caiu e bateu a cabeça"
+  - "a criança caiu da cama"
+  - "minha filha bateu a cabeça na mesa"
+  - "o bebê caiu do sofá"
+  - "fez um galo enorme na testa"
+  - "meu filho caiu da escada"
+  - "a criança bateu a cabeça e vomitou"
+  - "caiu do trocador"
+  - "batida na cabeça no parquinho"
+perguntas_de_alerta:
+  - pergunta: "Depois da batida, ela teve convulsão ou está difícil de acordar / não responde?"
+    sinal: convulsao_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito) – convulsão, sonolência excessiva; Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - pergunta: "Ela desmaiou, mesmo que por pouco tempo, vomitou 3 vezes ou mais, ou saiu sangue ou líquido claro pelo nariz ou pelo ouvido?"
+    sinal: sinais_de_alerta_tce
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito)"
+  - pergunta: "Ela está muito irritada ou confusa, com a fala enrolada, fraqueza num braço ou perna, dificuldade para andar ou vendo dobrado? Se tiver menos de 2 anos: choro que não acalma, recusa mamar ou comer, está diferente do jeito dela, ou a moleira ficou estufada?"
+    sinal: alteracao_neurologica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito) – inclui sinais específicos de menores de 2 anos"
+  - pergunta: "A queda foi alta: mais de 90 cm (altura da cintura de um adulto) se tiver menos de 2 anos, ou mais de 1,5 m se tiver 2 anos ou mais?"
+    sinal: mecanismo_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'O que é considerado um mecanismo de trauma grave?' (reescrito)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Se a criança está bem, ela pode dormir normalmente, mas observe de perto nas próximas horas se ela acorda, mama ou come e se comporta como sempre. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025)"
+    secao: "Quando devo levar meu filho ao hospital?; mecanismo de trauma grave"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo); p. 61-63 (prevenção de quedas)"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "SBP direitos reservados: reescrito, pedir autorização; Caderneta da Criança: CC BY-NC-SA 4.0"

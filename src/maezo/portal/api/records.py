@@ -86,10 +86,12 @@ class SessionDTO(PrivateRecord):
     roles: tuple[str, ...]
     expires_at: datetime
     csrf_token: str = Field(repr=False)
-    #: Canonical order; informative only, never an authorization input.
-    capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]
+    #: Canonical order; informative only, never an authorization input. D-40 appends the
+    #: administrative READ capability (`staff_admin_read`), which exists in no default
+    #: profile: it is projected only when the deployment deliberately names the profile.
+    capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor", "staff_admin_read"], ...]
     #: Closed set of shadow-panel signals this deployment turns on (`PortalSettings`), empty in
     #: the shipped state. The browser uses it only to choose stub versus panel — like
     #: `capabilities`, it grants nothing: every route still refuses on its own. Canonical
     #: order; the browser validator refuses anything out of order or duplicated.
-    flags: tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...] = ()
+    flags: tuple[Literal["staff_documents_panel", "staff_operations_panel", "staff_admin_panel"], ...] = ()

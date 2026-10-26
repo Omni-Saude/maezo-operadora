@@ -66,8 +66,10 @@ CANAIS_CONFIRMADOS: tuple[CanalConfirmado, ...] = (
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
 RECUSA_DE_SAIDA_VERSION = (
-    "recusa-v11"  # 15/10/2026 (L-03 do red team): `PROMESSA_DE_HUMANO_PROIBIDA` ganha as
+    "recusa-v12"  # 25/10/2026 (avaliacao r5b): mencao de encaminhamento com clitico ("vou te encaminhar"),
 )
+# passar/transferir para um humano e "a equipe vai te responder" contam como fato. v11 — 15/10/2026 (L-03
+# do red team): `PROMESSA_DE_HUMANO_PROIBIDA` ganha as
 # formas indiretas ("pedir que ele entre em contato", "vou verificar com a equipe"). v10 — 14/10/2026 (B-05 do
 # red team): grupo `afirma_autorizacao` — a
 # Helena confirmou "a autorizacao foi aprovada, protocolo 999" colado no chat por quem escreveu o
@@ -381,7 +383,7 @@ _SUJEITO_QUE_ASSUME = r"(?:profissional|atendente|enfermeir\w+|enfermagem|medic[
 _ACAO_DE_ASSUNCAO = (
     r"(?:(?:vai|vao|ira|irao)\s+(?:(?:te|lhe|me|nos|voce)\s+)?"
     r"(?:continuar|dar\s+continuidade|assumir|atender|avaliar|retornar"
-    r"|ligar|falar|entrar\s+em\s+contato)|entrarao?\s+em\s+contato|assumiu|assumira)"
+    r"|ligar|falar|responder|entrar\s+em\s+contato)|entrarao?\s+em\s+contato|assumiu|assumira)"
 )
 
 MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
@@ -389,6 +391,13 @@ MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
     r"\bencaminhamos\b",
     r"\bencaminhei\b",
     r"\bvou\s+encaminhar\b",
+    # Avaliacao r5b (25/10/2026): "Vou TE encaminhar para um atendente humano" (clitico no meio) passou
+    # inteira num turno sem caso. A forma com clitico, e passar/transferir com destino humano, contam como
+    # fato; negada ("nao vou passar para a equipe", a recusa curta) nao conta.
+    r"(?<!nao )\bvou\s+(?:te|lhe)\s+encaminhar\b",
+    r"\b(?:te|lhe)\s+encaminhei\b",
+    r"(?<!nao )\bvou\s+(?:te\s+|lhe\s+)?(?:passar|transferir)\s+(?:voce\s+)?(?:para|pra)\s+"
+    r"(?:um|uma|a|o|nossa|nosso)?\s*(?:atendente|pessoa|humano|equipe|profissional)",
     r"\bencaminhad[oa]s?\b",
     # 2. SUJEITO QUE ASSUME + ACAO DE ASSUNCAO, na mesma oracao, SEM `nao` NO MEIO.
     #

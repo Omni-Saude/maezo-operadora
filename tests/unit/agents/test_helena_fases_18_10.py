@@ -30,6 +30,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ENCERRAMENTO_FALHOU,
     RESPOSTA_RECUSA_DE_EQUIPE,
 )
+from maezo.agents.helena.habilidades.conversa.leitura_curta import resposta_de_cortesia
 from maezo.conhecimento import base_saude as b
 from maezo.conhecimento import busca_semantica as bsem
 from maezo.conhecimento import saude_gerativa as sg
@@ -126,7 +127,9 @@ async def test_recusa_pura_nunca_vira_risco_psicossocial(conversa_id: str, mensa
     conversa = _Conversa(conversa=conversa_id)
     resultado = await conversa.diz(mensagem, _RISCO)
     assert conversa.motivos == [], "nenhum caso, nunca risco psicossocial"
-    assert _texto(resultado) == RESPOSTA_RECUSA_DE_EQUIPE
+    # Avaliacao r5 (25/10/2026): sem oferta e sem caso, so' o reconhecimento curto.
+    assert _texto(resultado) == resposta_de_cortesia(mensagem)
+    assert _texto(resultado) != RESPOSTA_RECUSA_DE_EQUIPE
     assert "188" not in _texto(resultado)
     assert conversa.modelo.respostas == [_RISCO], "o classificador nao foi chamado"
 

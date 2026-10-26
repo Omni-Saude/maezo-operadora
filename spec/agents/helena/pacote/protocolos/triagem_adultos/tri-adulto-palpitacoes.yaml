@@ -1,0 +1,49 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Lacuna parcial: o Caderno 28 não tem capítulo de palpitação; os sinais vêm do TelessaúdeRS (critérios de urgência,
+# escritos para profissional) + SAMU, adaptados para perguntas de leigo. Nenhuma fonte de triagem leiga específica.
+id: tri-adulto-palpitacoes
+tema: triagem_adultos
+titulo: "Palpitações (coração disparado)"
+publico: adulto
+como_a_pessoa_fala:
+  - "meu coração está disparado"
+  - "estou com batedeira"
+  - "sinto o coração batendo errado"
+  - "meu coração está acelerado do nada"
+  - "sinto o coração falhando"
+  - "coração pulando no peito"
+  - "estou com taquicardia"
+  - "o coração está batendo forte na garganta"
+perguntas_de_alerta:
+  - pergunta: "Junto com o coração disparado, você está com dor ou aperto no peito?"
+    sinal: palpitacao_com_dor_toracica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 3 – Arritmias (arritmia com suspeita de síndrome coronariana aguda → urgência/emergência); SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios; dores no peito de aparecimento súbito"
+  - pergunta: "Você desmaiou ou quase desmaiou, ou está muito pálido, suando frio ou confuso?"
+    sinal: palpitacao_com_sincope_ou_hipoperfusao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 3 – Arritmias (arritmia com sinais de hipoperfusão ou síncope → urgência/emergência); SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios"
+  - pergunta: "Você está com falta de ar junto com a batedeira?"
+    sinal: palpitacao_com_dispneia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 3 – Arritmias (arritmia com dispneia → urgência/emergência)"
+  - pergunta: "A batedeira vai e volta, acontecendo várias vezes?"
+    sinal: palpitacao_recorrente
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 3 – Arritmias (palpitação recorrente: investigação inicial na APS e, se origem indeterminada, Cardiologia)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Cardiologia"
+  fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 3 – Arritmias; Resolução CFM 2.380/2024"
+orientacao_final: "Palpitação nem sempre é problema no coração: café, energéticos, alguns remédios e a ansiedade também podem causar. Conte ao clínico o que você usou e quando a batedeira aparece. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cardiologia Adulto (2022)"
+    secao: "Protocolo 3 – Arritmias (urgência/emergência; nota 2 sobre investigação de palpitação recorrente: causas psicogênicas, medicamentos, substâncias estimulantes)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada (Cardiologia 2022) — pendente jurídico; MS: reprodução citando a fonte, não comercial — pendente jurídico"

@@ -1,0 +1,54 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Alerta universal da criança (2 meses a 5 anos): usado para QUALQUER queixa de criança sem protocolo próprio.
+# Bebê com MENOS de 2 meses: a Caderneta da Criança (p. 23) tem lista própria e mais ampla (inclui febre de 37,5 °C ou mais,
+# temperatura de 35,5 °C ou menos, pus no ouvido, urina escura, fezes com sangue) — usar o protocolo do bebê menor de 2 meses.
+# Crianças acima de 5 anos: sem lista oficial de sinais de perigo (lacuna do levantamento); usar este alerta com cautela.
+id: uni-alerta-universal-crianca
+tema: triagem_criancas
+titulo: "Alerta universal (criança)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho não está bem"
+  - "minha filha está estranha"
+  - "o bebê está diferente hoje"
+  - "meu filho está passando mal"
+  - "a criança está muito quietinha"
+  - "estou preocupada com meu filho"
+  - "meu neto está doente"
+  - "minha filha está ruinzinha"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão (tremores ou ataque), desmaiou, ou está muito molinha e sonolenta, difícil de acordar?"
+    sinal: convulsao_ou_crianca_letargica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança (MS, 6ª ed. 2023), p. 23 'Sinais de perigo'; AIDPI Criança 2 meses–5 anos (MS/OPAS, 2017), Quadros de Procedimentos, 'Verificar se há sinais gerais de perigo' (letárgica ou inconsciente; convulsões)"
+  - pergunta: "A criança está com muita dificuldade para respirar: gemendo, com o nariz abrindo e fechando, a barriga ou as costelas afundando a cada respiração, ou com os lábios arroxeados?"
+    sinal: dificuldade_respiratoria
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança (MS, 6ª ed. 2023), p. 23 'Sinais de perigo' (dificuldade para respirar ou respiração rápida); AIDPI Criança (2017), 'Verificar se há sinais gerais de perigo' (batimento de asa do nariz e/ou gemência)"
+  - pergunta: "A criança está respirando muito rápido, não consegue mamar nem tomar líquidos, vomita tudo o que come e bebe, ou a pele, quando beliscada de leve, demora para voltar ao normal?"
+    sinal: respiracao_rapida_nao_bebe_vomita_tudo_ou_desidratacao
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança (MS, 6ª ed. 2023), p. 23 'Sinais de perigo' (não consegue mamar ou tomar líquidos; vomita tudo; pele com pouca elasticidade); AIDPI Criança (2017), 'Verificar se há sinais gerais de perigo' (não consegue beber ou mamar; vomita tudo)"
+  - pergunta: "Apareceram manchas avermelhadas ou arroxeadas na pele da criança?"
+    sinal: manchas_vermelhas_ou_roxas
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança (MS, 6ª ed. 2023), p. 23 'Sinais de perigo' (manchas avermelhadas ou arroxeadas na pele)"
+# Alinhado (25/10) com os protocolos tri-crianca-*: respiração rápida → pronto-socorro; dificuldade grave → 192.
+# Destinos: AIDPI vermelho → PRONTO_SOCORRO_AGORA; LIGAR_192_AGORA quando convulsão, não acorda ou não respira bem (MODELO.md).
+# A Caderneta orienta ligar 192 se houver qualquer sinal de perigo e dificuldade para levar a criança ao serviço de urgência.
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria"
+  fonte: "Sem protocolo de pediatria geral no TelessaúdeRS (lacuna do levantamento): regra fixa — pediatra como porta de entrada; nome oficial: Pediatria (Resolução CFM 2.380/2024)"
+orientacao_final: "Pelo que você contou, a criança não tem agora nenhum sinal de perigo. Vale levá-la ao pediatra nos próximos dias. Se a criança tiver algum desses sinais e for difícil levá-la ao serviço de urgência, ligue 192 (a ligação é gratuita). Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança — Menino (MS, 6ª ed. 2023)"
+    secao: "p. 23 'Sinais de perigo' (crianças maiores de 2 meses)"
+  - nome: "AIDPI Criança — Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "Avaliar e classificar — Verificar se há sinais gerais de perigo"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: Caderneta e AIDPI sob CC BY-NC-SA 4.0 (não comercial) — pendente jurídico"
