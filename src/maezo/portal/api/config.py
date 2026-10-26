@@ -93,6 +93,21 @@ class PortalSettings(BaseSettings):
     #: efeito, e o slot de fábrica segue sem default (503). Nenhum `deploy/**` pode ligá-la
     #: neste programa.
     staff_commission_policies: bool = False
+    #: REG-1.1 (`docs/plans/maezo-completion-program.md` §W1 REG; OP21 `legitimacy.screen`).
+    #: Superfície staff interna da triagem de legitimidade da pessoa jurídica contratante em
+    #: planos coletivos — o checklist FECHADO do parecer do Diretor Jurídico (2026-10-26,
+    #: snapshot canônico sha256 `d80740cc…`, registrado em
+    #: `docs/compliance/legal/PARECER-OP21-RESPOSTA-LUCAS-2026-10-26.md` sha256 `56b8887d…`),
+    #: desenhado em `OP21-LEGITIMACY-SCREEN-DESIGN-V1.md` (sha256 `5639f41d…`, §4 DECISÃO 3;
+    #: substrato já em main: migração 0030 e store, PR #1022). DARK: OFF por padrão — o
+    #: programa é shadow e virar esta chave é ato da onda ROLL, com janela de evidência e
+    #: revisor nomeados. OFF = nenhuma superfície: a resposta do caminho é byte-idêntica à de
+    #: hoje — a rota recusa 403 `operation_forbidden` (flag) / 503 `dependency_unavailable`
+    #: (slot de fábrica sem default, molde D-36) antes de qualquer efeito, e o BLOQUEIO
+    #: comercial nem existe por esta chave: a postura enforcing é classe sucessora com bind
+    #: explícito em composition root (desenho §4, PR 4), nunca knob de ambiente. Nenhum
+    #: `deploy/**` pode ligá-la neste programa.
+    collective_legitimacy_screen: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.

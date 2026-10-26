@@ -7,10 +7,13 @@ Por que esta cerca existe
 "flags provadamente OFF em prod". As flags dark registradas nesta cerca foram construidas
 dark (#955 canal DSR, #960/#963 paineis staff, #985 D-40 painel staff de administracao
 read-only, #965 pontes de erasure; D-36 do dono, 25/10/2026, a superficie interna de
-estruturas de ajuste de comissao) e a SENTENCA que cada docstring delas declara e' sempre
+estruturas de ajuste de comissao; OP21 `legitimacy.screen`, substrato #1022 + tela do PR 2
+da cadeia, a triagem de legitimidade da pessoa juridica contratante em planos coletivos,
+parecer do Diretor Juridico 2026-10-26 sha `d80740cc…`, desenho sha `5639f41d…`) e a
+SENTENCA que cada docstring delas declara e' sempre
 a mesma: virar a chave e ato da onda ROLL (ou, na D-36, ato proprio do dono
 pos-ratificacao A8 Forma 1) e **nenhum `deploy/**` pode liga-la neste programa**
-(`src/maezo/portal/api/config.py:51,60,70,82,93`;
+(`src/maezo/portal/api/config.py:51,60,70,82,93,108`;
 `src/maezo/platform/identity_bridges.py:24`). Ate este pacote essa proibicao era so' prosa:
 a cerca de DL-0049 (`check_portal_direct_completion.py`) cobre SOMENTE
 `MAEZO_PORTAL_DIRECT_COMPLETION`/`MAEZO_PORTAL_CORS_ORIGINS`, e a reconciliacao de env
@@ -25,7 +28,7 @@ O que ela reprova
      silenciada.
   3. O `env_prefix` de `PortalSettings` deixando de ser o literal `"MAEZO_PORTAL_"` — os
      nomes de env pinados abaixo so' significam o que dizem sob esse prefixo.
-  4. O nome de env de qualquer uma das flags registradas (cinco do portal + as DUAS
+  4. O nome de env de qualquer uma das flags registradas (seis do portal + as DUAS
      pontes de erasure) aparecendo em QUALQUER arquivo de `deploy/**` — um template nao tem ambiente
      provavel, e a sentenca de cada flag e' "nenhum `deploy/**` pode liga-la": mencao nenhuma
      e' aceitavel neste programa, nem comentada, nem "desligada" (o mesmo padrao de
@@ -71,22 +74,26 @@ DEFAULTS_EXIGIDOS: tuple[tuple[Path, str, str, object], ...] = (
     (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
+    (CONFIG_PORTAL, "PortalSettings", "collective_legitimacy_screen", False),
 )
 
-#: As flags dark registradas nesta cerca e os nomes de env EXATOS que as ligam. Os cinco
+#: As flags dark registradas nesta cerca e os nomes de env EXATOS que as ligam. Os seis
 #: primeiros derivam de `env_prefix` + campo (conferidos contra a arvore pela cerca 3); os
 #: dois ultimos sao constantes de modulo em `identity_bridges.py` (cerca 5).
 #: `bridge_flag_enabled` so' habilita com o literal `true` — OFF e' todo o resto, inclusive
 #: ausente. Criterio de entrada nesta lista (escopo da cerca): flag DARK do programa cuja
 #: docstring shipped declara "nenhum `deploy/**` pode liga-la neste programa" — por isso
 #: `staff_admin_panel` do D-40 (#985, sentença em `config.py:82`) entrou aqui no follow-up
-#: do #987, do mesmo jeito que `staff_commission_policies` do D-36 (#987, `config.py:93`).
+#: do #987, do mesmo jeito que `staff_commission_policies` do D-36 (#987, `config.py:93`) e
+#: que `collective_legitimacy_screen` do OP21 (substrato #1022, sentença em `config.py:108`)
+#: entra no PR 2 da tela — mesmo criterio, mesmo escopo de prova.
 ENV_FLAGS_PROGRAMA: tuple[str, ...] = (
     "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
     "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
     "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
     "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
     "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
+    "MAEZO_PORTAL_COLLECTIVE_LEGITIMACY_SCREEN",
     "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
     "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
 )
@@ -258,7 +265,7 @@ def main() -> int:
             print(f"  - {a}", file=sys.stderr)
         return 1
     print(
-        "check_program_dark_flags: ok — as 7 flags dark do programa com default literal OFF no "
+        "check_program_dark_flags: ok — as 8 flags dark do programa com default literal OFF no "
         "codigo, zero mencao em deploy/** e os nomes de env das pontes batendo com os pinos."
     )
     return 0
