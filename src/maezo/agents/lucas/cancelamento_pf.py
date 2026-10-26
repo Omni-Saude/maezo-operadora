@@ -109,6 +109,24 @@ TEXTO_MANTIDO: Final[str] = (
     "continua ativo. Se quiser entender, é só pedir aqui para falar com uma pessoa da equipe."
 )
 
+#: Avaliacao r5b (25/10/2026): "qual meu protocolo mesmo?" logo depois do pedido. O protocolo sai da INSTANCIA
+#: VIVA do pedido (o mesmo `protocolo_do_cancelamento` do recebimento), nunca de memoria nem de modelo.
+TEXTO_PROTOCOLO_DO_PEDIDO: Final[str] = (
+    "O protocolo do seu pedido de cancelamento é {protocolo}. "
+    "A nossa equipe vai concluir o pedido. Quando terminar, você recebe a confirmação."
+)
+TEXTO_PROTOCOLO_DO_PEDIDO_CURTO: Final[str] = "Protocolo do seu pedido de cancelamento: {protocolo}."
+#: Nenhum pedido de cancelamento vivo na chave desta pessoa: diz isso, sem protocolo, e os canais.
+TEXTO_PROTOCOLO_SEM_PEDIDO: Final[str] = (
+    "Não encontrei um pedido de cancelamento em andamento por aqui. Se você fez outro pedido, fale com a "
+    "central pelo aplicativo Austa Clínicas ou pelo portal do plano."
+)
+#: A leitura do pedido falhou (ou a chave do cancelamento esta' desligada): a verdade, sem protocolo.
+TEXTO_PROTOCOLO_INDISPONIVEL: Final[str] = (
+    "Não consegui consultar o protocolo agora. Tente de novo daqui a pouco. Se preferir, fale com a central "
+    "pelo aplicativo Austa Clínicas ou pelo portal do plano."
+)
+
 #: Versao dos textos acima (auditoria; sobe a cada mudanca de redacao).
 TEXTOS_CANCEL_PF_VERSAO: Final[str] = "cancel-pf-v2"
 
@@ -357,6 +375,10 @@ __all__ = [
     "TEXTO_PEDIDO_JA_REGISTRADO",
     "TEXTO_PEDIDO_NAO_REGISTRADO",
     "TEXTO_PEDIDO_RECEBIDO",
+    "TEXTO_PROTOCOLO_DO_PEDIDO",
+    "TEXTO_PROTOCOLO_DO_PEDIDO_CURTO",
+    "TEXTO_PROTOCOLO_INDISPONIVEL",
+    "TEXTO_PROTOCOLO_SEM_PEDIDO",
     "TIPOS_PLANO_PF",
     "FatosCancelamento",
     "FatosIndisponiveis",

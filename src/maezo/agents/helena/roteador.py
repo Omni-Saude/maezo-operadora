@@ -433,8 +433,13 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
     """
     from maezo.agents.helena import roteador as _rt
 
-    if state.get("error") or self._seguimento_com_o_lucas(state) is not None:
-        # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
+    if (
+        state.get("error")
+        or self._seguimento_com_o_lucas(state) is not None
+        or _depois_do_lucas.aplica(self, state)
+    ):
+        # Falha do proprio turno (`receive`), conversa em seguimento com o Lucas, fechamento logo depois dele
+        # ou a pergunta do protocolo do pedido (avaliacao r5b): o caminho de sempre, sem o modelo do roteador.
         return await self.classify(state)
     if (claro := self._sinal_claro_pelo_texto(state)) is not None:
         # Rodada de seguranca de 25/10/2026: sinal CLARO afirmado (desmaiou, parou de respirar,
@@ -798,6 +803,10 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
     if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
         # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
         return True
+    if texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO):
+        # Avaliacao r5b (25/10/2026): a resposta curta de cortesia e' texto fixo com ou sem o roteador ativo
+        # (o fechamento logo depois do Lucas nao vira rascunho do modelo).
+        return True
     if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
         return False
     inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
@@ -907,5 +916,6 @@ from maezo.agents.helena.graph import (  # noqa: E402
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
 from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
+from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402

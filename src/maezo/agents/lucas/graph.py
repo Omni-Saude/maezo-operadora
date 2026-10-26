@@ -162,6 +162,7 @@ from maezo.domain.conversa.cobranca_foco import (
     FOCO_JA_PAGUEI,
     FOCO_LINK_SUSPEITO,
     FOCO_PAGAMENTO_AO_PRESTADOR,
+    FOCO_PROTOCOLO,
     FOCO_ULTIMA,
     foco_valido,
 )
@@ -206,8 +207,13 @@ from .cancelamento_pf import (
     TEXTO_PEDIDO_JA_REGISTRADO,
     TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_RECEBIDO,
+    TEXTO_PROTOCOLO_DO_PEDIDO,
+    TEXTO_PROTOCOLO_DO_PEDIDO_CURTO,
+    TEXTO_PROTOCOLO_INDISPONIVEL,
+    TEXTO_PROTOCOLO_SEM_PEDIDO,
     TIPOS_PLANO_PF,
     protocolo_do_cancelamento,
+    protocolo_valido,
 )
 from .prompts import (
     COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
@@ -370,6 +376,7 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "caso_aberto_cobranca": False,
     "avisos_de_caso_aberto": 0,
     "cancelamento_resposta": "",
+    "cancelamento_protocolo": "",
     "iniciar_cancelamento": False,
     "resposta_sem_dados": False,
     "resposta_memoria_ref": "",
@@ -498,6 +505,9 @@ class LucasState(TypedDict, total=False):
     #: Rodada 12: o que o Lucas responde a um pedido de CANCELAMENTO sem abrir o processo: `empresa`,
     #: `administradora` (o titulo e' de terceiro), `confirmar` (a pergunta unica) ou `desistiu`.
     cancelamento_resposta: str
+    #: Avaliacao r5b (25/10/2026): o protocolo LIDO da instancia viva do pedido (`CAN-XXXX-XXXX`) quando a
+    #: pessoa pergunta por ele (`cancelamento_resposta="protocolo"`). Nunca do chamador.
+    cancelamento_protocolo: str
     #: Rodada 12: o pedido foi CONFIRMADO (PF, pergunta pendente) — `start_process` inicia SP-OP-CANCEL-001.
     iniciar_cancelamento: bool
     #: Rodada 12: a fonte nao entregou fatos (indisponivel): a resposta e' a constante honesta, sem caso.
@@ -3565,6 +3575,10 @@ class LucasGraph:
         conta como PF mesmo sem o pagador. Desligada, nada disto roda.
         """
         v1 = self._cancel_pf_v1
+        if _foco_da_pergunta(state) == FOCO_PROTOCOLO:
+            # Avaliacao r5b (25/10/2026): "qual meu protocolo mesmo?" — o protocolo do pedido JA' feito, lido
+            # do motor. Nunca a pergunta de confirmacao de novo, nunca um protocolo inventado.
+            return await self._responder_protocolo(state, dmn_refs)
         if (
             v1
             and state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
@@ -3592,6 +3606,29 @@ class LucasGraph:
         if pendente and confirmacao == "nega":
             return self._responder_cancelamento("desistiu", dmn_refs)
         return self._responder_cancelamento("confirmar", dmn_refs)
+
+    async def _responder_protocolo(self, state: LucasState, dmn_refs: dict[str, str]) -> dict[str, Any]:
+        """O protocolo do pedido de cancelamento DESTA pessoa: a instancia VIVA de SP-OP-CANCEL-001 na chave
+        `CANCEL-{tenant}-{identidade}` (a mesma do start) da' o protocolo (`protocolo_do_cancelamento`, igual
+        do recebimento). Sem instancia viva: "nao encontrei". Chave desligada, transporte sem leitura ou falha
+        de leitura: a verdade ("nao consegui consultar agora") e os canais — nunca um protocolo inventado."""
+        resposta, protocolo = "protocolo_indisponivel", ""
+        buscar = getattr(self._cibseven, "find_active_instance", None)
+        if self._cancel_pf_v1 and callable(buscar):
+            try:
+                ativa = await buscar(self._chave_do_cancelamento(state))
+                if ativa is None:
+                    resposta = "protocolo_sem_pedido"
+                else:
+                    instance_id = getattr(ativa, "instance_id", None)
+                    if isinstance(instance_id, str) and instance_id.strip():
+                        resposta, protocolo = "protocolo", protocolo_do_cancelamento(instance_id)
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:
+                logger.warning("lucas_protocolo_leitura_falhou", error_type=type(exc).__name__)
+        logger.info("lucas_protocolo_do_pedido", resposta=resposta)
+        return {**self._responder_cancelamento(resposta, dmn_refs), "cancelamento_protocolo": protocolo}
 
     @staticmethod
     def _responder_cancelamento(resposta: str, dmn_refs: dict[str, str]) -> dict[str, Any]:
@@ -3868,6 +3905,18 @@ class LucasGraph:
             "conversation_id": str(state.get("conversation_id", "")),
         }
 
+    @staticmethod
+    def _chave_do_cancelamento(state: LucasState) -> str:
+        """`CANCEL-{tenant}-{identidade}`: a chave do pedido de cancelamento (start e leitura)."""
+        pseudo = str(state.get("beneficiario_pseudo_id", ""))
+        return mint_contract_business_key(
+            CANCEL_KEY_FAMILY,
+            str(state.get("tenant_id", "")),
+            numero_contrato="",
+            matricula_beneficiario=pseudo,
+            beneficiario_pseudo_id=pseudo,
+        )
+
     async def _start_cancelamento(self, state: LucasState) -> dict[str, Any]:
         """Inicia SP-OP-CANCEL-001 (pedido do beneficiario, confirmado) pelo start idempotente e auditado.
 
@@ -3880,13 +3929,7 @@ class LucasGraph:
         (`individual`), a confirmar pela analise humana."""
         tenant = str(state.get("tenant_id", ""))
         pseudo = str(state.get("beneficiario_pseudo_id", ""))
-        business_key = mint_contract_business_key(
-            CANCEL_KEY_FAMILY,
-            tenant,
-            numero_contrato="",
-            matricula_beneficiario=pseudo,
-            beneficiario_pseudo_id=pseudo,
-        )
+        business_key = self._chave_do_cancelamento(state)
         variables: dict[str, Any] = {
             "tenant_id": tenant,
             "source_agent_id": AGENT_ID_LUCAS,
@@ -4418,6 +4461,15 @@ class LucasGraph:
         """A resposta a um pedido de cancelamento que NAO abre processo (rodada 12). A pergunta de confirmacao
         grava a propria referencia como memoria — e' o que torna a confirmacao seguinte valida."""
         resposta = state.get("cancelamento_resposta")
+        protocolo = state.get("cancelamento_protocolo")
+        if resposta == "protocolo" and not protocolo_valido(protocolo):
+            resposta = "protocolo_indisponivel"  # nunca um protocolo fora da forma
+        if resposta == "protocolo":
+            mensagem = self._mensagem(
+                TEXTO_PROTOCOLO_DO_PEDIDO.format(protocolo=protocolo), facts, VALORES_PROMPT_VERSION, state
+            )
+            mensagem["curta"] = TEXTO_PROTOCOLO_DO_PEDIDO_CURTO.format(protocolo=protocolo)
+            return mensagem
         texto = {
             "empresa": TEXTO_CANCELAMENTO_EMPRESA,
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
@@ -4425,6 +4477,8 @@ class LucasGraph:
             "desistiu": TEXTO_PEDIDO_NAO_REGISTRADO if self._cancel_pf_v1 else TEXTO_CANCELAMENTO_DESISTIU,
             # DL-0111 (so' com a chave): o pedido e' do titular; oferta de pessoa, sem processo.
             "dependente": TEXTO_DEPENDENTE,
+            "protocolo_sem_pedido": TEXTO_PROTOCOLO_SEM_PEDIDO,
+            "protocolo_indisponivel": TEXTO_PROTOCOLO_INDISPONIVEL,
         }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)
         mensagem = self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
         if resposta == "confirmar":

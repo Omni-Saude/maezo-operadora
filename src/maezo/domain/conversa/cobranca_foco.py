@@ -32,6 +32,7 @@ CobrancaFoco = Literal[
     "ja_paguei",
     "consequencia_do_atraso",
     "link_suspeito",
+    "protocolo",
 ]
 
 #: O dominio FECHADO do foco. `geral` e' o default (nenhum termo do lexico no texto).
@@ -57,6 +58,10 @@ FOCO_JA_PAGUEI: Final[str] = "ja_paguei"
 #: do mes.
 FOCO_CONSEQUENCIA_DO_ATRASO: Final[str] = "consequencia_do_atraso"
 FOCO_LINK_SUSPEITO: Final[str] = "link_suspeito"
+#: Avaliacao r5b (25/10/2026): "qual meu protocolo mesmo?" logo depois do pedido de cancelamento. NAO sai do
+#: lexico: a Helena o poe quando a mensagem pergunta o protocolo do pedido (`depois_do_lucas.py`), e o Lucas
+#: le' o protocolo da instancia viva do pedido (nunca o inventa).
+FOCO_PROTOCOLO: Final[str] = "protocolo"
 
 _MESES_DO_ANO: Final[str] = (
     "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
@@ -163,6 +168,7 @@ __all__ = [
     "FOCO_JA_PAGUEI",
     "FOCO_LINK_SUSPEITO",
     "FOCO_PAGAMENTO_AO_PRESTADOR",
+    "FOCO_PROTOCOLO",
     "FOCO_ULTIMA",
     "CobrancaFoco",
     "decidir_foco_da_cobranca",
