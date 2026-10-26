@@ -1328,7 +1328,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = ">=1.0,<2.0" },
     { name = "aiokafka", specifier = ">=0.11,<1.0" },
     { name = "alembic", specifier = ">=1.13,<2.0" },
-    { name = "anthropic", extras = ["bedrock"], specifier = ">=0.40,<2.0" },
+    { name = "anthropic", extras = ["bedrock"], specifier = ">=0.40,<3.0" },
     { name = "asyncpg", specifier = ">=0.29,<1.0" },
     { name = "aws-msk-iam-sasl-signer-python", specifier = "==1.0.2" },
     { name = "botocore", specifier = ">=1.43.64,<2.0" },
