@@ -433,6 +433,17 @@ def _chama_dependencia_injetada(node: ast.Try) -> bool:
                 and alvo.attr.startswith("_")
             ):
                 return True
+            # DL-0155 (26/10/2026): `modelo_allowlist.provedor_para(self, state, papel).generate(...)` e' o
+            # mesmo porto de inferencia do grafo (GLM-5 ou o Haiku da allowlist), por conversa.
+            if (
+                isinstance(alvo, ast.Call)
+                and isinstance(alvo.func, ast.Attribute)
+                and alvo.func.attr == "provedor_para"
+                and alvo.args
+                and isinstance(alvo.args[0], ast.Name)
+                and alvo.args[0].id == "self"
+            ):
+                return True
     return False
 
 
