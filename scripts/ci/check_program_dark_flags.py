@@ -5,11 +5,12 @@ Por que esta cerca existe
 --------------------------
 `docs/plans/maezo-completion-program.md` §W5 5.1 tem, como criterio de aceitacao,
 "flags provadamente OFF em prod". As flags dark registradas nesta cerca foram construidas
-dark (#955 canal DSR, #960/#963 paineis staff, #965 pontes de erasure; D-36 do dono,
-25/10/2026, a superficie interna de estruturas de ajuste de comissao) e a SENTENCA que cada
-docstring delas declara e' sempre a mesma: virar a chave e ato da onda ROLL (ou, na D-36,
-ato proprio do dono pos-ratificacao A8 Forma 1) e **nenhum `deploy/**` pode liga-la neste
-programa** (`src/maezo/portal/api/config.py:51,60,70,83`;
+dark (#955 canal DSR, #960/#963 paineis staff, #985 D-40 painel staff de administracao
+read-only, #965 pontes de erasure; D-36 do dono, 25/10/2026, a superficie interna de
+estruturas de ajuste de comissao) e a SENTENCA que cada docstring delas declara e' sempre
+a mesma: virar a chave e ato da onda ROLL (ou, na D-36, ato proprio do dono
+pos-ratificacao A8 Forma 1) e **nenhum `deploy/**` pode liga-la neste programa**
+(`src/maezo/portal/api/config.py:51,60,70,82,93`;
 `src/maezo/platform/identity_bridges.py:24`). Ate este pacote essa proibicao era so' prosa:
 a cerca de DL-0049 (`check_portal_direct_completion.py`) cobre SOMENTE
 `MAEZO_PORTAL_DIRECT_COMPLETION`/`MAEZO_PORTAL_CORS_ORIGINS`, e a reconciliacao de env
@@ -24,7 +25,7 @@ O que ela reprova
      silenciada.
   3. O `env_prefix` de `PortalSettings` deixando de ser o literal `"MAEZO_PORTAL_"` — os
      nomes de env pinados abaixo so' significam o que dizem sob esse prefixo.
-  4. O nome de env de qualquer uma das flags registradas (quatro do portal + as DUAS
+  4. O nome de env de qualquer uma das flags registradas (cinco do portal + as DUAS
      pontes de erasure) aparecendo em QUALQUER arquivo de `deploy/**` — um template nao tem ambiente
      provavel, e a sentenca de cada flag e' "nenhum `deploy/**` pode liga-la": mencao nenhuma
      e' aceitavel neste programa, nem comentada, nem "desligada" (o mesmo padrao de
@@ -68,19 +69,23 @@ DEFAULTS_EXIGIDOS: tuple[tuple[Path, str, str, object], ...] = (
     (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+    (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
     (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
 )
 
-#: As flags dark registradas nesta cerca e os nomes de env EXATOS que as ligam. Os quatro
+#: As flags dark registradas nesta cerca e os nomes de env EXATOS que as ligam. Os cinco
 #: primeiros derivam de `env_prefix` + campo (conferidos contra a arvore pela cerca 3); os
 #: dois ultimos sao constantes de modulo em `identity_bridges.py` (cerca 5).
 #: `bridge_flag_enabled` so' habilita com o literal `true` — OFF e' todo o resto, inclusive
-#: ausente. (A flag `staff_admin_panel` do D-40 segue o registro do PR dela, fora desta
-#: cerca — acrescentar o flag DE OUTRO pacote aqui e' decisao do pacote dele.)
+#: ausente. Criterio de entrada nesta lista (escopo da cerca): flag DARK do programa cuja
+#: docstring shipped declara "nenhum `deploy/**` pode liga-la neste programa" — por isso
+#: `staff_admin_panel` do D-40 (#985, sentença em `config.py:82`) entrou aqui no follow-up
+#: do #987, do mesmo jeito que `staff_commission_policies` do D-36 (#987, `config.py:93`).
 ENV_FLAGS_PROGRAMA: tuple[str, ...] = (
     "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
     "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
     "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+    "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
     "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
     "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
     "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
@@ -183,13 +188,17 @@ def checar_defaults_desligados(raiz: Path = REPO_ROOT) -> list[str]:
 
 # ---------------------------------------------------------------------------------------
 # Cerca 4 — nenhuma mencao as flags em deploy/** (a sentenca shipped de cada uma delas).
+# `__pycache__` fica FORA por `path.parts` (classe F-1, o mesmo reparo do #985): uma sessao
+# pytest que importe lambda de deploy planta `deploy/**/__pycache__/*.pyc` (bytes nao-UTF-8,
+# nunca declaracao de deployment) e a leitura strict reprovaria "ilegivel" por ordem de
+# sessao. Deploy que so' tem __pycache__ segue reprovando — varrer nada nao e' prova.
 # ---------------------------------------------------------------------------------------
 def checar_deploy_sem_mencao(raiz: Path = REPO_ROOT) -> list[str]:
     achados: list[str] = []
     deploy = raiz / "deploy"
     if not deploy.is_dir():
         return ["deploy/: arvore ausente do checkout — varrer nada nao e' prova de flag OFF."]
-    arquivos = [c for c in sorted(deploy.rglob("*")) if c.is_file()]
+    arquivos = [c for c in sorted(deploy.rglob("*")) if c.is_file() and "__pycache__" not in c.parts]
     if not arquivos:
         return ["deploy/: nenhuma arquivo para varrer — varrer nada nao e' prova de flag OFF."]
     for caminho in arquivos:
@@ -249,7 +258,7 @@ def main() -> int:
             print(f"  - {a}", file=sys.stderr)
         return 1
     print(
-        "check_program_dark_flags: ok — as 6 flags dark do programa com default literal OFF no "
+        "check_program_dark_flags: ok — as 7 flags dark do programa com default literal OFF no "
         "codigo, zero mencao em deploy/** e os nomes de env das pontes batendo com os pinos."
     )
     return 0
