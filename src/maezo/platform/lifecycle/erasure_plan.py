@@ -888,6 +888,32 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # count would be a fabricated zero until the owner act flips it.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="legitimidade_tela",
+        tabela="portal_legitimacy_screens",
+        migracao="0030_legitimacy_screens.py::upgrade (portal_legitimacy_screens)",
+        identificacao=(
+            "tenant + screen_ref (`screen-` + closed charset) per screen_revision; the row holds only "
+            "the LEGITIMACY VERIFICATION of a contracting LEGAL ENTITY (OP21/REG-1.1): the company refs "
+            "(`legal_entity_ref`/`opportunity_ref`, opaque), the contract kind/form enums, the closed "
+            "criteria JSONB (criterion id, result, norm anchor, typed evidence references kind+locator+"
+            "sha256 - NEVER document bytes; custody stays with the operadora/administradora, RN 557/2022 "
+            "art. 12), the verification status, would_block and the art. 39 signal with its literal "
+            "anchor, plus the audit stamps (created_by of the internal staff editor + timestamps). A "
+            "beneficiary is not a subject here: no CPF, no birth date, no name, no phone, no health data "
+            "(the PHI firewall keeps clinical data out of the commercial input) and no free text beyond "
+            "the bounded norm anchors. No column reaches `conversation_id` or the DSR reference "
+            "(`beneficiario_pseudo_id`); the editor principal_ref identifies an internal operator, "
+            "never the data subject. The row can hold no state outside `valid/invalid/pending` "
+            "(table CHECK); the substrate is DARK and empty by default (screen/flag is a later PR)"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=43,
+        subject_column=None,
+        # No probe: the substrate is DARK (no writer exists in this PR) and the table is
+        # empty by default — a count would be a fabricated zero until a later PR lands.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

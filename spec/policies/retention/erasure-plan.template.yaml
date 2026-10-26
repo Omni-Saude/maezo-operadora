@@ -897,3 +897,22 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato prospectiva (estruturas de ajuste comercial interno), sem decisao ratificada e sem dado de titular na relacao"
     retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — prazo passa a existir no ato de habilitacao do dono, com revisao do DPO"
+  - camada: legitimidade_tela
+    tabela: portal_legitimacy_screens
+    migracao: "0030_legitimacy_screens.py::upgrade (portal_legitimacy_screens)"
+    identificacao: "tenant + screen_ref (`screen-` + charset fechado) por screen_revision; the row holds only the LEGITIMACY VERIFICATION of a contracting LEGAL ENTITY (OP21/REG-1.1): refs opacas da PJ contratante e da oportunidade, enums de tipo/forma de contratacao, o JSONB FECHADO de criterios (id do criterio, resultado, ancora normativa, referencias tipadas kind+locator+sha256 - NUNCA bytes de documento; a custodia fica com a operadora/administradora, RN 557/2022 art. 12), o estado da verificacao, would_block e a sinalizacao do art. 39 com a ancora literal, alem dos carimbos de auditoria (created_by do editor staff interno + timestamps). Beneficiario nao e' titular aqui: sem CPF, nascimento, nome, telefone, dado de saude (o firewall PHI mantem dado clinico fora do insumo comercial) e sem texto livre alem das ancoras normativas limitadas. Nenhuma coluna alcaca `conversation_id` nem a referencia DSR (`beneficiario_pseudo_id`); o created_by identifica operador interno, nunca o titular. A linha nao carrega estado fora de `valid/invalid/pending` (CHECK da tabela); o substrato e' DARK e nasce vazio (tela/flag sao PR posterior)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 43
+    tensao: null
+    notas: >-
+      OP21/REG-1.1 (substrato do screen de legitimidade da PJ contratante, desenho 26/10/2026, parecer
+      do juridico no mesmo dia): o banco guarda a VERIFICACAO (criterio→resultado→referencia tipada) e a
+      REFERENCIA aos documentos — NUNCA os documentos (custodia e' dever da operadora/administradora,
+      RN 557/2022 arts. 12 e 15 §3º). `status` so' aceita `valid/invalid/pending` por CHECK; enforcing e'
+      postura sucessora, nunca estado desta tabela; revalidacao = nova screen_revision. O substrato e' DARK
+      (nenhum escritor no PR do substrato) e a tabela nasce vazia; sem varredor enquanto isso. Sem CPF,
+      nascimento, nome, telefone ou dado de saude. Segue marcada PENDENTE porque este artefato e' o DRAFT
+      do DPO e so' a ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: cumprimento de obrigacao regulatoria de verificacao de legitimidade da contratante (RN 489/2022, art. 23-A - redacao dada pela RN 659/2025; RN 557/2022), sem dado de titular na relacao e sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — o prazo da verificacao (reconfirmacao anual, RN 557/2022 art. 10) e dado da relacao, nao do plano; prazo de eliminacao passa a existir no ato de habilitacao do dono, com revisao do DPO"
