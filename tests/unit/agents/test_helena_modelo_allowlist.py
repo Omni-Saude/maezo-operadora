@@ -334,3 +334,30 @@ async def test_opcao_b_fora_da_allowlist_nao_tem_reserva() -> None:
     grafo = _grafo(glm, haiku, modo=ma.MODO_GLM5_COM_RESERVA)
     _decisao, falha, _ms = await grafo._roteador_decidir(_estado(_FRASES[1], _OUTRA), None)
     assert falha is not None and haiku.enviados == []
+
+
+class _ClienteGravador:
+    def __init__(self) -> None:
+        self.campos: list[dict[str, object]] = []
+
+    def converse(self, **kw: object) -> dict[str, object]:
+        self.campos.append(dict(kw["additionalModelRequestFields"]))  # type: ignore[arg-type]
+        return {
+            "output": {"message": {"content": [{"text": "{}"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 1, "outputTokens": 1},
+        }
+
+
+@pytest.mark.parametrize("papel", ["roteador", "protocolo", "classify"])
+async def test_classificacao_da_allowlist_vai_sem_pensamento_e_a_gerativa_nao(papel: str) -> None:
+    from maezo.agents.helena.modelo_allowlist import ProvedorHaikuGlobal
+    from maezo.runtime.inference.experimento_global import TransporteGlobalExperimental
+
+    cliente = _ClienteGravador()
+    transporte = TransporteGlobalExperimental(client=cliente)
+    provedor = ProvedorHaikuGlobal(transporte, papel=papel, prazo_s=5.0)
+    await provedor.generate("classifique")
+    await transporte.conversar("sistema", [{"role": "user", "content": [{"text": "x"}]}], max_tokens=10)
+    assert cliente.campos[0] == {"output_config": {"effort": "low"}, "thinking": {"type": "disabled"}}
+    assert cliente.campos[1] == {"output_config": {"effort": "low"}}, "a redacao gerativa nao muda"
