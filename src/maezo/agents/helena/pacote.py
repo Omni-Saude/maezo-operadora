@@ -16,6 +16,7 @@ from typing import Any, Final
 
 import yaml
 
+from maezo.agents.helena.modelo_allowlist import MODOS as MODOS_DO_MODELO_ALLOWLIST
 from maezo.agents.helena.roteador_v7 import SKILLS as SKILLS_DO_ROTEADOR
 from maezo.agents.helena.textos import ARQUIVO_TEXTOS, FORMATO_TEXTOS, LINK, erros_dos_textos
 from maezo.runtime.pacote_do_agente import (
@@ -51,7 +52,7 @@ _CHAVES: Final[frozenset[str]] = frozenset(
 )
 _CHAVES_JUNTAR: Final[frozenset[str]] = frozenset({"espera_s", "conversas"})
 _CHAVES_ROTEADOR: Final[frozenset[str]] = frozenset(
-    {"modo", "modelo", "prazo_s", "max_tokens", "concorrencia", "conversas"}
+    {"modo", "modelo", "prazo_s", "max_tokens", "concorrencia", "conversas", "modelo_allowlist"}
 )
 
 
@@ -102,6 +103,10 @@ def _erros_do_roteador(roteador: object) -> list[str]:
         erros.append(f"roteador.modo fora de {sorted(_MODOS_ROTEADOR)}")
     if not isinstance(roteador.get("modelo", ""), str):
         erros.append("roteador.modelo tem de ser texto")
+    # DL-0155 (dono e DPO, 26/10/2026): OPCIONAL; ausente = o padrao do codigo (`haiku`, opcao A).
+    modelo_allowlist = roteador.get("modelo_allowlist", "haiku")
+    if not isinstance(modelo_allowlist, str) or modelo_allowlist not in MODOS_DO_MODELO_ALLOWLIST:
+        erros.append(f"roteador.modelo_allowlist fora de {sorted(MODOS_DO_MODELO_ALLOWLIST)}")
     prazo = roteador.get("prazo_s", 3.0)
     if not isinstance(prazo, int | float) or isinstance(prazo, bool) or not 0.5 <= prazo <= 30:
         erros.append("roteador.prazo_s entre 0.5 e 30")
@@ -244,6 +249,8 @@ class PacoteDaHelena:
             saida["roteador_concorrencia"] = roteador.get("concorrencia", 4)
             saida["helena_roteador_conversas"] = frozenset(roteador.get("conversas", []))
             saida["roteador_prazo_s"] = float(roteador.get("prazo_s", 3.0))
+            if "modelo_allowlist" in roteador:
+                saida["helena_modelo_allowlist"] = roteador["modelo_allowlist"]
             instrucoes = self.instrucoes_do_roteador()
             if instrucoes:
                 saida["roteador_instrucoes"] = instrucoes
