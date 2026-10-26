@@ -26,6 +26,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
+from maezo.agents.helena import modelo_allowlist as _ma
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME
 from maezo.agents.helena.frase_afirmada import sinais_do_modelo_afirmados, ultima_fala
@@ -329,7 +330,7 @@ async def _roteador_decidir(
             # O prazo REAL e' o tempo de leitura do provedor proprio (a thread volta nele); este `wait_for`
             # e' so' a rede de seguranca, um pouco acima.
             bruto = await asyncio.wait_for(
-                self._roteador_llm.generate(
+                _ma.provedor_para(self, state, _ma.PAPEL_ROTEADOR).generate(
                     prompt,
                     phi=True,
                     agent_id="helena",

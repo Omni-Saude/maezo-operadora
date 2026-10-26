@@ -4590,6 +4590,7 @@ PREFIXO_RELATO_NAO_VERIFICADO: str = "Relato do beneficiário (não verificado):
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
 # ADR-0067 §5: os metodos desta habilidade moram em `roteador` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
+from . import modelo_allowlist as _ma  # noqa: E402
 from . import roteador as _roteador  # noqa: E402
 from . import travas_entrada as _travas_entrada  # noqa: E402
 
@@ -4653,8 +4654,12 @@ class HelenaGraph:
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
         helena_protocolos_enabled: bool = False,
+        modelo_allowlist: str | None = None,
     ) -> None:
         self._llm = inference
+        # Opcao A (dono e DPO, 26/10/2026, DL-0155): o modelo da allowlist (`modelo_allowlist.py`). Pela
+        # composicao (`build`) o padrao e' `haiku`; construido direto sem o modo, `glm5` (o de antes).
+        self._modelo_allowlist = modelo_allowlist if modelo_allowlist in _ma.MODOS else _ma.MODO_GLM5
         # TEXTOS DO PACOTE (ADR-0067 §4): o texto de cada chave vem do pacote de comportamento, quando ha';
         # senao, o padrao aprovado do codigo (`textos.PADRAO`).
         self._textos = TextosDaHelena(textos)
@@ -7729,7 +7734,7 @@ class HelenaGraph:
         falha: str | None = None
         for tentativa in range(1, CLASSIFY_TENTATIVAS + 1):
             try:
-                raw = await self._llm.generate(
+                raw = await _ma.provedor_para(self, state, _ma.PAPEL_CLASSIFY).generate(
                     prompt,
                     phi=True,
                     agent_id="helena",
@@ -8151,6 +8156,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
         helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
+        modelo_allowlist=_ma.modo_escolhido(cfg.get("helena_modelo_allowlist")),
     ).compile_graph()
 
 

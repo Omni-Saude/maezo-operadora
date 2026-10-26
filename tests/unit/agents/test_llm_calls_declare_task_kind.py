@@ -74,6 +74,17 @@ def _receptor_e_seam_de_inferencia(no: ast.expr) -> bool:
     """`no` e' `self._llm` / `self._inference` (ou `self.<algo>._llm`, para um dia em que um
     grafo delegue a um sub-objeto — a checagem e' pelo NOME do atributo terminal, nao pela
     cadeia inteira, entao cobre ambas as formas)."""
+    # DL-0155 (26/10/2026): o provedor escolhido por conversa (`modelo_allowlist.provedor_para(self,
+    # state, papel)`: GLM-5 de hoje ou o Haiku da allowlist) continua sendo o seam de inferencia do grafo.
+    if (
+        isinstance(no, ast.Call)
+        and isinstance(no.func, ast.Attribute | ast.Name)
+        and (no.func.attr if isinstance(no.func, ast.Attribute) else no.func.id) == "provedor_para"
+        and no.args
+        and isinstance(no.args[0], ast.Name)
+        and no.args[0].id == "self"
+    ):
+        return True
     return (
         isinstance(no, ast.Attribute)
         and no.attr in _ATRIBUTOS_DE_INFERENCIA

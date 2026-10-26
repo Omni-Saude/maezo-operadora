@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
+from maezo.agents.helena import modelo_allowlist as _ma
 from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
@@ -114,7 +115,7 @@ async def _chamar(
                     break
                 prompt = "\n".join([prompt, _n.aviso_de_reenvio(ruins)])
             bruto = await asyncio.wait_for(
-                self._roteador_llm.generate(
+                _ma.provedor_para(self, state, _ma.PAPEL_PROTOCOLO).generate(
                     prompt,
                     phi=True,
                     agent_id="helena",
