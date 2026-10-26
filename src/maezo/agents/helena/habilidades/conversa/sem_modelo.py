@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta
 from maezo.agents.helena.habilidades.conversa import reembolso as _reembolso
 
 if TYPE_CHECKING:
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
 def responder(self: HelenaGraph, state: HelenaState, texto: str) -> dict[str, Any] | None:
     """A resposta fixa (oferta da equipe ou reembolso), ou `None` (o caminho de sempre)."""
     from maezo.agents.helena import graph as _g
+    from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta
 
     if (oferta := _oferta.responder(self, state)) is not None:
         return oferta
