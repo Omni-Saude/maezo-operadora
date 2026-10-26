@@ -34,6 +34,7 @@ def test_triagem_v2_existe_ao_lado_do_dono_v1_e_todo_padrao_compila() -> None:
         "lucas_v4_pagador",
         "lucas_v4_nao_pagador",
         "helena_replays_dono",
+        "helena_teste_dono_26_10",  # teste do dono de 26/10/2026
         "helena_v4",  # DL-0115
         "helena_carteirinha_completa",  # dono, 17/10/2026
         "helena_base_saude",  # DL-0118

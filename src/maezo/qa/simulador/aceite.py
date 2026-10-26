@@ -2258,6 +2258,9 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
 TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     "helena_replays_dono": (795, 796, 797),
+    # Teste do dono de 26/10/2026: teste 1 no 790, teste 2 no 791 e as variantes de "todas nao" no 792..794
+    # (allowlist do roteador ativo e dos protocolos).
+    "helena_teste_dono_26_10": (790, 791, 792, 793, 794),
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
     "helena_fases_18_10": (
         *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
@@ -2610,6 +2613,176 @@ HELENA_REPLAYS_DONO: tuple[Segmento, ...] = (
     ),
 )
 
+# ================================================================================================
+# Roteiro `helena_teste_dono_26_10` — os dois testes do dono de 26/10/2026, turno a turno, PARAFRASEADOS
+# ================================================================================================
+# Teste do dono de 26/10/2026 (13:39-14:11 BRT): a pergunta de QUAL profissional procurar recebeu "Eu nao
+# avalio sintomas..." e "Por aqui eu nao pesquiso especialistas...", a torcao recebeu o alerta universal e
+# "Nehuma" (com erro de digitacao) foi lido errado. Cada teste e' UMA conversa (telefone proprio na allowlist,
+# acesso do zero). O sujeito e' o do roster pelo mecanismo de sempre (`SUJEITO_DO_ROTEIRO` ausente = o dono,
+# primeira linha do roster): nenhum CPF, nascimento ou nome no repositorio; a dependente e' "minha filha".
+# Os padroes conferem COMPORTAMENTO (o especialista do mapa, os canais, nada de texto antigo), nunca o texto
+# exato. Os segmentos 3..5 repetem a resposta "todas nao" com as variantes do dono (cada uma numa conversa).
+_TEXTO_ANTIGO_NAVEGACAO = r"eu nao avalio sintomas"
+_TEXTO_ANTIGO_ESPECIALISTA = (
+    r"(nao pesquiso especialistas|consulta com [^.]{3,40} e consulta de especialista)"
+)
+_CANAIS_DE_MARCAR = r"(aplicativo austa clinicas|portal do plano|central de atendimento)"
+_PERGUNTAS_DO_PROTOCOLO = r"me diga se acontece alguma destas coisas agora"
+_ALERTA_UNIVERSAL = r"sobre o que voce esta sentindo, me diga"
+_REPERGUNTA = r"(so para confirmar|nao entendi bem|tive um problema para entender)"
+_DOSE = r"(\bdose\b|\d+ ?(mg|ml|gotas)\b)"
+_NAO_DEVE_ESPECIALISTA = (*_NAO_DEVE_SEMPRE, _TEXTO_ANTIGO_NAVEGACAO, _TEXTO_ANTIGO_ESPECIALISTA)
+_JUNTAS_E_FRAQUEZA = (
+    "Ando sentindo dor nas articulações e uma fraqueza nos músculos no dia a dia, que tipo de profissional "
+    "devo procurar?"
+)
+
+
+def _todas_nao(resposta: str, nome: str) -> Segmento:
+    """A queixa das juntas com a pergunta de qual profissional e uma variante de "todas nao" do dono."""
+    return Segmento(
+        nome,
+        (
+            _p(
+                _JUNTAS_E_FRAQUEZA,
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTAS_DO_PROTOCOLO,),
+                nao_deve=_NAO_DEVE_ESPECIALISTA,
+            ),
+            _p(
+                resposta,
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(reumatologista|clinico geral)", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+            ),
+        ),
+        resolveu=(
+            "a resposta 'todas nao' do dono (variante) foi lida como nao para todas: sem re-pergunta, com o "
+            "destino, o especialista do mapa e os canais"
+        ),
+    )
+
+
+HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
+    Segmento(
+        "1-teste-1-torcao-dependente-e-psa",
+        (
+            _p(
+                "Ontem eu jogava futebol e acabei torcendo o tornozelo.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTAS_DO_PROTOCOLO,),
+                nao_deve=(*_NAO_DEVE_SEMPRE, _ALERTA_UNIVERSAL),
+            ),
+            _p(
+                "nenhuma. E achei essas perguntas sem nada a ver com o que eu contei.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("ortopedista", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+            ),
+            _p(
+                "Você não acha que o certo seria eu me consultar com um ortopedista ou um fisioterapeuta?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("ortopedista", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
+            ),
+            _p(
+                "Certo. Queria falar também de uma coisa com um dos meus dependentes. Aliás, quem são "
+                "os meus dependentes?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(dependente|filho ou filha)",),
+                nao_deve=(*_NAO_DEVE_SEMPRE, r"nao consigo consultar seus dependentes"),
+            ),
+            _p(
+                "A minha filha está com febre desde ontem.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(" + _PERGUNTAS_DO_PROTOCOLO + r"|qual e a idade)",),
+                nao_deve=_NAO_DEVE_SEMPRE,
+            ),
+            _p(
+                "Ela já tomou dipirona ontem, estou preocupada e quero procurar um médico para atender ela.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("pediatra", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _DOSE),
+            ),
+            _p(
+                "Um homem de 50 anos com o exame de PSA alterado deve procurar qual tipo de profissional?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("urologista", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
+            ),
+        ),
+        resolveu=(
+            "a torcao recebeu as perguntas do protocolo de trauma (nao o universal) e, no 'nenhuma', o "
+            "destino com o ortopedista e os canais; a sugestao 'ortopedista ou fisioterapeuta' recebeu o "
+            "especialista do mapa (nunca 'nao pesquiso especialistas'); os dependentes foram listados; a "
+            "febre da filha recebeu o protocolo da crianca sem caso; o pedido de medico para ela recebeu "
+            "o pediatra e os canais, sem dose; o PSA recebeu o urologista"
+        ),
+    ),
+    Segmento(
+        "2-teste-2-qual-profissional",
+        (
+            _p(
+                "Estou sentindo palpitações e me canso com pequenos esforços, que tipo de profissional "
+                "eu devo procurar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTAS_DO_PROTOCOLO,),
+                nao_deve=_NAO_DEVE_ESPECIALISTA,
+            ),
+            _p(
+                "Nehuma",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("cardiologista", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+            ),
+            _p(
+                "Estou com o ciclo menstrual irregular e ondas de calor de repente, que tipo de "
+                "profissional eu devo procurar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("ginecologista", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _REPERGUNTA),
+            ),
+            _p(
+                "Estou sentindo dores nas articulações e fraqueza muscular no dia a dia, que tipo de "
+                "profissional eu devo procurar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTAS_DO_PROTOCOLO,),
+                nao_deve=_NAO_DEVE_ESPECIALISTA,
+            ),
+            _p(
+                "Nenhuma",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(reumatologista|clinico geral)", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+            ),
+            _p(
+                "O certo não seria com um reumatologista ou um ortopedista?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(reumatologista|ortopedista)", "clinico geral", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
+            ),
+            _p(
+                "Estou com muita dificuldade para emagrecer e sinto que meu metabolismo ficou mais "
+                "lento, que tipo de profissional eu devo procurar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(endocrinologista|clinico geral)", _CANAIS_DE_MARCAR),
+                nao_deve=_NAO_DEVE_ESPECIALISTA,
+            ),
+        ),
+        resolveu=(
+            "cada pergunta de qual profissional recebeu o especialista do mapa e os canais (palpitacao: "
+            "cardiologista depois das perguntas; ciclo e calores: ginecologista; juntas: perguntas e depois "
+            "reumatologista/clinico; a sugestao conferida pelo mapa; emagrecer: endocrinologista/clinico), "
+            "sem prazo da ANS e nunca 'eu nao avalio sintomas'; 'Nehuma' foi lido como nenhuma"
+        ),
+    ),
+    _todas_nao("Não", "3-variante-nao"),
+    _todas_nao("Não, eu respondi NÃO para todas as suas perguntas", "4-variante-respondi-nao-para-todas"),
+    _todas_nao("Poxa, eu já respondi não para todas as perguntas acima", "5-variante-ja-respondi-nao"),
+)
+
+
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "dono_v1": DONO_V1,
     "triagem_v2": TRIAGEM_V2,
@@ -2625,6 +2798,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
     "helena_replays_dono": HELENA_REPLAYS_DONO,
+    "helena_teste_dono_26_10": HELENA_TESTE_DONO_26_10,
 }
 #: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
 SUJEITO_DO_ROTEIRO: dict[str, str] = {
@@ -2694,6 +2868,7 @@ __all__ = [
     "SUJEITO_PF_TITULAR",
     "DONO_V1",
     "HELENA_CARTEIRINHA_COMPLETA",
+    "HELENA_TESTE_DONO_26_10",
     "HELENA_BASE_SAUDE",
     "HELENA_SAUDE_GERATIVA",
     "TELEFONES_DO_ROTEIRO",
