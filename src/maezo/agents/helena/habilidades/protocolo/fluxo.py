@@ -38,7 +38,9 @@ from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROG
 from maezo.runtime.prompt_format import render_untrusted_block
 
 from . import especialista as _esp
+from . import leitura_sem_modelo as _lsm
 from . import nucleo as _n
+from . import sinonimos as _sinonimos
 
 if TYPE_CHECKING:
     from maezo.agents.helena.graph import HelenaGraph
@@ -324,6 +326,13 @@ async def responder_alerta(
         return neonatal
     n = len(protocolo.perguntas_de_alerta)
     indices = tuple(i for i in pend.indices if 1 <= i <= n) or tuple(range(1, n + 1))
+    sem_modelo = _lsm.ler_sem_modelo(texto, len(indices))
+    if sem_modelo is not None:
+        # Teste do dono (26/10/2026): a resposta OBVIA ("nehuma", "ja' respondi nao para todas", "a 2 sim") e'
+        # lida pelo codigo, sem esperar o modelo (que caia no prazo e virava re-pergunta e oferta da equipe).
+        logger.info("helena_protocolo_lido_sem_modelo", protocolo=protocolo.id, sim=sem_modelo.count("sim"))
+        regra_sem_modelo = _n.decidir(protocolo, indices, sem_modelo, pend.rodada)
+        return await _executar_com_especialista(self, state, protocolo, regra_sem_modelo)
     conversa, mensagem = _blocos(self, state)
     leitura: _n.Leitura | None = await _chamar(
         self,
@@ -333,8 +342,11 @@ async def responder_alerta(
         "leitura",
     )
     if leitura is None:
-        # Sem a leitura do modelo nao se adivinha: vale como "sem clareza" (re-pergunta, depois a equipe).
-        leitura = _n.Leitura(tuple("sem_clareza" for _ in indices), False)
+        # Teste do dono (26/10/2026): falha TECNICA do modelo nao e' "sem clareza" da pessoa (virava
+        # re-pergunta e depois a oferta da equipe). O pedido curto de repetir, com as MESMAS perguntas
+        # pendentes.
+        logger.info("helena_protocolo_leitura_pede_repetir", protocolo=protocolo.id)
+        return _texto(self, state, _g.RESPOSTA_PECA_REENVIO, pendente=antes)
     if (
         decisao is not None
         and leitura.outro_sinal_grave
@@ -342,6 +354,14 @@ async def responder_alerta(
     ):
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
     regra = _n.decidir(protocolo, indices, leitura.respostas, pend.rodada)
+    return await _executar_com_especialista(self, state, protocolo, regra)
+
+
+async def _executar_com_especialista(
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: Any, regra: Any
+) -> dict[str, Any]:
+    """A decisao da regra; sem sinal e com a pergunta "qual profissional?" na abertura, o especialista do mapa
+    (a mesma saida com a leitura do modelo ou a leitura sem modelo)."""
     especialista = None
     if _sem_sinal_de_consulta(protocolo, regra) and _esp.pergunta_qual_especialista(
         _pergunta_que_abriu(state, protocolo)
@@ -577,14 +597,21 @@ async def conduzir(
             "escolha",
         )
     )
-    if escolha is None and ultimo is not None:
-        # Sem a escolha do modelo, com uma queixa ja' respondida: nunca recomecar perguntas (o seguimento).
-        return _texto(
-            self, state, _n.texto_de_seguimento(ultimo, catalogo.textos, reclamou=False, agendamento=False)
-        )
     if escolha is None:
+        # Teste do dono (26/10/2026): sem o modelo, a queixa pelo jeito de falar (titulo, sinonimos da base de
+        # saude, exemplos do protocolo) antes do alerta universal.
         publico = _publico_do_estado(state)
-        escolha = _n.Escolha("crianca" if publico == "crianca_2m_5a" else publico, "desconhecida", None)
+        pelo_texto = _sinonimos.escolher(catalogo, self._base, texto, publico)
+        logger.info("helena_protocolo_escolha_sem_modelo", protocolo=pelo_texto or "nenhum")
+        if ultimo is not None and (pelo_texto is None or pelo_texto in feitos):
+            # Sem a escolha do modelo, com uma queixa ja' respondida (ou a mesma de novo): nunca recomecar
+            # as perguntas (o seguimento).
+            return _texto(
+                self,
+                state,
+                _n.texto_de_seguimento(ultimo, catalogo.textos, reclamou=False, agendamento=False),
+            )
+        escolha = _n.Escolha("crianca" if publico == "crianca_2m_5a" else publico, "desconhecida", pelo_texto)
     afirmado = _g._plano(texto_afirmado(texto, ultima_fala(_g._falas_da_helena(state))))
     continua = v7 is not None and v7.continuacao
     if ultimo is not None and (escolha.protocolo in feitos or (escolha.protocolo is None and continua)):
@@ -615,6 +642,13 @@ async def conduzir(
         protocolo = catalogo.universal(_n.publico_do_protocolo(escolha))
     if protocolo is None:
         return None
+    if protocolo.id in feitos:
+        # Teste do dono (26/10/2026, 17:06-17:07 UTC): o alerta universal JA' conduzido nesta conversa
+        # recomecava ("nenhum" protocolo proprio). A mesma queixa nunca recebe as perguntas de novo.
+        logger.info("helena_protocolo_seguimento", protocolo=protocolo.id, agendamento=False)
+        return _texto(
+            self, state, _n.texto_de_seguimento(protocolo, catalogo.textos, reclamou=False, agendamento=False)
+        )
     logger.info("helena_protocolo_escolhido", protocolo=protocolo.id, rascunho=protocolo.rascunho)
     return await _perguntar_o_que_falta(self, state, protocolo, conversa, mensagem, afirmado=bool(afirmado))
 
@@ -704,6 +738,15 @@ async def sem_roteador(
             logger.info("helena_protocolo_sem_roteador", etapa="especialista")
             return await conduzir(self, state, _SemRoteador(), None, None)
         return None
+    if antes.startswith(PENDENTE_OFERTA_EQUIPE):
+        # Teste do dono (26/10/2026, 17:06 UTC): o "nao" a oferta da equipe ia ao classificador e recomecava
+        # as perguntas do protocolo. A resposta a oferta e' do codigo (a recusa curta; o "sim" abre o caso).
+        from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta
+
+        resposta = _oferta.responder(self, state)
+        if resposta is not None:
+            logger.info("helena_protocolo_sem_roteador", etapa="oferta")
+        return resposta
     if antes.startswith(_n.PENDENTE_ALERTA):
         logger.info("helena_protocolo_sem_roteador", etapa="alerta")
         return await responder_alerta(self, state, None, antes)

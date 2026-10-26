@@ -223,7 +223,8 @@ async def test_qual_profissional_com_relato_pergunta_antes_e_responde_com_o_mapa
     final2 = await grafo2.ainvoke(_com_historico(resposta, [(fala, perguntas)], pendente))
     texto = whatsapp2.enviados[-1]
     assert texto.startswith(n.PONTE_SEM_SINAL) and especialista in texto
-    assert len(modelo2.prompts["mapa"]) == 1
+    # A leitura sem modelo (#1026) pode chegar ao especialista sem a chamada do mapa: vale o texto.
+    assert len(modelo2.prompts["mapa"]) <= 1
     _sem_texto_antigo(texto)
     assert not final2.get("escalation_motivo") and not _starts(cib) and not _starts(cib2)
 

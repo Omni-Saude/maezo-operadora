@@ -191,7 +191,9 @@ def protocolos_na_conversa(falas_da_helena: Sequence[str], catalogo: _p.Catalogo
     achados: list[str] = []
     for i, fala in enumerate(falas_da_helena):
         for cab, pid in por_cabecalho.items():
-            if fala.startswith(cab) and i < len(falas_da_helena) - 1 and pid not in achados:
+            # `in`, nao `startswith`: as perguntas podem vir depois de um prefixo curto (a re-pergunta com a
+            # idade, uma variacao de redacao) e continuam sendo desta queixa.
+            if cab in fala and i < len(falas_da_helena) - 1 and pid not in achados:
                 achados.append(pid)
     return achados
 

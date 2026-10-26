@@ -417,7 +417,8 @@ async def _classify_com_roteador(self: HelenaGraph, state: HelenaState) -> dict[
         and conversa in self._roteador_conversas
         and self._gerativa_para(state)
     ):
-        return await self._classify_ativo(state)
+        # Teste do dono (26/10/2026): falha TECNICA do modelo ou da tabela nunca abre caso sozinha.
+        return _falha_tecnica.sem_caso(self, state, await self._classify_ativo(state))
     return await self._classify_com_sombra(state)
 
 
@@ -918,5 +919,6 @@ from maezo.agents.helena.graph import (  # noqa: E402
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
 from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
 from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
+from maezo.agents.helena.habilidades.conversa import falha_tecnica as _falha_tecnica  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402
