@@ -30,7 +30,22 @@ def test_resultado_ou_duvida_sem_queixa_fica_fora_do_protocolo(fala: str) -> Non
         "estou com dor de cabeça desde ontem, o que pode ser?",
         "tô com febre e dor no corpo",
         "meu filho está com tosse",
+        "minha lombar está travada",
+        "minha garganta está arranhando",
+        "minha barriga está estufada desde ontem",
     ],
 )
 def test_queixa_continua_no_protocolo(fala: str) -> None:
     assert not duvida_sem_queixa(fala)
+
+
+class _V7:
+    def __init__(self, tipo: str) -> None:
+        self.tipo = tipo
+
+
+@pytest.mark.parametrize("tipo", ["sintoma_proprio", "sintoma_de_terceiro"])
+@pytest.mark.parametrize("fala", ["meu PSA deu alto", "o que é enxaqueca?", "minha pressão deu 15 por 9"])
+def test_roteador_que_le_queixa_manda_ao_protocolo(fala: str, tipo: str) -> None:
+    assert not duvida_sem_queixa(fala, _V7(tipo))
+    assert duvida_sem_queixa(fala, _V7("duvida_geral"))

@@ -17,6 +17,7 @@ deterministica de alarme, o risco psicossocial e os dados pessoais rodam antes e
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
@@ -278,15 +279,28 @@ def protocolo_na_conversa(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     return bool(_n.protocolos_na_conversa(_g._falas_da_helena(state), catalogo))
 
 
-def duvida_sem_queixa(texto: str) -> bool:
-    """Resultado ou medida pessoal, pergunta informativa ou duvida educativa, SEM relato de sintoma."""
+#: Palavra de EXAME ou MEDIDA: "minha lombar esta' travada" e' queixa, nao resultado ("minha X esta' ...").
+_PALAVRA_DE_RESULTADO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:exames?|resultados?|deu|veio|taxa|nivel|niveis|psa|colesterol|glicose|glicemia|hemograma|tsh"
+    r"|creatinina|triglicerid\w*|vitamina|ferritina|pressao|parametros|referencia)\b"
+)
+#: A leitura do roteador que diz QUEIXA (da pessoa ou de outra): vai ao protocolo, nunca a resposta de saude.
+_TIPOS_DE_QUEIXA: Final[frozenset[str]] = frozenset({"sintoma_proprio", "sintoma_de_terceiro"})
+
+
+def duvida_sem_queixa(texto: str, v7: Any = None) -> bool:
+    """Resultado de exame/medida pessoal, pergunta informativa ou duvida educativa, SEM relato de sintoma e
+    sem o roteador ter lido queixa (`v7.tipo`)."""
     from maezo.agents.helena import graph as _g
     from maezo.agents.helena.triagem_v2 import relata_sintoma
     from maezo.conhecimento import base_saude as _bs
     from maezo.conhecimento import saude_gerativa as _sg
 
+    if v7 is not None and getattr(v7, "tipo", None) in _TIPOS_DE_QUEIXA:
+        return False
     plano = _g._plano(texto)
-    duvida = _bs.resultado_pessoal(plano) or _bs.pergunta_informativa(plano) or _sg.e_duvida_educativa(plano)
+    resultado = _bs.resultado_pessoal(plano) and _PALAVRA_DE_RESULTADO.search(plano) is not None
+    duvida = resultado or _bs.pergunta_informativa(plano) or _sg.e_duvida_educativa(plano)
     return duvida and not relata_sintoma(plano)
 
 
@@ -317,7 +331,7 @@ async def conduzir(
             return _texto(self, state, f"{_n.TEXTO_NAO_MARCO} {corpo}" if _por_aqui(texto) else corpo)
         return await _especialista_pelo_mapa(self, state, por_aqui=_por_aqui(texto))
     sintoma = habilidade == "sintoma" or alarme == "incerto" or antes == _n.PENDENTE_IDADE
-    if sintoma and ultimo is None and antes != _n.PENDENTE_IDADE and duvida_sem_queixa(texto):
+    if sintoma and ultimo is None and antes != _n.PENDENTE_IDADE and duvida_sem_queixa(texto, v7):
         # Rodada de 26/10/2026: resultado de exame ("meu PSA deu alto") ou duvida geral ("o que e' X?") sem
         # queixa na mensagem e' a resposta de saude (base/redacao), nunca as perguntas de alerta.
         logger.info("helena_protocolo_duvida_sem_queixa")
