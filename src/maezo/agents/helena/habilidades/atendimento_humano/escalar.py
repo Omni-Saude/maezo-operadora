@@ -284,6 +284,10 @@ async def _trava_caso_sem_pedido(
     ("beleza, valeu" depois de uma oferta da equipe) a abertura e' barrada e a Helena responde com
     cortesia. Os demais motivos (alarme, risco, clinico, falha tecnica, coleta esgotada) nao passam
     aqui."""
+    if motivo == "solicitacao_humano" and (recusa := await _recusa.recusa_sem_caso(self, state)) is not None:
+        # Teste do dono (25/10/2026, noite): a recusa ("nao quero que ninguem entre em contato", "encerre",
+        # "nao autorizo") nunca abre, mantem nem confirma caso — nem quando o modelo a leu como pedido.
+        return recusa
     if motivo != "solicitacao_humano" or state.get("intent") != "human_request":
         return None
     texto = str(state.get("message_body") or "")
@@ -686,3 +690,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     start_process_idempotent,
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402

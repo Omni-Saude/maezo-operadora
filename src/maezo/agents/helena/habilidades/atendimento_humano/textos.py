@@ -43,6 +43,12 @@ LINHA_192_DA_RECUSA: Final[str] = "Se piorar ou for grave, ligue 192."
 RESPOSTA_RECUSA_DE_EQUIPE_SAUDE: Final[str] = f"{RESPOSTA_RECUSA_DE_EQUIPE} {LINHA_192_DA_RECUSA}"
 RESPOSTA_RECUSA_COM_CASO_SAUDE: Final[str] = f"{RESPOSTA_RECUSA_COM_CASO} {LINHA_192_DA_RECUSA}"
 
+#: Teste do dono (25/10/2026, noite; decisao B, opcao 1): o aviso de que o caso fica com a equipe ("nao posso
+#: encerrar", "mantive o seu caso") sai UMA vez por conversa. Depois dele, a recusa repetida e' so'
+#: reconhecida, e a fala sobre o mesmo alarme sem sinal novo guarda so' a linha do 192.
+TEXTO_RECUSA_JA_RESPONDIDA: Final[str] = "Tudo bem, entendi. Se precisar, é só me chamar."
+TEXTO_SEM_SINAL_NOVO: Final[str] = f"Entendi. {LINHA_192_DA_RECUSA}"
+
 #: Os textos acima que `classify` deixa prontos: saem como estao, sem modelo
 #: (`roteador._e_texto_do_roteador`).
 TEXTOS_FIXOS: Final[frozenset[str]] = frozenset(
@@ -53,6 +59,8 @@ TEXTOS_FIXOS: Final[frozenset[str]] = frozenset(
         RESPOSTA_RECUSA_COM_CASO,
         RESPOSTA_RECUSA_DE_EQUIPE_SAUDE,
         RESPOSTA_RECUSA_COM_CASO_SAUDE,
+        TEXTO_RECUSA_JA_RESPONDIDA,
+        TEXTO_SEM_SINAL_NOVO,
     }
 )
 
@@ -66,4 +74,6 @@ __all__ = [
     "RESPOSTA_RECUSA_DE_EQUIPE_SAUDE",
     "TEXTO_CONFIRMA_PASSAR",
     "TEXTO_OFERTA_POR_REPETICAO",
+    "TEXTO_RECUSA_JA_RESPONDIDA",
+    "TEXTO_SEM_SINAL_NOVO",
 ]

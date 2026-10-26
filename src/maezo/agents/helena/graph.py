@@ -4597,6 +4597,7 @@ from . import travas_entrada as _travas_entrada  # noqa: E402
 # AQUI, depois dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.atendimento_humano import escalar as _escalar  # noqa: E402
 from .habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
+from .habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
@@ -6279,7 +6280,7 @@ class HelenaGraph:
             return None
         if (oferta := _oferta.responder(self, state)) is not None:
             return oferta  # avaliacao r5 (25/10): o "sim"/"nao" a oferta da equipe, decidido no codigo
-        if _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE:
+        if _recusa.e_recusa_na_conversa(texto):
             update = self._update_sem_modelo(state)
             abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
             if abertos:
@@ -6784,7 +6785,7 @@ class HelenaGraph:
             # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
             # canal na mensagem, sai o texto fixo daquele assunto.
             mensagem = str(state.get("message_body") or "")
-            if _caso_aberto_afirmavel(state) is not None:
+            if _caso_aberto_afirmavel(state) is not None and _recusa.caso_e_a_resposta(mensagem):
                 # RODADA 3 (log de 13/10): com caso aberto o modelo escreve "ja encaminhamos" / "vai entrar
                 # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
                 substituto = RESPOSTA_INFORM_CASO_ABERTO
@@ -7007,6 +7008,8 @@ class HelenaGraph:
             logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
             text = varia
             saida["response_text"] = text
+        if (final := _recusa.texto_final(state, text)) != text:  # dono 25/10: aviso do caso 1x, sem carona
+            text = saida["response_text"] = final
         # TRAVAS DE SAIDA (etapa 10 e 25/10/2026): sem link, sem contagem vazada, sem convite a mandar midia.
         text = _travas_saida.na_saida(text)
         if not text.strip():
