@@ -374,12 +374,13 @@ check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (
 	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
 	.venv/bin/python scripts/ci/check_chart_env_reconciliation.py
 
-check-program-dark-flags: ## W5 CLNT 5.1: as 5 flags dark do portal + as 2 pontes de erasure do programa seguem default-OFF no codigo e sem mencao nenhuma em deploy/** (flags provadamente OFF — a ROLL flipa)
-	# As cinco flags de `PortalSettings` (lgpd_dsr_channel, staff_documents_panel,
-	# staff_operations_panel, staff_admin_panel, staff_commission_policies —
-	# #955/#960/#963/#985/#987) tem de continuar literalmente `False` sob o
+check-program-dark-flags: ## W5 CLNT 5.1: as 6 flags dark do portal + as 2 pontes de erasure do programa seguem default-OFF no codigo e sem mencao nenhuma em deploy/** (flags provadamente OFF — a ROLL flipa)
+	# As seis flags de `PortalSettings` (lgpd_dsr_channel, staff_documents_panel,
+	# staff_operations_panel, staff_admin_panel, staff_commission_policies,
+	# collective_legitimacy_screen — #955/#960/#963/#985/#987/#1028) tem de continuar
+	# literalmente `False` sob o
 	# `env_prefix="MAEZO_PORTAL_"`, e as constantes de env das duas pontes de erasure
-	# (#965) têm de continuar valendo os nomes pinados. QUALQUER mencao a qualquer um dos 7
+	# (#965) têm de continuar valendo os nomes pinados. QUALQUER mencao a qualquer um dos 8
 	# nomes de env em `deploy/**` reprova: a docstring shipped de cada flag declara "nenhum
 	# `deploy/**` pode liga-la neste programa" — esta cerca mecaniza essa sentenca. Ver
 	# scripts/ci/check_program_dark_flags.py (desenho + escopo) e
