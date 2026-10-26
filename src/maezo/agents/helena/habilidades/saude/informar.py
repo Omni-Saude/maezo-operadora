@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.consultas_plano import INTENT_CONSULTA_PLANO
+from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.habilidades.saude.textos import CHAVE_FECHO, CHAVE_OFERTA_MEDICO
 from maezo.agents.helena.helena_v4 import (
@@ -95,11 +96,13 @@ async def _base_antes_dos_gatilhos(
     # pendentes), a resposta e o que vier no turno seguinte sao avaliados contra os sinais DAQUELE assunto
     # ("vomitou duas vezes" depois da batida na cabeca), sem precisar citar o sintoma de novo.
     em_curso = pend_v4.grupo if pend_v4 is not None and pend_v4.grupo.startswith("sin-") else None
+    # Caso b do teste do dono (25/10/2026): so' as frases AFIRMADAS (sem pergunta, "nao, mas..." nem eco).
+    afirmado = texto_afirmado(texto, ultima_fala(_falas_da_helena(state)))
     alarme_em_curso = (
-        em_curso is not None and _bs.alarme_do_assunto(base, em_curso, texto)
-    ) or _bs.alarme_dos_citados_antes(base, self._falas_da_pessoa(state), texto)
+        em_curso is not None and _bs.alarme_do_assunto(base, em_curso, afirmado)
+    ) or _bs.alarme_dos_citados_antes(base, self._falas_da_pessoa(state), afirmado)
     if alarme_em_curso or (
-        not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto)
+        not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, afirmado)
     ):
         logger.warning("helena_base_saude_alarme_do_sintoma", node="classify")
         update["intent"] = "symptom"

@@ -21,6 +21,7 @@ from maezo.agents.helena.alarme_deterministico import alarme_no_relato
 from maezo.agents.helena.consultas_plano import (
     INTENT_CONSULTA_PLANO,
 )
+from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
@@ -1049,6 +1050,32 @@ def _escolha_marcar_ou_equipe(plano: str) -> str | None:
     return None
 
 
+def _alarme_afirmado_no_turno(
+    self: HelenaGraph, state: Mapping[str, Any], texto: str, grupo_pendente: str | None
+) -> bool:
+    """Sinal de alarme nas frases AFIRMADAS da mensagem (caso b do teste do dono, 25/10/2026: sinal so' em
+    pergunta, depois de "nao" ou copiado da pergunta da Helena nao tira a resposta da pendencia): lexico de
+    emergencia, alarme deterministico, vocabulario da tabela ("a pior da vida"), termo de alarme da base ou do
+    assunto pendente."""
+    from maezo.agents.helena.travas_entrada import _VOCABULARIO_DA_TABELA
+
+    afirmado = texto_afirmado(texto, ultima_fala(_falas_da_helena(state)))
+    base = self._base_hoje() if self._base_saude else None
+    return bool(
+        _sinal_forte_de_emergencia(afirmado)
+        or _sinal_fraco_de_emergencia(texto)
+        or alarme_no_relato(_plano(afirmado)) is not None
+        or _VOCABULARIO_DA_TABELA.search(_plano(afirmado))
+        or (base is not None and _bs.alarme_no_texto(base, afirmado))
+        or (
+            base is not None
+            and grupo_pendente is not None
+            and grupo_pendente.startswith("sin-")
+            and _bs.alarme_do_assunto(base, grupo_pendente, afirmado)
+        )
+    )
+
+
 def _v4_seguimento_do_sintoma(self: HelenaGraph, state: Mapping[str, Any], texto: str) -> bool:
     """A mensagem CONTINUA a conversa sobre o sintoma em curso ("eu dormi de mau jeito", "sera' que e' isso?",
     "e o que pode ser?") — e nao traz sinal de alarme, pedido de pessoa, cobranca nem pergunta do plano?
@@ -1062,12 +1089,7 @@ def _v4_seguimento_do_sintoma(self: HelenaGraph, state: Mapping[str, Any], texto
     if v7 is not None and not (v7.skill == "saude" and v7.continuacao and not v7.sinais_atuais()):
         # Contrato v7: so' o MESMO assunto de saude, sem sinal novo, e' seguimento do sintoma.
         return False
-    if (
-        _sinal_forte_de_emergencia(texto)
-        or _sinal_fraco_de_emergencia(texto)
-        or alarme_no_relato(plano) is not None
-        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
-    ):
+    if _alarme_afirmado_no_turno(self, state, texto, None):
         return False
     if (
         self._v4_pede_pessoa(state, texto)
@@ -1134,17 +1156,7 @@ def _v4_conduzir_pendencia(
     if not self._v4 or pend is None or pend.etapa not in (ETAPA_ALERTA, ETAPA_ESCOLHA, ETAPA_OFERTA):
         return None
     plano = _plano(texto)
-    if (
-        _sinal_forte_de_emergencia(texto)
-        or _sinal_fraco_de_emergencia(texto)
-        or alarme_no_relato(plano) is not None
-        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
-        or (
-            self._base_saude
-            and pend.grupo.startswith("sin-")
-            and _bs.alarme_do_assunto(self._base_hoje(), pend.grupo, texto)
-        )
-    ):
+    if _alarme_afirmado_no_turno(self, state, texto, pend.grupo):
         return None
     v7 = _rv7.LEITURA_DO_TURNO.get()
     if v7 is not None and v7.sim_nao == "nao_se_aplica" and v7.opcao == "nenhuma" and not v7.continuacao:

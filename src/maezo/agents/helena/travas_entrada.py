@@ -13,11 +13,14 @@ do graph NO FIM.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
+from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
+from maezo.agents.helena.habilidades.sintoma.ja_respondido import alerta_ja_respondido
 from maezo.agents.helena.helena_v4 import e_agravamento, ler_pendente
+from maezo.agents.helena.triagem_v2 import relata_sintoma
 from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.runtime.error_text import dmn_unavailable_error
@@ -162,9 +165,74 @@ async def _evaluate_dmn(
     return {"dmn_table": table, "dmn_decision": row, "dmn_decision_ref": ref}
 
 
+def texto_afirmado_do_turno(state: Mapping[str, Any]) -> str:
+    """A mensagem do turno SO' com as frases afirmadas (`frase_afirmada`; o eco e' contra a ultima fala da
+    Helena). E' o que as travas de alarme leem (complemento da ADR-0012, decisao do dono de 25/10/2026)."""
+    return texto_afirmado(str(state.get("message_body") or ""), ultima_fala(_falas_da_helena(state)))
+
+
+def alarme_afirmado(state: Mapping[str, Any]) -> str | None:
+    """O alarme deterministico (`alarme_no_relato`) sobre as frases AFIRMADAS do turno."""
+    return alarme_no_relato(_plano(texto_afirmado_do_turno(state)))
+
+
+#: Os motivos (vocabulario fechado, vao ao log) para o codigo de sintoma do modelo NAO ir a tabela de alarme.
+MOTIVO_HABILIDADE_NAO_CLINICA = "habilidade_nao_clinica"
+MOTIVO_ALERTA_JA_RESPONDIDO = "alerta_ja_respondido"
+MOTIVO_SINAL_NAO_AFIRMADO = "sinal_nao_afirmado"
+
+
+def _sinal_no_texto(self: HelenaGraph, texto: str) -> bool:
+    """Algum sinal de alarme no texto (lexico forte, vocabulario da tabela, alarme deterministico, termo de
+    alarme da base)?"""
+    plano = _plano(texto)
+    return bool(
+        _sinal_forte_de_emergencia(texto)
+        or _VOCABULARIO_DA_TABELA.search(plano)
+        or alarme_no_relato(plano) is not None
+        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
+    )
+
+
+def motivo_sem_sintoma_do_historico(
+    self: HelenaGraph, state: Mapping[str, Any], roteada: str | None, extraction: Mapping[str, Any]
+) -> str | None:
+    """POR QUE o `sintoma_codigo` do modelo nao vai a tabela de alarme neste turno (`None`: vai, como sempre).
+
+    1. Roteador numa habilidade NAO clinica, sem conteudo clinico na mensagem (r4 de 22/10/2026).
+    2. Avaliacao r5b (25/10/2026): o alerta JA' foi respondido na conversa (as opcoes/o caminho do "nao", ou
+       o 192 ja' saiu) e a mensagem nao relata sintoma nem traz sinal de alarme ("posso tomar dipirona?"): o
+       codigo veio do HISTORICO, e a tabela escalava a dor de cabeca ja' tratada.
+    3. Caso b do teste do dono (25/10/2026): os sinais da mensagem estao SO' em pergunta, depois de "nao" ou
+       copiados da pergunta da Helena (`frase_afirmada`), e o resto nao relata sintoma.
+    Sinal afirmado na mensagem nunca tira o codigo (a tabela decide, ADR-0012)."""
+    if not extraction.get("sintoma_codigo"):
+        return None
+    texto = str(state.get("message_body") or "")
+    if roteada is not None and roteada not in ("sintoma", "saude"):
+        if _conteudo_clinico(texto) or _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto):
+            return None
+        return MOTIVO_HABILIDADE_NAO_CLINICA
+    afirmado = texto_afirmado_do_turno(state)
+    if _sinal_no_texto(self, afirmado) or relata_sintoma(_plano(afirmado)) or e_agravamento(_plano(afirmado)):
+        return None
+    if alerta_ja_respondido(_falas_da_helena(state)) or _alarme_ja_tratado(state):
+        return MOTIVO_ALERTA_JA_RESPONDIDO
+    if afirmado != texto and _sinal_no_texto(self, texto):
+        return MOTIVO_SINAL_NAO_AFIRMADO
+    return None
+
+
 def _roteador_alarme(
-    self: HelenaGraph, texto: str, pendente: str | None, falas_anteriores: Sequence[str] = ()
+    self: HelenaGraph,
+    texto: str,
+    pendente: str | None,
+    falas_anteriores: Sequence[str] = (),
+    fala_da_helena: str = "",
 ) -> bool:
+    # Caso b do teste do dono (25/10/2026): sinal em pergunta, depois de "nao" ou copiado da pergunta da
+    # Helena nao trava o turno; so' as frases afirmadas contam.
+    texto = texto_afirmado(texto, fala_da_helena)
     plano = _plano(texto)
     if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
         return True
@@ -255,11 +323,15 @@ def _urgencia_que_piorou(self: HelenaGraph, update: dict[str, Any], texto: str) 
 from maezo.agents.helena.graph import (  # noqa: E402
     _DMN_BY_POPULATION,
     HelenaState,
+    _alarme_ja_tratado,
+    _conteudo_clinico,
+    _falas_da_helena,
     _is_explicitly_false,
     _marcar_avaliacao,
     _plano,
     _severidade_de_intensidade,
     _severidade_from_prioridade,
     _sinal_forte_de_emergencia,
+    _sinal_fraco_de_emergencia,
     logger,
 )
