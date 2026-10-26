@@ -262,6 +262,24 @@ async def test_relato_sem_protocolo_proprio_recebe_o_mapa_direto(fala: str) -> N
     _sem_texto_antigo(texto)
 
 
+async def test_relato_que_o_modelo_deixa_sem_protocolo_mas_o_sinonimo_reconhece_pergunta_antes() -> None:
+    """Rodada de 26/10/2026: depois de outras queixas, o modelo deixou "dores nas articulacoes" sem protocolo
+    e a resposta foi o mapa direto. A queixa reconhecida pelo jeito de falar faz as perguntas antes."""
+    membro = _CATALOGO.protocolos["tri-adulto-dor-no-braco-ou-perna"]
+    modelo = _Modelo(
+        [decisao_v7("sintoma")], escolha=[_escolha("nenhum")], mapa=[_mapa("esp-queixa-varias-articulacoes")]
+    )
+    grafo, whatsapp, _ = _grafo(modelo)
+    final = await grafo.ainvoke(
+        _entrada(
+            "Estou sentindo dores nas articulações e fraqueza muscular no dia a dia, que profissional "
+            "eu devo procurar?"
+        )
+    )
+    assert whatsapp.enviados[-1] == n.texto_das_perguntas(membro)
+    assert str(final.get("coleta_pendente")).startswith(n.PENDENTE_ALERTA)
+
+
 async def test_relato_com_escolha_que_falha_faz_as_perguntas_universais() -> None:
     """Seguranca: com relato e sem a escolha do modelo, as perguntas do alerta universal (nao o mapa)."""
     modelo = _Modelo([decisao_v7("sintoma")], escolha=["", ""])
