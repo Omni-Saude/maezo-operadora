@@ -758,8 +758,9 @@ async def test_constante_da_isencao_do_contrato_e_a_que_o_manifest_descreve() ->
 @pytest.mark.asyncio
 async def test_cerca_de_citacao_imprecisa_sobre_toda_string_da_superficie() -> None:
     """Parecer §1/§4: "RN 659/2025, art. 23-A" e "RN 557/659" occur NOWHERE — not in the
-    manifest constant, not in the served checklist, not in the served OpenAPI slice, not in
-    any UI string this module ships."""
+    manifest constant, not in the served checklist, not in the receipts, not in the served
+    OpenAPI slice (with its TRANSITIVE $refs: docstrings de modelo viram `description` do
+    schema, e o cliente TS gerado as espelha), not in any UI string this module ships."""
     textos: list[str] = list(_strings(CHECKLIST))
     textos.extend(_CAMPO_ANCORAS.keys())
     textos.extend(_CAMPO_ANCORAS.values())
@@ -774,31 +775,69 @@ async def test_cerca_de_citacao_imprecisa_sobre_toda_string_da_superficie() -> N
             path: methods for path, methods in openapi["paths"].items() if "legitimacy-screens" in path
         }
         textos.extend(_strings(slice_legitimacy))
-        schemas_legitimacy = {
-            nome: schema
-            for nome, schema in openapi["components"]["schemas"].items()
-            if nome.startswith("Legitimacy")
-        }
-        textos.extend(_strings(schemas_legitimacy))
+        # A fatia transitiva de $refs das rotas da superfície (inclui os schemas de modelos
+        # cujo nome não começa com "Legitimacy" — Checklist*, Criterion*, Portal*).
+        pendentes = [ref for ref in _refs(slice_legitimacy)]
+        vistas: set[str] = set()
+        while pendentes:
+            nome = pendentes.pop().split("/")[-1]
+            if nome in vistas or nome not in openapi["components"]["schemas"]:
+                continue
+            vistas.add(nome)
+            schema = openapi["components"]["schemas"][nome]
+            textos.extend(_strings({nome: schema}))
+            pendentes.extend(_refs(schema))
     textos.extend(_strings(LegitimacyScreenRecord.model_fields))
     for proibida in PROHIBIDAS_CITACAO:
         assert not any(proibida in texto for texto in textos), proibida
-    # E a forma CURTA é a que a tela carrega — a forma canônica longa é de REGISTRO
-    # (parecer §1), não de UI.
-    assert "RN 489/2022, art. 23-A (redação dada pela RN 659/2025)" not in textos
+    # A forma CURTA é a que a TELA carrega — a forma canônica longa é de REGISTRO/receipt
+    # (parecer §1), então a ausência dela é assertada sobre o texto de UI, não sobre o
+    # schema do registro persistido.
+    assert "RN 489/2022, art. 23-A (redação dada pela RN 659/2025)" not in _strings(CHECKLIST)
+    assert "RN 489/2022, art. 23-A (redação dada pela RN 659/2025)" not in _strings(servido)
     assert CHECKLIST.penalidade_anchor == "RN 489/2022, art. 23-A"
+
+
+def _refs(node: object) -> Iterator[str]:
+    """Every `$ref` value of a JSON-shaped OpenAPI tree."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "$ref" and isinstance(value, str):
+                yield value
+            else:
+                yield from _refs(value)
+    elif isinstance(node, (tuple, list)):
+        for value in node:
+            yield from _refs(value)
 
 
 @pytest.mark.asyncio
 async def test_zero_caracterizacao_do_canal_em_texto_exibido() -> None:
     """Parecer §3 (recomendação técnica): no displayed string describes, qualifies or
     characterizes the channel's legal role — the screen is an instrument of the operadora
-    and the administradora de benefícios, and no label says otherwise."""
+    and the administradora de benefícios, and no label says otherwise. The fence covers the
+    manifest constant, the served checklist and the surface's transitive OpenAPI slice
+    (docstrings de modelo viram `description` servida e espelhada no cliente TS gerado)."""
     textos: list[str] = list(_strings(CHECKLIST))
     async with LegitimacyApp(flag=True, bind=True) as app:
         await session_csrf(app)
         servido = (await app.client.get(ROUTE + "/checklist")).json()
         textos.extend(_strings(servido))
+        openapi = (await app.client.get(PREFIX + "/openapi.json")).json()
+        slice_legitimacy = {
+            path: methods for path, methods in openapi["paths"].items() if "legitimacy-screens" in path
+        }
+        textos.extend(_strings(slice_legitimacy))
+        pendentes = list(_refs(slice_legitimacy))
+        vistas: set[str] = set()
+        while pendentes:
+            nome = pendentes.pop().split("/")[-1]
+            if nome in vistas or nome not in openapi["components"]["schemas"]:
+                continue
+            vistas.add(nome)
+            schema = openapi["components"]["schemas"][nome]
+            textos.extend(_strings({nome: schema}))
+            pendentes.extend(_refs(schema))
     for token in TOKENS_DE_CANAL:
         assert not any(token in texto.lower() for texto in textos), token
 

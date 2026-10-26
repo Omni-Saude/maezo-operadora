@@ -432,6 +432,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/legitimacy-screens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Legitimacy Screen */
+        post: operations["create_legitimacy_screen_api_v1_portal_legitimacy_screens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Legitimacy Checklist */
+        get: operations["read_legitimacy_checklist_api_v1_portal_legitimacy_screens_checklist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/contratante/{legal_entity_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Latest Legitimacy Screen */
+        get: operations["read_latest_legitimacy_screen_api_v1_portal_legitimacy_screens_contratante__legal_entity_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/{screen_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revalidate Legitimacy Screen */
+        post: operations["revalidate_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/{screen_ref}/{screen_revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Legitimacy Screen */
+        get: operations["read_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref___screen_revision__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/provider-notices/{notice_ref}": {
         parameters: {
             query?: never;
@@ -1384,6 +1469,61 @@ export interface components {
             /** Submission Ref */
             submission_ref: string;
         };
+        /**
+         * ChecklistCriterion
+         * @description Um critério do parecer §5 — o rótulo é o VERBATIM do parecer, nunca paráfrase.
+         *
+         *     `estrutural=True` marca o critério que o ESTADO bloqueante aplica (art. 29 §1º): ele é
+         *     EXIBIDO e nunca é campo de entrada (desenho §5: "nunca um checkbox").
+         */
+        ChecklistCriterion: {
+            /**
+             * Campos
+             * @default []
+             */
+            campos: components["schemas"]["ChecklistField"][];
+            /** Criterion Id */
+            criterion_id: string;
+            /**
+             * Estrutural
+             * @default false
+             */
+            estrutural: boolean;
+            /** Norm Anchor */
+            norm_anchor: string;
+            /**
+             * Opcoes
+             * @default []
+             */
+            opcoes: components["schemas"]["ChecklistOption"][];
+            /** Rotulo */
+            rotulo: string;
+        };
+        /**
+         * ChecklistField
+         * @description Um campo do checklist com a âncora normativa QUE A TELA EXIBE para ele.
+         *
+         *     `norm_anchor` é sempre artigo PRÓPRIO da RN 557/2022 (parecer §4 — desdobro por
+         *     assunto); `condicao_estrutural` carrega a derivação do art. 16 quando existe.
+         */
+        ChecklistField: {
+            /** Campo Id */
+            campo_id: string;
+            /** Condicao Estrutural */
+            condicao_estrutural?: string | null;
+            /** Norm Anchor */
+            norm_anchor: string;
+        };
+        /**
+         * ChecklistOption
+         * @description Uma opção fechada de campo, com o rótulo exibido — sem texto livre de operador.
+         */
+        ChecklistOption: {
+            /** Rotulo */
+            rotulo: string;
+            /** Valor */
+            valor: string;
+        };
         /** ClaimAssignment */
         ClaimAssignment: {
             /** Command Id */
@@ -1770,6 +1910,29 @@ export interface components {
             plano_substituicao?: string | null;
             /** Referencia Regulatoria */
             referencia_regulatoria?: string | null;
+        };
+        /**
+         * CriterionCheck
+         * @description O estado DECLARADO de um critério: resultado no closed set do substrato + referências.
+         *
+         *     O operador declara; nada aqui infere, pondera ou aprova. As evidências são referências
+         *     tipadas do substrato (custódia `operadora`/`administradora`, RN 557/2022 art. 12) —
+         *     nunca bytes de documento. No WIRE a sequência chega como LISTA e é ACEITA SÓ AÍ: o modo
+         *     strict do pydantic não converge lista→tupla no caminho python do ASGI (o mesmo motivo
+         *     pelo qual o substrato hidrata via JSON), então o validador `before` fecha a tupla
+         *     ANTES da validação — o campo persiste tupla fechada e imutável, como no recibo.
+         */
+        CriterionCheck: {
+            /**
+             * Evidence Refs
+             * @default []
+             */
+            evidence_refs: components["schemas"]["LegitimacyEvidenceRef"][];
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "proven" | "not_proven" | "not_applicable" | "pending";
         };
         /** DecisionContextResponse */
         DecisionContextResponse: {
@@ -2473,6 +2636,237 @@ export interface components {
             scope: "actor_admissions";
         };
         /**
+         * LegitimacyChecklistManifest
+         * @description O checklist FECHADO que a tela renderiza — os 5 critérios do parecer §5 e nada mais.
+         *
+         *     `penalidade_anchor` é a forma CURTA (a única forma de tela, parecer §1);
+         *     `norma_contratacao` é a RN 557/2022 desdobrada por assunto; `escopo="integral"` fixa o
+         *     parecer §2 (conteúdo integral desde a v1). Nenhum texto deste manifesto atribui papel
+         *     jurídico a figura alguma de venda (parecer §3) — cerca mecânica no teste da superfície.
+         */
+        LegitimacyChecklistManifest: {
+            /** Criterios */
+            criterios: components["schemas"]["ChecklistCriterion"][];
+            /**
+             * Escopo
+             * @default integral
+             * @constant
+             */
+            escopo: "integral";
+            /**
+             * Norma Contratacao
+             * @default RN 557/2022
+             * @constant
+             */
+            norma_contratacao: "RN 557/2022";
+            /**
+             * Penalidade Anchor
+             * @default RN 489/2022, art. 23-A
+             * @constant
+             */
+            penalidade_anchor: "RN 489/2022, art. 23-A";
+            /** Resultados */
+            resultados: components["schemas"]["ChecklistOption"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
+         * LegitimacyCriterion
+         * @description Um critério verificado: critério→resultado→referências, com a âncora normativa.
+         *
+         *     A enumeração FECHADA dos critérios (os campos exatos da tela) é a superfície do PR 2
+         *     (desenho §5); o substrato fixa a FORMA: id simbólico fechado, resultado no closed set,
+         *     âncora por artigo PRÓPRIO da norma de contratação (RN 557/2022) — ou da penalidade
+         *     (RN 489/2022, art. 23-A, redação dada pela RN 659/2025) quando o critério é de infração —
+         *     e referências tipadas. `pending` é um resultado declarado, nunca inferido.
+         */
+        LegitimacyCriterion: {
+            /** Criterion Id */
+            criterion_id: string;
+            /**
+             * Evidence Refs
+             * @default []
+             */
+            evidence_refs: components["schemas"]["LegitimacyEvidenceRef"][];
+            /** Norm Anchor */
+            norm_anchor: string;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "proven" | "not_proven" | "not_applicable" | "pending";
+        };
+        /**
+         * LegitimacyEvidenceRef
+         * @description Referência TIPADA a um documento sob custódia — nunca o documento.
+         *
+         *     Exatamente três campos e nenhum outro (o fechado é a fronteira anti-custódia: não
+         *     existe slot para conteúdo, preview, base64 ou "só o primeiro parágrafo"). `kind` diz
+         *     quem tem a GUARDA do art. 12; `locator` é o ponteiro opaco no repositório DO
+         *     CUSTODIANTE; `document_sha256` é o digest do documento apontado, que permite conferir
+         *     integridade SEM transportar o objeto. Custódia é da operadora e/ou da administradora
+         *     (RN 557/2022, art. 12; parecer §5 "Registros").
+         */
+        LegitimacyEvidenceRef: {
+            /** Document Sha256 */
+            document_sha256: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operadora" | "administradora";
+            /** Locator */
+            locator: string;
+        };
+        /**
+         * LegitimacyScreenRecord
+         * @description A verificação persistida — o recibo que o banco guarda, linha por revisão.
+         *
+         *     Imutável por revisão: revalidação por evento (renovação, reajuste, troca de
+         *     contratante) é NOVA `screen_revision` (nova linha), nunca UPDATE de revisão (desenho
+         *     §3). `would_block` registra o que a postura enforcing DECIDIRIA — registrável em shadow,
+         *     nunca aplicador de efeito aqui. A sinalização do art. 39 é par exclusivo com a âncora
+         *     literal: sinalizada ⟺ âncora presente (CHECK espelhado da 0030). `reconfirmation_due_at`
+         *     materializa o art. 10 (aniversário do contrato) quando o regime exige.
+         */
+        LegitimacyScreenRecord: {
+            /** Art39 Anchor */
+            art39_anchor?: "RN 557/2022, art. 39" | null;
+            /** Art39 Signaled */
+            art39_signaled: boolean;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Criteria */
+            criteria: components["schemas"]["LegitimacyCriterion"][];
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /**
+             * Operation
+             * @default legitimacy_screen
+             * @constant
+             */
+            operation: "legitimacy_screen";
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default legitimacy-screen-record.v1
+             * @constant
+             */
+            schema_version: "legitimacy-screen-record.v1";
+            /** Screen Ref */
+            screen_ref: string;
+            /** Screen Revision */
+            screen_revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "valid" | "invalid" | "pending";
+            /** Tenant */
+            tenant: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Would Block */
+            would_block: boolean;
+        };
+        /**
+         * LegitimacyScreenRevalidation
+         * @description REVALIDATE por evento (renovação, reajuste, troca de contratante): checklist COMPLETO
+         *     de novo + a revisão conhecida (molde D-36 `revision`).
+         *
+         *     A revisão persistida é SEMPRE `screen_revision + 1`, mintada pelo servidor — revalidação
+         *     é NOVA `screen_revision` (nova linha do substrato), nunca update de revisão (desenho §3).
+         */
+        LegitimacyScreenRevalidation: {
+            constituida_um_ano?: components["schemas"]["CriterionCheck"] | null;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /** Contratante Lista Art15 */
+            contratante_lista_art15?: ("inciso_i" | "inciso_ii" | "inciso_iii" | "inciso_iv" | "inciso_v" | "inciso_vi") | null;
+            documentos_art9?: components["schemas"]["CriterionCheck"] | null;
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            reconfirmacao_anual?: components["schemas"]["CriterionCheck"] | null;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Screen Revision */
+            screen_revision: number;
+            vinculo_beneficiario_contratante?: components["schemas"]["CriterionCheck"] | null;
+        };
+        /**
+         * LegitimacyScreenSubmission
+         * @description CREATE a screen: what an internal operator declares. Nothing else is an input.
+         */
+        LegitimacyScreenSubmission: {
+            constituida_um_ano?: components["schemas"]["CriterionCheck"] | null;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /** Contratante Lista Art15 */
+            contratante_lista_art15?: ("inciso_i" | "inciso_ii" | "inciso_iii" | "inciso_iv" | "inciso_v" | "inciso_vi") | null;
+            documentos_art9?: components["schemas"]["CriterionCheck"] | null;
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            reconfirmacao_anual?: components["schemas"]["CriterionCheck"] | null;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            vinculo_beneficiario_contratante?: components["schemas"]["CriterionCheck"] | null;
+        };
+        /**
          * LgpdDsrDecisionInputs
          * @description Human DPO/privacy review decision for the LGPD data-subject request.
          *
@@ -2811,6 +3205,17 @@ export interface components {
              * @enum {string}
              */
             code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "resource_unavailable" | "conflict" | "dependency_unavailable";
+        };
+        /**
+         * PortalLegitimacyScreenError
+         * @description The closed refusal vocabulary of this boundary. Nothing here suggests a next state.
+         */
+        PortalLegitimacyScreenError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "field_not_client_owned" | "resource_unavailable" | "screen_conflict" | "stale_revision" | "dependency_unavailable";
         };
         /** PortalReadError */
         PortalReadError: {
@@ -5814,6 +6219,427 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    create_legitimacy_screen_api_v1_portal_legitimacy_screens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegitimacyScreenSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_legitimacy_checklist_api_v1_portal_legitimacy_screens_checklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyChecklistManifest"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_latest_legitimacy_screen_api_v1_portal_legitimacy_screens_contratante__legal_entity_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                legal_entity_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    revalidate_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                screen_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegitimacyScreenRevalidation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref___screen_revision__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                screen_ref: string;
+                screen_revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
                 };
             };
         };

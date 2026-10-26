@@ -234,8 +234,8 @@ class LegitimacyChecklistManifest(_Closed):
 
     `penalidade_anchor` é a forma CURTA (a única forma de tela, parecer §1);
     `norma_contratacao` é a RN 557/2022 desdobrada por assunto; `escopo="integral"` fixa o
-    parecer §2 (conteúdo integral desde a v1). Nenhum texto deste manifesto caracteriza
-    juridicamente o papel do canal (parecer §3) — cerca mecânica no teste da superfície.
+    parecer §2 (conteúdo integral desde a v1). Nenhum texto deste manifesto atribui papel
+    jurídico a figura alguma de venda (parecer §3) — cerca mecânica no teste da superfície.
     """
 
     schema_version: Literal[1] = 1
