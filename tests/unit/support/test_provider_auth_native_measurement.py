@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -318,6 +319,17 @@ _CAPTURE_SCHEMA_KEYS = (
     "track_activities_observed_on",
     "transaction_started_at",
 )
+# D2' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §4.2): a capture bound to an already
+# dispatched COMMITTING RELEASE carries EXACTLY two more fields — the inverted
+# certification pair. Any other key (verdicts included) stays out.
+_RELEASE_BOUND_CAPTURE_KEYS = _CAPTURE_SCHEMA_KEYS + ("release_emitted_at", "release_raw_sha256")
+# Unit fixtures for the inverted binding and the §6 fidelity block. The
+# RELEASE dispatch time sits BEFORE the capture observation time so the bound
+# fixtures reproduce the D2' ordering hold <= release <= capture.
+_STRADDLE_READ_AT = datetime(2026, 10, 25, 1, 53, 27, 402000, tzinfo=UTC)
+_RELEASE_EMITTED_AT = datetime(2026, 10, 25, 1, 53, 27, 127000, tzinfo=UTC)
+_UNIT_HOLD_RAW = b'{"kind":"HOLD","unit":"fixture"}'
+_UNIT_RELEASE_RAW = b'{"kind":"RELEASE","unit":"fixture"}'
 
 
 class _UnitTransaction:
@@ -365,13 +377,17 @@ class _CheckpointConnection(asyncpg.Connection):
             return dict(self._witness_row)
         if query is measurement._SNAPSHOT_SQL:
             return dict(active_full_xids=list(self._xip))
+        if query is measurement._STRADDLE_SQL:
+            # The §6 fidelity read: exactly one statement returning the raw
+            # verdict AND its PG clock. Absent corner config is a unit fault.
+            if self._straddle is _UNIT_STRADDLE_UNSET:
+                raise AssertionError("unit connection: unexpected straddle read (T3 must not run)")
+            return dict(witness_xact_status=self._straddle, read_at=_STRADDLE_READ_AT)
         raise AssertionError(f"unit connection: unexpected fetchrow {query[:48]!r}")
 
     async def fetchval(self, query: str, *args: Any, **timeout: Any) -> Any:
         self.queries.append(("fetchval", query, args))
-        if query is not measurement._STRADDLE_SQL or self._straddle is _UNIT_STRADDLE_UNSET:
-            raise AssertionError("unit connection: unexpected fetchval (T3 must not run)")
-        return self._straddle
+        raise AssertionError("unit connection: unexpected fetchval (T3 uses the fidelity row)")
 
 
 def _checkpoint_row(*, backend_xid32: Any, witness_status: Any) -> dict:
@@ -417,12 +433,13 @@ def _hold(*, endpoint: str, witness_txid: Any) -> dict:
     )
 
 
-def _capture_schema() -> dict:
+def _capture_schema(*extra_keys: str) -> dict:
+    keys = (*_CAPTURE_SCHEMA_KEYS, *extra_keys)
     return {
         "$defs": {
             "RootPgRawCapture": dict(
                 type="object",
-                properties={key: {} for key in _CAPTURE_SCHEMA_KEYS},
+                properties={key: {} for key in keys},
                 required=list(_CAPTURE_SCHEMA_KEYS),
                 additionalProperties=False,
             )
@@ -433,23 +450,53 @@ def _capture_schema() -> dict:
 def _spy_session(monkeypatch: pytest.MonkeyPatch, observed: list) -> None:
     real = measurement.session
 
-    def spy(capture, *, witness, live_status=measurement._LIVE_STATUS_UNSET):
+    def spy(
+        capture,
+        *,
+        witness,
+        live_status=measurement._LIVE_STATUS_UNSET,
+        deferred_t3=measurement._T3_NOT_RUN,
+    ):
         observed.append(live_status)
-        return real(capture, witness=witness, live_status=live_status)
+        return real(capture, witness=witness, live_status=live_status, deferred_t3=deferred_t3)
 
     monkeypatch.setattr(measurement, "session", spy)
 
 
-def _acquire(connection: _CheckpointConnection, hold: dict) -> dict:
+def _acquire(
+    connection: _CheckpointConnection, hold: dict, *, schema: dict | None = None
+) -> tuple[dict, dict | None]:
     guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=30))
     return asyncio.run(
         measurement.acquire_pg_checkpoint(
             connection,
             hold=hold,
-            hold_raw=b"{}",
+            hold_raw=_UNIT_HOLD_RAW,
             phase="ROOT_SECOND",
             guard=guard,
-            schema=_capture_schema(),
+            schema=_capture_schema() if schema is None else schema,
+        )
+    )
+
+
+def _acquire_bound(connection: _CheckpointConnection, hold: dict) -> tuple[dict, dict | None]:
+    """Same acquisition with an already dispatched early RELEASE (D2' COMMITTING)."""
+    guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=30))
+    release = dict(
+        kind="RELEASE",
+        endpoint=hold["endpoint"],
+        emitted_at=runtime.clock(_RELEASE_EMITTED_AT),
+    )
+    return asyncio.run(
+        measurement.acquire_pg_checkpoint(
+            connection,
+            hold=hold,
+            hold_raw=_UNIT_HOLD_RAW,
+            phase="ROOT_SECOND",
+            guard=guard,
+            schema=_capture_schema("release_emitted_at", "release_raw_sha256"),
+            release=release,
+            release_raw=_UNIT_RELEASE_RAW,
         )
     )
 
@@ -490,7 +537,7 @@ def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeyp
     _spy_session(monkeypatch, observed)
     waited = _spy_sleep(monkeypatch, connection, delegate=True)
     started = time.monotonic()
-    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    capture, fidelity = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
     # Banked capture document stays byte-stable (no T3 field) and pins this source.
     assert set(capture) == set(_CAPTURE_SCHEMA_KEYS)
     assert capture["active_full_xids"] == []
@@ -511,7 +558,7 @@ def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeyp
         ("fetchrow", measurement._CHECKPOINT_SQL),
         ("fetchrow", measurement._SNAPSHOT_SQL),
         ("sleep", measurement._T3_DEFERRED_SECONDS),
-        ("fetchval", measurement._STRADDLE_SQL),
+        ("fetchrow", measurement._STRADDLE_SQL),
     ]
     assert connection.queries[-1][2] == (761,)
     assert connection.checkpoint_txid_param == 761
@@ -519,6 +566,14 @@ def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeyp
     # synchronous stub, and it is the whole added cost of the corner.
     assert waited == [(measurement._T3_DEFERRED_SECONDS, 4)]
     assert time.monotonic() - started >= measurement._T3_DEFERRED_SECONDS
+    # §6 fidelity: the raw verdict, its PG clock and the EFFECTIVELY waited Δ
+    # come back for the acquisition record — never inside the capture document.
+    assert fidelity is not None
+    assert set(fidelity) == {"t3_straddle_raw_status", "t3_straddle_read_at", "t3_deferred_seconds"}
+    assert fidelity["t3_straddle_raw_status"] == "committed"
+    assert fidelity["t3_straddle_read_at"] == runtime.clock(_STRADDLE_READ_AT)
+    whole, nanos = fidelity["t3_deferred_seconds"].split(".")
+    assert len(nanos) == 9 and whole == "0"
 
 
 @pytest.mark.parametrize(
@@ -533,15 +588,28 @@ def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle, monkeypa
     waited = _spy_sleep(monkeypatch, connection, delegate=False)
     with pytest.raises(runtime.NativeObservationError) as refused:
         _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
-    assert str(refused.value) == _IN_GAP_REFUSAL
+    # §6: the refusal text now carries the raw T3' verdict verbatim (the
+    # discriminator between a slow live transaction and an aborted one) and
+    # still never waives.
+    assert str(refused.value) == (
+        f"Actual witness clog in progress without xip candidacy (non-decisive; deferred T3 read {straddle!r})"
+    )
     # T3 ran exactly once; every non-committed outcome is discarded unadmitted.
-    assert _query_sequence(connection)[-1] == ("fetchval", measurement._STRADDLE_SQL)
+    assert _query_sequence(connection)[-1] == ("fetchrow", measurement._STRADDLE_SQL)
     assert connection.queries[-1][2] == (761,)
-    assert sum(1 for kind, _, _ in connection.queries if kind == "fetchval") == 1
+    assert sum(1 for kind, _, _ in connection.queries if kind == "fetchrow") == 4
     # The deferral is UNCONDITIONAL at the corner: it never inspects a verdict
     # before or after, so a non-committed T3' still waited the same Δ once
     # (agendamento incondicional limitado — never a retry/poll loop).
     assert waited == [(measurement._T3_DEFERRED_SECONDS, 4)]
+
+
+def test_corner_free_refusal_keeps_the_exact_never_waived_text():
+    """§6 boundary: WITHOUT the corner the exact historic refusal text stands."""
+    with pytest.raises(runtime.NativeObservationError, match=r".*never waived\)$"):
+        measurement.full_xid("761", [], witness="761", live_status="in progress")
+    with pytest.raises(runtime.NativeObservationError, match="deferred T3 read 'aborted'"):
+        measurement.full_xid("761", [], witness="761", live_status="in progress", deferred_t3="aborted")
 
 
 def test_t3_deferred_wait_never_runs_outside_the_straddle_corner(monkeypatch):
@@ -584,10 +652,15 @@ def test_t3_deferred_wait_never_runs_outside_the_straddle_corner(monkeypatch):
         waited = _spy_sleep(monkeypatch, connection, delegate=False)
         observed = []
         _spy_session(monkeypatch, observed)
-        capture = _acquire(connection, _hold(endpoint=endpoint, witness_txid=witness_txid))
+        capture, _fidelity = _acquire(connection, _hold(endpoint=endpoint, witness_txid=witness_txid))
         assert name and waited == [], name
         assert not [entry for entry in connection.queries if entry[0] == "sleep"], name
-        assert not [entry for entry in connection.queries if entry[0] == "fetchval"], name
+        straddles = [
+            entry
+            for entry in connection.queries
+            if entry[0] == "fetchrow" and entry[1] is measurement._STRADDLE_SQL
+        ]
+        assert not straddles, name
         assert capture["backend_xid32"] == witness_txid, name
 
 
@@ -598,11 +671,15 @@ def test_legacy_xip_present_path_admits_without_executing_t3(monkeypatch):
     )
     observed = []
     _spy_session(monkeypatch, observed)
-    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    capture, _fidelity = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
     # The xip match decides; the T1 verdict is passed through but never admits by
     # itself, and no T3 read exists on this path.
     assert observed == ["in progress"]
-    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert not [
+        entry
+        for entry in connection.queries
+        if entry[0] == "fetchrow" and entry[1] is measurement._STRADDLE_SQL
+    ]
     assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
     assert measurement.full_xid("761", ["761"], witness="761", live_status="in progress") == (
         "761",
@@ -617,10 +694,14 @@ def test_legacy_committed_in_t1_admits_without_executing_t3(monkeypatch):
     )
     observed = []
     _spy_session(monkeypatch, observed)
-    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    capture, _fidelity = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
     # v23 committed-in-T1 admission: same statement verdict, T3 never executes.
     assert observed == ["committed"]
-    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert not [
+        entry
+        for entry in connection.queries
+        if entry[0] == "fetchrow" and entry[1] is measurement._STRADDLE_SQL
+    ]
     assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
 
 
@@ -631,11 +712,353 @@ def test_entry_checkpoint_never_executes_t3(monkeypatch):
     )
     observed = []
     _spy_session(monkeypatch, observed)
-    capture = _acquire(connection, _hold(endpoint="ENTRY", witness_txid=None))
+    capture, _fidelity = _acquire(connection, _hold(endpoint="ENTRY", witness_txid=None))
     # ENTRY witnesses carry no assigned xid and no in-progress verdict, so the
     # straddle corner is structurally unreachable and T3 must never execute.
     assert observed == [None]
-    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert not [
+        entry
+        for entry in connection.queries
+        if entry[0] == "fetchrow" and entry[1] is measurement._STRADDLE_SQL
+    ]
     assert connection.checkpoint_txid_param is None
     assert capture["backend_xid32"] is None
     assert measurement.session(capture, witness=None)["transaction_id_if_assigned"] is None
+
+
+# ---------------------------------------------------------------------------
+# D2' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §4.2/§5.2-P3/§6/§10.8): RELEASE-imediato
+# no COMMITTING, binding captura->RELEASE invertido, reparo de fidelidade do T3'
+# e o Delta deferido lido de env na importacao (conjunto fechado).
+# ---------------------------------------------------------------------------
+
+
+def test_capture_between_pair_phases_after_commit_refuses_never_adheres(monkeypatch):
+    """P3-(i): the commit landing between the two pair captures is fail-closed.
+
+    The first capture still finds the held transaction in progress (admitted);
+    the second one reads the backend AFTER the commit — xact_start NULL — and
+    must refuse on the held-session congruence instead of adhering. The exact
+    pair-level guard lives in collect() (Linux lane); its refusal text is
+    pinned here so it can never silently disappear.
+    """
+    first = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=["761"],
+    )
+    capture, _fidelity = _acquire(first, _hold(endpoint="COMMITTING", witness_txid="761"))
+    assert capture["backend_xid32"] == "761"
+    second = _CheckpointConnection(
+        checkpoint_row=dict(
+            _checkpoint_row(backend_xid32=None, witness_status="committed"), transaction_started_at=None
+        ),
+        xip=[],
+    )
+    _spy_sleep(monkeypatch, second, delegate=False)
+    with pytest.raises(runtime.NativeObservationError, match="Root PG tuple differs from held"):
+        _acquire(second, _hold(endpoint="COMMITTING", witness_txid="761"))
+    source = Path(measurement.__file__).read_text()
+    assert "Held session changed between fresh ROOT snapshots" in source
+
+
+def test_post_commit_capture_with_committed_clog_refuses_never_false_adhesion(monkeypatch):
+    """P3-(ii): a fully post-commit capture is refused, never re-attached."""
+    connection = _CheckpointConnection(
+        checkpoint_row=dict(
+            _checkpoint_row(backend_xid32=None, witness_status="committed"), transaction_started_at=None
+        ),
+        xip=[],
+    )
+    _spy_sleep(monkeypatch, connection, delegate=False)
+    with pytest.raises(runtime.NativeObservationError) as refused:
+        _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    assert str(refused.value) == "Root PG tuple differs from held enlisted session"
+    # No artifact-shaped capture escaped and the clog path alone never re-attaches
+    # the ended session: the congruence tuple (xact_start) is the discriminator.
+    assert connection.checkpoint_txid_param == 761
+
+
+def test_committed_capture_bound_to_dispatched_release_carries_inverted_certification(monkeypatch):
+    """P3-(iv): the D2' capture references the RELEASE it is certified against."""
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=["761"],
+    )
+    capture, _fidelity = _acquire_bound(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    assert set(capture) == set(_RELEASE_BOUND_CAPTURE_KEYS)
+    assert capture["release_raw_sha256"] == measurement.sha(_UNIT_RELEASE_RAW)
+    assert capture["release_emitted_at"] == runtime.clock(_RELEASE_EMITTED_AT)
+    # Banked ordering proof, capture side: release <= capture root_observed_at
+    # (the HOLD side is bound by hold_raw_sha256 and checked by the replay).
+    assert runtime._observation_time(capture["release_emitted_at"]) <= runtime._observation_time(
+        capture["root_observed_at"]
+    )
+    # The unbound (ENTRY) shape stays byte-stable: neither field ever appears.
+    unbound, _fidelity = _acquire(
+        _CheckpointConnection(
+            checkpoint_row=_checkpoint_row(backend_xid32=None, witness_status=None), xip=[]
+        ),
+        _hold(endpoint="ENTRY", witness_txid=None),
+    )
+    assert set(unbound) == set(_CAPTURE_SCHEMA_KEYS)
+    assert "release_raw_sha256" not in unbound and "release_emitted_at" not in unbound
+
+
+def test_inverted_binding_half_pair_or_foreign_release_refuses():
+    guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=30))
+    hold = _hold(endpoint="COMMITTING", witness_txid="761")
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"), xip=["761"]
+    )
+    for kwargs in (
+        {"release": dict(kind="RELEASE")},
+        {"release_raw": _UNIT_RELEASE_RAW},
+        {"release": dict(kind="SEAL"), "release_raw": _UNIT_RELEASE_RAW},
+    ):
+        with pytest.raises(runtime.NativeObservationError):
+            asyncio.run(
+                measurement.acquire_pg_checkpoint(
+                    connection,
+                    hold=hold,
+                    hold_raw=_UNIT_HOLD_RAW,
+                    phase="ROOT_SECOND",
+                    guard=guard,
+                    schema=_capture_schema(),
+                    **kwargs,
+                )
+            )
+
+
+def test_collect_commits_to_the_d2prime_release_order_on_committing():
+    """GATE-T2 F1: the inversion ORDER in collect() is pinned by a canary.
+
+    The unit lane cannot run collect() (Linux UDS custody chain: kernel peer
+    credentials, exclusive group, uid custody), so the order is pinned in the
+    source-text idiom already used for the pair guard above. Reverting the
+    decision line to the v26 behaviour (early_release = False) MUST fail this
+    test: on COMMITTING the RELEASE is dispatched BEFORE the two captures and
+    carries NO capture digests, the captures are bound to the dispatched
+    RELEASE (release_raw_sha256/release_emitted_at, both phases), and the
+    ENTRY keeps the original order (release built after its captures).
+    """
+    source = inspect.getsource(measurement.NativeMeasurementCollector.collect)
+    # The D2' decision line itself: mutated away by a revert to v26.
+    assert 'early_release = endpoint == "COMMITTING"' in source
+    early_block = source.index("if early_release:")
+    phase_loop = source.index('for phase in ("ROOT_FIRST", "ROOT_SECOND"):')
+    late_block = source.index("if not early_release:")
+    # HOLD -> RELEASE dispatched -> captures -> ENTRY release, in source order.
+    assert early_block < phase_loop < late_block
+    early_send = source.index('self._event(release, release_raw, "ROOT_TO_JVM")', early_block)
+    assert early_send < phase_loop
+    # Both captures bind to the dispatched RELEASE exactly when it is early.
+    binding = source.index("release=release if early_release else None")
+    raw_binding = source.index("release_raw=release_raw if early_release else None")
+    assert phase_loop < binding < late_block
+    assert phase_loop < raw_binding < late_block
+    # The early RELEASE carries NO capture digests: each digest key is assigned
+    # exactly once in collect(), inside the ENTRY (not early) branch.
+    assert source.count("root_capture_before_raw_sha256=") == 1
+    assert source.count("root_capture_after_raw_sha256=") == 1
+    assert source.index("root_capture_before_raw_sha256=") > late_block
+    assert source.index("root_capture_after_raw_sha256=") > late_block
+
+
+class TestT3DeferredEnvClosedSet:
+    """§10.8 main side: the Δ is read ONCE at import from a CLOSED set."""
+
+    _ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
+
+    @pytest.fixture(autouse=True)
+    def _restore_import_default(self):
+        yield
+        import importlib
+        import os
+
+        os.environ.pop(self._ENV, None)
+        importlib.reload(measurement)
+
+    def _reload(self, monkeypatch, value):
+        import importlib
+
+        if value is None:
+            monkeypatch.delenv(self._ENV, raising=False)
+        else:
+            monkeypatch.setenv(self._ENV, value)
+        return importlib.reload(measurement)
+
+    @pytest.mark.parametrize("raw,expected", [(None, 0.2), ("0", 0.0), ("0.2", 0.2)])
+    def test_absent_or_closed_set_values_resolve(self, monkeypatch, raw, expected):
+        module = self._reload(monkeypatch, raw)
+        assert expected == module._T3_DEFERRED_SECONDS
+
+    @pytest.mark.parametrize("raw", ["0.5", "0.20", " 0.2", "-1", "abc", "", "1", "0.2000000"])
+    def test_any_other_value_refuses_loud_at_import(self, monkeypatch, raw):
+        import importlib
+
+        monkeypatch.setenv(self._ENV, raw)
+        with pytest.raises(runtime.NativeObservationError, match=self._ENV):
+            importlib.reload(measurement)
+        # The refusal is the import-time state: the module is NOT left bound to
+        # the refused value under any silent fallback.
+        import os
+
+        os.environ.pop(self._ENV, None)
+        assert importlib.reload(measurement)._T3_DEFERRED_SECONDS == 0.2
+
+    def test_runtime_reads_the_module_attribute_not_a_literal(self):
+        # The single wait site consumes the attribute, so the env decision and
+        # the executed wait can never diverge within one process.
+        assert measurement._T3_DEFERRED_SECONDS in (0.0, 0.2)
+
+
+# ---------------------------------------------------------------------------
+# Schema v3 contract, main side: the early RELEASE document, the inverted
+# capture and the acquisition record shapes validated against the REAL
+# versioned schema file (the same bytes the sealed JVM loads).
+# ---------------------------------------------------------------------------
+
+_UNIT_UUID = "01234567-89ab-cdef-0123-456789abcdef"
+
+
+def _real_schema() -> dict:
+    import json
+
+    path = Path(measurement.__file__).resolve().parents[2]
+    return json.loads(
+        (path / "src/maezo/portal/engine/java/src/main/resources")
+        .joinpath("provider-native-independent-measurement-schema-v1.json")
+        .read_text()
+    )
+
+
+def _release_document(endpoint: str, **extra: Any) -> dict:
+    value = dict(
+        schema="provider-native-independent-measurement-frame.v2",
+        event_ordinal=4,
+        session_nonce="a" * 32,
+        request_sha256="b" * 64,
+        config_sha256="c" * 64,
+        emitted_at=runtime.clock(_RELEASE_EMITTED_AT),
+        original_deadline=runtime.clock(datetime.now(UTC) + timedelta(minutes=10)),
+        kind="RELEASE",
+        stage_sequence=0,
+        server_stage_execution_uuid=_UNIT_UUID,
+        endpoint=endpoint,
+        hold_raw_sha256="d" * 64,
+    )
+    value.update(extra)
+    return value
+
+
+def _capture_document(*, bound: bool) -> dict:
+    value = {
+        "schema": "provider-native-root-pg-checkpoint-capture.v1",
+        "source": "root-independent-pg-stat-snapshot-and-ssl-query",
+        "root_observed_at": runtime.clock(_OBSERVED_AT),
+        "collector_uid": 1001,
+        "collector_pid_namespace": 42,
+        "observer_session_user": "root_observer",
+        "server_version": "16.15",
+        "stats_visibility_qualified": True,
+        "track_activities_observed_on": True,
+        "stage_sequence": 0,
+        "server_stage_execution_uuid": _UNIT_UUID,
+        "endpoint": "COMMITTING",
+        "phase": "ROOT_FIRST",
+        "hold_raw_sha256": "d" * 64,
+        "database_name": "maezo_n2",
+        "database_oid": "16384",
+        "system_identifier": "7398612345678901",
+        "backend_pid": "81",
+        "backend_start": runtime.clock(_OBSERVED_AT),
+        "transaction_started_at": runtime.clock(_OBSERVED_AT),
+        "backend_xid32": "761",
+        "active_full_xids": ["761"],
+        "session_login": "maezo_jvm",
+        "client_address": "127.0.0.1/32",
+        "client_port": 49152,
+        "backend_ssl": True,
+        "backend_tls_version": "TLSv1.3",
+        "query_schema": "fixed-root-pg-checkpoint-query.v1",
+        "query_source_sha256": "e" * 64,
+    }
+    if bound:
+        value["release_raw_sha256"] = "f" * 64
+        value["release_emitted_at"] = runtime.clock(_RELEASE_EMITTED_AT)
+    return value
+
+
+def _record_item(*, fidelity: bool) -> dict:
+    value = dict(
+        stage_sequence=0,
+        server_stage_execution_uuid=_UNIT_UUID,
+        endpoint="COMMITTING",
+        phase="ROOT_FIRST",
+        raw_artifact=dict(
+            path="/unit/measurement-" + "a" * 32 + "/pg-s00-COMMITTING-ROOT_FIRST.json",
+            sha256="1" * 64,
+            size_bytes=256,
+        ),
+        hold_to_release_ns="12000000",
+    )
+    if fidelity:
+        value.update(
+            t3_straddle_raw_status="committed",
+            t3_straddle_read_at=runtime.clock(_STRADDLE_READ_AT),
+            t3_deferred_seconds="0.200123456",
+        )
+    return value
+
+
+def test_schema_v3_admits_the_early_release_and_the_inverted_capture():
+    schema = _real_schema()
+    # The early COMMITTING RELEASE carries NO capture digests and validates.
+    measurement.validate(schema, "RELEASE", _release_document("COMMITTING"))
+    # The ENTRY release keeps its original embedding shape.
+    measurement.validate(
+        schema,
+        "RELEASE",
+        _release_document(
+            "ENTRY",
+            root_capture_before_raw_sha256="1" * 64,
+            root_capture_after_raw_sha256="2" * 64,
+        ),
+    )
+    measurement.validate(schema, "RootPgRawCapture", _capture_document(bound=True))
+    measurement.validate(schema, "RootPgRawCapture", _capture_document(bound=False))
+    measurement.validate(schema, "RootPgCaptureRef", _record_item(fidelity=True))
+    measurement.validate(schema, "RootPgCaptureRef", _record_item(fidelity=False))
+
+
+def test_schema_v3_refuses_foreign_frames_and_dropped_bindings():
+    schema = _real_schema()
+    with pytest.raises(runtime.NativeObservationError, match="RELEASE shape refused"):
+        measurement.validate(schema, "RELEASE", _release_document("COMMITTING", foreign_field="x"))
+    early = _release_document("COMMITTING")
+    del early["hold_raw_sha256"]
+    with pytest.raises(runtime.NativeObservationError, match="RELEASE shape refused"):
+        measurement.validate(schema, "RELEASE", early)
+    capture = _capture_document(bound=True)
+    capture["t3_straddle_raw_status"] = "committed"
+    with pytest.raises(runtime.NativeObservationError, match="RootPgRawCapture shape refused"):
+        # The raw verdict NEVER enters the capture document (§8-4).
+        measurement.validate(schema, "RootPgRawCapture", capture)
+    item = _record_item(fidelity=False)
+    del item["hold_to_release_ns"]
+    with pytest.raises(runtime.NativeObservationError, match="RootPgCaptureRef shape refused"):
+        measurement.validate(schema, "RootPgCaptureRef", item)
+    leaked = _record_item(fidelity=False)
+    leaked["t3_straddle_raw_status"] = "in progress"
+    with pytest.raises(runtime.NativeObservationError, match="RootPgCaptureRef shape refused"):
+        # Only the exact committed literal ever reaches the record (never-waived).
+        measurement.validate(schema, "RootPgCaptureRef", leaked)
+
+
+def test_hold_to_release_ns_registration_is_exact_integer_arithmetic():
+    hold = dict(emitted_at=runtime.clock(datetime(2026, 10, 25, 1, 53, 27, 128000, tzinfo=UTC)))
+    release = dict(emitted_at=runtime.clock(datetime(2026, 10, 25, 1, 53, 27, 372000, tzinfo=UTC)))
+    assert measurement.hold_to_release_ns(hold, release) == "244000000"
+    # A reversed clock order refuses instead of banking a negative latency.
+    with pytest.raises(runtime.NativeObservationError, match="clock order"):
+        measurement.hold_to_release_ns(release, hold)
