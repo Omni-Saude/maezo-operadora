@@ -171,6 +171,76 @@ def texto_afirmado_do_turno(state: Mapping[str, Any]) -> str:
     return texto_afirmado(str(state.get("message_body") or ""), ultima_fala(_falas_da_helena(state)))
 
 
+#: SINAL CLARO DE EMERGENCIA AGUDA (rodada de seguranca de 25/10/2026, adulto e crianca): numa frase AFIRMADA
+#: da mensagem do turno, da' 192 NA HORA, antes de qualquer pendencia, protocolo, historico ou da trava "sem
+#: segundo 192" (o 192 ja' dado pode ter saido da janela de 12 mensagens; o evento e' novo). Sinais que ja'
+#: existem nas tabelas (A7/A8 desmaio, C4/N3 convulsao e "nao reage", parada respiratoria, cianose).
+_SINAL_CLARO: re.Pattern[str] = re.compile(
+    r"\bdesmai(?:ou|ei|aram|ando|ad[oa]s?)\b|\bteve (?:um )?desmaio\b|\bdesacordad[oa]s?\b|\binconscientes?\b"
+    r"|\b(?:parou|parando) de respirar\b|\bnao (?:esta |ta )?respirando\b"
+    r"|\bnao (?:consegue|consigo) respirar\b|\bsem respirar\b|\bconvulsion\w*|\bconvulsao\b"
+    r"|\b(?:ele|ela|bebe|nenem|crianca|filh[oa]|labios?|boca|rosto|cara)\b(?: (?!nao\b)\w+){0,2} rox[oa]s?\b"
+    r"|\btod[oa] rox[oa]\b|\bnao (?:acorda|reage)\b|\bnao (?:esta |ta )?reagindo\b|\bsem reagir\b"
+)
+_NEGADO_DEPOIS: re.Pattern[str] = re.compile(r"^ (?:nao|nunca|nenhum|nenhuma)\b")
+
+
+def sinal_claro_afirmado(state: Mapping[str, Any]) -> bool:
+    """Um `_SINAL_CLARO` numa frase AFIRMADA do turno, sem negacao antes ("ele nao desmaiou") nem depois
+    ("convulsao nao")."""
+    cortado = _bs.normalizar_com_cortes(texto_afirmado_do_turno(state))
+    for m in _SINAL_CLARO.finditer(cortado):
+        if not _bs.negado(cortado, m.start()) and not _NEGADO_DEPOIS.search(cortado[m.end() :]):
+            return True
+    return False
+
+
+def _sinal_claro_pelo_texto(self: HelenaGraph, state: HelenaState) -> dict[str, Any] | None:
+    """O 192 do `_SINAL_CLARO` afirmado, SEM modelo e antes de tudo (fora o risco psicossocial)."""
+    if not sinal_claro_afirmado(state):
+        return None
+    logger.warning("helena_sinal_claro_afirmado", node="classify")
+    plano = _plano(str(state.get("message_body") or ""))
+    lembrada = str(state.get("population") or "")
+    populacao = (
+        "pediatric" if _CRIANCA_NO_TEXTO.search(plano) else (lembrada if lembrada in _POPULACOES else "adult")
+    )
+    update = self._update_sem_modelo(state, populacao)
+    self._expirar_pendencias_do_turno(state, update)
+    update.update(
+        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
+        | {"escalation_severidade": "grave"}
+    )
+    return update
+
+
+async def escalar_sinal_claro(
+    self: HelenaGraph, state: Mapping[str, Any], extraction: dict[str, Any], update: dict[str, Any]
+) -> dict[str, Any]:
+    """O `_SINAL_CLARO` afirmado no caminho de sempre (`classify`, depois do classificador e ANTES da
+    pendencia, do protocolo e da trava "sem segundo 192"): com codigo de sintoma, a tabela decide primeiro
+    (proveniencia da DMN; tabela fora do ar = `falha_tecnica`); sem bandeira da tabela, 192 do mesmo jeito."""
+    logger.warning("helena_sinal_claro_afirmado", node="classify", sem_modelo=False)
+    if extraction.get("sintoma_codigo") and await self._triar_red_flag(extraction, update):
+        if update.get("escalation_motivo") == "red_flag_clinico":
+            update["escalation_severidade"] = "grave"
+        update["intent"] = "symptom"
+        return update
+    if _CRIANCA_NO_TEXTO.search(_plano(str(state.get("message_body") or ""))):
+        update["population"] = "pediatric"
+    update.update(
+        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
+        | {"escalation_severidade": "grave"}
+    )
+    return update
+
+
+_CRIANCA_NO_TEXTO: re.Pattern[str] = re.compile(
+    r"\b(?:bebe|nenem|crianca|recem nascid[oa]|meu filho|minha filha|meu neto|minha neta)\b"
+)
+_POPULACOES: frozenset[str] = frozenset({"adult", "pediatric", "gestante"})
+
+
 def alarme_afirmado(state: Mapping[str, Any]) -> str | None:
     """O alarme deterministico (`alarme_no_relato`) sobre as frases AFIRMADAS do turno."""
     return alarme_no_relato(_plano(texto_afirmado_do_turno(state)))

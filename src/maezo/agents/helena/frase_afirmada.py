@@ -53,12 +53,18 @@ _PERGUNTA_SOBRE_O_SINAL: Final[re.Pattern[str]] = re.compile(
     r"|relacao|e normal|eh normal|e grave|eh grave|e perigoso|e sinal|significa|quer dizer|como assim"
     r"|qual|quais|isso e)\b"
 )
+#: HIPOTESE ("e se ele desmaiar?", "caso o bebe ficar roxo"): sem afirmacao, nao e' relato.
+_HIPOTESE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:e se|se|caso)\b(?: \w+){0,3} (?:ficar|parar|tiver|tiverem|desmaiar|convulsionar|acontecer"
+    r"|nao acordar|nao respirar)\b"
+)
 _ABRE_NEGANDO: Final[re.Pattern[str]] = re.compile(r"^(?:nao|n|nem|nenhum|nenhuma|nada|negativo|sem)\b")
-_ABRE_COM_SIM: Final[re.Pattern[str]] = re.compile(r"^(?:sim|s|isso|tenho|tem sim)\b")
+_ABRE_COM_SIM: Final[re.Pattern[str]] = re.compile(r"^(?:sim|s|tenho|tem sim)\b|^isso(?: mesmo| ai| sim)?$")
 #: Eco longo: tantas palavras SEGUIDAS iguais as da ultima fala da Helena.
 ECO_LONGO_PALAVRAS: Final[int] = 8
 #: Trecho copiado da Helena que nao conta como afirmacao ("tem dor no peito" dentro da pergunta copiada).
 _ECO_CURTO_PALAVRAS: Final[int] = 5
+_ECO_EM_PERGUNTA_PALAVRAS: Final[int] = 2
 #: A frase curta que, logo depois de uma pergunta descartada, confirma o sinal dela ("to sentindo agora").
 _CONFIRMACAO_PALAVRAS: Final[int] = 5
 
@@ -112,8 +118,14 @@ def _descartada(frase: str, helena: str) -> bool:
     if not plano:
         return False
     palavras_helena = helena.split()
-    proprias = " ".join(_sem_trechos_da_helena(plano.split(), palavras_helena, _ECO_CURTO_PALAVRAS))
-    if _afirma(proprias) or _PEDE_ORIENTACAO.search(plano):
+    # Pergunta que repete palavras da Helena ("teve convulsao?"): o trecho dela nao conta como afirmacao.
+    minimo = _ECO_EM_PERGUNTA_PALAVRAS if frase.rstrip().endswith("?") else _ECO_CURTO_PALAVRAS
+    proprias = " ".join(_sem_trechos_da_helena(plano.split(), palavras_helena, minimo))
+    if _afirma(proprias):
+        return False
+    if _HIPOTESE.search(plano):
+        return True  # "e se ele parar de respirar?", "o que fazer se o bebe ficar roxo?"
+    if _PEDE_ORIENTACAO.search(plano):
         return False
     if frase.rstrip().endswith("?") or _PERGUNTA_SOBRE_O_SINAL.search(plano):
         return True
@@ -153,9 +165,34 @@ def _confirma_a_anterior(plano: str) -> bool:
     return 0 < len(plano.split()) <= _CONFIRMACAO_PALAVRAS and _afirma(plano) and not _sinais(plano)
 
 
+def _radicais(texto: str) -> set[str]:
+    return {p[:5] for p in normalizar(texto).split() if len(p) > 3}
+
+
+def sinal_literal(sinal: str, texto: str) -> bool:
+    """O sinal (dito pelo modelo) esta' LITERALMENTE no texto (todas as palavras dele, pelos radicais)?"""
+    radicais = _radicais(sinal)
+    return bool(radicais) and radicais <= _radicais(texto)
+
+
+def sinais_do_modelo_afirmados(sinais: Iterable[str], texto: str, afirmado: str) -> list[str]:
+    """Os sinais do MODELO que contam (item 2 da rodada de seguranca de 25/10/2026): o sinal que esta'
+    literalmente na mensagem so' conta se estiver nas frases AFIRMADAS (`afirmado`); o que o modelo disse com
+    outras palavras fica (quem decide se ele e' claro e' `alarme_do_modelo_claro`)."""
+    return [s for s in sinais if not sinal_literal(s, texto) or sinal_literal(s, afirmado)]
+
+
 def ultima_fala(falas_da_helena: Iterable[str]) -> str:
     lista = list(falas_da_helena)
     return lista[-1] if lista else ""
 
 
-__all__ = ["ECO_LONGO_PALAVRAS", "frases", "normalizar", "texto_afirmado", "ultima_fala"]
+__all__ = [
+    "ECO_LONGO_PALAVRAS",
+    "frases",
+    "normalizar",
+    "sinais_do_modelo_afirmados",
+    "sinal_literal",
+    "texto_afirmado",
+    "ultima_fala",
+]

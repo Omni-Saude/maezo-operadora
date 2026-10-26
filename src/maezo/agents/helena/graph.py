@@ -1370,6 +1370,8 @@ def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
     categoria nova do alarme deterministico) ou agravamento ("piorou, esta' sem ar") e' urgencia nova."""
     texto = str(estado.get("message_body") or "")
     anteriores = " ".join(_falas_do_beneficiario(estado))
+    if _travas_entrada.sinal_claro_afirmado(estado):  # 25/10/2026: o evento agudo e' sempre novo
+        return True
     antes = _texto_dos_sinais(anteriores)
     if _sinal_forte_de_emergencia(texto) and any(
         m.group(0) not in antes for m in _SINAL_FORTE_DE_EMERGENCIA.finditer(_texto_dos_sinais(texto))
@@ -5466,6 +5468,10 @@ class HelenaGraph:
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
+        if _travas_entrada.sinal_claro_afirmado(
+            state
+        ):  # 25/10/2026: antes de pendencia, protocolo e historico
+            return await _travas_entrada.escalar_sinal_claro(self, state, extraction, update)
 
         # CONTEUDO CLINICO NUNCA VIRA `solicitacao_humano` (rodada 10, regra B). No teste real do dono, "ele
         # deve estar sentindo dor, pois esta' chorando muito" (um recem-nascido, no meio da triagem) saiu
@@ -5985,6 +5991,7 @@ class HelenaGraph:
         return pend_v4, pend_encerrar
 
     _risco_pelo_texto = _travas_entrada._risco_pelo_texto
+    _sinal_claro_pelo_texto = _travas_entrada._sinal_claro_pelo_texto
 
     def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
         """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME
-from maezo.agents.helena.frase_afirmada import ultima_fala
+from maezo.agents.helena.frase_afirmada import sinais_do_modelo_afirmados, ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
 from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
@@ -432,6 +432,10 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
     if state.get("error") or self._seguimento_com_o_lucas(state) is not None:
         # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
         return await self.classify(state)
+    if (claro := self._sinal_claro_pelo_texto(state)) is not None:
+        # Rodada de seguranca de 25/10/2026: sinal CLARO afirmado (desmaiou, parou de respirar,
+        # convulsionando, roxo, nao acorda) da' 192 antes do roteador, da pendencia e dos protocolos.
+        return {**claro, "habilidade_roteador": None}
     antes, pendente, trava = self._roteador_entrada(state)
     falha: str | None
     if trava is not None:
@@ -685,14 +689,24 @@ def _alarme_do_modelo(self: HelenaGraph, state: HelenaState, v7: _rv7.DecisaoV7)
     """ "claro" (192 na hora), "incerto" (pergunta de alerta) ou `None` (sem sinal que conte).
 
     So' o sinal no VOCABULARIO DA TABELA vale como claro ("vomito" sozinho nao e'); o alarme ja' tratado
-    nesta conversa, sem sinal NOVO, nao conta de novo (trava "sem segundo 192")."""
-    sinais = [s.sinal for s in v7.sinais_atuais()]
+    nesta conversa, sem sinal NOVO, nao conta de novo (trava "sem segundo 192").
+
+    Rodada de seguranca de 25/10/2026 (frase afirmada): o sinal que esta' LITERALMENTE na mensagem so'
+    conta se estiver numa frase afirmada (nunca so' numa pergunta, negacao ou eco da Helena); o sinal dito
+    com outras palavras, numa mensagem sem frase afirmada, vira no maximo "incerto" (nunca 192 de
+    pergunta)."""
+    texto = str(state.get("message_body") or "")
+    afirmado = texto_afirmado_do_turno(state)
+    todos = [s.sinal for s in v7.sinais_atuais()]
+    sinais = sinais_do_modelo_afirmados(todos, texto, afirmado)
+    if len(sinais) < len(todos):
+        logger.info("helena_alarme_do_modelo_fora_da_frase_afirmada", descartados=len(todos) - len(sinais))
     if not sinais:
         return None
     if _alarme_ja_tratado(state) and not self._sinal_do_modelo_e_novo(state, sinais):
         return None
     validos = [s for s in sinais if self._sinal_do_modelo_na_tabela(s)]
-    claro = v7.confianca_alarme == "clear" and bool(validos)
+    claro = v7.confianca_alarme == "clear" and bool(validos) and bool(afirmado.strip())
     logger.info("helena_alarme_do_modelo", claro=claro, sinais=len(sinais), validos=len(validos))
     return "claro" if claro else "incerto"
 
@@ -854,4 +868,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     logger,
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
-from maezo.agents.helena.travas_entrada import alarme_afirmado  # noqa: E402
+from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402
