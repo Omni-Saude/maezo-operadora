@@ -14,7 +14,7 @@ Cabeçalho de estado do programa: `state: PLANO` → `ATIVO` (após D-01) → `P
 
 **Cercas permanentes:** (1) `docs/processes/New_BPMN/*_v3.bpmn` intocáveis (WIP do orquestrador paralelo; linhagem = **v4** em `Adapted_BPMN/`, rastreado); CA_1 exige broker via COORDINATION. (2) As 2 regiões de conflito do PLANS.md (~`:1248-1252` e `:1314-6178`) jamais resolvidas (F-P07). (3) Cadeia de merge da casa: autor → revisão adversarial → reparo → delta PASS → squash pinado → byte-check 0-diff. (4) Agentes jamais preenchem blocos de aprovação/ratificação (ADR-0007).
 
-**Prazos (verdade externa):** 1º/1/2027 escalonamento OP21 (RN 489/2022 art. 23-A, multa-base R$ 506.250) · 2027-01-26 fim da janela de evidências C2 · 2027-02-09 muro shadow + revisão C2 (renovado pelo dono 2026-09-20, PR fix/d7-exception-renewal-2027; F-P04 emendado GOV-0.2). O caminho crítico corre por **humanos**: ativação da security-team e pareceres jurídicos são os dois postes longos — ambos pré-estacionados na W0.
+**Prazos (verdade externa):** 1º/1/2027 escalonamento OP21 (RN 489/2022, art. 23-A (redação dada pela RN 659/2025), multa-base R$ 506.250) · 2027-01-26 fim da janela de evidências C2 · 2027-02-09 muro shadow + revisão C2 (renovado pelo dono 2026-09-20, PR fix/d7-exception-renewal-2027; F-P04 emendado GOV-0.2). O caminho crítico corre por **humanos**: ativação da security-team e pareceres jurídicos são os dois postes longos — ambos pré-estacionados na W0.
 
 ```
 W0 GOV ─┬→ W1 REG (jurídico-gated; deadline)   ─┐
@@ -79,6 +79,10 @@ R-051 herda: se nenhuma das pessoas puder atuar, registrar deferral datado do do
 | REG-1.13 | Aquisição de textos-base: RN 528/529/489/515/557 verbatim + URLs DOU | GAPs do sweep | COUNSEL-7/8 |
 
 Aceitação: teste negativo bloqueia venda a PJ ilegítima no CI (`gateway-platform`+`restante`); re-sweep mapeia 7+8 touchpoints; gate cego no diff; OP21 em main até 2026-12-15.
+
+**Status 2026-10-26:** parecer do jurídico recebido e registrado (`docs/compliance/legal/PARECER-OP21-RESPOSTA-LUCAS-2026-10-26.md`) — D-03/D-04 respondidos; âncoras OP21 validadas; REG-1.1 despachável; merge ≤ 2026-12-15.
+
+**Status 2026-10-26 (reparo de citação, per parecer §3 item 2):** forma canônica OBRIGATÓRIA em todos os materiais do controle OP21 — "RN 489/2022, art. 23-A (redação dada pela RN 659/2025)"; na tela, forma curta "RN 489/2022, art. 23-A"; "RN 659/2025, art. 23-A" é IMPRECISA (a RN 659/2025 apenas alterou a RN 489/2022, onde o artigo está). Varredura em origin/main (1ee44e91): nenhum material VIVO rastreado carrega a forma imprecisa (o controle ainda não está implementado — REG-1.1 pendente); o registro GP7 com "RN 557/659" vive em `docs/audits/VENDOR-XP-2026-10/` (gitignored, elisão declarada) e foi emendado IN LOCO com desdobro por assunto — contratação = RN 557/2022 (arts. 5º/9º-14/15/16/29/39); penalidade = RN 489/2022, art. 23-A (redação dada pela RN 659/2025). O implementador do REG-1.1 e a ratificação do `GP7-MATRIZ-V1` (dossiê ANSWERS-V1, congelado p/ assinatura) devem consumir a forma canônica — sem re-decisão (D-03/D-04 já respondidas).
 
 ## W2 CORP — corpus v4 + F-M01 (M/L; owner-gated)
 
