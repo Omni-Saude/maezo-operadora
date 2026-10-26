@@ -552,9 +552,12 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # fora (`_cobertura_assistida`), sem chamada LLM nova.
     # 17/17 desde 23/10/2026 (DL-0154): a cobertura saiu da Helena — a extracao do pedido e as escolhas do
     # catalogo (5 sitios, todos sem campo de estado) deixaram de existir.
-    assert (total, com_entrada) == (17, 17), (
+    # 18/18 desde 25/10/2026 (protocolos clinicos): `habilidades/protocolo/fluxo.py::_chamar` (escolha do
+    # protocolo, leitura das respostas e mapa do especialista) leva a mensagem DEMARCADA como `message_body`
+    # e o historico como `historico_conversa`, como o roteador.
+    assert (total, com_entrada) == (18, 18), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 17/17 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 18/18 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

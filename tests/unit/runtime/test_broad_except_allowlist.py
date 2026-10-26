@@ -101,7 +101,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 21/10/2026: 38 — `HelenaGraph._roteador_decidir` (ADR-0066/DL-0134, F1): o roteador de habilidades em
 #: SOMBRA chama o modelo numa tarefa paralela; `PROGRAMMING_ERRORS` re-levanta, prazo e falha do provedor
 #: viram o campo `falha` do log `helena_roteador_sombra` (a resposta nao muda). Sitio NOVO e legitimo.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
+#: 25/10/2026: 39 — `habilidades/protocolo/fluxo.py::_chamar` (protocolos clinicos da Helena): escolha do
+#: protocolo, leitura das respostas e mapa do especialista pelo provedor do roteador; `PROGRAMMING_ERRORS`
+#: re-levanta, prazo e falha do provedor viram `None` (alerta universal / "sem clareza"). Sitio NOVO e legitimo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 39
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

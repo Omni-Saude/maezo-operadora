@@ -260,7 +260,7 @@ def tipo_da_pendente(codigo: str | None) -> str | None:
         return "opcoes"
     if c.startswith(("V4_ALERTA:", "V4_OFERTA:", "BS_ENCERRAR_CASO", "EQ_OFERTA")):
         return "sim_nao"
-    if c.startswith("PERGUNTAR_FICHA_"):
+    if c.startswith(("PERGUNTAR_FICHA_", "PROT_")):
         return "aberta"
     return None
 
