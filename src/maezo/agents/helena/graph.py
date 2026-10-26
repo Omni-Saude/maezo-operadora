@@ -191,7 +191,6 @@ from maezo.domain.conversa.caso_clinico import (
 from maezo.domain.conversa.cobranca_esclarecimento import (
     e_mensagem_curta_sem_ruido_de_cobranca,
     e_pergunta_de_esclarecimento,
-    e_seguimento_de_cobranca,
 )
 from maezo.domain.conversa.cobranca_foco import (
     FOCO_GERAL,
@@ -4949,9 +4948,6 @@ class HelenaGraph:
         if risco is not None:
             return risco
 
-        depois_do_lucas = _depois_do_lucas.decidir(self, state)  # r5b: "ok" e "qual meu protocolo?"
-        if depois_do_lucas is not None:
-            return depois_do_lucas
         seguimento = self._seguimento_com_o_lucas(state)
         if seguimento is not None:
             return seguimento
@@ -6003,31 +5999,7 @@ class HelenaGraph:
     _risco_pelo_texto = _travas_entrada._risco_pelo_texto
     _sinal_claro_pelo_texto = _travas_entrada._sinal_claro_pelo_texto
 
-    def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
-        """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).
-
-        No teste real do dono, "de qual ano?" logo depois do Lucas (coparticipacao de setembro) foi ao Lucas
-        em duas execucoes e, na terceira, o modelo devolveu `consulta_plano`/`elegibilidade` e a Helena
-        respondeu a vigencia do plano. A regra "seguimento enquanto o Lucas esta' ativo e' cobranca" dependia
-        da intencao do modelo. Agora e' decidida ANTES dele, pelo texto: Lucas ativo (a janela de inatividade
-        ja' foi aplicada pelo despachante), mensagem curta de esclarecimento/seguimento, SEM pista de consulta
-        do plano, sem pessoa/saude, sem pedido de pessoa e sem sinal de saude do lexico. Devolve o `update`
-        do turno ja' roteado (handoff), ou `None` para o caminho de sempre."""
-        if (
-            not self._roteador_lucas_enabled
-            or state.get("agente_ativo_conversa") != "lucas"
-            or state.get("sinal_saude_lexico") is not False
-            or state.get("pedido_humano_lexico") is not False
-        ):
-            return None
-        texto = str(state.get("message_body") or "")
-        if (
-            not e_seguimento_de_cobranca(texto)
-            or _pedido_explicito_de_pessoa(texto)
-            or _conteudo_clinico(texto)
-        ):
-            return None
-        return self._handoff_deterministico_ao_lucas(state, texto, "helena_seguimento_com_o_lucas")
+    _seguimento_com_o_lucas = _depois_do_lucas.seguimento_com_o_lucas
 
     def _cobranca_com_caso_de_saude_aberto(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
         """CASO DE SAUDE ABERTO NAO TRAVA A CONVERSA: COBRANCA CURTA VAI AO LUCAS, NAO IMPORTA O MODELO.
