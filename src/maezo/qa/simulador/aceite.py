@@ -930,7 +930,9 @@ _PESQUISOU_ESPECIALISTA = (
     r"(dr\.|dra\.|doutor|doutora|clinica [a-z]|hospital [a-z]|rua |avenida|encontrei|encontramos"
     r"|agendei|marquei sua consulta|\(\d{2}\) ?\d)"
 )
-#: O especialista recebe onde marcar (aplicativo, portal e central), o prazo da ANS e a oferta de pessoa.
+#: Decisao do dono (25/10/2026): nenhum texto da Helena cita prazo da ANS (dias uteis, "pela ANS").
+_PRAZO_ANS = r"(dias uteis|pela ans|pelas regras da ans|regra da ans|regras da ans)"
+#: O especialista recebe onde marcar (aplicativo, portal e central) e a oferta de pessoa, SEM prazo da ANS.
 _ONDE_MARCAR = (
     "aplicativo austa clinicas",
     "portal do plano",
@@ -946,14 +948,19 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Preciso consultar com um cardiologista",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("consulta com cardiologista", *_ONDE_MARCAR, r"14 dias uteis"),
-                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+                deve=("consulta com cardiologista", *_ONDE_MARCAR),
+                nao_deve=(
+                    _COBERTURA_PROMETIDA,
+                    _PESQUISOU_ESPECIALISTA,
+                    _SEM_CONDUTA,
+                    _ENCAMINHOU,
+                    _PRAZO_ANS,
+                ),
             ),
         ),
         resolveu=(
             "a pessoa que pediu cardiologista ouviu onde marcar (aplicativo Austa Clinicas, portal do plano "
-            "ou central), o prazo da ANS (14 dias uteis, RASCUNHO a confirmar pelo juridico) e que pode "
-            "falar com "
+            "ou central) e que pode falar com "
             "uma pessoa; a Helena disse que nao pesquisa nem agenda, nao prometeu cobertura, nao citou nome "
             "de medico/clinica e nao abriu caso"
         ),
@@ -964,13 +971,19 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Onde tem dermatologista pelo plano?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("consulta com dermatologista", *_ONDE_MARCAR, r"14 dias uteis"),
-                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+                deve=("consulta com dermatologista", *_ONDE_MARCAR),
+                nao_deve=(
+                    _COBERTURA_PROMETIDA,
+                    _PESQUISOU_ESPECIALISTA,
+                    _SEM_CONDUTA,
+                    _ENCAMINHOU,
+                    _PRAZO_ANS,
+                ),
             ),
         ),
         resolveu=(
-            "a pergunta 'onde tem' recebeu onde marcar e o prazo, SEM lista de clinicas, endereco ou nome: a "
-            "Helena nao pesquisa especialidade neste canal"
+            "a pergunta 'onde tem' recebeu onde marcar, SEM prazo da ANS nem lista de clinicas, endereco ou "
+            "nome: a Helena nao pesquisa especialidade neste canal"
         ),
     ),
     Segmento(
@@ -986,7 +999,7 @@ HELENA_V4: tuple[Segmento, ...] = (
             ),
         ),
         resolveu=(
-            "a pergunta de cobertura da consulta recebeu onde marcar e o prazo, e a frase de que a cobertura "
+            "a pergunta de cobertura da consulta recebeu onde marcar, e a frase de que a cobertura "
             "se confirma na central ou com uma pessoa; nenhuma promessa de cobertura"
         ),
     ),
@@ -1045,7 +1058,7 @@ HELENA_V4: tuple[Segmento, ...] = (
                 nao_deve=(
                     _ENCAMINHOU,
                     _SEM_CONDUTA,
-                    r"(7|14) dias uteis",
+                    _PRAZO_ANS,
                     "o que voce esta sentindo",
                     "entendi: ",
                 ),
@@ -1058,24 +1071,24 @@ HELENA_V4: tuple[Segmento, ...] = (
                     "nao avalio sintomas, mas te ajudo com o caminho",
                     r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
                     # DL-0154: o profissional pela idade (nunca "ou pediatra" para adulto).
-                    r"ate 7 dias uteis pela ans",
                     r"2\) falar com a nossa equipe de saude",
                     "se piorar, procure um pronto-atendimento",
                     "ligue 192",
                 ),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, "entendi: "),
+                # Dono, 25/10/2026: sem prazo da ANS nas opcoes.
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, "entendi: ", _PRAZO_ANS),
             ),
             _p(
                 "1",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("(aplicativo|portal|central)", r"7 dias uteis", "nao avalio sintomas", "192"),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+                deve=("(aplicativo|portal|central)", "nao avalio sintomas", "192"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _PRAZO_ANS),
             ),
         ),
         resolveu=(
             "o sintoma leve recebeu SO' a pergunta de alerta, depois do 'nao' a resposta (sem o eco literal "
             "do que a pessoa disse) e as opcoes 1/2 do dono com 192, e a opcao 1 mostrou como "
-            "marcar pelo plano (aplicativo/portal/central, 7 dias uteis) sem diagnostico e sem abrir caso"
+            "marcar pelo plano (aplicativo/portal/central, sem prazo da ANS) sem diagnostico e sem abrir caso"
         ),
     ),
     Segmento(
@@ -1085,7 +1098,7 @@ HELENA_V4: tuple[Segmento, ...] = (
                 "Meu filho está com tosse",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("(respirar|sonolent)", "(responda sim ou nao|responda so sim ou nao)"),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis", "entendi: "),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _PRAZO_ANS, "entendi: "),
             ),
             _p(
                 "Não",

@@ -6155,7 +6155,7 @@ class HelenaGraph:
     # tabela de alarme, emergencia com caso aberto, recem-nascido) e, no especialista e no seguimento,
     # sem passar por cima do pedido de pessoa:
     #
-    #   * ESPECIALISTA: texto fixo da coluna "HOJE" (onde marcar + prazo da ANS + oferta de pessoa), sem
+    #   * ESPECIALISTA: texto fixo da coluna "HOJE" (onde marcar + oferta de pessoa, sem prazo da ANS), sem
     #     pesquisar especialidade, sem agendar, sem prometer cobertura;
     #   * CARTEIRINHA: dados mascarados da consulta do plano (`consultar_plano`) e o cartao no aplicativo;
     #   * SINTOMA LEVE: so' perguntas de ALERTA; "nao" -> a resposta final com as opcoes 1/2 do dono;

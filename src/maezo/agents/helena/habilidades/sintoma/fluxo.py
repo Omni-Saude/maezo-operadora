@@ -619,7 +619,7 @@ def _v4_seguimento(
     caso com o resumo pronto; "nao" -> fecha sem caso; outra fala sobre o mesmo sintoma ("dormi de mau jeito,
     sera' que e' isso?") -> quem avalia a causa e' o medico, com as mesmas opcoes (DL-0154: a Helena nunca
     explica causa nem orienta o sintoma).
-    ALERTA: "nao" -> o caminho (consulta pelo plano, prazo da ANS) ou a equipe, e fecha; "sim" -> alerta
+    ALERTA: "nao" -> o caminho (consulta pelo plano) ou a equipe, e fecha; "sim" -> alerta
     clinico, P1; SEM CLAREZA (DL-0154) -> pergunta UMA vez de novo, com outras palavras; continuou sem
     clareza -> OFERTA da equipe de saude, sem 192 e sem caso.
     OFERTA: "sim" -> caso com a equipe de saude; "nao" -> fecha sem caso.
@@ -670,7 +670,7 @@ def _v4_seguimento(
         and _jr.reclama_da_repeticao(texto)
     ):
         # Teste do dono de 25/10/2026 (item 2): "ja' tinha te respondido que nao sobre isso" -> a desculpa e
-        # o caminho (onde marcar e o prazo da ANS), sem o eco e sem oferecer de novo as mesmas opcoes 1/2.
+        # o caminho (onde marcar), sem o eco e sem oferecer de novo as mesmas opcoes 1/2.
         logger.info("helena_v4_alerta", node="classify", resposta="nao_repetido")
         update["intent"] = "information"
         update["sintoma_codigo"] = None
@@ -785,7 +785,7 @@ def _v4_sem_repetir_alerta(
     - Pergunta de alerta PENDENTE para o mesmo grupo (item 8: o caminho de sempre, sem a leitura do roteador,
       leu a resposta como queixa nova): a pergunta UMA vez com outras palavras e, depois, a oferta da equipe.
     - Alerta ja' respondido ("nao") nesta conversa, mesma pessoa: a pergunta de agendamento ("ja' posso
-      procurar um medico?") recebe o caminho (onde marcar e o prazo da ANS); a mesma queixa, "quem avalia e' o
+      procurar um medico?") recebe o caminho (onde marcar); a mesma queixa, "quem avalia e' o
       medico" com as opcoes que ja' valiam."""
     if (
         _alarme_ja_tratado(state)

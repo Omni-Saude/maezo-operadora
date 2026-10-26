@@ -50,7 +50,7 @@ def test_contagem_vazada_sai(texto: str, esperado: str) -> None:
 @pytest.mark.parametrize(
     "texto",
     [
-        "Tome cuidado: o prazo é de 3 dias úteis (pela ANS).",
+        "Tome cuidado: o boleto vence em 3 dias úteis (pela data do contrato).",
         "Você tem 2 dependentes (filho e cônjuge) no plano.",
         "Sua coparticipação foi de R$ 25,00 (consulta de 12/10).",
         "Use a senha de 6 dígitos do aplicativo.",

@@ -150,7 +150,8 @@ async def test_pergunta_de_agendamento_depois_do_nao_recebe_o_caminho(fala: str)
     await grafo.ainvoke(estado)
     texto = whatsapp.enviados[-1]
     _sem_pergunta_de_alerta(texto)
-    assert "7 dias úteis" in texto and "Você prefere: 1)" not in texto
+    assert "aplicativo Austa Clínicas" in texto and "dias úteis" not in texto
+    assert "Você prefere: 1)" not in texto
 
 
 @pytest.mark.parametrize(

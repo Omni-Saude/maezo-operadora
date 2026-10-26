@@ -848,8 +848,8 @@ def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto, populacao:
             assunto.texto,
             linha_de_credito(assunto),
             "Eu não avalio sintomas, mas te ajudo com o caminho. "
-            f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
-            "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
+            f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano; "
+            "ou 2) falar com a nossa equipe de saúde? "
             "Se piorar, procure um pronto-atendimento; se for grave, ligue 192.",
         ]
     )

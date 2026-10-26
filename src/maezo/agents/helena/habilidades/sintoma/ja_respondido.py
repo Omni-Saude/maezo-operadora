@@ -2,7 +2,7 @@
 
 A pergunta de alerta e' feita UMA vez por queixa. Depois do "nao" (as opcoes 1/2 ou o caminho da opcao 1)
 ou depois do 192 (alarme tratado), a conversa sobre a MESMA queixa nunca reinicia a pergunta de alerta: a
-pergunta de agendamento ("ja' posso procurar um medico?") recebe o caminho (onde marcar e o prazo da ANS)
+pergunta de agendamento ("ja' posso procurar um medico?") recebe o caminho (onde marcar)
 e o resto, a continuacao da orientacao. So' o historico curto (as falas da propria Helena e da pessoa)
 decide; nenhum campo novo no estado.
 

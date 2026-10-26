@@ -7,7 +7,7 @@ mensagem. Dados sinteticos, sem PII.
 LICAO DO TESTE DE 15/10/2026 (triagem v2): conferir "nao abriu caso" nao basta. Aqui cada resposta e'
 conferida pelo CONTEUDO util (o que a pessoa disse, onde marcar, prazo, 192, dados mascarados).
 
-  1. especialista: texto da coluna "HOJE" (onde marcar + 14 dias uteis + oferta de pessoa), sem pesquisar,
+  1. especialista: texto da coluna "HOJE" (onde marcar + oferta de pessoa, SEM prazo da ANS), sem pesquisar,
      sem prometer cobertura, sem nomes; "cobre ressonancia?" fica no caminho de hoje;
   2. carteirinha: plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO; nunca CNS;
   3. sintoma leve: so' perguntas de alerta; "nao" -> a resposta final EXATA do dono; opcao 1 -> como marcar;
@@ -287,7 +287,7 @@ def _sem_acento(texto: str) -> str:
         ("preciso de um oculista", ("oftalmologista", False)),
         ("tem neurologista no plano", ("neurologista", False)),
         ("preciso de um otorrino", ("otorrinolaringologista", False)),
-        # Consulta BASICA na RN 566 (ginecologia e obstetricia, pediatria, clinica medica): 7 dias uteis.
+        # Consulta BASICA (ginecologia e obstetricia, pediatria, clinica medica).
         ("preciso de um ginecologista", ("ginecologista", True)),
         ("quero marcar pediatra", ("pediatra", True)),
         ("preciso de um clinico geral", ("clínico geral", True)),
@@ -306,7 +306,7 @@ def test_especialidade_pedida_reconhece_o_lexico_fechado(plano: str, esperado: t
         "preciso de um exame com cardiologista",
         "o resultado do exame que o cardiologista pediu",
         "preciso de encaminhamento para dermatologista",
-        # Fora do lexico DE PROPOSITO: saude mental (acolhimento) e prazo de 10 dias uteis.
+        # Fora do lexico DE PROPOSITO: saude mental (acolhimento) e outras terapias.
         "preciso de um psiquiatra",
         "quero um psicologo",
         "preciso de fisioterapia",
@@ -513,12 +513,13 @@ def test_todo_texto_da_v4_passa_nas_cercas_de_saida_e_na_regua_de_clareza(texto:
 
 
 def test_o_texto_final_e_o_do_dono_com_o_profissional_pela_idade() -> None:
-    """DL-0154: o caminho (consulta com o prazo da ANS) ou a equipe; adulto: clinico geral, crianca: pediatra
+    """DL-0154: o caminho (consulta pelo plano, SEM prazo da ANS) ou a equipe; adulto: clinico geral, crianca:
+    pediatra
     (nunca "clinico geral ou pediatra" para um adulto); nenhuma orientacao do sintoma."""
     assert v4.texto_final_do_sintoma("dor nas costas desde ontem") == (
         "Entendi. Eu não avalio sintomas, mas te ajudo com o caminho. "
-        "Você prefere: 1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis "
-        "pela ANS); ou 2) falar com a nossa equipe de saúde? "
+        "Você prefere: 1) saber onde marcar consulta com clínico geral pelo plano; "
+        "ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
     )
     crianca = v4.texto_final_do_sintoma("tosse", v4.POPULACAO_CRIANCA)
@@ -539,28 +540,24 @@ def test_o_texto_do_especialista_e_o_da_coluna_hoje_sem_prometer_nada() -> None:
         "aplicativo Austa Clínicas",
         "portal do plano",
         "central de atendimento do plano",
-        "até 14 dias úteis",
         "não pesquiso especialistas nem marco consulta",
         "Se quiser falar com uma pessoa da equipe, é só me pedir.",
     ):
         assert trecho in texto
     assert not re.search(r"cobert|garant|autoriz", _sem_acento(texto)), "nao promete cobertura"
+    assert not re.search(r"dias uteis|\bans\b", _sem_acento(texto)), "sem prazo da ANS"
     assert v4.e_texto_da_v4(texto)
 
 
-def test_ginecologista_e_consulta_basica_com_7_dias_nao_14() -> None:
-    texto = v4.texto_do_especialista("ginecologista", basica=True, segmentacao=None, frase_cobertura=None)
-    assert "consulta básica" in texto and "7 dias úteis" in texto and "14" not in texto
-
-
-def test_o_prazo_de_14_dias_e_rascunho_a_confirmar_e_vem_do_documento_de_conformidade() -> None:
-    assert v4.PRAZO_ESPECIALISTA_DIAS_UTEIS == 14
-    assert v4.PRAZO_CONSULTA_BASICA_DIAS_UTEIS == 7
-    fonte = inspect.getsource(v4)
-    assert "RASCUNHO / A CONFIRMAR PELO JURIDICO" in fonte
-    assert "rn-currency-review.md" in fonte
-    doc = (_REPO / "docs" / "compliance" / "rn-currency-review.md").read_text(encoding="utf-8")
-    assert "demais especialidades **14 d.ú.**" in doc
+@pytest.mark.parametrize(
+    ("especialidade", "basica"), [("ginecologista", True), ("pediatra", True), ("neurologista", False)]
+)
+def test_especialista_sem_prazo_da_ans_nem_dias_uteis(especialidade: str, basica: bool) -> None:
+    """Dono, 25/10/2026: nenhum texto da Helena cita prazo da ANS (7, 10 ou 14 dias uteis)."""
+    texto = v4.texto_do_especialista(especialidade, basica=basica, segmentacao=None, frase_cobertura=None)
+    assert ("consulta básica" in texto) is basica
+    assert not re.search(r"dias úteis|ANS|prazo|\b7\b|\b14\b", texto)
+    assert not hasattr(v4, "PRAZO_ESPECIALISTA_DIAS_UTEIS")
 
 
 @pytest.mark.parametrize("grupo", list(v4.ALERTAS))
@@ -687,10 +684,10 @@ async def test_especialista_recebe_onde_marcar_prazo_e_oferta_sem_caso(
             "aplicativo Austa Clínicas",
             "portal do plano",
             "central de atendimento do plano",
-            "14 dias úteis",
             "pessoa da equipe",
         ):
             assert trecho in texto
+        assert "dias úteis" not in texto and "ANS" not in texto
         assert TRIAGEM_V2_DMN_KEY not in conversa.dmn.chaves()
         assert not re.search(
             r"cobre sim|esta coberto|cobertura garantida|dr\.|dra\.|rua |avenida", _sem_acento(texto)
@@ -739,7 +736,7 @@ async def test_pergunta_de_cobertura_da_consulta_recebe_tambem_onde_confirmar_se
 
     texto = resultado["response_text"]
     assert texto.startswith("Consulta com endocrinologista é consulta de especialista.")
-    assert "14 dias úteis" in texto
+    assert "dias úteis" not in texto
     assert RESPOSTA_COBERTURA_ESPECIFICA in texto
     assert conversa.cib.inicios == []
 
@@ -896,7 +893,7 @@ async def test_dor_nas_costas_com_nao_recebe_a_resposta_exata_do_dono_e_a_opcao_
     assert final["response_text"] == v4.texto_final_do_sintoma("dor nas costas desde ontem")
     assert final["response_text"].startswith("Entendi. Eu não avalio sintomas")
     for trecho in (
-        "1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis pela ANS)",
+        "1) saber onde marcar consulta com clínico geral pelo plano; ou 2)",
         "2) falar com a nossa equipe de saúde?",
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192.",
     ):
@@ -906,7 +903,7 @@ async def test_dor_nas_costas_com_nao_recebe_a_resposta_exata_do_dono_e_a_opcao_
 
     um = await conversa.diz("1")
     assert um["response_text"] == RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
-    assert "aplicativo Austa Clínicas" in um["response_text"] and "7 dias úteis" in um["response_text"]
+    assert "aplicativo Austa Clínicas" in um["response_text"] and "dias úteis" not in um["response_text"]
     assert "clínico geral" in um["response_text"]
     assert not re.search(r"pode ser|virose|infec|tome ", _sem_acento(um["response_text"]))
     assert conversa.cib.inicios == []
