@@ -588,25 +588,41 @@ def _pre(*respostas: str) -> str:
 
 
 @pytest.mark.parametrize(
-    ("fala", "escolhido"),
+    "fala",
     [
-        ("Bom dia, eu caí de uma escada uns dias atrás e estou com dor nas costas", _COSTAS.id),
-        ("levei um tombo e o joelho dói", "tri-adulto-dor-no-braco-ou-perna"),
-        ("escorreguei e bati as costas no chão", _COSTAS.id),
-        ("bati o carro e estou com dor no pescoço", "nenhum"),
-        ("torci o pé e está inchado", "tri-adulto-dor-no-braco-ou-perna"),
+        "Bom dia, eu caí de uma escada uns dias atrás e estou com dor nas costas",
+        "levei um tombo e o joelho dói",
+        "escorreguei e bati as costas no chão",
+        "bati o carro e estou com dor no pescoço",
+        "torci o pé e está inchado",
     ],
 )
-async def test_queda_ou_trauma_tem_prioridade_sobre_a_parte_do_corpo(fala: str, escolhido: str) -> None:
-    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(escolhido)])
+async def test_queda_ou_trauma_escolhido_pelo_modelo_faz_as_perguntas_de_trauma(fala: str) -> None:
+    """A prioridade da queda/trauma e' do MODELO (regra 5 do prompt; sonda de 26/10 com o zai.glm-5: 48/48
+    nas 3 rodadas), sem troca por palavra no codigo."""
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)])
     grafo, whatsapp, cib = _grafo(modelo)
     final = await grafo.ainvoke(_estado(fala))
     texto = whatsapp.enviados[-1]
     assert texto == n.texto_das_perguntas(_QUEDA)
     assert "A dor veio depois de uma queda" not in texto
     assert final["coleta_pendente"] == n.codigo_do_alerta(_QUEDA.id) and not _starts(cib)
-    # A regra 5 do prompt pede o mesmo ao modelo.
     assert "QUEDA/TRAUMA" in modelo.prompts["escolha"][0]
+
+
+@pytest.mark.parametrize(
+    ("fala", "escolhido"),
+    [
+        ("bati papo com a vizinha e depois fiquei com dor de cabeça", "tri-adulto-dor-de-cabeca"),
+        ("meu pai sofreu um acidente ano passado e eu estou com dor nas costas", _COSTAS.id),
+        ("minha mãe caiu semana passada, eu estou com dor de garganta", "tri-adulto-dor-de-garganta"),
+    ],
+)
+async def test_palavra_de_trauma_nao_troca_a_escolha_do_modelo(fala: str, escolhido: str) -> None:
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(escolhido)])
+    grafo, whatsapp, _ = _grafo(modelo)
+    await grafo.ainvoke(_estado(fala))
+    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_CATALOGO.protocolos[escolhido])
 
 
 @pytest.mark.parametrize(
@@ -725,4 +741,3 @@ def test_plano_das_perguntas_regra() -> None:
     )
     assert n.plano_das_perguntas(_COSTAS, ("nao", "nao_dito", "nao", "nao_dito")).faltam == (2, 4)
     assert n.plano_das_perguntas(_COSTAS, ("nao",) * 4).decisao == n.Decisao("destino", "CONSULTA_ROTINA")
-    assert n.trauma_no_texto("cai da escada") and not n.trauma_no_texto("nao cai mas doi")

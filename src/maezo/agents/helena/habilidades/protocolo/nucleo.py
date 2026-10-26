@@ -183,42 +183,6 @@ def plano_das_perguntas(protocolo: _p.Protocolo, pre: Sequence[str]) -> PlanoDas
     return PlanoDasPerguntas(decidir(protocolo, todos, respostas, 0), ())
 
 
-# --- Queda/trauma tem prioridade sobre o protocolo da parte do corpo (26/10/2026) -----------------------
-PROTOCOLO_TRAUMA_ADULTO: Final[str] = "tri-adulto-queda-ou-trauma"
-#: Os protocolos de DOR/parte do corpo (e o alerta universal) que cedem ao de queda/trauma no adulto.
-_CEDEM_AO_TRAUMA: Final[frozenset[str]] = frozenset(
-    {
-        "tri-adulto-dor-nas-costas",
-        "tri-adulto-dor-no-braco-ou-perna",
-        "tri-adulto-dor-de-cabeca",
-        "tri-adulto-mal-estar",
-        _p.UNIVERSAL_ADULTO,
-    }
-)
-#: Palavra CLARA de queda ou trauma (texto normalizado, sem acento), nao negada ("nao cai").
-_TRAUMA: Final[re.Pattern[str]] = re.compile(
-    r"(?<!nao )\b(?:cai|caiu|caimos|queda|tombo|escorreg\w*|bati|bateu|batida|pancada|acidente|torci|"
-    r"torceu|torcao|atropel\w*|trombad\w*)\b"
-)
-
-
-def trauma_no_texto(texto_plano: str) -> bool:
-    return _TRAUMA.search(texto_plano or "") is not None
-
-
-def com_prioridade_do_trauma(escolha: Escolha, texto_plano: str, catalogo: _p.Catalogo) -> Escolha:
-    """Adulto com queda/trauma dito e o modelo escolheu um protocolo de dor/parte do corpo (ou nenhum): o de
-    queda/trauma vale (ele pergunta o que importa depois da queda)."""
-    if (
-        escolha.publico == "adulto"
-        and (escolha.protocolo is None or escolha.protocolo in _CEDEM_AO_TRAUMA)
-        and PROTOCOLO_TRAUMA_ADULTO in catalogo.protocolos
-        and trauma_no_texto(texto_plano)
-    ):
-        return Escolha(escolha.publico, escolha.faixa, PROTOCOLO_TRAUMA_ADULTO)
-    return escolha
-
-
 def protocolos_na_conversa(falas_da_helena: Sequence[str], catalogo: _p.Catalogo) -> list[str]:
     """Os protocolos cujas perguntas a Helena JA' fez nesta conversa e que JA' tiveram resposta (alguma fala
     da Helena depois delas), do mais antigo ao mais recente."""

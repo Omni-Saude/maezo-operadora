@@ -360,7 +360,6 @@ async def conduzir(
         publico = _publico_do_estado(state)
         escolha = _n.Escolha("crianca" if publico == "crianca_2m_5a" else publico, "desconhecida", None)
     afirmado = _g._plano(texto_afirmado(texto, ultima_fala(_g._falas_da_helena(state))))
-    escolha = _n.com_prioridade_do_trauma(escolha, afirmado, catalogo)
     continua = v7 is not None and v7.continuacao
     if ultimo is not None and (escolha.protocolo in feitos or (escolha.protocolo is None and continua)):
         # A MESMA queixa ja' respondida: nunca a pergunta de alerta de novo ("dormi de mau jeito, sera' que e'
