@@ -98,11 +98,12 @@ SOURCE_UNAVAILABLE_REASON: Final = "SOURCE_UNAVAILABLE"
 #: `consulta_valores` no CHECK de `conversa_agente_ativo`, DL-0086; 0025 = memoria curta do Lucas no
 #: roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal, 14/10/2026; 0027 = lembrete de
 #: cobranca; 0028 = falhas de verificacao por CPF, D-04; 0029 = estruturas de ajuste de
-#: comissao em rascunho, D-36 (dono, 25/10/2026) — nenhuma delas e' do plano vendor, so'
-#: empurraram a head linear).
-EXPECTED_HEAD: Final = "0029"
+#: comissao em rascunho, D-36 (dono, 25/10/2026); 0030 = registro da verificacao de
+#: legitimidade da PJ contratante, OP21/REG-1.1 (escura no substrato, 26/10/2026) — nenhuma
+#: delas e' do plano vendor, so' empurraram a head linear).
+EXPECTED_HEAD: Final = "0030"
 #: O pai IMEDIATO da head (o par de revisão que o item (b) prova estruturalmente).
-EXPECTED_HEAD_PARENT: Final = "0028"
+EXPECTED_HEAD_PARENT: Final = "0029"
 VENDOR_MIGRATIONS: Final = ("0019", "0020", "0021")
 
 #: (e) — quantos bytes bastam para probar decodabilidade SEM parse de conteúdo.

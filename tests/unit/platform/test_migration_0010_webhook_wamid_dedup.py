@@ -145,8 +145,10 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # Lembrete de cobranca (14/10/2026) appends 0027 (idempotencia e opt-out); still linear.
     # Limite de falhas por CPF (D-04, 15/10/2026) appends 0028.
     # D-36 (dono, 25/10/2026) appends 0029 (estruturas de ajuste de comissao em rascunho); still linear.
-    assert script.get_heads() == ["0029"]
-    assert script.get_revision("0029").down_revision == "0028"
+    # OP21/REG-1.1 (26/10/2026) appends 0030 (registro da verificacao de legitimidade da PJ,
+    # escuro no substrato); still linear.
+    assert script.get_heads() == ["0030"]
+    assert script.get_revision("0030").down_revision == "0029"
     assert script.get_revision("0028").down_revision == "0027"
     assert script.get_revision("0027").down_revision == "0026"
     assert script.get_revision("0026").down_revision == "0025"

@@ -57,15 +57,17 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0029_revisando_0028() -> None:
-    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0023 revisa 0022
+def test_a_cadeia_local_e_head_linear_0030_revisando_0029() -> None:
+    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0030 revisa 0029
     (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083;
     0023 = CHECKs da 0022; 0024 = `consulta_valores` no CHECK do roteador, DL-0086; 0025 = memoria curta
     do Lucas no roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal no acesso;
-    0029 = estruturas de ajuste de comissao em rascunho, D-36 do dono, 25/10/2026)."""
+    0029 = estruturas de ajuste de comissao em rascunho, D-36 do dono, 25/10/2026;
+    0030 = registro da verificacao de legitimidade da PJ contratante, OP21/REG-1.1, escura no
+    substrato, 26/10/2026)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0029",)
-    assert edges["0029"] == "0028"
+    assert heads == ("0030",)
+    assert edges["0030"] == "0029"
     assert edges["0027"] == "0026"
     assert edges["0026"] == "0025"
     assert edges["0025"] == "0024"
@@ -91,7 +93,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0029",),
+        "migration_heads": ("0030",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -309,7 +311,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0029",
+        "0030",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",
