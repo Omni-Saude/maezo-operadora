@@ -36,6 +36,7 @@ from maezo.conhecimento import protocolos as _p
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import render_untrusted_block
 
+from . import especialista as _esp
 from . import nucleo as _n
 
 if TYPE_CHECKING:
@@ -206,7 +207,11 @@ def _escalar(
 
 
 def _executar(
-    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo, decisao: _n.Decisao
+    self: HelenaGraph,
+    state: Mapping[str, Any],
+    protocolo: _p.Protocolo,
+    decisao: _n.Decisao,
+    especialista: str | None = None,
 ) -> dict[str, Any]:
     catalogo = self._protocolos
     textos = catalogo.textos if catalogo is not None else None
@@ -239,7 +244,58 @@ def _executar(
     if decisao.sinal is not None:
         return _texto(self, state, _n.texto_do_destino_por_sinal(destino, protocolo.publico))
     assert textos is not None  # o catalogo so' existe com os textos validos (`catalogo_do_ambiente`)
-    return _texto(self, state, _n.texto_sem_sinal(protocolo, textos))
+    return _texto(self, state, _n.texto_sem_sinal(protocolo, textos, especialista=especialista))
+
+
+def _sem_sinal_de_consulta(protocolo: _p.Protocolo, decisao: _n.Decisao) -> bool:
+    return (
+        decisao.tipo == "destino"
+        and decisao.sinal is None
+        and decisao.destino in ("CONSULTA_EM_BREVE", "CONSULTA_ROTINA")
+        and protocolo.publico not in _p.PUBLICOS_DE_CRIANCA
+    )
+
+
+def _pergunta_que_abriu(state: Mapping[str, Any], protocolo: _p.Protocolo) -> str:
+    """A fala da pessoa que levou as perguntas deste protocolo (a fala dela logo antes delas), ou ""."""
+    historico = state.get("historico_conversa")
+    if not isinstance(historico, list):
+        return ""
+    cab = _n.cabecalho(protocolo)
+    ultima_da_pessoa = ""
+    achada = ""
+    for e in historico:
+        if not isinstance(e, Mapping):
+            continue
+        texto = str(e.get("texto") or "")
+        if e.get("papel") == "beneficiario":
+            ultima_da_pessoa = texto
+        elif e.get("papel") == "helena" and texto.startswith(cab):
+            achada = ultima_da_pessoa
+    return achada
+
+
+async def _especialista_da_queixa(
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo
+) -> str | None:
+    """Teste do dono de 26/10/2026 ("estou sentindo dores nas juntas, que profissional procuro?"): as
+    perguntas do protocolo vieram antes e a resposta final leva o especialista do MAPA da queixa (o do
+    protocolo quando o mapa nao acha a queixa ou o modelo falha)."""
+    catalogo = self._protocolos
+    assert catalogo is not None and catalogo.textos is not None
+    conversa, mensagem = _blocos(self, state)
+    lido = await _chamar(
+        self,
+        state,
+        _n.prompt_do_mapa(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
+        lambda bruto: _n.ler_mapa(bruto, catalogo),
+        "mapa",
+    )
+    entrada = catalogo.mapa.get(lido[0]) if lido is not None and lido[0] else None
+    if entrada is None:
+        return None
+    logger.info("helena_protocolo_especialista_do_mapa", protocolo=protocolo.id, queixa=entrada.id)
+    return _n.especialista_do_mapa(entrada, protocolo.publico, catalogo.textos)[0]
 
 
 async def responder_alerta(
@@ -284,7 +340,13 @@ async def responder_alerta(
         and _rt._alarme_do_modelo(self, cast(Any, state), decisao.v7) == "claro"
     ):
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
-    return _executar(self, state, protocolo, _n.decidir(protocolo, indices, leitura.respostas, pend.rodada))
+    regra = _n.decidir(protocolo, indices, leitura.respostas, pend.rodada)
+    especialista = None
+    if _sem_sinal_de_consulta(protocolo, regra) and _esp.pergunta_qual_especialista(
+        _pergunta_que_abriu(state, protocolo)
+    ):
+        especialista = await _especialista_da_queixa(self, state, protocolo)
+    return _executar(self, state, protocolo, regra, especialista)
 
 
 def _publico_do_estado(state: Mapping[str, Any]) -> str:
@@ -293,7 +355,11 @@ def _publico_do_estado(state: Mapping[str, Any]) -> str:
 
 
 async def _especialista_pelo_mapa(
-    self: HelenaGraph, state: Mapping[str, Any], *, por_aqui: bool
+    self: HelenaGraph,
+    state: Mapping[str, Any],
+    *,
+    por_aqui: bool,
+    ultimo: _p.Protocolo | None = None,
 ) -> dict[str, Any]:
     catalogo = self._protocolos
     assert catalogo is not None and catalogo.textos is not None
@@ -305,6 +371,11 @@ async def _especialista_pelo_mapa(
         lambda bruto: _n.ler_mapa(bruto, catalogo),
         "mapa",
     )
+    if lido is None and ultimo is not None:
+        # Modelo fora, com uma queixa ja' conduzida na conversa: o especialista DESSA queixa e os canais.
+        logger.info("helena_protocolo_seguimento", protocolo=ultimo.id, agendamento=True)
+        corpo = _n.texto_de_seguimento(ultimo, catalogo.textos, reclamou=False, agendamento=True)
+        return _texto(self, state, f"{_n.TEXTO_NAO_MARCO} {corpo}" if por_aqui else corpo)
     queixa, publico = lido if lido is not None else (None, "adulto")
     publico_p = "crianca_2m_5a" if publico == "crianca" else publico
     if lido is None:
@@ -316,6 +387,52 @@ async def _especialista_pelo_mapa(
     return _texto(
         self, state, f"{inicio}{frase}\n\n{_n.seguranca(catalogo.textos, publico_p, mental=mental)}"
     )
+
+
+async def _sugestao_de_especialista(
+    self: HelenaGraph, state: Mapping[str, Any], ultimo: _p.Protocolo | None
+) -> dict[str, Any]:
+    """Teste do dono de 26/10/2026 ("o correto nao seria um ortopedista?", "nao seria melhor um
+    reumatologista?"): o especialista do MAPA para a queixa da conversa (escolhida pelo modelo; sem ele, a do
+    ultimo protocolo), o clinico como primeira avaliacao, e a sugestao aceita so' quando o mapa a admite."""
+    catalogo = self._protocolos
+    assert catalogo is not None and catalogo.textos is not None
+    textos = catalogo.textos
+    conversa, mensagem = _blocos(self, state)
+    lido = await _chamar(
+        self,
+        state,
+        _n.prompt_do_mapa(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
+        lambda bruto: _n.ler_mapa(bruto, catalogo),
+        "mapa",
+    )
+    sugestoes = _esp.sugeridos(str(state.get("message_body") or ""), textos)
+    entrada = catalogo.mapa.get(lido[0]) if lido is not None and lido[0] else None
+    publico = ("crianca_2m_5a" if lido[1] == "crianca" else lido[1]) if lido is not None else None
+    if entrada is None and lido is None and ultimo is not None:
+        logger.info("helena_protocolo_sugestao_de_especialista", queixa="protocolo", protocolo=ultimo.id)
+        fim = _n.seguranca(textos, ultimo.publico, mental=ultimo.tema == "saude_mental")
+        corpo = _esp.texto_da_sugestao(
+            sugestoes,
+            _esp.alternativas_do_protocolo(ultimo, textos),
+            _n.rotulo(ultimo),
+            _n.especialista_do_protocolo(ultimo, textos),
+        )
+        return _texto(self, state, f"{corpo}\n\n{fim}")
+    publico_p = publico or _publico_do_estado(state)
+    frase, mental = _n.especialista_do_mapa(entrada, publico_p, textos)
+    alternativas = _esp.alternativas_do_mapa(entrada, textos) if entrada is not None else frozenset()
+    if publico_p in _p.PUBLICOS_DE_CRIANCA or publico_p in ("gestante", "puerpera"):
+        alternativas = frozenset()  # crianca e gestacao: a porta de entrada do publico decide
+    logger.info(
+        "helena_protocolo_sugestao_de_especialista",
+        queixa=entrada.id if entrada is not None else "nenhum",
+        aceita=sum(1 for s in sugestoes if s in alternativas),
+    )
+    corpo = _esp.texto_da_sugestao(
+        sugestoes, alternativas, entrada.queixa if entrada is not None else None, frase
+    )
+    return _texto(self, state, f"{corpo}\n\n{_n.seguranca(textos, publico_p, mental=mental)}")
 
 
 def _por_aqui(texto: str) -> bool:
@@ -385,7 +502,36 @@ async def conduzir(
     v7 = decisao.v7
     feitos = _n.protocolos_na_conversa(_g._falas_da_helena(state), catalogo)
     ultimo = catalogo.protocolos[feitos[-1]] if feitos else None
-    if _jr.pergunta_de_agendamento(texto) and habilidade in _HABILIDADES_DO_AGENDAMENTO:
+    pronta: _n.Escolha | None = None
+    ja_escolheu = False
+    if (
+        habilidade in _HABILIDADES_DO_AGENDAMENTO
+        and alarme is None
+        and antes != _n.PENDENTE_IDADE
+        and not _esp.quer_marcar(texto)
+    ):
+        # Teste do dono de 26/10/2026: QUAL profissional procurar (nunca "eu nao avalio sintomas" nem "eu nao
+        # pesquiso especialistas"). O pedido de marcar continua com o agendamento abaixo.
+        if _esp.sugere_especialista(texto, catalogo.textos):
+            return await _sugestao_de_especialista(self, state, ultimo)
+        if _esp.pergunta_qual_especialista(texto):
+            if not _esp.relata_queixa(texto):
+                return await _especialista_pelo_mapa(self, state, por_aqui=_por_aqui(texto), ultimo=ultimo)
+            # Com relato de queixa: as perguntas do protocolo vem antes (seguranca); sem protocolo proprio
+            # para a queixa ("ondas de calor"), o especialista do mapa direto.
+            conversa, mensagem = _blocos(self, state)
+            pronta = await _chamar(
+                self,
+                state,
+                _n.prompt_da_escolha(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
+                lambda bruto: _n.ler_escolha(bruto, catalogo),
+                "escolha",
+            )
+            ja_escolheu = True
+            if pronta is not None and pronta.protocolo is None:
+                logger.info("helena_protocolo_especialista_sem_protocolo")
+                return await _especialista_pelo_mapa(self, state, por_aqui=False)
+    if _jr.pergunta_de_agendamento(texto) and habilidade in _HABILIDADES_DO_AGENDAMENTO and not ja_escolheu:
         if ultimo is not None:
             logger.info("helena_protocolo_seguimento", protocolo=ultimo.id, agendamento=True)
             corpo = _n.texto_de_seguimento(
@@ -393,8 +539,14 @@ async def conduzir(
             )
             return _texto(self, state, f"{_n.TEXTO_NAO_MARCO} {corpo}" if _por_aqui(texto) else corpo)
         return await _especialista_pelo_mapa(self, state, por_aqui=_por_aqui(texto))
-    sintoma = habilidade == "sintoma" or alarme == "incerto" or antes == _n.PENDENTE_IDADE
-    if sintoma and ultimo is None and antes != _n.PENDENTE_IDADE and duvida_sem_queixa(texto, v7):
+    sintoma = habilidade == "sintoma" or alarme == "incerto" or antes == _n.PENDENTE_IDADE or ja_escolheu
+    if (
+        sintoma
+        and not ja_escolheu
+        and ultimo is None
+        and antes != _n.PENDENTE_IDADE
+        and duvida_sem_queixa(texto, v7)
+    ):
         # Rodada de 26/10/2026: resultado de exame ("meu PSA deu alto") ou duvida geral ("o que e' X?") sem
         # queixa na mensagem e' a resposta de saude (base/redacao), nunca as perguntas de alerta.
         logger.info("helena_protocolo_duvida_sem_queixa")
@@ -413,12 +565,16 @@ async def conduzir(
     if (neonatal := _alerta_neonatal(self, state)) is not None:
         return neonatal
     conversa, mensagem = _blocos(self, state)
-    escolha: _n.Escolha | None = await _chamar(
-        self,
-        state,
-        _n.prompt_da_escolha(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
-        lambda bruto: _n.ler_escolha(bruto, catalogo),
-        "escolha",
+    escolha: _n.Escolha | None = (
+        pronta
+        if ja_escolheu
+        else await _chamar(
+            self,
+            state,
+            _n.prompt_da_escolha(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
+            lambda bruto: _n.ler_escolha(bruto, catalogo),
+            "escolha",
+        )
     )
     if escolha is None and ultimo is not None:
         # Sem a escolha do modelo, com uma queixa ja' respondida: nunca recomecar perguntas (o seguimento).
@@ -499,7 +655,12 @@ async def _perguntar_o_que_falta(
         faltam=len(plano.faltam),
     )
     if plano.decisao is not None:
-        return _executar(self, state, protocolo, plano.decisao)
+        especialista = None
+        if _sem_sinal_de_consulta(protocolo, plano.decisao) and _esp.pergunta_qual_especialista(
+            str(state.get("message_body") or "")
+        ):
+            especialista = await _especialista_da_queixa(self, state, protocolo)
+        return _executar(self, state, protocolo, plano.decisao, especialista)
     return _texto(
         self,
         state,
@@ -527,8 +688,20 @@ async def sem_roteador(
 ) -> dict[str, Any] | None:
     """Simulador de 26/10/2026 (roteador fora: `BrRegionalTransportUnavailableError`): com as perguntas do
     PROTOCOLO pendentes, a resposta continua do protocolo (a leitura; sem ela, re-pergunta e depois a equipe)
-    — nunca a pergunta generica da v4. `None` = o caminho de sempre."""
-    if self._protocolos is None or not antes:
+    — nunca a pergunta generica da v4. `None` = o caminho de sempre.
+
+    Teste do dono de 26/10/2026: sem pendencia, a pergunta de QUAL profissional procurar e a sugestao de
+    especialista tambem seguem o mapa do protocolo (nunca a navegacao nem o texto do especialista da v4)."""
+    catalogo = self._protocolos
+    if catalogo is None or catalogo.textos is None:
+        return None
+    if not antes:
+        texto = str(state.get("message_body") or "")
+        if not _esp.quer_marcar(texto) and (
+            _esp.pergunta_qual_especialista(texto) or _esp.sugere_especialista(texto, catalogo.textos)
+        ):
+            logger.info("helena_protocolo_sem_roteador", etapa="especialista")
+            return await conduzir(self, state, _SemRoteador(), None, None)
         return None
     if antes.startswith(_n.PENDENTE_ALERTA):
         logger.info("helena_protocolo_sem_roteador", etapa="alerta")
