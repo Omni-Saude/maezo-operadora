@@ -19,11 +19,6 @@ from __future__ import annotations
 import re
 from typing import Final
 
-#: O mesmo prazo da Helena v4 (`helena_v4.PRAZO_ESPECIALISTA_DIAS_UTEIS`, RN 566/2022; a confirmar pelo
-#: juridico)
-#: — repetido aqui para o pacote `conhecimento` nao importar o agente (o teste amarra os dois).
-PRAZO_ESPECIALISTA_DIAS_UTEIS: Final[int] = 14
-
 JORNADA_EXAME: Final[str] = "exame"
 JORNADA_ESPECIALISTA: Final[str] = "especialista"
 JORNADA_CIRURGIA: Final[str] = "cirurgia"
@@ -40,8 +35,7 @@ TEXTOS: Final[dict[str, str]] = {
     ),
     JORNADA_ESPECIALISTA: (
         "Você marca o especialista pelo aplicativo Austa Clínicas, pelo portal do plano ou pela "
-        "central de atendimento do plano. Pela regra da ANS, a consulta deve ser oferecida em até "
-        f"{PRAZO_ESPECIALISTA_DIAS_UTEIS} dias úteis."
+        "central de atendimento do plano."
     ),
     JORNADA_CIRURGIA: (
         "Para uma cirurgia ou procedimento eletivo, o pedido médico passa pela autorização prévia do plano. "

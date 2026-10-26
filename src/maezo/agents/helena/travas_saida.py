@@ -14,7 +14,13 @@ entre parenteses ou colchetes ("(8 palavras)", "(12 words)", "(3 frases)", "[40 
 redacao do modelo respondeu "voce pode enviar a foto do pedido medico por aqui". A frase que convida a mandar
 foto, imagem, print, audio, video, arquivo ou documento e' trocada pelo aviso de que aqui so' se le' texto.
 
-`na_saida` — as tres juntas, no ultimo passo de TODO envio da Helena (resposta do turno, aviso de identidade
+`sem_prazo_da_ans` — trava `sem_prazo_da_ans` (decisao do dono, 25/10/2026): nenhum texto da Helena cita prazo
+de atendimento da ANS ("em ate 7 dias uteis pela ANS", "pelas regras da ANS ... deve ser oferecida em ate 14
+dias uteis"). O trecho entre parenteses com o prazo sai, e a frase inteira que traz o prazo (ANS + prazo, ou
+"N dias uteis" numa frase de regra/oferta de consulta) sai do texto. O numero de registro da ANS no cadastro
+do plano e as outras frases ficam.
+
+`na_saida` — as quatro juntas, no ultimo passo de TODO envio da Helena (resposta do turno, aviso de identidade
 e retomada da equipe). Nada a tirar: o MESMO texto, byte a byte (os textos fixos do pacote saem intactos).
 """
 
@@ -147,9 +153,58 @@ def sem_oferta_de_midia(texto: str) -> str:
     return _arrumar("".join(saida))
 
 
+_ANS: Final[re.Pattern[str]] = re.compile(r"\bANS\b", re.IGNORECASE)
+_DIAS_UTEIS: Final[re.Pattern[str]] = re.compile(r"\bdias?\s+[uú]teis\b", re.IGNORECASE)
+_PRAZO: Final[re.Pattern[str]] = re.compile(
+    r"\bprazos?\b|\bem\s+at[eé]\s+\d+\s+dias\b|\bdeve(?:m)?\s+ser\s+oferecid\w+|\bdeve\s+oferecer\b",
+    re.IGNORECASE,
+)
+_REGRA_OU_OFERTA: Final[re.Pattern[str]] = re.compile(
+    r"\bregras?\b|\boferec\w+|\bconsultas?\b|\batendimento\b|\bnorma\b", re.IGNORECASE
+)
+_PARENTESES: Final[re.Pattern[str]] = re.compile(r"[ \t]*\([^()]*\)")
+
+
+def _e_prazo_da_ans(trecho: str) -> bool:
+    if _DIAS_UTEIS.search(trecho) and (_ANS.search(trecho) or _REGRA_OU_OFERTA.search(trecho)):
+        return True
+    return bool(_ANS.search(trecho) and _PRAZO.search(trecho))
+
+
+def sem_prazo_da_ans(texto: str) -> str:
+    """O texto sem o prazo de atendimento da ANS (parenteses e frases). Sem prazo da ANS: o MESMO texto, byte
+    a byte."""
+    if not (_ANS.search(texto) or _DIAS_UTEIS.search(texto)) or not (
+        _DIAS_UTEIS.search(texto) or _PRAZO.search(texto)
+    ):
+        return texto
+    limpo = _PARENTESES.sub(lambda m: "" if _e_prazo_da_ans(m.group(0)) else m.group(0), texto)
+    partes = _SEPARADOR_DE_FRASE.split(limpo)
+    saida: list[str] = []
+    for i in range(0, len(partes), 2):
+        frase = partes[i]
+        separador = partes[i + 1] if i + 1 < len(partes) else ""
+        if _e_prazo_da_ans(frase):
+            continue
+        saida.append(frase + separador)
+    resultado = _arrumar("".join(saida))
+    if resultado == texto:
+        return texto
+    logger.warning("helena_prazo_da_ans_retirado_na_saida")
+    return resultado
+
+
 def na_saida(texto: str) -> str:
-    """Todas as travas de saida, na ordem: link, contagem, oferta de midia. Nada a tirar: o MESMO texto."""
-    return sem_oferta_de_midia(sem_contagem(sem_links(texto)))
+    """Todas as travas de saida, na ordem: link, contagem, prazo da ANS, oferta de midia. Nada a tirar: o
+    MESMO texto."""
+    return sem_oferta_de_midia(sem_prazo_da_ans(sem_contagem(sem_links(texto))))
 
 
-__all__ = ["AVISO_SO_TEXTO", "na_saida", "sem_contagem", "sem_links", "sem_oferta_de_midia"]
+__all__ = [
+    "AVISO_SO_TEXTO",
+    "na_saida",
+    "sem_contagem",
+    "sem_links",
+    "sem_oferta_de_midia",
+    "sem_prazo_da_ans",
+]

@@ -2421,7 +2421,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com clínico geral deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com clínico geral. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05, adulto: clinico geral; enxuto)",
@@ -2432,7 +2432,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com pediatra deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com pediatra. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA (T05, crianca: pediatra)",
@@ -2443,7 +2443,7 @@
       }
     },
     {
-      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com obstetra ou ginecologista deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. A consulta é com obstetra ou ginecologista. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE (T05, gestante: obstetra ou ginecologista)",

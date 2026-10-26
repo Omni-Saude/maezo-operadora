@@ -741,7 +741,7 @@ async def test_chave_desligada_dor_nas_costas_e_a_coleta_de_sempre() -> None:
 
 
 @pytest.mark.asyncio
-async def test_d_ficha_respondida_orienta_o_caminho_com_o_prazo_da_ans_sem_caso() -> None:
+async def test_d_ficha_respondida_orienta_o_caminho_sem_prazo_da_ans_e_sem_caso() -> None:
     resultado, cib, _, _ = await _turno(
         "É na lombar, média, começou ontem",
         _classify(intent="symptom", population="adult", intensidade="moderada"),
@@ -754,7 +754,7 @@ async def test_d_ficha_respondida_orienta_o_caminho_com_o_prazo_da_ans_sem_caso(
 
     assert cib.inicios == []
     assert resultado["response_text"] == RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
-    assert "7 dias úteis" in resultado["response_text"]
+    assert "dias úteis" not in resultado["response_text"] and "ANS" not in resultado["response_text"]
     assert resultado["coleta_pendente"] is None
 
 
@@ -1022,12 +1022,10 @@ def test_todo_texto_novo_passa_nas_cercas_de_saida(texto: str) -> None:
     assert "helena" not in texto.lower(), "o nome dela acenderia `apresentacao_ja_feita`"
 
 
-def test_o_prazo_da_ans_e_so_o_conferido() -> None:
-    """Aba 6 do catalogo: so' o texto-base da RN 566 foi conferido (7 dias uteis para consulta basica).
-    Prazos que dependem da retificacao (urgencia 'imediato', alta complexidade 21 dias) ficam fora."""
+def test_nenhum_texto_novo_cita_prazo_da_ans() -> None:
+    """Dono, 25/10/2026: sem prazo da ANS em nenhum texto da Helena (7, 14 ou qualquer outro)."""
     juntos = " ".join(TEXTOS_NOVOS).lower()
-    assert "7 dias úteis" in juntos
-    for fora in ("imediato", "21 dias", "14 dias", "3 dias"):
+    for fora in ("imediato", "21 dias", "14 dias", "7 dias", "3 dias", "dias úteis", "regras da ans"):
         assert fora not in juntos, fora
 
 
@@ -1220,7 +1218,7 @@ def test_o_texto_de_orientacao_e_da_populacao() -> None:
     assert "7 dias" not in bebe, "bebe com menos de 3 meses nao recebe o prazo de consulta"
     assert "equipe de saúde" in bebe and "192" in bebe and "pronto-atendimento" in bebe
     for texto in (adulto, crianca, gestante):
-        assert "7 dias úteis" in texto
+        assert "dias úteis" not in texto and "ANS" not in texto
         assert len(re.findall(r"[.!?](?:\s|$)", texto)) <= 6, "T05 enxuto: no maximo 6 frases"
 
 
