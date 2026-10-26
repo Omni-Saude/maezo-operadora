@@ -278,6 +278,18 @@ def protocolo_na_conversa(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     return bool(_n.protocolos_na_conversa(_g._falas_da_helena(state), catalogo))
 
 
+def duvida_sem_queixa(texto: str) -> bool:
+    """Resultado ou medida pessoal, pergunta informativa ou duvida educativa, SEM relato de sintoma."""
+    from maezo.agents.helena import graph as _g
+    from maezo.agents.helena.triagem_v2 import relata_sintoma
+    from maezo.conhecimento import base_saude as _bs
+    from maezo.conhecimento import saude_gerativa as _sg
+
+    plano = _g._plano(texto)
+    duvida = _bs.resultado_pessoal(plano) or _bs.pergunta_informativa(plano) or _sg.e_duvida_educativa(plano)
+    return duvida and not relata_sintoma(plano)
+
+
 async def conduzir(
     self: HelenaGraph, state: Mapping[str, Any], decisao: Any, antes: str | None, alarme: str | None
 ) -> dict[str, Any] | None:
@@ -305,6 +317,11 @@ async def conduzir(
             return _texto(self, state, f"{_n.TEXTO_NAO_MARCO} {corpo}" if _por_aqui(texto) else corpo)
         return await _especialista_pelo_mapa(self, state, por_aqui=_por_aqui(texto))
     sintoma = habilidade == "sintoma" or alarme == "incerto" or antes == _n.PENDENTE_IDADE
+    if sintoma and ultimo is None and antes != _n.PENDENTE_IDADE and duvida_sem_queixa(texto):
+        # Rodada de 26/10/2026: resultado de exame ("meu PSA deu alto") ou duvida geral ("o que e' X?") sem
+        # queixa na mensagem e' a resposta de saude (base/redacao), nunca as perguntas de alerta.
+        logger.info("helena_protocolo_duvida_sem_queixa")
+        return None
     if (
         ultimo is not None
         and _jr.reclama_da_repeticao(texto)
@@ -349,4 +366,10 @@ async def conduzir(
     return _texto(self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id))
 
 
-__all__ = ["conduzir", "e_texto_do_protocolo", "protocolo_na_conversa", "responder_alerta"]
+__all__ = [
+    "conduzir",
+    "duvida_sem_queixa",
+    "e_texto_do_protocolo",
+    "protocolo_na_conversa",
+    "responder_alerta",
+]
