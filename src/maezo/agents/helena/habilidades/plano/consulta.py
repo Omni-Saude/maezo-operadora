@@ -44,6 +44,7 @@ from maezo.agents.helena.consultas_plano import (
     texto_de_dependentes_com_nomes,
 )
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
+from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.plano import apto as _apto
 from maezo.agents.helena.helena_v4 import fatos_da_carteirinha, texto_da_carteirinha
@@ -141,6 +142,16 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
         )
         return {
             "response_text": _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA]),
+            "response_kind": "inform",
+        }
+    if _agendar.pergunta_de_agendamento(mensagem_do_turno):
+        # Teste do dono (25/10/2026, caso d): pergunta de AGENDAMENTO lida como consulta do plano nunca
+        # recebe o cadastro: a orientacao dos canais (o plano so' responde sobre o plano quando perguntado).
+        logger.info("helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="agendar")
+        return {
+            "response_text": _com_emergencia_se_preciso(
+                state, _agendar.texto_do_agendamento(self._textos, mensagem_do_turno)
+            ),
             "response_kind": "inform",
         }
     if _app.pergunta_onde_baixar_o_app(mensagem_do_turno):

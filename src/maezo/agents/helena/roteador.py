@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
+from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
@@ -647,6 +648,18 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
     o texto do pacote (sem link). `None` = o caminho de sempre."""
     if _pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto):
         return None
+    if _agendar.pergunta_de_agendamento(texto) and not (
+        _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
+    ):
+        # Teste do dono (25/10/2026, caso d): "consigo agendar uma consulta por aqui?" nunca vai ao
+        # cadastro do plano, ainda que o roteador diga `plano`: a orientacao dos canais (o texto do pacote).
+        logger.info("helena_texto_de_agendamento", node="classify")
+        return {
+            **self._base_texto_fixo(
+                self._update_sem_modelo(state), _agendar.texto_do_agendamento(self._textos, texto)
+            ),
+            "habilidade_roteador": "conversa",
+        }
     if _app.pergunta_onde_baixar_o_app(texto):
         logger.info("helena_texto_do_app", node="classify")
         texto_app = self._textos[_app.CHAVE_APP_ONDE_BAIXAR]
@@ -832,6 +845,8 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _pedido_explicito_com_verbo,
     _pedido_explicito_de_pessoa,
     _plano,
+    _sinal_forte_de_emergencia,
+    _sinal_fraco_de_emergencia,
     caso_grave_para_encerrar,
     logger,
 )
