@@ -550,6 +550,16 @@ async def conduzir(
             )
             ja_escolheu = True
             if pronta is not None and pronta.protocolo is None:
+                # Rodada de 26/10/2026: depois de outras queixas na conversa, o modelo deixou "dores nas
+                # articulacoes" sem protocolo. Uma queixa reconhecida pelo jeito de falar ainda ganha as
+                # perguntas do protocolo antes do especialista (seguranca primeiro).
+                pelo_texto = _sinonimos.escolher_pelo_sintoma(
+                    catalogo, self._base, texto, _publico_do_estado(state)
+                )
+                if pelo_texto is not None and pelo_texto not in feitos:
+                    logger.info("helena_protocolo_especialista_por_sinonimo", protocolo=pelo_texto)
+                    pronta = _n.Escolha(pronta.publico, pronta.faixa, pelo_texto)
+            if pronta is not None and pronta.protocolo is None:
                 logger.info("helena_protocolo_especialista_sem_protocolo")
                 return await _especialista_pelo_mapa(self, state, por_aqui=False)
     if _jr.pergunta_de_agendamento(texto) and habilidade in _HABILIDADES_DO_AGENDAMENTO and not ja_escolheu:

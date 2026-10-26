@@ -147,4 +147,30 @@ def escolher(catalogo: _p.Catalogo, base: _bs.BaseSaude, texto: str, publico: st
     return ganhadores[0] if maior > 0 and len(ganhadores) == 1 else None
 
 
-__all__ = ["escolher"]
+def escolher_pelo_sintoma(catalogo: _p.Catalogo, base: _bs.BaseSaude, texto: str, publico: str) -> str | None:
+    """So' o casamento FORTE com um sintoma da base de saude (todas as raizes de um sinonimo na mensagem),
+    sem o titulo nem os exemplos do protocolo: para contrariar um "nenhum protocolo" do modelo, a queixa
+    tem de estar dita ("dores nas articulacoes" sim; "dificuldade para emagrecer" nao)."""
+    if publico not in _SINTOMA_DO_PROTOCOLO and publico != "puerpera":
+        return None
+    grupo = "gestante" if publico == "puerpera" else publico
+    raizes = _raizes(texto)
+    fortes: dict[str, int] = {}
+    for sin_id, pid in _SINTOMA_DO_PROTOCOLO.get(grupo, {}).items():
+        protocolo = catalogo.protocolos.get(pid)
+        assunto = base.get(sin_id)
+        if protocolo is None or protocolo.publico != publico or assunto is None:
+            continue
+        for sinonimo in (*assunto.sinonimos, assunto.titulo):
+            termo = [r for r in _raizes(sinonimo) if len(r) >= 3 and r not in _SEM_CONTEUDO_RAIZ]
+            pos = _posicao(raizes, termo) if termo else None
+            if pos is not None:
+                fortes[pid] = min(fortes.get(pid, pos), pos)
+    if not fortes:
+        return None
+    primeiro = min(fortes.values())
+    ganhadores = sorted(pid for pid, pos in fortes.items() if pos == primeiro)
+    return ganhadores[0] if len(ganhadores) == 1 else None
+
+
+__all__ = ["escolher", "escolher_pelo_sintoma"]
