@@ -989,14 +989,17 @@ jobs:
         run: make check-d7-xfail-expiry
 
       # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 5 flags dark do
-      # Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
-      # `staff_documents_panel` (#960), `staff_operations_panel` (#963) e as duas pontes de
-      # erasure (#965) — seguem com default literal `False` no codigo (sob o
+      # portal do Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
+      # `staff_documents_panel` (#960), `staff_operations_panel` (#963),
+      # `staff_admin_panel` (#985, D-40) e `staff_commission_policies` (#987, D-36) — mais as
+      # duas pontes de erasure (#965) seguem com default literal `False` no codigo (sob o
       # `env_prefix="MAEZO_PORTAL_"` e com as constantes de env das pontes valendo os nomes
-      # pinados) e ZERO mencao a qualquer um dos 5 nomes de env em `deploy/**`, que e' a
+      # pinados) e ZERO mencao a qualquer um dos 7 nomes de env em `deploy/**`, que e' a
       # sentenca shipped de cada docstring ("nenhum `deploy/**` pode liga-la neste
-      # programa"). Fail-closed: arquivo ilegivel, deploy ausente/vazio e constante renomeada
-      # sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca nao decide quando.
+      # programa"). Fail-closed: arquivo ilegivel FORA de `__pycache__` (artefato de sessao
+      # pytest, excluido por path.parts — classe F-1 do #985), deploy ausente/vazio e
+      # constante renomeada sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca
+      # nao decide quando.
       # Belt-and-suspenders com tests/unit/ci/test_check_program_dark_flags.py.
       - name: Program dark-flags provably OFF gate (W5 CLNT 5.1)
         run: make check-program-dark-flags

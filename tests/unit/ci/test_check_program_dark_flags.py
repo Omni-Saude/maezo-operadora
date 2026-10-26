@@ -3,7 +3,7 @@
 Cinco camadas, no molde de `test_check_portal_direct_completion.py`/`test_check_helm_entrypoints.py`:
 
 1. **Arvore real verde** — `executar()` na arvore rastreada NAO acha nada, e o verde nao e'
-   vacuo: os 4 campos registrados existem, o prefixo bate, o `deploy/**` tem arquivos e as
+   vacuo: os 5 campos registrados existem, o prefixo bate, o `deploy/**` tem arquivos e as
    constantes
    das pontes valem os pinos.
 2. **Mutacao do default** (prova de mutacao, sintetica): `lgpd_dsr_channel = True` deixa a
@@ -11,8 +11,9 @@ Cinco camadas, no molde de `test_check_portal_direct_completion.py`/`test_check_
    mutacao, nao so' verde).
 3. **Cerco cego** — campo removido, classe removida, `env_prefix` trocado e modulo das
    pontes com constante renomeada: cada um reprova NOMEANDO, nunca silencio.
-4. **Deploy** — qualquer mencao a qualquer um dos 6 nomes de env em `deploy/**` (.tf, .yaml,
+4. **Deploy** — qualquer mencao a qualquer um dos 7 nomes de env em `deploy/**` (.tf, .yaml,
    ate .md) reprova, com arquivo:linha; e `deploy/` vazio/ausente reprova (varrer nao e' prova).
+   `__pycache__` de sessao pytest fica fora por `path.parts` (classe F-1, mesmo reparo do #985).
 5. **Pinos de nome** — os nomes de env pinnados na cerca derivam de `env_prefix` + campo
    real (portal) e das constantes de modulo (pontes); drift em qualquer um dos dois lados
    fica vermelho.
@@ -46,7 +47,7 @@ def test_cerca_verde_na_arvore_real() -> None:
 
 
 def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
-    # Os 4 campos registrados estao la, exatamente uma vez, com default literal False — se
+    # Os 5 campos registrados estao la, exatamente uma vez, com default literal False — se
     # algum
     # sumir/renamear SEM tocar a cerca, o teste acima fica vermelho; este fixa a CONTAGEM.
     texto = _CONFIG_REAL.read_text(encoding="utf-8")
@@ -54,6 +55,7 @@ def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
         (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+        (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
     ):
         declaracoes = [linha for linha in texto.splitlines() if linha.strip().startswith(f"{campo}: bool = ")]
@@ -69,6 +71,7 @@ def test_os_nomes_de_env_pinados_sao_os_registrados_na_cerca() -> None:
         "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
         "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
         "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+        "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
         "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
         "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
         "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
@@ -173,6 +176,7 @@ def test_arquivo_de_config_ausente_reprova(tmp_path: Path) -> None:
             "deployment.yaml",
             '- name: MAEZO_PORTAL_STAFF_OPERATIONS_PANEL\n          value: "0"\n',
         ),
+        ("chart.yaml", 'MAEZO_PORTAL_STAFF_ADMIN_PANEL: "true"\n'),
         ("compose.yaml", 'MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED: "true"\n'),
         ("NOTAS.md", "# TODO: ligar MAEZO_ERASURE_BRIDGE_THREAD_ENABLED no proximo ciclo\n"),
     ],
@@ -219,6 +223,36 @@ def test_deploy_subdiretorios_sao_varridos(tmp_path: Path) -> None:
     achados = checar_deploy_sem_mencao(tmp_path)
     assert len(achados) == 1
     assert "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL" in achados[0]
+
+
+def test_pycache_de_sessao_pytest_nao_reprova(tmp_path: Path) -> None:
+    # Classe F-1 (o mesmo reparo do #985): uma sessao pytest que importe lambda de deploy
+    # planta `deploy/**/__pycache__/*.pyc` — bytes nao-UTF-8, nunca declaracao de deployment.
+    # A exclusao e' por `path.parts` e o arquivo legivel de verdade ao lado segue varrido.
+    templates = tmp_path / "deploy" / "helm" / "maezo-tenant" / "templates"
+    (templates / "__pycache__").mkdir(parents=True)
+    (templates / "__pycache__" / "modulo.cpython-314.pyc").write_bytes(b"\x80\x04\x00binario")
+    (templates / "values.yaml").write_text("portal:\n  tenant: amh\n", encoding="utf-8")
+    assert checar_deploy_sem_mencao(tmp_path) == []
+
+
+def test_ilegivel_fora_de_pycache_continua_reprovando(tmp_path: Path) -> None:
+    # Nao-vacuidade da exclusao F-1: bytes nao-UTF-8 em arquivo REAL de deploy segue
+    # reprovando "ilegivel" — o reparo nao amolece a postura fail-closed.
+    (tmp_path / "deploy").mkdir()
+    (tmp_path / "deploy" / "dump.bin").write_bytes(b"\x80\x04\x00binario")
+    achados = checar_deploy_sem_mencao(tmp_path)
+    assert len(achados) == 1
+    assert "ilegivel" in achados[0]
+
+
+def test_deploy_so_com_pycache_reprova_varrer_nada(tmp_path: Path) -> None:
+    # A exclusao nao pode esvaziar a varredura: __pycache__ nao conta como prova de flag OFF.
+    (tmp_path / "deploy" / "__pycache__").mkdir(parents=True)
+    (tmp_path / "deploy" / "__pycache__" / "x.cpython-314.pyc").write_bytes(b"\x80\x04")
+    achados = checar_deploy_sem_mencao(tmp_path)
+    assert len(achados) == 1
+    assert "varrer nada nao e' prova" in achados[0]
 
 
 # ---------------------------------------------------------------------------
