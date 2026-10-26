@@ -34,6 +34,7 @@ from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.conversa import reembolso as _reembolso
 from maezo.agents.helena.habilidades.conversa import reexplicar as _rx
 from maezo.agents.helena.historico import historico_em_texto
 from maezo.agents.helena.roteador_contrato import (
@@ -672,6 +673,18 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
     o texto do pacote (sem link). `None` = o caminho de sempre."""
     if _pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto):
         return None
+    if _reembolso.pergunta_de_reembolso(texto) and not (
+        _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
+    ):
+        # Avaliacao r5b (25/10/2026): reembolso e' fora do escopo; o texto do pacote, nunca a redacao do
+        # modelo (que confirmou "e' possivel pedir reembolso").
+        logger.info("helena_texto_do_reembolso", node="classify")
+        return {
+            **self._base_texto_fixo(
+                self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA]
+            ),
+            "habilidade_roteador": "conversa",
+        }
     if _agendar.pergunta_de_agendamento(texto) and not (
         _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
     ):

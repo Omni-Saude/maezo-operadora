@@ -20,7 +20,11 @@ dias uteis"). O trecho entre parenteses com o prazo sai, e a frase inteira que t
 "N dias uteis" numa frase de regra/oferta de consulta) sai do texto. O numero de registro da ANS no cadastro
 do plano e as outras frases ficam.
 
-`na_saida` — as quatro juntas, no ultimo passo de TODO envio da Helena (resposta do turno, aviso de identidade
+`sem_confirmar_reembolso` — trava `sem_confirmar_reembolso` (avaliacao r5b de 25/10/2026): reembolso esta'
+fora do escopo; uma redacao que CONFIRMA o reembolso ("e' possivel pedir reembolso", "voce tem direito a
+reembolso") e' trocada INTEIRA pelo texto fixo do reembolso fora do escopo.
+
+`na_saida` — as cinco juntas, no ultimo passo de TODO envio da Helena (resposta do turno, aviso de identidade
 e retomada da equipe). Nada a tirar: o MESMO texto, byte a byte (os textos fixos do pacote saem intactos).
 """
 
@@ -31,6 +35,7 @@ from typing import Final
 
 import structlog
 
+from .habilidades.conversa.reembolso import TEXTO_REEMBOLSO_FORA, confirma_reembolso
 from .textos import LINK
 
 logger = structlog.get_logger(__name__)
@@ -194,15 +199,25 @@ def sem_prazo_da_ans(texto: str) -> str:
     return resultado
 
 
+def sem_confirmar_reembolso(texto: str) -> str:
+    """O texto que confirma reembolso vira o texto fixo do reembolso fora do escopo. Sem confirmacao: o MESMO
+    texto, byte a byte."""
+    if not confirma_reembolso(texto):
+        return texto
+    logger.warning("helena_confirmacao_de_reembolso_trocada_na_saida")
+    return TEXTO_REEMBOLSO_FORA
+
+
 def na_saida(texto: str) -> str:
-    """Todas as travas de saida, na ordem: link, contagem, prazo da ANS, oferta de midia. Nada a tirar: o
-    MESMO texto."""
-    return sem_oferta_de_midia(sem_prazo_da_ans(sem_contagem(sem_links(texto))))
+    """Todas as travas de saida, na ordem: reembolso, link, contagem, prazo da ANS, oferta de midia. Nada a
+    tirar: o MESMO texto."""
+    return sem_oferta_de_midia(sem_prazo_da_ans(sem_contagem(sem_links(sem_confirmar_reembolso(texto)))))
 
 
 __all__ = [
     "AVISO_SO_TEXTO",
     "na_saida",
+    "sem_confirmar_reembolso",
     "sem_contagem",
     "sem_links",
     "sem_oferta_de_midia",

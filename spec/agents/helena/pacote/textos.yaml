@@ -51,3 +51,9 @@ textos:
     central de atendimento do plano.
   agendar_oferta_especialista: >-
     Se me disser o que está sentindo, eu digo qual especialista procurar.
+
+  # --- Reembolso (avaliacao r5b, 25/10/2026): fora do escopo (pausado). Nunca confirmar que e' possivel;
+  # so' os canais oficiais. A trava de saida `sem_confirmar_reembolso` troca qualquer confirmacao por este texto.
+  reembolso_fora: >-
+    Por aqui eu não trato de reembolso. Você consegue essa informação pelo aplicativo Austa Clínicas,
+    pelo portal do plano ou pela central de atendimento do plano.
