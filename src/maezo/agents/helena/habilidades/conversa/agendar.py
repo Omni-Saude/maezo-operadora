@@ -11,8 +11,7 @@ de dizer qual especialista procurar. Os dois textos moram no pacote (`agendar_or
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from typing import Final
+from typing import Final, Protocol
 
 from maezo.agents.helena.habilidades.conversa.leitura_curta import normalizar
 
@@ -71,7 +70,13 @@ def com_queixa(texto: object) -> bool:
     return isinstance(texto, str) and bool(_QUEIXA.search(normalizar(texto)))
 
 
-def texto_do_agendamento(textos: Mapping[str, str], mensagem: object) -> str:
+class _Textos(Protocol):
+    """O que os textos do pacote oferecem (`TextosDaHelena` ou um mapa simples)."""
+
+    def __getitem__(self, chave: str, /) -> str: ...
+
+
+def texto_do_agendamento(textos: _Textos, mensagem: object) -> str:
     """A orientacao dos canais e, com queixa na mensagem, a oferta de dizer o especialista."""
     base = textos[CHAVE_AGENDAR_ORIENTACAO]
     return f"{base} {textos[CHAVE_AGENDAR_OFERTA]}" if com_queixa(mensagem) else base
