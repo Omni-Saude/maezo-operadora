@@ -134,7 +134,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -323,7 +323,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -469,7 +469,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -607,7 +607,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -667,7 +667,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -750,7 +750,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1070,7 +1070,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1149,7 +1149,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -1401,7 +1401,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1752,7 +1752,7 @@ jobs:
 
       - name: Install uv
         if: steps.gate.outputs.run == 'true'
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2083,7 +2083,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2373,7 +2373,7 @@ jobs:
 
       - name: Install uv
         if: steps.agent_changes.outputs.agents == 'true'
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -2497,7 +2497,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
