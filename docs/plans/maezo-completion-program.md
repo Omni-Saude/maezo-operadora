@@ -80,6 +80,8 @@ R-051 herda: se nenhuma das pessoas puder atuar, registrar deferral datado do do
 
 Aceitação: teste negativo bloqueia venda a PJ ilegítima no CI (`gateway-platform`+`restante`); re-sweep mapeia 7+8 touchpoints; gate cego no diff; OP21 em main até 2026-12-15.
 
+**Status 2026-10-26:** parecer do jurídico recebido e registrado (`docs/compliance/legal/PARECER-OP21-RESPOSTA-LUCAS-2026-10-26.md`) — D-03/D-04 respondidos; âncoras OP21 validadas; REG-1.1 despachável; merge ≤ 2026-12-15.
+
 ## W2 CORP — corpus v4 + F-M01 (M/L; owner-gated)
 
 Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos IA-02/03/04 **incl. a regressão própria do v4** (restaurar messageFlow a `UT_ES_CancelamentoPrestador`) · 2.2 produtores/defaults dos 8 timers/7 vars · 2.3 planos DI (2 sem id, 11 sobreposições) · 2.4 catcher do sinal `Signal_CA_AlertaDS` + nota `SEM_SLOT_EQUIVALENTE` · 2.5 as 2 notas de precisão do CORRECOES · 2.6 pinar o fix F-E01 como asserção de regressão · **2.7 disposição F-M01 (D-02; recomendação = re-scope)**: mapa elemento→capacidade→código/teste dos 355 elementos v4, emenda do INTEGRATION-PLAN, reconciliação re-rodada (zero none-por-silêncio); opção (b) ponte runtime = programa à parte. Aceitação: 5-gate PASS ×4 c/ Gate-3 set-level limpo; query de grafo prova o messageFlow do prestador.
