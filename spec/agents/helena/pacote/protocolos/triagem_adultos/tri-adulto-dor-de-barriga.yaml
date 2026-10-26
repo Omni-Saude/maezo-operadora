@@ -1,0 +1,50 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-de-barriga
+tema: triagem_adultos
+titulo: "Dor de barriga"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com dor de barriga"
+  - "minha barriga está doendo muito"
+  - "dor no estômago"
+  - "estou com cólica"
+  - "dor do lado direito da barriga"
+  - "dor no pé da barriga"
+  - "minha barriga está inchada e dura"
+  - "dor na boca do estômago"
+  - "estou com gastrite atacada"
+  - "dor de barriga com vômito"
+perguntas_de_alerta:
+  - pergunta: "Junto com a dor, você desmaiou, está muito pálido, suando frio ou confuso, ou está com muita falta de ar?"
+    sinal: choque_ou_alteracao_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.9, Figura 29 (sinais de choque, alteração do nível de consciência, dispneia grave = atendimento médico imediato e acionar serviço móvel de urgência)"
+  - pergunta: "Você está com febre e apareceram manchas roxas na pele, ou está com inchaço no rosto, na boca ou na garganta?"
+    sinal: purpura_com_febre_ou_angioedema
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.9, Figura 29 (angioedema ou púrpura associada a febre = atendimento médico imediato)"
+  - pergunta: "A dor começou de repente e muito forte, a barriga ficou dura ou estufada, ou você pode estar grávida?"
+    sinal: suspeita_de_abdome_agudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.9, Quadro 32 (fatores de alto risco de abdome agudo: início súbito e intenso, distensão ou rigidez abdominal, gravidez recente)"
+  - pergunta: "As fezes estão pretas ou com sangue, os vômitos não param, ou você está com sinais de desidratação (boca muito seca, muita sede, quase sem urinar)?"
+    sinal: sangramento_digestivo_vomitos_ou_desidratacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.9, Figura 29 (dor moderada, diarreia intensa, sinais de desidratação, fezes pretas ou com sangue, vômitos persistentes = atendimento prioritário)"
+# Pessoas com mais de 60 anos, imunidade baixa, doença do coração ou cirurgia recente na barriga têm mais risco (Quadro 32) — revisão médica decide se viram pergunta.
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Gastroenterologia"
+  fonte: "TelessaúdeRS Gastroenterologia Adulto (3ª ed., 2025), Protocolos 9 – Dispepsia e 13 – Diarreia; Resolução CFM 2.380/2024"
+orientacao_final: "Pelo que você contou, não há sinal de urgência agora. Procure o clínico nos próximos dias e observe se a dor muda de lugar ou de intensidade. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.9 Dor abdominal (Quadro 32; Figura 29)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Gastroenterologia Adulto (3ª ed., 2025)"
+    secao: "Protocolo 9 – Dispepsia; Protocolo 13 – Diarreia"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

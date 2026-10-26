@@ -1,0 +1,55 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: cron-crise-de-pressao
+tema: cronicos
+titulo: "Pressão alta de repente (crise de pressão)"
+publico: adulto
+como_a_pessoa_fala:
+  - "minha pressão subiu"
+  - "estou com a pressão alta"
+  - "a pressão foi para 18 por 12"
+  - "tive um pico de pressão"
+  - "minha pressão está nas alturas e estou com dor de cabeça"
+  - "minha mãe hipertensa está passando mal"
+  - "acho que é crise hipertensiva"
+  - "medi a pressão e deu muito alta"
+  - "pressão alta e tontura"
+  - "minha pressão não abaixa"
+perguntas_de_alerta:
+  - pergunta: "Está com dor ou aperto forte no peito (que pode ir para as costas), ou com falta de ar tão forte que fica difícil falar?"
+    sinal: dor_toracica_ou_falta_de_ar
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.14, Manifestações clínicas da emergência hipertensiva (edema agudo de pulmão, síndrome coronariana aguda, dissecção de aorta); Linha de Cuidado do Adulto com Hipertensão (MS, 2021), Crise hipertensiva (dor torácica, congestão: acionar SAMU 192); SAMU 192 — Quando chamar (MS, gov.br)"
+  - pergunta: "Apareceu de repente fraqueza ou dormência em um lado do corpo, boca torta, fala enrolada, confusão, convulsão ou perda da visão?"
+    sinal: sinais_neurologicos
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.14 (encefalopatia hipertensiva, AVE, súbita alteração neurológica); Linha de Cuidado do Adulto com Hipertensão (MS, 2021), Crise hipertensiva (sinais neurológicos focais, alterações visuais); SAMU 192 — Quando chamar (MS, gov.br): suspeita de AVC"
+  - pergunta: "Você está grávida ou teve bebê nas últimas 6 semanas?"
+    sinal: gestacao_ou_puerperio
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.14 (eclâmpsia após a 20ª semana até a 6ª semana pós-parto; pré-eclâmpsia: referenciar para pronto atendimento); Linha de Cuidado do Adulto com Hipertensão (MS, 2021), Hipertensão arterial na gestação (emergência obstétrica imediatamente)"
+  - pergunta: "Se você mediu a pressão: deu 18 por 12 ou mais? Ou está com dor de cabeça forte, tontura ou mal-estar junto com a pressão alta?"
+    sinal: pressao_muito_elevada_ou_sintomas
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Linha de Cuidado do Adulto com Hipertensão (MS, 2021), Crise hipertensiva (PAS acima de 180 e PAD acima de 120); Caderno de Atenção Básica 28 vol. II, §2.14 (urgência hipertensiva e pseudocrise: avaliar e excluir lesão de órgão-alvo), Figura 35 (avaliação médica no turno)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: Cardiologia
+  fonte: "TelessaúdeRS Cardiologia Adulto, Protocolo 5 (Hipertensão arterial sistêmica); Resolução CFM 2.380/2024"
+orientacao_final: "Fique sentado ou deitado num lugar calmo e evite tomar remédio por conta própria para baixar a pressão. Uma consulta ajuda a rever o tratamento e o que fez a pressão subir. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.14, Hipertensão arterial sistêmica — alterações agudas (definições, manifestações da emergência, Quadro 47, Figura 35)"
+  - nome: "Linha de Cuidado do Adulto com Hipertensão Arterial Sistêmica (SAPS/MS, 2021)"
+    secao: "Crise hipertensiva; Quadros 4 e 5; Hipertensão arterial na gestação"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: crises hipertensivas e dores no peito de aparecimento súbito; suspeita de infarto ou AVC"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cardiologia Adulto (revisão 2022)"
+    secao: "Protocolo 5 — Hipertensão arterial sistêmica"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; Linha de Cuidado HAS: CC BY-NC-SA 4.0 — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"
+# Nota para revisão: a pergunta 4 usa valor medido porque as fontes definem a crise por valor (PAS > 180 / PAD > 120); '18 por 12' é a forma leiga.
+# Gestante/puérpera: destino é maternidade/emergência obstétrica; ver também os protocolos do tema gestacao.

@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-nao-bebe
+tema: triagem_criancas
+titulo: "Criança de 2 meses a 5 anos que não bebe ou não mama"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho não quer beber nada"
+  - "a criança parou de mamar"
+  - "minha filha recusa tudo, nem água"
+  - "o bebê não aceita o peito"
+  - "criança sem comer e sem beber"
+  - "meu filho não está tomando líquido"
+  - "a criança vomita tudo que bebe"
+  - "não consigo fazer meu filho beber"
+perguntas_de_alerta:
+  - pergunta: "A criança teve convulsão (tremores ou 'ataque'), está desmaiada ou não acorda, ou está com muita dificuldade para respirar (ficando roxa, sem conseguir chorar ou falar)?"
+    sinal: convulsao_inconsciente_ou_respiracao_grave
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo) – convulsões, letárgica ou inconsciente; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 9 (sibilância grave: choro curto ou não consegue chorar)"
+  - pergunta: "Ela não consegue beber nada nem mamar, ou vomita tudo o que come e bebe?"
+    sinal: nao_bebe_ou_vomita_tudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Está muito sonolenta, difícil de acordar ou muito molinha?"
+    sinal: letargia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Tem sinais de desidratação: olhos fundos, chora sem lágrimas, boca seca ou faz pouco xixi?"
+    sinal: desidratacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 21 (sinais de desidratação); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 10-11"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Ofereça líquidos e o peito aos poucos e com frequência. É comum a criança doente comer menos, mas ela precisa continuar bebendo. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 21 (desidratação)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

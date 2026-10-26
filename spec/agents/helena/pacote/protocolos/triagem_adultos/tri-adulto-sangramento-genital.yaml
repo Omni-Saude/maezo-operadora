@@ -1,0 +1,49 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Fora da gravidez. Se a pessoa sabe que está grávida, usar o protocolo de gestação (gest-).
+id: tri-adulto-sangramento-genital
+tema: triagem_adultos
+titulo: "Sangramento vaginal fora da menstruação"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou sangrando fora da menstruação"
+  - "minha menstruação está vindo muito forte"
+  - "estou com hemorragia"
+  - "a menstruação não para"
+  - "sangrei depois da relação"
+  - "voltei a sangrar depois da menopausa"
+  - "estou sangrando e com muita cólica"
+  - "minha menstruação atrasou e agora estou sangrando"
+  - "estou com escape de sangue"
+perguntas_de_alerta:
+  - pergunta: "Você desmaiou, está muito pálida, muito fraca, com o coração acelerado ou confusa?"
+    sinal: instabilidade_hemodinamica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.19, Figura 41 (atendimento imediato), p. 183; TelessaúdeRS Ginecologia Adulto (2023), Protocolo 1 – Sangramento uterino anormal (urgência/emergência)"
+  - pergunta: "O sangramento está muito maior que o normal, ou você está com dor muito forte ou febre?"
+    sinal: sangramento_abundante_dor_intensa_ou_febre
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.19, Figura 41 (atendimento prioritário), p. 183"
+  - pergunta: "Existe chance de você estar grávida (menstruação atrasada ou teste positivo)?"
+    sinal: suspeita_de_aborto
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.19, Figura 41 (atendimento prioritário: suspeita de aborto), p. 183; TelessaúdeRS Ginecologia Adulto (2023), Protocolo 1 (sempre descartar gravidez)"
+  - pergunta: "O sangramento é de leve a moderado mas está durando muitos dias, ou veio junto com corrimento ou dor na relação?"
+    sinal: sangramento_prolongado_ou_corrimento
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.19, Figura 41 (atendimento no dia), p. 183"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Ginecologia e obstetrícia"
+  fonte: "TelessaúdeRS Ginecologia Adulto (2023), Protocolo 1 – Sangramento uterino anormal (inclui sangramento após a menopausa); Resolução CFM 2.380/2024"
+orientacao_final: "Sangramento fora da menstruação precisa ser avaliado para descobrir a causa. Sangramento depois da menopausa também deve ser avaliado em consulta, mesmo que seja pouco. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.19 Sangramento genital anormal (Figura 41)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Ginecologia Adulto (2023)"
+    secao: "Protocolo 1 – Sangramento uterino anormal"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

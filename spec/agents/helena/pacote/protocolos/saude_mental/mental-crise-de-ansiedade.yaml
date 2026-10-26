@@ -1,0 +1,53 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: mental-crise-de-ansiedade
+tema: saude_mental
+titulo: "Crise de ansiedade ou de pânico"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou tendo uma crise de ansiedade"
+  - "acho que é pânico"
+  - "meu coração disparou e achei que ia morrer"
+  - "estou muito nervoso e não consigo me acalmar"
+  - "estou tremendo e suando frio de nervoso"
+  - "sinto um aperto e falta de ar quando fico ansioso"
+  - "tenho medo de sair de casa e ter outra crise"
+  - "minha ansiedade está atacando"
+  - "não consigo respirar direito de tanta angústia"
+  - "parece que vou enlouquecer"
+perguntas_de_alerta:
+  - pergunta: "Você está com dor ou aperto forte no peito, falta de ar muito forte, ou chegou a desmaiar?"
+    sinal: dor_toracica_dispneia_ou_desmaio
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Transtornos de ansiedade agudos (afastar causas orgânicas: doenças cardiovasculares, asma); SAMU 192 — Quando chamar (MS, gov.br): dores no peito de aparecimento súbito, problemas cardiorrespiratórios"
+  - pergunta: "Junto com essa angústia, você tem pensado em se machucar ou em acabar com a sua vida?"
+    sinal: ideacao_suicida
+    destino_se_sim: CVV_188_E_192
+    fonte: "mhGAP 2.0 (OPAS/OMS), módulo SUI, SUI 1 (sofrimento emocional agudo: perguntar sobre autoagressão); TelessaúdeRS Psiquiatria Adulto, critérios gerais (risco agudo de suicídio)"
+  - pergunta: "A crise começou depois de usar álcool, cocaína ou outra droga, ou depois de começar um remédio novo?"
+    sinal: substancia_ou_medicamento
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Transtornos de ansiedade agudos (reações a medicamentos e substâncias que causam ansiedade); mhGAP 2.0 (OPAS/OMS), módulo SUB, Emergência (intoxicação por estimulante)"
+  - pergunta: "Essas crises estão se repetindo ou você tem deixado de ir a lugares ou de fazer coisas por medo de ter outra crise?"
+    sinal: crises_repetidas_ou_evitacao
+    destino_se_sim: CONSULTA_EM_BREVE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.23, Transtornos de ansiedade agudos (Avaliação: ataques de pânico, situações evitadas, impacto na vida)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: Clínico geral
+  depois: Psiquiatria
+  fonte: "TelessaúdeRS Psiquiatria Adulto, Protocolo 2 (Transtornos de ansiedade e TOC); Resolução CFM 2.380/2024"
+orientacao_final: "O que você sente é real e merece cuidado. Tente ficar num lugar calmo, com alguém de confiança por perto, e respirar devagar. Vale marcar uma consulta para conversar sobre essas crises com a equipe de saúde, que pode acompanhar você. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.23, Transtornos de ansiedade agudos (sintomas, avaliação, diagnóstico diferencial)"
+  - nome: "mhGAP — Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "Módulo SUI (SUI 1); módulo SUB (Emergência)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: problemas cardiorrespiratórios; dores no peito de aparecimento súbito"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Psiquiatria Adulto (revisão 2021)"
+    secao: "Critérios gerais de emergência; Protocolo 2"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

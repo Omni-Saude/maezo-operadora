@@ -1,0 +1,48 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-alergia-grave
+tema: triagem_adultos
+titulo: "Alergia forte (reação alérgica grave)"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com alergia e minha boca está inchando"
+  - "tive reação a um remédio"
+  - "fui picado por abelha e estou inchando"
+  - "comi camarão e estou com o rosto inchado"
+  - "estou todo empolado"
+  - "minha garganta está fechando"
+  - "estou com placas vermelhas coçando no corpo todo"
+  - "meu olho e meu lábio incharam"
+  - "tive choque anafilático"
+perguntas_de_alerta:
+  - pergunta: "Você está com falta de ar, chiado no peito, sensação de garganta fechando, ou inchaço na boca, língua ou rosto?"
+    sinal: comprometimento_respiratorio_ou_angioedema
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.1, Figura 2 (comprometimento de vias aéreas, dispneia grave, sibilos, angioedema = atendimento médico imediato) e 'Tratamento' (reação anafilática é absoluta emergência: acionar o serviço móvel de urgência imediatamente); TelessaúdeRS Imunologia (2024), Protocolo 4 – Anafilaxia"
+  - pergunta: "Depois do contato, você ficou com tontura forte, desmaiou, ou está muito pálido, suando frio ou confuso?"
+    sinal: sinais_de_choque
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.1, 'Quadro clínico' (sintomas cardiovasculares: hipotensão, tontura) e Figura 2 (sinais de choque, alteração do nível de consciência = atendimento médico imediato)"
+  - pergunta: "Junto com as manchas ou a coceira na pele, você está com vômitos ou cólica forte, logo depois de comer algo, tomar um remédio ou levar uma picada?"
+    sinal: reacao_com_mais_de_um_sistema
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.1, 'Quadro clínico' (manifestações mistas, podem evoluir rapidamente para quadros muito graves); TelessaúdeRS Imunologia (2024), Protocolo 4 – Anafilaxia (pele + sintomas gastrintestinais persistentes severos; acionar o SAMU imediatamente)"
+  - pergunta: "Você está com coceira forte ou placas vermelhas pelo corpo, mas respirando bem?"
+    sinal: urticaria_sem_sinais_sistemicos
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.1, Figura 2 (prurido cutâneo intenso e/ou urticária = atendimento prioritário)"
+destino_se_nenhum_sinal: CONSULTA_ROTINA
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Alergia e imunologia"
+  fonte: "TelessaúdeRS Imunologia (2024), Protocolo 4 – Anafilaxia (história prévia de anafilaxia, após avaliação na emergência) e Protocolo 1 – Urticária e angioedema; Resolução CFM 2.380/2024"
+orientacao_final: "Evite novo contato com o que você acha que causou a reação e anote o nome (alimento, remédio ou inseto) para mostrar ao médico. Quem já teve reação alérgica grave deve ser acompanhado por um médico. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.1 Anafilaxia (Quadro clínico; Tratamento; Figura 2)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Imunologia (2024)"
+    secao: "Protocolo 1 – Urticária e angioedema; Protocolo 4 – Anafilaxia"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

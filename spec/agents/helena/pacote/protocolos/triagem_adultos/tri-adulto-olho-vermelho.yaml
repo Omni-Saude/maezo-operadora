@@ -1,0 +1,49 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-olho-vermelho
+tema: triagem_adultos
+titulo: "Olho vermelho ou dor no olho"
+publico: adulto
+como_a_pessoa_fala:
+  - "meu olho está vermelho"
+  - "acho que estou com conjuntivite"
+  - "meu olho está doendo"
+  - "caiu alguma coisa no meu olho"
+  - "espirrou produto de limpeza no meu olho"
+  - "estou enxergando embaçado de repente"
+  - "meu olho está com remela e grudando"
+  - "estou vendo flashes de luz e manchas"
+  - "bati o olho e agora vejo mal"
+  - "o olho está coçando e lacrimejando"
+perguntas_de_alerta:
+  - pergunta: "Caiu produto químico no olho, ou o olho levou uma batida ou foi furado e agora você está enxergando pior?"
+    sinal: queimadura_quimica_ou_trauma_ocular
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.22, 'Tratamentos e encaminhamentos de outras causas de olho vermelho', itens 4 e 6; TelessaúdeRS Oftalmologia Adulto (2023), Protocolos 5 e 7 (emergência oftalmológica)"
+  - pergunta: "Começou de repente uma dor forte no olho, com visão embaçada, enjoo ou vômitos?"
+    sinal: suspeita_glaucoma_agudo
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.22, item 5 – Glaucoma (encaminhar para serviço de urgência); TelessaúdeRS Oftalmologia Adulto (2023), Protocolo 6 – Glaucoma"
+  - pergunta: "Você perdeu parte da visão de repente, ou está vendo uma sombra ou cortina, flashes de luz ou muitos pontinhos escuros novos?"
+    sinal: perda_subita_de_visao
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Oftalmologia Adulto (2023), Protocolos 1, 3 e 8 (emergência oftalmológica); Caderno de Atenção Básica 28 vol. II, §2.22 (descolamento de retina; uveíte)"
+  - pergunta: "Você usa lente de contato e está com dor, secreção ou vendo pior, ou o olho encheu de pus em menos de um dia, ou a luz incomoda muito e o olho dói?"
+    sinal: lente_de_contato_ou_conjuntivite_grave
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "TelessaúdeRS Oftalmologia Adulto (2023), Protocolo 7 – Doenças da córnea e da superfície ocular, e Protocolo 8 – Uveítes (emergência oftalmológica)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Oftalmologia"
+  fonte: "Caderno de Atenção Básica 28 vol. II, §2.22, Quadro 62 (viral sem melhora em cinco dias: oftalmologista); TelessaúdeRS Oftalmologia Adulto (2023); Resolução CFM 2.380/2024"
+orientacao_final: "Olho vermelho muitas vezes é conjuntivite, que costuma melhorar em alguns dias, mas não use colírio por conta própria e evite coçar ou apertar o olho. Lave as mãos com frequência. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.22 Urgências oftalmológicas: olho vermelho (Quadro 62; tratamentos e encaminhamentos)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Oftalmologia Adulto (2023)"
+    secao: "Protocolos 1, 3, 5, 6, 7 e 8 (critérios de emergência oftalmológica)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

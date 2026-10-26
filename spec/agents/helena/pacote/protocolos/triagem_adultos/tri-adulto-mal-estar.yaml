@@ -1,0 +1,52 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Lacuna: queixa vaga sem fonte oficial própria. Perguntas = as do alerta universal (uni-alerta-universal), mesmas fontes.
+# Regra do levantamento para lacunas: alerta universal + "na dúvida, uma pessoa" (oferecer a equipe de saúde).
+id: tri-adulto-mal-estar
+tema: triagem_adultos
+titulo: "Mal-estar (\"não estou bem\")"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou me sentindo mal"
+  - "não estou bem"
+  - "estou esquisito"
+  - "estou com um mal-estar"
+  - "estou fraco e sem disposição"
+  - "estou ruim e não sei explicar"
+  - "não estou me sentindo bem desde ontem"
+  - "estou meio largado"
+  - "meu corpo está estranho"
+perguntas_de_alerta:
+  - pergunta: "Você (ou a pessoa) está com muita falta de ar, desmaiou, está confusa ou difícil de acordar, teve convulsão, ou de repente ficou com a boca torta, a fala enrolada ou fraqueza de um lado do corpo?"
+    sinal: risco_de_vida_respiracao_consciencia_avc
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. I, §3.3 Avaliação de risco e vulnerabilidade (atendimento imediato: dificuldade respiratória grave, convulsão, rebaixamento do nível de consciência); Caderno de Atenção Básica 28 vol. II, fluxogramas de classificação de risco, caixa vermelha (ex.: Figuras 4, 12 e 34); SAMU 192 — Quando chamar (MS, gov.br): problemas cardiorrespiratórios, suspeita de AVC, crises convulsivas"
+  - pergunta: "Começou de repente uma dor no peito, ou há um sangramento forte que não para?"
+    sinal: dor_no_peito_subita_ou_sangramento_importante
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 — Quando chamar (MS, gov.br): dores no peito de aparecimento súbito; outras situações com risco de morte (corte com pouco sangramento está na lista de quando NÃO chamar); Caderno de Atenção Básica 28 vol. II, §2.5, Figura 8 (vômito com sangue ou fezes com sangue = atendimento imediato)"
+  - pergunta: "Está com uma dor muito forte, que não deixa você fazer nada, ou os sintomas estão piorando rápido?"
+    sinal: dor_severa_ou_piora_rapida
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. I, §3.3 (dor severa = atendimento imediato); Caderno de Atenção Básica 28 vol. II, Figuras 32 e 34 (dor severa/incapacitante = atendimento imediato) e caixa azul de todos os fluxogramas (orientar retorno se houver agravamento); SAMU 192 — Quando chamar (MS, gov.br): situações com sofrimento intenso"
+  - pergunta: "Está com febre alta, ou com febre que não passa há vários dias?"
+    sinal: febre_alta_ou_persistente
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. I, §3.3 (febre sem complicação = atendimento prioritário); Caderno de Atenção Básica 28 vol. II, Figuras 4 e 13 (febre alta = atendimento prioritário); SAMU 192 — Quando chamar (MS, gov.br): febre prolongada está na lista de quando NÃO chamar (procurar posto de saúde ou UPA)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Clínico geral"
+  fonte: "Sem protocolo de especialidade para queixa vaga (levantamento Protocolos_Helena_Fontes.xlsx, 'Seus exemplos'); nome oficial: Clínica médica ou Medicina de família e comunidade (Resolução CFM 2.380/2024)"
+orientacao_final: "Pelo que você contou, não apareceu nenhum sinal de urgência agora. Se puder, me conte melhor o que está sentindo, ou posso chamar uma pessoa da equipe de saúde para conversar com você. Uma consulta com o clínico nos próximos dias ajuda a entender o que está acontecendo. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. I (MS, 2013)"
+    secao: "§3.3 Avaliação de risco e vulnerabilidade (pp. 34–35)"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "Fluxogramas de classificação de risco (Figuras 4, 8, 12, 13, 32 e 34)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar / Quando não chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico"

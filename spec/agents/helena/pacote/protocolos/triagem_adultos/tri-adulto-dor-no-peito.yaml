@@ -1,0 +1,52 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-no-peito
+tema: triagem_adultos
+titulo: "Dor no peito"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com dor no peito"
+  - "sinto um aperto no peito"
+  - "meu peito está queimando"
+  - "dor no peito que vai para o braço"
+  - "sinto um peso no peito"
+  - "acho que estou enfartando"
+  - "dor no peito quando respiro"
+  - "pontada no peito"
+  - "dor no peito quando faço esforço"
+  - "dor no lado esquerdo do peito"
+perguntas_de_alerta:
+  - pergunta: "A dor é de aperto, peso ou queimação no peito, pode ir para o braço, pescoço, queixo ou costas, e veio com suor frio, enjoo, falta de ar ou sensação de desmaio?"
+    sinal: dor_toracica_tipica_de_infarto
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.13, 'Isquemia ou infarto do miocárdio' e 'Tratamento das SCAs' (contato imediato com serviço de emergência); TelessaúdeRS Cardiologia Adulto (2022), Protocolo 1 – Cardiopatia isquêmica (suspeita de síndrome coronariana aguda → urgência/emergência); SAMU 192 — Quando chamar (MS, gov.br): dores no peito de aparecimento súbito, suspeita de infarto"
+  - pergunta: "Junto com a dor, você está com muita falta de ar, ficou muito pálido ou confuso, ou desmaiou?"
+    sinal: dispneia_grave_choque_ou_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.13, Figura 34 (dispneia grave/aguda, sinais de choque, alteração do nível de consciência = atendimento médico imediato e acionar serviço móvel de urgência)"
+  - pergunta: "A dor aparece mesmo quando você está parado, ou vem com esforços cada vez menores, ou veio junto com febre alta?"
+    sinal: angina_em_repouso_ou_febre_alta
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.13, Quadro 45 (angina em repouso ou instável → pronto-socorro/UPA) e Figura 34 (febre alta = atendimento imediato)"
+  - pergunta: "A dor é moderada e começou há pouco tempo, ou veio com vômitos?"
+    sinal: dor_moderada_recente
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.13, Figura 34 (dor moderada, sintoma recente, vômitos associados = atendimento prioritário)"
+# Sem sinal de alerta: Figura 34 indica 'atendimento no dia' para dor leve recente; por ser dor no peito, mantido ATENDIMENTO_HOJE.
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Cardiologia"
+  fonte: "TelessaúdeRS Cardiologia Adulto (2022), Protocolo 1 – Cardiopatia isquêmica; Resolução CFM 2.380/2024"
+orientacao_final: "Dor no peito precisa ser avaliada hoje por um profissional, mesmo que pareça leve. Evite esforço físico até ser examinado. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.13 Dor torácica (Quadro 45; Figura 34; isquemia ou infarto do miocárdio)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Cardiologia Adulto (2022)"
+    secao: "Protocolo 1 – Cardiopatia isquêmica"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

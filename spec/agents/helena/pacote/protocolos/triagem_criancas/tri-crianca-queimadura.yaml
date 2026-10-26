@@ -1,0 +1,49 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-queimadura
+tema: triagem_criancas
+titulo: "Queimadura (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho se queimou"
+  - "a criança derrubou água quente no corpo"
+  - "queimou a mão no fogão"
+  - "minha filha encostou no ferro de passar"
+  - "queimadura com bolha"
+  - "a criança tomou choque na tomada"
+  - "queimou com álcool"
+  - "derramou café quente no bebê"
+  - "queimadura de sol muito forte"
+perguntas_de_alerta:
+  - pergunta: "A criança desmaiou, está com dificuldade para respirar, ficou rouca ou tossindo depois de fumaça ou fogo, ou levou choque elétrico ou raio?"
+    sinal: inalacao_ou_eletrica
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.17 Queimaduras (p. 159-160: remoção imediata) – lesão por inalação, queimadura por eletricidade; SAMU 192 – Quando chamar (MS, página gov.br) – queimaduras graves, choque elétrico"
+  - pergunta: "A queimadura pegou o rosto, as mãos, os pés, os genitais ou bumbum, ou as dobras (joelho, cotovelo), ou foi causada por produto químico?"
+    sinal: local_critico_ou_quimica
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.17 Queimaduras (p. 159-160: remoção imediata) – face, mãos, pés, genitália, períneo, articulações; queimaduras químicas"
+  - pergunta: "Formou bolha, ou a pele ficou branca, escura ou com aspecto de couro?"
+    sinal: queimadura_profunda
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.17 (p. 160-161: queimaduras de espessura parcial ou total → pronto atendimento)"
+  - pergunta: "A criança também se machucou de outro jeito (queda, possível fratura) ou tem alguma doença de saúde importante?"
+    sinal: trauma_ou_doenca_associada
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013), §2.17 Queimaduras (p. 159-160: remoção imediata) – trauma concomitante; desordens médicas preexistentes"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Afaste a criança da fonte de calor. Não passe produtos caseiros na queimadura e não estoure bolhas; leve a criança para avaliação, como indicado acima. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II – Queixas mais comuns (MS, 2013)"
+    secao: "§2.17 Queimaduras (p. 157-161)"
+  - nome: "SAMU 192 – Quando chamar (MS, página gov.br)"
+    secao: "Quando chamar"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 62-64 (prevenção de queimaduras)"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "Caderno 28: reprodução citando a fonte, não comercial; SAMU gov.br: CC BY-ND 3.0 (só referência) — pendente jurídico; Caderneta da Criança: CC BY-NC-SA 4.0"

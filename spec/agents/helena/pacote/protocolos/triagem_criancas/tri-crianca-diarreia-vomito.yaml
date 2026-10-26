@@ -1,0 +1,50 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: tri-crianca-diarreia-vomito
+tema: triagem_criancas
+titulo: "Diarreia, vômito ou desidratação (2 meses a 5 anos)"
+publico: crianca_2m_5a
+como_a_pessoa_fala:
+  - "meu filho está com diarreia"
+  - "a criança está vomitando muito"
+  - "minha filha não para de vomitar"
+  - "cocô mole o dia todo"
+  - "criança com virose, vômito e diarreia"
+  - "tem sangue no cocô do meu filho"
+  - "meu filho está desidratado?"
+  - "a criança está fazendo pouco xixi"
+  - "diarreia há mais de uma semana"
+perguntas_de_alerta:
+  - pergunta: "Ela teve convulsão, está desmaiada ou não acorda?"
+    sinal: convulsao_ou_inconsciente
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 6 (sinais gerais de perigo)"
+  - pergunta: "Está muito molinha ou sonolenta, não consegue beber ou bebe muito mal, vomita tudo, ou a pele da barriga, puxada de leve, demora muito para voltar?"
+    sinal: desidratacao_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – maiores de 2 meses) – pele com pouca elasticidade, vomita tudo; AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 10-11 (DESIDRATAÇÃO GRAVE: letárgica, não consegue beber, sinal da prega muito lento)"
+  - pergunta: "Tem sinais de desidratação: olhos fundos, muita sede, chora sem lágrimas, boca seca ou faz pouco xixi?"
+    sinal: desidratacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 21 (sinais de desidratação → levar ao serviço de saúde); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 10-11 (DESIDRATAÇÃO: olhos fundos, bebe avidamente)"
+  - pergunta: "Tem sangue no cocô, ou a diarreia já dura 14 dias ou mais?"
+    sinal: disenteria_ou_diarreia_persistente
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 10-11 (DISENTERIA; DIARREIA PERSISTENTE); AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017), p. 33 (quando retornar imediatamente)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Continue o peito e a alimentação em pequenas quantidades e ofereça mais líquidos, como orienta a Caderneta da Criança. O soro de reidratação oral ajuda a evitar a desidratação. Lave bem as mãos depois de trocar fraldas. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo – maiores de 2 meses)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 6 (sinais gerais de perigo); p. 33 (quando retornar imediatamente)"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 20-22 (diarreia e desidratação)"
+  - nome: "AIDPI Criança – Manual de Quadros de Procedimentos, 2 meses a 5 anos (MS/OPAS/UNICEF, 2017)"
+    secao: "p. 10-11 (avaliar e classificar a diarreia)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Quadros: CC BY-NC-SA 4.0 — pendente jurídico"

@@ -1,0 +1,42 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-pos-parto-tristeza
+tema: gestacao
+titulo: "Tristeza no pós-parto (baby blues ou depressão pós-parto)"
+publico: puerpera
+como_a_pessoa_fala:
+  - "estou muito triste depois que o bebê nasceu"
+  - "choro o tempo todo no pós-parto"
+  - "acho que estou com depressão pós-parto"
+  - "não sinto amor pelo meu bebê"
+  - "estou muito ansiosa com o bebê"
+  - "não estou dando conta de cuidar do bebê"
+  - "baby blues"
+  - "me sinto culpada e sem forças"
+  - "não tenho vontade de nada desde o parto"
+perguntas_de_alerta:
+  - pergunta: "Você tem pensado em se machucar, em morrer, ou em machucar o bebê?"
+    sinal: ideacao_suicida_ou_de_dano
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – pensamentos de machucar a si mesma ou ao bebê (procurar serviço imediatamente); Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.8.4 (p. 78); mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018), SUI (p. 131)"
+  - pergunta: "Você está muito confusa, desorientada, ou com mudanças bruscas de comportamento?"
+    sinal: confusao_mental
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – confusão mental; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.8.4 (p. 78) – mudanças bruscas de comportamento"
+  - pergunta: "A tristeza é intensa ou não melhora, com desespero, culpa muito forte, ou dificuldade para cuidar de você ou do bebê?"
+    sinal: sinais_de_depressao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.2 Seu corpo fala: fique atenta aos sinais (p. 69) – tristeza intensa, dificuldade para cuidar de si ou do bebê; Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §6.8.4 e §6.8.5 (p. 78: depressão pós-parto precisa de acompanhamento em saúde mental)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Ginecologia e obstetrícia (equipe do pré-natal / pós-parto)"
+  depois: "Psiquiatria"
+  fonte: "Caderneta da Gestante 2026, §6.8.3 e §6.8.5 (acompanhamento em saúde mental); nomes conforme Resolução CFM 2.380/2024"
+orientacao_final: "Tristeza leve, choro fácil e sensibilidade nos primeiros dias depois do parto são comuns e costumam passar sozinhos (baby blues). Aceite ajuda da família e conte para a equipe como você está. Se você já fazia tratamento em saúde mental, não pare por conta própria. Se tiver pensamentos de se machucar, ligue 188 (CVV) ou 192. Se piorar ou aparecer algum sinal de alerta, vá à sua maternidade de referência ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§6.2 (p. 69); §6.8.4 e §6.8.5 (p. 78)"
+  - nome: "mhGAP – Manual de Intervenções 2.0 (OPAS/OMS, 2018)"
+    secao: "SUI Autoagressão/suicídio (p. 131)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante 2026 e Manual de Obstetrícia 2018: CC BY-NC-SA 4.0 — pendente jurídico; mhGAP: CC BY-NC-SA 3.0 IGO"

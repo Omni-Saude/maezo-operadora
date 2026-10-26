@@ -1,0 +1,49 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-intoxicacao
+tema: triagem_adultos
+titulo: "Intoxicação ou envenenamento"
+publico: adulto
+como_a_pessoa_fala:
+  - "tomei remédio demais"
+  - "bebi produto de limpeza sem querer"
+  - "acho que fui envenenado"
+  - "comi uma planta e estou passando mal"
+  - "respirei veneno de inseto e estou enjoado"
+  - "caiu agrotóxico na minha pele"
+  - "tomei a caixa inteira de remédio"
+  - "misturei remédios e estou estranho"
+  - "inalei gás e estou com dor de cabeça"
+perguntas_de_alerta:
+  - pergunta: "A pessoa desmaiou, está muito sonolenta ou confusa, teve convulsão ou está com dificuldade para respirar?"
+    sinal: alteracao_consciencia_ou_respiracao
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.15, Figura 36 (classificação de risco), p. 136, e Figura 37 (algoritmo), p. 142; SAMU 192 — Quando chamar (MS, gov.br): intoxicação exógena e envenenamento"
+  - pergunta: "A pessoa tomou ou usou o produto de propósito, para se machucar ou porque não quer mais viver?"
+    sinal: tentativa_de_suicidio_ou_ideacao
+    destino_se_sim: CVV_188_E_192
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.15, Figura 36 (presença de ideação suicida), p. 136; SAMU 192 — Quando chamar (MS, gov.br): tentativas de suicídio"
+  - pergunta: "Está com dor muito forte, febre alta ou o corpo muito frio?"
+    sinal: dor_severa_febre_alta_ou_hipotermia
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.15, Figura 36 (atendimento imediato), p. 136"
+  - pergunta: "A pessoa engoliu, respirou ou teve contato na pele ou no olho com remédio em excesso, produto de limpeza, veneno, agrotóxico ou planta tóxica, mesmo que ainda esteja bem?"
+    sinal: exposicao_a_substancia_toxica
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.15, Figura 36 (atendimento prioritário: exposição à substância tóxica; contato com CIAT), p. 136"
+# Caderno: exposição a substância não tóxica = "atendimento no dia"; mantido ATENDIMENTO_HOJE porque o leigo nem sempre sabe se o produto é tóxico
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Clínico geral"
+  fonte: "Sem protocolo TelessaúdeRS para intoxicação; Resolução CFM 2.380/2024"
+orientacao_final: "Em caso de intoxicação, guarde a embalagem ou o nome do produto ou remédio para mostrar à equipe de saúde. Não tente tratar em casa por conta própria. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.15 Intoxicações agudas por plantas tóxicas e medicamentos (Figuras 36 e 37; Quadro 51 – CIATs)"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar: intoxicação exógena e envenenamento; tentativas de suicídio"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico"

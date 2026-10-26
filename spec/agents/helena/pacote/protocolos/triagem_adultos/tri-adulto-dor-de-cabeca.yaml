@@ -1,0 +1,51 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-de-cabeca
+tema: triagem_adultos
+titulo: "Dor de cabeça"
+publico: adulto
+como_a_pessoa_fala:
+  - "estou com muita dor de cabeça"
+  - "minha cabeça está explodindo"
+  - "dor de cabeça que não passa"
+  - "estou com enxaqueca"
+  - "minha cabeça está latejando"
+  - "dor na nuca forte"
+  - "tenho dor de cabeça todo dia"
+  - "a pior dor de cabeça da minha vida"
+  - "dor de cabeça com enjoo e luz incomodando"
+  - "minha cabeça dói de um lado só"
+perguntas_de_alerta:
+  - pergunta: "A dor de cabeça começou de repente, muito forte, como a pior dor que você já sentiu?"
+    sinal: cefaleia_subita_intensa
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.2, Quadro 1 (início abrupto de forte intensidade); TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 1 – Cefaleia (sinais de alerta → urgência/emergência)"
+  - pergunta: "Junto com a dor, você ficou confuso ou muito sonolento, teve convulsão, ou ficou com a boca torta, fala enrolada, fraqueza ou dormência de um lado do corpo?"
+    sinal: alteracao_neurologica_ou_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.2, Quadro 1 (convulsões; alteração no exame neurológico) e Figura 4 (alteração do nível de consciência = atendimento imediato; sinal neurológico focal); SAMU 192 — Quando chamar (MS, gov.br): suspeita de AVC, crises convulsivas"
+  - pergunta: "Você está com febre e com o pescoço duro (difícil de encostar o queixo no peito), ou apareceram manchas na pele junto com a dor?"
+    sinal: febre_com_rigidez_de_nuca
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.2, Quadro 1 (febre, rigidez de nuca) e texto 'Meningite ou meningismo' (encaminhar para o serviço de urgência imediatamente); Figura 4 (febre alta, alterações de pele, sinal de meningismo)"
+  - pergunta: "A dor está muito forte e não melhora, ou você está com alguma alteração na visão?"
+    sinal: dor_forte_ou_alteracao_visual
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.2, Figura 4 (dor muito forte/moderada, alteração da visão = atendimento prioritário) e item 'd' (cefaleia de forte intensidade que não cessa)"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Neurologia"
+  fonte: "TelessaúdeRS Neurologia Adulto (rev. 2020), Protocolo 1 – Cefaleia; Resolução CFM 2.380/2024"
+orientacao_final: "A maioria das dores de cabeça pode ser cuidada pelo clínico. Procure uma consulta nos próximos dias, principalmente se a dor mudou de jeito, vem piorando há semanas, acorda você à noite, aparece com esforço ou tosse, ou começou depois dos 50 anos. Nas crises fracas, descansar em lugar escuro e sem barulho pode ajudar. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.2 Cefaleia (Quadro 1; Figura 4; quando encaminhar à urgência)"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Neurologia Adulto (rev. 2020)"
+    secao: "Protocolo 1 – Cefaleia"
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

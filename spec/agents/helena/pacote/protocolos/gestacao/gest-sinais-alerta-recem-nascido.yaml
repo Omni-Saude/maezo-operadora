@@ -1,0 +1,47 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+id: gest-sinais-alerta-recem-nascido
+tema: gestacao
+titulo: "Sinais de alerta no recém-nascido (dúvidas da mãe no pós-parto)"
+publico: puerpera
+como_a_pessoa_fala:
+  - "meu bebê nasceu há 3 dias e está estranho"
+  - "o recém-nascido não quer mamar"
+  - "o bebê está amarelinho"
+  - "meu bebê respira muito rápido"
+  - "o bebê chora sem parar"
+  - "o neném está gelado"
+  - "o bebê está dormindo demais"
+  - "o umbigo do bebê está com cheiro ruim"
+perguntas_de_alerta:
+  - pergunta: "O bebê teve convulsão (tremores ou 'ataque'), ficou roxo, parou de respirar por alguns segundos, ou está tão molinho que não acorda?"
+    sinal: convulsao_apneia_cianose_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE) – convulsões, apneia, cianose central, letargia/inconsciência"
+  - pergunta: "O bebê está respirando rápido ou com esforço, não consegue mamar, ou está com febre ou muito frio?"
+    sinal: sinal_de_perigo_rn
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.3.4 (p. 62: sinais de alerta no bebê); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE)"
+  - pergunta: "A pele do bebê está muito amarela, ficou amarela no primeiro dia de vida, ou o amarelo pega o corpo todo?"
+    sinal: ictericia_intensa
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.3.4 (p. 62: pele amarelada intensa); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 17 (avaliação com urgência); Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014), cap. 7.2, Exemplo 9 (p. 126: quadro DOENÇA GRAVE)"
+  - pergunta: "O bebê está sonolento demais, difícil de acordar, ou com choro que não acalma de jeito nenhum?"
+    sinal: sonolencia_ou_choro_inconsolavel
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026), §5.3.4 (p. 62: sonolência excessiva ou choro inconsolável); Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses) – muito sonolenta, com dificuldade para acordar"
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria"
+  fonte: "Caderneta da Gestante 2026, §5.3.6 (acompanhamento do bebê na UBS); Pediatria como porta de entrada (regra fixa do levantamento); Resolução CFM 2.380/2024"
+orientacao_final: "Na dúvida sobre o bebê, procure a UBS ou um serviço de urgência. Leve o bebê às consultas da primeira semana e mantenha a amamentação. Para dúvidas específicas do bebê, use também os protocolos de bebês com menos de 2 meses. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderneta Brasileira da Gestante, 1ª ed. (MS, 2026)"
+    secao: "§5.3.3 e §5.3.4 (p. 62); §5.3.6 (p. 64)"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 17 e p. 23"
+  - nome: "Manual AIDPI Neonatal, 5ª ed. (MS/OPAS, 2014)"
+    secao: "cap. 7.2, Exemplo 9 (p. 126)"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "Caderneta da Gestante e Caderneta da Criança: CC BY-NC-SA 4.0; AIDPI Neonatal: não comercial — pendente jurídico"

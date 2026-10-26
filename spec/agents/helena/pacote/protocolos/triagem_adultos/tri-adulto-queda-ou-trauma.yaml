@@ -1,0 +1,58 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+# Lacuna parcial: não há capítulo de trauma/queda no Caderno 28 para adulto. Sinais vêm do SAMU ('acidentes/traumas'),
+# do trauma como bandeira vermelha da dor lombar (Caderno 28 §2.12 + TelessaúdeRS Ortopedia), dos sinais de traumatismo
+# craniano citados nas urgências traumáticas odontológicas (Caderno 28 §2.21) e do alerta universal.
+id: tri-adulto-queda-ou-trauma
+tema: triagem_adultos
+titulo: "Queda ou batida (trauma)"
+publico: adulto
+como_a_pessoa_fala:
+  - "caí da escada"
+  - "levei um tombo"
+  - "bati a cabeça"
+  - "minha mãe caiu em casa"
+  - "sofri um acidente de moto"
+  - "caí e estou com dor nas costas e nas pernas"
+  - "bati o braço e está muito inchado"
+  - "escorreguei no banheiro"
+  - "fui atropelado"
+  - "caí de bicicleta"
+perguntas_de_alerta:
+  - pergunta: "Depois da queda ou batida, a pessoa desmaiou, está confusa ou sonolenta, teve convulsão, ou está com muita falta de ar ou um sangramento forte que não para?"
+    sinal: trauma_com_risco_de_vida
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 — Quando chamar (MS, gov.br): acidentes/traumas com vítimas; problemas cardiorrespiratórios; crises convulsivas; Caderno de Atenção Básica 28 vol. II, §2.21, 'Urgências traumáticas' (perda de consciência pode indicar traumatismo craniano); Caderno de Atenção Básica 28 vol. I, §3.3 (atendimento imediato)"
+  - pergunta: "Depois da queda, você está sem força ou com dormência nos braços ou nas pernas, ou com dor forte no pescoço ou nas costas?"
+    sinal: suspeita_de_lesao_na_coluna
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SAMU 192 — Quando chamar (MS, gov.br): acidentes/traumas com vítimas; Caderno de Atenção Básica 28 vol. II, §2.12, Quadro 42 (grande trauma; fraqueza muscular); TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolos 1 e 2 (suspeita de compressão medular, fratura ou luxação com trauma recente → urgência/emergência)"
+  - pergunta: "Você bateu a cabeça e, depois, está com dor de cabeça, enjoo ou vômitos, ou alteração na visão?"
+    sinal: sinais_de_traumatismo_craniano
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.21, 'Urgências traumáticas' (náusea, vômitos, dores de cabeça ou distúrbios da visão podem indicar traumatismo craniano)"
+  - pergunta: "Alguma parte do corpo ficou torta ou muito inchada, ou você não consegue mexer ou apoiar o braço ou a perna?"
+    sinal: suspeita_de_fratura_ou_luxacao
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "TelessaúdeRS Ortopedia Adulto (rev. 2026), Protocolos 5, 7, 8, 9 e 10 (suspeita de fratura ou luxação → urgência/emergência) e nota da 2ª edição (condições traumatológicas devem ser avaliadas nas portas de entrada para trauma)"
+# Pessoas idosas ou que tomam remédio para 'afinar o sangue' podem ter mais risco depois de bater a cabeça — sem fonte verificada; decidir na revisão médica.
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Ortopedia e traumatologia"
+  fonte: "TelessaúdeRS Ortopedia Adulto (rev. 2026) — ortopedia após descartar urgência; Resolução CFM 2.380/2024"
+orientacao_final: "Se não houve nenhum desses sinais, a dor da batida costuma melhorar em alguns dias; procure o clínico se não melhorar. Em caso de acidente, não mexa em quem pode ter machucado a coluna e não tire o capacete de motociclista; ligue 192 e siga as orientações. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+# 'Não tire o capacete' e 'ligue 192 e siga as orientações': SAMU 192 — Dicas para quem ligar. 'Não mexer em quem pode ter machucado a coluna' adaptado de 'não toque nas vítimas' (SAMU) — conferir.
+fontes:
+  - nome: "SAMU 192 — Quando chamar (MS, gov.br)"
+    secao: "Quando chamar (acidentes/traumas com vítimas); Dicas para quem ligar para o SAMU 192"
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.12 Dor lombar (Quadro 42); §2.21 Urgências odontológicas — Urgências traumáticas"
+  - nome: "Caderno de Atenção Básica nº 28 vol. I (MS, 2013)"
+    secao: "§3.3 Avaliação de risco e vulnerabilidade"
+  - nome: "TelessaúdeRS-UFRGS/SES-RS — Protocolo de Regulação Ortopedia Adulto (2ª ed., rev. 2026)"
+    secao: "Protocolos 1, 2, 5, 7, 8, 9 e 10 (urgência/emergência)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico; TelessaúdeRS: CC BY-NC-SA (2024+) ou sem licença declarada — pendente jurídico"

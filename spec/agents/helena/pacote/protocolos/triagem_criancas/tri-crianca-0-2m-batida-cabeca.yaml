@@ -1,0 +1,46 @@
+# Rascunho dev (25/10/2026) — revisão médica pendente. Formato: C:\vc\protocolos\MODELO.md
+# Lacuna: sem fonte oficial direta completa; aplicar antes o alerta universal pediátrico: uni-alerta-universal-crianca
+id: tri-crianca-0-2m-batida-cabeca
+tema: triagem_criancas
+titulo: "Queda ou batida na cabeça do bebê com menos de 2 meses"
+publico: crianca_0_2m
+como_a_pessoa_fala:
+  - "meu bebê caiu da cama"
+  - "o neném bateu a cabeça"
+  - "o bebê caiu do trocador"
+  - "deixei o bebê cair do colo"
+  - "recém-nascido caiu do sofá"
+  - "o bebê bateu a cabeça no berço"
+  - "meu bebê caiu e fez um galo"
+  - "o bebê escorregou no banho e bateu a cabeça"
+perguntas_de_alerta:
+  - pergunta: "Depois da batida, ele teve convulsão ou está difícil de acordar / não reage?"
+    sinal: convulsao_ou_nao_acorda
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito) – convulsão, sonolência excessiva; Caderneta da Criança – Menino, 6ª ed. (MS, 2023), p. 23 (Sinais de perigo – menores de 2 meses)"
+  - pergunta: "Ele desmaiou, mesmo que por pouco tempo, vomitou 3 vezes ou mais, ou saiu sangue ou líquido claro pelo nariz ou pelo ouvido?"
+    sinal: sinais_de_alerta_tce
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito)"
+  - pergunta: "Ele está com choro que não acalma, recusando mamar, diferente do jeito dele, ou a moleira ficou estufada?"
+    sinal: alerta_tce_menor_2a
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'Quando devo levar meu filho ao hospital?' (reescrito) – sinais em menores de 2 anos"
+  - pergunta: "A queda foi de uma altura maior que 90 cm (mais ou menos a altura da cintura de um adulto), por exemplo do colo de alguém em pé?"
+    sinal: mecanismo_grave
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025), seção 'O que é considerado um mecanismo de trauma grave?' (reescrito) – altura acima de 0,9 m em menores de 2 anos"
+destino_se_nenhum_sinal: ATENDIMENTO_HOJE
+especialista:
+  primeiro: "Pediatria"
+  depois: "Pediatria (encaminha a outra especialidade se precisar)"
+  fonte: "Lacuna: sem protocolo oficial de encaminhamento pediátrico verificado; regra fixa do levantamento (Protocolos_Helena_Fontes.xlsx, 'Quadro por tema': pediatra como porta de entrada); nome conforme Resolução CFM 2.380/2024"
+orientacao_final: "Bebês muito pequenos que batem a cabeça devem ser vistos no mesmo dia, mesmo parecendo bem. Observe se ele mama, acorda e reage como de costume nas próximas horas. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "SBP Pediatria para Famílias – Traumatismo cranioencefálico leve na infância (out/2025)"
+    secao: "Quando devo levar meu filho ao hospital?; mecanismo de trauma grave"
+  - nome: "Caderneta da Criança – Menino, 6ª ed. (MS, 2023)"
+    secao: "p. 23 (Sinais de perigo); p. 61 (prevenção de quedas)"
+lacuna: true
+revisao_medica: pendente
+licenca_atencao: "SBP direitos reservados: reescrito, pedir autorização; Caderneta da Criança: CC BY-NC-SA 4.0"

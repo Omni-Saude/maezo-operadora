@@ -1,0 +1,47 @@
+# RASCUNHO DEV (25/10/2026) — revisão médica pendente. Não usar em produção.
+id: tri-adulto-dor-de-garganta
+tema: triagem_adultos
+titulo: "Dor de garganta"
+publico: adulto
+como_a_pessoa_fala:
+  - "tô com dor de garganta"
+  - "minha garganta está inflamada"
+  - "dói muito para engolir"
+  - "acho que estou com amigdalite"
+  - "minha garganta está com pus"
+  - "estou com a garganta fechando"
+  - "não consigo abrir a boca de tanta dor na garganta"
+  - "estou rouco e com dor de garganta"
+  - "garganta arranhando e febre"
+perguntas_de_alerta:
+  - pergunta: "Você está com muita dificuldade para respirar, fazendo barulho ao respirar, ou está muito sonolento ou confuso?"
+    sinal: comprometimento_vias_aereas_ou_consciencia
+    destino_se_sim: LIGAR_192_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.11, Figura 31 (fluxograma de classificação de risco), p. 115"
+  - pergunta: "A dor é muito forte e você não consegue abrir bem a boca, ou a voz ficou abafada, como se tivesse uma batata quente na boca?"
+    sinal: suspeita_abscesso_garganta
+    destino_se_sim: PRONTO_SOCORRO_AGORA
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.11, 'Faringite estreptocócica' e 'Encaminhamento' (abscesso periamigdaliano: encaminhar imediatamente; requer tratamento hospitalar)"
+  - pergunta: "A dor é forte ou moderada, ou você está com febre alta?"
+    sinal: dor_moderada_ou_febre_alta
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.11, Figura 31 (atendimento prioritário), p. 115"
+  - pergunta: "Depois de uma amigdalite você já teve problema no coração, dor ou inchaço nas juntas, movimentos do corpo que não controla ou sangue na urina?"
+    sinal: suspeita_febre_reumatica_ou_complicacao
+    destino_se_sim: ATENDIMENTO_HOJE
+    fonte: "Caderno de Atenção Básica 28 vol. II, §2.11, Figura 31 (atendimento prioritário: manifestações cardiológicas, artrite, coreia, hematúria), p. 115"
+# Caderno: febre ou dor leve recente = "atendimento no dia"; adaptado para CONSULTA_EM_BREVE (decisão a validar pelo médico)
+destino_se_nenhum_sinal: CONSULTA_EM_BREVE
+especialista:
+  primeiro: "Clínico geral"
+  depois: "Otorrinolaringologia"
+  fonte: "Caderno de Atenção Básica 28 vol. II, §2.11 (abscesso: encaminhar ao otorrinolaringologista); TelessaúdeRS Otorrinolaringologia Adulto (2023) não tem protocolo próprio de faringite — conferir; Resolução CFM 2.380/2024"
+orientacao_final: "A maioria das dores de garganta melhora em poucos dias, mas algumas precisam de avaliação médica para decidir o tratamento. Beba líquidos e descanse. Se piorar ou aparecer algum sinal de alerta, procure um pronto-atendimento ou ligue 192."
+fontes:
+  - nome: "Caderno de Atenção Básica nº 28 vol. II (MS, 2013)"
+    secao: "§2.11 Dor de garganta (Figura 31; Encaminhamento)"
+  - nome: "Resolução CFM 2.380/2024"
+    secao: "Lista de especialidades"
+lacuna: false
+revisao_medica: pendente
+licenca_atencao: "MS: reprodução citando a fonte, não comercial — pendente jurídico"
