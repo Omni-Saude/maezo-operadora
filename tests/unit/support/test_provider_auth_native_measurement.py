@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -594,6 +595,27 @@ def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle, monkeypa
     assert str(refused.value) == (
         f"Actual witness clog in progress without xip candidacy (non-decisive; deferred T3 read {straddle!r})"
     )
+    # §6-1 completed (P4-RESULT-v1 §7-2, owner decision 2026-10-26): the corner
+    # MEASURED, so the refusal RECORD banks the fidelity block — the effectively
+    # waited Δ (monotonic) is never discarded in the raise, whatever the
+    # verdict, and the refusal keeps the exact text above (never waived).
+    fidelity = refused.value.t3_fidelity
+    assert set(fidelity) == {"t3_straddle_raw_status", "t3_straddle_read_at", "t3_deferred_seconds"}
+    assert fidelity["t3_straddle_raw_status"] == straddle
+    assert fidelity["t3_straddle_read_at"] == runtime.clock(_STRADDLE_READ_AT)
+    assert re.fullmatch(r"[0-9]+\.[0-9]{9}", fidelity["t3_deferred_seconds"])
+    assert float(fidelity["t3_deferred_seconds"]) >= 0.0
+    # P0' (design §10.6): the refusal record also carries the declarative commit
+    # provenance, pinned verbatim — an eventual post-refusal COMMIT in the
+    # witness state_change is the unwind's implicit commit, and the honest
+    # engine-commit discriminator is SEAL+STAGE_CLOSED (ordinals 7/8 under D2').
+    assert refused.value.refusal_commit_provenance == measurement.REFUSAL_COMMIT_PROVENANCE
+    assert measurement.REFUSAL_COMMIT_PROVENANCE == {
+        "post_refusal_commit_witness": (
+            "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
+        ),
+        "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
+    }
     # T3 ran exactly once; every non-committed outcome is discarded unadmitted.
     assert _query_sequence(connection)[-1] == ("fetchrow", measurement._STRADDLE_SQL)
     assert connection.queries[-1][2] == (761,)
@@ -602,6 +624,58 @@ def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle, monkeypa
     # before or after, so a non-committed T3' still waited the same Δ once
     # (agendamento incondicional limitado — never a retry/poll loop).
     assert waited == [(measurement._T3_DEFERRED_SECONDS, 4)]
+
+
+def test_checkpoint_refusal_without_corner_banks_provenance_and_honest_none(monkeypatch):
+    """P0' boundary: EVERY checkpoint refusal is a refusal record.
+
+    The congruence refusal below fires BEFORE the corner (xact_start already
+    NULL, fail-closed §4.2-riscos-2), so nothing was measured: t3_fidelity is
+    None — an honest absence, never a fabricated measurement — while the
+    declarative P0' commit provenance still rides the refusal, because the
+    abort unwind (and its implicit commit) is the physics of every refused
+    acquisition. No wait and no straddle read exist on this path.
+    """
+    connection = _CheckpointConnection(
+        checkpoint_row=dict(
+            _checkpoint_row(backend_xid32=None, witness_status="committed"), transaction_started_at=None
+        ),
+        xip=[],
+    )
+    waited = _spy_sleep(monkeypatch, connection, delegate=False)
+    with pytest.raises(runtime.NativeObservationError) as refused:
+        _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    assert str(refused.value) == "Root PG tuple differs from held enlisted session"
+    assert refused.value.t3_fidelity is None
+    assert refused.value.refusal_commit_provenance == measurement.REFUSAL_COMMIT_PROVENANCE
+    assert waited == []
+    assert not [entry for entry in connection.queries if entry[0] == "sleep"]
+
+
+def test_post_corner_refusal_still_banks_the_measured_fidelity(monkeypatch):
+    """§6-1: a refusal AFTER the corner ran keeps the measured fidelity too."""
+    hold = _hold(endpoint="COMMITTING", witness_txid="761")
+    hold["measurement"]["stable_database_projection"] = dict(
+        database_name="maezo_n2",
+        database_oid="16384",
+        system_identifier="7398612345678901",
+        session_user="someone_else",
+    )
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=[],
+        straddle="committed",
+    )
+    _spy_sleep(monkeypatch, connection, delegate=False)
+    with pytest.raises(runtime.NativeObservationError) as refused:
+        _acquire(connection, hold)
+    assert str(refused.value) == "Root PG database/login differs"
+    fidelity = refused.value.t3_fidelity
+    assert fidelity is not None
+    assert set(fidelity) == {"t3_straddle_raw_status", "t3_straddle_read_at", "t3_deferred_seconds"}
+    assert fidelity["t3_straddle_raw_status"] == "committed"
+    assert fidelity["t3_straddle_read_at"] == runtime.clock(_STRADDLE_READ_AT)
+    assert refused.value.refusal_commit_provenance == measurement.REFUSAL_COMMIT_PROVENANCE
 
 
 def test_corner_free_refusal_keeps_the_exact_never_waived_text():
