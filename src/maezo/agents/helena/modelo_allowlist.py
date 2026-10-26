@@ -48,6 +48,7 @@ from maezo.runtime.inference.br_regional import (
     registrar_chamada,
 )
 from maezo.runtime.inference.experimento_global import (
+    CAMPOS_SEM_PENSAMENTO,
     FALHA_PRAZO,
     FALHA_RESPOSTA_VAZIA,
     MODELO_HAIKU_GLOBAL,
@@ -162,6 +163,10 @@ class ProvedorHaikuGlobal:
     def __init__(
         self, transporte: TransporteGlobal, *, papel: str, prazo_s: float, modo: str = MODO_HAIKU
     ) -> None:
+        derivar = getattr(transporte, "com_campos", None)
+        if callable(derivar):
+            # 26/10/2026: classificacao curta sem o pensamento do Haiku (latencia); rota e modelo iguais.
+            transporte = derivar(CAMPOS_SEM_PENSAMENTO)
         self._transporte = transporte
         self.papel = papel
         self.prazo_s = float(prazo_s)
