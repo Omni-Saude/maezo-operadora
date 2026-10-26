@@ -348,7 +348,10 @@ async def _roteador_decidir(
         # Rodada de 25/10/2026 (item 8): as 4 falhas "modelo" do dia eram PRAZO de leitura do provedor
         # (ReadTimeoutError a ~5-6 s, antes do prazo cheio): o tipo do erro decide, nao so' o tempo.
         causa = type(exc).__name__
-        prazo = ms_falha >= prazo_s * 1000 or _e_erro_de_prazo(causa)
+        # O provedor regional embrulha o erro do SDK: pelo nome nao se ve' o prazo. Rodada de 26/10/2026:
+        # 14 de 16 falhas "modelo" eram ReadTimeoutError a 5,1-6,2 s (prazo 6 s); erro de verdade volta
+        # rapido. Falha perto do prazo (>= 80%) e' PRAZO.
+        prazo = ms_falha >= prazo_s * 800 or _e_erro_de_prazo(causa)
         falha_externa = _rt.FALHA_PRAZO if prazo else _rt.FALHA_MODELO
         logger.info("helena_roteador_falhou", falha=falha_externa, causa=causa, ms=ms_falha)
         return None, falha_externa, ms_falha

@@ -23,7 +23,7 @@ identidade_nome_operadora: "Austa Clínicas"  # DL-0078
 roteador:
   modo: ativo               # desligado | sombra | ativo
   modelo: zai.glm-5         # modelo Bedrock da zona PHI regional; vazio = o da conversa
-  prazo_s: 6.0               # contrato v7 (etapa 7): a leitura completa; medido p90 2,9 s
+  prazo_s: 8.0               # 26/10/2026: p90 medido 5,2 s e 10,5% de falha por prazo com 6 s
   max_tokens: 400           # o JSON v7 tem 13 chaves
   concorrencia: 4
   conversas: &conversas_do_teste  # F2: as conversas (ids keyed) em que o roteador ativo decide
