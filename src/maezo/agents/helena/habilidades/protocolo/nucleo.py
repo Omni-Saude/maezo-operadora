@@ -46,6 +46,7 @@ RODAPE_DAS_PERGUNTAS: Final[str] = 'Pode responder do seu jeito, por exemplo: "n
 TEXTO_DA_REPERGUNTA: Final[str] = "Desculpe, não entendi bem. Só para confirmar, isto acontece agora?"
 RODAPE_DA_REPERGUNTA: Final[str] = "Responda sim ou não para cada uma."
 TEXTO_IDADE: Final[str] = "Para eu te orientar direito: qual é a idade da criança?"
+TEXTO_IDADE_JUNTO: Final[str] = "E me diga também: qual é a idade da criança?"
 PONTE_SEM_SINAL: Final[str] = "Obrigada. Pelo que você contou, dá para marcar uma consulta."
 TEXTO_AVALIAR_A_CAUSA: Final[str] = "Quem pode avaliar a causa é o médico, numa consulta."
 TEXTO_JA_RESPONDIDO: Final[str] = "Desculpe, você já tinha me respondido."

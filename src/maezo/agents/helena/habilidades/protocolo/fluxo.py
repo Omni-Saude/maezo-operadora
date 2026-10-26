@@ -21,6 +21,7 @@ import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
@@ -30,6 +31,7 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_O
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
 from maezo.agents.helena.habilidades.sintoma.textos import CHAVE_OFERTA_EQUIPE
 from maezo.agents.helena.historico import historico_em_texto
+from maezo.agents.helena.triagem_v2 import RESPOSTA_TRIAGEM_BEBE_PEQUENO
 from maezo.conhecimento import protocolos as _p
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import render_untrusted_block
@@ -139,15 +141,54 @@ async def _chamar(
     return resultado
 
 
+def _bebe_pequeno(state: Mapping[str, Any], protocolo: _p.Protocolo | None) -> bool:
+    """Bebe com MENOS DE 3 MESES (rodada 12 / DL-0101): protocolo da faixa 0-2m, ou protocolo de crianca com
+    recem-nascido/bebe pequeno dito na conversa. So' protocolos de crianca (nao "gravida de 2 meses")."""
+    from maezo.agents.helena import graph as _g
+    from maezo.agents.helena.triagem_v2 import bebe_pequeno
+
+    if protocolo is not None and protocolo.publico == "crianca_0_2m":
+        return True
+    if protocolo is None or protocolo.publico not in _p.PUBLICOS_DE_CRIANCA:
+        return False
+    contexto = _g._plano(
+        " ".join([str(state.get("message_body") or ""), *_g._falas_do_beneficiario(state)[-6:]])
+    )
+    return (
+        _g._contexto_de_recem_nascido(state)
+        or bebe_pequeno(contexto, None)
+        or _IDADE_DE_BEBE_PEQUENO.search(contexto) is not None
+    )
+
+
+#: "ela tem so' 1 mes", "com 2 meses de vida" (crianca; "faz 2 meses" e' tempo, nao idade).
+_IDADE_DE_BEBE_PEQUENO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:tem|de|com)(?: so| apenas)? (?:1|um|2|dois) mes(?:es)?\b"
+)
+
+
+def _alerta_neonatal(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Rodada 10, regra A (DL-0101): recem-nascido COM sinal de sofrimento na mensagem -> o escalonamento de
+    alarme de sempre, ANTES de qualquer decisao do protocolo."""
+    from maezo.agents.helena import graph as _g
+
+    memoria = state.get("memoria_clinica")
+    if not _g._alerta_neonatal(state, {}, memoria if isinstance(memoria, Mapping) else None):
+        return None
+    logger.warning("helena_protocolo_alerta_neonatal", node="classify")
+    return _escalar(self, state, None, "LIGAR_192_AGORA")
+
+
 def _escalar(
-    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo, destino: str
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo | None, destino: str
 ) -> dict[str, Any]:
     """LIGAR_192_AGORA = o escalonamento de alarme de sempre (`red_flag_clinico` grave, 192); CVV_188_E_192 =
-    o caminho do risco psicossocial (CVV 188 e 192)."""
+    o caminho do risco psicossocial (CVV 188 e 192). Sem protocolo (alerta neonatal): pediatrico."""
     risco = destino == "CVV_188_E_192"
+    publico = protocolo.publico if protocolo is not None else "crianca_0_2m"
     update: dict[str, Any] = {
         "intent": "symptom",
-        "population": "mental_health" if risco else _POPULACAO.get(protocolo.publico, "adult"),
+        "population": "mental_health" if risco else _POPULACAO.get(publico, "adult"),
         "psychosocial_risk": risco,
         "sintoma_codigo": None,
         "intensidade": "desconhecida",
@@ -190,6 +231,11 @@ def _executar(
     destino = str(decisao.destino)
     if destino in ("LIGAR_192_AGORA", "CVV_188_E_192"):
         return _escalar(self, state, protocolo, destino)
+    if destino in ("CONSULTA_EM_BREVE", "CONSULTA_ROTINA") and _bebe_pequeno(state, protocolo):
+        # Rodada 12 (bebe com menos de 3 meses): NUNCA "marcar consulta" — a oferta EXPLICITA da equipe de
+        # saude (o "sim" abre o caso), com pronto-atendimento/192 se piorar.
+        logger.info("helena_protocolo_bebe_pequeno_oferta", protocolo=protocolo.id)
+        return _texto(self, state, RESPOSTA_TRIAGEM_BEBE_PEQUENO, pendente=PENDENTE_OFERTA_EQUIPE)
     if decisao.sinal is not None:
         return _texto(self, state, _n.texto_do_destino_por_sinal(destino, protocolo.publico))
     assert textos is not None  # o catalogo so' existe com os textos validos (`catalogo_do_ambiente`)
@@ -211,8 +257,14 @@ async def responder_alerta(
     texto = str(state.get("message_body") or "")
     if protocolo is None or _g._pedido_explicito_com_verbo(texto) or _g._pedido_explicito_de_pessoa(texto):
         return None
-    if decisao.habilidade not in ("sintoma", "saude", "conversa") and not decisao.responde_a_pendencia:
+    if (
+        decisao is not None
+        and decisao.habilidade not in ("sintoma", "saude", "conversa")
+        and not decisao.responde_a_pendencia
+    ):
         return None  # outro assunto (cobranca, plano, equipe): a pendencia cai e o roteador decide
+    if (neonatal := _alerta_neonatal(self, state)) is not None:
+        return neonatal
     n = len(protocolo.perguntas_de_alerta)
     indices = tuple(i for i in pend.indices if 1 <= i <= n) or tuple(range(1, n + 1))
     conversa, mensagem = _blocos(self, state)
@@ -226,7 +278,11 @@ async def responder_alerta(
     if leitura is None:
         # Sem a leitura do modelo nao se adivinha: vale como "sem clareza" (re-pergunta, depois a equipe).
         leitura = _n.Leitura(tuple("sem_clareza" for _ in indices), False)
-    if leitura.outro_sinal_grave and _rt._alarme_do_modelo(self, cast(Any, state), decisao.v7) == "claro":
+    if (
+        decisao is not None
+        and leitura.outro_sinal_grave
+        and _rt._alarme_do_modelo(self, cast(Any, state), decisao.v7) == "claro"
+    ):
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
     return _executar(self, state, protocolo, _n.decidir(protocolo, indices, leitura.respostas, pend.rodada))
 
@@ -348,6 +404,8 @@ async def conduzir(
         )
     if not sintoma:
         return None
+    if (neonatal := _alerta_neonatal(self, state)) is not None:
+        return neonatal
     conversa, mensagem = _blocos(self, state)
     escolha: _n.Escolha | None = await _chamar(
         self,
@@ -356,6 +414,11 @@ async def conduzir(
         lambda bruto: _n.ler_escolha(bruto, catalogo),
         "escolha",
     )
+    if escolha is None and ultimo is not None:
+        # Sem a escolha do modelo, com uma queixa ja' respondida: nunca recomecar perguntas (o seguimento).
+        return _texto(
+            self, state, _n.texto_de_seguimento(ultimo, catalogo.textos, reclamou=False, agendamento=False)
+        )
     if escolha is None:
         publico = _publico_do_estado(state)
         escolha = _n.Escolha("crianca" if publico == "crianca_2m_5a" else publico, "desconhecida", None)
@@ -370,7 +433,18 @@ async def conduzir(
             self, state, _n.texto_de_seguimento(alvo, catalogo.textos, reclamou=False, agendamento=False)
         )
     if _n.precisa_da_idade(escolha, catalogo) and antes != _n.PENDENTE_IDADE:
-        logger.info("helena_protocolo_pede_idade", protocolo=escolha.protocolo)
+        # Teste de 26/10/2026 ("minha filha caiu da cama e bateu a cabeca" so' recebia "qual a idade?"): a
+        # idade vai JUNTO das perguntas de alerta que valem para qualquer idade (alerta universal da crianca:
+        # convulsao, desmaio, sonolencia, respiracao, vomito, manchas) — nenhum alarme espera pela idade.
+        universal = catalogo.universal("crianca_2m_5a")
+        if universal is not None:
+            logger.info("helena_protocolo_pede_idade_com_alerta", protocolo=escolha.protocolo)
+            return _texto(
+                self,
+                state,
+                f"{_n.texto_das_perguntas(universal)}\n{_n.TEXTO_IDADE_JUNTO}",
+                pendente=_n.codigo_do_alerta(universal.id),
+            )
         return _texto(self, state, _n.TEXTO_IDADE, pendente=_n.PENDENTE_IDADE)
     protocolo = catalogo.protocolos.get(escolha.protocolo or "")
     if protocolo is None or _n.precisa_da_idade(escolha, catalogo):
@@ -428,8 +502,60 @@ async def _perguntar_o_que_falta(
     )
 
 
+@dataclass(frozen=True)
+class _SemRoteador:
+    """A "decisao" quando o roteador falhou (prazo, provedor): so' a habilidade de sintoma, sem leitura v7."""
+
+    habilidade: str = "sintoma"
+    provavel: str | None = None
+    responde_a_pendencia: bool = True
+    v7: Any = None
+
+
+#: O codigo da pergunta de alerta GENERICA da v4 (grupo GERAL: peito, falta de ar, AVC).
+_ALERTA_GERAL_V4: Final[str] = "V4_ALERTA:GERAL"
+
+
+async def sem_roteador(
+    self: HelenaGraph, state: Mapping[str, Any], antes: str | None
+) -> dict[str, Any] | None:
+    """Simulador de 26/10/2026 (roteador fora: `BrRegionalTransportUnavailableError`): com as perguntas do
+    PROTOCOLO pendentes, a resposta continua do protocolo (a leitura; sem ela, re-pergunta e depois a equipe)
+    — nunca a pergunta generica da v4. `None` = o caminho de sempre."""
+    if self._protocolos is None or not antes:
+        return None
+    if antes.startswith(_n.PENDENTE_ALERTA):
+        logger.info("helena_protocolo_sem_roteador", etapa="alerta")
+        return await responder_alerta(self, state, None, antes)
+    if antes == _n.PENDENTE_IDADE:
+        logger.info("helena_protocolo_sem_roteador", etapa="idade")
+        return await conduzir(self, state, _SemRoteador(), antes, None)
+    return None
+
+
+async def sem_alerta_geral(
+    self: HelenaGraph, state: Mapping[str, Any], antes: str | None, resultado: dict[str, Any]
+) -> dict[str, Any]:
+    """O caminho de sempre (roteador fora) ia fazer a pergunta GENERICA da v4 (peito/AVC) com os protocolos
+    ligados: no lugar dela, o protocolo (escolhido pelo modelo; sem modelo, o alerta universal ou o seguimento
+    da queixa ja' respondida)."""
+    catalogo = self._protocolos
+    if catalogo is None or not str(resultado.get("coleta_pendente") or "").startswith(_ALERTA_GERAL_V4):
+        return resultado
+    logger.info("helena_protocolo_no_lugar_do_alerta_geral")
+    prot = await conduzir(self, state, _SemRoteador(), None, None)
+    if prot is not None:
+        return prot
+    universal = catalogo.universal(_publico_do_estado(state))
+    if universal is None:
+        return resultado
+    return _texto(self, state, _n.texto_das_perguntas(universal), pendente=_n.codigo_do_alerta(universal.id))
+
+
 __all__ = [
     "conduzir",
+    "sem_alerta_geral",
+    "sem_roteador",
     "duvida_sem_queixa",
     "e_texto_do_protocolo",
     "protocolo_na_conversa",
