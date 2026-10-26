@@ -20,7 +20,7 @@ import asyncio
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
@@ -65,7 +65,9 @@ def _emitir(texto: str) -> str:
     return texto
 
 
-def _texto(self: HelenaGraph, state: Mapping[str, Any], texto: str, *, pendente: str | None = None) -> dict:
+def _texto(
+    self: HelenaGraph, state: Mapping[str, Any], texto: str, *, pendente: str | None = None
+) -> dict[str, Any]:
     update = self._update_sem_modelo(state)
     update.update({"coleta_pendente": None, "coleta_contexto": ""})
     return self._base_texto_fixo(update, _emitir(texto), pendente=pendente)
@@ -120,7 +122,10 @@ async def _chamar(
             resultado, ruins = ler(bruto)
     except PROGRAMMING_ERRORS:
         raise
-    except (TimeoutError, *EXTERNAL_DEPENDENCY_FAILURES) as exc:
+    except TimeoutError:
+        logger.info("helena_protocolo_modelo_falhou", etapa=etapa, falha="TimeoutError")
+        return None
+    except EXTERNAL_DEPENDENCY_FAILURES as exc:
         logger.info("helena_protocolo_modelo_falhou", etapa=etapa, falha=type(exc).__name__)
         return None
     finally:
@@ -132,7 +137,9 @@ async def _chamar(
     return resultado
 
 
-def _escalar(self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo, destino: str) -> dict:
+def _escalar(
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo, destino: str
+) -> dict[str, Any]:
     """LIGAR_192_AGORA = o escalonamento de alarme de sempre (`red_flag_clinico` grave, 192); CVV_188_E_192 =
     o caminho do risco psicossocial (CVV 188 e 192)."""
     risco = destino == "CVV_188_E_192"
@@ -217,7 +224,7 @@ async def responder_alerta(
     if leitura is None:
         # Sem a leitura do modelo nao se adivinha: vale como "sem clareza" (re-pergunta, depois a equipe).
         leitura = _n.Leitura(tuple("sem_clareza" for _ in indices), False)
-    if leitura.outro_sinal_grave and _rt._alarme_do_modelo(self, state, decisao.v7) == "claro":
+    if leitura.outro_sinal_grave and _rt._alarme_do_modelo(self, cast(Any, state), decisao.v7) == "claro":
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
     return _executar(self, state, protocolo, _n.decidir(protocolo, indices, leitura.respostas, pend.rodada))
 
@@ -227,7 +234,9 @@ def _publico_do_estado(state: Mapping[str, Any]) -> str:
     return {"pediatric": "crianca_2m_5a", "gestante": "gestante"}.get(populacao, "adulto")
 
 
-async def _especialista_pelo_mapa(self: HelenaGraph, state: Mapping[str, Any], *, por_aqui: bool) -> dict:
+async def _especialista_pelo_mapa(
+    self: HelenaGraph, state: Mapping[str, Any], *, por_aqui: bool
+) -> dict[str, Any]:
     catalogo = self._protocolos
     assert catalogo is not None and catalogo.textos is not None
     conversa, mensagem = _blocos(self, state)

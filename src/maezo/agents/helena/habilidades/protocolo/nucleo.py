@@ -386,7 +386,8 @@ def ler_escolha(bruto: str, catalogo: _p.Catalogo) -> tuple[Escolha | None, list
     if faixa not in FAIXAS:
         ruins.append("faixa_crianca")
     if pid != "nenhum" and (
-        pid not in catalogo.protocolos
+        not isinstance(pid, str)
+        or pid not in catalogo.protocolos
         or (publico in PUBLICOS_DA_ESCOLHA and _grupo(catalogo.protocolos[pid]) != publico)
     ):
         ruins.append("protocolo")
@@ -466,7 +467,7 @@ def ler_leitura(bruto: str, quantas: int) -> tuple[Leitura | None, list[str]]:
         ruins.append("respostas")
     if not isinstance(dado.get("outro_sinal_grave"), bool):
         ruins.append("outro_sinal_grave")
-    if ruins:
+    if ruins or not isinstance(respostas, list):
         return None, ruins
     return Leitura(tuple(str(r) for r in respostas), bool(dado["outro_sinal_grave"])), []
 
