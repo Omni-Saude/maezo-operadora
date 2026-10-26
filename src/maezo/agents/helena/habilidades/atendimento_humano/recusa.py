@@ -25,7 +25,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena.habilidades.atendimento_humano.textos import (
     TEXTO_RECUSA_JA_RESPONDIDA,
@@ -34,7 +34,7 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import (
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 
 if TYPE_CHECKING:
-    from maezo.agents.helena.graph import HelenaGraph
+    from maezo.agents.helena.graph import HelenaGraph, HelenaState
 
 
 def e_recusa_da_equipe(texto: str) -> bool:
@@ -70,7 +70,7 @@ async def recusa_sem_caso(self: HelenaGraph, state: Mapping[str, Any]) -> dict[s
     from maezo.agents.helena import roteador as _rt
 
     logger.warning("helena_recusa_nao_abre_caso", node="escalate")
-    saida = await _rt._recusa_da_equipe(self, state)
+    saida = await _rt._recusa_da_equipe(self, cast("HelenaState", state))
     return {
         **saida,
         "response_kind": "inform",
