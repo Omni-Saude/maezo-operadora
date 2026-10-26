@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -826,6 +827,41 @@ def test_inverted_binding_half_pair_or_foreign_release_refuses():
                     **kwargs,
                 )
             )
+
+
+def test_collect_commits_to_the_d2prime_release_order_on_committing():
+    """GATE-T2 F1: the inversion ORDER in collect() is pinned by a canary.
+
+    The unit lane cannot run collect() (Linux UDS custody chain: kernel peer
+    credentials, exclusive group, uid custody), so the order is pinned in the
+    source-text idiom already used for the pair guard above. Reverting the
+    decision line to the v26 behaviour (early_release = False) MUST fail this
+    test: on COMMITTING the RELEASE is dispatched BEFORE the two captures and
+    carries NO capture digests, the captures are bound to the dispatched
+    RELEASE (release_raw_sha256/release_emitted_at, both phases), and the
+    ENTRY keeps the original order (release built after its captures).
+    """
+    source = inspect.getsource(measurement.NativeMeasurementCollector.collect)
+    # The D2' decision line itself: mutated away by a revert to v26.
+    assert 'early_release = endpoint == "COMMITTING"' in source
+    early_block = source.index("if early_release:")
+    phase_loop = source.index('for phase in ("ROOT_FIRST", "ROOT_SECOND"):')
+    late_block = source.index("if not early_release:")
+    # HOLD -> RELEASE dispatched -> captures -> ENTRY release, in source order.
+    assert early_block < phase_loop < late_block
+    early_send = source.index('self._event(release, release_raw, "ROOT_TO_JVM")', early_block)
+    assert early_send < phase_loop
+    # Both captures bind to the dispatched RELEASE exactly when it is early.
+    binding = source.index("release=release if early_release else None")
+    raw_binding = source.index("release_raw=release_raw if early_release else None")
+    assert phase_loop < binding < late_block
+    assert phase_loop < raw_binding < late_block
+    # The early RELEASE carries NO capture digests: each digest key is assigned
+    # exactly once in collect(), inside the ENTRY (not early) branch.
+    assert source.count("root_capture_before_raw_sha256=") == 1
+    assert source.count("root_capture_after_raw_sha256=") == 1
+    assert source.index("root_capture_before_raw_sha256=") > late_block
+    assert source.index("root_capture_after_raw_sha256=") > late_block
 
 
 class TestT3DeferredEnvClosedSet:
