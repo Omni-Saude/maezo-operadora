@@ -250,6 +250,7 @@ from .habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_DE_EQUIPE as 
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import assuntos as _assuntos
+from .habilidades.conversa import sem_modelo as _sem_modelo
 from .habilidades.sintoma.textos import CHAVE_CASO_MANTIDO, CHAVE_REPERGUNTA, TEXTO_CASO_MANTIDO
 from .helena_v4 import (
     ALERTAS,
@@ -6278,8 +6279,8 @@ class HelenaGraph:
         plano = _plano(texto)
         if not plano or _sg.tem_risco(plano) or state.get("sinal_saude_lexico") is True:
             return None
-        if (oferta := _oferta.responder(self, state)) is not None:
-            return oferta  # avaliacao r5 (25/10): o "sim"/"nao" a oferta da equipe, decidido no codigo
+        if (fixa := _sem_modelo.responder(self, state, texto)) is not None:
+            return fixa  # r5/r5b: o "sim"/"nao" a oferta da equipe; o reembolso fora do escopo (texto fixo)
         if _recusa.e_recusa_na_conversa(texto):
             update = self._update_sem_modelo(state)
             abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []

@@ -45,7 +45,17 @@ if TYPE_CHECKING:
 _OFERTA_NA_FALA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:posso passar o seu (?:atendimento|caso) para|quer que eu passe o seu atendimento"
     r"|se (?:voce )?quiser falar com uma pessoa da (?:nossa )?equipe)\b"
+    # Avaliacao r5b (25/10/2026): a OFERTA REDIGIDA PELO MODELO ("Se quiser, eu te encaminho para um atendente
+    # humano") tambem e' oferta pendente: o "quero, pode passar" seguinte abre o caso (antes saia a promessa
+    # "vou te encaminhar" sem caso nenhum).
+    r"|\b(?:eu )?(?:te|lhe) (?:encaminho|passo|transfiro) (?:para|pra) (?:um|uma|a|o|nossa|nosso)?\s*"
+    r"(?:atendente|pessoa|humano|equipe|profissional)"
+    r"|\b(?:posso|podemos) (?:te |lhe )?(?:encaminhar|passar|transferir) (?:voce )?(?:para|pra) "
+    r"(?:um|uma|a|o|nossa|nosso)?\s*(?:atendente|pessoa|humano|equipe|profissional)"
+    r"|\bquer que eu (?:te |lhe )?(?:encaminhe|passe|transfira)\b"
 )
+#: Uma frase que termina em "?": se ela NAO for a propria oferta, o "sim" podia ser a ela.
+_PERGUNTA: Final[re.Pattern[str]] = re.compile(r"[^.!?\n]*\?")
 #: O pedido de PASSAR dito na resposta curta ("pode passar", "quero sim, pode encaminhar").
 _VERBO_DE_PASSAR: Final[re.Pattern[str]] = re.compile(
     r"\b(?:passa|passar|passe|encaminha|encaminhar|encaminhe)\b"
@@ -55,7 +65,8 @@ _VERBO_DE_PASSAR: Final[re.Pattern[str]] = re.compile(
 def oferta_pendente(state: Mapping[str, Any]) -> bool:
     """Ha' uma oferta da equipe esperando resposta: a pendencia da oferta, ou (sem outra pendencia de outra
     habilidade) a ULTIMA fala da Helena oferecendo a equipe: a pergunta da oferta (a memoria de coleta nem
-    sempre atravessa o turno) ou o convite sem outra pergunta ("?": o "sim" podia ser a ela)."""
+    sempre atravessa o turno), a oferta redigida pelo modelo ou o convite, sem OUTRA pergunta na mesma fala
+    (o "sim" podia ser a ela)."""
     pendente = str(state.get("coleta_pendente") or "")
     if pendente:
         return pendente.startswith(PENDENTE_OFERTA_EQUIPE)
@@ -65,7 +76,10 @@ def oferta_pendente(state: Mapping[str, Any]) -> bool:
     ultima = _sem_prefixo(falas[-1].strip())
     if ultima.startswith((TEXTO_OFERTA_POR_REPETICAO, TEXTO_CONFIRMA_PASSAR)):
         return True
-    return "?" not in ultima and bool(_OFERTA_NA_FALA.search(_lc.normalizar(ultima)))
+    if not _OFERTA_NA_FALA.search(_lc.normalizar(ultima)):
+        return False
+    perguntas = _PERGUNTA.findall(ultima)
+    return all(_OFERTA_NA_FALA.search(_lc.normalizar(pergunta)) for pergunta in perguntas)
 
 
 def resposta_a_oferta(texto: str) -> str | None:

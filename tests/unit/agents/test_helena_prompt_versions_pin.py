@@ -50,9 +50,10 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
-    # 15/10/2026 (L-03 do red team): formas indiretas de promessa de contato (ver `docs/decisions-log.md`).
-    "recusa-v11",
-    "85c9d99435fd867d5b431e47793aaed244cff4676a7f32453966e15d687ed905",
+    # 25/10/2026 (avaliacao r5b): "vou te encaminhar", passar/transferir para um humano e "a equipe vai te
+    # responder" passam a ser mencao de encaminhamento (ver `docs/decisions-log.md`).
+    "recusa-v12",
+    "e43025e8b6092f5f335e6bcc83d88fa6f5a8ef4cef427ad6663d23a61387bc88",
 )
 
 
