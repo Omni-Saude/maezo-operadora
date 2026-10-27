@@ -89,6 +89,39 @@ _GENERICAS_DO_MAPA: Final[frozenset[str]] = frozenset(
 )  # fmt: skip
 
 
+def queixa_do_mapa(texto: str, catalogo: _p.Catalogo) -> str | None:
+    """Sem o modelo do mapa (prazo, 27/10/2026: "cansaco, perda de libido" recebeu o clinico generico): a
+    entrada do mapa cujas palavras de queixa (queixa + exemplos) mais casam com a mensagem, pesando as
+    palavras RARAS no mapa ("libido", "lombar") acima das comuns ("dor", "cansaco"); so' com folga clara
+    sobre a segunda. Errar o especialista e' pior que o texto generico: na duvida, `None`."""
+    palavras = _raizes(texto, _PREFIXO_DA_QUEIXA) - _GENERICAS_DO_MAPA
+    if not palavras:
+        return None
+    termos_por_entrada: dict[str, set[str]] = {}
+    for entrada in catalogo.mapa.values():
+        termos: set[str] = set()
+        for t in (entrada.queixa, *entrada.como_a_pessoa_fala):
+            termos |= _raizes(t, _PREFIXO_DA_QUEIXA)
+        termos_por_entrada[entrada.id] = termos - _GENERICAS_DO_MAPA
+    frequencia: dict[str, int] = {}
+    for termos in termos_por_entrada.values():
+        for r in termos:
+            frequencia[r] = frequencia.get(r, 0) + 1
+    pontos = {
+        eid: sum(1.0 / frequencia[r] for r in palavras & termos) for eid, termos in termos_por_entrada.items()
+    }
+    ordem = sorted(pontos.items(), key=lambda kv: kv[1], reverse=True)
+    if not ordem or ordem[0][1] < _PONTOS_MINIMOS:
+        return None
+    segundo = ordem[1][1] if len(ordem) > 1 else 0.0
+    return ordem[0][0] if ordem[0][1] >= _FOLGA * segundo else None
+
+
+#: A queixa sem modelo precisa de uma palavra rara (unica no mapa = 1 ponto) e do dobro da segunda.
+_PONTOS_MINIMOS: Final[float] = 1.0
+_FOLGA: Final[float] = 2.0
+
+
 def ultima_queixa(falas_da_pessoa: Sequence[str], catalogo: _p.Catalogo) -> str:
     """A fala mais recente da pessoa que descreve um problema (uma palavra de queixa dos exemplos do mapa),
     ou "". `falas_da_pessoa` sem a mensagem atual, da mais antiga para a mais recente."""
