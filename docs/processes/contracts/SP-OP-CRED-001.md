@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (médico-auditor/jurídico/DPO/regulatório/finanças/PO) before any deploy` (docs/review-queue.md)
 **Fase:** 3 (ONE-PHASE-AHEAD — autorado contra contrato; BPMN/DMN/worker autorados na wave de BUILD W-B) · **BPMN (alvo):** `spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn`
-**Gatilho regulatorio:** **RN 567 (DRAFT/verify — regulatório/jurídico sign-off pending)** (descredenciamento de prestador hospitalar / notificação prévia ao beneficiário e à ANS / substituição equivalente); **RN 566 (DRAFT/verify — regulatório/jurídico sign-off pending)** (garantias de rede / dimensionamento); Lei 9.656/1998 art. 17 (alteração/redimensionamento da rede assistencial — **DRAFT/verify**). Descredenciar prestador (`provider_decredentialing`) **E** negar pedido de credenciamento sao **DUAS direcoes adversas distintas** → matriz **L1** (so humano; nao auto-rebaixavel por tenant; CI rejeita rebaixamento — ADR-0008). **TODAS as citacoes/prazos/escadas de alcada/candidate-groups sao DRAFT/verify.**
+**Gatilho regulatorio:** **RN 567 (DRAFT/verify — regulatório/jurídico sign-off pending)** (descredenciamento de prestador hospitalar / notificação prévia ao beneficiário e à ANS / substituição equivalente); **RN 566 (DRAFT/verify — regulatório/jurídico sign-off pending)** (garantias de rede / dimensionamento); Lei 9.656/1998 art. 17 (alteração/redimensionamento da rede assistencial — **DRAFT/verify**), com o **art. 17 § 4º** DESDOBRADO em §REG-1.9 abaixo (autorização expressa ANS p/ redução de rede hospitalar — DARK, confirmação jurídica PENDENTE). Descredenciar prestador (`provider_decredentialing`) **E** negar pedido de credenciamento sao **DUAS direcoes adversas distintas** → matriz **L1** (so humano; nao auto-rebaixavel por tenant; CI rejeita rebaixamento — ADR-0008). **TODAS as citacoes/prazos/escadas de alcada/candidate-groups sao DRAFT/verify.**
 **Inverte o anti-padrao:** `../maezo-reference/healthcare_platform/platform_services/bpmn/SP-PS-002_Credentialing.bpmn` (READ-ONLY, ADR-0011) — que tem um `Gateway_Approval` **bare** com `${credential_approved == true/false}` roteando direto para `Task_ActivateCredentials` (auto-credencia) OU `Task_SendRejection` (**auto-rejeita, sem humano**), e um `Boundary_LicenseTimeout` (P30D) → `Task_ExpireRequest` (**auto-expira por timeout**). Em Maezo as duas direcoes adversas (negar credenciamento; descredenciar) nascem **so** em User Task humana; a DMN apenas **sinaliza candidata e roteia**; nenhum caminho automatizado nega ou descredencia, e nenhum timeout auto-expira/auto-descredencia. Ver §"Notas de design / inversao do reference". **Clona o esqueleto SP-OP-CANCEL-001** (cure-window/event-gateway de notificacao previa + terminais adversos humano-gated).
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/agente (Carolina — PHI zone, `credentialing.analyze`) derivam dele. Toda a mecanica no-adverse de cinco partes (ADR-0018) esta materializada abaixo, **para as duas direcoes adversas**.
@@ -272,10 +272,44 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - **TASY write DROP** em todo worker: consumimos o CDC do amh-data-platform, nunca escrevemos no Tasy (MEMORY/ADR-0013).
 - **Reference e READ-ONLY / portado, nunca importado** (ADR-0011): o anti-padrao de auto-decisao e **INVERTIDO**, nao herdado.
 
+## REG-1.9 — Desdobro Lei 9.656/1998 art. 17 § 4º — autorização expressa ANS p/ redução de rede hospitalar (DARK)
+
+> **DARK / informativo (REG-1.9):** este desdobro é spec/contrato. NENHUM elemento BPMN, DMN, variável de engine, worker ou wiring de produção é criado aqui (`grep -rn "ans_reducao_" src/ spec/` → 0 ocorrências; a cerca estática `tests/unit/docs/test_reg19_art17_par4_cred_desdobro.py` RECUSA qualquer ocorrência nova em `src/`/`spec/`). A modelagem de runtime (elemento BPMN + campos de formulário da User Task + guard de worker) só acontece APÓS a confirmação humana registrada no bloco §CONFIRMAÇÃO PENDENTE abaixo.
+
+**Fonte primária (acesso Planalto 2026-10-27; auditoria `REG-RESIDUAL-AUDIT-v1.md` §3.8/§5 item 2, bundle `docs/audits/JOURNEYS-COMPLETENESS-2026-10/` — gitignored; snapshot consumido com cp+sha256 `5f25e8a4490eb26eccea0ff52efcd51f184d52bc32714ce85db3f301154c0597`):** Lei 9.656/1998, art. 17, § 4º — **"Em caso de redimensionamento da rede hospitalar por redução, as empresas deverão solicitar a ANS autorização expressa"**, informando:
+
+- **I** — nome da entidade excluída;
+- **II** — capacidade operacional reduzida;
+- **III** — impacto sobre a base de beneficiários (nota da auditoria: parâmetros ANS, necessidade de leitos × capacidade restante);
+- **IV** — justificativa, mantendo cobertura equivalente sem ônus adicional.
+
+URL da fonte: `https://www.planalto.gov.br/ccivil_03/leis/l9656.htm` · **DRAFT/verify — a confirmação da leitura e do texto vigente é HUMANA (bloco abaixo); nenhuma ratificação por agente.**
+
+### Aplicabilidade (desenho)
+
+O passo aplica-se ao ramo da **direção A** (`End_PrestadorDescredenciado`) quando o descredenciamento configura **redimensionamento da rede hospitalar POR REDUÇÃO** — tipicamente `tipo_prestador=hospital` com beneficiários vinculados. A matriz de hipóteses por `tipo_prestador` (já pendente em §Pendencias) é quem delimita o caso; esta seção NÃO a decide e NÃO a antecipa. Substituição por prestador equivalente SEM redução de capacidade (RN 567, `End_SubstituicaoRegistrada`) NÃO é, por si, o caso do § 4º — não conflatar.
+
+### Dossiê mínimo de solicitação à ANS — os 4 incisos como dados exigidos (conjunto FECHADO)
+
+| Campo (desenho — DARK, sem variável de engine hoje) | Inciso | Tipo | Obrigatório |
+|---|---|---|---|
+| `ans_reducao_entidade_excluida` | I | string | sim |
+| `ans_reducao_capacidade_operacional_reduzida` | II | string | sim |
+| `ans_reducao_impacto_base_beneficiarios` | III | string | sim |
+| `ans_reducao_justificativa_cobertura_equivalente` | IV | string | sim |
+
+**Regra fail-closed (desenho):** o conjunto é FECHADO nos 4 incisos. Falta QUALQUER um dos 4 ⇒ o passo NÃO pode ser confirmado como cumprido: a confirmação de "autorização expressa ANS obtida" é **RECUSADA** e o desfecho adverso pela via de redução não pode ser registrado. No BUILD futuro (pós-confirmação) isto vira campo obrigatório de formulário da User Task humana + guard no worker adverso, no molde `comprovacao_notificacao_previa`/`ERR_DECRED_NOT_HUMAN` desta mesma casa. Nenhum caminho automatizado obtém, infere ou presume a autorização expressa: a solicitação à ANS e a resposta da ANS são fatos institucionais externos registrados por humano — DMN/worker NUNCA simula a resposta da ANS.
+
+### CONFIRMAÇÃO PENDENTE (fila jurídica/R-CRED) — AGENTES NÃO RATIFICAM
+
+- **Pendência:** confirmação humana (jurídico/regulatório — fila R do CRED, `docs/review-queue.md:163`) de: (a) a leitura do § 4º e do escopo "redução de rede hospitalar" aplicada ao descredenciamento; (b) o conjunto dos 4 incisos como dossiê mínimo FECHADO; (c) a regra fail-closed; (d) a âncora verbatim contra o texto vigente (a Lei pode ter sido alterada/consolidada).
+- **Enquanto pendente:** esta seção permanece **DARK e DRAFT/verify**; NEM a citação do gatilho regulatório (§header) sai do DRAFT/verify; NENHUM elemento BPMN, DMN, worker ou variável de engine a materializa.
+- **Ao confirmar (e só então):** emenda BPMN spec (`spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn` — FORA do escopo do pacote REG-1.9, que é spec/contrato por briefing) + campos de formulário da User Task + guard fail-closed no worker adverso + saída do DRAFT/verify, no padrão de promoção da casa; a extensão do test-spec de engine (`docs/processes/test-specs/SP-OP-CRED-001.md`) acompanha essa emenda, não esta.
+
 ## Pendencias para promocao a FINAL
 
 - DI (diagrama BPMN) e os bodies `.bpmn`/`.dmn`/`workers/cred.py` (autorados na wave de BUILD W-B, contra este contrato).
-- Confirmacao de **todas** as citacoes RN com regulatorio/juridico: **RN 567** (descredenciamento — antecedencia de notificacao previa ao beneficiario/ANS; obrigacao de substituicao por equivalente; quando aplica a hospital vs demais) e **RN 566** (garantias/dimensionamento de rede); Lei 9.656 art. 17 — **DRAFT/verify** contra texto vigente ANS (podem ter sido consolidadas/substituidas).
+- Confirmacao de **todas** as citacoes RN com regulatorio/juridico: **RN 567** (descredenciamento — antecedencia de notificacao previa ao beneficiario/ANS; obrigacao de substituicao por equivalente; quando aplica a hospital vs demais) e **RN 566** (garantias/dimensionamento de rede); Lei 9.656 art. 17 — **DRAFT/verify** contra texto vigente ANS (podem ter sido consolidadas/substituidas). **REG-1.9:** o § 4º (autorização expressa ANS p/ redução de rede hospitalar) foi DESDOBRADO em §REG-1.9 deste contrato (verbatim + 4 incisos + regra fail-closed, DARK) — pendente da MESMA confirmação jurídica desta linha; a âncora no BPMN spec fica FORA do escopo do pacote REG-1.9 (spec/contrato apenas, por briefing) e acompanha a promoção pós-confirmação.
 - Confirmacao de TODOS os prazos (SLA de analise; cure-window de notificacao previa; conversao dias uteis→ISO).
 - **Confirmacao dos candidate groups** `gestao-rede` / `juridico-rede` / `coordenacao-rede` contra a taxonomia organizacional (PO / IdP).
 - Promocao de `provider_decredentialing` a `_hard_frozen.yaml` (L1) — sign-off arquitetura+compliance.
