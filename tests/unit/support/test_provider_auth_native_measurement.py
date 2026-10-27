@@ -1292,7 +1292,11 @@ def _direct_measurement(*, seq: int = 0) -> tuple[dict, dict, dict, dict, dict, 
             )
         ]
     }
-    vm = {"boot_uuid": "boot-unit", "process_pid_namespace": 42, "runtime_mxbean_start_epoch_ms": "1750000000000"}
+    vm = {
+        "boot_uuid": "boot-unit",
+        "process_pid_namespace": 42,
+        "runtime_mxbean_start_epoch_ms": "1750000000000",
+    }
     origin = {
         "class_sha256": "4" * 64,
         "jar_relative_path": "lib/provider-auth-test-support.jar",
@@ -1446,10 +1450,20 @@ def _d2_stage_events() -> tuple[list, dict]:
     seal = base + timedelta(seconds=1, milliseconds=2)
     marker_at = runtime.clock(marker)
     events = [
-        dict(kind="HOLD", endpoint="ENTRY", measurement=dict(connection_reference_ordinal=1), emitted_at=runtime.clock(base)),
+        dict(
+            kind="HOLD",
+            endpoint="ENTRY",
+            measurement=dict(connection_reference_ordinal=1),
+            emitted_at=runtime.clock(base),
+        ),
         dict(kind="RELEASE", endpoint="ENTRY", emitted_at=runtime.clock(base + timedelta(milliseconds=1))),
         dict(kind="SEAL", endpoint="ENTRY", emitted_at=runtime.clock(base + timedelta(milliseconds=2))),
-        dict(kind="HOLD", endpoint="COMMITTING", measurement=dict(connection_reference_ordinal=1), emitted_at=runtime.clock(base + timedelta(milliseconds=3))),
+        dict(
+            kind="HOLD",
+            endpoint="COMMITTING",
+            measurement=dict(connection_reference_ordinal=1),
+            emitted_at=runtime.clock(base + timedelta(milliseconds=3)),
+        ),
         dict(kind="RELEASE", endpoint="COMMITTING", emitted_at=runtime.clock(release)),
         dict(
             kind="SEAL",
@@ -1524,9 +1538,7 @@ def test_schema_v4_seal_forms_admit_own_endpoint_and_refuse_the_cross():
             schema, "SEAL", dict(seal_committing, measurement=_schema_valid_direct_measurement())
         )
     with pytest.raises(runtime.NativeObservationError, match="SEAL shape refused"):
-        measurement.validate(
-            schema, "SEAL", dict(seal_committing, stable_tuple_equal_after_wait=True)
-        )
+        measurement.validate(schema, "SEAL", dict(seal_committing, stable_tuple_equal_after_wait=True))
     # The declared const-true of re-measure is PRESENT and true on ENTRY and
     # AUSENTE on COMMITTING (both schema-level and replay-level, u6).
     assert seal_entry["stable_tuple_equal_after_wait"] is True
@@ -1606,7 +1618,17 @@ def test_replay_measurements_repin_per_endpoint():
     ):
         with pytest.raises(runtime.NativeObservationError, match="re-measure"):
             measurement.NativeMeasurementProvenance._measurements(
-                hold_committing, declared, response, 0, vm, origin, actual, installation, census, before, after
+                hold_committing,
+                declared,
+                response,
+                0,
+                vm,
+                origin,
+                actual,
+                installation,
+                census,
+                before,
+                after,
             )
     # The retained stage document is the in-tx HOLD — never a post-commit fresh
     # (the ENTRY branch still refuses a diverging seal measurement).
@@ -1647,11 +1669,7 @@ def test_stage_close_chain_requires_marker_before_seal_and_accepts_the_full_chai
     foreign_marker[5] = dict(events[5], committed_marker_at=runtime.clock(_OBSERVED_AT))
     assert not measurement._stage_close_chain_ok(foreign_marker, closed)
     # The rest of the chain is still required, link by link.
-    for key, delta in (
-        ("executor_return_at", timedelta(seconds=5)),
-        ("context_closed_at", timedelta(seconds=5)),
-        ("emitted_at", timedelta(seconds=5)),
-    ):
+    for key in ("executor_return_at", "context_closed_at", "emitted_at"):
         broken = dict(closed, **{key: runtime.clock(_OBSERVED_AT - timedelta(seconds=9))})
         assert not measurement._stage_close_chain_ok(events, broken)
     # RELEASE-06 AFTER the marker: the EXPECTED observation that does NOT
@@ -1668,7 +1686,11 @@ def test_stage_close_chain_repin_is_wired_into_the_replay():
     source = inspect.getsource(measurement.NativeMeasurementProvenance.validate)
     assert "_stage_close_chain_ok(stage_events, closed)" in source
     # The OLD chain shape (SEAL bracketing the marker from below) is gone.
-    assert 'runtime._observation_time(stage_events[5]["emitted_at"])\n                <= runtime._observation_time(closed["committed_marker_at"])' not in source
+    old_link = (
+        'runtime._observation_time(stage_events[5]["emitted_at"])'
+        '\n                <= runtime._observation_time(closed["committed_marker_at"])'
+    )
+    assert old_link not in source
 
 
 def test_d2_post_commit_seam_is_endpoint_conditional_and_committed_listener_scoped():
@@ -1679,14 +1701,11 @@ def test_d2_post_commit_seam_is_endpoint_conditional_and_committed_listener_scop
     registered in openStage.
     """
     root = Path(measurement.__file__).resolve().parents[2]
-    observer = (
-        root
-        / "src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/RuntimeDefinitionObservation.java"
-    ).read_text()
-    instrument = (
-        root
-        / "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/ProviderNativeIndependentMeasurement.java"
-    ).read_text()
+    java = root / "src/maezo/portal/engine/java/src"
+    observer_path = java / "main/java/br/com/maezo/workload/RuntimeDefinitionObservation.java"
+    instrument_path = java / "test/java/br/com/maezo/workload/ProviderNativeIndependentMeasurement.java"
+    observer = observer_path.read_text()
+    instrument = instrument_path.read_text()
     # The COMMITTING seam consumes the hold and NOTHING else in-tx.
     assert "port.hold(endpoint);" in observer
     assert "if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.awaitRootRelease();" in observer
@@ -1706,5 +1725,5 @@ def test_d2_post_commit_seam_is_endpoint_conditional_and_committed_listener_scop
         "addTransactionListener(TransactionState.COMMITTED"
     )
     assert '"committed_marker_at", stage.committedAt' in instrument
-    assert 'state = State.HOLD_POSTPONED;' in instrument
+    assert "state = State.HOLD_POSTPONED;" in instrument
     assert "stage.committing = held;" in instrument

@@ -376,9 +376,7 @@ REFUSAL_COMMIT_PROVENANCE = {
         "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
     ),
     "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
-    "d2_post_refusal_commit_effect": (
-        "commit-after-refusal-on-already-terminal-transaction-is-a-clog-noop"
-    ),
+    "d2_post_refusal_commit_effect": ("commit-after-refusal-on-already-terminal-transaction-is-a-clog-noop"),
 }
 
 
@@ -2151,16 +2149,12 @@ class NativeMeasurementProvenance:
                 or "stable_tuple_equal_after_wait" in seal
                 or "same_ctx_connection_after_wait" in seal
             ):
-                raise runtime.NativeObservationError(
-                    "COMMITTING custody-only SEAL cannot declare re-measure"
-                )
+                raise runtime.NativeObservationError("COMMITTING custody-only SEAL cannot declare re-measure")
             measurements = (a,)
         else:
             b = seal["measurement"]
             if any(a[k] != b[k] for k in stable):
-                raise runtime.NativeObservationError(
-                    "Independent direct measurement identity/config changed"
-                )
+                raise runtime.NativeObservationError("Independent direct measurement identity/config changed")
             measurements = (a, b)
         for measurement in measurements:
             session_value = measurement["session_transaction"]
