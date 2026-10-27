@@ -308,6 +308,33 @@ def especialista_do_protocolo(protocolo: _p.Protocolo, textos: _p.TextosDoEspeci
     return f"{frase} {textos.como_marcar}"
 
 
+_PUBLICO_DO_ESPECIALISTA: Final[frozenset[str]] = frozenset({"homens", "mulheres"})
+
+
+def _especialistas_por_publico(
+    entrada: _p.EntradaDoMapa, textos: _p.TextosDoEspecialista
+) -> tuple[str, str] | None:
+    """Entrada com especialista por publico (`quando: homens|mulheres`): ("o A (homens), o B (mulheres)",
+    "o C"). `None` = a entrada nao separa por publico."""
+    nomes: list[str] = []
+    separa = False
+    for esp in entrada.especialista_depois:
+        if esp.cfm is None:
+            continue
+        leigo = textos.nome_leigo(esp.cfm)
+        if leigo is None:
+            continue
+        quando = str(getattr(esp, "quando", "") or "").strip().lower()
+        if quando in _PUBLICO_DO_ESPECIALISTA:
+            separa = True
+            nomes.append(f"{leigo} (para {quando})")
+        else:
+            nomes.append(leigo)
+    if not separa or len(nomes) < 2:
+        return None
+    return ", ".join(nomes[:-1]), nomes[-1]
+
+
 def especialista_do_mapa(
     entrada: _p.EntradaDoMapa | None, publico: str, textos: _p.TextosDoEspecialista
 ) -> tuple[str, bool]:
@@ -336,6 +363,15 @@ def especialista_do_mapa(
             leigos.append(leigo)
     if mental and "saude_mental" in textos.modelos:
         return f"{_formatar(textos.modelos['saude_mental'], queixa=queixa)} {textos.como_marcar}", True
+    por_publico = _especialistas_por_publico(entrada, textos)
+    if por_publico is not None and "dois_especialistas" in textos.modelos:
+        # Teste do dono de 27/10/2026 (cansaco e libido): o urologista para homens, o ginecologista para
+        # mulheres, ou o endocrinologista; o clinico como porta de entrada.
+        primeiro, ultimo = por_publico
+        frase = _formatar(
+            textos.modelos["dois_especialistas"], queixa=queixa, especialista=primeiro, especialista2=ultimo
+        )
+        return f"{frase} {textos.como_marcar}", False
     if not leigos:
         frase = textos.modelos["nao_sei"]
     elif entrada.lacuna is not False:
@@ -371,10 +407,19 @@ def texto_sem_sinal(
     do MAPA quando a pessoa perguntou qual profissional procurar (teste do dono de 26/10/2026)."""
     corpo, fim = _corpo_e_seguranca(protocolo, textos)
     destino = protocolo.destino_se_nenhum_sinal
-    if destino in _DESTINO_POR_SINAL:
-        return f"{corpo}\n\n{texto_do_destino_por_sinal(destino, protocolo.publico)}"
     especialista = especialista or especialista_do_protocolo(protocolo, textos)
+    if destino in _DESTINO_POR_SINAL:
+        # Dono, 27/10/2026: todo final de protocolo diz o especialista, inclusive atendimento hoje.
+        return f"{corpo}\n\n{especialista}\n\n{texto_do_destino_por_sinal(destino, protocolo.publico)}"
     return f"{PONTE_SEM_SINAL} {corpo}\n\n{especialista}\n\n{fim}"
+
+
+def texto_do_destino_com_especialista(
+    destino: str, protocolo: _p.Protocolo, textos: _p.TextosDoEspecialista, especialista: str | None = None
+) -> str:
+    """Atendimento hoje / pronto-socorro por SINAL, com o especialista da queixa depois (dono, 27/10/2026)."""
+    frase = especialista or especialista_do_protocolo(protocolo, textos)
+    return f"{texto_do_destino_por_sinal(destino, protocolo.publico)}\n\n{frase}"
 
 
 def texto_de_seguimento(
@@ -441,6 +486,9 @@ def prompt_da_escolha(catalogo: _p.Catalogo, *, bloco_conversa: str, bloco_mensa
             "5 Queda ou trauma junto com dor ('cai da escada e doem as costas', 'levei um tombo', 'bati o "
             "carro', 'torci o pe'') usa o protocolo de QUEDA/TRAUMA (adulto: tri-adulto-queda-ou-trauma; "
             "crianca que bateu a cabeca: o de queda ou batida na cabeca da faixa), nao o da parte do corpo.",
+            "6 Desanimo ou cansaco JUNTO de sintomas fisicos ou hormonais (perda de libido, baixa energia, "
+            "ganho de peso, calores, queda de cabelo) NAO e' saude mental: escolha o protocolo da queixa "
+            "fisica ou nenhum. Saude mental so' com tristeza, angustia, ansiedade ou pensamentos de morte.",
             'Responda SO\' um JSON numa linha: {"publico":"adulto|crianca|gestante|puerpera",'
             '"faixa_crianca":"0_2m|2m_5a|5_12a|adolescente|desconhecida|nao_se_aplica",'
             '"protocolo":"<id>|nenhum"}',
