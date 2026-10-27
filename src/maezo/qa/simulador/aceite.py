@@ -2633,6 +2633,11 @@ _ALERTA_UNIVERSAL = r"sobre o que voce esta sentindo, me diga"
 _REPERGUNTA = r"(so para confirmar|nao entendi bem|tive um problema para entender)"
 _DOSE = r"(\bdose\b|\d+ ?(mg|ml|gotas)\b)"
 _NAO_DEVE_ESPECIALISTA = (*_NAO_DEVE_SEMPRE, _TEXTO_ANTIGO_NAVEGACAO, _TEXTO_ANTIGO_ESPECIALISTA)
+#: A conferencia do especialista ("o certo nao seria...?") nunca nomeia OUTRA queixa que nao a contada.
+_OUTRA_QUEIXA_DA_TORCAO = r"(costas|lombar|coluna|juntas|articula|cabeca|peito|barriga|joelho|ombro)"
+_OUTRA_QUEIXA_DAS_JUNTAS = (
+    r"(costas|lombar|coluna|tornozelo|joelho|ombro|cabeca|peito|barriga|menopausa|prostata|queda|trauma)"
+)
 _JUNTAS_E_FRAQUEZA = (
     "Ando sentindo dor nas articulações e uma fraqueza nos músculos no dia a dia, que tipo de profissional "
     "devo procurar?"
@@ -2684,7 +2689,8 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "Você não acha que o certo seria eu me consultar com um ortopedista ou um fisioterapeuta?",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("ortopedista", _CANAIS_DE_MARCAR),
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
+                # Rodada de 26/10: "boa opcao para dor nas costas (lombar)" para a torcao do tornozelo.
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _OUTRA_QUEIXA_DA_TORCAO),
             ),
             _p(
                 "Certo. Queria falar também de uma coisa com um dos meus dependentes. Aliás, quem são "
@@ -2760,7 +2766,7 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "O certo não seria com um reumatologista ou um ortopedista?",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(r"(reumatologista|ortopedista)", "clinico geral", _CANAIS_DE_MARCAR),
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _OUTRA_QUEIXA_DAS_JUNTAS),
             ),
             _p(
                 "Estou com muita dificuldade para emagrecer e sinto que meu metabolismo ficou mais "

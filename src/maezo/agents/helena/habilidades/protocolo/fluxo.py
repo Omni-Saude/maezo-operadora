@@ -419,12 +419,19 @@ async def _sugestao_de_especialista(
     self: HelenaGraph, state: Mapping[str, Any], ultimo: _p.Protocolo | None
 ) -> dict[str, Any]:
     """Teste do dono de 26/10/2026 ("o correto nao seria um ortopedista?", "nao seria melhor um
-    reumatologista?"): o especialista do MAPA para a queixa da conversa (escolhida pelo modelo; sem ele, a do
-    ultimo protocolo), o clinico como primeira avaliacao, e a sugestao aceita so' quando o mapa a admite."""
+    reumatologista?"): o especialista do MAPA para a queixa (a fala que abriu o protocolo; sem ele, a da
+    conversa; sem o modelo, a do ultimo protocolo), o clinico como primeira avaliacao, e a sugestao aceita
+    so' quando o mapa a admite."""
     catalogo = self._protocolos
     assert catalogo is not None and catalogo.textos is not None
     textos = catalogo.textos
     conversa, mensagem = _blocos(self, state)
+    # Rodada de 26/10/2026: "o certo nao seria ortopedista?" depois de "torci o tornozelo" recebeu "boa
+    # opcao para dor nas costas (lombar)". Com protocolo na conversa, a queixa e' SO' a fala que abriu as
+    # perguntas dele (sem a conversa: o modelo nao escolhe outra queixa dela), como no #1035.
+    abertura = _pergunta_que_abriu(state, ultimo) if ultimo is not None else ""
+    if abertura:
+        conversa, mensagem = "", render_untrusted_block("message_body", abertura)
     lido = await _chamar(
         self,
         state,

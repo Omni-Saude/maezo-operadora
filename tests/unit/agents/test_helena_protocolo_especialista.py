@@ -457,3 +457,29 @@ async def test_o_mapa_le_a_queixa_da_fala_que_abriu_as_perguntas_nao_a_resposta(
     nova = modelo.prompts["mapa"][0].split("MENSAGEM NOVA:", 1)[1]
     assert "articulações" in nova and "já respondi" not in nova
     assert "reumatologista" in whatsapp.enviados[-1]
+
+
+@pytest.mark.parametrize(
+    ("conversa", "abertura", "fala"),
+    [
+        (
+            _CONVERSA_DA_TORCAO,
+            _TORCAO,
+            "Você não acha que o certo seria um ortopedista ou um fisioterapeuta?",
+        ),
+        (_CONVERSA_DAS_JUNTAS, _JUNTAS, "O certo não seria com um reumatologista ou um ortopedista?"),
+    ],
+)
+async def test_a_sugestao_le_a_queixa_so_da_fala_que_abriu_o_protocolo(
+    conversa: list[tuple[str, str]], abertura: str, fala: str
+) -> None:
+    """Rodada de 26/10/2026: "o certo nao seria ortopedista?" depois da torcao recebeu "boa opcao para dor
+    nas costas (lombar)". O mapa da sugestao recebe so' a fala que abriu o protocolo, sem a conversa."""
+    modelo = _Modelo([decisao_v7("saude")], mapa=[_mapa("esp-queixa-pe-tornozelo")])
+    grafo, _, _ = _grafo(modelo)
+    await grafo.ainvoke(_com_historico(fala, conversa))
+    assert len(modelo.prompts["mapa"]) == 1
+    prompt = modelo.prompts["mapa"][0]
+    nova = prompt.split("MENSAGEM NOVA:", 1)[1]
+    assert abertura in nova and fala not in nova
+    assert prompt.split("CONVERSA:", 1)[1].split("MENSAGEM NOVA:", 1)[0].strip() == "(vazia)"
