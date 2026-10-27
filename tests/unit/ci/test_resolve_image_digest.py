@@ -98,3 +98,20 @@ def test_explicit_request_ignores_tfvars(tmp_path: Path) -> None:
     rc, out, log = _run(tmp_path, STAFF_TFVARS, [APP], requested=APP)
     assert rc == 0, log
     assert out["image_refs"] == f"reg/amh/maezo-operadora@{APP}"
+
+
+def test_missing_tag_fails_closed(tmp_path: Path) -> None:
+    """VIOLAÇÃO (W7 7.2): tag pedida não existe — recusa; tag é alvo móvel."""
+    rc, out, log = _run(tmp_path, STAFF_TFVARS, [APP], requested="v999")
+    assert rc == 1
+    assert "Tag inexistente" in log
+    assert "image_ref" not in out
+
+
+def test_digest_absent_from_ecr_fails_closed(tmp_path: Path) -> None:
+    """VIOLAÇÃO (W7 7.2): digest que o ECR não tem — recusa antes de assinar/verificar."""
+    ghost = "sha256:" + "b" * 64
+    rc, out, log = _run(tmp_path, STAFF_TFVARS, [APP], requested=ghost)
+    assert rc == 1
+    assert "Digest inexistente" in log
+    assert "image_ref" not in out
