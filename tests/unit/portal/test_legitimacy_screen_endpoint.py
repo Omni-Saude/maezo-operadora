@@ -911,3 +911,47 @@ async def test_caminho_comercial_byte_identico_com_flag_off_e_on() -> None:
             payloads.append(response.content)
     assert payloads[0] == payloads[1]
     assert json.loads(payloads[0])["reason_code"] == "binding_unqualified"
+
+
+# ---------------------------------------------------------------------------
+# Prova 8 (shard `restante`) — firewall PHI camada 2: nenhum slot clínico
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_corpo_hostil_com_dado_clínico_não_tem_slot_nem_ecoa() -> None:
+    """Desenho §7 prova 8: nenhum campo da tela aceita dado clínico/de saúde. Os fatos
+    contratacionais (vínculo, tipo/forma, incisos) são os ÚNICOS insumos — um corpo hostil
+    que chegue com slot clínico é recusado na porta (400) antes de qualquer efeito e nada
+    dele ecoa. O vocabulário `phi_in_commercial_input` da camada 2 do CAMINHO COMERCIAL é
+    do guard e é provado no shard `gateway-platform`; aqui a forma FECHADA recusa o campo
+    antes de existir slot para ele."""
+    campos_hostis = (
+        "diagnostico",
+        "cid10",
+        "historico_clinico",
+        "prescricao",
+        "alergias",
+        "cartao_nacional_de_saude",
+    )
+    async with LegitimacyApp(flag=True, bind=True) as app:
+        csrf = await session_csrf(app)
+        for campo in campos_hostis:
+            resposta = await post(app, csrf, body(**{campo: "j45 — asma"}))
+            assert resposta.status_code == 400, campo
+            assert resposta.json() == {"code": "invalid_request"}
+            assert campo not in resposta.text
+            assert app.store.calls == []
+
+
+@pytest.mark.asyncio
+async def test_nenhum_token_clínico_em_string_da_superfície() -> None:
+    """A tela fala de CONTRATAÇÃO (parecer §5), nunca de dado de saúde: nenhum token
+    clínico existe em string nenhuma do manifest servido."""
+    tokens_clínicos = ("diagnos", "cid10", "prescri", "alerg", "prontuár", "histórico clínico")
+    async with LegitimacyApp(flag=True, bind=True) as app:
+        await session_csrf(app)
+        manifest = (await app.client.get(ROUTE + "/checklist")).json()
+    texto = json.dumps(manifest, ensure_ascii=False).lower()
+    for token in tokens_clínicos:
+        assert token not in texto, token
