@@ -115,7 +115,16 @@ def _run(
     argv = ["bash", str(SCRIPT)]
     if image_ref is not None:
         argv.append(image_ref)
-    result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=120, check=False)
+    result = subprocess.run(
+        argv,
+        env=env,
+        # o script escreve cosign-verify*.txt relativos ao CWD — isolar em tmp
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
     return result.returncode, result.stdout + result.stderr, shim_log
 
 
