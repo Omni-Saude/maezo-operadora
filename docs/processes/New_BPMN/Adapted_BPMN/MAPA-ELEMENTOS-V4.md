@@ -216,3 +216,16 @@ Caminho canônico de qualquer ponte futura (D-02, citado do ruling): nova chave 
 - Contagem e pareamento: gerados do XML em main @ `5a8ba09e` (shas por arquivo na §1); snapshot dos documentos de auditoria gitignored consumido com cp+sha256 (`/tmp/w2-corp27-snapshot-211616`; FINDINGS `ba2ed41e…`, COMPARISON `b788149e…`, INVENTORY-A-V4 `428dac64…`, TRACEABILITY `87694ddf…`).
 - "CASA" = capacidade existente que exerce a função, NÃO admissão runtime do desenho v4 (o corpus CA continua `runtime_admitted: false`; F1/F2 em `contracts.json:1814,1892`). A maturidade por elemento permanece `none` no sentido da auditoria; o que este mapa estabelece é a CASA FUNCIONAL de cada vocabulário, conforme D-02 ("cada elemento ganha casa real" sem forquilha).
 - Nomes de empresa/pessoa: zero nos `.bpmn` (heurística re-executada pela auditoria: 0 hits em 500 valores distintos); este documento cita apenas caminhos de código e chaves SP-OP.
+
+## §11 Disposição REG-1.4 (2026-10-27) — âncora da obrigação TISS: `U4_T_Liquidar` ancorado; `C3_T_Requisitar` PENDENTE-BROKER
+
+Item 8 do despacho (REG-RESIDUAL-AUDIT-v1.md §3.3/§4, snapshot `5f25e8a4…`): a obrigação do canal TISS deve aparecer nas jornadas com ponte ao RX8 — até hoje 0 menções "tiss" nos 4 v4 e a palavra "ponte" sem registro em artefato rastreado vivo. Esta §11 é a **disposição formal da ponte** (2ª alternativa do veículo do audit), aplicada em conjunto com a âncora da 1ª alternativa no elemento editável (CORRECOES §13):
+
+| Elemento-alvo | Arquivo | Disposição |
+|---|---|---|
+| `U4_T_Liquidar` (C-3 — contas/glosa, vocabulário TISS) | `CA_2_UTILIZACAO_v4_adaptado.bpmn:742` | **APLICADA nesta leva** — documentation prefixada com a obrigação: padrão TISS **RN 501/2022** (revogou RN 305/2012 e RN 341/2013; Componente de Comunicação) + registro **RX8** (canal = Componente de Comunicação TISS 04.03.00, competência set/2026). Diff = 1 linha; DI intocada. Detalhe e gates: CORRECOES §13. |
+| `C3_T_Requisitar` (C-2 — requisição na rota de autorização) | `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | **PENDENTE-BROKER — NÃO aplicada nesta leva.** O arquivo é LEITURA-ONLY (§4 acima): cerca permanente §0(1) de `docs/plans/maezo-completion-program.md:15` ("CA_1 exige broker via COORDINATION") + D-30 (`:138` — "Broker agora, 3 arquivos primeiro… proposta de coordenação CA_1 via canal broker"). Prova da cerca nesta leva: git diff do pacote = **0 linhas** em CA_1 v4; pin (d) de `tests/processes/test_ca2_v4_regression_reg14_tiss_anchor.py` cerca a existência do alvo. Quando o pacote broker abrir CA_1, aplicar a MESMA forma de âncora (RN 501/2022 + RX8) neste elemento, com changelog mapeado a este registro. |
+
+- **Fonte do RX8** (gitignored, cp+sha256 antes de consumir): `docs/audits/PROVIDER-XP-2026-10/PROVIDER-CAPABILITY-DESIGN.md:138`, sha256 `64980b42da1693343cb927c874086e791d45dc551495f9fa87d270877cea72f5`. **Norma**: RN 501/2022 (`docs/compliance/rn-currency-review.md` §2.5; forma canônica verificada em origin/main `f57f0821`).
+- **Varredura de escopo**: CA_0 e CA_3 v4 não têm elemento de obrigação TISS (`tiss`/`T_Requisitar`/`T_Liquidar` case-insensitive = 0) — fora do veículo, intocados.
+- Esta §11 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — a âncora é documentation-only.
