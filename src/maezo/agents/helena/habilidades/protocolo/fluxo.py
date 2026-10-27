@@ -287,6 +287,11 @@ async def _especialista_da_queixa(
     catalogo = self._protocolos
     assert catalogo is not None and catalogo.textos is not None
     conversa, mensagem = _blocos(self, state)
+    # Rodada de 26/10/2026: com "poxa, eu ja' respondi nao para todas" como mensagem nova, o modelo
+    # escolheu "dor nas costas" para uma queixa de articulacoes. A queixa e' a fala que abriu as perguntas.
+    abertura = _pergunta_que_abriu(state, protocolo)
+    if abertura:
+        mensagem = render_untrusted_block("message_body", abertura)
     lido = await _chamar(
         self,
         state,
