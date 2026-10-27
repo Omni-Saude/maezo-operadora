@@ -44,13 +44,20 @@ Para cada `SHA`:
 
 Merges internos intermediários (não são PRs; registrados para reprodutibilidade do passo 2):
 `20331847`/`139fcee1` → `d9a8e5b2` (main → `feat/t1-7a-read-provider`); `0749aae1` → `99613824`
-(main → `feat/t1-7b-…`) e `acf3484e` (`feat/t1-7b-…` → `fix/followups-t17b-t18b`, depois #487);
+(main → `feat/t1-7b-…`) e `acf3484e` (`feat/t1-7b-…` → `fix/followups-t17b-t18b`, aterrissado pelo #491);
 `e4f637d0` → `f87232b3` (`fix/c1-python` → `fix/c1-java`); `c92392d0` → `2427a40b`
 (`fix/c1-ressalvas` → linhagem `t1-11`).
 
-## 4. Linhagem satélite — demais commits provider sem token no mesmo intervalo
+## 4. Linhagem satélite — recorte delimitado (NÃO exaustivo)
 
-Mesmo método; mesmo padrão de causa-raiz (merge commit, não squash).
+Mesmo método; mesmo padrão de causa-raiz (merge commit, não squash). **Esta tabela NÃO esgota os
+commits provider sem token `(#NNN)` do intervalo 2026-09-23…25 da missão
+`docs/plans/portal-autoridade-nativa-dev.md`**: ficam fora desta nota, todos ancestrais de `main`,
+entre outros — família C1-checkpoint: `81cd6485`, `8fe536be`, `83c96824`, `db7621ce`, `1f219b58`,
+`b7f2826f`, `2e004ade`; família Q2/T1.4b/T1.5: `2f459d90`, `377329ed`, `74209e0e`; família
+T1.11-chave-AUTH: `d2af661d`; grupo H5/Onda-8/job-T1.5: `21547259`, `c525513f`, `c6d87c59`,
+`fb2c3bd8`, `6d3a269b`, `20f8426c`, `8229e2ca`, `bd468edf`, `41f3acd4`, `c562f270`, `56b8f4e9`.
+A extensão da tabela a esses commits é nota própria; GOV-0.6 fica executado NESTE recorte.
 
 | SHA | Assunto | PR de aterrissagem (estado) | Merge sha | Papel |
 |---|---|---|---|---|
