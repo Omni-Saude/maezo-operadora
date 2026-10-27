@@ -124,10 +124,13 @@ def _structural_errors(doc: Any) -> list[str]:
                     errors.append(f"{lwhere}.physicalLocation must be an object, got {physical!r}")
                     continue
                 artifact = physical.get("artifactLocation")
+                artifact_where = f"{lwhere}.physicalLocation.artifactLocation"
                 if not isinstance(artifact, dict):
-                    errors.append(f"{lwhere}.physicalLocation.artifactLocation must be an object, got {artifact!r}")
+                    errors.append(f"{artifact_where} must be an object, got {artifact!r}")
                 elif not isinstance(artifact.get("uri"), str) or not artifact["uri"]:
-                    errors.append(f"{lwhere}.physicalLocation.artifactLocation.uri must be a non-empty string, got {artifact.get('uri')!r}")
+                    errors.append(
+                        f"{artifact_where}.uri must be a non-empty string, got {artifact.get('uri')!r}"
+                    )
 
     return errors
 
@@ -142,13 +145,17 @@ def _schema_errors(doc: Any, schema: dict[str, Any]) -> list[str]:
         validator_class.check_schema(schema)
     except SchemaError as exc:  # a broken schema is a caller defect, not a SARIF defect
         raise SystemExit(f"--schema {exc.message[:200]}") from exc
-    return [f"schema: {list(error.path)}: {error.message}" for error in validator_class(schema).iter_errors(doc)]
+    return [
+        f"schema: {list(error.path)}: {error.message}" for error in validator_class(schema).iter_errors(doc)
+    ]
 
 
 def validate_file(path: Path, schema_path: Path | None) -> list[str]:
     """Return every violation of one SARIF file (empty list = valid). Missing/unparseable = invalid."""
     if not path.is_file():
-        return [f"{path}: file not found (fail-closed: a missing scan result must never read as a valid scan)"]
+        return [
+            f"{path}: file not found (fail-closed: a missing scan result must never read as a valid scan)"
+        ]
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:

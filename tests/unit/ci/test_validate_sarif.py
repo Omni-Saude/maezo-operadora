@@ -19,7 +19,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from scripts.ci.validate_sarif import main, validate_file
 
 
@@ -85,14 +84,21 @@ def test_codeql_rules_under_extensions_shape_is_valid(sarif_file) -> None:
             {
                 "tool": {
                     "driver": {"name": "CodeQL", "rules": []},
-                    "extensions": [{"rules": [{"id": "py/path-injection", "defaultConfiguration": {"level": "error"}}]}],
+                    "extensions": [
+                        {"rules": [{"id": "py/path-injection", "defaultConfiguration": {"level": "error"}}]}
+                    ],
                 },
                 "results": [
                     {
                         "ruleId": "py/path-injection",
                         "level": "error",
                         "locations": [
-                            {"physicalLocation": {"artifactLocation": {"uri": "src/app/main.py"}, "region": {"startLine": 1}}}
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/app/main.py"},
+                                    "region": {"startLine": 1},
+                                }
+                            }
                         ],
                     }
                 ],
@@ -151,7 +157,10 @@ def test_driver_without_name_rejected(sarif_file) -> None:
 
 
 def test_result_without_ruleid_rejected(sarif_file) -> None:
-    doc = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "X"}}, "results": [{"level": "warning"}]}]}
+    doc = {
+        "version": "2.1.0",
+        "runs": [{"tool": {"driver": {"name": "X"}}, "results": [{"level": "warning"}]}],
+    }
     assert any("ruleId" in e for e in validate_file(sarif_file(doc), None))
 
 
