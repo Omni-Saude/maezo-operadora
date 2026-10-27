@@ -42,7 +42,18 @@ _RELATO: Final[re.Pattern[str]] = re.compile(
 #: A pessoa SUGERE/CONFERE um especialista ("o correto nao seria...", "nao seria melhor...", "voce nao acha").
 _SUGESTAO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:seria|nao acha|voce acha|vc acha|acha que|correto|certo|melhor|deveria|o ideal|nao e|nao era"
-    r"|indicad[oa]|recomenda\w*)\b"
+    r"|indicad[oa]|recomenda\w*"
+    # Teste do dono de 27/10/2026: "Faz sentido um cardiologista?", "Eu discordo... cardiologista", "pq nao
+    # me orientou a procurar um urologista?".
+    r"|faz sentido|vale a pena|discordo|nao concordo|por que nao|porque nao|pq nao|nao me orientou"
+    r"|nao me indicou)\b"
+)
+#: A pessoa CONTESTA o assunto que a Helena escolheu ("Quem disse que e' depressao? Eu disse que estou
+#: sentindo...", "nao e' isso", "de onde tirou isso?"). Teste do dono de 27/10/2026.
+_CONTESTA: Final[re.Pattern[str]] = re.compile(
+    r"\bquem (?:disse|falou) que\b|\b(?:eu )?nao (?:disse|falei) (?:que|de|nada)\b|\bnao e (?:isso|nada "
+    r"disso)\b"
+    r"|\bnao tem nada a ver\b|\bentendeu errado\b|\bde onde (?:voce |vc )?tirou\b"
 )
 #: Os nomes leigos que NAO sao uma sugestao de especialista (areas de atuacao genericas).
 _NAO_SUGESTAO: Final[frozenset[str]] = frozenset({"tratamento da dor", "medicina do sono"})
@@ -104,6 +115,16 @@ def relata_queixa(texto: str) -> bool:
     """A mensagem RELATA uma queixa atual ("estou sentindo palpitacoes", "ela esta' com febre")? Pergunta
     informativa ("que medico trata enxaqueca?", "para um homem com PSA alterado") nao relata."""
     return _RELATO.search(normalizar(texto)) is not None
+
+
+def contesta_o_assunto(texto: str) -> bool:
+    return _CONTESTA.search(normalizar(texto)) is not None
+
+
+def cita_especialista(texto: str, textos: _p.TextosDoEspecialista) -> bool:
+    """A mensagem cita um especialista ("pq nao me orientou a procurar um urologista?") sem pedir para
+    marcar: e' conferencia de especialista, nunca o texto da v4 nem o classify."""
+    return _MARCAR.search(normalizar(texto)) is None and bool(sugeridos(texto, textos))
 
 
 def sugeridos(texto: str, textos: _p.TextosDoEspecialista) -> list[str]:

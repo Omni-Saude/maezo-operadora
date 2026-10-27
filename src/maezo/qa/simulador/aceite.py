@@ -2261,6 +2261,8 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     # Teste do dono de 26/10/2026: teste 1 no 790, teste 2 no 791 e as variantes de "todas nao" no 792..794
     # (allowlist do roteador ativo e dos protocolos).
     "helena_teste_dono_26_10": (790, 791, 792, 793, 794),
+    # Teste do dono de 27/10/2026: um assunto por conversa, 790..795 (allowlist).
+    "helena_teste_dono_27_10": (790, 791, 792, 793, 794, 795),
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
     "helena_fases_18_10": (
         *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
@@ -2634,18 +2636,25 @@ _REPERGUNTA = r"(so para confirmar|nao entendi bem|tive um problema para entende
 _DOSE = r"(\bdose\b|\d+ ?(mg|ml|gotas)\b)"
 _NAO_DEVE_ESPECIALISTA = (*_NAO_DEVE_SEMPRE, _TEXTO_ANTIGO_NAVEGACAO, _TEXTO_ANTIGO_ESPECIALISTA)
 #: A conferencia do especialista ("o certo nao seria...?") nunca nomeia OUTRA queixa que nao a contada.
-_OUTRA_QUEIXA_DA_TORCAO = r"(costas|lombar|coluna|juntas|articula|cabeca|peito|barriga|joelho|ombro)"
+_OUTRA_QUEIXA_DA_TORCAO = (
+    r"(costas|lombar|coluna|pescoco|juntas|articula|cabeca|peito|barriga|joelho|ombro|quadril|mao|braco)"
+)
+#: Na conferencia da torcao, a queixa nomeada so' pode ser a do pe/tornozelo ("Para isso" = sem queixa).
+_QUEIXA_NOMEADA_NAO_E_O_TORNOZELO = (
+    r"(boa opcao para (?!dor no pe ou no tornozelo)"
+    r"|\bpara (?!dor no pe ou no tornozelo|isso)[^.\n]{1,80}, (o especialista costuma|quem costuma cuidar))"
+)
 _OUTRA_QUEIXA_DAS_JUNTAS = (
     r"(costas|lombar|coluna|tornozelo|joelho|ombro|cabeca|peito|barriga|menopausa|prostata|queda|trauma)"
 )
-_JUNTAS_E_FRAQUEZA = (
-    "Ando sentindo dor nas articulações e uma fraqueza nos músculos no dia a dia, que tipo de profissional "
-    "devo procurar?"
-)
+#: Decisao do dono de 27/10/2026 (opcao A): a pergunta de QUAL profissional recebe a resposta direta, sem
+#: as perguntas. As variantes de "todas nao" usam a HISTORIA sem a pergunta (as perguntas continuam).
+_JUNTAS_E_FRAQUEZA = "Ando sentindo dor nas articulações e uma fraqueza nos músculos no dia a dia."
+_SEM_PERGUNTAS = (_PERGUNTAS_DO_PROTOCOLO, r"\n1\) ")
 
 
 def _todas_nao(resposta: str, nome: str) -> Segmento:
-    """A queixa das juntas com a pergunta de qual profissional e uma variante de "todas nao" do dono."""
+    """A historia das juntas (sem "qual profissional") e uma variante de "todas nao" do dono."""
     return Segmento(
         nome,
         (
@@ -2658,7 +2667,7 @@ def _todas_nao(resposta: str, nome: str) -> Segmento:
             _p(
                 resposta,
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(reumatologista|clinico geral)", _CANAIS_DE_MARCAR),
+                deve=(r"(reumatologista|ortopedista|clinico geral)", _CANAIS_DE_MARCAR),
                 nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
             ),
         ),
@@ -2677,7 +2686,8 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "Ontem eu jogava futebol e acabei torcendo o tornozelo.",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(_PERGUNTAS_DO_PROTOCOLO,),
-                nao_deve=(*_NAO_DEVE_SEMPRE, _ALERTA_UNIVERSAL),
+                # Rodada de 26/10 (7ac0219e): a torcao foi direto ao pronto-socorro, sem perguntas.
+                nao_deve=(*_NAO_DEVE_SEMPRE, _ALERTA_UNIVERSAL, r"pronto.socorro"),
             ),
             _p(
                 "nenhuma. E achei essas perguntas sem nada a ver com o que eu contei.",
@@ -2690,7 +2700,12 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("ortopedista", _CANAIS_DE_MARCAR),
                 # Rodada de 26/10: "boa opcao para dor nas costas (lombar)" para a torcao do tornozelo.
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _OUTRA_QUEIXA_DA_TORCAO),
+                nao_deve=(
+                    *_NAO_DEVE_ESPECIALISTA,
+                    _PERGUNTAS_DO_PROTOCOLO,
+                    _OUTRA_QUEIXA_DA_TORCAO,
+                    _QUEIXA_NOMEADA_NAO_E_O_TORNOZELO,
+                ),
             ),
             _p(
                 "Certo. Queria falar também de uma coisa com um dos meus dependentes. Aliás, quem são "
@@ -2714,7 +2729,7 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
             _p(
                 "Um homem de 50 anos com o exame de PSA alterado deve procurar qual tipo de profissional?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("urologista", _CANAIS_DE_MARCAR),
+                deve=("urolog", _CANAIS_DE_MARCAR),
                 nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
             ),
         ),
@@ -2733,34 +2748,22 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "Estou sentindo palpitações e me canso com pequenos esforços, que tipo de profissional "
                 "eu devo procurar?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_PERGUNTAS_DO_PROTOCOLO,),
-                nao_deve=_NAO_DEVE_ESPECIALISTA,
-            ),
-            _p(
-                "Nehuma",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=("cardiologista", _CANAIS_DE_MARCAR),
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+                deve=("cardiologista", "clinico geral", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, *_SEM_PERGUNTAS, _REPERGUNTA),
             ),
             _p(
                 "Estou com o ciclo menstrual irregular e ondas de calor de repente, que tipo de "
                 "profissional eu devo procurar?",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("ginecologista", _CANAIS_DE_MARCAR),
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _REPERGUNTA),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, *_SEM_PERGUNTAS, _REPERGUNTA),
             ),
             _p(
                 "Estou sentindo dores nas articulações e fraqueza muscular no dia a dia, que tipo de "
                 "profissional eu devo procurar?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_PERGUNTAS_DO_PROTOCOLO,),
-                nao_deve=_NAO_DEVE_ESPECIALISTA,
-            ),
-            _p(
-                "Nenhuma",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(reumatologista|clinico geral)", _CANAIS_DE_MARCAR),
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _REPERGUNTA),
+                deve=(r"(reumatologista|ortopedista)", "clinico geral", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, *_SEM_PERGUNTAS),
             ),
             _p(
                 "O certo não seria com um reumatologista ou um ortopedista?",
@@ -2773,19 +2776,141 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "lento, que tipo de profissional eu devo procurar?",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(r"(endocrinologista|clinico geral)", _CANAIS_DE_MARCAR),
-                nao_deve=_NAO_DEVE_ESPECIALISTA,
+                nao_deve=(*_NAO_DEVE_ESPECIALISTA, *_SEM_PERGUNTAS),
             ),
         ),
         resolveu=(
-            "cada pergunta de qual profissional recebeu o especialista do mapa e os canais (palpitacao: "
-            "cardiologista depois das perguntas; ciclo e calores: ginecologista; juntas: perguntas e depois "
-            "reumatologista/clinico; a sugestao conferida pelo mapa; emagrecer: endocrinologista/clinico), "
-            "sem prazo da ANS e nunca 'eu nao avalio sintomas'; 'Nehuma' foi lido como nenhuma"
+            "cada pergunta de qual profissional recebeu a resposta direta (opcao A do dono, 27/10): o "
+            "especialista do mapa, o clinico, os canais e a linha de sinais, sem as perguntas de alerta "
+            "(palpitacao: cardiologista; ciclo e calores: ginecologista; juntas: reumatologista/clinico; a "
+            "sugestao conferida pelo mapa; emagrecer: endocrinologista/clinico), nunca 'eu nao avalio "
+            "sintomas'"
         ),
     ),
     _todas_nao("Não", "3-variante-nao"),
     _todas_nao("Não, eu respondi NÃO para todas as suas perguntas", "4-variante-respondi-nao-para-todas"),
     _todas_nao("Poxa, eu já respondi não para todas as perguntas acima", "5-variante-ja-respondi-nao"),
+)
+
+
+# ================================================================================================
+# Roteiro `helena_teste_dono_27_10` — o teste do dono de 27/10/2026 (11:04-11:15 UTC), PARAFRASEADO
+# ================================================================================================
+# Decisao do dono (opcao A): quem pergunta QUAL profissional procurar recebe a resposta direta (especialista
+# do mapa, clinico como porta de entrada, canais e UMA linha de sinais), SEM as perguntas de alerta; o
+# seguimento ("faz sentido um cardiologista?", "pq nao me orientou um urologista?") nunca abre caso nem liga
+# 192 sem sinal NOVO; nunca "nao pesquiso"; a contestacao ("quem disse que e' depressao?") pede desculpa e
+# reorienta, sem CVV. Cada assunto e' UMA conversa (telefone proprio na allowlist).
+_LIGUE_192_AGORA = r"ligue 192 \(samu\) agora"
+_CVV = r"\b188\b|\bcvv\b"
+_NAO_DEVE_27_10 = (*_NAO_DEVE_ESPECIALISTA, *_SEM_PERGUNTAS, _REPERGUNTA, _LIGUE_192_AGORA)
+
+
+def _direto(texto: str, especialista: str, *extra_nao: str) -> Passo:
+    return _p(
+        texto,
+        escalacao=ESCALACAO_NENHUMA,
+        deve=(especialista, _CANAIS_DE_MARCAR),
+        nao_deve=(*_NAO_DEVE_27_10, *extra_nao),
+    )
+
+
+HELENA_TESTE_DONO_27_10: tuple[Segmento, ...] = (
+    Segmento(
+        "1-peito-no-esforco-e-cardiologista",
+        (
+            _p(
+                "Estou sentindo dores leves no peito ou tonturas quando faço exercício, que tipo de "
+                "profissional eu devo procurar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("cardiologista", r"ainda hoje", _CANAIS_DE_MARCAR),
+                nao_deve=_NAO_DEVE_27_10,
+            ),
+            _direto("Faz sentido um cardiologista?", "cardiologista"),
+            _direto(
+                "Eu discordo, acho que você deveria ter me indicado um cardiologista logo de cara.",
+                "cardiologista",
+            ),
+        ),
+        resolveu=(
+            "a dor no peito no esforco recebeu direto o cardiologista com 'avaliar ainda hoje' (a tabela) "
+            "e a "
+            "linha de sinais, sem perguntas; 'faz sentido um cardiologista?' e a discordancia receberam o "
+            "especialista, nunca 192 nem caso"
+        ),
+    ),
+    Segmento(
+        "2-jato-fraco-e-urologista",
+        (
+            _direto(
+                "Estou com o jato de urina fraco e acordo várias vezes de noite para urinar, que tipo de "
+                "profissional eu devo procurar?",
+                "urologista",
+            ),
+            _direto("Por que você não me orientou a procurar um urologista logo de cara?", "urologista"),
+        ),
+        resolveu=(
+            "o jato fraco recebeu direto o urologista; o seguimento sobre o urologista nunca recebeu 'nao "
+            "pesquiso especialistas'"
+        ),
+    ),
+    Segmento(
+        "3-cansaco-e-libido-sem-depressao",
+        (
+            _direto(
+                "Ando sentindo um cansaço constante, perda de libido e um desânimo que não passa, que tipo "
+                "de profissional eu devo procurar?",
+                r"(urologista|endocrinologista|ginecologista)",
+                _CVV,
+                r"depressao",
+            ),
+            _p(
+                "Quem disse que é depressão? Eu disse que estou com cansaço constante, perda de libido e "
+                "desânimo.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(urologista|endocrinologista|ginecologista)", _CANAIS_DE_MARCAR),
+                nao_deve=(*_NAO_DEVE_27_10, _CVV),
+            ),
+        ),
+        resolveu=(
+            "cansaco, libido e desanimo receberam urologista/ginecologista/endocrinologista com o clinico, "
+            "sem "
+            "depressao e sem CVV; a contestacao recebeu a desculpa e a orientacao de novo, sem re-pergunta"
+        ),
+    ),
+    Segmento(
+        "4-gordura-na-barriga",
+        (
+            _direto(
+                "Estou acumulando muita gordura na barriga e tenho dificuldade de manter a energia, que "
+                "tipo de profissional eu devo procurar?",
+                r"(endocrinologista|clinico geral)",
+            ),
+        ),
+        resolveu="a gordura na barriga recebeu direto o endocrinologista/clinico e os canais",
+    ),
+    Segmento(
+        "5-lombar-e-forca",
+        (
+            _direto(
+                "Estou com dores constantes na lombar e sinto que perdi força física nos últimos meses, "
+                "que tipo de profissional eu devo procurar?",
+                r"(ortopedista|neurocirurgiao|clinico geral)",
+            ),
+        ),
+        resolveu="a lombar recebeu direto o ortopedista/neurocirurgiao com o clinico e a linha de sinais",
+    ),
+    Segmento(
+        "6-intestino-e-azia",
+        (
+            _direto(
+                "Estou com o intestino funcionando de forma irregular ou com azia constante, que tipo de "
+                "profissional eu devo procurar?",
+                r"(gastroenterologista|clinico geral)",
+            ),
+        ),
+        resolveu="intestino e azia receberam direto o gastroenterologista/clinico e os canais",
+    ),
 )
 
 
@@ -2805,6 +2930,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
     "helena_replays_dono": HELENA_REPLAYS_DONO,
     "helena_teste_dono_26_10": HELENA_TESTE_DONO_26_10,
+    "helena_teste_dono_27_10": HELENA_TESTE_DONO_27_10,
 }
 #: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
 SUJEITO_DO_ROTEIRO: dict[str, str] = {
@@ -2875,6 +3001,7 @@ __all__ = [
     "DONO_V1",
     "HELENA_CARTEIRINHA_COMPLETA",
     "HELENA_TESTE_DONO_26_10",
+    "HELENA_TESTE_DONO_27_10",
     "HELENA_BASE_SAUDE",
     "HELENA_SAUDE_GERATIVA",
     "TELEFONES_DO_ROTEIRO",

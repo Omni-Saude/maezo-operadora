@@ -6575,13 +6575,17 @@ class HelenaGraph:
 
     @staticmethod
     def _com_acolhimento(state: Mapping[str, Any], resultado: dict[str, Any]) -> dict[str, Any]:
+        from maezo.agents.helena.habilidades.protocolo.especialista import contesta_o_assunto
+
         texto = resultado.get("response_text")
+        mensagem = str(state.get("message_body") or "")
         if (
             isinstance(texto, str)
             and texto
             and RESPOSTA_ACOLHIMENTO not in texto
             and "188" not in texto
-            and _SOFRIMENTO.search(_plano(str(state.get("message_body") or "")))
+            and _SOFRIMENTO.search(_plano(mensagem))
+            and not contesta_o_assunto(mensagem)  # "quem disse que e' depressao?" (dono, 27/10/2026)
         ):
             logger.info("helena_acolhimento_antes_da_resposta", node="inform")
             return {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}

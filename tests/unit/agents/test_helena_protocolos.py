@@ -310,7 +310,8 @@ async def test_sinal_de_atendimento_hoje_orienta_sem_caso(resposta: str, leitura
     final = await grafo.ainvoke(
         _estado(resposta, [n.texto_das_perguntas(_URINAR)], pendente=n.codigo_do_alerta(_URINAR.id))
     )
-    assert whatsapp.enviados[-1] == n.texto_do_destino_por_sinal("ATENDIMENTO_HOJE", "adulto")
+    assert whatsapp.enviados[-1].startswith(n.texto_do_destino_por_sinal("ATENDIMENTO_HOJE", "adulto"))
+    assert "urologista" in whatsapp.enviados[-1]  # dono, 27/10: todo final diz o especialista
     assert not _escalou(final) and not _starts(cib)
 
 
@@ -681,7 +682,8 @@ async def test_sinal_urgente_ja_dito_vai_direto_ao_destino(fala: str, pre: tuple
     modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(_QUEDA.id)], pre=[_pre(*pre)])
     grafo, whatsapp, cib = _grafo(modelo)
     final = await grafo.ainvoke(_estado(fala))
-    assert whatsapp.enviados[-1] == n.texto_do_destino_por_sinal("PRONTO_SOCORRO_AGORA", "adulto")
+    assert whatsapp.enviados[-1].startswith(n.texto_do_destino_por_sinal("PRONTO_SOCORRO_AGORA", "adulto"))
+    assert "ortopedista" in whatsapp.enviados[-1] or "clínico geral" in whatsapp.enviados[-1]
     assert not final.get("coleta_pendente") and not _starts(cib)
 
 

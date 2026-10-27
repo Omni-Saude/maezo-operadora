@@ -18,6 +18,8 @@ import pytest
 
 from maezo.agents.helena.habilidades.protocolo import especialista as e
 from maezo.agents.helena.habilidades.protocolo import nucleo as n
+from maezo.agents.helena.habilidades.protocolo import sinais
+from maezo.conhecimento import protocolos as p
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_protocolos import (
     _CATALOGO,
@@ -53,6 +55,12 @@ def _com_historico(fala: str, pares: list[tuple[str, str]], pendente: str | None
     if pendente:
         estado |= {"coleta_pendente": pendente, "coleta_contexto": ""}
     return estado
+
+
+def _pre_leitura(*respostas: str) -> str:
+    import json
+
+    return json.dumps({"respostas": list(respostas)})
 
 
 def _sem_texto_antigo(texto: str) -> None:
@@ -175,7 +183,7 @@ async def test_qual_profissional_sem_relato_recebe_o_mapa_e_os_canais(
     assert modelo.prompts["escolha"] == [] and not final.get("coleta_pendente") and not _starts(cib)
 
 
-# --- Item 5: com relato, as perguntas do protocolo antes e o especialista do mapa no fim -----------------
+# --- Item 5 (dono, 27/10/2026, opcao A): QUAL profissional = resposta direta, sem perguntas -------------
 @pytest.mark.parametrize(
     ("fala", "protocolo", "queixa", "especialista"),
     [
@@ -201,32 +209,56 @@ async def test_qual_profissional_sem_relato_recebe_o_mapa_e_os_canais(
         ),
     ],
 )
-@pytest.mark.parametrize("resposta", ["Nenhuma", "Não, nenhuma delas", "não tenho nada disso"])
-async def test_qual_profissional_com_relato_pergunta_antes_e_responde_com_o_mapa(
-    fala: str, protocolo: Any, queixa: str, especialista: str, resposta: str
+async def test_qual_profissional_com_relato_responde_direto_com_o_mapa_e_os_sinais(
+    fala: str, protocolo: Any, queixa: str, especialista: str
 ) -> None:
-    modelo = _Modelo([decisao_v7("sintoma")], escolha=[_escolha(protocolo.id)])
-    grafo, whatsapp, cib = _grafo(modelo)
-    final = await grafo.ainvoke(_entrada(fala))
-    perguntas = whatsapp.enviados[-1]
-    assert perguntas == n.texto_das_perguntas(protocolo)
-    pendente = final.get("coleta_pendente")
-    assert str(pendente).startswith(n.PENDENTE_ALERTA) and modelo.prompts["mapa"] == []
-
-    k = len(protocolo.perguntas_de_alerta)
-    modelo2 = _Modelo(
-        [decisao_v7("sintoma", responde=True, sim_nao="nao")],
-        leitura=[_leitura(*("nao",) * k)],
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha(protocolo.id)],
+        pre=[_pre_leitura(*("nao_dito",) * len(protocolo.perguntas_de_alerta))],
         mapa=[_mapa(queixa)],
     )
-    grafo2, whatsapp2, cib2 = _grafo(modelo2)
-    final2 = await grafo2.ainvoke(_com_historico(resposta, [(fala, perguntas)], pendente))
-    texto = whatsapp2.enviados[-1]
-    assert texto.startswith(n.PONTE_SEM_SINAL) and especialista in texto
-    # A leitura sem modelo (#1026) pode chegar ao especialista sem a chamada do mapa: vale o texto.
-    assert len(modelo2.prompts["mapa"]) <= 1
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_entrada(fala))
+    texto = whatsapp.enviados[-1]
+    assert especialista in texto and "clínico geral" in texto and "aplicativo Austa Clínicas" in texto
+    assert "me diga se acontece" not in texto and "1)" not in texto
+    assert texto.rstrip().endswith(sinais.linha(protocolo, "adulto"))
     _sem_texto_antigo(texto)
-    assert not final2.get("escalation_motivo") and not _starts(cib) and not _starts(cib2)
+    assert not final.get("coleta_pendente") and not final.get("escalation_motivo") and not _starts(cib)
+
+
+async def test_qual_profissional_com_sinal_afirmado_vai_ao_protocolo() -> None:
+    """So' com um sinal AFIRMADO na propria mensagem o protocolo decide (aqui: o destino na hora)."""
+    fala = "Estou com o coração disparado e desmaiei agora há pouco, que tipo de profissional devo procurar?"
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha(_PALPITACOES.id)],
+        pre=[_pre_leitura("nao_dito", "sim", "nao_dito", "nao_dito")],
+    )
+    grafo, _, _ = _grafo(modelo)
+    final = await grafo.ainvoke(_entrada(fala))
+    assert final.get("escalation_motivo") == "red_flag_clinico"
+
+
+async def test_dor_no_peito_qual_profissional_diz_avaliar_hoje_junto_do_cardiologista() -> None:
+    """A TABELA decide: dor no peito sem sinal e' atendimento hoje, junto do especialista."""
+    peito = _CATALOGO.protocolos["tri-adulto-dor-no-peito"]
+    fala = (
+        "Estou sentindo dores leves no peito ou tonturas ao fazer exercícios, que tipo de profissional eu "
+        "devo procurar?"
+    )
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha(peito.id)],
+        pre=[_pre_leitura("nao_dito", "nao_dito", "nao_dito", "nao_dito")],
+        mapa=[_mapa("esp-queixa-dor-no-peito-nao-aguda")],
+    )
+    grafo, whatsapp, cib = _grafo(modelo)
+    final = await grafo.ainvoke(_entrada(fala))
+    texto = whatsapp.enviados[-1]
+    assert "ainda hoje" in texto and "cardiologista" in texto and "suor frio" in texto
+    assert "1)" not in texto and not final.get("escalation_motivo") and not _starts(cib)
 
 
 async def test_controle_sem_pergunta_de_profissional_a_resposta_final_e_a_do_protocolo() -> None:
@@ -262,31 +294,14 @@ async def test_relato_sem_protocolo_proprio_recebe_o_mapa_direto(fala: str) -> N
     _sem_texto_antigo(texto)
 
 
-async def test_relato_que_o_modelo_deixa_sem_protocolo_mas_o_sinonimo_reconhece_pergunta_antes() -> None:
-    """Rodada de 26/10/2026: depois de outras queixas, o modelo deixou "dores nas articulacoes" sem protocolo
-    e a resposta foi o mapa direto. A queixa reconhecida pelo jeito de falar faz as perguntas antes."""
-    membro = _CATALOGO.protocolos["tri-adulto-dor-no-braco-ou-perna"]
-    modelo = _Modelo(
-        [decisao_v7("sintoma")], escolha=[_escolha("nenhum")], mapa=[_mapa("esp-queixa-varias-articulacoes")]
-    )
-    grafo, whatsapp, _ = _grafo(modelo)
-    final = await grafo.ainvoke(
-        _entrada(
-            "Estou sentindo dores nas articulações e fraqueza muscular no dia a dia, que profissional "
-            "eu devo procurar?"
-        )
-    )
-    assert whatsapp.enviados[-1] == n.texto_das_perguntas(membro)
-    assert str(final.get("coleta_pendente")).startswith(n.PENDENTE_ALERTA)
-
-
-async def test_relato_com_escolha_que_falha_faz_as_perguntas_universais() -> None:
-    """Seguranca: com relato e sem a escolha do modelo, as perguntas do alerta universal (nao o mapa)."""
-    modelo = _Modelo([decisao_v7("sintoma")], escolha=["", ""])
+async def test_relato_com_escolha_que_falha_responde_direto_com_os_sinais_universais() -> None:
+    """Sem a escolha do modelo e sem sinal afirmado: a resposta direta com a linha do alerta universal."""
+    modelo = _Modelo([decisao_v7("sintoma")], escolha=["", ""], mapa=["", ""])
     grafo, whatsapp, _ = _grafo(modelo)
     final = await grafo.ainvoke(_entrada("Estou sentindo uma pressão estranha, que profissional procuro?"))
-    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_UNIVERSAL)
-    assert str(final.get("coleta_pendente")).startswith(n.PENDENTE_ALERTA)
+    texto = whatsapp.enviados[-1]
+    assert texto.rstrip().endswith(sinais.LINHAS[p.UNIVERSAL_ADULTO]) and "clínico geral" in texto
+    assert not final.get("coleta_pendente")
 
 
 # --- Item 6: a sugestao de especialista, pela queixa da conversa ----------------------------------------

@@ -18,6 +18,10 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
+from maezo.gateway.commercial_legitimacy_guard import (
+    LegitimacyScreenGuardFactory,
+    collective_legitimacy_shadow,
+)
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
@@ -257,6 +261,7 @@ def create_app(
     admin_read_service_factory: AdminReadServiceFactory | None = None,
     commission_policy_service_factory: CommissionPolicyServiceFactory | None = None,
     legitimacy_screen_service_factory: LegitimacyScreenServiceFactory | None = None,
+    legitimacy_screen_guard_factory: LegitimacyScreenGuardFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
@@ -393,7 +398,17 @@ def create_app(
     app.state.legitimacy_screen_service_factory = legitimacy_screen_service_factory
     app.include_router(legitimacy_screen_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
-    app.state.commercial_gateway = commercial_gateway
+    # REG-1.1 (OP21, PR 3/5): the DARK `collective_legitimacy_screen` flag is the ONLY road
+    # to the SHADOW guard (`collective_legitimacy_shadow`) — OFF (shipped) passes the object
+    # through untouched (byte-identical path); ON wraps the bound gateway (evaluate,
+    # register, signal art. 39 — never altering the commercial response, design §4) and
+    # REQUIRES the no-default guard factory. The enforcing posture is a successor class
+    # with its own explicit bind (design §4): unreachable by this flag, never named here.
+    app.state.commercial_gateway = collective_legitimacy_shadow(
+        commercial_gateway,
+        enabled=config.collective_legitimacy_screen,
+        guard_factory=legitimacy_screen_guard_factory,
+    )
     app.state.public_catalog_gateway = public_catalog_gateway
     app.include_router(commercial_router)
 
