@@ -163,7 +163,8 @@ async def test_sim_em_uma_com_o_roteador_fora_decide_pela_regra(fala: str) -> No
     final = await grafo.ainvoke(
         _estado(fala, [n.texto_das_perguntas(_URINAR)], pendente=n.codigo_do_alerta(_URINAR.id))
     )
-    assert whatsapp.enviados[-1] == n.texto_do_destino_por_sinal("ATENDIMENTO_HOJE", "adulto")
+    assert whatsapp.enviados[-1].startswith(n.texto_do_destino_por_sinal("ATENDIMENTO_HOJE", "adulto"))
+    assert "urologista" in whatsapp.enviados[-1]  # dono, 27/10: todo final diz o especialista
     assert not _escalou(final) and not _starts(cib)
 
 

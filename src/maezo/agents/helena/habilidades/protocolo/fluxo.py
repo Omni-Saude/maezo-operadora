@@ -41,6 +41,7 @@ from . import especialista as _esp
 from . import evidencia as _ev
 from . import leitura_sem_modelo as _lsm
 from . import nucleo as _n
+from . import sinais as _sinais
 from . import sinonimos as _sinonimos
 
 if TYPE_CHECKING:
@@ -246,7 +247,11 @@ def _executar(
         logger.info("helena_protocolo_bebe_pequeno_oferta", protocolo=protocolo.id)
         return _texto(self, state, RESPOSTA_TRIAGEM_BEBE_PEQUENO, pendente=PENDENTE_OFERTA_EQUIPE)
     if decisao.sinal is not None:
-        return _texto(self, state, _n.texto_do_destino_por_sinal(destino, protocolo.publico))
+        if textos is None:
+            return _texto(self, state, _n.texto_do_destino_por_sinal(destino, protocolo.publico))
+        return _texto(
+            self, state, _n.texto_do_destino_com_especialista(destino, protocolo, textos, especialista)
+        )
     assert textos is not None  # o catalogo so' existe com os textos validos (`catalogo_do_ambiente`)
     return _texto(self, state, _n.texto_sem_sinal(protocolo, textos, especialista=especialista))
 
@@ -344,6 +349,12 @@ async def responder_alerta(
         return neonatal
     n = len(protocolo.perguntas_de_alerta)
     indices = tuple(i for i in pend.indices if 1 <= i <= n) or tuple(range(1, n + 1))
+    if _esp.contesta_o_assunto(texto):
+        # Teste do dono de 27/10/2026: "Quem disse que e' depressao? Eu disse que estou sentindo cansaco..."
+        # foi lido como resposta sem clareza (re-pergunta + CVV). A contestacao do assunto: a desculpa curta e
+        # a orientacao para a queixa repetida (a pendencia cai).
+        logger.info("helena_protocolo_contestacao", protocolo=protocolo.id)
+        return await resposta_direta(self, state, fala=_fala_da_queixa(state, catalogo), contestou=True)
     sem_modelo = _lsm.ler_sem_modelo(texto, len(indices))
     if sem_modelo is None and pend.rodada == 1 and _pergunta_nova(texto, decisao, catalogo):
         # Rodada de 26/10/2026 (7ac0219e): com a re-pergunta pendente, "um homem de 50 anos com PSA alterado
@@ -578,42 +589,40 @@ async def conduzir(
     pronta: _n.Escolha | None = None
     ja_escolheu = False
     if (
+        alarme != "claro"
+        and antes != _n.PENDENTE_IDADE
+        and not _esp.quer_marcar(texto)
+        and _esp.contesta_o_assunto(texto)
+        and _g._falas_da_helena(state)
+    ):
+        # Teste do dono de 27/10/2026 ("Quem disse que e' depressao? Eu disse que estou sentindo..."): a
+        # desculpa curta e a orientacao de novo para a queixa que a pessoa repetiu.
+        logger.info("helena_protocolo_contestacao")
+        return await resposta_direta(self, state, fala=_fala_da_queixa(state, catalogo), contestou=True)
+    if (
         habilidade in _HABILIDADES_DO_AGENDAMENTO
-        and alarme is None
+        and alarme != "claro"
         and antes != _n.PENDENTE_IDADE
         and not _esp.quer_marcar(texto)
     ):
-        # Teste do dono de 26/10/2026: QUAL profissional procurar (nunca "eu nao avalio sintomas" nem "eu nao
-        # pesquiso especialistas"). O pedido de marcar continua com o agendamento abaixo.
-        if _esp.sugere_especialista(texto, catalogo.textos):
+        # Testes do dono de 26 e 27/10/2026: QUAL profissional procurar (nunca "eu nao avalio sintomas" nem
+        # "eu nao pesquiso especialistas"). O pedido de marcar continua com o agendamento abaixo.
+        if _esp.sugere_especialista(texto, catalogo.textos) or (
+            _esp.cita_especialista(texto, catalogo.textos) and not _esp.pergunta_qual_especialista(texto)
+        ):
+            # "Faz sentido um cardiologista?" depois do protocolo ia ao classify/DMN (192 e caso): a
+            # conferencia
+            # do especialista nunca abre caso nem liga 192 sem um sinal NOVO afirmado (alarme "claro" acima).
             return await _sugestao_de_especialista(self, state, ultimo)
         if _esp.pergunta_qual_especialista(texto):
             if not _esp.relata_queixa(texto):
                 return await _especialista_pelo_mapa(self, state, por_aqui=_por_aqui(texto), ultimo=ultimo)
-            # Com relato de queixa: as perguntas do protocolo vem antes (seguranca); sem protocolo proprio
-            # para a queixa ("ondas de calor"), o especialista do mapa direto.
-            conversa, mensagem = _blocos(self, state)
-            pronta = await _chamar(
-                self,
-                state,
-                _n.prompt_da_escolha(catalogo, bloco_conversa=conversa, bloco_mensagem=mensagem),
-                lambda bruto: _n.ler_escolha(bruto, catalogo),
-                "escolha",
-            )
-            ja_escolheu = True
-            if pronta is not None and pronta.protocolo is None:
-                # Rodada de 26/10/2026: depois de outras queixas na conversa, o modelo deixou "dores nas
-                # articulacoes" sem protocolo. Uma queixa reconhecida pelo jeito de falar ainda ganha as
-                # perguntas do protocolo antes do especialista (seguranca primeiro).
-                pelo_texto = _sinonimos.escolher_pelo_sintoma(
-                    catalogo, self._base, texto, _publico_do_estado(state)
-                )
-                if pelo_texto is not None and pelo_texto not in feitos:
-                    logger.info("helena_protocolo_especialista_por_sinonimo", protocolo=pelo_texto)
-                    pronta = _n.Escolha(pronta.publico, pronta.faixa, pelo_texto)
-            if pronta is not None and pronta.protocolo is None:
-                logger.info("helena_protocolo_especialista_sem_protocolo")
-                return await _especialista_pelo_mapa(self, state, por_aqui=False)
+            if (neonatal := _alerta_neonatal(self, state)) is not None:
+                return neonatal
+            # Decisao do dono de 27/10/2026 (opcao A): a resposta direta, sem as perguntas de alerta (so' com
+            # um
+            # sinal afirmado na propria mensagem o protocolo decide).
+            return await resposta_direta(self, state)
     if _jr.pergunta_de_agendamento(texto) and habilidade in _HABILIDADES_DO_AGENDAMENTO and not ja_escolheu:
         if ultimo is not None:
             logger.info("helena_protocolo_seguimento", protocolo=ultimo.id, agendamento=True)
@@ -728,6 +737,20 @@ async def _perguntar_o_que_falta(
     "veio depois de uma queda?"). O modelo marca as perguntas ja' respondidas; a REGRA decide: "sim" urgente
     -> o destino na hora; o resto -> so' as perguntas que faltam; tudo respondido -> o destino. Sem leitura
     (ou sem frase afirmada), todas as perguntas, como antes."""
+    pre = await _pre_conferida(self, state, protocolo, conversa, mensagem, afirmado=afirmado)
+    return await _seguir_a_pre_leitura(self, state, protocolo, pre)
+
+
+async def _pre_conferida(
+    self: HelenaGraph,
+    state: Mapping[str, Any],
+    protocolo: _p.Protocolo,
+    conversa: str,
+    mensagem: str,
+    *,
+    afirmado: bool,
+) -> tuple[str, ...] | None:
+    """A pre-leitura do modelo com o "sim" so' para frase afirmada e com o SINAL dito pela pessoa."""
     k = len(protocolo.perguntas_de_alerta)
     pre: tuple[str, ...] | None = await _chamar(
         self,
@@ -751,6 +774,12 @@ async def _perguntar_o_que_falta(
                 descartados=pre.count("sim") - conferido.count("sim"),
             )
         pre = conferido
+    return pre
+
+
+async def _seguir_a_pre_leitura(
+    self: HelenaGraph, state: Mapping[str, Any], protocolo: _p.Protocolo, pre: tuple[str, ...] | None
+) -> dict[str, Any]:
     if pre is None or all(r == "nao_dito" for r in pre):
         return _texto(
             self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id)
@@ -776,6 +805,119 @@ async def _perguntar_o_que_falta(
         _n.texto_das_perguntas(protocolo, plano.faltam, primeira=True),
         pendente=_n.codigo_do_alerta(protocolo.id, 0, plano.faltam),
     )
+
+
+#: A desculpa curta quando a pessoa contesta o assunto escolhido (teste do dono de 27/10/2026).
+TEXTO_DESCULPA: Final[str] = "Desculpe, eu entendi errado."
+
+
+def _urgencia(protocolo: _p.Protocolo | None) -> str:
+    """A TABELA decide: protocolo cujo destino SEM sinal e' atendimento hoje (ou mais) diz isso junto do
+    especialista ("dor no peito deve ser avaliada hoje; o especialista e' o cardiologista")."""
+    if protocolo is None:
+        return ""
+    destino = protocolo.destino_se_nenhum_sinal
+    rotulo = _n.rotulo(protocolo)
+    gestacao = protocolo.publico in ("gestante", "puerpera")
+    if destino == "ATENDIMENTO_HOJE":
+        if gestacao:
+            return (
+                f"Para {rotulo}, o ideal é ser avaliada ainda hoje, na maternidade ou num pronto-atendimento."
+            )
+        return (
+            f"Para {rotulo}, o ideal é ser avaliado ainda hoje, num pronto-atendimento ou numa consulta no "
+            "mesmo dia."
+        )
+    if destino in ("PRONTO_SOCORRO_AGORA", "LIGAR_192_AGORA"):
+        lugar = "à maternidade ou a um pronto-socorro" if gestacao else "a um pronto-socorro"
+        return f"Para {rotulo}, o mais seguro é ir agora {lugar}."
+    return ""
+
+
+async def resposta_direta(
+    self: HelenaGraph,
+    state: Mapping[str, Any],
+    *,
+    fala: str | None = None,
+    contestou: bool = False,
+) -> dict[str, Any]:
+    """Decisao do dono de 27/10/2026 (opcao A): quem pergunta QUAL profissional procurar recebe a resposta
+    direta, sem as perguntas de alerta: o especialista do MAPA, o clinico como porta de entrada, os canais e
+    UMA linha com os sinais de alerta da queixa (`sinais.py`); a TABELA ainda decide quando o destino sem
+    sinal e' atendimento hoje ou mais. As perguntas e o protocolo so' quando a propria mensagem AFIRMA um
+    sinal (pre-leitura conferida). `fala`: a queixa (a mensagem atual por padrao)."""
+    from maezo.agents.helena import graph as _g
+
+    catalogo = self._protocolos
+    assert catalogo is not None and catalogo.textos is not None
+    textos = catalogo.textos
+    texto = fala if fala is not None else str(state.get("message_body") or "")
+    mensagem = render_untrusted_block("message_body", texto)
+    escolha: _n.Escolha | None = await _chamar(
+        self,
+        state,
+        _n.prompt_da_escolha(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
+        lambda bruto: _n.ler_escolha(bruto, catalogo),
+        "escolha",
+    )
+    if escolha is None:
+        publico_e = _publico_do_estado(state)
+        pelo_texto = _sinonimos.escolher(catalogo, self._base, texto, publico_e)
+        escolha = _n.Escolha(
+            "crianca" if publico_e == "crianca_2m_5a" else publico_e, "desconhecida", pelo_texto
+        )
+    protocolo = catalogo.protocolos.get(escolha.protocolo or "")
+    if protocolo is not None and not contestou:
+        afirmado = bool(_g._plano(texto_afirmado(texto, ultima_fala(_g._falas_da_helena(state)))))
+        pre = await _pre_conferida(self, state, protocolo, "", mensagem, afirmado=afirmado)
+        if pre is not None and "sim" in pre:
+            # Um sinal AFIRMADO na propria mensagem: o protocolo decide (destino ou as perguntas que faltam).
+            logger.info("helena_protocolo_direto_com_sinal", protocolo=protocolo.id)
+            return await _seguir_a_pre_leitura(self, state, protocolo, pre)
+    lido = await _chamar(
+        self,
+        state,
+        _n.prompt_do_mapa(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
+        lambda bruto: _n.ler_mapa(bruto, catalogo),
+        "mapa",
+    )
+    entrada = catalogo.mapa.get(lido[0]) if lido is not None and lido[0] else None
+    if lido is not None:
+        publico = "crianca_2m_5a" if lido[1] == "crianca" else lido[1]
+    elif protocolo is not None:
+        publico = protocolo.publico
+    else:
+        publico = _publico_do_estado(state)
+    if entrada is None and lido is None and protocolo is not None:
+        frase, mental_mapa = _n.especialista_do_protocolo(protocolo, textos), _sinais.mental(protocolo)
+    else:
+        frase, mental_mapa = _n.especialista_do_mapa(entrada, publico, textos)
+    # Teste do dono de 27/10/2026 ("cansaco, perda de libido e desanimo" virou depressao): o protocolo de
+    # saude mental so' da' a linha de sinais (com o CVV) quando o mapa tambem le' saude mental.
+    sinal_de = (
+        protocolo if (protocolo is not None and (not _sinais.mental(protocolo) or mental_mapa)) else None
+    )
+    urgencia = _urgencia(sinal_de)
+    linha = _sinais.linha(sinal_de, publico)
+    logger.info(
+        "helena_protocolo_resposta_direta",
+        protocolo=protocolo.id if protocolo is not None else "nenhum",
+        queixa=entrada.id if entrada is not None else "nenhum",
+        urgencia=bool(urgencia),
+        contestou=contestou,
+    )
+    abertura = " ".join(p for p in (TEXTO_DESCULPA if contestou else "", urgencia) if p)
+    corpo = f"{abertura} {frase}" if abertura else frase
+    return _texto(self, state, f"{corpo}\n\n{linha}")
+
+
+def _fala_da_queixa(state: Mapping[str, Any], catalogo: _p.Catalogo) -> str:
+    """A queixa para a resposta direta na contestacao: a mensagem atual quando ela repete a queixa ("eu disse
+    que estou sentindo cansaco..."), senao a ultima fala da pessoa que descreveu um problema."""
+    atual = str(state.get("message_body") or "")
+    if _ev.ultima_queixa([atual], catalogo):
+        return atual
+    return _ev.ultima_queixa([f for f in _falas_da_pessoa(state) if f != atual], catalogo) or atual
 
 
 @dataclass(frozen=True)
@@ -807,7 +949,10 @@ async def sem_roteador(
     if not antes:
         texto = str(state.get("message_body") or "")
         if not _esp.quer_marcar(texto) and (
-            _esp.pergunta_qual_especialista(texto) or _esp.sugere_especialista(texto, catalogo.textos)
+            _esp.pergunta_qual_especialista(texto)
+            or _esp.sugere_especialista(texto, catalogo.textos)
+            or _esp.cita_especialista(texto, catalogo.textos)
+            or _esp.contesta_o_assunto(texto)
         ):
             logger.info("helena_protocolo_sem_roteador", etapa="especialista")
             return await conduzir(self, state, _SemRoteador(), None, None)

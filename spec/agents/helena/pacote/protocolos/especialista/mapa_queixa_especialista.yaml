@@ -741,7 +741,7 @@ mapa:
   - id: esp-queixa-dificuldade-para-urinar
     grupo: urinario
     queixa: "dificuldade para urinar, jato fraco ou urinar muitas vezes"
-    como_a_pessoa_fala: ["jato de urina fraco", "levanto várias vezes à noite pra urinar", "demoro pra começar a urinar", "sensação de que não esvaziou", "urina pingando no final", "vontade toda hora de urinar", "próstata aumentada"]
+    como_a_pessoa_fala: ["jato de urina fraco", "jato urinário fraco", "levanto várias vezes à noite pra urinar", "acordo muitas vezes à noite para urinar", "demoro pra começar a urinar", "sensação de que não esvaziou", "urina pingando no final", "vontade toda hora de urinar", "próstata aumentada", "problema de próstata"]
     especialista_primeiro: *porta_adulto
     especialista_depois:
       - {cfm: "Urologia", esp_id: esp-urologia}
@@ -872,6 +872,41 @@ mapa:
     fonte: "TelessaúdeRS Urologia Adulto (64), protocolos 3 e 4; TelessaúdeRS Andrologia (4), protocolo 1; TelessaúdeRS Planejamento Reprodutivo (60)"
     esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia]
     lacuna: false
+
+  # Teste do dono de 27/10/2026 (lacuna do mapa: "cansaço constante, perda de libido e desânimo" virou depressão).
+  # RASCUNHO DEV — REVISÃO MÉDICA PENDENTE.
+  - id: esp-queixa-cansaco-libido-baixa-energia
+    grupo: hormonios
+    queixa: "cansaço constante, baixa energia ou perda de libido"
+    como_a_pessoa_fala: ["perda de libido", "falta de libido", "sem vontade sexual", "desejo sexual baixo", "cansaço constante e perda de libido", "baixa energia", "sem energia o tempo todo", "cansaço constante", "acho que meu hormônio caiu", "testosterona baixa", "reposição hormonal"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Urologia", esp_id: esp-urologia, quando: "homens"}
+      - {cfm: "Ginecologia e obstetrícia", esp_id: esp-ginecologia-e-obstetricia, quando: "mulheres"}
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    nota: "Desânimo junto de sintomas físicos ou hormonais não é, por si, saúde mental. O clínico avalia primeiro (exames gerais) e indica o especialista."
+    fonte: "Resolução CFM 2.380/2024 (lista de especialidades); TelessaúdeRS Urologia Adulto (64) e Endocrinologia Adulto (18) como referência técnica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-urologia, esp-ginecologia-e-obstetricia, esp-endocrinologia-e-metabologia]
+    lacuna: parcial
+    revisao_medica: pendente
+
+  # Lacuna comum de "qual profissional" (27/10/2026). RASCUNHO DEV — REVISÃO MÉDICA PENDENTE.
+  - id: esp-queixa-colesterol
+    grupo: coracao
+    queixa: "colesterol ou triglicérides alto"
+    como_a_pessoa_fala: ["colesterol alto", "triglicérides alto", "gordura no sangue", "LDL alto", "meu colesterol subiu"]
+    especialista_primeiro: *porta_adulto
+    especialista_depois:
+      - {cfm: "Cardiologia", esp_id: esp-cardiologia}
+      - {cfm: "Endocrinologia e metabologia", esp_id: esp-endocrinologia-e-metabologia}
+    quando_vai_direto_ao_especialista: []
+    sinais_de_emergencia_citados_na_fonte: []
+    fonte: "Resolução CFM 2.380/2024 (lista de especialidades); TelessaúdeRS Cardiologia Adulto (5) como referência técnica"
+    esp_id_na_base: [esp-clinica-medica, esp-medicina-de-familia-e-comunidade, esp-cardiologia, esp-endocrinologia-e-metabologia]
+    lacuna: parcial
+    revisao_medica: pendente
 
 # ============================== MULHER ==============================
   - id: esp-queixa-corrimento

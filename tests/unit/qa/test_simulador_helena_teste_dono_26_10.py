@@ -32,7 +32,7 @@ def test_o_roteiro_existe_e_todo_padrao_compila() -> None:
         "4-variante-respondi-nao-para-todas",
         "5-variante-ja-respondi-nao",
     ]
-    assert [len(s.passos) for s in _R[:2]] == [7, 7]
+    assert [len(s.passos) for s in _R[:2]] == [7, 5]  # o teste 2 na opcao A do dono (27/10/2026)
 
 
 def test_cada_conversa_tem_telefone_proprio_na_allowlist() -> None:
@@ -71,15 +71,16 @@ def test_as_respostas_certas_passam() -> None:
         f"O clínico geral também pode fazer a primeira avaliação e encaminhar, se for preciso. {_CANAIS}"
     )
     assert _passa(0, 6, urologista) == []
-    assert _passa(1, 0, "Sobre palpitações, me diga se acontece alguma destas coisas agora:\n1) ...") == []
-    assert _passa(1, 1, f"Obrigada. ... o especialista costuma ser o cardiologista. {_CANAIS}") == []
+    # Teste 2 na opcao A do dono (27/10/2026): cada "qual profissional" recebe a resposta direta.
+    cardio = f"Para palpitação, o especialista é o cardiologista. O clínico geral também pode. {_CANAIS}"
+    assert _passa(1, 0, cardio) == []
     assert (
-        _passa(1, 2, f"Para menstruação desregulada, quem costuma cuidar é o ginecologista. {_CANAIS}") == []
+        _passa(1, 1, f"Para menstruação desregulada, quem costuma cuidar é o ginecologista. {_CANAIS}") == []
     )
     assert (
-        _passa(1, 5, f"Sim, o reumatologista é uma boa opção. O clínico geral também pode. {_CANAIS}") == []
+        _passa(1, 3, f"Sim, o reumatologista é uma boa opção. O clínico geral também pode. {_CANAIS}") == []
     )
-    assert _passa(1, 6, f"Quem costuma cuidar é o endocrinologista. {_CANAIS}") == []
+    assert _passa(1, 4, f"Quem costuma cuidar é o endocrinologista. {_CANAIS}") == []
 
 
 def test_os_textos_antigos_reprovam() -> None:
@@ -93,8 +94,8 @@ def test_os_textos_antigos_reprovam() -> None:
         f"marco consulta. {_CANAIS}"
     )
     assert _passa(0, 2, v4)
-    assert _passa(1, 6, navegacao + " O endocrinologista cuida disso.")
-    assert _passa(1, 1, "Desculpe, não entendi bem. Só para confirmar, isto acontece agora?")
-    assert _passa(1, 2, "Desculpe, tive um problema para entender. O ginecologista... " + _CANAIS)
+    assert _passa(1, 4, navegacao + " O endocrinologista cuida disso.")
+    assert _passa(1, 0, "Sobre palpitações, me diga se acontece alguma destas coisas agora:\n1) ...")
+    assert _passa(1, 1, "Desculpe, tive um problema para entender. O ginecologista... " + _CANAIS)
     assert _passa(0, 0, "Sobre o que você está sentindo, me diga se acontece alguma destas coisas agora:")
     assert _passa(0, 5, "Pode dar 10 gotas de dipirona. O pediatra atende. " + _CANAIS)
