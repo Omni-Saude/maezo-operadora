@@ -67,7 +67,12 @@ _INCISO_FIELDS: dict[str, str] = {
 }
 _INCISOS_ROMANOS = frozenset(_INCISO_FIELDS)
 
-_FIELD_TOKEN_RE = re.compile(r"`(ans_reducao_[a-z0-9_]+)`")
+#: Ocorrência do token COM ou SEM backticks: em superfícies de wiring real (py/yaml/json/bpmn/dmn)
+#: o campo aparece como chave/constante/atributo SEM backticks — a guarda DARK precisa vê-lo dos
+#: dois jeitos (prova por mutação: `X = "ans_reducao_entidade_excluida"` em src/*.py e a chave
+#: `ans_reducao_entidade_excluida:` em config/*.yaml atravessavam a versão só-backtick;
+#: lookbehind/lookahead evitam falso positivo em identificadores compostos como `my_ans_reducao_x`).
+_FIELD_TOKEN_RE = re.compile(r"(?<!\w)ans_reducao_[a-z0-9_]+(?!\w)")
 
 
 def _contract_text() -> str:
