@@ -435,3 +435,25 @@ async def test_controle_pedido_de_marcar_fica_com_o_agendamento(fala: str) -> No
     texto = whatsapp.enviados[-1]
     assert not texto.startswith("Sim, ") and "aplicativo Austa Clínicas" in texto
     assert modelo.prompts["escolha"] == []
+
+
+async def test_o_mapa_le_a_queixa_da_fala_que_abriu_as_perguntas_nao_a_resposta() -> None:
+    """Rodada de 26/10/2026: com "poxa, eu ja' respondi nao..." como mensagem nova, o mapa escolheu "dor nas
+    costas" para uma queixa de articulacoes. A queixa do mapa e' a fala que abriu as perguntas."""
+    abertura = (
+        "Ando sentindo dor nas articulações e fraqueza nos músculos, que tipo de profissional devo procurar?"
+    )
+    perguntas = n.texto_das_perguntas(_UNIVERSAL)
+    resposta = "Poxa, eu já respondi não para todas as perguntas acima"
+    k = len(_UNIVERSAL.perguntas_de_alerta)
+    modelo = _Modelo(
+        [decisao_v7("sintoma", responde=True, sim_nao="nao")],
+        leitura=[_leitura(*("nao",) * k)],
+        mapa=[_mapa("esp-queixa-varias-articulacoes")],
+    )
+    grafo, whatsapp, _ = _grafo(modelo)
+    await grafo.ainvoke(_com_historico(resposta, [(abertura, perguntas)], n.codigo_do_alerta(_UNIVERSAL.id)))
+    assert len(modelo.prompts["mapa"]) == 1
+    nova = modelo.prompts["mapa"][0].split("MENSAGEM NOVA:", 1)[1]
+    assert "articulações" in nova and "já respondi" not in nova
+    assert "reumatologista" in whatsapp.enviados[-1]
