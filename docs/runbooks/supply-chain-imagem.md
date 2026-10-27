@@ -73,12 +73,20 @@ deles apodrece. Ele roda, em sequência:
 
 ```bash
 cosign verify --key awskms:///alias/maezo-operadora-dev-image-signing \
-  --insecure-ignore-tlog=true --registry-referrers-mode=legacy "${REPO}@${DIGEST}"
+  --insecure-ignore-tlog=true "${REPO}@${DIGEST}"
 
 cosign verify-attestation --type spdxjson \
   --key awskms:///alias/maezo-operadora-dev-image-signing \
-  --insecure-ignore-tlog=true --registry-referrers-mode=legacy "${REPO}@${DIGEST}"
+  --insecure-ignore-tlog=true "${REPO}@${DIGEST}"
 ```
+
+Sem `--registry-referrers-mode` aqui: a flag não existe nos comandos de
+verificação (medido: `unknown flag` no `cosign verify` do cosign v3.1.4, e o
+próprio script registra `unknown flag` no `attest` no run 35665373792) — ela só
+existe no `cosign sign`. Reproduz exatamente o que
+`scripts/ci/verify_image_signature.sh` executa; a versão anterior deste bloco
+mandava uma flag inexistente e quem a seguisse recebia `unknown flag` no lugar
+de um veredito (falha fechada por acidente, não por desenho).
 
 Saída esperada de cada um: `Verification for … --` seguido de
 `The following checks were performed on each of these signatures:`. Qualquer outra coisa —
