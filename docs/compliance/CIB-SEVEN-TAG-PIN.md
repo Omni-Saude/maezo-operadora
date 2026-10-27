@@ -1,6 +1,6 @@
 # W7 7.4 — Pin do tag CIB Seven: registro de verificação
 
-**Data:** 2026-10-27 · **Pacote:** W7 7.4 (`docs/plans/maezo-completion-program.md:114`) · **Tipo:** registro por verificação (docs-only) · **Base auditada:** `origin/main` @ `88844a57` (worktree `docs/w7-74-cib-tag-pin`)
+**Data:** 2026-10-27 · **Pacote:** W7 7.4 (`docs/plans/maezo-completion-program.md:114`) · **Tipo:** registro por verificação (docs-only) · **Base auditada:** `origin/main` @ `88844a57` (worktree da branch `w7-74-cib-tag-pin`)
 
 ## Veredito
 
@@ -60,7 +60,7 @@ Leituras: (i) o digest pinado nos 4 Dockerfiles (`20a2135b…`) é exatamente o 
 
 ## 6. Escopo não-tocado
 
-A evidência do rebuild v29 do programa provider N2 (Dockerfile.sealed-parent, selo estável `n2fix-r17`) vive em worktrees e bundles `docs/audits/` gitignored da frota provider — **não é prova desta verificação** (aqui valem só artefatos rastreados em `origin/main`); o pacote 7.4 não a consome nem a altera.
+A evidência do rebuild v29 do programa provider N2 (Dockerfile.sealed-parent, selo estável `n2fix-r17`) vive em worktrees e em bundles de auditoria gitignored da frota provider (`docs/audits/...`, elisão declarada — fora da árvore rastreada) — **não é prova desta verificação** (aqui valem só artefatos rastreados em `origin/main`); o pacote 7.4 não a consome nem a altera.
 
 ## 7. Método
 
