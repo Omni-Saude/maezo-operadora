@@ -426,10 +426,11 @@ class LegitimacyScreenGateway(CommercialGateway):
 class LegitimacyScreenShadow(LegitimacyScreenGateway):
     """A postura SHADOW (desenho §4): avalia, registra, sinaliza — nunca altera a venda.
 
-    Toda a consequência desta postura acontece DENTRO de `_posture`, com cada perna
-    blindada: falha de persistência não impede o evento, falha de evento não altera a
-    resposta, e o TODO é executado sob o mesmo teto de tempo do gateway — a shadow nunca
-    pendura o comando no store. O resultado comercial é sempre o de `super().execute`.
+    Toda a consequência desta postura acontece DENTRO de `_posture`, sob um ÚNICO
+    `suppress(Exception)` externo: NÃO há blindagem por perna — persistência e sinalização
+    falham JUNTAS e em silêncio (uma falha de persistência impede também o evento; reparo
+    OBS-1 do gate cego), sempre sob o mesmo teto de tempo do gateway, e nenhuma delas
+    altera a resposta comercial, que é sempre a de `super().execute`.
     """
 
     async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:
