@@ -97,7 +97,7 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 
 4.1 reconstruir SESSION-CLOSE-QUIESCENCE.json (ledger `23c106f3` + SV-01…10; re-pin) [F-M14] · 4.2 fechar recusa #60 (opção de desenho → v23 → 1º N2 POSITIVO → cauda) [F-P01] · 4.3 lane Linux estável (n2-lane.yml entra em CI; hoje manual-only) [F-P08] · 4.4 GP3/GP4 admitir-ou-aposentar [F-M05]. Aceitação: kit c/ hash; #60 fechado/escalado c/ evidência; lane rodando em CI.
 
-**Status 2026-10-26:** discriminador P4 executado (runs 40396401996 d0 / 40396951024 d200) — recusa não-decisiva em ambos os Δ (física medida 3,22s), D2' provado mecanicamente; adjudicação no kit `P4-RESULT-v1` (gate cego Tier-2 PASS). **D-42** rota v28 = novo regime Δ≥3,5s; **D-45** reparo §6-1 + P0' como PR standalone IMEDIATO. **D-46** (2026-10-27): design da rota (b) D2 pós-commit AUTORIZADO (missão de design gateada nesta janela — análise → gate cego → bank no kit); EXECUÇÃO (blob v29 + release + par P4 de dispatches) gated no 2º sinal do dono após gate PASS.
+**Status 2026-10-26:** discriminador P4 executado (runs 40396401996 d0 / 40396951024 d200) — recusa não-decisiva em ambos os Δ (física medida 3,22s), D2' provado mecanicamente; adjudicação no kit `P4-RESULT-v1` (gate cego Tier-2 PASS). **D-42** rota v28 = novo regime Δ≥3,5s; **D-45** reparo §6-1 + P0' como PR standalone IMEDIATO. **D-46** (2026-10-27): design da rota (b) D2 pós-commit AUTORIZADO (missão de design gateada nesta janela — análise → gate cego → bank no kit); EXECUÇÃO (blob v29 + release + par P4 de dispatches) gated no 2º sinal do dono após gate PASS. **D-50** (2026-10-27): **2º sinal D2 DADO** (D-46 consumido) — execução do design `DESIGN-D2-POST-COMMIT-v1` (sha256 `8452f755…`; banked no kit com veredito `0e774e69`) AUTORIZADA para a próxima janela: blob v29 conforme o design (máquina COMMITTED-listener; cerca OBRIGATÓRIA F-3 do `:254` — disposição (i)/(ii) provada no PR), release FULL (schema NOVO com os 8 sítios de re-pin da §7.5, incluindo o builder `scripts/ci/build_provider_native_observation.py:40`), par-bracket `{"0.2","4"}` com grants `ROOT-N2-R29-<data>-D0P2/D4`; cadeia da casa integral (autor → gate cego → merge → byte-check; dispatches de lane SERIADOS).
 
 ## W5 CLNT — plano de capacidades cliente/admin, em shadow (M/L)
 
@@ -116,6 +116,8 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 ## W8 CLOSE (M; alvo 2027-01-26)
 
 Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 do relatório de completude · pacote de evidências de prazo (OP21 pré-2027; janela C2; muro) · matriz final no anexo + supercessão formal · backlog ROLL entregue ao dono (cada flip = mudança de dados + pacote estacionado) · assinatura do dono (D-29).
+
+**Status 2026-10-27 (D-52):** janela W8 ANTICIPADA para dez-2026 — pacotes de evidência preparados antecipadamente; assinatura D-29 na janela
 
 ## §Decisões registradas (2026-10-23, dono, sessão interativa)
 
@@ -176,6 +178,14 @@ Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 
 | ID | Decisão | Efeito |
 |---|---|---|
 | D-49 | **W6-RATIFICATION-PACKAGE-v1 RATIFICADO** (sha256 `b1ccf3fa…c10e3e`; gate cego Tier-2 PASS após 2 reparos literais F-1/F-2; pacote em `docs/audits/JOURNEYS-COMPLETENESS-2026-10/W6-RATIFICATION-PACKAGE-v1.md`, gitignored) — contagens ratificadas: 11 gates NOT-RUN→**0 sem disposição** (GP5+VW1-P1 EXECUTADO-PASS, vereditos `7b9337b0`/`38f32348`; GP1/GP2 aposentados; GP3/GP4 defer-PW6; GP6-GP10 defer-registrados) · triagem 130 = **87 aposentar + 20 programa + 22 ROLL** · DEFER-OWNER 244→**1 vivo** (+229 RETIRE-CHECKOUT-ARCHIVED) · 6.7: 286 rows unverified com plano e baseline congelada `fd4a59eb…`; **D6 resolvida pelo dono: NH-14 → PROGRAMA** (triagem final 87/20/22) | **W6 ACEITA/FECHADA** — os 20 PROGRAMA viram compromisso do programa; os 22 ROLL vão ao backlog ROLL do W8; cerca 6.6-D vigente: NENHUM DROP de archive enquanto a custódia física dos packs não for localizada ou declarada perdida (pasta `~/code/maezo-evidence-archive/fleet-retirement-20261022-104859/` ABSENT hoje; 231 recovery refs + 159 branches verificadas presentes) |
+
+## §Decisões registradas (2026-10-27 — fechamento de janela, dono, sessão interativa)
+
+| ID | Decisão | Efeito |
+|---|---|---|
+| D-50 | **2º SINAL D2 DADO (D-46 consumido): execução do DESIGN-D2-POST-COMMIT-v1** (sha256 `8452f755…`; banked no kit com veredito `0e774e69`) **AUTORIZADA para a próxima janela** — blob v29 conforme o design (máquina COMMITTED-listener; cerca OBRIGATÓRIA F-3 do `:254` — disposição (i)/(ii) provada no PR) · release FULL (schema NOVO com os 8 sítios de re-pin da §7.5 INCLUINDO o builder `scripts/ci/build_provider_native_observation.py:40`) · par-bracket `{"0.2","4"}` com grants `ROOT-N2-R29-<data>-D0P2/D4` | **cadeia da casa integral** (autor → gate cego → merge → byte-check); dispatches de lane SERIADOS |
+| D-51 | **Retenção fleet-retirement: DROP COM PROVA `git cherry`** — as branches do fleet-retirement cujo conteúdo estiver PROVADAMENTE em main (prova cherry por branch, missão própria com registro) são dropadas; o que NÃO fechar prova FICA (fail-closed); os packs/documentos já foram descartados pelo dono (2026-10-27) | **fail-closed**: prova cherry por branch em missão própria com registro é pré-condição de qualquer DROP de branch do fleet-retirement; sem prova, a branch permanece |
+| D-52 | **W8 CLOSE ANTICIPADA PARA DEZ-2026** (antes do alvo 2027-01-26, maximizando folga) | pacotes de evidência de prazo preparados antecipadamente; backlog ROLL (22 itens, da triagem D-49) entregue ao dono; assinatura D-29 na janela |
 
 ## §HDR — Registro de decisões humanas (agentes preparam pacotes, nunca decidem)
 
