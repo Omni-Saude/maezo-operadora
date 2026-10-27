@@ -14,7 +14,10 @@ BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 NS = {"bpmn": BPMN_NS}
 BPMN_PATH = (
     Path(__file__).resolve().parents[2]
-    / "docs" / "processes" / "New_BPMN" / "Adapted_BPMN"
+    / "docs"
+    / "processes"
+    / "New_BPMN"
+    / "Adapted_BPMN"
     / "CA_2_UTILIZACAO_v4_adaptado.bpmn"
 )
 
@@ -24,18 +27,33 @@ JOIN_ID = "U4_GW_Join"
 SPLIT_ID = "U4_GW_RotaPgto"
 MERGE_ID = "U4_GW_MergePgto"
 NEW_NODES = [
-    "U4_GW_RotaPgto", "U4_T_Liquidar", "U4_T_AuditarContas", "U4_T_ApurarCoparticipacao",
-    "U4_GW_MergePgto", "U4_T_ReceberDocReembolso", "U4_T_AnalisarReembolso",
-    "U4_B_PrazoLegalReembolso", "U4_End_PrazoLegalVencido",
+    "U4_GW_RotaPgto",
+    "U4_T_Liquidar",
+    "U4_T_AuditarContas",
+    "U4_T_ApurarCoparticipacao",
+    "U4_GW_MergePgto",
+    "U4_T_ReceberDocReembolso",
+    "U4_T_AnalisarReembolso",
+    "U4_B_PrazoLegalReembolso",
+    "U4_End_PrazoLegalVencido",
 ]
 NEW_FLOWS = [
-    "U4_F_RotaConta", "U4_F_LiqContas", "U4_F_ContasCopart", "U4_F_CopartMerge",
-    "U4_F_RotaReembolso", "U4_F_RecDocAnalise", "U4_F_AnaliseMerge", "U4_F_PrazoVencido",
+    "U4_F_RotaConta",
+    "U4_F_LiqContas",
+    "U4_F_ContasCopart",
+    "U4_F_CopartMerge",
+    "U4_F_RotaReembolso",
+    "U4_F_RecDocAnalise",
+    "U4_F_AnaliseMerge",
+    "U4_F_PrazoVencido",
 ]
 NEW_OBJECTS = [
-    "DO_U4_ContaConferida", "DOR_U4_ContaConferida",
-    "DO_U4_CoparticipacaoApurada", "DOR_U4_CoparticipacaoApurada",
-    "DO_U4_DocReembolso", "DOR_U4_DocReembolso",
+    "DO_U4_ContaConferida",
+    "DOR_U4_ContaConferida",
+    "DO_U4_CoparticipacaoApurada",
+    "DOR_U4_CoparticipacaoApurada",
+    "DO_U4_DocReembolso",
+    "DOR_U4_DocReembolso",
 ]
 WRONG_FORMS = ["art. 12, VIII", "art. 12 VIII", "artigo 12, VIII", "artigo 12 VIII"]
 
@@ -50,7 +68,7 @@ def _by_id(root, el_id):
 
 
 def _docs(el):
-    b = "{%s}documentation" % BPMN_NS
+    b = f"{{{BPMN_NS}}}documentation"
     return "".join(d.text or "" for d in el.findall(b))
 
 
@@ -87,21 +105,22 @@ def test_la02_set_is_explicit():
 
 def test_wiring_invariants():
     root = _load()
-    join = _by_id(root, JOIN_ID)[0]
-    inbounds = {f.get("id") for f in root.iter("{%s}sequenceFlow" % BPMN_NS)
-                if f.get("targetRef") == JOIN_ID}
+    inbounds = {f.get("id") for f in root.iter(f"{{{BPMN_NS}}}sequenceFlow") if f.get("targetRef") == JOIN_ID}
     assert len(inbounds) == 2, f"{JOIN_ID} deve manter 2 inbound (F-E01)"
     split = _by_id(root, SPLIT_ID)[0]
     assert split.get("default") == "U4_F_RotaConta"
-    conds = [f for f in root.iter("{%s}sequenceFlow" % BPMN_NS)
-             if f.get("sourceRef") == SPLIT_ID
-             and f.find("bpmn:conditionExpression", NS) is not None]
+    conds = [
+        f
+        for f in root.iter(f"{{{BPMN_NS}}}sequenceFlow")
+        if f.get("sourceRef") == SPLIT_ID and f.find("bpmn:conditionExpression", NS) is not None
+    ]
     assert len(conds) == 1, "split deve ter exatamente 1 flow condicional (reembolso)"
     merge = _by_id(root, MERGE_ID)[0]
     merge_out = {el.text for el in merge.findall("bpmn:outgoing", NS)}
     merge_in = {el.text for el in merge.findall("bpmn:incoming", NS)}
     assert len(merge_in) == 2 and len(merge_out) == 1
     assert merge_out == {"F_CA_UTILIZACAO_U4_LiquidarAvaliar_12"}
-    actual_in = {f.get("id") for f in root.iter("{%s}sequenceFlow" % BPMN_NS)
-                 if f.get("targetRef") == MERGE_ID}
+    actual_in = {
+        f.get("id") for f in root.iter(f"{{{BPMN_NS}}}sequenceFlow") if f.get("targetRef") == MERGE_ID
+    }
     assert merge_in == actual_in
