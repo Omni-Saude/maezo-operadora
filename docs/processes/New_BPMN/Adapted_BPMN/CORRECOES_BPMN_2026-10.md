@@ -693,4 +693,4 @@ Registro do item 8 da lista de despacho (REG-RESIDUAL-AUDIT-v1.md §3.3/§4; sna
 
 **Escopo negativo** (não alterado): CA_0/CA_1/CA_3 v4 (0 bytes), DI do CA_2, wiring, condições, defaults e todas as demais âncoras normativas do conjunto (§§5–12). Pendência broker: âncora gêmea em `C3_T_Requisitar` quando o pacote broker abrir CA_1 (mesma forma, MESMAS fontes).
 
-**Custódia**: sha256 do `CA_2_UTILIZACAO_v4_adaptado.bpmn` pós-âncora = `b85afa4d1633dfde19b88089acfb00f4372d81e4e5ae1da09eeef76d9f193ff8` (baseline pré-âncora em origin/main `f57f0821` = `ec27832c0a67c81c72a00305e80652f6e376904d41a8f47e775c6e55c2e28de1`; delta = +330 bytes, 1 linha).
+**Custódia**: sha256 do `CA_2_UTILIZACAO_v4_adaptado.bpmn` pós-âncora = `b85afa4d1633dfde19b88089acfb00f4372d81e4e5ae1da09eeef76d9f193ff8` (baseline pré-âncora em origin/main `f57f0821` = `ec27832c0a67c81c72a00305e80652f6e376904d41a8f47e775c6e55c2e28de1`; delta = +347 bytes, 1 linha).
