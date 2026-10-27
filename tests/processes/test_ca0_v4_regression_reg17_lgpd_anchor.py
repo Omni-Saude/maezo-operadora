@@ -70,9 +70,7 @@ def _norm(text: str) -> str:
 def _documentation_texts(root: ET.Element) -> list[str]:
     """Every bpmn:documentation text in the file, whitespace-normalized."""
     return [
-        re.sub(r"\s+", " ", doc.text).strip()
-        for doc in root.iter(f"{{{BPMN_NS}}}documentation")
-        if doc.text
+        re.sub(r"\s+", " ", doc.text).strip() for doc in root.iter(f"{{{BPMN_NS}}}documentation") if doc.text
     ]
 
 
@@ -92,11 +90,7 @@ def _defect_offenders(texts: list[str]) -> list[str]:
 def test_anchor_block_cites_bases_and_registry_correctly() -> None:
     """(a) The pinned anchor cites the bases and the registry role of art. 37."""
     root = _load()
-    anchors = [
-        el
-        for el in root.iter(f"{{{BPMN_NS}}}callActivity")
-        if el.get("id") == ANCHOR_ID
-    ]
+    anchors = [el for el in root.iter(f"{{{BPMN_NS}}}callActivity") if el.get("id") == ANCHOR_ID]
     assert anchors, f"{ANCHOR_ID} (the REG-1.7 anchor) is missing"
     assert anchors[0].get("calledElement") == CALLED_ELEMENT, (
         f"{ANCHOR_ID} calledElement drifted: {anchors[0].get('calledElement')}"
@@ -136,6 +130,4 @@ def test_corpus_v4_free_of_defective_art_37_form() -> None:
         bad = _defect_offenders(_documentation_texts(root))
         if bad:
             offenders[path.name] = bad
-    assert not offenders, (
-        f"defective 'art. 37' citation form found in the v4 corpus: {offenders}"
-    )
+    assert not offenders, f"defective 'art. 37' citation form found in the v4 corpus: {offenders}"
