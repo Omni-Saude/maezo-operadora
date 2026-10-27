@@ -645,3 +645,21 @@ Fonte da citação: `docs/compliance/legal/textos-base/RN-623-2024.md` (DOU 19/1
 - `C2_B_Recusa`: a nota de cobertura documenta o contrato; o **messageFlow** do diagrama continua candidato NÃO ordenado neste pacote (família IA-02 — decidir quando a casa do canal existir).
 - `${prazoMaximoDecisao}`: PD-02 permanece PENDENTE; as âncoras PT168H são guarda nula.
 - Nenhum nome de empresa/pessoa nos `.bpmn` (regra do corpus mantida); nomes de eventos/mensagens inalterados (correlação por NOME preservada — 0 renomes).
+
+---
+
+## 11. Onda REG-1.7 (2026-10-27) — âncora LGPD correta no CA_0 v4 (art. 37 = registro; bases = arts. 7º e 11)
+
+Registro da correção REG-1.7 (docs/audits/JOURNEYS-COMPLETENESS-2026-10/REG-RESIDUAL-AUDIT-v1.md §4 item 1, forma já registrada — COUNSEL-6). Defeito→reparo→fonte primária, 1 bloco, nenhum outro elemento alterado.
+
+| Item | Conteúdo |
+|---|---|
+| Defeito (finding REG17-F01) | `CA_0#EC_CA_H1` documentation (v4 linha 656): "Base legal por fonte mapeada no registro de tratamento (LGPD art. 37)." — cita o art. 37 como **base legal** da verificação de identidade/consentimento. |
+| Impacto | Imprecisão normativa: na Lei 13.709/2018 o **art. 37** disciplina o **registro das operações de tratamento** ("O controlador e o operador devem manter registro das operações de tratamento de dados pessoais que realizarem…"); as **bases legais** de tratamento são os **arts. 7º (dados pessoais) e 11 (dados sensíveis)**. |
+| Reparo (wording mínimo e exato) | documentation de `EC_CA_H1` passa a: "Bases legais por fonte mapeada: arts. 7º e 11 da Lei 13.709/2018. Registro das operações de tratamento: art. 37. \| Origem: M1_CA_Consentimento" — sem inventar prazos ou hipóteses; sufixo de rastreio `\| Origem:` preservado; nenhum outro elemento/atributo/DI alterado. |
+| Fonte primária | LGPD (Lei 13.709/2018), arts. 7º, 11 e 37 — [Planalto](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm), acesso 2026-10-27 (art. 37 verbatim: "O controlador e o operador devem manter registro das operações de tratamento de dados pessoais que realizarem…"; art. 7º: "O tratamento de dados pessoais somente poderá ser realizado nas seguintes hipóteses…"; art. 11: "O tratamento de dados pessoais sensíveis somente poderá ocorrer nas seguintes hipóteses…"). |
+| Guardrail de regressão | `tests/processes/test_ca0_v4_regression_reg17_lgpd_anchor.py` — recusa "art. 37" como base legal no CA_0 e cerca a forma correta (bases arts. 7º e 11; registro art. 37); convenção dos pins estáticos `test_ca*_v4_regression_*.py` (ElementTree, sem engine/dependências novas). |
+
+Escopo: **apenas CA_0 v4**. Varredura no conjunto: 1 ocorrência de "art. 37" no corpus v4 (exatamente a âncora reparada); CA_1/CA_2/CA_3 v4 = 0 ocorrências — nada a corrigir neles. A citação "LGPD art. 8º" em `H1_T_Consentimento` (art. 8º = do consentimento) está correta e **não** faz parte deste reparo.
+
+Escopo negativo (não alterado): a citação de RN 623/2024 art. 12 § 1º em §10.3, a nota LGPD art. 11 § 5º (guard-rail de IA, §9/§10) e demais âncoras normativas do conjunto permanecem intocadas.
