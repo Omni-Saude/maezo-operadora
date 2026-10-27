@@ -373,11 +373,14 @@ class LegitimacyScreenShadow(LegitimacyScreenGateway):
     """
 
     async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:
-        async with asyncio.timeout(self.timeout_seconds):
-            evaluation = await self._evaluate(scope)
-            with suppress(Exception):
+        # O corpo INTEIRO é blindado — inclusive a LEITURA em `_evaluate` (OBS-1 do gate
+        # cego do PR): um store não-conforme ao Protocol do substrato que levante até
+        # `CommercialRefusalError` na leitura não pode acionar o ramo de recusa da base —
+        # o invariante byte-idêntico vale contra QUALQUER defeito do lado do guard.
+        with suppress(Exception):
+            async with asyncio.timeout(self.timeout_seconds):
+                evaluation = await self._evaluate(scope)
                 await self._register(evaluation)
-            with suppress(Exception):
                 self._signal(evaluation)
 
     async def _register(self, evaluation: LegitimacyScreenEvaluation) -> None:

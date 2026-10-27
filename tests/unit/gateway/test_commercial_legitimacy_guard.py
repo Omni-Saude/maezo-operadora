@@ -421,6 +421,26 @@ async def test_prova3_store_lento_não_pende_o_caminho() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prova3_store_hostil_que_recusa_na_leitura_não_torna_a_resposta_recusa() -> None:
+    """OBS-1 do gate cego do PR: a LEITURA em `_evaluate` também é blindada.
+
+    Um store não-conforme ao Protocol do substrato que levante `CommercialRefusalError`
+    na leitura NÃO pode acionar o ramo de recusa da base (`except CommercialRefusalError`
+    de `LegitimacyScreenGateway.execute`): a resposta segue byte-idêntica à de flag OFF.
+    """
+    store = _Store()
+    store.fail_reads = CommercialRefusalError("denied", LEGITIMACY_UNPROVEN)
+    sink = _Sink()
+    shadow, _, _ = _gateway(LegitimacyScreenShadow, store, events=sink)
+    off, _, _ = _flag_off()
+
+    on_result = await _execute(shadow)
+    assert on_result.wire_bytes == (await _execute(off)).wire_bytes
+    assert on_result.status == "succeeded"  # a recusa hostil do store NUNCA vira recusa da venda
+    assert sink.events == []  # a avaliação nem concluiu: nada a sinalizar
+
+
+@pytest.mark.asyncio
 async def test_prova3_recusa_do_caminho_segue_byte_idêntica_e_observada() -> None:
     store = _Store(_receipt(status="invalid"))
     sink = _Sink()
