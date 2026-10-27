@@ -34,6 +34,7 @@ import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from maezo.gateway.commercial_legitimacy_guard import GUARD_ACTOR, LegitimacyScreenEnforcing
 from maezo.gateway.commercial_legitimacy_screen import (
     ART39_ANCHOR,
     LegitimacyCriterion,
@@ -42,7 +43,15 @@ from maezo.gateway.commercial_legitimacy_screen import (
     LegitimacyScreenStoreError,
     PostgresLegitimacyScreenStore,
 )
+from maezo.ports.commercial import SalesTransport
 from tests.unit.a2a.test_outbox_live_pg import _default_test_dsn
+from tests.unit.test_commercial_gateway import (
+    NOW,
+    UnitAdmission,
+    UnitCodec,
+    UnitSource,
+    scope,
+)
 
 pytestmark = pytest.mark.integration
 _ROOT = Path(__file__).resolve().parents[3]
@@ -94,14 +103,22 @@ async def _migrate(dsn: str, tenant: str, direction: str, revision: str) -> None
             await process.wait()
 
 
-def _recibo(tenant: str, screen_ref: str, revision: int, opportunity: str) -> LegitimacyScreenRecord:
+def _recibo(
+    tenant: str,
+    screen_ref: str,
+    revision: int,
+    opportunity: str,
+    *,
+    status: str = "valid",
+    legal_entity: str = "pj-contratante-op21",
+) -> LegitimacyScreenRecord:
     """Um recibo completo: critério provado com referência à custódia da operadora + art. 39."""
     now = datetime(2026, 10, 26, 12, 0, 0, tzinfo=UTC)
     return LegitimacyScreenRecord(
         tenant=tenant,
         screen_ref=screen_ref,
         screen_revision=revision,
-        legal_entity_ref="pj-contratante-op21",
+        legal_entity_ref=legal_entity,
         opportunity_ref=opportunity,
         contract_kind="empresarial",
         contracting_form="direta",
@@ -137,7 +154,7 @@ def _recibo(tenant: str, screen_ref: str, revision: int, opportunity: str) -> Le
                 evidence_refs=(),
             ),
         ),
-        status="valid",
+        status=status,  # type: ignore[arg-type]
         would_block=False,
         art39_signaled=True,
         art39_anchor=ART39_ANCHOR,
@@ -291,6 +308,157 @@ async def test_forma_fechada_anti_custodia_e_ida_e_volta_reversivel() -> None:
             assert gone is None, "downgrade must drop the dark substrate table"
             fn = await conn.fetchval("SELECT to_regproc('portal_legitimacy_criteria_ok')")
             assert fn is None, "downgrade must drop the closed-shape function too"
+        finally:
+            await conn.close()
+        await _migrate(dsn, tenant, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(f'SET search_path TO "{tenant}"')
+            back = await conn.fetchval("SELECT to_regclass('portal_legitimacy_screens')")
+            assert back is not None, "the round trip must restore the substrate"
+        finally:
+            await conn.close()
+    finally:
+        admin = await asyncpg.connect(dsn)
+        try:
+            await admin.execute(f'DROP SCHEMA "{tenant}" CASCADE')
+        finally:
+            await admin.close()
+
+
+async def test_enforcing_persiste_a_observação_do_bloqueio_e_os_checks_seguem_válidos() -> None:
+    """Prova 5 (contexto enforcing, PR 4): a perna REGISTRAR da postura enforcing escreve a
+    linha da observação do bloqueio no esquema REAL da 0030 — através do
+    `PostgresLegitimacyScreenStore`, com o comando coletivo recusado ANTES da fonte — e os
+    CHECKs seguem fechados exatamente para a escrita do guard: estado, anti-bytes-documento
+    e o par exclusivo do art. 39; o downgrade descartável continua restaurável com a linha
+    do guard já escrita. Molde do teste acima (mold D-36)."""
+    dsn = _default_test_dsn()
+    tenant = "pf" + uuid.uuid4().hex[:20]
+    admin = await asyncpg.connect(dsn)
+    try:
+        await admin.execute(f'CREATE SCHEMA "{tenant}"')
+    finally:
+        await admin.close()
+    try:
+        await _migrate(dsn, tenant, "upgrade", "head")
+        url = _default_test_dsn().replace("postgresql://", "postgresql+asyncpg://")
+        engine = create_async_engine(
+            url, echo=False, hide_parameters=True, connect_args={"server_settings": {"search_path": tenant}}
+        )
+        store = PostgresLegitimacyScreenStore(engine)
+        ref1 = "screen-" + "a" * 16
+        # A cabeça da PJ: verificação de checklist da staff, status fora da vigência.
+        await store.save(_recibo(tenant, ref1, 1, "opportunity-1", status="invalid", legal_entity="entity-a"))
+
+        # O enforcing montado DIRETO sobre o store real (nenhum bind de produção existe):
+        valor = scope()
+        enforcing = LegitimacyScreenEnforcing(
+            store=store,
+            tenant=tenant,
+            codec=UnitCodec(),
+            admission=UnitAdmission(valor),
+            source=UnitSource(valor),
+            clock=lambda: NOW,
+            timeout_seconds=5.0,
+        )
+        admitido = await enforcing.admit(
+            SalesTransport(connection_ref="server-connection", method="POST", path="fixed")
+        )
+        resultado = await enforcing.execute(UnitCodec().parse_command(b"acceptance.record"), admitido)
+        assert resultado.status == "denied"
+        assert json.loads(resultado.wire_bytes)["reason_code"] == "legitimacy_unproven"
+
+        # A linha da observação do bloqueio está no banco REAL: nova revisão da MESMA
+        # instância, would_block/art39_signaled da postura, âncora literal, autor do guard.
+        head = await store.latest_for_legal_entity(tenant, "entity-a")
+        assert head is not None and head.screen_revision == 2
+        assert head.would_block is True and head.art39_signaled is True
+        assert head.art39_anchor == ART39_ANCHOR == "RN 557/2022, art. 39"
+        assert head.created_by == GUARD_ACTOR
+        assert head.criteria == (await store.read(tenant, ref1, 1)).criteria  # type: ignore[union-attr]
+
+        # Reenvio do comando: segue bloqueado e NÃO escreve terceira linha (idempotente).
+        again = await enforcing.execute(UnitCodec().parse_command(b"acceptance.record"), admitido)
+        assert again.status == "denied"
+        head_again = await store.latest_for_legal_entity(tenant, "entity-a")
+        assert head_again is not None and head_again.screen_revision == 2
+
+        raw = await asyncpg.connect(dsn)
+        try:
+            await raw.execute(f'SET search_path TO "{tenant}"')
+            linha = await raw.fetchrow(
+                "SELECT screen_revision, status, would_block, art39_signaled, art39_anchor,"
+                " created_by FROM portal_legitimacy_screens WHERE screen_revision = 2"
+            )
+            assert linha is not None
+            assert linha["status"] == "invalid"
+            assert linha["would_block"] is True and linha["art39_signaled"] is True
+            assert linha["art39_anchor"] == "RN 557/2022, art. 39"
+            assert linha["created_by"] == "legitimacy_screen_guard"
+
+            # ── Os CHECKs re-exercidos NO CONTEXTO da escrita do guard ──
+            observacao = json.loads(
+                _recibo(
+                    tenant, ref1, 3, "opportunity-1", status="invalid", legal_entity="entity-a"
+                ).model_dump_json()
+            )
+            observacao["criteria"] = json.dumps(observacao["criteria"], ensure_ascii=False)
+
+            # Estado: nenhum outro estado é persistível nem para a linha do guard.
+            with pytest.raises(asyncpg.CheckViolationError, match="portal_legitimacy_screens_status_check"):
+                await raw.execute(
+                    "INSERT INTO portal_legitimacy_screens (tenant, screen_ref, screen_revision,"
+                    " legal_entity_ref, opportunity_ref, contract_kind, contracting_form, criteria,"
+                    " status, would_block, art39_signaled, art39_anchor, reconfirmation_due_at,"
+                    " created_by, created_at, updated_at)"
+                    " VALUES ($1, 'screen-' || repeat('e', 16), 3, 'entity-a', 'opp-3',"
+                    " 'empresarial', 'direta', CAST($2 AS jsonb), 'approved', true, true,"
+                    " 'RN 557/2022, art. 39', NULL, 'legitimacy_screen_guard', now(), now())",
+                    tenant,
+                    observacao["criteria"],
+                )
+
+            # Anti-bytes-documento: a observação do guard carrega referência, nunca conteúdo.
+            hostil = json.loads(observacao["criteria"])
+            hostil[0]["evidence_refs"] = [
+                dict(hostil[0]["evidence_refs"][0], content="JVBERi0xLjcgYnl0ZXMgZG9zIGRvY3VtZW50b3M")
+            ]
+            with pytest.raises(asyncpg.CheckViolationError, match="portal_legitimacy_screens_criteria_check"):
+                await raw.execute(
+                    "INSERT INTO portal_legitimacy_screens (tenant, screen_ref, screen_revision,"
+                    " legal_entity_ref, opportunity_ref, contract_kind, contracting_form, criteria,"
+                    " status, would_block, art39_signaled, art39_anchor, reconfirmation_due_at,"
+                    " created_by, created_at, updated_at)"
+                    " VALUES ($1, 'screen-' || repeat('f', 16), 3, 'entity-a', 'opp-3',"
+                    " 'empresarial', 'direta', CAST($2 AS jsonb), 'invalid', true, true,"
+                    " 'RN 557/2022, art. 39', NULL, 'legitimacy_screen_guard', now(), now())",
+                    tenant,
+                    json.dumps(hostil, ensure_ascii=False),
+                )
+
+            # Par exclusivo do art. 39: sinalizada ⟺ âncora literal — também no guard.
+            # (Âncora ERRADA não-nula: NULL deixaria o predicado do CHECK em UNKNOWN, que o
+            # PostgreSQL aceita — o molde da prova 5d usa a mesma forma.)
+            with pytest.raises(
+                asyncpg.CheckViolationError, match="portal_legitimacy_screens_art39_par_exclusivo"
+            ):
+                await raw.execute(
+                    "UPDATE portal_legitimacy_screens SET art39_anchor = 'RN 557/2022, art. 10'"
+                    " WHERE tenant = $1 AND screen_revision = 2",
+                    tenant,
+                )
+        finally:
+            await raw.close()
+        await engine.dispose()
+
+        # ── Downgrade descartável com a linha do guard já escrita; ida e volta restaurável ──
+        await _migrate(dsn, tenant, "downgrade", "0029")
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(f'SET search_path TO "{tenant}"')
+            gone = await conn.fetchval("SELECT to_regclass('portal_legitimacy_screens')")
+            assert gone is None, "downgrade must drop the table with the guard's row too"
         finally:
             await conn.close()
         await _migrate(dsn, tenant, "upgrade", "head")

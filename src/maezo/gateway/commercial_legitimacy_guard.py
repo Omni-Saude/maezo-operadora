@@ -86,6 +86,7 @@ __all__ = [
     "SOURCE_UNAVAILABLE",
     "LegitimacyArt39Signal",
     "LegitimacyEventKind",
+    "LegitimacyScreenEnforcing",
     "LegitimacyScreenEvaluation",
     "LegitimacyScreenEvent",
     "LegitimacyScreenEventSink",
@@ -361,28 +362,6 @@ class LegitimacyScreenGateway(CommercialGateway):
         anchor = ART39_TWIN_ANCHOR if contract_kind == "empresario_individual" else ART39_SIGNAL_ANCHOR
         return LegitimacyArt39Signal(anchor=anchor, consequence=ART39_SIGNAL_CONSEQUENCE)  # type: ignore[arg-type]
 
-
-@final
-class LegitimacyScreenShadow(LegitimacyScreenGateway):
-    """A postura SHADOW (desenho §4): avalia, registra, sinaliza — nunca altera a venda.
-
-    Toda a consequência desta postura acontece DENTRO de `_posture`, com cada perna
-    blindada: falha de persistência não impede o evento, falha de evento não altera a
-    resposta, e o TODO é executado sob o mesmo teto de tempo do gateway — a shadow nunca
-    pendura o comando no store. O resultado comercial é sempre o de `super().execute`.
-    """
-
-    async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:
-        # O corpo INTEIRO é blindado — inclusive a LEITURA em `_evaluate` (OBS-1 do gate
-        # cego do PR): um store não-conforme ao Protocol do substrato que levante até
-        # `CommercialRefusalError` na leitura não pode acionar o ramo de recusa da base —
-        # o invariante byte-idêntico vale contra QUALQUER defeito do lado do guard.
-        with suppress(Exception):
-            async with asyncio.timeout(self.timeout_seconds):
-                evaluation = await self._evaluate(scope)
-                await self._register(evaluation)
-                self._signal(evaluation)
-
     async def _register(self, evaluation: LegitimacyScreenEvaluation) -> None:
         """A perna REGISTRAR: só a observação que a cabeça AINDA não registra.
 
@@ -441,6 +420,74 @@ class LegitimacyScreenShadow(LegitimacyScreenGateway):
                     art39=evaluation.art39,
                 )
             )
+
+
+@final
+class LegitimacyScreenShadow(LegitimacyScreenGateway):
+    """A postura SHADOW (desenho §4): avalia, registra, sinaliza — nunca altera a venda.
+
+    Toda a consequência desta postura acontece DENTRO de `_posture`, com cada perna
+    blindada: falha de persistência não impede o evento, falha de evento não altera a
+    resposta, e o TODO é executado sob o mesmo teto de tempo do gateway — a shadow nunca
+    pendura o comando no store. O resultado comercial é sempre o de `super().execute`.
+    """
+
+    async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:
+        # O corpo INTEIRO é blindado — inclusive a LEITURA em `_evaluate` (OBS-1 do gate
+        # cego do PR): um store não-conforme ao Protocol do substrato que levante até
+        # `CommercialRefusalError` na leitura não pode acionar o ramo de recusa da base —
+        # o invariante byte-idêntico vale contra QUALQUER defeito do lado do guard.
+        with suppress(Exception):
+            async with asyncio.timeout(self.timeout_seconds):
+                evaluation = await self._evaluate(scope)
+                await self._register(evaluation)
+                self._signal(evaluation)
+
+
+@final
+class LegitimacyScreenEnforcing(LegitimacyScreenGateway):
+    """A postura ENFORCING (desenho §4 DECISÃO 3): o recibo vigente é PRÉ-CONDIÇÃO.
+
+    Sobre cada comando do bound set sem recibo `valid` vigente, a postura executa as três
+    pernas do art. 39 NA ORDEM DELAS — REGISTRAR (a linha da observação do bloqueio),
+    SINALIZAR (o evento de resultado + o par estrutural do efeito) e BLOQUEAR — e a recusa
+    sai por `CommercialRefusalError` ANTES de qualquer passo de fonte/efeito: o comando
+    nunca chega ao `super().execute`. Com recibo vigente, a postura registra a aprovação
+    pelo evento e o caminho segue o de sempre. PENDENTE ≠ APROVADO por omissão: recibo
+    `pending`/`invalid`, reconfirmação vencida, ausência de recibo e fonte que não responde
+    são TODOS bloqueio — a inércia do controle é honesta.
+
+    Fail-closed sobre os PRÓPRIOS defeitos: o que a postura não consegue concluir (store
+    mudo, lento além do teto do gateway, ou hostil que levante na leitura) NUNCA vira
+    passagem sem triagem — vira a recusa declarada de indisponibilidade, com o par fixo
+    (`unavailable`/`source_unavailable`), nunca um par escolhido pela fonte. O token de
+    recusa do bloqueio é o único fato novo no vocabulário; a sua ida ao WIRE pelo codec
+    congelado é negociação de schema sucessor (a recusa declarada da classe está provada
+    na superfície dela; o teste pina os bytes que o codec produz QUANDO o token é
+    codificável, e a forma de indisponibilidade quando não é).
+
+    O bind desta classe é ATO SUCESSOR na composition root, em PR próprio — NÃO é
+    alcançável por ambiente: a porta da flag (`collective_legitimacy_shadow`) aceita
+    EXCLUSIVAMENTE a classe `LegitimacyScreenShadow` exata e recusa esta em boot.
+    """
+
+    async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:
+        try:
+            # O mesmo teto de tempo do gateway: uma fonte lenta é BLOQUEIO, nunca um
+            # comando pendurado — e nunca passagem sem triagem.
+            async with asyncio.timeout(self.timeout_seconds):
+                evaluation = await self._evaluate(scope)
+                if not evaluation.would_block:
+                    self._signal(evaluation)
+                    return
+                await self._register(evaluation)
+                self._signal(evaluation)
+        except Exception:
+            # Fail-closed: nenhum defeito da triagem vira passagem. PENDENTE/UNKNOWN não é
+            # APROVADO por omissão (registry OP21) e o par de indisponibilidade é FIXO —
+            # uma fonte hostil não escolhe o token que anda na recusa.
+            raise CommercialRefusalError("unavailable", SOURCE_UNAVAILABLE) from None
+        raise CommercialRefusalError("denied", LEGITIMACY_UNPROVEN)
 
 
 def collective_legitimacy_shadow(
