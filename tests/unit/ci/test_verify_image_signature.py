@@ -115,15 +115,11 @@ def _run(
     argv = ["bash", str(SCRIPT)]
     if image_ref is not None:
         argv.append(image_ref)
-    result = subprocess.run(
-        argv, env=env, capture_output=True, text=True, timeout=120, check=False
-    )
+    result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=120, check=False)
     return result.returncode, result.stdout + result.stderr, shim_log
 
 
-def _inline_scenario(
-    tmp_path: Path, sig_rc: int, att_rc: int, sig_err: str = "", att_err: str = ""
-) -> Path:
+def _inline_scenario(tmp_path: Path, sig_rc: int, att_rc: int, sig_err: str = "", att_err: str = "") -> Path:
     case = tmp_path / "inline"
     case.mkdir()
     (case / "sig.rc").write_text(f"{sig_rc}\n")
@@ -219,9 +215,7 @@ def test_hanging_cosign_is_killed_and_refused(tmp_path: Path) -> None:
     sendo REPROVA — o hang não vira verde nem falso-verde.
     """
     started = time.monotonic()
-    rc, log, _ = _run(
-        tmp_path, None, APP_REF, cosign_body="#!/bin/sh\nsleep 60\n", timeout_s="2"
-    )
+    rc, log, _ = _run(tmp_path, None, APP_REF, cosign_body="#!/bin/sh\nsleep 60\n", timeout_s="2")
     elapsed = time.monotonic() - started
     assert rc == 1, log
     assert "REPROVOU" in log

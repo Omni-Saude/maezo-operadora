@@ -39,9 +39,7 @@ def _run(tmp_path: Path, tags: list[str], aws_fails: bool = False) -> tuple[int,
             "exit 254\n"
         )
     else:
-        body = (
-            '#!/bin/sh\nprintf \'%s\\t\\n\' $(cat "$KNOWN") | tr \'\\t\' \'\\n\'\nexit 0\n'
-        )
+        body = "#!/bin/sh\nprintf '%s\\t\\n' $(cat \"$KNOWN\") | tr '\\t' '\\n'\nexit 0\n"
     (fake / "aws").write_text(body)
     (fake / "aws").chmod(0o755)
     (tmp_path / "known").write_text("".join(t + "\n" for t in tags))
@@ -62,9 +60,7 @@ def _run(tmp_path: Path, tags: list[str], aws_fails: bool = False) -> tuple[int,
         timeout=30,
         check=False,
     )
-    outputs = dict(
-        line.split("=", 1) for line in out.read_text().splitlines() if "=" in line
-    )
+    outputs = dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
     return result.returncode, outputs, result.stdout + result.stderr
 
 
@@ -99,9 +95,7 @@ def test_another_digests_artifacts_never_count_as_ours(tmp_path: Path) -> None:
     O registry pode ter `sha256-<outro>.sig`/`.att` completos: o prefixo é
     `sha256-<DIGEST_HEX>`, e assinatura de vizinho não é assinatura.
     """
-    rc, out, log = _run(
-        tmp_path, [f"sha256-{OTHER}.sig", f"sha256-{OTHER}.att"]
-    )
+    rc, out, log = _run(tmp_path, [f"sha256-{OTHER}.sig", f"sha256-{OTHER}.att"])
     assert rc == 0, log
     assert out["falta_assinatura"] == "true"
     assert out["falta_atestacao"] == "true"
