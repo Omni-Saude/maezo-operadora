@@ -152,3 +152,26 @@ async def test_historia_sem_pergunta_de_profissional_continua_com_as_perguntas()
 def test_final_de_atendimento_hoje_sem_sinal_diz_o_especialista() -> None:
     texto = n.texto_sem_sinal(_PEITO, _TEXTOS)
     assert "cardiologista" in texto and "ainda hoje" in texto
+
+
+async def test_mapa_no_prazo_usa_a_queixa_pelo_jeito_de_falar() -> None:
+    """Rodada de 27/10/2026 (d0530503): o mapa caiu no prazo e a libido recebeu o clinico generico."""
+    modelo = _Modelo(
+        [decisao_v7("sintoma")],
+        escolha=[_escolha("nenhum")],
+        mapa=["", ""],
+    )
+    grafo, whatsapp, _ = _grafo(modelo)
+    await grafo.ainvoke(_entrada(_FALA_LIBIDO))
+    texto = whatsapp.enviados[-1]
+    assert "urologista" in texto and "endocrinologista" in texto and _CVV not in texto
+
+
+def test_a_queixa_sem_modelo_nunca_chuta_um_especialista_errado() -> None:
+    from maezo.agents.helena.habilidades.protocolo import evidencia as ev
+
+    assert ev.queixa_do_mapa(_FALA_LIBIDO, _CATALOGO) == "esp-queixa-cansaco-libido-baixa-energia"
+    assert ev.queixa_do_mapa(_FALA_URINA, _CATALOGO) == "esp-queixa-dificuldade-para-urinar"
+    lombar = "Estou com dores constantes na lombar e perdi força física, que profissional procuro?"
+    assert ev.queixa_do_mapa(lombar, _CATALOGO) in (None, "esp-queixa-dor-nas-costas")
+    assert ev.queixa_do_mapa("estou passando mal, que médico procuro?", _CATALOGO) is None

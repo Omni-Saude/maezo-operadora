@@ -887,6 +887,11 @@ async def resposta_direta(
             logger.info("helena_protocolo_direto_com_sinal", protocolo=protocolo.id)
             return await _seguir_a_pre_leitura(self, state, protocolo, pre)
     entrada = catalogo.mapa.get(lido[0]) if lido is not None and lido[0] else None
+    if lido is None and (pelo_texto_do_mapa := _ev.queixa_do_mapa(texto, catalogo)) is not None:
+        # Rodada de 27/10/2026: o mapa caiu no prazo e a resposta virou o clinico generico. Sem o modelo, a
+        # queixa do mapa pelo jeito de falar (unica e com duas palavras em comum, no minimo).
+        logger.info("helena_protocolo_mapa_sem_modelo", queixa=pelo_texto_do_mapa)
+        entrada = catalogo.mapa.get(pelo_texto_do_mapa)
     if lido is not None:
         publico = "crianca_2m_5a" if lido[1] == "crianca" else lido[1]
     elif protocolo is not None:
