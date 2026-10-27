@@ -986,6 +986,71 @@ class TestT3DeferredEnvClosedSet:
         assert measurement._T3_DEFERRED_SECONDS in (0.0, 0.2)
 
 
+class TestT3DeferredV28D42ClosedSet:
+    """D-42 (owner decision 2026-10-26, route (a) of P4-RESULT-v1 §6).
+
+    The v28 regime admits exactly ONE new member: the literal "4" — a 4 s
+    deferred read crosses the measured post-RELEASE custody tail of the
+    COMMITTING endpoint (3.174540 s at Δ=0, 3.217283 s at Δ=0.2) with margin,
+    where the v27 set left the T3' read landing 15-16x before the tail ends.
+    The set stays closed, the default stays the pinned "0.2", and the literal
+    style stays integer-without-decimal for integral values, so every other
+    spelling of four (and everything else) still refuses loudly at import.
+    """
+
+    _ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
+
+    @pytest.fixture(autouse=True)
+    def _restore_import_default(self):
+        yield
+        import importlib
+        import os
+
+        os.environ.pop(self._ENV, None)
+        importlib.reload(measurement)
+
+    def _reload(self, monkeypatch, value):
+        import importlib
+
+        if value is None:
+            monkeypatch.delenv(self._ENV, raising=False)
+        else:
+            monkeypatch.setenv(self._ENV, value)
+        return importlib.reload(measurement)
+
+    def test_v28_closed_set_is_exactly_the_three_regime_members(self):
+        assert frozenset({"0", "0.2", "4"}) == measurement._T3_DEFERRED_ALLOWED
+
+    @pytest.mark.parametrize("raw,expected", [("4", 4.0), ("0.2", 0.2), ("0", 0.0), (None, 0.2)])
+    def test_v28_members_resolve_and_absent_env_keeps_the_pinned_default(self, monkeypatch, raw, expected):
+        module = self._reload(monkeypatch, raw)
+        assert expected == module._T3_DEFERRED_SECONDS
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "4.0",  # integral values are spelled without a decimal, like "0"
+            "4s",
+            " 4",
+            "4 ",
+            "0.4",
+            "-4",
+            "abc",
+            "",
+        ],
+    )
+    def test_v28_every_other_value_still_refuses_loud_at_import(self, monkeypatch, raw):
+        import importlib
+
+        monkeypatch.setenv(self._ENV, raw)
+        with pytest.raises(runtime.NativeObservationError, match=self._ENV):
+            importlib.reload(measurement)
+        # Fail-closed: after the refused import the module is restored to the
+        # pinned default, never left bound to the refused value.
+        module = self._reload(monkeypatch, None)
+        assert module._T3_DEFERRED_SECONDS == 0.2
+
+
 # ---------------------------------------------------------------------------
 # Schema v3 contract, main side: the early RELEASE document, the inverted
 # capture and the acquisition record shapes validated against the REAL

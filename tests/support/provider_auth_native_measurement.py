@@ -127,8 +127,24 @@ _STRADDLE_SQL = (
 # module blob + re-pin (the normal v23→v27 cadence), never an open knob. The
 # validation of the scope/runner field that injects it is the release v27
 # work, not this module's.
+# v28 D-42 (owner decision 2026-10-26, route (a) of P4-RESULT-v1 §6 — the §10.8
+# sanctioned cadence "a future Δ is a new module blob + re-pin"): the P4 lane
+# measured the post-RELEASE custody tail of the COMMITTING endpoint at
+# 3.174540 s (Δ=0) / 3.217283 s (Δ=0.2), and inside that regime the deferred
+# T3' read lands 15-16x BEFORE the tail ends, so its 'in progress' verdict is
+# the non-decisive refusal by construction — never engine physics (see the P0'
+# provenance below). The owner's Δ >= 3.5 s regime admits exactly ONE new
+# member: "4" — a 4 s deferred read crosses the measured maximum tail
+# (3.217283 s) with margin, so the single decisive read happens after the whole
+# custody window is over. The set stays CLOSED, the default stays the pinned
+# "0.2" (the exact v26/v27 behaviour when the env is absent), and the literal
+# style stays integer-without-decimal for integral values ("0", never "0.0"),
+# so "4.0", "4s", " 4", "4 ", "-4", "abc" and "" are ALL still loud import-time
+# refusals — fail-closed, zero silent fallback. Still bounded: at most 36
+# corners per run (9 stages x 2 endpoints x 2 phases) x 4 s = 144 s, far under
+# the 14-minute session window, and the per-read guard cap is untouched.
 _T3_DEFERRED_ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
-_T3_DEFERRED_ALLOWED = frozenset({"0", "0.2"})
+_T3_DEFERRED_ALLOWED = frozenset({"0", "0.2", "4"})
 
 
 def _resolve_t3_deferred_seconds() -> float:
