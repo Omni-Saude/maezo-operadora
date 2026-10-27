@@ -988,13 +988,14 @@ jobs:
       - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
         run: make check-d7-xfail-expiry
 
-      # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 5 flags dark do
+      # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 6 flags dark do
       # portal do Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
       # `staff_documents_panel` (#960), `staff_operations_panel` (#963),
-      # `staff_admin_panel` (#985, D-40) e `staff_commission_policies` (#987, D-36) — mais as
+      # `staff_admin_panel` (#985, D-40), `staff_commission_policies` (#987, D-36) e
+      # `collective_legitimacy_screen` (#1028, OP21/REG-1.1) — mais as
       # duas pontes de erasure (#965) seguem com default literal `False` no codigo (sob o
       # `env_prefix="MAEZO_PORTAL_"` e com as constantes de env das pontes valendo os nomes
-      # pinados) e ZERO mencao a qualquer um dos 7 nomes de env em `deploy/**`, que e' a
+      # pinados) e ZERO mencao a qualquer um dos 8 nomes de env em `deploy/**`, que e' a
       # sentenca shipped de cada docstring ("nenhum `deploy/**` pode liga-la neste
       # programa"). Fail-closed: arquivo ilegivel FORA de `__pycache__` (artefato de sessao
       # pytest, excluido por path.parts — classe F-1 do #985), deploy ausente/vazio e

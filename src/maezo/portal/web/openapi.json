@@ -1828,6 +1828,103 @@
         "title": "ChannelSubmissionStatus",
         "type": "object"
       },
+      "ChecklistCriterion": {
+        "additionalProperties": false,
+        "description": "Um critério do parecer §5 — o rótulo é o VERBATIM do parecer, nunca paráfrase.\n\n`estrutural=True` marca o critério que o ESTADO bloqueante aplica (art. 29 §1º): ele é\nEXIBIDO e nunca é campo de entrada (desenho §5: \"nunca um checkbox\").",
+        "properties": {
+          "campos": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChecklistField"
+            },
+            "title": "Campos",
+            "type": "array"
+          },
+          "criterion_id": {
+            "title": "Criterion Id",
+            "type": "string"
+          },
+          "estrutural": {
+            "default": false,
+            "title": "Estrutural",
+            "type": "boolean"
+          },
+          "norm_anchor": {
+            "title": "Norm Anchor",
+            "type": "string"
+          },
+          "opcoes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChecklistOption"
+            },
+            "title": "Opcoes",
+            "type": "array"
+          },
+          "rotulo": {
+            "title": "Rotulo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion_id",
+          "rotulo",
+          "norm_anchor"
+        ],
+        "title": "ChecklistCriterion",
+        "type": "object"
+      },
+      "ChecklistField": {
+        "additionalProperties": false,
+        "description": "Um campo do checklist com a âncora normativa QUE A TELA EXIBE para ele.\n\n`norm_anchor` é sempre artigo PRÓPRIO da RN 557/2022 (parecer §4 — desdobro por\nassunto); `condicao_estrutural` carrega a derivação do art. 16 quando existe.",
+        "properties": {
+          "campo_id": {
+            "title": "Campo Id",
+            "type": "string"
+          },
+          "condicao_estrutural": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condicao Estrutural"
+          },
+          "norm_anchor": {
+            "title": "Norm Anchor",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campo_id",
+          "norm_anchor"
+        ],
+        "title": "ChecklistField",
+        "type": "object"
+      },
+      "ChecklistOption": {
+        "additionalProperties": false,
+        "description": "Uma opção fechada de campo, com o rótulo exibido — sem texto livre de operador.",
+        "properties": {
+          "rotulo": {
+            "title": "Rotulo",
+            "type": "string"
+          },
+          "valor": {
+            "title": "Valor",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valor",
+          "rotulo"
+        ],
+        "title": "ChecklistOption",
+        "type": "object"
+      },
       "ClaimAssignment": {
         "additionalProperties": false,
         "properties": {
@@ -2975,6 +3072,35 @@
           "decisao_cred"
         ],
         "title": "CredDecredentialingInputs",
+        "type": "object"
+      },
+      "CriterionCheck": {
+        "additionalProperties": false,
+        "description": "O estado DECLARADO de um critério: resultado no closed set do substrato + referências.\n\nO operador declara; nada aqui infere, pondera ou aprova. As evidências são referências\ntipadas do substrato (custódia `operadora`/`administradora`, RN 557/2022 art. 12) —\nnunca bytes de documento. No WIRE a sequência chega como LISTA e é ACEITA SÓ AÍ: o modo\nstrict do pydantic não converge lista→tupla no caminho python do ASGI (o mesmo motivo\npelo qual o substrato hidrata via JSON), então o validador `before` fecha a tupla\nANTES da validação — o campo persiste tupla fechada e imutável, como no recibo.",
+        "properties": {
+          "evidence_refs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LegitimacyEvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "result": {
+            "enum": [
+              "proven",
+              "not_proven",
+              "not_applicable",
+              "pending"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "CriterionCheck",
         "type": "object"
       },
       "DecisionContextResponse": {
@@ -5029,6 +5155,533 @@
         "title": "IntakeRecoveryPage",
         "type": "object"
       },
+      "LegitimacyChecklistManifest": {
+        "additionalProperties": false,
+        "description": "O checklist FECHADO que a tela renderiza — os 5 critérios do parecer §5 e nada mais.\n\n`penalidade_anchor` é a forma CURTA (a única forma de tela, parecer §1);\n`norma_contratacao` é a RN 557/2022 desdobrada por assunto; `escopo=\"integral\"` fixa o\nparecer §2 (conteúdo integral desde a v1). Nenhum texto deste manifesto atribui papel\njurídico a figura alguma de venda (parecer §3) — cerca mecânica no teste da superfície.",
+        "properties": {
+          "criterios": {
+            "items": {
+              "$ref": "#/components/schemas/ChecklistCriterion"
+            },
+            "title": "Criterios",
+            "type": "array"
+          },
+          "escopo": {
+            "const": "integral",
+            "default": "integral",
+            "title": "Escopo",
+            "type": "string"
+          },
+          "norma_contratacao": {
+            "const": "RN 557/2022",
+            "default": "RN 557/2022",
+            "title": "Norma Contratacao",
+            "type": "string"
+          },
+          "penalidade_anchor": {
+            "const": "RN 489/2022, art. 23-A",
+            "default": "RN 489/2022, art. 23-A",
+            "title": "Penalidade Anchor",
+            "type": "string"
+          },
+          "resultados": {
+            "items": {
+              "$ref": "#/components/schemas/ChecklistOption"
+            },
+            "title": "Resultados",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resultados",
+          "criterios"
+        ],
+        "title": "LegitimacyChecklistManifest",
+        "type": "object"
+      },
+      "LegitimacyCriterion": {
+        "additionalProperties": false,
+        "description": "Um critério verificado: critério→resultado→referências, com a âncora normativa.\n\nA enumeração FECHADA dos critérios (os campos exatos da tela) é a superfície do PR 2\n(desenho §5); o substrato fixa a FORMA: id simbólico fechado, resultado no closed set,\nâncora por artigo PRÓPRIO da norma de contratação (RN 557/2022) — ou da penalidade\n(RN 489/2022, art. 23-A, redação dada pela RN 659/2025) quando o critério é de infração —\ne referências tipadas. `pending` é um resultado declarado, nunca inferido.",
+        "properties": {
+          "criterion_id": {
+            "pattern": "^[a-z0-9_]{1,64}$",
+            "title": "Criterion Id",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LegitimacyEvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "norm_anchor": {
+            "pattern": "^[A-Za-z0-9À-ÿ .,;:()/§ºª-]{1,192}$",
+            "title": "Norm Anchor",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "proven",
+              "not_proven",
+              "not_applicable",
+              "pending"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion_id",
+          "result",
+          "norm_anchor"
+        ],
+        "title": "LegitimacyCriterion",
+        "type": "object"
+      },
+      "LegitimacyEvidenceRef": {
+        "additionalProperties": false,
+        "description": "Referência TIPADA a um documento sob custódia — nunca o documento.\n\nExatamente três campos e nenhum outro (o fechado é a fronteira anti-custódia: não\nexiste slot para conteúdo, preview, base64 ou \"só o primeiro parágrafo\"). `kind` diz\nquem tem a GUARDA do art. 12; `locator` é o ponteiro opaco no repositório DO\nCUSTODIANTE; `document_sha256` é o digest do documento apontado, que permite conferir\nintegridade SEM transportar o objeto. Custódia é da operadora e/ou da administradora\n(RN 557/2022, art. 12; parecer §5 \"Registros\").",
+        "properties": {
+          "document_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Document Sha256",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "operadora",
+              "administradora"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "locator": {
+            "pattern": "^([A-Za-z0-9_.:/-]{1,255})?[A-Za-z0-9_.:/-]$",
+            "title": "Locator",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "locator",
+          "document_sha256"
+        ],
+        "title": "LegitimacyEvidenceRef",
+        "type": "object"
+      },
+      "LegitimacyScreenRecord": {
+        "additionalProperties": false,
+        "description": "A verificação persistida — o recibo que o banco guarda, linha por revisão.\n\nImutável por revisão: revalidação por evento (renovação, reajuste, troca de\ncontratante) é NOVA `screen_revision` (nova linha), nunca UPDATE de revisão (desenho\n§3). `would_block` registra o que a postura enforcing DECIDIRIA — registrável em shadow,\nnunca aplicador de efeito aqui. A sinalização do art. 39 é par exclusivo com a âncora\nliteral: sinalizada ⟺ âncora presente (CHECK espelhado da 0030). `reconfirmation_due_at`\nmaterializa o art. 10 (aniversário do contrato) quando o regime exige.",
+        "properties": {
+          "art39_anchor": {
+            "anyOf": [
+              {
+                "const": "RN 557/2022, art. 39",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Art39 Anchor"
+          },
+          "art39_signaled": {
+            "title": "Art39 Signaled",
+            "type": "boolean"
+          },
+          "contract_kind": {
+            "enum": [
+              "empresarial",
+              "adesao",
+              "empresario_individual"
+            ],
+            "title": "Contract Kind",
+            "type": "string"
+          },
+          "contracting_form": {
+            "enum": [
+              "direta",
+              "administradora",
+              "coestipulante"
+            ],
+            "title": "Contracting Form",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Created By",
+            "type": "string"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/LegitimacyCriterion"
+            },
+            "minItems": 1,
+            "title": "Criteria",
+            "type": "array"
+          },
+          "legal_entity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Legal Entity Ref",
+            "type": "string"
+          },
+          "operation": {
+            "const": "legitimacy_screen",
+            "default": "legitimacy_screen",
+            "title": "Operation",
+            "type": "string"
+          },
+          "opportunity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Opportunity Ref",
+            "type": "string"
+          },
+          "reconfirmation_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconfirmation Due At"
+          },
+          "schema_version": {
+            "const": "legitimacy-screen-record.v1",
+            "default": "legitimacy-screen-record.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "screen_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Screen Ref",
+            "type": "string"
+          },
+          "screen_revision": {
+            "minimum": 1.0,
+            "title": "Screen Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "valid",
+              "invalid",
+              "pending"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "would_block": {
+            "title": "Would Block",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tenant",
+          "screen_ref",
+          "screen_revision",
+          "legal_entity_ref",
+          "opportunity_ref",
+          "contract_kind",
+          "contracting_form",
+          "criteria",
+          "status",
+          "would_block",
+          "art39_signaled",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LegitimacyScreenRecord",
+        "type": "object"
+      },
+      "LegitimacyScreenRevalidation": {
+        "additionalProperties": false,
+        "description": "REVALIDATE por evento (renovação, reajuste, troca de contratante): checklist COMPLETO\nde novo + a revisão conhecida (molde D-36 `revision`).\n\nA revisão persistida é SEMPRE `screen_revision + 1`, mintada pelo servidor — revalidação\né NOVA `screen_revision` (nova linha do substrato), nunca update de revisão (desenho §3).",
+        "properties": {
+          "constituida_um_ano": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contract_kind": {
+            "enum": [
+              "empresarial",
+              "adesao",
+              "empresario_individual"
+            ],
+            "title": "Contract Kind",
+            "type": "string"
+          },
+          "contracting_form": {
+            "enum": [
+              "direta",
+              "administradora",
+              "coestipulante"
+            ],
+            "title": "Contracting Form",
+            "type": "string"
+          },
+          "contratante_lista_art15": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inciso_i",
+                  "inciso_ii",
+                  "inciso_iii",
+                  "inciso_iv",
+                  "inciso_v",
+                  "inciso_vi"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contratante Lista Art15"
+          },
+          "documentos_art9": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legal_entity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Legal Entity Ref",
+            "type": "string"
+          },
+          "opportunity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Opportunity Ref",
+            "type": "string"
+          },
+          "reconfirmacao_anual": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconfirmation_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconfirmation Due At"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "screen_revision": {
+            "minimum": 1.0,
+            "title": "Screen Revision",
+            "type": "integer"
+          },
+          "vinculo_beneficiario_contratante": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "legal_entity_ref",
+          "opportunity_ref",
+          "contract_kind",
+          "contracting_form",
+          "screen_revision"
+        ],
+        "title": "LegitimacyScreenRevalidation",
+        "type": "object"
+      },
+      "LegitimacyScreenSubmission": {
+        "additionalProperties": false,
+        "description": "CREATE a screen: what an internal operator declares. Nothing else is an input.",
+        "properties": {
+          "constituida_um_ano": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contract_kind": {
+            "enum": [
+              "empresarial",
+              "adesao",
+              "empresario_individual"
+            ],
+            "title": "Contract Kind",
+            "type": "string"
+          },
+          "contracting_form": {
+            "enum": [
+              "direta",
+              "administradora",
+              "coestipulante"
+            ],
+            "title": "Contracting Form",
+            "type": "string"
+          },
+          "contratante_lista_art15": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inciso_i",
+                  "inciso_ii",
+                  "inciso_iii",
+                  "inciso_iv",
+                  "inciso_v",
+                  "inciso_vi"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contratante Lista Art15"
+          },
+          "documentos_art9": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legal_entity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Legal Entity Ref",
+            "type": "string"
+          },
+          "opportunity_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Opportunity Ref",
+            "type": "string"
+          },
+          "reconfirmacao_anual": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconfirmation_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconfirmation Due At"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "vinculo_beneficiario_contratante": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "legal_entity_ref",
+          "opportunity_ref",
+          "contract_kind",
+          "contracting_form"
+        ],
+        "title": "LegitimacyScreenSubmission",
+        "type": "object"
+      },
       "LgpdDsrDecisionInputs": {
         "additionalProperties": false,
         "description": "Human DPO/privacy review decision for the LGPD data-subject request.\n\nThis closed DRAFT shape preserves the engine's explicit fail-closed outcomes. It cannot prove\nDPO identity, legal sufficiency, record scope, data minimization, approval or execution.",
@@ -5873,6 +6526,31 @@
           "code"
         ],
         "title": "PortalIntakeError",
+        "type": "object"
+      },
+      "PortalLegitimacyScreenError": {
+        "additionalProperties": false,
+        "description": "The closed refusal vocabulary of this boundary. Nothing here suggests a next state.",
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "field_not_client_owned",
+              "resource_unavailable",
+              "screen_conflict",
+              "stale_revision",
+              "dependency_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalLegitimacyScreenError",
         "type": "object"
       },
       "PortalReadError": {
@@ -10992,6 +11670,498 @@
           }
         },
         "summary": "Intake Upload"
+      }
+    },
+    "/api/v1/portal/legitimacy-screens": {
+      "post": {
+        "operationId": "create_legitimacy_screen_api_v1_portal_legitimacy_screens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegitimacyScreenSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegitimacyScreenRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Legitimacy Screen"
+      }
+    },
+    "/api/v1/portal/legitimacy-screens/checklist": {
+      "get": {
+        "operationId": "read_legitimacy_checklist_api_v1_portal_legitimacy_screens_checklist_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegitimacyChecklistManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Legitimacy Checklist"
+      }
+    },
+    "/api/v1/portal/legitimacy-screens/contratante/{legal_entity_ref}": {
+      "get": {
+        "operationId": "read_latest_legitimacy_screen_api_v1_portal_legitimacy_screens_contratante__legal_entity_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "legal_entity_ref",
+            "required": true,
+            "schema": {
+              "title": "Legal Entity Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegitimacyScreenRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Latest Legitimacy Screen"
+      }
+    },
+    "/api/v1/portal/legitimacy-screens/{screen_ref}": {
+      "post": {
+        "operationId": "revalidate_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "screen_ref",
+            "required": true,
+            "schema": {
+              "title": "Screen Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegitimacyScreenRevalidation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegitimacyScreenRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Revalidate Legitimacy Screen"
+      }
+    },
+    "/api/v1/portal/legitimacy-screens/{screen_ref}/{screen_revision}": {
+      "get": {
+        "operationId": "read_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref___screen_revision__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "screen_ref",
+            "required": true,
+            "schema": {
+              "title": "Screen Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "screen_revision",
+            "required": true,
+            "schema": {
+              "title": "Screen Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegitimacyScreenRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalLegitimacyScreenError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Legitimacy Screen"
       }
     },
     "/api/v1/portal/provider-notices/{notice_ref}": {

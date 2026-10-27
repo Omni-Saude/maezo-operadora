@@ -191,7 +191,9 @@ def protocolos_na_conversa(falas_da_helena: Sequence[str], catalogo: _p.Catalogo
     achados: list[str] = []
     for i, fala in enumerate(falas_da_helena):
         for cab, pid in por_cabecalho.items():
-            if fala.startswith(cab) and i < len(falas_da_helena) - 1 and pid not in achados:
+            # `in`, nao `startswith`: as perguntas podem vir depois de um prefixo curto (a re-pergunta com a
+            # idade, uma variacao de redacao) e continuam sendo desta queixa.
+            if cab in fala and i < len(falas_da_helena) - 1 and pid not in achados:
                 achados.append(pid)
     return achados
 
@@ -359,14 +361,17 @@ def _corpo_e_seguranca(protocolo: _p.Protocolo, textos: _p.TextosDoEspecialista)
     return texto[: m.start()].strip(), m.group(1).strip()
 
 
-def texto_sem_sinal(protocolo: _p.Protocolo, textos: _p.TextosDoEspecialista) -> str:
+def texto_sem_sinal(
+    protocolo: _p.Protocolo, textos: _p.TextosDoEspecialista, *, especialista: str | None = None
+) -> str:
     """Nenhum sinal: o destino sem sinal + a orientacao final + o especialista e os canais (consulta), ou a
-    orientacao fixa do destino (atendimento hoje / pronto-socorro). Sem prazo da ANS."""
+    orientacao fixa do destino (atendimento hoje / pronto-socorro). Sem prazo da ANS. `especialista`: a frase
+    do MAPA quando a pessoa perguntou qual profissional procurar (teste do dono de 26/10/2026)."""
     corpo, fim = _corpo_e_seguranca(protocolo, textos)
     destino = protocolo.destino_se_nenhum_sinal
     if destino in _DESTINO_POR_SINAL:
         return f"{corpo}\n\n{texto_do_destino_por_sinal(destino, protocolo.publico)}"
-    especialista = especialista_do_protocolo(protocolo, textos)
+    especialista = especialista or especialista_do_protocolo(protocolo, textos)
     return f"{PONTE_SEM_SINAL} {corpo}\n\n{especialista}\n\n{fim}"
 
 
@@ -560,6 +565,9 @@ def prompt_do_mapa(catalogo: _p.Catalogo, *, bloco_conversa: str, bloco_mensagem
             "procurar, num assistente de saude no WhatsApp. Os exemplos sao jeitos de falar, NAO palavras "
             "exatas. Use a CONVERSA quando a mensagem nova nao diz a queixa ('que medico procuro pra "
             "isso?').",
+            "Se a mensagem nova so' SUGERE ou confere um especialista ('o correto nao seria o "
+            "ortopedista?'), a queixa e' a ULTIMA queixa de saude da CONVERSA, nunca a do especialista "
+            "sugerido.",
             "publico: de quem e' a queixa: adulto, crianca (ate' 17 anos), gestante, puerpera.",
             'Responda SO\' um JSON numa linha: {"queixa":"<id>|nenhum","publico":"adulto|crianca|gestante|'
             'puerpera"}',

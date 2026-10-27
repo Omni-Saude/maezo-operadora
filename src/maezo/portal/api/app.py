@@ -69,6 +69,10 @@ from maezo.portal.api.intake_recovery import (
     is_intake_recovery_request,
 )
 from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_router, is_product_request
+from maezo.portal.api.legitimacy_screen import (
+    LegitimacyScreenServiceFactory,
+    legitimacy_screen_router,
+)
 from maezo.portal.api.records import LogoutDTO, SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
@@ -252,6 +256,7 @@ def create_app(
     dsr_service_factory: DsrServiceFactory | None = None,
     admin_read_service_factory: AdminReadServiceFactory | None = None,
     commission_policy_service_factory: CommissionPolicyServiceFactory | None = None,
+    legitimacy_screen_service_factory: LegitimacyScreenServiceFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
@@ -378,6 +383,15 @@ def create_app(
     # effect. Flipping is the owner's future act, after the A8 Forma 1 ratification.
     app.state.commission_policy_service_factory = commission_policy_service_factory
     app.include_router(commission_policy_router)
+    # REG-1.1 (OP21 `legitimacy.screen`): the collective-legitimacy staff surface ships
+    # DOCUMENTED and DARK — `collective_legitimacy_screen` is OFF, no default factory exists
+    # and the checklist is CLOSED (exactly the five parecer §5 criteria; NO commercial
+    # blocking path exists by construction — enforcing is a successor class with an explicit
+    # composition-root bind, design §4), so the routes refuse (403 flag / 503 unbound slot)
+    # before any effect. Mount only, per the D-36 precedent (#987) for this frozen-list file;
+    # the 0030 substrate (#1022) is the receipt.
+    app.state.legitimacy_screen_service_factory = legitimacy_screen_service_factory
+    app.include_router(legitimacy_screen_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
     app.state.commercial_gateway = commercial_gateway
     app.state.public_catalog_gateway = public_catalog_gateway

@@ -3,7 +3,7 @@
 Cinco camadas, no molde de `test_check_portal_direct_completion.py`/`test_check_helm_entrypoints.py`:
 
 1. **Arvore real verde** — `executar()` na arvore rastreada NAO acha nada, e o verde nao e'
-   vacuo: os 5 campos registrados existem, o prefixo bate, o `deploy/**` tem arquivos e as
+   vacuo: os 6 campos registrados existem, o prefixo bate, o `deploy/**` tem arquivos e as
    constantes
    das pontes valem os pinos.
 2. **Mutacao do default** (prova de mutacao, sintetica): `lgpd_dsr_channel = True` deixa a
@@ -11,7 +11,7 @@ Cinco camadas, no molde de `test_check_portal_direct_completion.py`/`test_check_
    mutacao, nao so' verde).
 3. **Cerco cego** — campo removido, classe removida, `env_prefix` trocado e modulo das
    pontes com constante renomeada: cada um reprova NOMEANDO, nunca silencio.
-4. **Deploy** — qualquer mencao a qualquer um dos 7 nomes de env em `deploy/**` (.tf, .yaml,
+4. **Deploy** — qualquer mencao a qualquer um dos 8 nomes de env em `deploy/**` (.tf, .yaml,
    ate .md) reprova, com arquivo:linha; e `deploy/` vazio/ausente reprova (varrer nao e' prova).
    `__pycache__` de sessao pytest fica fora por `path.parts` (classe F-1, mesmo reparo do #985).
 5. **Pinos de nome** — os nomes de env pinnados na cerca derivam de `env_prefix` + campo
@@ -47,7 +47,7 @@ def test_cerca_verde_na_arvore_real() -> None:
 
 
 def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
-    # Os 5 campos registrados estao la, exatamente uma vez, com default literal False — se
+    # Os 6 campos registrados estao la, exatamente uma vez, com default literal False — se
     # algum
     # sumir/renamear SEM tocar a cerca, o teste acima fica vermelho; este fixa a CONTAGEM.
     texto = _CONFIG_REAL.read_text(encoding="utf-8")
@@ -57,6 +57,7 @@ def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
         (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_admin_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
+        (CONFIG_PORTAL, "PortalSettings", "collective_legitimacy_screen", False),
     ):
         declaracoes = [linha for linha in texto.splitlines() if linha.strip().startswith(f"{campo}: bool = ")]
         assert len(declaracoes) == 1, f"{classe}.{campo} declarado {len(declaracoes)}x"
@@ -73,6 +74,7 @@ def test_os_nomes_de_env_pinados_sao_os_registrados_na_cerca() -> None:
         "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
         "MAEZO_PORTAL_STAFF_ADMIN_PANEL",
         "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
+        "MAEZO_PORTAL_COLLECTIVE_LEGITIMACY_SCREEN",
         "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
         "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
     )
@@ -177,6 +179,10 @@ def test_arquivo_de_config_ausente_reprova(tmp_path: Path) -> None:
             '- name: MAEZO_PORTAL_STAFF_OPERATIONS_PANEL\n          value: "0"\n',
         ),
         ("chart.yaml", 'MAEZO_PORTAL_STAFF_ADMIN_PANEL: "true"\n'),
+        (
+            "op21-values.yaml",
+            "# OP21: MAEZO_PORTAL_COLLECTIVE_LEGITIMACY_SCREEN desligada\n",
+        ),
         ("compose.yaml", 'MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED: "true"\n'),
         ("NOTAS.md", "# TODO: ligar MAEZO_ERASURE_BRIDGE_THREAD_ENABLED no proximo ciclo\n"),
     ],

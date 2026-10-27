@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from maezo.agents.helena.graph import RESPOSTA_PECA_REENVIO
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
 from maezo.agents.helena.habilidades.protocolo import nucleo as n
 from maezo.agents.helena.helena_v4 import GRUPO_GERAL, texto_da_pergunta_de_alerta
@@ -139,21 +140,28 @@ async def test_roteador_fora_a_resposta_continua_do_protocolo(resposta: str, fal
     assert not _escalou(final) and not _starts(cib)
 
 
-@pytest.mark.parametrize("resposta", ["Não", "acho que não", "hmm"])
-async def test_roteador_e_leitura_fora_repergunta_o_protocolo_e_depois_a_equipe(resposta: str) -> None:
-    modelo = _RoteadorFora([])
-    grafo, whatsapp, cib = _grafo(modelo)
+@pytest.mark.parametrize("resposta", ["acho que não", "hmm", "não sei dizer"])
+async def test_roteador_e_leitura_fora_pedem_para_repetir_e_guardam_as_perguntas(resposta: str) -> None:
+    # Teste do dono (26/10/2026): a falha TECNICA da leitura nao e' "sem clareza" da pessoa — nem re-pergunta
+    # nem oferta da equipe; o pedido curto de repetir, com as MESMAS perguntas pendentes, e nenhum caso.
+    pendente = n.codigo_do_alerta(_URINAR.id)
+    for _ in range(2):
+        grafo, whatsapp, cib = _grafo(_RoteadorFora([]))
+        final = await grafo.ainvoke(_estado(resposta, [n.texto_das_perguntas(_URINAR)], pendente=pendente))
+        assert whatsapp.enviados[-1] == RESPOSTA_PECA_REENVIO
+        assert final["coleta_pendente"] == pendente and final["coleta_pendente"] != PENDENTE_OFERTA_EQUIPE
+        assert not _escalou(final) and not _starts(cib)
+
+
+@pytest.mark.parametrize("resposta", ["Não", "nenhuma", "não, nenhuma dessas"])
+async def test_controle_roteador_e_leitura_fora_com_resposta_obvia_decidem_sem_modelo(resposta: str) -> None:
+    grafo, whatsapp, cib = _grafo(_RoteadorFora([]))
     final = await grafo.ainvoke(
         _estado(resposta, [n.texto_das_perguntas(_URINAR)], pendente=n.codigo_do_alerta(_URINAR.id))
     )
-    assert whatsapp.enviados[-1] == n.texto_das_perguntas(_URINAR, (1, 2, 3, 4))
-    assert final["coleta_pendente"] == n.codigo_do_alerta(_URINAR.id, 1, (1, 2, 3, 4))
-    grafo2, whatsapp2, cib2 = _grafo(_RoteadorFora([]))
-    final2 = await grafo2.ainvoke(
-        _estado(resposta, [whatsapp.enviados[-1]], pendente=final["coleta_pendente"])
-    )
-    assert final2["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE and "192" not in whatsapp2.enviados[-1]
-    assert not _starts(cib) and not _starts(cib2)
+    assert _TEXTOS is not None
+    assert whatsapp.enviados[-1] == n.texto_sem_sinal(_URINAR, _TEXTOS)
+    assert not final.get("coleta_pendente") and not _escalou(final) and not _starts(cib)
 
 
 @pytest.mark.parametrize(

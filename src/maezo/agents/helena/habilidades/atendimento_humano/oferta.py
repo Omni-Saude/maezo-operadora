@@ -35,6 +35,7 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import (
     TEXTO_OFERTA_POR_REPETICAO,
 )
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.protocolo import leitura_sem_modelo as _lsm
 
 if TYPE_CHECKING:
     from maezo.agents.helena.graph import HelenaGraph
@@ -98,6 +99,9 @@ def resposta_a_oferta(texto: str) -> str | None:
         or _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE
         # Teste do dono (25/10/2026, noite): "nao autorizo", "para de me mandar mensagem", "encerre".
         or _recusa.e_recusa_da_equipe(texto)
+        # Teste do dono (26/10/2026, 17:06 UTC): "nao, eu respondi NAO para todas as suas perguntas" a oferta
+        # da equipe ia ao classificador e recomecava as perguntas do protocolo. So' negativa = "nao".
+        or _lsm.nega_tudo(texto)
     ):
         return "nao"
     aceite = bool(_SIM_A_OFERTA.search(plano))

@@ -57,6 +57,16 @@ EXPECTED_PATHS = {
     "/api/v1/portal/intakes/auth/links",
     "/api/v1/portal/intakes/{intake_ref}",
     "/api/v1/portal/intakes/{intake_ref}/document-uploads",
+    # REG-1.1 (OP21 `legitimacy.screen`): the collective-legitimacy staff surface ships
+    # DOCUMENTED and DARK — the routes always publish in the schema; the
+    # `collective_legitimacy_screen` flag (OFF) decides whether they ANSWER. The checklist is
+    # CLOSED (the five parecer §5 criteria) and NO commercial blocking path exists by
+    # construction (enforcing is a successor class, design §4).
+    "/api/v1/portal/legitimacy-screens",
+    "/api/v1/portal/legitimacy-screens/{screen_ref}",
+    "/api/v1/portal/legitimacy-screens/{screen_ref}/{screen_revision}",
+    "/api/v1/portal/legitimacy-screens/checklist",
+    "/api/v1/portal/legitimacy-screens/contratante/{legal_entity_ref}",
     # Provider notice read and explicit acknowledgement; no delivery on GET.
     "/api/v1/portal/provider-notices/{notice_ref}",
     "/api/v1/portal/provider-notices/{notice_ref}/acknowledgements",
