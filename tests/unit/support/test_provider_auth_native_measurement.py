@@ -609,12 +609,17 @@ def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle, monkeypa
     # provenance, pinned verbatim — an eventual post-refusal COMMIT in the
     # witness state_change is the unwind's implicit commit, and the honest
     # engine-commit discriminator is SEAL+STAGE_CLOSED (ordinals 7/8 under D2').
+    # v29/D2 adds the declared effect: a post-refusal COMMIT lands on an already
+    # terminal transaction, so the clog verdict cannot move (u8 wording).
     assert refused.value.refusal_commit_provenance == measurement.REFUSAL_COMMIT_PROVENANCE
     assert measurement.REFUSAL_COMMIT_PROVENANCE == {
         "post_refusal_commit_witness": (
             "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
         ),
         "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
+        "d2_post_refusal_commit_effect": (
+            "commit-after-refusal-on-already-terminal-transaction-is-a-clog-noop"
+        ),
     }
     # T3 ran exactly once; every non-committed outcome is discarded unadmitted.
     assert _query_sequence(connection)[-1] == ("fetchrow", measurement._STRADDLE_SQL)
@@ -937,6 +942,16 @@ def test_collect_commits_to_the_d2prime_release_order_on_committing():
     assert source.index("root_capture_before_raw_sha256=") > late_block
     assert source.index("root_capture_after_raw_sha256=") > late_block
 
+    # v29/D2 (DESIGN-D2-POST-COMMIT-v1 §2.3): the observer side survives the
+    # post-commit consumption UNTOUCHED — the early RELEASE block, the inverted
+    # capture→RELEASE binding and the single-observation pair guard are still
+    # exactly the D2' machinery (u5).
+    acquire = inspect.getsource(measurement.acquire_pg_checkpoint)
+    assert 'capture["release_raw_sha256"] = sha(release_raw)' in acquire
+    assert 'capture["release_emitted_at"] = release["emitted_at"]' in acquire
+    assert "Held session changed between fresh ROOT snapshots" in source
+    assert "Root PG tuple differs from held enlisted session" in acquire
+
 
 class TestT3DeferredEnvClosedSet:
     """§10.8 main side: the Δ is read ONCE at import from a CLOSED set."""
@@ -1201,3 +1216,495 @@ def test_hold_to_release_ns_registration_is_exact_integer_arithmetic():
     # A reversed clock order refuses instead of banking a negative latency.
     with pytest.raises(runtime.NativeObservationError, match="clock order"):
         measurement.hold_to_release_ns(release, hold)
+
+
+# ---------------------------------------------------------------------------
+# v29 D2 post-commit (DESIGN-D2-POST-COMMIT-v1 §3.4): the custody-only COMMITTING
+# SEAL pair-of-shapes (u6), the re-pinned commit/close chain (u7), the P0'
+# wording with the declared D2 effect (u8) and the endpoint-conditional JVM seam
+# canary. u1 (the in-gap T3' straddle admission), u2 (the exact #63 refusal with
+# the raw verdict), u3 (the post-commit capture congruence refusal) and u4 (the
+# pair-straddle doctrine) are pinned by the tests above, unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _direct_measurement(*, seq: int = 0) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+    """One full DirectMeasurement-shaped fixture plus its replay surroundings.
+
+    Returns (measurement, response, actual, installation, census, vm, origin,
+    before, after) — everything NativeMeasurementProvenance._measurements
+    consumes, already mutually consistent.
+    """
+    session_value = {
+        "backend_pid": "81",
+        "backend_start": runtime.clock(_OBSERVED_AT),
+        "transaction_started_at": runtime.clock(_OBSERVED_AT),
+        "transaction_id_if_assigned": "761",
+        "backend_ssl": True,
+        "backend_tls_version": "TLSv1.3",
+        "observed_at": runtime.clock(_OBSERVED_AT),
+    }
+    installation = {
+        "native_jar_raw_sha256": "a" * 64,
+        "support_jar_raw_sha256": "b" * 64,
+        "rest_spi_jar_raw_sha256": "c" * 64,
+        "descriptor_raw_sha256": "d" * 64,
+        "startup_descriptor_inventory_raw_sha256": "e" * 64,
+        "startup_vendor_inventory_raw_sha256": "f" * 64,
+        "observation_schema_raw_sha256": "1" * 64,
+    }
+    install = {
+        "jvm_process": {
+            "boot_uuid": "boot-unit",
+            "pid_namespace": 42,
+            "start_time_epoch_ms": "1750000000000",
+        },
+        "mounted_pins": {
+            "native_jar_sha256": "a" * 64,
+            "support_jar_sha256": "b" * 64,
+            "rest_spi_jar_sha256": "c" * 64,
+            "descriptor_sha256": "d" * 64,
+            "startup_descriptor_inventory_sha256": "e" * 64,
+            "startup_vendor_inventory_sha256": "f" * 64,
+            "observation_schema_sha256": "1" * 64,
+        },
+        "class_provenance": [
+            dict(class_name=name, jar_relative_path="lib/unit.jar", class_sha256="2" * 64)
+            for name in runtime._OBSERVATION_CLASSES
+        ],
+    }
+    census = {
+        "entries": [
+            dict(
+                entry_name=name.replace(".", "/") + ".class",
+                jar_relative_path="lib/unit.jar",
+                raw_sha256="2" * 64,
+                size_bytes=64,
+            )
+            for name in runtime._OBSERVATION_CLASSES
+        ]
+        + [
+            dict(
+                entry_name="br/com/maezo/workload/ProviderNativeIndependentMeasurement.class",
+                jar_relative_path="lib/provider-auth-test-support.jar",
+                raw_sha256="4" * 64,
+                size_bytes=64,
+            )
+        ]
+    }
+    vm = {"boot_uuid": "boot-unit", "process_pid_namespace": 42, "runtime_mxbean_start_epoch_ms": "1750000000000"}
+    origin = {
+        "class_sha256": "4" * 64,
+        "jar_relative_path": "lib/provider-auth-test-support.jar",
+        "instrument_class": "br.com.maezo.workload.ProviderNativeIndependentMeasurement",
+    }
+    measurement_doc = {
+        "ctx_reference_ordinal": seq + 1,
+        "connection_reference_ordinal": 1,
+        "started_at": runtime.clock(_OBSERVED_AT),
+        "finished_at": runtime.clock(_OBSERVED_AT + timedelta(milliseconds=5)),
+        "monotonic_elapsed_ns": "5000000",
+        "session_transaction": session_value,
+        "stable_database_projection": {
+            "database_name": "maezo_n2",
+            "database_oid": "16384",
+            "system_identifier": "7398611234567890",
+            "session_user": "maezo_jvm",
+        },
+        "runtime_installation_projection": install,
+        "jvm_toolchain": vm,
+        "instrument_origin": origin,
+    }
+    response = {"session_transaction": session_value}
+    actual = {
+        "stable_database_projection": measurement_doc["stable_database_projection"],
+        "runtime_installation_projection": install,
+    }
+    before = _OBSERVED_AT - timedelta(seconds=1)
+    after = _OBSERVED_AT + timedelta(minutes=1)
+    return (
+        measurement_doc,
+        response,
+        actual,
+        installation,
+        census,
+        vm,
+        origin,
+        before,
+        after,
+    )
+
+
+def _schema_valid_direct_measurement() -> dict:
+    """One DirectMeasurement that the REAL schema admits (every nested def)."""
+    return dict(
+        source="independent-fixed-jvm-jdbc-acquisition.v1",
+        started_at=runtime.clock(_OBSERVED_AT),
+        finished_at=runtime.clock(_OBSERVED_AT + timedelta(milliseconds=5)),
+        monotonic_elapsed_ns="5000000",
+        ctx_reference_ordinal=1,
+        connection_reference_ordinal=1,
+        same_actual_context=True,
+        same_actual_enlisted_connection=True,
+        same_registry_engine_config=True,
+        stable_database_projection=dict(
+            database_name="maezo_n2",
+            database_oid="16384",
+            system_identifier="7398611234567890",
+            engine_schema_name="cibseven",
+            engine_schema_oid="16385",
+            native_schema_name="maezo_native",
+            native_schema_oid="16386",
+            current_user="cibseven_app",
+            session_user="cibseven_app",
+            catalogue_projection_sha256="9" * 64,
+            witness_projection="provider-native-physical-db-join.v2",
+        ),
+        runtime_installation_projection=dict(
+            engine_name="engine-unit",
+            authorization_enabled=True,
+            tenant_check_enabled=True,
+            schema_update="false",
+            jvm_process=dict(
+                boot_uuid=_UNIT_UUID,
+                pid_namespace=42,
+                start_time_epoch_ms=1750000000000,
+                engine_registry_size=1,
+                engine_registry_name="engine-unit",
+            ),
+            class_provenance=[
+                dict(
+                    class_name=name,
+                    jar_relative_path="lib/unit.jar",
+                    jar_sha256="2" * 64,
+                    class_sha256="3" * 64,
+                    loader_group="engine-common",
+                )
+                for name in runtime._OBSERVATION_CLASSES
+            ],
+            mounted_pins={
+                "native_jar_sha256": "a" * 64,
+                "support_jar_sha256": "b" * 64,
+                "rest_spi_jar_sha256": "c" * 64,
+                "descriptor_sha256": "d" * 64,
+                "startup_descriptor_inventory_sha256": "e" * 64,
+                "startup_vendor_inventory_sha256": "f" * 64,
+                "observation_schema_sha256": "1" * 64,
+            },
+        ),
+        session_transaction=dict(
+            backend_pid="81",
+            backend_start=runtime.clock(_OBSERVED_AT),
+            transaction_id_if_assigned="761",
+            transaction_id_source="pg_current_xact_id_if_assigned",
+            connection_source="actual-commandcontext-dbsqlsession-connection",
+            context_connection_identity="enlisted-object-identity-checked",
+            auto_commit=False,
+            transaction_isolation="READ_COMMITTED",
+            backend_ssl=True,
+            backend_tls_version="TLSv1.3",
+            observed_at=runtime.clock(_OBSERVED_AT),
+            transaction_started_at=runtime.clock(_OBSERVED_AT),
+            transaction_started_at_source="postgresql-transaction_timestamp-on-enlisted-connection",
+            observed_at_source="postgresql-clock_timestamp-on-enlisted-connection",
+        ),
+        jvm_toolchain=dict(
+            source="live-jvm-management-and-class-readback",
+            java_runtime_version="17.0.1+12-1",
+            java_vm_name="OpenJDK 64-Bit Server VM",
+            java_vm_vendor="N/A",
+            java_vm_version="17.0.1+12-1",
+            runtime_feature=17,
+            process_pid_namespace=42,
+            runtime_mxbean_start_epoch_ms=1750000000000,
+            boot_uuid=_UNIT_UUID,
+            class_major=61,
+        ),
+        instrument_origin=dict(
+            source="independent-fixed-jvm-jdbc-acquisition.v1",
+            instrument_class="br.com.maezo.workload.ProviderNativeIndependentMeasurement",
+            jar_relative_path="lib/provider-auth-test-support.jar",
+            jar_sha256="4" * 64,
+            class_sha256="5" * 64,
+            loader_relation="same-actual-engine-common-loader",
+            major_class_version=61,
+        ),
+    )
+
+
+def _d2_stage_events() -> tuple[list, dict]:
+    """One COMMITTING stage transcript in the v29 grammar with a healthy chain.
+
+    Events: HOLD-ENTRY, RELEASE-ENTRY, SEAL-ENTRY, HOLD-COMMITTING,
+    RELEASE-COMMITTING, SEAL-COMMITTING (custody-only, carrying the marker),
+    STAGE_CLOSED — with emitted_at in the monotonic order the replay already
+    enforces and committed_marker_at between the RELEASE and the SEAL.
+    """
+    base = _OBSERVED_AT
+    release = base + timedelta(milliseconds=24)
+    marker = base + timedelta(seconds=1)
+    seal = base + timedelta(seconds=1, milliseconds=2)
+    marker_at = runtime.clock(marker)
+    events = [
+        dict(kind="HOLD", endpoint="ENTRY", measurement=dict(connection_reference_ordinal=1), emitted_at=runtime.clock(base)),
+        dict(kind="RELEASE", endpoint="ENTRY", emitted_at=runtime.clock(base + timedelta(milliseconds=1))),
+        dict(kind="SEAL", endpoint="ENTRY", emitted_at=runtime.clock(base + timedelta(milliseconds=2))),
+        dict(kind="HOLD", endpoint="COMMITTING", measurement=dict(connection_reference_ordinal=1), emitted_at=runtime.clock(base + timedelta(milliseconds=3))),
+        dict(kind="RELEASE", endpoint="COMMITTING", emitted_at=runtime.clock(release)),
+        dict(
+            kind="SEAL",
+            endpoint="COMMITTING",
+            emitted_at=runtime.clock(seal),
+            committed_marker_at=marker_at,
+        ),
+    ]
+    closed = dict(
+        kind="STAGE_CLOSED",
+        emitted_at=runtime.clock(base + timedelta(seconds=1, milliseconds=4)),
+        committed_marker_at=marker_at,
+        executor_return_at=runtime.clock(seal + timedelta(microseconds=1)),
+        context_closed_at=runtime.clock(seal + timedelta(microseconds=2)),
+        connection_reference_ordinal=1,
+    )
+    return events, closed
+
+
+def test_schema_v4_seal_forms_admit_own_endpoint_and_refuse_the_cross():
+    """u6: the SEAL def is a pair of endpoint-discriminated shapes."""
+    schema = _real_schema()
+    seal_entry = dict(
+        schema="provider-native-independent-measurement-frame.v2",
+        event_ordinal=3,
+        session_nonce="a" * 32,
+        request_sha256="b" * 64,
+        config_sha256="c" * 64,
+        emitted_at=runtime.clock(_OBSERVED_AT),
+        original_deadline=runtime.clock(datetime.now(UTC) + timedelta(minutes=10)),
+        kind="SEAL",
+        stage_sequence=0,
+        server_stage_execution_uuid=_UNIT_UUID,
+        endpoint="ENTRY",
+        hold_raw_sha256="d" * 64,
+        release_raw_sha256="e" * 64,
+        measurement=_schema_valid_direct_measurement(),
+        stable_tuple_equal_after_wait=True,
+        same_ctx_connection_after_wait=True,
+    )
+    seal_committing = dict(
+        schema="provider-native-independent-measurement-frame.v2",
+        event_ordinal=6,
+        session_nonce="a" * 32,
+        request_sha256="b" * 64,
+        config_sha256="c" * 64,
+        emitted_at=runtime.clock(_OBSERVED_AT),
+        original_deadline=runtime.clock(datetime.now(UTC) + timedelta(minutes=10)),
+        kind="SEAL",
+        stage_sequence=0,
+        server_stage_execution_uuid=_UNIT_UUID,
+        endpoint="COMMITTING",
+        hold_raw_sha256="d" * 64,
+        release_raw_sha256="e" * 64,
+        committed_marker_at=runtime.clock(_OBSERVED_AT),
+    )
+    # Each form on its own endpoint validates.
+    measurement.validate(schema, "SEAL", seal_entry)
+    measurement.validate(schema, "SEAL", seal_committing)
+    # The cross refuses both ways (u6): a custody-only frame is not an ENTRY
+    # seal and a re-measuring frame is not a COMMITTING seal.
+    with pytest.raises(runtime.NativeObservationError, match="SEAL shape refused"):
+        measurement.validate(schema, "SEAL", {k: v for k, v in seal_entry.items() if k != "measurement"})
+    with pytest.raises(runtime.NativeObservationError, match="SEAL shape refused"):
+        measurement.validate(
+            schema,
+            "SEAL",
+            {k: v for k, v in seal_entry.items() if k != "stable_tuple_equal_after_wait"},
+        )
+    with pytest.raises(runtime.NativeObservationError, match="SEAL shape refused"):
+        measurement.validate(
+            schema, "SEAL", dict(seal_committing, measurement=_schema_valid_direct_measurement())
+        )
+    with pytest.raises(runtime.NativeObservationError, match="SEAL shape refused"):
+        measurement.validate(
+            schema, "SEAL", dict(seal_committing, stable_tuple_equal_after_wait=True)
+        )
+    # The declared const-true of re-measure is PRESENT and true on ENTRY and
+    # AUSENTE on COMMITTING (both schema-level and replay-level, u6).
+    assert seal_entry["stable_tuple_equal_after_wait"] is True
+    assert "measurement" not in seal_committing
+    assert "stable_tuple_equal_after_wait" not in seal_committing
+    assert "same_ctx_connection_after_wait" not in seal_committing
+
+
+def test_schema_v4_frame_oneof_still_routes_seal_frames():
+    """u6: the Frame-level oneOf still admits exactly one interpretation."""
+    schema = _real_schema()
+    frame = dict(
+        schema="provider-native-independent-measurement-frame.v2",
+        event_ordinal=6,
+        session_nonce="a" * 32,
+        request_sha256="b" * 64,
+        config_sha256="c" * 64,
+        emitted_at=runtime.clock(_OBSERVED_AT),
+        original_deadline=runtime.clock(datetime.now(UTC) + timedelta(minutes=10)),
+        kind="SEAL",
+        stage_sequence=0,
+        server_stage_execution_uuid=_UNIT_UUID,
+        endpoint="COMMITTING",
+        hold_raw_sha256="d" * 64,
+        release_raw_sha256="e" * 64,
+        committed_marker_at=runtime.clock(_OBSERVED_AT),
+    )
+    measurement.validate(schema, "Frame", frame)
+    with pytest.raises(runtime.NativeObservationError, match="Frame shape refused"):
+        measurement.validate(schema, "Frame", dict(frame, committed_marker_at=None))
+
+
+def test_replay_measurements_repin_per_endpoint():
+    """u6: the replay `_measurements` is endpoint-aware.
+
+    ENTRY: the hold↔seal re-measure equality is still required. COMMITTING:
+    the seal is custody-only — the frame must NOT declare the re-measure
+    const-trues, and the hold-side checks run in full.
+    """
+    (
+        measurement_doc,
+        response,
+        actual,
+        installation,
+        census,
+        vm,
+        origin,
+        before,
+        after,
+    ) = _direct_measurement()
+    hold = dict(
+        stage_sequence=0,
+        endpoint="ENTRY",
+        measurement=measurement_doc,
+    )
+    seal_entry = dict(endpoint="ENTRY", measurement=measurement_doc)
+    measurement.NativeMeasurementProvenance._measurements(
+        hold, seal_entry, response, 0, vm, origin, actual, installation, census, before, after
+    )
+    # The COMMITTING custody-only shape validates the hold-side checks and
+    # requires NO measurement in the seal.
+    hold_committing = dict(hold, endpoint="COMMITTING")
+    seal_committing = dict(
+        endpoint="COMMITTING",
+        hold_raw_sha256="f" * 64,
+        release_raw_sha256="e" * 64,
+        committed_marker_at=runtime.clock(_OBSERVED_AT),
+    )
+    measurement.NativeMeasurementProvenance._measurements(
+        hold_committing, seal_committing, response, 0, vm, origin, actual, installation, census, before, after
+    )
+    # A COMMITTING seal that DECLARES re-measure refuses (u6 replay-side).
+    for declared in (
+        dict(seal_committing, measurement=measurement_doc),
+        dict(seal_committing, stable_tuple_equal_after_wait=True),
+        dict(seal_committing, same_ctx_connection_after_wait=True),
+    ):
+        with pytest.raises(runtime.NativeObservationError, match="re-measure"):
+            measurement.NativeMeasurementProvenance._measurements(
+                hold_committing, declared, response, 0, vm, origin, actual, installation, census, before, after
+            )
+    # The retained stage document is the in-tx HOLD — never a post-commit fresh
+    # (the ENTRY branch still refuses a diverging seal measurement).
+    with pytest.raises(runtime.NativeObservationError, match="identity/config changed"):
+        measurement.NativeMeasurementProvenance._measurements(
+            hold,
+            dict(seal_entry, measurement=dict(measurement_doc, ctx_reference_ordinal=9)),
+            response,
+            0,
+            vm,
+            origin,
+            actual,
+            installation,
+            census,
+            before,
+            after,
+        )
+
+
+def test_stage_close_chain_requires_marker_before_seal_and_accepts_the_full_chain():
+    """u7: the re-pinned commit/close chain (DESIGN-D2-POST-COMMIT-v1 §2.3-1).
+
+    The GUARANTEED link is marker <= SEAL-07; RELEASE-06 <= marker is the
+    EXPECTED observation and is deliberately NOT a refusal condition (the
+    honest disclosure of the design), and the marker must be the SAME instance
+    the SEAL and the STAGE_CLOSED bank.
+    """
+    events, closed = _d2_stage_events()
+    assert measurement._stage_close_chain_ok(events, closed)
+    # The guaranteed link: a marker AFTER the seal refuses.
+    late_marker = list(events)
+    late_marker[5] = dict(events[5], committed_marker_at=runtime.clock(_OBSERVED_AT + timedelta(seconds=2)))
+    assert not measurement._stage_close_chain_ok(late_marker, closed)
+    late_closed = dict(closed, committed_marker_at=runtime.clock(_OBSERVED_AT + timedelta(seconds=2)))
+    assert not measurement._stage_close_chain_ok(events, late_closed)
+    # The marker must be the SAME instance on the SEAL and the STAGE_CLOSED.
+    foreign_marker = list(events)
+    foreign_marker[5] = dict(events[5], committed_marker_at=runtime.clock(_OBSERVED_AT))
+    assert not measurement._stage_close_chain_ok(foreign_marker, closed)
+    # The rest of the chain is still required, link by link.
+    for key, delta in (
+        ("executor_return_at", timedelta(seconds=5)),
+        ("context_closed_at", timedelta(seconds=5)),
+        ("emitted_at", timedelta(seconds=5)),
+    ):
+        broken = dict(closed, **{key: runtime.clock(_OBSERVED_AT - timedelta(seconds=9))})
+        assert not measurement._stage_close_chain_ok(events, broken)
+    # RELEASE-06 AFTER the marker: the EXPECTED observation that does NOT
+    # refuse (the honest disclosure — the in-tx work after the dispatch is not
+    # ordered against the marker; the event-list monotonic order still pins
+    # RELEASE-06 <= SEAL-07 at the replay's event loop).
+    late_release = list(events)
+    late_release[4] = dict(events[4], emitted_at=runtime.clock(_OBSERVED_AT + timedelta(milliseconds=1500)))
+    assert measurement._stage_close_chain_ok(late_release, closed)
+
+
+def test_stage_close_chain_repin_is_wired_into_the_replay():
+    """u7: the replay really delegates to the re-pinned chain helper."""
+    source = inspect.getsource(measurement.NativeMeasurementProvenance.validate)
+    assert "_stage_close_chain_ok(stage_events, closed)" in source
+    # The OLD chain shape (SEAL bracketing the marker from below) is gone.
+    assert 'runtime._observation_time(stage_events[5]["emitted_at"])\n                <= runtime._observation_time(closed["committed_marker_at"])' not in source
+
+
+def test_d2_post_commit_seam_is_endpoint_conditional_and_committed_listener_scoped():
+    """The D2 seam canary over the REAL observer source (the JVM unit drives
+    the contract mirror; this pins the production wiring shape itself):
+    measuredEndpoint consumes the pair ONLY on ENTRY, and the COMMITTED
+    listener marks first and consumes second, AFTER the marker listener
+    registered in openStage.
+    """
+    root = Path(measurement.__file__).resolve().parents[2]
+    observer = (
+        root
+        / "src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/RuntimeDefinitionObservation.java"
+    ).read_text()
+    instrument = (
+        root
+        / "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/ProviderNativeIndependentMeasurement.java"
+    ).read_text()
+    # The COMMITTING seam consumes the hold and NOTHING else in-tx.
+    assert "port.hold(endpoint);" in observer
+    assert "if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.awaitRootRelease();" in observer
+    assert "if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.seal();" in observer
+    # The old unconditional seam is gone.
+    assert "port.hold(endpoint);port.awaitRootRelease();" not in observer
+    # The COMMITTED listener marks and then consumes, and it is registered in
+    # capture AFTER openStage (so the instrument's marker listener is first).
+    assert "token.admission.measurement.awaitRootRelease();token.admission.measurement.seal();" in observer
+    assert observer.index("token.admission.measurement.openStage(") < observer.index(
+        "addTransactionListener(TransactionState.COMMITTED"
+    )
+    # The instrument still opens the stage before its own marker listener, and
+    # the custody-only seal keeps the hash chain plus the marker (never a
+    # post-commit re-measure).
+    assert instrument.index("actualObjects();") < instrument.index(
+        "addTransactionListener(TransactionState.COMMITTED"
+    )
+    assert '"committed_marker_at", stage.committedAt' in instrument
+    assert 'state = State.HOLD_POSTPONED;' in instrument
+    assert "stage.committing = held;" in instrument

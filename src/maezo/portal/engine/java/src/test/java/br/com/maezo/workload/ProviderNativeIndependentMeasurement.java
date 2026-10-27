@@ -81,7 +81,7 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       "support_jar_sha256", "lib/provider-auth-test-support.jar",
       "rest_spi_jar_sha256", "webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar"));
 
-  private enum State { READY, OPEN, HOLD_READY, RELEASED, ENTRY_SEALED, COMMIT_SEALED,
+  private enum State { READY, OPEN, HOLD_READY, HOLD_POSTPONED, RELEASED, ENTRY_SEALED, COMMIT_SEALED,
     STAGE_CLOSED, PRIMARY_TERMINAL, PRIMARY_CLOSED, PRIMARY_SEALED, DELIVERED, UNKNOWN }
   private final NativeMeasurementConfiguration config;
   private final Budget budget;
@@ -224,16 +224,34 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
         Object nextXid = held.session.get("transaction_id_if_assigned");
         require(previousXid == null || nextXid == null || !previousXid.equals(nextXid));
       }
-      if (endpoint == Endpoint.ENTRY) stage.entry = held;
-      state = State.HOLD_READY;
+      if (endpoint == Endpoint.ENTRY) {
+        stage.entry = held;
+        state = State.HOLD_READY;
+      } else {
+        // D2 (DESIGN-D2-POST-COMMIT-v1 §2.2-2): the in-tx oath is emitted HERE,
+        // inside the COMMITTING listener, so the ROOT early dispatch and its two
+        // captures run against a live in-tx witness while the SQL commit runs
+        // with no observer pacing inside the transaction. Only the RELEASE
+        // consumption migrates to the COMMITTED listener; the HOLD frame, its
+        // ordinal and the hash chain are unchanged in-tx frames.
+        holdRaw = emit("HOLD", endpointFields(map("measurement", held.document)));
+        state = State.HOLD_POSTPONED;
+      }
       guard();
     } catch (IOException | SQLException | RuntimeException | Error failure) { throw fail(failure); }
   }
 
   @Override public void awaitRootRelease() {
     try {
-      guard(); require(state == State.HOLD_READY);
-      holdRaw = emit("HOLD", endpointFields(map("measurement", held.document)));
+      guard();
+      // D2 (DESIGN-D2-POST-COMMIT-v1 §2.2-2): HOLD_READY is the ENTRY endpoint,
+      // which keeps emitting and consuming inside the same in-tx call (unchanged);
+      // HOLD_POSTPONED is the COMMITTING endpoint, whose in-tx oath was already
+      // emitted by hold() — only the RELEASE consumption runs here, inside
+      // fireTransactionEvent(COMMITTED), strictly after the SQL commit (jar
+      // bytecode ordering, CommittingListenerOrderTest).
+      require(state == State.HOLD_READY || state == State.HOLD_POSTPONED);
+      if (state == State.HOLD_READY) holdRaw = emit("HOLD", endpointFields(map("measurement", held.document)));
       releaseRaw = receiveRelease();
       Map<String, Object> release = Codec.object(Codec.canonicalParse(releaseRaw));
       NativeMeasurementConfiguration.validate("RELEASE", release);
@@ -251,21 +269,46 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
           && !releasedAt.isAfter(Instant.now().plusSeconds(5))
           && releasedAt.isBefore(Instant.parse(config.originalDeadline())));
       ordinal++; require(ordinal <= 65);
-      state = State.RELEASED; actualObjects(); guard();
+      state = State.RELEASED;
+      // F-3, option (i) (DESIGN-D2-POST-COMMIT-v1 §2.2-8): the in-tx identity
+      // claim runs on the ENTRY endpoint only. At the D2 COMMITTING consumption
+      // the SQL commit already ran, so "Context.getCommandContext() == stage.context"
+      // would still pass mechanically while the in-tx referent is gone, and the
+      // enlisted-connection JDBC reads would open a NEW implicit transaction
+      // whose COMMIT lands in the teardown zone (P0 channel noise). That identity
+      // custody was already proven in-tx by the listener's own samples; the
+      // P2-D2 unit proves measure()/actualObjects() are never invoked after it.
+      if (stage.endpoint == Endpoint.ENTRY) actualObjects();
+      guard();
     } catch (IOException | SQLException | RuntimeException | Error failure) { throw fail(failure); }
   }
 
   @Override public void seal() {
     try {
       guard(); require(state == State.RELEASED);
-      Measurement fresh = measure(); stableEndpoint(held, fresh);
-      emit("SEAL", endpointFields(map("hold_raw_sha256", sha(holdRaw),
-          "release_raw_sha256", sha(releaseRaw), "measurement", fresh.document,
-          "stable_tuple_equal_after_wait", true, "same_ctx_connection_after_wait", true)));
-      // A real post-write read is a guard, not a second published SEAL sample.
-      stableEndpoint(fresh, measure());
-      if (stage.endpoint == Endpoint.ENTRY) state = State.ENTRY_SEALED;
-      else { stage.committing = fresh; state = State.COMMIT_SEALED; }
+      if (stage.endpoint == Endpoint.ENTRY) {
+        // ENTRY is unchanged: the in-tx re-measure and its double equality stay
+        // the custody proof of the unassigned-witness endpoint.
+        Measurement fresh = measure(); stableEndpoint(held, fresh);
+        emit("SEAL", endpointFields(map("hold_raw_sha256", sha(holdRaw),
+            "release_raw_sha256", sha(releaseRaw), "measurement", fresh.document,
+            "stable_tuple_equal_after_wait", true, "same_ctx_connection_after_wait", true)));
+        // A real post-write read is a guard, not a second published SEAL sample.
+        stableEndpoint(fresh, measure());
+        state = State.ENTRY_SEALED;
+      } else {
+        // D2 custody-only (DESIGN-D2-POST-COMMIT-v1 §2.2-4): the SQL commit
+        // already ran, so in-tx re-measure is impossible and post-commit
+        // re-measure would be fabrication (NO-GO-2). The seal carries only the
+        // hash chain, the frame's own identity ordinals, and the commit marker
+        // consumed from the instrument's own COMMITTED listener. stage.committing
+        // is re-pinned to the in-tx HOLD document — the last in-tx observation
+        // of this endpoint, never a post-commit "fresh".
+        emit("SEAL", endpointFields(map("hold_raw_sha256", sha(holdRaw),
+            "release_raw_sha256", sha(releaseRaw), "committed_marker_at", stage.committedAt)));
+        stage.committing = held;
+        state = State.COMMIT_SEALED;
+      }
       held = null; holdRaw = null; releaseRaw = null;
       guard();
     } catch (IOException | SQLException | RuntimeException | Error failure) { throw fail(failure); }

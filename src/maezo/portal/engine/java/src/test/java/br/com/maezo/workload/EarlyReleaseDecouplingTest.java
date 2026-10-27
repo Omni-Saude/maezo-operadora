@@ -19,20 +19,23 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * P2 (DESIGN-OPTION-REFUSAL-63-ROOT-v1.md v1.1 §5.2-P2, §4.2): the D2'
- * decoupling invariants provable deterministically on the JVM side, WITHOUT an
- * engine and WITHOUT a surrogate instrument or mocked admission chain.
+ * P2 (DESIGN-OPTION-REFUSAL-63-ROOT-v1.md v1.1 §5.2-P2, §4.2; updated for the
+ * D2 post-commit machine by DESIGN-D2-POST-COMMIT-v1 §2.2): the decoupling
+ * invariants provable deterministically on the JVM side, WITHOUT an engine and
+ * WITHOUT a surrogate instrument or mocked admission chain.
  *
- * <p>The production seam is unchanged byte-for-byte:
- * {@code RuntimeDefinitionObservation.measuredEndpoint} consumes the port in
- * the fixed order {@code hold(endpoint)} → {@code awaitRootRelease()} → … →
- * {@code seal()} (RuntimeDefinitionObservation.java:148-151). Under D2' the
- * ROOT dispatches the COMMITTING RELEASE BEFORE its two captures, so the
- * document the seam consumes is the EARLY shape: a RELEASE carrying
- * {@code hold_raw_sha256} but NO capture digests. This unit drives the exact
- * port interface ({@link NativeMeasurementPort}, injected today only through
- * that seam) with a fake ROOT side and pins, across the Δ sweep
- * {0, 10, 100, 1000} ms of release-arrival delay:
+ * <p>The production seam under D2 is endpoint-conditional:
+ * {@code RuntimeDefinitionObservation.measuredEndpoint} consumes the port for
+ * ENTRY in the original order {@code hold(endpoint)} → {@code awaitRootRelease()}
+ * → … → {@code seal()}, and for COMMITTING it consumes ONLY {@code hold} —
+ * the pair {@code awaitRootRelease()} + {@code seal()} belongs to the
+ * COMMITTED listener, strictly after the SQL commit (pinned over the REAL jar
+ * commit path by D2PostCommitListenerTest). Under D2' the ROOT dispatches the
+ * COMMITTING RELEASE BEFORE its two captures, so the document the consumption
+ * consumes is the EARLY shape: a RELEASE carrying {@code hold_raw_sha256} but
+ * NO capture digests. This unit drives the exact port interface
+ * ({@link NativeMeasurementPort}) with a fake ROOT side and pins, across the
+ * Δ sweep {0, 10, 100, 1000} ms of release-arrival delay:
  *
  * <ol>
  *   <li>the early RELEASE document is accepted by the REAL
@@ -43,9 +46,11 @@ import org.junit.jupiter.params.provider.ValueSource;
  *       still validates);</li>
  *   <li>the consumed wait is the injected Δ ALONE and the HOLD→RELEASE
  *       dispatch latency stays Δ-independent — the observer's reading/sleep
- *       pacing is out of the wait (the decoupled physics D2' buys);</li>
- *   <li>the seam call grammar is invariant in Δ (hold → awaitRootRelease →
- *       seal), never re-ordered, never retried;</li>
+ *       pacing is out of the wait (the decoupled physics D2' buys), and under
+ *       D2 that wait is post-commit;</li>
+ *   <li>the seam call grammar is invariant in Δ — COMMITTING: hold in-tx, then
+ *       (post-commit) awaitRootRelease → seal, never re-ordered, never
+ *       retried;</li>
  *   <li>fail-closed negatives: a RELEASE without the hold binding and a
  *       RELEASE with a foreign field refuse the real validator.</li>
  * </ol>
@@ -119,8 +124,12 @@ class EarlyReleaseDecouplingTest {
   @ValueSource(longs = {0, 10, 100, 1000})
   void earlyReleaseDocumentContractAndGrammarAreInvariantInReleaseArrivalDelta(long deltaMs) {
     FakeRootPort port = new FakeRootPort(deltaMs);
-    // The exact measuredEndpoint order for one endpoint (the D2' seam contract).
+    // The exact D2 seam grammar for one endpoint: hold() ONLY inside the
+    // COMMITTING listener; the consumption pair belongs to the COMMITTED
+    // listener (post-commit ordering is pinned over the REAL jar commit path
+    // by D2PostCommitListenerTest).
     port.hold(NativeMeasurementPort.Endpoint.COMMITTING);
+    // ... the SQL commit runs here (simulated boundary) ...
     port.awaitRootRelease();
     port.seal();
     assertEquals(List.of("hold", "awaitRootRelease", "release-consumed", "seal"), port.calls);
@@ -129,7 +138,8 @@ class EarlyReleaseDecouplingTest {
         "dispatch latency must not absorb the injected release-arrival delay");
     assertTrue(port.holdToDispatchMs <= 250, "dispatch must stay a small constant cost");
     // The consumed wait is the injected Δ alone (± scheduler slop) — the
-    // decoupled wait, with no capture/reading work inside it.
+    // decoupled wait, with no capture/reading work inside it, and under D2 it
+    // is POST-commit.
     assertTrue(port.consumedWaitMs >= deltaMs);
     assertTrue(port.consumedWaitMs < deltaMs + 250);
     assertEquals("RELEASE", port.dispatchedRelease.get("kind"));

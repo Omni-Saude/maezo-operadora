@@ -1817,83 +1817,14 @@
       "type": "object"
     },
     "SEAL": {
-      "additionalProperties": false,
-      "properties": {
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SealEntry"
         },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "endpoint": {
-          "enum": [
-            "ENTRY",
-            "COMMITTING"
-          ]
-        },
-        "event_ordinal": {
-          "maximum": 65,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "hold_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "kind": {
-          "const": "SEAL"
-        },
-        "measurement": {
-          "$ref": "#/$defs/DirectMeasurement"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "release_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "same_ctx_connection_after_wait": {
-          "const": true
-        },
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "server_stage_execution_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "stable_tuple_equal_after_wait": {
-          "const": true
-        },
-        "stage_sequence": {
-          "maximum": 8,
-          "minimum": 0,
-          "type": "integer"
+        {
+          "$ref": "#/$defs/SealCommitting"
         }
-      },
-      "required": [
-        "schema",
-        "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "stage_sequence",
-        "server_stage_execution_uuid",
-        "endpoint",
-        "hold_raw_sha256",
-        "release_raw_sha256",
-        "measurement",
-        "stable_tuple_equal_after_wait",
-        "same_ctx_connection_after_wait"
-      ],
-      "type": "object"
+      ]
     },
     "STAGE_CLOSED": {
       "additionalProperties": false,
@@ -1984,6 +1915,150 @@
         "context_closed_at",
         "ctx_reference_ordinal",
         "connection_reference_ordinal"
+      ],
+      "type": "object"
+    },
+    "SealCommitting": {
+      "additionalProperties": false,
+      "properties": {
+        "committed_marker_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "endpoint": {
+          "const": "COMMITTING"
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "hold_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "kind": {
+          "const": "SEAL"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "release_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "endpoint",
+        "hold_raw_sha256",
+        "release_raw_sha256",
+        "committed_marker_at"
+      ],
+      "type": "object"
+    },
+    "SealEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "endpoint": {
+          "const": "ENTRY"
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "hold_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "kind": {
+          "const": "SEAL"
+        },
+        "measurement": {
+          "$ref": "#/$defs/DirectMeasurement"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "release_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "same_ctx_connection_after_wait": {
+          "const": true
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stable_tuple_equal_after_wait": {
+          "const": true
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "endpoint",
+        "hold_raw_sha256",
+        "release_raw_sha256",
+        "measurement",
+        "stable_tuple_equal_after_wait",
+        "same_ctx_connection_after_wait"
       ],
       "type": "object"
     },
@@ -2335,7 +2410,7 @@
       "type": "string"
     }
   },
-  "$id": "urn:maezo:provider-native-independent-measurement:3",
+  "$id": "urn:maezo:provider-native-independent-measurement:4",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {

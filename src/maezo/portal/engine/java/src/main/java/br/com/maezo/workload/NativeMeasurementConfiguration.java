@@ -14,7 +14,7 @@ import br.com.maezo.human.Jcs;
 final class NativeMeasurementConfiguration {
   static final String FILE="provider-native-independent-measurement-config.json";
   static final String SCHEMA="provider-native-independent-measurement-schema-v1.json";
-  static final String SCHEMA_SHA="f7619874cbc59d39e3ea7be4393f1e1854fba435f8843b10dd035e612953703a";
+  static final String SCHEMA_SHA="b3de20a3918e02f97ae16ed37cd941553d23e794bca2135167471b962087ca7f";
   private static final Map<String,Object> CONTRACT=contract();
   private final Map<String,Object> document;
   private final byte[] raw;
