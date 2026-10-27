@@ -11,7 +11,7 @@
 | Sítio | Valor | Prova (arquivo:linha) |
 |---|---|---|
 | Stack de dev (`docker compose --profile core`) | `cibseven/cibseven:2.1.0` (tag, **sem** digest — único sítio tag-only, ver §4) | `docker-compose.yml:60` — comentário in-line "governanca (2.1.3 sem imagem publicada — DL-0006)" |
-| Imagem própria do engine (sem showcase invoice) | `cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169` | `deploy/cibseven/Dockerfile:28` (racional do TAG→TAG+DIGEST em `:21-27`, fold de 19/09/2026, pacote trivy/IaC D2) |
+| Imagem própria do engine (sem showcase invoice) | `cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169` | `deploy/cibseven/Dockerfile:28` (racional do TAG→TAG+DIGEST em `:22-27`, fold de 19/09/2026, pacote trivy/IaC D2) |
 | Variante secured (v1) | `cibseven/cibseven:tomcat-2.1.0@sha256:20a2135b…` (MESMO index digest) | `deploy/cibseven/Dockerfile.secured:7` |
 | Variante secured (v2) | idem | `deploy/cibseven/Dockerfile.secured-v2:7` |
 | Variante human (staff composition) | idem | `deploy/cibseven/Dockerfile.human:31` |
@@ -20,7 +20,7 @@
 | Runner de integração de engine | `declared_image: "cibseven/cibseven:2.1.0"` gravado no provenance do run | `scripts/dev/run_engine_integration.py:1518` |
 | Runner de migração histórica | `IMAGES["cibseven"] = "cibseven/cibseven:2.1.0"` + asserção de proveniência `declared_image == IMAGES["cibseven"]` | `scripts/dev/run_historical_migration_recipe.py:90` e `:1228` |
 | Cerca de regressão (teste) | `assert "FROM cibseven/cibseven:2.1.0" in dockerfile` | `tests/unit/deploy/test_canonical_group_whitelist.py:172` |
-| Selo vendor da imagem deployada | 26 entradas `lib/cibseven-*-2.1.0.jar` (incl. `cibseven-engine-2.1.0.jar` → `412dc73c…`), **zero** entrada 2.2.0 — amarra a imagem buildada à linha 2.1.0 | `src/maezo/portal/engine/java/src/main/resources/secured-startup-vendor.sha256` |
+| Selo vendor da imagem deployada | 25 entradas `lib/cibseven-*-2.1.0.jar` (incl. `cibseven-engine-2.1.0.jar` → `412dc73c…`), **zero** entrada 2.2.0 — amarra a imagem buildada à linha 2.1.0 | `src/maezo/portal/engine/java/src/main/resources/secured-startup-vendor.sha256` |
 
 ## 2. A distinção jar × imagem (por que 2.2.0 no pom NÃO conflita com 2.1.0 no compose)
 
@@ -64,4 +64,4 @@ A evidência do rebuild v29 do programa provider N2 (Dockerfile.sealed-parent, s
 
 ## 7. Método
 
-Auditado por leitura direta de `origin/main` @ `88844a57` (grep exaustivo `cibseven` → 5112 ocorrências, segmentadas por imagem × pom × docs × scripts; todos os sítios de valor listados em §1-2 conferidos um a um) + consulta ao Registry API público do Docker Hub em 2026-10-27 (§3). Nenhuma edição de pom, compose, Dockerfile ou ADR. Pacote fecha a linha 7.4 do plano como EXECUTADO-com-apontamento.
+Auditado por leitura direta de `origin/main` @ `88844a57` (varredura grep -rniE 'cibseven|cib-seven|cib_seven' sobre a árvore de checkout — excluindo `.git/`, `node_modules/`, `target/`, `.venv/` e linhas de artefatos binários/locks (`*.jar`, `*.lock`, `*.png`, etc.) — 5112 ocorrências brutas, segmentadas por imagem × pom × docs × scripts; todos os sítios de valor listados em §1-2 conferidos um a um) + consulta ao Registry API público do Docker Hub em 2026-10-27 (§3). Nenhuma edição de pom, compose, Dockerfile ou ADR. Pacote fecha a linha 7.4 do plano como EXECUTADO-com-apontamento.
