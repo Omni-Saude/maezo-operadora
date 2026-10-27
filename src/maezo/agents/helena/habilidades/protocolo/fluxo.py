@@ -853,13 +853,25 @@ async def resposta_direta(
     textos = catalogo.textos
     texto = fala if fala is not None else str(state.get("message_body") or "")
     mensagem = render_untrusted_block("message_body", texto)
-    escolha: _n.Escolha | None = await _chamar(
-        self,
-        state,
-        _n.prompt_da_escolha(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
-        lambda bruto: _n.ler_escolha(bruto, catalogo),
-        "escolha",
+    # A escolha do protocolo e o mapa nao dependem um do outro: em paralelo (rodada de 27/10/2026, mediana
+    # do turno 8,2 s com as tres chamadas em sequencia).
+    escolha_lida, lido = await asyncio.gather(
+        _chamar(
+            self,
+            state,
+            _n.prompt_da_escolha(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
+            lambda bruto: _n.ler_escolha(bruto, catalogo),
+            "escolha",
+        ),
+        _chamar(
+            self,
+            state,
+            _n.prompt_do_mapa(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
+            lambda bruto: _n.ler_mapa(bruto, catalogo),
+            "mapa",
+        ),
     )
+    escolha: _n.Escolha | None = escolha_lida
     if escolha is None:
         publico_e = _publico_do_estado(state)
         pelo_texto = _sinonimos.escolher(catalogo, self._base, texto, publico_e)
@@ -874,13 +886,6 @@ async def resposta_direta(
             # Um sinal AFIRMADO na propria mensagem: o protocolo decide (destino ou as perguntas que faltam).
             logger.info("helena_protocolo_direto_com_sinal", protocolo=protocolo.id)
             return await _seguir_a_pre_leitura(self, state, protocolo, pre)
-    lido = await _chamar(
-        self,
-        state,
-        _n.prompt_do_mapa(catalogo, bloco_conversa="", bloco_mensagem=mensagem),
-        lambda bruto: _n.ler_mapa(bruto, catalogo),
-        "mapa",
-    )
     entrada = catalogo.mapa.get(lido[0]) if lido is not None and lido[0] else None
     if lido is not None:
         publico = "crianca_2m_5a" if lido[1] == "crianca" else lido[1]
