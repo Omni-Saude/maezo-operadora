@@ -644,7 +644,7 @@
     <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_08" sourceRef="U3_EV_Atraso" targetRef="U3_End_Atraso"/>
   </bpmn:process>
   <bpmn:process id="Process_CA_UTILIZACAO_U4_LiquidarAvaliar" name="U4 — Liquidar e avaliar o consumo" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Encerrar o consumo: desfecho clínico ‖ avaliação da experiência; depois a liquidação. ⚠️ LA-02: liquidação financeira sem elemento de origem.</bpmn:documentation>
+    <bpmn:documentation>Encerrar o consumo: desfecho clínico ‖ avaliação da experiência; depois a liquidação. LA-02 resolvida (REG-1.5(b) · D-07, dono, 2026-10-23): coparticipação, faturamento/contas e reembolso do beneficiário modelados por inteiro como objetos+tasks explícitos, com o prazo legal de pagamento do reembolso (Lei 9.656/1998, art. 12, VI) como timer. Âmbito documental (escuro): sem wiring de runtime, sem implementação financeira e sem delegate/worker; contratos de execução permanecem externos.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO_U4_LiquidarAvaliar">
       <bpmn:lane id="LN_CA2_U4_LiquidacaoAuditoria" name="Liquidação e auditoria de contas">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.15 · Ref: UT_CA_U4</bpmn:documentation>
@@ -656,6 +656,14 @@
         <bpmn:flowNodeRef>U4_T_Liquidar</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>U4_End</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>U4_GW_EscapePesquisa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_RotaPgto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_AuditarContas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_ApurarCoparticipacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_MergePgto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_ReceberDocReembolso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_AnalisarReembolso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_B_PrazoLegalReembolso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_End_PrazoLegalVencido</bpmn:flowNodeRef>
       </bpmn:lane>
       <bpmn:lane id="LN_CA2_U4_AcompanhamentoCuidado" name="Acompanhamento e gestão de cuidado">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.14 · Ref: UT_CA_U3</bpmn:documentation>
@@ -724,11 +732,63 @@
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_13</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:outgoing>
     </bpmn:parallelGateway>
-    <bpmn:task id="U4_T_Liquidar" name="Liquidar o consumo">
-      <bpmn:documentation>⚠️ LACUNA LA-02 [SEM ORIGEM]: coparticipação, faturamento e contas não modelados nas fontes. Tarefa abstrata mantida para a visão E2E — decisão pendente da Process Owner. | Origem: [SEM ORIGEM] — ARQ-01 LA-02 | A tarefa abstrata não comprova autorização financeira, liquidação real nem pagamento. Contrato, autoridade, recibo e eventual implementação financeira estão fora desta devolutiva.</bpmn:documentation>
+    <bpmn:exclusiveGateway id="U4_GW_RotaPgto" name="Rota de liquidação?" default="U4_F_RotaConta">
+      <bpmn:documentation>Regra: conta do prestador segue a rota default (faturamento/contas + coparticipação); reembolso do beneficiário segue rota própria com prazo legal próprio — dono: Liquidação e auditoria de contas | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23; modelagem LA-02 por inteiro) | Condição da rota de reembolso: ${reembolsoSolicitado == true} lida por execution.getVariable — a variável não tem produtor nesta devolutiva; a origem externa deve fornecê-la (contrato externo não executado). Variável ausente/null = rota default (falha segura: nenhum reembolso sem sinal explícito).</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:incoming>
-      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:outgoing>
+      <bpmn:outgoing>U4_F_RotaConta</bpmn:outgoing>
+      <bpmn:outgoing>U4_F_RotaReembolso</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="U4_T_Liquidar" name="Liquidar o consumo">
+      <bpmn:documentation>Origem: [SEM ORIGEM] — ARQ-01 LA-02 · Resolução D-07 (dono, 2026-10-23; REG-1.5(b)): a tarefa abstrata é preservada como cabeça da rota default (conta do prestador) e a LA-02 passa a ser modelada por inteiro em U4_T_AuditarContas/U4_T_ApurarCoparticipacao (coparticipação, faturamento e contas) e U4_T_ReceberDocReembolso/U4_T_AnalisarReembolso (reembolso do beneficiário, prazo legal Lei 9.656/1998 art. 12, VI como timer U4_B_PrazoLegalReembolso). Âmbito documental: a tarefa não comprova autorização financeira, liquidação real nem pagamento; contrato, autoridade, recibo e eventual implementação financeira permanecem contratos externos.</bpmn:documentation>
+      <bpmn:incoming>U4_F_RotaConta</bpmn:incoming>
+      <bpmn:outgoing>U4_F_LiqContas</bpmn:outgoing>
     </bpmn:task>
+    <bpmn:task id="U4_T_AuditarContas" name="Conferir faturamento, glosa e contas do prestador">
+      <bpmn:documentation>Explícita per D-07 (LA-02 por inteiro): auditoria/conferência do faturamento e das contas do prestador sobre os dados de faturamento/glosa (insumo INS-026, associado a UT_CA_U4 no macroprocesso). Âmbito documental: não executa conferência nem produz efeito financeiro; produtor documental do objeto Conta do prestador conferida. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+      <bpmn:incoming>U4_F_LiqContas</bpmn:incoming>
+      <bpmn:outgoing>U4_F_ContasCopart</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DOA_U4_ContaConferida">
+        <bpmn:targetRef>DOR_U4_ContaConferida</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:task>
+    <bpmn:task id="U4_T_ApurarCoparticipacao" name="Apurar coparticipação do beneficiário">
+      <bpmn:documentation>Explícita per D-07 (LA-02 por inteiro): apuração da coparticipação devida do beneficiário na liquidação da conta. Âmbito documental: não executa cobrança nem produz efeito financeiro; produtor documental do objeto Coparticipação do beneficiário apurada. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+      <bpmn:incoming>U4_F_ContasCopart</bpmn:incoming>
+      <bpmn:outgoing>U4_F_CopartMerge</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DOA_U4_CoparticipacaoApurada">
+        <bpmn:targetRef>DOR_U4_CoparticipacaoApurada</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:task>
+    <bpmn:task id="U4_T_ReceberDocReembolso" name="Receber a documentação do reembolso">
+      <bpmn:documentation>Explícita per D-07 (LA-02 por inteiro): recebimento da documentação adequada apresentada pelo beneficiário para reembolso de despesa paga à própria (hipóteses do art. 12, VI — inclui urgência/emergência sem disponibilidade na rede própria/credenciada). Âmbito documental: não executa protocolo nem autenticidade. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02 · Lei 9.656/1998, art. 12, VI</bpmn:documentation>
+      <bpmn:incoming>U4_F_RotaReembolso</bpmn:incoming>
+      <bpmn:outgoing>U4_F_RecDocAnalise</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DOA_U4_DocReembolso">
+        <bpmn:targetRef>DOR_U4_DocReembolso</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:task>
+    <bpmn:task id="U4_T_AnalisarReembolso" name="Analisar e pagar o reembolso">
+      <bpmn:documentation>Explícita per D-07 (LA-02 por inteiro): análise da documentação e pagamento do reembolso ao beneficiário. Âmbito documental: não executa análise, autoridade de pagamento nem emissão financeira; decisão, cálculo e pagamento são contrato externo (ver SP-OP-REEMBOLSO-001). | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02 · Lei 9.656/1998, art. 12, VI</bpmn:documentation>
+      <bpmn:incoming>U4_F_RecDocAnalise</bpmn:incoming>
+      <bpmn:outgoing>U4_F_AnaliseMerge</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:boundaryEvent id="U4_B_PrazoLegalReembolso" name="Prazo legal de 30 dias vencido" cancelActivity="false" attachedToRef="U4_T_AnalisarReembolso">
+      <bpmn:documentation>Âncora regulatória (REG-1.5(b) · D-07): Lei 9.656/1998, art. 12, inciso VI (redação dada pela MP 2.177-44/2001) — reembolso das despesas pagas ao próprio, em todos os tipos de produtos dos incisos I e § 1º do art. 1º, "pagáveis no prazo máximo de trinta dias após a entrega da documentação adequada". P30D = 30 dias corridos, forma literal do inciso (a lei expressa dias corridos; conversão útil/feriado não se aplica). Timer NÃO interruptivo no padrão SLA do corpus: dispara a marcação de prazo vencido sem cancelar a tarefa de pagamento; o disjuntor do timer mede desde o início da análise (entrega da documentação adequada). Registro de reparo de citação: o art. 12 TERMINA no inciso VII — NÃO EXISTE inciso VIII; a citação inciso-VIII do plano REG-1.5 e do FINDINGS F-M08 está corrigida aqui e no CORRECOES §11. Fonte primária: https://www.planalto.gov.br/ccivil_03/leis/l9656.htm (acesso 2026-10-27; auditoria REG-RESIDUAL-AUDIT-v1.md §5 item 1). Âmbito documental: sem homologação operacional nem wiring de runtime.</bpmn:documentation>
+      <bpmn:outgoing>U4_F_PrazoVencido</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P30D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="U4_End_PrazoLegalVencido" name="Reembolso fora do prazo legal">
+      <bpmn:documentation>Marcação documental de vencimento do prazo legal (Lei 9.656/1998, art. 12, VI) — a consequência operacional (escalação, remediação, sanção contratual) é contrato externo. Sem publicação de mensagem nesta devolutiva. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23)</bpmn:documentation>
+      <bpmn:incoming>U4_F_PrazoVencido</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="U4_GW_MergePgto" name="">
+      <bpmn:documentation>Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) | Merge das rotas de liquidação (conta do prestador ‖ reembolso do beneficiário). Merge 2 entradas / 1 saída (padrão legítimo do corpus — U4_GW_MergeProx). Âmbito documental.</bpmn:documentation>
+      <bpmn:incoming>U4_F_CopartMerge</bpmn:incoming>
+      <bpmn:incoming>U4_F_AnaliseMerge</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
     <bpmn:endEvent id="U4_End" name="Consumo liquidado e avaliado">
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:incoming>
     </bpmn:endEvent>
@@ -744,9 +804,37 @@
     <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08" sourceRef="U4_GW_MergeProx" targetRef="U4_GW_Join"/>
     <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09" sourceRef="U4_T_Pesquisa" targetRef="U4_GW_EscapePesquisa"/>
     <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10" sourceRef="U4_B_Pesquisa" targetRef="U4_GW_EscapePesquisa"/>
-    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11" sourceRef="U4_GW_Join" targetRef="U4_T_Liquidar"/>
-    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12" sourceRef="U4_T_Liquidar" targetRef="U4_End"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11" sourceRef="U4_GW_Join" targetRef="U4_GW_RotaPgto"/>
+    <bpmn:sequenceFlow id="U4_F_RotaConta" name="Conta do prestador (faturamento/contas)" sourceRef="U4_GW_RotaPgto" targetRef="U4_T_Liquidar"/>
+    <bpmn:sequenceFlow id="U4_F_LiqContas" sourceRef="U4_T_Liquidar" targetRef="U4_T_AuditarContas"/>
+    <bpmn:sequenceFlow id="U4_F_ContasCopart" sourceRef="U4_T_AuditarContas" targetRef="U4_T_ApurarCoparticipacao"/>
+    <bpmn:sequenceFlow id="U4_F_CopartMerge" sourceRef="U4_T_ApurarCoparticipacao" targetRef="U4_GW_MergePgto"/>
+    <bpmn:sequenceFlow id="U4_F_RotaReembolso" name="Reembolso ao beneficiário" sourceRef="U4_GW_RotaPgto" targetRef="U4_T_ReceberDocReembolso">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("reembolsoSolicitado") == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="U4_F_RecDocAnalise" sourceRef="U4_T_ReceberDocReembolso" targetRef="U4_T_AnalisarReembolso"/>
+    <bpmn:sequenceFlow id="U4_F_AnaliseMerge" sourceRef="U4_T_AnalisarReembolso" targetRef="U4_GW_MergePgto"/>
+    <bpmn:sequenceFlow id="U4_F_PrazoVencido" sourceRef="U4_B_PrazoLegalReembolso" targetRef="U4_End_PrazoLegalVencido"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12" sourceRef="U4_GW_MergePgto" targetRef="U4_End"/>
     <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13" sourceRef="U4_GW_EscapePesquisa" targetRef="U4_GW_Join"/>
+    <bpmn:dataObject id="DO_U4_ContaConferida" name="Conta do prestador conferida (faturamento/glosa)">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): saída documental da conferência de faturamento/glosa/contas do prestador (U4_T_AuditarContas). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_U4_ContaConferida" name="Conta do prestador conferida (faturamento/glosa)" dataObjectRef="DO_U4_ContaConferida">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): saída documental da conferência de faturamento/glosa/contas do prestador (U4_T_AuditarContas). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_U4_CoparticipacaoApurada" name="Coparticipação do beneficiário apurada">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): saída documental da apuração de coparticipação (U4_T_ApurarCoparticipacao). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_U4_CoparticipacaoApurada" name="Coparticipação do beneficiário apurada" dataObjectRef="DO_U4_CoparticipacaoApurada">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): saída documental da apuração de coparticipação (U4_T_ApurarCoparticipacao). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_U4_DocReembolso" name="Documentação do reembolso entregue pelo beneficiário">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): documentação adequada entregue pelo beneficiário (gatilho do prazo legal — Lei 9.656/1998, art. 12, VI: pagamento "no prazo máximo de trinta dias após a entrega da documentação adequada"). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02 · Lei 9.656/1998, art. 12, VI</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_U4_DocReembolso" name="Documentação do reembolso entregue pelo beneficiário" dataObjectRef="DO_U4_DocReembolso">
+      <bpmn:documentation>Objeto per D-07 (LA-02 por inteiro; REG-1.5(b)): documentação adequada entregue pelo beneficiário (gatilho do prazo legal — Lei 9.656/1998, art. 12, VI: pagamento "no prazo máximo de trinta dias após a entrega da documentação adequada"). Âmbito documental: sem schema, sem runtime. | Origem: REG-1.5(b) — D-07 (dono, 2026-10-23) · ARQ-01 LA-02 · Lei 9.656/1998, art. 12, VI</bpmn:documentation>
+    </bpmn:dataObjectReference>
   </bpmn:process>
   <bpmn:dataStore id="DS_INS_023" name="Dados da rede credenciada">
     <bpmn:documentation>Insumo INS-023 · Origem: SUB-01 §2.12 Insumo (JIT); SUB-01 §2.12 · coluna Subprocesso genérico</bpmn:documentation>
@@ -1191,13 +1279,13 @@
         <di:waypoint x="840" y="2907"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_U4_LiquidarAvaliar_di" bpmnElement="Participant_CA_UTILIZACAO_U4_LiquidarAvaliar" isHorizontal="true">
-        <dc:Bounds x="149" y="3030" width="1407" height="400"/>
+        <dc:Bounds x="149" y="3030" width="1407" height="750"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="LN_CA2_U4_LiquidacaoAuditoria_di" bpmnElement="LN_CA2_U4_LiquidacaoAuditoria" isHorizontal="true">
-        <dc:Bounds x="179" y="3030" width="1377" height="210"/>
+        <dc:Bounds x="179" y="3030" width="1377" height="560"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="LN_CA2_U4_AcompanhamentoCuidado_di" bpmnElement="LN_CA2_U4_AcompanhamentoCuidado" isHorizontal="true">
-        <dc:Bounds x="179" y="3240" width="1377" height="190"/>
+        <dc:Bounds x="179" y="3590" width="1377" height="190"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_Start_di" bpmnElement="U4_Start">
         <dc:Bounds x="240" y="3092" width="36" height="36"/>
@@ -1206,16 +1294,16 @@
         <dc:Bounds x="383" y="3085" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_T_Desfecho_di" bpmnElement="U4_T_Desfecho">
-        <dc:Bounds x="508" y="3278" width="100" height="80"/>
+        <dc:Bounds x="508" y="3628" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_GW_ProxAcao_di" bpmnElement="U4_GW_ProxAcao" isMarkerVisible="true">
-        <dc:Bounds x="683" y="3293" width="50" height="50"/>
+        <dc:Bounds x="683" y="3643" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_EV_ProxAcao_di" bpmnElement="U4_EV_ProxAcao">
-        <dc:Bounds x="840" y="3300" width="36" height="36"/>
+        <dc:Bounds x="840" y="3650" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_GW_MergeProx_di" bpmnElement="U4_GW_MergeProx" isMarkerVisible="true">
-        <dc:Bounds x="983" y="3293" width="50" height="50"/>
+        <dc:Bounds x="983" y="3643" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_T_Pesquisa_di" bpmnElement="U4_T_Pesquisa">
         <dc:Bounds x="508" y="3070" width="100" height="80"/>
@@ -1224,10 +1312,10 @@
         <dc:Bounds x="1133" y="3085" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_T_Liquidar_di" bpmnElement="U4_T_Liquidar">
-        <dc:Bounds x="1258" y="3070" width="100" height="80"/>
+        <dc:Bounds x="658" y="3168" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_End_di" bpmnElement="U4_End">
-        <dc:Bounds x="1440" y="3092" width="36" height="36"/>
+        <dc:Bounds x="1218" y="3190" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="U4_B_Pesquisa_di" bpmnElement="U4_B_Pesquisa">
         <dc:Bounds x="540" y="3132" width="36" height="36"/>
@@ -1244,59 +1332,61 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_02_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_02">
         <di:waypoint x="408" y="3135"/>
-        <di:waypoint x="408" y="3318"/>
-        <di:waypoint x="508" y="3318"/>
+        <di:waypoint x="408" y="3668"/>
+        <di:waypoint x="508" y="3668"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_03_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_03">
         <di:waypoint x="433" y="3110"/>
         <di:waypoint x="508" y="3110"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_04_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_04">
-        <di:waypoint x="608" y="3318"/>
-        <di:waypoint x="683" y="3318"/>
+        <di:waypoint x="608" y="3668"/>
+        <di:waypoint x="683" y="3668"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_05_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_05">
-        <di:waypoint x="733" y="3318"/>
-        <di:waypoint x="840" y="3318"/>
+        <di:waypoint x="733" y="3668"/>
+        <di:waypoint x="840" y="3668"/>
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="776" y="3301" width="22" height="14"/>
+          <dc:Bounds x="776" y="3651" width="22" height="14"/>
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06">
-        <di:waypoint x="708" y="3293"/>
-        <di:waypoint x="708" y="3276"/>
-        <di:waypoint x="1008" y="3276"/>
-        <di:waypoint x="1008" y="3293"/>
+        <di:waypoint x="708" y="3643"/>
+        <di:waypoint x="708" y="3626"/>
+        <di:waypoint x="1008" y="3626"/>
+        <di:waypoint x="1008" y="3643"/>
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="713" y="3278" width="21" height="14"/>
+          <dc:Bounds x="713" y="3628" width="21" height="14"/>
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_07_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_07">
-        <di:waypoint x="876" y="3318"/>
-        <di:waypoint x="983" y="3318"/>
+        <di:waypoint x="876" y="3668"/>
+        <di:waypoint x="983" y="3668"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08">
-        <di:waypoint x="1033" y="3318"/>
-        <di:waypoint x="1158" y="3318"/>
-        <di:waypoint x="1158" y="3135"/>
+        <di:waypoint x="1033" y="3668"/>
+        <di:waypoint x="1090" y="3668"/>
+        <di:waypoint x="1090" y="3110"/>
+        <di:waypoint x="1183" y="3110"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09">
         <di:waypoint x="608" y="3110"/>
         <di:waypoint x="850" y="3110"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10">
-        <di:waypoint x="558" y="3168"/>
-        <di:waypoint x="558" y="3188"/>
-        <di:waypoint x="875" y="3188"/>
+        <di:waypoint x="576" y="3150"/>
+        <di:waypoint x="875" y="3150"/>
         <di:waypoint x="875" y="3135"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11">
-        <di:waypoint x="1183" y="3110"/>
-        <di:waypoint x="1258" y="3110"/>
+        <di:waypoint x="1146" y="3135"/>
+        <di:waypoint x="1146" y="3160"/>
+        <di:waypoint x="583" y="3160"/>
+        <di:waypoint x="583" y="3183"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12">
-        <di:waypoint x="1358" y="3110"/>
-        <di:waypoint x="1440" y="3110"/>
+        <di:waypoint x="1158" y="3208"/>
+        <di:waypoint x="1218" y="3208"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13">
         <di:waypoint x="900" y="3110"/>
@@ -1460,6 +1550,88 @@
         <di:waypoint x="620" y="1650"/>
         <di:waypoint x="530" y="1650"/>
         <di:waypoint x="530" y="1630"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="U4_GW_RotaPgto_di" bpmnElement="U4_GW_RotaPgto" isMarkerVisible="true">
+        <dc:Bounds x="558" y="3183" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_AuditarContas_di" bpmnElement="U4_T_AuditarContas">
+        <dc:Bounds x="808" y="3168" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_ApurarCoparticipacao_di" bpmnElement="U4_T_ApurarCoparticipacao">
+        <dc:Bounds x="958" y="3168" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_MergePgto_di" bpmnElement="U4_GW_MergePgto" isMarkerVisible="true">
+        <dc:Bounds x="1108" y="3183" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_ReceberDocReembolso_di" bpmnElement="U4_T_ReceberDocReembolso">
+        <dc:Bounds x="1108" y="3268" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_AnalisarReembolso_di" bpmnElement="U4_T_AnalisarReembolso">
+        <dc:Bounds x="1258" y="3268" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_B_PrazoLegalReembolso_di" bpmnElement="U4_B_PrazoLegalReembolso">
+        <dc:Bounds x="1290" y="3330" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1206" y="3372" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_End_PrazoLegalVencido_di" bpmnElement="U4_End_PrazoLegalVencido">
+        <dc:Bounds x="1290" y="3384" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DOR_U4_ContaConferida_di" bpmnElement="DOR_U4_ContaConferida">
+        <dc:Bounds x="840" y="3368" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="813" y="3422" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DOR_U4_CoparticipacaoApurada_di" bpmnElement="DOR_U4_CoparticipacaoApurada">
+        <dc:Bounds x="990" y="3368" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="963" y="3422" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DOR_U4_DocReembolso_di" bpmnElement="DOR_U4_DocReembolso">
+        <dc:Bounds x="1140" y="3368" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1113" y="3422" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="U4_F_RotaConta_di" bpmnElement="U4_F_RotaConta">
+        <di:waypoint x="608" y="3208"/>
+        <di:waypoint x="658" y="3208"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_LiqContas_di" bpmnElement="U4_F_LiqContas">
+        <di:waypoint x="758" y="3208"/>
+        <di:waypoint x="808" y="3208"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_ContasCopart_di" bpmnElement="U4_F_ContasCopart">
+        <di:waypoint x="908" y="3208"/>
+        <di:waypoint x="958" y="3208"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_CopartMerge_di" bpmnElement="U4_F_CopartMerge">
+        <di:waypoint x="1058" y="3208"/>
+        <di:waypoint x="1108" y="3208"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_RotaReembolso_di" bpmnElement="U4_F_RotaReembolso">
+        <di:waypoint x="583" y="3233"/>
+        <di:waypoint x="583" y="3530"/>
+        <di:waypoint x="1080" y="3530"/>
+        <di:waypoint x="1080" y="3308"/>
+        <di:waypoint x="1108" y="3308"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_RecDocAnalise_di" bpmnElement="U4_F_RecDocAnalise">
+        <di:waypoint x="1208" y="3308"/>
+        <di:waypoint x="1258" y="3308"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_AnaliseMerge_di" bpmnElement="U4_F_AnaliseMerge">
+        <di:waypoint x="1308" y="3268"/>
+        <di:waypoint x="1308" y="3258"/>
+        <di:waypoint x="1133" y="3258"/>
+        <di:waypoint x="1133" y="3233"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="U4_F_PrazoVencido_di" bpmnElement="U4_F_PrazoVencido">
+        <di:waypoint x="1308" y="3366"/>
+        <di:waypoint x="1308" y="3384"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
