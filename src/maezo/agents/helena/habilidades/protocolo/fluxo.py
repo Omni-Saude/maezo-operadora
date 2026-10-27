@@ -38,6 +38,7 @@ from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROG
 from maezo.runtime.prompt_format import render_untrusted_block
 
 from . import especialista as _esp
+from . import evidencia as _ev
 from . import leitura_sem_modelo as _lsm
 from . import nucleo as _n
 from . import sinonimos as _sinonimos
@@ -259,6 +260,18 @@ def _sem_sinal_de_consulta(protocolo: _p.Protocolo, decisao: _n.Decisao) -> bool
     )
 
 
+def _falas_da_pessoa(state: Mapping[str, Any]) -> list[str]:
+    """As falas da pessoa no historico, da mais antiga para a mais recente."""
+    historico = state.get("historico_conversa")
+    if not isinstance(historico, list):
+        return []
+    return [
+        str(e.get("texto") or "")
+        for e in historico
+        if isinstance(e, Mapping) and e.get("papel") == "beneficiario" and e.get("texto")
+    ]
+
+
 def _pergunta_que_abriu(state: Mapping[str, Any], protocolo: _p.Protocolo) -> str:
     """A fala da pessoa que levou as perguntas deste protocolo (a fala dela logo antes delas), ou ""."""
     historico = state.get("historico_conversa")
@@ -332,6 +345,12 @@ async def responder_alerta(
     n = len(protocolo.perguntas_de_alerta)
     indices = tuple(i for i in pend.indices if 1 <= i <= n) or tuple(range(1, n + 1))
     sem_modelo = _lsm.ler_sem_modelo(texto, len(indices))
+    if sem_modelo is None and pend.rodada == 1 and _pergunta_nova(texto, decisao, catalogo):
+        # Rodada de 26/10/2026 (7ac0219e): com a re-pergunta pendente, "um homem de 50 anos com PSA alterado
+        # deve procurar qual profissional?" foi lida como a resposta (e recebeu o destino da crianca). Uma
+        # pergunta NOVA de saude ou de qual profissional e' tratada como nova: a pendencia cai.
+        logger.info("helena_protocolo_pergunta_nova_na_repergunta", protocolo=protocolo.id)
+        return None
     if sem_modelo is not None:
         # Teste do dono (26/10/2026): a resposta OBVIA ("nehuma", "ja' respondi nao para todas", "a 2 sim") e'
         # lida pelo codigo, sem esperar o modelo (que caia no prazo e virava re-pergunta e oferta da equipe).
@@ -360,6 +379,21 @@ async def responder_alerta(
         return None  # sinal grave NOVO, validado na tabela: o 192 do roteador
     regra = _n.decidir(protocolo, indices, leitura.respostas, pend.rodada)
     return await _executar_com_especialista(self, state, protocolo, regra)
+
+
+def _pergunta_nova(texto: str, decisao: Any, catalogo: _p.Catalogo) -> bool:
+    """A mensagem e' uma pergunta NOVA (qual profissional, sugestao de especialista, ou outra pergunta de
+    saude que o roteador nao le' como resposta a pendencia), nao a resposta as perguntas de alerta?"""
+    if _esp.pergunta_qual_especialista(texto) or (
+        catalogo.textos is not None and _esp.sugere_especialista(texto, catalogo.textos)
+    ):
+        return True
+    return (
+        decisao is not None
+        and not decisao.responde_a_pendencia
+        and decisao.habilidade in ("saude", "sintoma")
+        and "?" in texto
+    )
 
 
 async def _executar_com_especialista(
@@ -430,6 +464,12 @@ async def _sugestao_de_especialista(
     # opcao para dor nas costas (lombar)". Com protocolo na conversa, a queixa e' SO' a fala que abriu as
     # perguntas dele (sem a conversa: o modelo nao escolhe outra queixa dela), como no #1035.
     abertura = _pergunta_que_abriu(state, ultimo) if ultimo is not None else ""
+    if not abertura:
+        # Rodada de 26/10/2026 (7ac0219e): sem perguntas na conversa (o destino veio direto), o mapa da
+        # conversa inteira escolheu "dor no pescoco" para a torcao. A queixa e' a ultima fala da pessoa que
+        # descreveu um problema.
+        atual = str(state.get("message_body") or "")
+        abertura = _ev.ultima_queixa([f for f in _falas_da_pessoa(state) if f != atual], catalogo)
     if abertura:
         conversa, mensagem = "", render_untrusted_block("message_body", abertura)
     lido = await _chamar(
@@ -699,6 +739,18 @@ async def _perguntar_o_que_falta(
     if pre is not None and not afirmado:
         # Mensagem so' de pergunta/negacao/hipotese: "sim" nao conta (mesmo espirito da frase afirmada).
         pre = tuple("nao_dito" if r == "sim" else r for r in pre)
+    if pre is not None and "sim" in pre:
+        # Rodada de 26/10/2026 (7ac0219e): "acabei torcendo o tornozelo" virou "sim" para "nao consegue
+        # apoiar?" e pronto-socorro sem nenhuma pergunta. O "sim" so' vale com o SINAL dito pela pessoa.
+        falas = [str(state.get("message_body") or ""), *_falas_da_pessoa(state)]
+        conferido = _ev.so_sim_com_sinal_dito(pre, protocolo, falas)
+        if conferido != pre:
+            logger.info(
+                "helena_protocolo_sim_sem_sinal_dito",
+                protocolo=protocolo.id,
+                descartados=pre.count("sim") - conferido.count("sim"),
+            )
+        pre = conferido
     if pre is None or all(r == "nao_dito" for r in pre):
         return _texto(
             self, state, _n.texto_das_perguntas(protocolo), pendente=_n.codigo_do_alerta(protocolo.id)
