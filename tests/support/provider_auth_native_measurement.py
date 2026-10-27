@@ -301,13 +301,17 @@ def installed_measurement_origin(
 #   the T1 verdict keeps its exact refusal. Like the T1 verdict, the T3 value
 #   never enters the capture document; only the admitted source distinguishes
 #   it.
-#   v27/D2' fidelity repair (design §6): the discarded raw verdict is no longer
-#   invisible — when the corner ran, the refusal text carries the raw T3'
-#   verdict verbatim (never waived), and an ADMITTED corner capture banks the
-#   fidelity block (raw status, PG clock of the read, effectively waited Δ) in
-#   the acquisition record/crosslink, the sanctioned place for consumed
-#   verdicts. Under the early RELEASE the wait and the read are post-RELEASE
-#   discipline, unchanged in semantics.
+#   v27/D2' fidelity repair (design §6; §6-1 completed per P4-RESULT-v1 §7-2,
+#   owner decision 2026-10-26 standalone repair): whenever the corner EXECUTED,
+#   the fidelity block (raw status, PG clock of the read, effectively waited Δ
+#   by monotonic) is built for EVERY verdict, never only the committed one. An
+#   ADMITTED corner capture banks it on the acquisition record/crosslink item —
+#   the sanctioned place for consumed verdicts; a REFUSED corner carries it on
+#   the refusal record (the raised NativeObservationError), so the measured Δ
+#   survives the raise and the divergence guard cannot go blind on refusals.
+#   The raw verdict also stays verbatim in the refusal text (never waived).
+#   Verdicts never enter the byte-stable capture document (§8-4), and the
+#   admitted record item still only ever sees the exact committed literal.
 XID_SOURCE_IN_PROGRESS = "pg_snapshot_xip-in-progress"
 XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
 # v25 REFUSAL-63 sub-source: a zero-candidate capture admitted by the T3
@@ -335,6 +339,21 @@ _T3_COMMITTED = object()
 # the discriminator between a slow live transaction and an aborted one. Like
 # the other sentinels it is unreachable from server data.
 _T3_NOT_RUN = object()
+# P0' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §10.6; P0-CHANNEL-IDENTIFICATION-v1 §4)
+# declarative refusal-record provenance, attached to EVERY checkpoint refusal.
+# After a refusal the engine command unwinds through CommandContext.close() ->
+# closeSessions(...) -> JdbcTransaction.close() -> resetAutoCommit() ->
+# setAutoCommit(true), so ANY COMMIT that later shows up in the witness pid's
+# state_change is that IMPLICIT commit of the unwind — never an engine commit.
+# The honest engine-commit discriminator is the SEAL + STAGE_CLOSED pair of the
+# COMMITTING endpoint (ordinals 7/8 under the D2' early-RELEASE numbering);
+# until both are banked, no state_change reading counts as engine physics.
+REFUSAL_COMMIT_PROVENANCE = {
+    "post_refusal_commit_witness": (
+        "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
+    ),
+    "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
+}
 
 
 def full_xid(
@@ -471,9 +490,14 @@ async def acquire_pg_checkpoint(
     capture artifact, and the banked timestamps prove
     hold.emitted_at <= release.emitted_at <= root_observed_at. Returns the
     byte-stable capture document plus the fidelity block for the acquisition
-    record: verdicts never enter the capture document (§8-4).
+    record (any verdict the corner measured); on refusal the fidelity rides the
+    raised error's refusal record together with REFUSAL_COMMIT_PROVENANCE:
+    verdicts never enter the capture document (§8-4).
     """
     guard.check()
+    # §6-1 fidelity of the ONE deferred straddle read, bound before any raise so
+    # the refusal record below can always reference it (None = corner not run).
+    fidelity: dict[str, Any] | None = None
     if (
         not isinstance(connection, asyncpg.Connection)
         or connection.is_in_transaction()
@@ -542,14 +566,15 @@ async def acquire_pg_checkpoint(
             # the deferred verdict is terminal. Under D2' the wait and the read
             # are post-RELEASE discipline (the RELEASE is already dispatched),
             # unchanged in semantics. The exact 'committed' literal admits via
-            # the T3 sub-source; every other outcome is discarded and the T1
-            # verdict keeps its exact refusal inside full_xid(), now carrying
-            # the raw T3' verdict in the refusal text (§6). The §6 fidelity
-            # block (raw status, PG clock of the read, EFFECTIVELY waited Δ by
-            # monotonic) goes to the acquisition record ONLY — never into the
-            # capture document (§8-4).
+            # the T3 sub-source; every other outcome is discarded (never
+            # admitted) and the T1 verdict keeps its exact refusal inside
+            # full_xid(), carrying the raw T3' verdict in the refusal text (§6).
+            # The §6 fidelity block (raw status, PG clock of the read,
+            # EFFECTIVELY waited Δ by monotonic) is built for every verdict the
+            # corner measured: it goes to the acquisition record item when the
+            # capture admits and to the refusal record when the corner refuses —
+            # never into the capture document (§8-4).
             deferred_t3: Any = _T3_NOT_RUN
-            fidelity: dict[str, Any] | None = None
             if _witness_in_gap(row["active_full_xids"], witness_txid, witness_status):
                 deferred_started_ns = time.monotonic_ns()
                 await asyncio.sleep(_T3_DEFERRED_SECONDS)
@@ -561,11 +586,17 @@ async def acquire_pg_checkpoint(
                 deferred_t3 = straddle_row["witness_xact_status"]
                 if deferred_t3 == "committed":
                     witness_status = _T3_COMMITTED
-                    fidelity = dict(
-                        t3_straddle_raw_status="committed",
-                        t3_straddle_read_at=runtime.clock(straddle_row["read_at"]),
-                        t3_deferred_seconds=f"{deferred_ns // 10**9}.{deferred_ns % 10**9:09d}",
-                    )
+                # §6-1 (completed — P4-RESULT-v1 §7-2, owner decision
+                # 2026-10-26): the corner MEASURED, so the fidelity block is
+                # built for EVERY verdict. An admitted capture banks it on the
+                # acquisition record item; a refused one carries it on the
+                # refusal record below, so the effectively waited Δ is never
+                # discarded in the raise. Never into the capture document.
+                fidelity = dict(
+                    t3_straddle_raw_status=deferred_t3,
+                    t3_straddle_read_at=runtime.clock(straddle_row["read_at"]),
+                    t3_deferred_seconds=f"{deferred_ns // 10**9}.{deferred_ns % 10**9:09d}",
+                )
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
@@ -621,8 +652,21 @@ async def acquire_pg_checkpoint(
             # stat.usename is login only. current_user remains separately sourced.
         guard.check()  # Includes transaction exit; no refreshed deadline.
         return capture, fidelity
+    except runtime.NativeObservationError as error:
+        # §6-1/P0' refusal record: the raised refusal carries the measured
+        # fidelity of the corner (None when it never ran — honest absence, not
+        # a discarded measurement) and the declarative P0' commit provenance:
+        # any post-refusal COMMIT visible in the witness pid's state_change is
+        # the implicit commit of the JdbcTransaction resetAutoCommit on the
+        # abort unwind, never an engine commit (see REFUSAL_COMMIT_PROVENANCE).
+        error.t3_fidelity = None if fidelity is None else dict(fidelity)
+        error.refusal_commit_provenance = dict(REFUSAL_COMMIT_PROVENANCE)
+        raise
     except (asyncpg.PostgresError, KeyError, TypeError, ValueError):
-        raise runtime.NativeObservationError("Actual PostgreSQL checkpoint unavailable") from None
+        refused = runtime.NativeObservationError("Actual PostgreSQL checkpoint unavailable")
+        refused.t3_fidelity = None
+        refused.refusal_commit_provenance = dict(REFUSAL_COMMIT_PROVENANCE)
+        raise refused from None
 
 
 def source_sha(*, guard: runtime._ObservationWaitGuard | None = None) -> str:
