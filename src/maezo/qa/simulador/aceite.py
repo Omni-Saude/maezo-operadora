@@ -2634,7 +2634,14 @@ _REPERGUNTA = r"(so para confirmar|nao entendi bem|tive um problema para entende
 _DOSE = r"(\bdose\b|\d+ ?(mg|ml|gotas)\b)"
 _NAO_DEVE_ESPECIALISTA = (*_NAO_DEVE_SEMPRE, _TEXTO_ANTIGO_NAVEGACAO, _TEXTO_ANTIGO_ESPECIALISTA)
 #: A conferencia do especialista ("o certo nao seria...?") nunca nomeia OUTRA queixa que nao a contada.
-_OUTRA_QUEIXA_DA_TORCAO = r"(costas|lombar|coluna|juntas|articula|cabeca|peito|barriga|joelho|ombro)"
+_OUTRA_QUEIXA_DA_TORCAO = (
+    r"(costas|lombar|coluna|pescoco|juntas|articula|cabeca|peito|barriga|joelho|ombro|quadril|mao|braco)"
+)
+#: Na conferencia da torcao, a queixa nomeada so' pode ser a do pe/tornozelo ("Para isso" = sem queixa).
+_QUEIXA_NOMEADA_NAO_E_O_TORNOZELO = (
+    r"(boa opcao para (?!dor no pe ou no tornozelo)"
+    r"|\bpara (?!dor no pe ou no tornozelo|isso)[^.\n]{1,80}, (o especialista costuma|quem costuma cuidar))"
+)
 _OUTRA_QUEIXA_DAS_JUNTAS = (
     r"(costas|lombar|coluna|tornozelo|joelho|ombro|cabeca|peito|barriga|menopausa|prostata|queda|trauma)"
 )
@@ -2677,7 +2684,8 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 "Ontem eu jogava futebol e acabei torcendo o tornozelo.",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(_PERGUNTAS_DO_PROTOCOLO,),
-                nao_deve=(*_NAO_DEVE_SEMPRE, _ALERTA_UNIVERSAL),
+                # Rodada de 26/10 (7ac0219e): a torcao foi direto ao pronto-socorro, sem perguntas.
+                nao_deve=(*_NAO_DEVE_SEMPRE, _ALERTA_UNIVERSAL, r"pronto.socorro"),
             ),
             _p(
                 "nenhuma. E achei essas perguntas sem nada a ver com o que eu contei.",
@@ -2690,7 +2698,12 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("ortopedista", _CANAIS_DE_MARCAR),
                 # Rodada de 26/10: "boa opcao para dor nas costas (lombar)" para a torcao do tornozelo.
-                nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO, _OUTRA_QUEIXA_DA_TORCAO),
+                nao_deve=(
+                    *_NAO_DEVE_ESPECIALISTA,
+                    _PERGUNTAS_DO_PROTOCOLO,
+                    _OUTRA_QUEIXA_DA_TORCAO,
+                    _QUEIXA_NOMEADA_NAO_E_O_TORNOZELO,
+                ),
             ),
             _p(
                 "Certo. Queria falar também de uma coisa com um dos meus dependentes. Aliás, quem são "
@@ -2714,7 +2727,7 @@ HELENA_TESTE_DONO_26_10: tuple[Segmento, ...] = (
             _p(
                 "Um homem de 50 anos com o exame de PSA alterado deve procurar qual tipo de profissional?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("urologista", _CANAIS_DE_MARCAR),
+                deve=("urolog", _CANAIS_DE_MARCAR),
                 nao_deve=(*_NAO_DEVE_ESPECIALISTA, _PERGUNTAS_DO_PROTOCOLO),
             ),
         ),

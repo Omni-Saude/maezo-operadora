@@ -131,6 +131,8 @@ def prompt_da_pre_leitura(protocolo: _p.Protocolo, *, bloco_conversa: str, bloco
             '- "sim": a pessoa AFIRMOU claramente, sobre agora, TUDO o que a pergunta pede, inclusive a '
             "intensidade ('cai da escada' responde 'veio depois de uma queda?' = sim; 'dor nas costas' NAO "
             "responde 'dor forte nas costas?');",
+            "- a TORCAO nao e' o sinal: 'torci o tornozelo' NAO responde 'ficou torto ou muito inchado, ou "
+            "nao consegue apoiar?' (so' 'esta' torto', 'muito inchado', 'nao consigo apoiar' respondem);",
             '- "nao": a pessoa NEGOU claramente ("nao bati a cabeca" = nao para a pergunta da cabeca);',
             '- "nao_dito": nao foi dito, foi so\' perguntado, hipotese ("sera\' que", "e se"), duvida.',
             "Nunca invente. Na duvida, nao_dito.",
@@ -512,7 +514,9 @@ def prompt_da_leitura(
             "fazer no WhatsApp. Para CADA pergunta, na ordem, diga o que a pessoa respondeu, no contexto:",
             '- "sim": a pessoa confirma que aquilo acontece AGORA;',
             '- "nao": nega ("nao", "nenhuma", "nada disso", "a 1 nao"), ou responde outra pergunta sem '
-            "confirmar esta, ou so' repete/comenta a pergunta ('nao, mas o que isso tem a ver?' = nao);",
+            "confirmar esta, ou so' repete/comenta a pergunta ('nao, mas o que isso tem a ver?' = nao), ou "
+            "conta outra coisa sem confirmar nenhum sinal ('ela ja' tomou dipirona ontem, estou preocupada e "
+            "quero procurar um medico' = nao para todas: nenhum sinal, quer um medico);",
             '- "sem_clareza": responde mas nao da\' para saber ("talvez", "acho que sim", "mais ou '
             'menos", "nao sei").',
             "Uma resposta curta para todas ('nao', 'nenhuma', 'sim') vale para todas. 'A 2 sim' = sim so' "
