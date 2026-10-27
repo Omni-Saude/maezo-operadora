@@ -112,7 +112,14 @@ final class RuntimeDefinitionObservation {
       finally {COMMITTING_OBSERVATION.remove();if(previous)WorkloadPlugin.GUARDED.set(true);else WorkloadPlugin.GUARDED.remove();}
     });
     ctx.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,ignored->{
+      // The instrument's own COMMITTED marker listener (openStage) is registered
+      // FIRST, so stage.committed/committedAt are already set when this
+      // consumption runs (registration order == firing order, pinned by P1-D2).
+      // A failure here propagates AFTER the SQL commit: the stage stays DURABLE
+      // and the abort unwind commits an idle connection (no-op, §3.1 of the
+      // design) — the instrument self-aborts inside its own fail() path.
       result.committed=true;if(token.activeValidation!=null)token.activeValidation.committed(ctx);
+      if(token.admission.measurement!=null){token.admission.measurement.awaitRootRelease();token.admission.measurement.seal();}
     });
     return result;
     }catch(RuntimeException|Error failure){abortMeasurement(token,failure);throw failure;}
@@ -145,10 +152,17 @@ final class RuntimeDefinitionObservation {
     var token=result.token;var ctx=result.context;var c=result.connection;var port=token.admission.measurement;
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     if(port==null)return observeStageSample(token.plugin,ctx,c,token.request,token,locked);
-    port.hold(endpoint);port.awaitRootRelease();
+    port.hold(endpoint);
+    // D2 (DESIGN-D2-POST-COMMIT-v1 §2.2-2): the ENTRY endpoint keeps the full
+    // in-tx consume/seal; the COMMITTING endpoint returns after the in-tx HOLD
+    // oath — awaitRootRelease()+seal() migrate to the COMMITTED listener below,
+    // so no observer pacing retains the engine transaction past the HOLD. The
+    // in-tx custody that survives HERE is the two samples plus the hard
+    // equalities (sameStable/sameEndpointSession), the design §3.2-1 substitute.
+    if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.awaitRootRelease();
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     var sample=observeStageSample(token.plugin,ctx,c,token.request,token,locked);
-    port.seal();
+    if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.seal();
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     var fresh=observeStageSample(token.plugin,ctx,c,token.request,token,locked);
     sameStable(sample,fresh);sameEndpointSession(sample,fresh);return fresh;

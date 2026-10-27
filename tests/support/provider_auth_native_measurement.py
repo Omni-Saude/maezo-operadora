@@ -32,7 +32,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.support import provider_auth_native_runtime as runtime
 
-PROTOCOL_SCHEMA_SHA256 = "f7619874cbc59d39e3ea7be4393f1e1854fba435f8843b10dd035e612953703a"
+PROTOCOL_SCHEMA_SHA256 = "b3de20a3918e02f97ae16ed37cd941553d23e794bca2135167471b962087ca7f"
 MAX_BYTES = 2097152
 MAX_FRAME = 32768
 SESSION_KEYS = (
@@ -364,11 +364,19 @@ _T3_NOT_RUN = object()
 # The honest engine-commit discriminator is the SEAL + STAGE_CLOSED pair of the
 # COMMITTING endpoint (ordinals 7/8 under the D2' early-RELEASE numbering);
 # until both are banked, no state_change reading counts as engine physics.
+# v29/D2 (DESIGN-D2-POST-COMMIT-v1 §2.4): under the post-commit consumption the
+# attribution above SURVIVES, and one effect is NEW and declared: a COMMIT after
+# a refusal now lands on an ALREADY TERMINAL transaction (the engine committed
+# before the consumption could fail), so the resetAutoCommit COMMIT is the idle
+# connection's no-op and the clog verdict CANNOT move — the witness pid shows no
+# state_change transition that any admissible reading could attribute to the
+# engine's commit path.
 REFUSAL_COMMIT_PROVENANCE = {
     "post_refusal_commit_witness": (
         "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
     ),
     "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
+    "d2_post_refusal_commit_effect": ("commit-after-refusal-on-already-terminal-transaction-is-a-clog-noop"),
 }
 
 
@@ -675,6 +683,9 @@ async def acquire_pg_checkpoint(
         # any post-refusal COMMIT visible in the witness pid's state_change is
         # the implicit commit of the JdbcTransaction resetAutoCommit on the
         # abort unwind, never an engine commit (see REFUSAL_COMMIT_PROVENANCE).
+        # v29/D2: under the post-commit consumption the command unwinds over an
+        # already terminal transaction, so that unwind COMMIT is an idle
+        # connection no-op — the clog verdict cannot move (declared effect).
         error.t3_fidelity = None if fidelity is None else dict(fidelity)
         error.refusal_commit_provenance = dict(REFUSAL_COMMIT_PROVENANCE)
         raise
@@ -736,6 +747,37 @@ def hold_to_release_ns(hold: dict[str, Any], release: dict[str, Any]) -> str:
     if delta < timedelta(0):
         raise runtime.NativeObservationError("Measurement HOLD/RELEASE clock order refused")
     return str((delta // timedelta(microseconds=1)) * 1000)
+
+
+def _stage_close_chain_ok(stage_events: list, closed: dict[str, Any]) -> bool:
+    """v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-1/§2.4) re-pinned commit/close chain.
+
+    The GUARANTEED causal link is committed_marker_at <= SEAL-07.emitted_at: the
+    instrument's own COMMITTED listener is registered before the observer's, so
+    the marker is set inside fireTransactionEvent(COMMITTED) BEFORE the
+    consumption can seal — the banked positive proof of post-commit consumption
+    (the discriminator that ordinals 7/8 never banked in v27/v28).
+
+    RELEASE-06 <= committed_marker_at is the EXPECTED observation only — the
+    in-tx work after the ROOT dispatch is not ordered by construction against
+    the marker — so it is deliberately NOT a refusal condition here (the event
+    list's own monotonic clock order already pins RELEASE-06 <= SEAL-07, and no
+    threshold is pinned; a lane guard may pin one in a later release).
+
+    The rest of the chain is unchanged and required: marker <= SEAL-07.emitted_at
+    <= executor_return_at <= context_closed_at <= STAGE_CLOSED-08.emitted_at,
+    with the SEAL's banked marker identical to the STAGE_CLOSED's (one marker
+    instance, never a fabricated one).
+    """
+    if stage_events[5].get("committed_marker_at") != closed["committed_marker_at"]:
+        return False
+    return (
+        runtime._observation_time(closed["committed_marker_at"])
+        <= runtime._observation_time(stage_events[5]["emitted_at"])
+        <= runtime._observation_time(closed["executor_return_at"])
+        <= runtime._observation_time(closed["context_closed_at"])
+        <= runtime._observation_time(closed["emitted_at"])
+    )
 
 
 def _basename(name: str) -> None:
@@ -1991,11 +2033,11 @@ class NativeMeasurementProvenance:
                 closed["ctx_reference_ordinal"] != seq + 1
                 or closed["connection_reference_ordinal"]
                 != stage_events[0]["measurement"]["connection_reference_ordinal"]
-                or not runtime._observation_time(stage_events[5]["emitted_at"])
-                <= runtime._observation_time(closed["committed_marker_at"])
-                <= runtime._observation_time(closed["executor_return_at"])
-                <= runtime._observation_time(closed["context_closed_at"])
-                <= runtime._observation_time(closed["emitted_at"])
+                # v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-1): the chain moved into
+                # the unit-testable helper below — the guaranteed link is now
+                # marker <= SEAL-07, and RELEASE-06 <= marker is an expected
+                # observation, never a refusal condition.
+                or not _stage_close_chain_ok(stage_events, closed)
             ):
                 raise runtime.NativeObservationError(
                     "Independent commit/executor/context close order differs"
@@ -2080,7 +2122,7 @@ class NativeMeasurementProvenance:
         before: datetime,
         after: datetime,
     ) -> None:
-        a, b = hold["measurement"], seal["measurement"]
+        a = hold["measurement"]
         stable = (
             "ctx_reference_ordinal",
             "connection_reference_ordinal",
@@ -2090,13 +2132,31 @@ class NativeMeasurementProvenance:
             "instrument_origin",
         )
         if (
-            any(a[k] != b[k] for k in stable)
-            or a["ctx_reference_ordinal"] != seq + 1
+            a["ctx_reference_ordinal"] != seq + 1
             or a["jvm_toolchain"] != vm
             or a["instrument_origin"] != origin
         ):
             raise runtime.NativeObservationError("Independent direct measurement identity/config changed")
-        for measurement in (a, b):
+        if seal["endpoint"] == "COMMITTING":
+            # v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-2/§3.3): the COMMITTING SEAL
+            # is custody-only — the schema already refuses `measurement` and the
+            # two re-measure const-trues on that endpoint, and the retained
+            # in-tx document of the stage is the HOLD itself (the last in-tx
+            # observation), never a post-commit "fresh" fabrication (NO-GO-2).
+            # The hold-side checks below still run in full.
+            if (
+                "measurement" in seal
+                or "stable_tuple_equal_after_wait" in seal
+                or "same_ctx_connection_after_wait" in seal
+            ):
+                raise runtime.NativeObservationError("COMMITTING custody-only SEAL cannot declare re-measure")
+            measurements = (a,)
+        else:
+            b = seal["measurement"]
+            if any(a[k] != b[k] for k in stable):
+                raise runtime.NativeObservationError("Independent direct measurement identity/config changed")
+            measurements = (a, b)
+        for measurement in measurements:
             session_value = measurement["session_transaction"]
             if (
                 {k: session_value[k] for k in SESSION_KEYS}

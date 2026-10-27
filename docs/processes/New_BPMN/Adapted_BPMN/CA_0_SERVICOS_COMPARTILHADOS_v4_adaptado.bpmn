@@ -653,7 +653,7 @@
       <bpmn:outgoing>F_CA_H3_EnriquecerCliente_01</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:callActivity id="EC_CA_H1" name="Verificar identidade e consentimento" camunda:asyncBefore="true" calledElement="Process_CA_H1_IdentidadeConsentimento">
-      <bpmn:documentation>Base legal por fonte mapeada no registro de tratamento (LGPD art. 37). | Origem: M1_CA_Consentimento</bpmn:documentation>
+      <bpmn:documentation>Bases legais por fonte mapeada: arts. 7º e 11 da Lei 13.709/2018. Registro das operações de tratamento: art. 37. | Origem: M1_CA_Consentimento</bpmn:documentation>
       <bpmn:documentation>Contrato explícito: clienteId do ingresso/enriquecimento é transferido a H1; finalidade="enriquecimento" continua literal. H1 declara clienteId/finalidade como entradas e consentimentoValido/identidadeUnificada como saídas de seus serviços. businessKey não transfere clienteId por si. Produtores externos declarados, sem execução comprovada nesta devolutiva.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
