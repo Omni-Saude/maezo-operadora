@@ -10,6 +10,11 @@ is a NEW record carrying `revoked=true` (`portal/api/records.py`), never a DELET
 in-place mutation of what a human may already have acted on. Mirrors
 `provider_membership_administration.py` (PW1-B) shape for shape; that module stays a read-only
 molde and is never edited from here.
+
+Registry provenance (W6 DISC 6.2, F-M04): this module is the substrate of OP13 (VW-IDENT
+`channel.register`; `OP-REGISTRY-VENDOR-V1.md` L35-46, namespace OP13+) — the administrative act
+of channel identity (registration + accreditation/appointment + contract taxonomy). This marker
+is provenance only: it publishes no OP13 identifier, route or contract surface.
 """
 
 from __future__ import annotations
