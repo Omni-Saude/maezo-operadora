@@ -1,6 +1,23 @@
 # ADR-0038: Emenda a proibicao 6 do ADR-0037 — reconciliacao da FORMA das chaves CIB com a realidade implantada (business keys hifen-primeiro + process keys `SP-OP-*`) e correcao da auto-inconsistencia XRD-08 vs proibicao 6
 
-**Status:** Proposed — **NAO RATIFICADO; nenhuma clausula deste ADR tem efeito.** A escolha entre a Opcao 1 e a Opcao 2 e ato do DONO DO REPOSITORIO (ver secao "Ratificacao"). · **Data:** 2026-08-09 · **Area:** Integracao / Fronteira de plataforma / Governanca de ADR
+**Status:** **Accepted — RATIFICADO pelo dono (2026-10-28, sessao brokerada — ver COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4).** · **Data:** 2026-08-09 · **Area:** Integracao / Fronteira de plataforma / Governanca de ADR
+
+> **[Registro datado 2026-10-28 — RATIFICACAO pelo dono; historico preservado, nada reescrito.]** O
+> Status anterior, vigente de 2026-08-09 ate esta data, era: "Proposed — **NAO RATIFICADO; nenhuma
+> clausula deste ADR tem efeito.** A escolha entre a Opcao 1 e a Opcao 2 e ato do DONO DO REPOSITORIO
+> (ver secao "Ratificacao")." A ratificacao foi ATO DO DONO em sessao interativa brokerada de
+> 2026-10-28, registrado pelo proprio dono em COORDINATION.md ("OWNER DECISIONS 2026-10-28", item 4,
+> com pre-append SHA256 de custodia do arquivo): "ADR-0038 RATIFICADA pelo dono mantendo a imagem
+> 2.1.0; DL-0006 revisit = defer deliberado (fatos 2.2.0 upstream banked em
+> docs/compliance/CIB-SEVEN-TAG-PIN.md §3)". **O que este registro NAO faz:** (i) apenas REGISTRA o
+> ato do dono — nao decide, nao interpreta e nao preenche a Opcao 1 x Opcao 2; o texto da decisao
+> registrado pelo dono NAO nomeia a opcao e nenhuma opcao e fabricada aqui (desambiguacao, se
+> necessaria, e ato do dono). (ii) Os dois registros companheiros previstos na secao "Ratificacao"
+> foram CUMPRIDOS no mesmo PR #1065 pelo reparo F-1 do gate cego (veredito PASS,
+> `VERDICT-W8-GATE-ADR0038-2026-10-28.md`): linha **DL-0156** em `docs/decisions-log.md` (data
+> 2026-10-28, ato do dono, opcao NAO nomeada) e linha 0038 em `docs/adr/README.md` → Accepted.
+> (iii) Nao autoriza nenhuma mudanca de codigo, e a perna (c) de DL-0043 (proibicao 5 / PHI-e-ID-cru
+> em keys) permanece ABERTA — ver "Restricoes de nao-fabricacao", abaixo.
 
 > **Enquadramento (leia antes do resto).** Este ADR e produzido para **ACELERAR** a decisao humana ja
 > registrada como PENDENTE em **DL-0043** (`docs/decisions-log.md:10`) e em **PLANS.md §0.6**
@@ -354,7 +371,19 @@ com a AMH deve escolher a Opcao 2. Este ADR nao pode decidir isso.
 
 ## Ratificacao
 
-`RATIFICATION: PENDING — <owner act required>`
+`RATIFICATION: RECORDED 2026-10-28 — ato do dono em sessao brokerada (COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4; ver nota datada sob o Status)`
+
+> **[Registro datado 2026-10-28 — substituicao do marcador; linha DL registrada no MESMO PR #1065.]**
+> O marcador anterior, intacto ate esta data, era `RATIFICATION: PENDING — <owner act required>`. A
+> restricao de nao-fabricacao abaixo exige que a substituicao ocorra "no mesmo commit que registra a
+> linha DL da ratificacao humana": a linha DL existe agora — **DL-0156** (`docs/decisions-log.md`,
+> data 2026-10-28, ato do dono, opcao NAO nomeada) — registrada no MESMO PR #1065, porem em commit
+> SUBSEQUENTE ao que substituiu o marcador (7ec15fd9), por ordem do coordenador da janela W8 ao
+> cumprir o F-1 do veredito do gate cego (`VERDICT-W8-GATE-ADR0038-2026-10-28.md`, PASS, sha256
+> `b573b6bf…`). O desvio residual de letra — "mesmo commit" vs "commit subsequente no mesmo PR" —
+> fica assim DECLARADO, nao escondido, para julgamento do gatekeeper/dono. A trilha humana da
+> ratificacao e o registro do PROPRIO DONO em COORDINATION.md ("OWNER DECISIONS 2026-10-28", item 4,
+> com pre-append SHA256 de custodia).
 
 **Ato humano UNICO que Aceita este ADR:** o **dono do repositorio** declara, em sessao, **"Opcao 1"**
 ou **"Opcao 2"**. Esse ato, e somente ele, autoriza:
