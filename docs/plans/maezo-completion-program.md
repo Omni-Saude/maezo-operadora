@@ -111,7 +111,7 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 
 ## W7 HARD — contínuo (S)
 
-7.1 prova e2e do caminho SARIF (substituto-GHAS) · 7.2 **red-test** do SBOM/cosign (provar bloqueio, não só verde) · 7.3 cercas de regressão nos 3 chokepoints (`start_process_idempotent`, contrato do `engine_deploy.py`, espelho do allowlist `effect_pep.py:174`) · 7.4 pin do tag CIB Seven · 7.5 dashboard de desvios shadow (muro 2027-02-09; só de dados rastreados).
+7.1 prova e2e do caminho SARIF (substituto-GHAS) · 7.2 **red-test** do SBOM/cosign (provar bloqueio, não só verde) · 7.3 cercas de regressão nos 3 chokepoints (`start_process_idempotent`, contrato do `engine_deploy.py`, espelho do allowlist `effect_pep.py:174`) · 7.4 pin do tag CIB Seven — **EXECUTADO-com-apontamento 2026-10-27** (registro `docs/compliance/CIB-SEVEN-TAG-PIN.md`: veredito COMPLETO sem drift — imagem pinada 2.1.0 em todos os sítios Docker [compose tag; Dockerfiles tag+digest `20a2135b…`; ECS = digest ECR IMMUTABLE], jar Maven 2.2.0 em todos os poms — classes de artefato distintas, não inconsistência; pendências owner declaradas: revisita do DL-0006 [2.2.0 publicado no Hub 2026-05-31, `latest` já =2.2.0], vigilância HX-15/R-110 até 2027-03-04, ADR-0038 Proposed aguarda dono) · 7.5 dashboard de desvios shadow (muro 2027-02-09; só de dados rastreados).
 
 ## W8 CLOSE (M; alvo 2027-01-26)
 
