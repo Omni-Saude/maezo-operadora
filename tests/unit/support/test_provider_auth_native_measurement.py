@@ -1034,7 +1034,10 @@ class TestT3DeferredV28D42ClosedSet:
         return importlib.reload(measurement)
 
     def test_v28_closed_set_is_exactly_the_three_regime_members(self):
-        assert frozenset({"0", "0.2", "4"}) == measurement._T3_DEFERRED_ALLOWED
+        # v30 W8 (owner decision 2026-10-28, item 2) grew the set with the single
+        # member "8" — the exact-equality discipline moved to
+        # TestT3DeferredV30D8ClosedSet; this asserts the D-42 members survived.
+        assert frozenset({"0", "0.2", "4"}) <= measurement._T3_DEFERRED_ALLOWED
 
     @pytest.mark.parametrize("raw,expected", [("4", 4.0), ("0.2", 0.2), ("0", 0.0), (None, 0.2)])
     def test_v28_members_resolve_and_absent_env_keeps_the_pinned_default(self, monkeypatch, raw, expected):
@@ -1055,6 +1058,73 @@ class TestT3DeferredV28D42ClosedSet:
         ],
     )
     def test_v28_every_other_value_still_refuses_loud_at_import(self, monkeypatch, raw):
+        import importlib
+
+        monkeypatch.setenv(self._ENV, raw)
+        with pytest.raises(runtime.NativeObservationError, match=self._ENV):
+            importlib.reload(measurement)
+        # Fail-closed: after the refused import the module is restored to the
+        # pinned default, never left bound to the refused value.
+        module = self._reload(monkeypatch, None)
+        assert module._T3_DEFERRED_SECONDS == 0.2
+
+
+class TestT3DeferredV30D8ClosedSet:
+    """v30 W8 (owner decision 2026-10-28, item 2 — the v28 §10.8 cadence).
+
+    The v29 D2 post-commit round MEASURED the engine-commit horizon at
+    +6.298096 s after RELEASE-06 (P4-V29-RESULT-v1), so every member of the
+    previous set {0, 0.2, 4} is sub-horizon and the refusal path closes the
+    observer channel before the SEAL-07 write. The regime admits exactly ONE
+    new member: the literal "8". The set stays closed, the default stays the
+    pinned "0.2", and the literal style stays integer-without-decimal for
+    integral values, so every other spelling of eight (and everything else)
+    still refuses loudly at import.
+    """
+
+    _ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
+
+    @pytest.fixture(autouse=True)
+    def _restore_import_default(self):
+        yield
+        import importlib
+        import os
+
+        os.environ.pop(self._ENV, None)
+        importlib.reload(measurement)
+
+    def _reload(self, monkeypatch, value):
+        import importlib
+
+        if value is None:
+            monkeypatch.delenv(self._ENV, raising=False)
+        else:
+            monkeypatch.setenv(self._ENV, value)
+        return importlib.reload(measurement)
+
+    def test_v30_closed_set_is_exactly_the_four_regime_members(self):
+        assert frozenset({"0", "0.2", "4", "8"}) == measurement._T3_DEFERRED_ALLOWED
+
+    @pytest.mark.parametrize("raw,expected", [("8", 8.0), ("4", 4.0), ("0.2", 0.2), ("0", 0.0), (None, 0.2)])
+    def test_v30_members_resolve_and_absent_env_keeps_the_pinned_default(self, monkeypatch, raw, expected):
+        module = self._reload(monkeypatch, raw)
+        assert expected == module._T3_DEFERRED_SECONDS
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "8.0",  # integral values are spelled without a decimal, like "4"
+            "8s",
+            " 8",
+            "8 ",
+            "0.8",
+            "-8",
+            "16",  # the next regime step above the new maximum is NOT a member
+            "abc",
+            "",
+        ],
+    )
+    def test_v30_every_other_value_still_refuses_loud_at_import(self, monkeypatch, raw):
         import importlib
 
         monkeypatch.setenv(self._ENV, raw)
