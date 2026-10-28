@@ -3,7 +3,7 @@
 
 Purpose
 -------
-O plano (`docs/plans/maezo-completion-program.md:114`, item 7.5) pede um "dashboard de desvios
+O plano (`docs/plans/maezo-completion-program.md:118`, item 7.5) pede um "dashboard de desvios
 shadow (muro 2027-02-09; só de dados rastreados)". Este script é esse dashboard: um GERADOR
 DETERMINÍSTICO que lê as fontes RASTREADAS do repositório e emite um artefato citável
 (`docs/delivery/w7/shadow-deviation-dashboard.md`) com, por item shadow:
@@ -33,7 +33,7 @@ Fontes rastreadas (as ÚNICAS; cada linha do artefato cita arquivo:linha)
    (OP21 `legitimacy.screen` :33, pin TISS :690, `REEMBOLSO-AUTO-OVERPAY` :1750, candidatos
    shadow M-4..M-7 :640-643, matriz auth-criteria :22).
 4. `docs/plans/maezo-completion-program.md` — os prazos de verdade externa (§0 :17), o D-10
-   (:131), o GOV-0.2 (:36) e o W8 (:116). As DATAS são EXTRAÍDAS da linha viva por regex, não
+   (:135), o GOV-0.2 (:36) e o W8 (:120). As DATAS são EXTRAÍDAS da linha viva por regex, não
    congeladas no script — uma renovação futura é refletida na regeneração.
 5. `deploy/helm/maezo-tenant/values.yaml` — `lifecycle.expectedFailUntil` (:898), lido VIVO.
 6. `docs/Tarefas_Pendentes.md:1140` — R-131 (legal-hold), prazo monitorável fora do escopo
@@ -109,7 +109,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # ---------------------------------------------------------------------------------------------
 # OS PRAZOS-ÂNCORA DO PROGRAMA. Datas ratificadas pelo dono e renovadas UMA vez (2026-09-20,
 # PR fix/d7-exception-renewal-2027) — "sem segunda renovação" (`docs/plans/
-# maezo-completion-program.md:131`, D-10). O muro não é deste script: é o teto que este script
+# maezo-completion-program.md:135`, D-10). O muro não é deste script: é o teto que este script
 # EXISTE para medir. O lineage do Q-2 (original 2026-11-11 → renovado) é citado na linha dele.
 # ---------------------------------------------------------------------------------------------
 MURO_SHADOW: Final[date] = date(2027, 2, 9)
@@ -339,7 +339,7 @@ def build_secao_gateway(approvals: ActionApprovals, hoje: date) -> tuple[list[Sh
             checkpoint=None,
             checkpoint_vencido=False,
             fonte=_MANIFEST_FONTE,
-            fonte_prazo=f"{PLAN_DOC}:17 (muro) · {PLAN_DOC}:131 (D-10)",
+            fonte_prazo=f"{PLAN_DOC}:17 (muro) · {PLAN_DOC}:135 (D-10)",
             obs="teto: `modo: shadow` significa que NADA enforça, jamais — o default de classe não muda isso",
         )
     )
@@ -412,7 +412,7 @@ def build_secao_gateway(approvals: ActionApprovals, hoje: date) -> tuple[list[Sh
                 checkpoint=None,
                 checkpoint_vencido=False,
                 fonte=_MANIFEST_FONTE,
-                fonte_prazo=f"{PLAN_DOC}:17 (muro) · {PLAN_DOC}:131 (D-10)",
+                fonte_prazo=f"{PLAN_DOC}:17 (muro) · {PLAN_DOC}:135 (D-10)",
                 obs=obs,
             )
         )
@@ -889,7 +889,7 @@ def build_secao_flags(hoje: date) -> tuple[list[ShadowItem], list[AnchorVerdict]
                 checkpoint=None,
                 checkpoint_vencido=False,
                 fonte=fonte,
-                fonte_prazo=f"{PLAN_DOC}:131 (D-10) · {PLAN_DOC}:17 (muro)",
+                fonte_prazo=f"{PLAN_DOC}:135 (D-10) · {PLAN_DOC}:17 (muro)",
                 obs=obs,
             )
         )
@@ -1153,18 +1153,18 @@ GOVERNANCE_ROWS: Final[tuple[GovernanceRow, ...]] = (
         r"(\d{4}-\d{2}-\d{2}) muro shadow",
         "iso",
         "shadow",
-        f"é o teto que as seções A/B usam como bound herdado; D-10 ({PLAN_DOC}:131)",
+        f"é o teto que as seções A/B usam como bound herdado; D-10 ({PLAN_DOC}:135)",
     ),
     GovernanceRow(
         "E-w8-flip",
         "W8 CLOSE — pacotes de flip entregues (alvo formal; D-52 registra antecipação "
         "para dez-2026, sem dia exato rastreado)",
-        Anchor(PLAN_DOC, "W8 CLOSE (M; alvo", 116),
+        Anchor(PLAN_DOC, "W8 CLOSE (M; alvo", 120),
         r"alvo (\d{4}-\d{2}-\d{2})",
         "iso",
         "governo",
         "o muro chega completo ou com a lista de corte pré-acordada "
-        f"({PLAN_DOC}:201, risco 5): só stubs W5 e profundidade 6.7 são cortáveis",
+        f"({PLAN_DOC}:296, risco 5): só stubs W5 e profundidade 6.7 são cortáveis",
     ),
     GovernanceRow(
         "E-c2-janela",
