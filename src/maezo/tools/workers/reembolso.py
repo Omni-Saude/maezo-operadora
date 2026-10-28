@@ -930,7 +930,7 @@ def process_payment(
     valor_cents: int,
     beneficiario_pseudo_id: str,
 ) -> dict[str, Any]:
-    """Issue reimbursement payment (CNAB/conciliation).
+    """Register a reimbursement payment order (CNAB/conciliation NOT wired: no money moves).
 
     Only executes for approved reimbursements (AUTO_APROVAR, APROVAR or APROVAR_PARCIAL).
 
@@ -960,10 +960,15 @@ def process_payment(
     import hashlib
     import time
 
-    comprovante_ref = f"PAY-{hashlib.sha256(str(time.time_ns()).encode()).hexdigest()[:12].upper()}"
+    comprovante_ref = f"ORD-{hashlib.sha256(str(time.time_ns()).encode()).hexdigest()[:12].upper()}"
 
     result = {
-        "payment_issued": True,
+        # HONEST STATE (forensic audit F-009): no CNAB/conciliation adapter exists yet, so NO money
+        # moved. The order is only REGISTERED; `comprovante_pagamento_ref` is an internal order
+        # reference (ORD-…), not a bank receipt. Flip to payment_issued=True only when a real
+        # payment port confirms the movement (contract SP-OP-REEMBOLSO-001 open item: issue_payment).
+        "payment_issued": False,
+        "payment_status": "REGISTERED_PENDING_CNAB",
         "protocolo_reembolso": protocolo_reembolso,
         "valor_cents": valor_cents,
         "valor_reembolso_aprovado_cents": valor_cents,
@@ -1023,7 +1028,11 @@ def send_reembolso_denial(denial_input: ReembolsoDenialInput) -> dict[str, Any]:
         raise ReembolsoDenialNotHumanError(missing_fields=missing)
 
     return {
-        "denial_sent": True,
+        # HONEST STATE (F-009): no beneficiary channel is wired, so nothing was SENT. The
+        # decision and its justification are only registered for delivery.
+        "denial_sent": False,
+        "denial_registered": True,
+        "notification_status": "PENDING_CHANNEL",
         "decisao_reembolso": denial_input.decisao_reembolso,
         "valor_solicitado_cents": denial_input.valor_solicitado_cents,
         "valor_reembolso_aprovado_cents": denial_input.valor_reembolso_aprovado_cents,
