@@ -549,6 +549,45 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
 
+## REG-1.11 — Âncora RN 566/2022 na autorização prévia (DARK — documentation only)
+
+> **DARK / informativo (REG-1.11):** este bloco é âncora de documentação. NENHUM timer, DMN,
+> variável de engine, worker ou wiring é criado ou alterado aqui. A moeda normativa DESTE
+> contrato (RN 259/2011 e RN 395/2016 citadas **DRAFT/verify** no gatilho e na tabela de SLAs
+> acima) permanece na fila R5 — `docs/compliance/rn-currency-review.md` §3.4 (`:150-158`:
+> "em r2 trocar \"RN 259 garantia 21 dias uteis…\" → \"RN 566/2022…\"; em r3 trocar
+> \"RN 395/2016 — resposta em ate 5 dias uteis\" → \"RN 623/2024 …\". [verify SME: figuras
+> exatas]") — NÃO decidida nem aplicada neste bloco.
+
+**Fonte primária (verbatim banked):** `docs/compliance/legal/textos-base/RN-566-2022.md` — DOU
+02/01/2023, Seção 1, p. 94 — https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-566-de-29-de-dezembro-de-2022-455439257
+(sha256 `49c550bc36ed8d6b66fed856402f179a8233dede130acdef90d02128f4de6b4f`, MANIFEST 16/16;
+adquirida pelo #1054 `e68cefad`; acesso 2026-10-27):
+
+- **Art. 11** (`RN-566-2022.md:179`): "A autorização para realização do serviço ou procedimento,
+  quando necessária, deverá ocorrer de forma a viabilizar o cumprimento do disposto no art. 3º."
+  A autorização prévia (este processo) é, portanto, condicionada dos prazos de garantia de
+  atendimento: o SLA de análise não pode inviabilizar o prazo do art. 3º. Documentação de
+  obrigação — nenhum SLA novo é criado, alterado ou ratificado por este bloco.
+- **Art. 12** (`RN-566-2022.md:181`): para efeito de cumprimento dos prazos do art. 3º, a
+  operadora fornece número de protocolo gerado por seus serviços de atendimento ao consumidor
+  (interseção com o protocolo-como-primeira-ação da RN 623/2024 art. 10 — extensão de desenho
+  REG-1.3, gated COUNSEL-5/D-06, fora deste pacote).
+- **Art. 3º** (`RN-566-2022.md:63-105`): classes de prazo de garantia de atendimento (consulta
+  básica — pediatria, clínica médica, cirurgia geral, ginecologia e obstetrícia — até 7 dias
+  úteis; demais especialidades médicas até 14; internação eletiva até 21; demais classes no
+  texto banked), § 1º — contagem da demanda à efetiva realização; § 2º — vale o acesso a
+  qualquer prestador habilitado no município da demanda, não a um prestador específico.
+- **Interseção prazo de resposta × prazo de realização**: RN 623/2024, art. 12, § 1º — se o
+  prazo de garantia de atendimento da RN 566/2022 for inferior ao do inciso II, prevalece o da
+  RN 566/2022 (âncora já registrada no corpus v4: `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn`,
+  `C3_EV_Expirou`, REG-1.2).
+
+**Gate humano (registrado, NÃO simulado — ADR-0007):** classes de prazo = SME jurídico
+(`REG-RESIDUAL-AUDIT-v1.md` §4 item 7; decisão do dono 2026-10-28, COORDINATION.md "OWNER
+DECISIONS 2026-10-28" item 5 — REG-1.11 EXECUTAR com verbatim banked). Nenhuma ratificação por
+agente.
+
 ## Desfecho de agente: falha de start (CC-01)
 
 | Desfecho | Onde vive | Quem escreve | Significado |

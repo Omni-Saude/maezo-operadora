@@ -229,3 +229,20 @@ Item 8 do despacho (REG-RESIDUAL-AUDIT-v1.md §3.3/§4, snapshot `5f25e8a4…`):
 - **Fonte do RX8** (gitignored, cp+sha256 antes de consumir): `docs/audits/PROVIDER-XP-2026-10/PROVIDER-CAPABILITY-DESIGN.md:138`, sha256 `64980b42da1693343cb927c874086e791d45dc551495f9fa87d270877cea72f5`. **Norma**: RN 501/2022 (`docs/compliance/rn-currency-review.md` §2.5; forma canônica verificada em origin/main `f57f0821`).
 - **Varredura de escopo**: CA_0 e CA_3 v4 não têm elemento de obrigação TISS (`tiss`/`T_Requisitar`/`T_Liquidar` case-insensitive = 0) — fora do veículo, intocados.
 - Esta §11 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — a âncora é documentation-only.
+
+## §12 Disposição REG-1.11 (2026-10-28) — âncoras RN 566/2022 na agenda/priorização: `U1_B_DiaServico` + `S3_T_Priorizar` ancorados; contrato AUTH ancorado DARK; CA_1 intocado (cerca)
+
+Registro do item 7 do despacho (REG-RESIDUAL-AUDIT-v1.md §3.10/§4; snapshot `5f25e8a4…`; decisão do dono 2026-10-28 — "REG: 1.11+1.12 EXECUTAR"). Fecha F-M12 (plano W1 `:77`). Fonte primária: `docs/compliance/legal/textos-base/RN-566-2022.md` (DOU 02/01/2023, DO1 p. 94; sha256 `49c550bc…`, MANIFEST 16/16, adquirida pelo #1054). Detalhe completo e gates: CORRECOES §14.
+
+| Elemento-alvo | Arquivo | Disposição |
+|---|---|---|
+| `U1_B_DiaServico` (agenda do consumo — instante da efetiva realização) | `CA_2_UTILIZACAO_v4_adaptado.bpmn:403` | **APLICADA nesta leva** — documentation prefixada: RN 566/2022 art. 3º § 1º (da demanda à efetiva realização) + § 2º (qualquer prestador habilitado do município) + classes 7/14/21 dias úteis + interseção RN 623/2024 art. 12 § 1º. Timer `${dataHoraServico}` pinado inalterado pelo teste (documentation-only). |
+| `S3_T_Priorizar` (priorização de protocolo em risco — fila humana do suporte) | `CA_3_SUPORTE_v4_adaptado.bpmn:635` | **APLICADA nesta leva** — documentation prefixada: prazos RN 566/2022 (art. 3º §§ 1º/2º) e reembolso integral do art. 10 como insumos DOCUMENTAIS de risco, não SLA; PT4H do `S3_B_SLA_Priorizar` permanece proposta sem homologação (registro próprio preservado). |
+| Autorização prévia (veículo "e/ou" do audit §3.10) | `docs/processes/contracts/SP-OP-AUTH-001.md:552` | **APLICADA (DARK)** — bloco REG-1.11 com art. 11 (autorização viabiliza o art. 3º) + art. 12 (protocolo) + art. 3º (`RN-566-2022.md:63-105/179/181`); fronteira R5 declarada (moeda RN 259/395 desse contrato NÃO decidida aqui — `rn-currency-review.md` §3.4 `:150-158`). |
+| CA_0 v4 | — | **NÃO aplicada** — 0 elementos de agenda/priorização de garantia de atendimento (6 hits "agenda" = 5× rótulo de dono "Agenda e capacidade" + 1× "agendar para a próxima janela", regra de janela de comunicação; 0 hits "prioriza"). |
+| CA_1 v4 (`C1_T_Agenda`, `C2_EV_Agendado`, `C4_T_Reagendar`) | `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | **NÃO aplicada — CERCA.** Arquivo LEITURA-ONLY (§0(1) do plano `:15` + D-30 `:38`). Prova: git diff = 0 linhas em CA_1; pin (g) do teste recusa qualquer "REG-1.11" em CA_1. A agenda de compra já carrega a interseção RN 623 art. 12 § 1º pela âncora REG-1.2 (`C3_EV_Expirou`); o complemento RN 566 nos elementos de agenda do CA_1 é pendência do pacote broker (mesmo canal do REG-1.4/`C3_T_Requisitar`, MAPA §11). |
+| v3 (4 arquivos) | `docs/processes/New_BPMN/*_v3.bpmn` | **INTOCÁVEL** (cerca permanente §0(1); linhagem = v4). |
+
+- **Gate humano registrado, não simulado (ADR-0007)**: classes de prazo do art. 3º = SME jurídico (despacho REG-RESIDUAL-AUDIT-v1 §4 item 7; decisão do dono 2026-10-28 — EXECUTAR com verbatim banked; nenhuma ratificação por agente).
+- **Varredura de escopo**: os demais hits "566" do corpus v4 são números coincidentes (`5666`×2 em CA_0 — coordenadas; `2566`×3 em CA_3 — valores), não citações normativas.
+- Esta §12 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — âncoras são documentation-only; `SP-OP-AGENDA-001` segue LACUNA (linha 206) e não recebe contrato nesta leva.
