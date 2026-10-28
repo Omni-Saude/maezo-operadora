@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 65
+    assert len(dmns) == 64
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -235,6 +235,10 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
         "DL-0104, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
+    # DL-0156 (reembolso v2): sairam `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e entrou
+    # `reembolso_prazo.dmn` (65 -> 64). Os tres de reembolso sao nomeados aqui para o censo nao mudar calado.
+    assert "reembolso_prazo.dmn" in dmns
+    assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
     bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
     assert len(bpmn_names) == 17
     assert "SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn" in bpmn_names, (

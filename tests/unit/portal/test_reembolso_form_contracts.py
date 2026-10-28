@@ -38,8 +38,19 @@ DECISION_INPUTS = (
     "valor_reembolso_aprovado_cents",
     "justificativa",
     "fundamentacao_contratual",
+    "info_solicitada",
+    "texto_ao_beneficiario",
 )
-AUDITOR_INPUTS = (*DECISION_INPUTS, "cid10_referencia", "parecer_auditor")
+AUDITOR_INPUTS = (
+    "decisao_reembolso",
+    "valor_reembolso_aprovado_cents",
+    "justificativa",
+    "fundamentacao_contratual",
+    "cid10_referencia",
+    "parecer_auditor",
+    "info_solicitada",
+    "texto_ao_beneficiario",
+)
 PENDING_INPUTS = ("decisao_pendencia",)
 
 
@@ -109,6 +120,7 @@ def _snapshot(*, task_key: str, form_key: str, allowed_inputs: tuple[str, ...]) 
             "decisao_reembolso": "NEGAR",
             "justificativa": "Pedido fora das condições contratuais",
             "fundamentacao_contratual": "Cláusula 5.2",
+            "texto_ao_beneficiario": "Texto ao beneficiário",
         },
         {
             "kind": "reembolso_decisao",
@@ -116,8 +128,13 @@ def _snapshot(*, task_key: str, form_key: str, allowed_inputs: tuple[str, ...]) 
             "valor_reembolso_aprovado_cents": "8000",
             "justificativa": "Valor reduzido após análise humana",
             "fundamentacao_contratual": "Cláusula 6.1",
+            "texto_ao_beneficiario": "Texto ao beneficiário",
         },
-        {"kind": "reembolso_decisao", "decisao_reembolso": "SOLICITAR_INFO"},
+        {
+            "kind": "reembolso_decisao",
+            "decisao_reembolso": "SOLICITAR_INFO",
+            "info_solicitada": "Envie a nota fiscal legível",
+        },
         {"kind": "reembolso_decisao", "decisao_reembolso": "SOLICITAR_AUDITOR"},
     ],
 )
@@ -163,6 +180,7 @@ def test_each_expired_pendency_outcome_parses(outcome: str) -> None:
             "decisao_reembolso": "NEGAR",
             "justificativa": "Mérito clínico desfavorável",
             "fundamentacao_contratual": "Diretriz contratual",
+            "texto_ao_beneficiario": "Texto ao beneficiário",
             "cid10_referencia": "Z00.0",
             "parecer_auditor": "Parecer médico fundamentado",
         },
@@ -172,6 +190,7 @@ def test_each_expired_pendency_outcome_parses(outcome: str) -> None:
             "valor_reembolso_aprovado_cents": "8000",
             "justificativa": "Redução após revisão médica",
             "fundamentacao_contratual": "Diretriz contratual",
+            "texto_ao_beneficiario": "Texto ao beneficiário",
             "cid10_referencia": "Z00.0",
             "parecer_auditor": "Parecer médico fundamentado",
         },
@@ -199,13 +218,14 @@ def test_human_form_rejects_dmn_and_invented_outcomes(outcome: str) -> None:
 
 
 @pytest.mark.parametrize("decision", ["NEGAR", "APROVAR_PARCIAL"])
-@pytest.mark.parametrize("missing", ["justificativa", "fundamentacao_contratual"])
+@pytest.mark.parametrize("missing", ["justificativa", "fundamentacao_contratual", "texto_ao_beneficiario"])
 def test_adverse_decision_requires_human_basis(decision: str, missing: str) -> None:
     payload: dict[str, object] = {
         "kind": "reembolso_decisao",
         "decisao_reembolso": decision,
         "justificativa": "Fundamento",
         "fundamentacao_contratual": "Cláusula",
+        "texto_ao_beneficiario": "Texto ao beneficiário",
     }
     if decision == "APROVAR_PARCIAL":
         payload["valor_reembolso_aprovado_cents"] = "1"
@@ -225,6 +245,7 @@ def test_payment_decision_requires_approved_cent_amount(decision: str) -> None:
         payload.update(
             justificativa="Fundamento",
             fundamentacao_contratual="Cláusula",
+            texto_ao_beneficiario="Texto",
         )
 
     with pytest.raises(ValidationError, match="valor_reembolso_aprovado_cents"):
@@ -258,7 +279,13 @@ def test_money_rejects_unsafe_browser_coercion(value: object) -> None:
 @pytest.mark.parametrize("decision", ["NEGAR", "APROVAR_PARCIAL"])
 @pytest.mark.parametrize(
     "missing",
-    ["justificativa", "fundamentacao_contratual", "cid10_referencia", "parecer_auditor"],
+    [
+        "justificativa",
+        "fundamentacao_contratual",
+        "texto_ao_beneficiario",
+        "cid10_referencia",
+        "parecer_auditor",
+    ],
 )
 def test_adverse_auditor_decision_requires_complete_clinical_basis(decision: str, missing: str) -> None:
     payload: dict[str, object] = {
@@ -266,6 +293,7 @@ def test_adverse_auditor_decision_requires_complete_clinical_basis(decision: str
         "decisao_reembolso": decision,
         "justificativa": "Fundamento",
         "fundamentacao_contratual": "Cláusula",
+        "texto_ao_beneficiario": "Texto ao beneficiário",
         "cid10_referencia": "Z00.0",
         "parecer_auditor": "Parecer",
     }
@@ -328,6 +356,7 @@ def test_non_auditor_form_cannot_author_clinical_merit(clinical_field: str) -> N
                 "decisao_reembolso": "NEGAR",
                 "justificativa": "Fundamento",
                 "fundamentacao_contratual": "Cláusula",
+                "texto_ao_beneficiario": "Texto ao beneficiário",
                 clinical_field: "forged",
             }
         )
@@ -408,6 +437,7 @@ def test_reembolso_binding_rejects_wrong_form_source_inputs_and_projection() -> 
             {
                 "kind": "reembolso_decisao",
                 "decisao_reembolso": "SOLICITAR_INFO",
+                "info_solicitada": "Envie a nota fiscal legível",
             },
         ),
     ],

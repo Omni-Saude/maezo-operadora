@@ -27,7 +27,7 @@ prompt_versions:
   system: system-v2
   dossier: dossier-v2
   recurso: recurso-v2
-  reembolso: reembolso-v1
+  reembolso: reembolso-v2
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

@@ -88,7 +88,6 @@ EXACT_CENTAVOS_ENGINE_VARS: frozenset[str] = frozenset(
         "valor_pagamento_cents",
         "valor_aprovado_cents",
         "valor_solicitado_cents",
-        "valor_calculado_tabela_cents",
         "valor_reembolso_aprovado_cents",
     }
 )

@@ -513,31 +513,41 @@ rows:
   nome_real: ''
 - grupo_declarado: analise-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 189
+  linha: 335
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
-  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 314)
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 99)
   sla_ato: contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
   nome_real: ''
 - grupo_declarado: medico-auditor
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 384
+  linha: 135
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
-  sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (requer_avaliacao_clinica)
+  sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (SOLICITAR_AUDITOR, o botao escalar do analista)
   proposto: true
   notas: caveat PROPOSTO contrato linha 149; grupo compartilhado com AUTH-001/CONTAS-001/NIP-001/RECURSO-001
   nome_real: ''
 - grupo_declarado: coordenacao-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 365
+  linha: 130
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_CoordenacaoReembolso
   sla_ato: contrato Sec.Papeis linha 156 -- SLA de analise estourado
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
+  nome_real: ''
+- grupo_declarado: financeiro-reembolso
+  arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+  linha: 156
+  processo: SP-OP-REEMBOLSO-001
+  em_escopo: false
+  tarefa_ou_regra_dmn: UT_RegistrarPagamento
+  sla_ato: contrato v0.2.0 (DL-0156) -- o financeiro paga fora do sistema e registra data_pagamento
+  proposto: true
+  notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''

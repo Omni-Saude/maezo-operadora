@@ -95,7 +95,10 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("pagto_sla.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("recurso_eligibility.dmn", "in_reason_code", "glosa_reason_code"),
         ("recurso_eligibility.dmn", "in_valor", "valor_glosado_brl"),
-        ("reembolso_calculo.dmn", "in_tipo", "tipo_reembolso"),
+        # DL-0156: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
+        # (DRAFT/verify). Quando o
+        # juridico definir, as linhas DENTRO/FORA passam a ler a coluna e esta linha sai.
+        ("reembolso_prazo.dmn", "in_dias", "dias_desde_atendimento"),
         # VW4-WIRING (2026-10-07): `k_piso` é PARAMETRO (a cifra ratificada K_ANON_FLOOR=100
         # vive na constante do código, nunca na tabela) — a própria coluna é wildcard e quem a
         # LÊ são as unary tests das OUTRAS colunas (`< k_piso` / `>= k_piso` nas rows C2/C6),

@@ -18,5 +18,3 @@ overrides:
     #
     # E o teto NAO abre a aprovacao automatica por si: o criterio financeiro e' UM de quatro, e
     # tecnico/regulatorio/contratual seguem falsos por falta de fonte ratificada.
-  reembolso_auto_approval:
-    params: { max_value_brl: 0 }   # D-07 em aberto: definir teto de auto-aprovacao de reembolso (AMH)

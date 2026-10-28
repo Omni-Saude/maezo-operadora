@@ -76,7 +76,7 @@ pendentes:
     marca_no_arquivo: "SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status: DRAFT (v0.1.0) —"
   - artefato: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
     responsavel: a definir
-    marca_no_arquivo: "SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.1.0) — Phase 2, Wave WC.2."
+    marca_no_arquivo: "SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.2.0, DL-0156) — 100% ANALISE HUMANA."
   - artefato: spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn
     responsavel: a definir
     marca_no_arquivo: "`suppression.record`). Status: DRAFT v0.1.0 — ADMITIDO pelo dono em 2026-10-07"
@@ -241,12 +241,9 @@ pendentes:
   - artefato: spec/processes/dmn/recurso_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "recurso_sla v0.3.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
-  - artefato: spec/processes/dmn/reembolso_calculo.dmn
+  - artefato: spec/processes/dmn/reembolso_prazo.dmn
     responsavel: a definir
-    marca_no_arquivo: "reembolso_calculo v0.1.0 — status: DRAFT (multiplo/limite por categoria/segmentacao"
-  - artefato: spec/processes/dmn/reembolso_coverage.dmn
-    responsavel: a definir
-    marca_no_arquivo: "reembolso_coverage v0.1.0 — status: DRAFT (conteudo requer SME regulatorio/juridico +"
+    marca_no_arquivo: "reembolso_prazo v0.1.0 — status: DRAFT (DL-0156). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo)."
   - artefato: spec/processes/dmn/reembolso_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "reembolso_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"

@@ -5,7 +5,7 @@
   "tier": [
     "A"
   ],
-  "description": "RAF-14 (Marina): REEMBOLSO flow -- Marina re-evaluates NO reembolso DMN (already resolved by SP-OP-REEMBOLSO-001's own BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval BEFORE she is convoked); she only ASSEMBLES the factual dossier and ALWAYS routes to the analise-reembolso human group (UT_AnaliseReembolso) -- no auto_route variant exists for this flow. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for marina's declared `signal: reembolso_dossie` trigger, which had zero golden coverage before this case. Synthetic data only.",
+  "description": "RAF-14 (Marina): REEMBOLSO flow (v0.2.0, DL-0156: 100% human analysis) -- Marina re-evaluates NO reembolso DMN (the informative reembolso_prazo already ran in SP-OP-REEMBOLSO-001's own BRT_PrazoInformativo BEFORE she is convoked; there is no calculation, table or ceiling any more); she only assembles the factual dossier and ALWAYS routes to the analise-reembolso human group.",
   "input": {
     "state": {
       "flow": "reembolso",
@@ -13,15 +13,14 @@
       "canal": "portal_tiss",
       "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-09",
       "protocolo_reembolso": "PROTO-EVL-MARINA-09",
-      "cobertura_prevista": true,
-      "dentro_prazo": true,
-      "dentro_tabela": true,
-      "dentro_teto_l2": true,
-      "valor_calculado_tabela_cents": 50000
+      "situacao_prazo": "NAO_AVALIADO",
+      "relacao_com_titular": "titular",
+      "motivo_nao_rede": "sem_prestador_no_prazo",
+      "valor_solicitado_cents": 50000
     }
   },
   "recorded_llm": [
-    "Reembolso ja resolvido pelo DMN do processo; dossie factual organizado para a decisao humana em UT_AnaliseReembolso, nenhuma aprovacao automatica."
+    "Dossie factual organizado para a decisao humana em UT_AnaliseReembolso; nao ha calculo nem aprovacao automatica."
   ],
   "dmn_fixture": {},
   "expect": {

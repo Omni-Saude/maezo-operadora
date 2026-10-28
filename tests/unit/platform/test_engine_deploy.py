@@ -131,7 +131,11 @@ class TestCollectArtifacts:
         # nomes que ele traz e o balde de cada um.
         # 64 -> 65: `helena_triage_admissibility.dmn` (nova triagem da Helena, DL-0104, experimento
         # em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — publicada pelo deploy-processes como as demais.
-        assert len(dmn) == 65  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        assert (
+            len(dmn) == 64
+            # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility; DL-0156:
+            # -reembolso_calculo -reembolso_coverage +reembolso_prazo
+        )
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):
