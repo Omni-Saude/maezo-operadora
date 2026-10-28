@@ -48,11 +48,11 @@ FINDING below documents a genuine v2 behavioral gap):
     `maezo.tools.workers.events.register_events_workers` + `maezo.tools.workers.harness
     .FakeKafkaPublisher` (T1.1/T3.1 R2 spine).
   - v1's `make_submit_handler(kafka) -> Callable[[ExternalTask], ...]` / `make_assemble_handler`
-    factories do NOT exist on v2 main (grep confirms zero hits) — v2 replaced the class/factory-
-    per-topic shape for this module with ADR-0026 SS2b's typed dict-boundary entry functions
-    (`submit_entry`/`assemble_entry(variables: dict, *, kafka=None) -> dict`). The 2 donor
-    unit-style tests that construct a handler directly are adapted to call the entry functions
-    with a plain dict (mirrors `test_sp_op_cancel_001.py`'s adaptation of
+    factories did NOT exist on v2 main AT PORT TIME (grep confirmed zero hits then) — v2 replaced
+    the class/factory-per-topic shape for this module with ADR-0026 SS2b's typed dict-boundary
+    entry functions (`submit_entry`/`assemble_entry(variables: dict, *, kafka=None) -> dict`). The
+    2 donor unit-style tests that construct a handler directly are adapted to call the entry
+    functions with a plain dict (mirrors `test_sp_op_cancel_001.py`'s adaptation of
     `send_cancellation_notice_entry`); `test_err_ans_submit_not_human_recusa_sem_aprovacao`'s guard
     genuinely still works end-to-end (port rule 1 verified) and is kept as a REAL, unmarked test —
     `AnsSubmitNotHumanError` (a `PermissionError` subclass) replaces the donor's
@@ -60,7 +60,10 @@ FINDING below documents a genuine v2 behavioral gap):
     `CancellationNotHumanError` did: v2 routes `PermissionError` guards straight to an engine
     incident, `harness.py`'s `_handle`, never through the `bpmn_error_allowlist`).
     `test_assemble_dataset_incompleto_roteia_a_humano` does NOT survive adaptation this way — see
-    FINDING D below (the guard it exercises does not exist in v2 at all).
+    FINDING D below (the guard it exercises does not exist in v2 at all). A `make_submit_handler`
+    factory EXISTS AGAIN since W8 W5-XFIX PR-2 — re-created on the donor's own name, as a raw
+    async handler that publishes the `anssubmit.submit` notification (FINDING C closure), with
+    `submit_entry` as its sync core.
   - `ans_probe`'s harness wires `dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL)` into
     `register_ans_submit_workers` (the ONLY entry function that evaluates a DMN table directly,
     `retransmit_entry` -> `ans_retry_policy`, ADR-0028 T1.5 cutover) — LIVE since t9-nack-vars
@@ -304,6 +307,13 @@ _ENDS_ENVIO = frozenset({_END_ENVIADO_ACK, _END_ENVIADO_PENDENTE_ACK})
 # `UT_RevisarEnvio`/`UT_RevisarEnvioJuridico`). FINDING A (registration gap, see below) is
 # RESOLVED and no longer the reason these tests block; do not re-cite it as a current cause.
 _NOTIFY_REGULATORIO_GAP_REASON = (
+    "RETIRADO (W8 W5-XFIX, 2026-10-28): NENHUM marcador strict-xfail cita mais esta constante — os "
+    "14 testes TISS que a citavam rodam ao vivo no regime PINADO (`ans_probe_tiss_pinned` + "
+    "`_write_tiss_dataset`/`_ensure_fixture_xsd`), com o ultimo deles (`test_happy_path_envio_"
+    "aprovado_e_acked`)-flip dependente do conserto de FONTE FINDING C em `ans_submit.py` "
+    "(`make_submit_handler`). Mantida APENAS como documentacao do regime T2.6-2 — as docstrings dos "
+    "testes do regime NAO-PINADO (deliberadamente fail-closed) e das fixtures a citam. Texto "
+    "historico abaixo, com a unica correcao de status da FINDING C (fechada por este PR). "
     "T2.6-2 fail-closed schema-pinning regime (CURRENT cause, not FINDING A — see PORT NOTES below "
     "for the historical finding): this test runs on the UNPINNED `ans_probe` fixture, so "
     "`validate_data` resolves a real `TissSchemaValidator()` with no `MAEZO_TISS_SCHEMA_VERSION` "
@@ -327,10 +337,10 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
     "any test, including this one; it is cited here only as historical context for why this reason "
     "constant predates the T2.6-2 finding above. Where a test would ALSO assert a per-worker "
     "notification (notifications_of_type('anssubmit.notify_regulatorio'/'anssubmit.submit'/etc.)) "
-    "even after reaching the relevant User Task under a pinned schema, that assertion would "
-    "SEPARATELY hit the still-open systemic FINDING C (no ans_submit.py entry function calls "
-    "kafka.publish; only the generic operadora.events.publish handler does) — noted for completeness, "
-    "not the reason this particular xfail currently fires."
+    "even after reaching the relevant User Task under a pinned schema, that assertion USED to "
+    "SEPARATELY hit the systemic FINDING C (no ans_submit.py entry function called kafka.publish; "
+    "only the generic operadora.events.publish handler did) — RESOLVED by W8 W5-XFIX PR-2 "
+    "(make_submit_handler publishes anssubmit.submit; notify_regulatorio/retransmit already did)."
 )
 
 # FINDING B — RESOLVIDA (t9-nack-vars). O antigo `_SUBMIT_NACK_UNREACHABLE_REASON` (constante de
@@ -350,8 +360,10 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
 #     recusador (AWS-blocked, issue #16), e so o mock rotulado de dev/test devolve um resultado.
 #   BLOQUEIO 3 (FINDING C, eco kafka morto NESTE topico) — `regulatorio.anssubmit.retransmit` virou
 #     raw async handler (`make_retransmit_handler`, o nome que o proprio contrato ja usa em :157) e
-#     publica a notificacao tipada `anssubmit.retransmit`. FINDING C segue valendo para os OUTROS
-#     topicos de entry function sincrona deste modulo.
+#     publica a notificacao tipada `anssubmit.retransmit`. FINDING C foi FECHADA no ultimo topico
+#     que restava (W8 W5-XFIX PR-2): `regulatorio.anssubmit.submit` virou raw async handler
+#     (`make_submit_handler`) e publica `anssubmit.submit` — nenhum topico de entry function
+#     sincrona deste modulo tem mais notificacao assertada por teste de integracao.
 # Os 2 testes tambem passaram a usar o probe PINADO (`ans_probe_tiss_pinned`) — o regime nao-pinado
 # nunca alcanca `UT_RevisarEnvio` (T2.6-2, ver `_NOTIFY_REGULATORIO_GAP_REASON`), e o pinado nao
 # exige XSD real nem SME (escreve um XSD de fixture em tmp_path).
@@ -910,45 +922,50 @@ async def test_tiss_pinned_timer_due_date_coordenacao_assume_juridico(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_happy_path_envio_aprovado_e_acked(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Humano aprova o envio (APROVAR_ENVIO + revisor_id); ACK correlacionado => End_EnviadoAck."""
-    inst = await start_ans(competencia="2026-HAPPY")
+    """Humano aprova o envio (APROVAR_ENVIO + revisor_id); ACK correlacionado => End_EnviadoAck.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX PR-2) + conserto de FONTE
+    FINDING C: `make_submit_handler` publica a notificacao tipada `anssubmit.submit` apos o nucleo
+    sincrono `submit_entry` bem-sucedido (mesmo metodo de
+    `make_notify_regulatorio_handler`/`make_retransmit_handler`), entao as assercoes de
+    `notifications_of_type("anssubmit.submit")` abaixo sao as originais, agora observaveis.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-happy.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-HAPPY", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     assert "regulatorio-ans" in ut.candidate_groups
 
-    dossiers = ans_probe.notifications_of_type("anssubmit.notify_regulatorio")
+    dossiers = ans_probe_tiss_pinned.notifications_of_type("anssubmit.notify_regulatorio")
     assert dossiers, "Worker notify_regulatorio (dossie) deve ter sido executado"
 
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     await _assert_no_filing_without_human_task(engine, iid)
     assert _END_ENVIADO_ACK in ended, f"Envio aprovado+ACK deve atingir End_EnviadoAck. ended={ended}"
-    assert ans_probe.has_event(_ANS_SUBMITTED)
-    assert ans_probe.has_event(_ANS_ACKED)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_SUBMITTED)
+    assert ans_probe_tiss_pinned.has_event(_ANS_ACKED)
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
 
-    submits = ans_probe.notifications_of_type("anssubmit.submit")
+    submits = ans_probe_tiss_pinned.notifications_of_type("anssubmit.submit")
     assert submits, "Worker submit deve ser executado apos aprovacao humana"
     s = submits[0]
     assert s["decisao_envio"] == "APROVAR_ENVIO"
     assert s["revisor_id"] == "revisor-sintetico-001"
     # T2.6-1 (design §2.A): the probe injects the LabeledMock gateway, so the protocol is the
     # deterministic, unmistakably-synthetic `MOCK-ANS-NAO-VINCULATIVO-{business_key}` — NOT the old
-    # fabricated `ANSPROTO-{sha256(time_ns)}`. (This test stays strict-xfail on the T2.6-2
-    # fail-closed schema-pinning regime — see _NOTIFY_REGULATORIO_GAP_REASON — which blocks the
-    # flow before it ever reaches UT_RevisarEnvio, let alone submit; NOT FINDING A, which is
-    # resolved. The assertion is corrected for when this test runs under a pinned schema.)
+    # fabricated `ANSPROTO-{sha256(time_ns)}`.
     assert s["protocolo_ans"].startswith(MOCK_ANS_PROTOCOL_PREFIX)
 
 
@@ -1625,8 +1642,10 @@ async def test_retry_esgotado_roteia_para_humano(
 
 
 # ===========================================================================
-# Guards (unit-style, SEM engine) — port rule 1: v2 usa entry functions dict-boundary, nao
-# handler factories (make_submit_handler/make_assemble_handler nao existem em v2 main).
+# Guards (unit-style, SEM engine) — port rule 1: v2 usa entry functions dict-boundary; o nucleo
+# sincrono `submit_entry` segue sendo a unidade testavel aqui (o handler raw `make_submit_handler`
+# — recriado em W8 W5-XFIX PR-2 para publicar a notificacao — apenas o envolve; make_assemble_
+# handler segue sem existir em v2).
 # ===========================================================================
 
 

@@ -1,10 +1,9 @@
 {
   "generated_by": "scripts/ci/generate_xfail_census.py",
   "tests_dir": "tests/integration/processes",
-  "total": 9,
+  "total": 8,
   "per_suite": {
     "adequacao": 1,
-    "ans_submit": 1,
     "auth": 1,
     "cred": 2,
     "lgpd_dsr": 3,
@@ -15,8 +14,7 @@
     "AUTH_D07": 1,
     "CRED_GUARD_SHAPE_TE": 2,
     "LGPD_DPO": 3,
-    "REEMBOLSO_D07": 1,
-    "TISS_XSD_SME": 1
+    "REEMBOLSO_D07": 1
   },
   "markers": [
     {
@@ -25,13 +23,6 @@
       "test": "test_l3_conforme_atinge_neutro_sem_user_task",
       "reason_constant": "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON",
       "classification": "ADEQUACAO_RN259"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 913,
-      "test": "test_happy_path_envio_aprovado_e_acked",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
     },
     {
       "file": "tests/integration/processes/test_sp_op_auth_001.py",

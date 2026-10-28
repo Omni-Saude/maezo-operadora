@@ -37,7 +37,7 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     modules (the 3 `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules
     T1.2 adds + T3.1 R2's raw-handler `events` module + VW1-P0-FENCES' raw-handler `vendor_admin`
     module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 24` because TWENTY-FOUR topics use the raw `harness.register()` path
+    `len(registered_topics) - 25` because TWENTY-FIVE topics use the raw `harness.register()` path
     (which populates `_handlers` but NOT the `WorkerRegistry`) — MERGE RECONCILIATION (T3.1 P2b
     recurso × origin/main LGPD batch-1 × t5 escalation/ans-notify × DL-0033 dossier A2A ×
     item-9 wave-5 programa): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
@@ -48,7 +48,10 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     needs `task.business_key` to mint its protocolo deterministically. ADR-0040 deleted the
     appellant branch, so `submit_appeal`/`track_status` are GONE — the delta drops 4 -> 3);
     `regulatorio.anssubmit.notify_regulatorio` (t5 FINDING A fix: raw handler
-    emitting the `anssubmit.notify_regulatorio` notification); escalation's two
+    emitting the `anssubmit.notify_regulatorio` notification) + the other TWO anssubmit raw
+    handlers, `regulatorio.anssubmit.retransmit` (t9-nack-vars) and `regulatorio.anssubmit.submit`
+    (W8 W5-XFIX PR-2 — each publishes its typed notification the sync boundary cannot reach);
+    escalation's two
     `operadora.escalation.notify_team`/`notify_supervisor` (DL-0034, built in t5: converted from
     `WorkerBase` to raw async handlers — notifying IS the business effect and needed the async Kafka
     seam the old classes lacked, so they moved OUT of the WorkerRegistry); the two DL-0033 dossier
@@ -58,10 +61,11 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     `FunctionWorker`) + `proactive_contact`/`notify_sla_risk` (items B/C, NEW workers). All
     raw handlers need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does
     not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
-    1 events + 3 lgpd + 3 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
-    + 4 dossier (DL-0033 + the item9-w3 pagto edge + the R-081 inadimplencia edge) + 4 programa
-    + 1 adequacao update_monitoring_plan + 2 vendor.suppression (VW4/GP11 envelope — raw handlers
-    with declared fetch scopes, module docstring) = 22. Every other module/topic goes through
+    1 events + 3 lgpd + 3 recurso + 3 anssubmit (notify_regulatorio t5 + retransmit t9-nack-vars
+    + submit W8 W5-XFIX PR-2) + 2 escalation + 4 dossier (DL-0033 + the item9-w3 pagto edge + the
+    R-081 inadimplencia edge) + 4 programa + 1 adequacao update_monitoring_plan + 1 auth + 1 vendor
+    membership publication (VW1-P0-FENCES) + 2 vendor.suppression (VW4/GP11 envelope — raw
+    handlers with declared fetch scopes, module docstring) = 25. Every other module/topic goes through
     `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
@@ -94,12 +98,13 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     # `WorkerBase.execute` reaches no producer (that absence is exactly why the alert used to
     # reach nobody). The CLASS still exists and is called BY the handler; it is simply no longer
     # registered itself, so the topic keeps exactly one server.
-    # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
-    # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
-    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth
-    # + 1 vendor (VW1-P0-FENCES: the publication cadence is a raw async handler over injected
-    # source seams — vendor_admin.py's module docstring) = 22.
-    assert harness.registry.count() == len(harness.registered_topics) - 24
+    # Raw-handler count, re-derived cell by cell (the previous one-line sums had drifted from the
+    # assertion below): 1 events + 3 lgpd + 3 recurso + 3 anssubmit (notify_regulatorio +
+    # retransmit + submit/W8-W5-XFIX) + 2 escalation + 4 dossier + 4 programa + 1 adequacao
+    # + 1 auth + 1 vendor membership (VW1-P0-FENCES: the publication cadence is a raw async
+    # handler over injected source seams — vendor_admin.py's module docstring) + 2
+    # vendor.suppression (VW4/GP11 envelope handlers) = 25.
+    assert harness.registry.count() == len(harness.registered_topics) - 25
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
