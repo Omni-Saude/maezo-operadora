@@ -143,8 +143,28 @@ _STRADDLE_SQL = (
 # refusals — fail-closed, zero silent fallback. Still bounded: at most 36
 # corners per run (9 stages x 2 endpoints x 2 phases) x 4 s = 144 s, far under
 # the 14-minute session window, and the per-read guard cap is untouched.
+# v30 W8 (owner decision 2026-10-28, item 2 — the v28 §10.8 cadence again: "a
+# future Δ is a new module blob + re-pin"): the v29 D2 post-commit round MEASURED
+# the engine-commit horizon at +6.298096 s after RELEASE-06 (P4-V29-RESULT-v1,
+# sha256 3f665380b625325eaae717e92eb465b1d0a3c89d8a8c0aac0e7aff308d9e36f3: PG pid
+# 81 state_change 21:59:20.654096Z against the JVM SEVERE ENGINE-16004 at
+# 21:59:20.651 — the first observed engine COMMIT in lane history). Every member
+# of the previous set {0, 0.2, 4} is therefore sub-horizon: the deferred T3' read
+# lands BEFORE the commit, the refusal path closes the observer channel and the
+# SEAL-07 write dies in Broken pipe — no member can bank the 7/8 discriminator.
+# The regime admits exactly ONE new member: "8" — an 8 s deferred read crosses
+# the measured horizon with ~1.27x margin (honest caveat: the horizon is a
+# single-point measurement, n=1; a real horizon above 8 s repeats the refusal
+# honestly and is a new calibration decision, never an open knob). The set stays
+# CLOSED, the default stays the pinned "0.2" (the exact v26..v29 behaviour when
+# the env is absent), and the literal style stays integer-without-decimal for
+# integral values ("8", never "8.0"), so "8.0", "8s", " 8", "8 ", "-8", "abc"
+# and "" are ALL still loud import-time refusals — fail-closed, zero silent
+# fallback. Still bounded: at most 36 corners per run (9 stages x 2 endpoints x
+# 2 phases) x 8 s = 288 s, far under the 14-minute session window, and the
+# per-read guard cap is untouched.
 _T3_DEFERRED_ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
-_T3_DEFERRED_ALLOWED = frozenset({"0", "0.2", "4"})
+_T3_DEFERRED_ALLOWED = frozenset({"0", "0.2", "4", "8"})
 
 
 def _resolve_t3_deferred_seconds() -> float:
