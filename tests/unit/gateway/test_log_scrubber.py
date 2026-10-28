@@ -193,3 +193,37 @@ def test_from_settings_prod_with_key_builds_keyed_scrubber() -> None:
     scrubber = LogScrubber.from_settings(phi_hmac_key="real-key", production=True, tenant_id="amh")
     out = scrubber.scrub_dict({"telefone": "11999999999"})
     assert out["telefone"] != "11999999999"
+
+
+def test_phi_log_redactor_redacts_fields_free_text_and_patterns() -> None:
+    from maezo.gateway.log_scrubber import PhiLogRedactor
+
+    out = PhiLogRedactor()(
+        None,
+        "info",
+        {
+            "event": "x",
+            "cpf": "529.982.247-25",
+            "nome": "Maria Ficticia",
+            "message_body": "oi sou Maria, cpf 52998224725",
+            "nested": {"telefone": "(11) 98765-4321", "note": "ligar 11987654321 ou a@b.invalid"},
+            "ok": 7,
+            "vazio": None,
+        },
+    )
+    flat = str(out)
+    for raw in ("529.982.247-25", "52998224725", "Maria", "98765-4321", "11987654321", "a@b.invalid"):
+        assert raw not in flat
+    assert out["event"] == "x" and out["ok"] == 7 and out["vazio"] is None
+
+
+def test_shipped_log_chain_redacts_phi_without_policy_key(capsys: pytest.CaptureFixture[str]) -> None:
+    import structlog
+
+    from maezo.platform import observability as ob
+
+    ob.setup_observability()
+    structlog.get_logger("f063").info("evt", cpf="529.982.247-25", message_body="meu cpf 52998224725")
+    out = capsys.readouterr().out
+    assert "529.982.247-25" not in out and "52998224725" not in out
+    structlog.reset_defaults()

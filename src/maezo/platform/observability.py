@@ -273,7 +273,7 @@ def setup_observability(
     # LOWER-case — `grep -i` — which was already true of the pre-wiring default), and TTY-aware
     # colours are what keep `topic=t` an unbroken substring in a container's log stream.
     log_level = os.environ.get("MAEZO_LOG_LEVEL", "NOTSET").upper()
-    from maezo.gateway.log_scrubber import ErrorLogScrubber
+    from maezo.gateway.log_scrubber import ErrorLogScrubber, PhiLogRedactor
 
     scrubber = _build_key_scrubber()
     processors: list[Any] = [
@@ -285,6 +285,9 @@ def setup_observability(
         # Keep the policy-gated business-key pass after context/metadata enrichment.
         # Error minimization below adds only class/code metadata, never a business key.
         processors.append(scrubber)
+    # Always redact PHI-named fields / free-text / PHI-shaped values (key-less; F-063), then minimize
+    # arbitrary errors, both independently of the business-key migration policy.
+    processors.append(PhiLogRedactor())
     # Always minimize arbitrary errors, independently of the business-key migration policy.
     # This processor renders class/frames without ever stringifying exception values.
     processors.append(ErrorLogScrubber())
