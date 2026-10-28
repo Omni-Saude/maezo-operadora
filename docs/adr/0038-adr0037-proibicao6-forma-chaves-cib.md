@@ -5,7 +5,7 @@
 > **[Registro datado 2026-10-28 — RATIFICACAO pelo dono; historico preservado, nada reescrito.]** O
 > Status anterior, vigente de 2026-08-09 ate esta data, era: "Proposed — **NAO RATIFICADO; nenhuma
 > clausula deste ADR tem efeito.** A escolha entre a Opcao 1 e a Opcao 2 e ato do DONO DO REPOSITORIO
-> (ver secao "Ratificacao")". A ratificacao foi ATO DO DONO em sessao interativa brokerada de
+> (ver secao "Ratificacao")." A ratificacao foi ATO DO DONO em sessao interativa brokerada de
 > 2026-10-28, registrado pelo proprio dono em COORDINATION.md ("OWNER DECISIONS 2026-10-28", item 4,
 > com pre-append SHA256 de custodia do arquivo): "ADR-0038 RATIFICADA pelo dono mantendo a imagem
 > 2.1.0; DL-0006 revisit = defer deliberado (fatos 2.2.0 upstream banked em
@@ -13,8 +13,9 @@
 > ato do dono — nao decide, nao interpreta e nao preenche a Opcao 1 x Opcao 2; o texto da decisao
 > registrado pelo dono NAO nomeia a opcao e nenhuma opcao e fabricada aqui (desambiguacao, se
 > necessaria, e ato do dono). (ii) Os dois registros companheiros previstos na secao "Ratificacao"
-> (linha DL nova em `docs/decisions-log.md`; atualizacao da linha 0038 em `docs/adr/README.md:50`)
-> NAO fazem parte do pacote que registra (docs-only, 2 arquivos) e permanecem pendentes de registro.
+> foram CUMPRIDOS no mesmo PR #1065 pelo reparo F-1 do gate cego (veredito PASS,
+> `VERDICT-W8-GATE-ADR0038-2026-10-28.md`): linha **DL-0156** em `docs/decisions-log.md` (data
+> 2026-10-28, ato do dono, opcao NAO nomeada) e linha 0038 em `docs/adr/README.md` → Accepted.
 > (iii) Nao autoriza nenhuma mudanca de codigo, e a perna (c) de DL-0043 (proibicao 5 / PHI-e-ID-cru
 > em keys) permanece ABERTA — ver "Restricoes de nao-fabricacao", abaixo.
 
@@ -372,14 +373,17 @@ com a AMH deve escolher a Opcao 2. Este ADR nao pode decidir isso.
 
 `RATIFICATION: RECORDED 2026-10-28 — ato do dono em sessao brokerada (COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4; ver nota datada sob o Status)`
 
-> **[Registro datado 2026-10-28 — substituicao do marcador, com desvio de letra DECLARADO.]** O
-> marcador anterior, intacto ate esta data, era `RATIFICATION: PENDING — <owner act required>`. A
+> **[Registro datado 2026-10-28 — substituicao do marcador; linha DL registrada no MESMO PR #1065.]**
+> O marcador anterior, intacto ate esta data, era `RATIFICATION: PENDING — <owner act required>`. A
 > restricao de nao-fabricacao abaixo exige que a substituicao ocorra "no mesmo commit que registra a
-> linha DL da ratificacao humana"; o registro dessa linha DL em `docs/decisions-log.md` NAO faz parte
-> do pacote que substitui o marcador (PR de registro docs-only, 2 arquivos) e permanece pendente. A
-> trilha humana da ratificacao e o registro do PROPRIO DONO em COORDINATION.md ("OWNER DECISIONS
-> 2026-10-28", item 4, com pre-append SHA256 de custodia). O desvio de letra fica assim DECLARADO,
-> nao escondido, para julgamento do gatekeeper/dono.
+> linha DL da ratificacao humana": a linha DL existe agora — **DL-0156** (`docs/decisions-log.md`,
+> data 2026-10-28, ato do dono, opcao NAO nomeada) — registrada no MESMO PR #1065, porem em commit
+> SUBSEQUENTE ao que substituiu o marcador (7ec15fd9), por ordem do coordenador da janela W8 ao
+> cumprir o F-1 do veredito do gate cego (`VERDICT-W8-GATE-ADR0038-2026-10-28.md`, PASS, sha256
+> `b573b6bf…`). O desvio residual de letra — "mesmo commit" vs "commit subsequente no mesmo PR" —
+> fica assim DECLARADO, nao escondido, para julgamento do gatekeeper/dono. A trilha humana da
+> ratificacao e o registro do PROPRIO DONO em COORDINATION.md ("OWNER DECISIONS 2026-10-28", item 4,
+> com pre-append SHA256 de custodia).
 
 **Ato humano UNICO que Aceita este ADR:** o **dono do repositorio** declara, em sessao, **"Opcao 1"**
 ou **"Opcao 2"**. Esse ato, e somente ele, autoriza:
