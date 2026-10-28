@@ -156,8 +156,10 @@ def validate_cred(variables: dict[str, Any]) -> dict[str, Any]:
 
     # Factual check: are documents present and license supposedly valid?
     # In real implementation, this queries external registries.
-    # placeholder fallback — real: query CRM/CNES; only used when no resolved boolean fact exists.
-    licenca_valida = seeded_licenca if isinstance(seeded_licenca, bool) else True
+    # No CRM/CNES lookup exists yet: without a resolved BOOLEAN fact the licence is NOT validated,
+    # so it is reported as False (fail-closed — routes to pendency/human, never to the clerical
+    # credenciar path; forensic audit F-004). Real: query CRM/CNES.
+    licenca_valida = seeded_licenca if isinstance(seeded_licenca, bool) else False
     documentacao_completa = (
         seeded_doc_completa
         if isinstance(seeded_doc_completa, bool)

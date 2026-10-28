@@ -67,10 +67,16 @@ def test_validate_cred_returns_facts() -> None:
             "prestador_id": "P-001",
             "tipo_prestador": "hospital",
             "documentos_refs": {"licenca": "ref-lic-001"},
+            "licenca_valida": True,
         }
     )
     assert result["licenca_valida"] is True
     assert result["documentacao_completa"] is True
+
+
+def test_validate_cred_never_fabricates_valid_licence_without_a_resolved_fact() -> None:
+    """F-004: no seeded boolean => licence is NOT reported valid (fail-closed)."""
+    assert validate_cred({"prestador_id": "p1"})["licenca_valida"] is False
 
 
 def test_validate_cred_empty_docs() -> None:
@@ -140,7 +146,7 @@ def test_validate_cred_non_boolean_seeded_facts_fall_back_to_computation(junk: o
             "documentacao_completa": junk,
         }
     )
-    assert result["licenca_valida"] is True  # placeholder fallback
+    assert result["licenca_valida"] is False  # fail-closed fallback (F-004)
     assert result["documentacao_completa"] is True  # computed from the non-empty dict
 
 
@@ -152,7 +158,7 @@ def test_validate_cred_absent_facts_keep_placeholder_behavior() -> None:
             "documentos_refs": "ref-docs-0002",  # string ref, no seeded facts
         }
     )
-    assert result["licenca_valida"] is True
+    assert result["licenca_valida"] is False  # fail-closed (F-004)
     assert result["documentacao_completa"] is False  # string ref: placeholder cannot resolve it
 
 
