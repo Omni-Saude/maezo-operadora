@@ -270,7 +270,7 @@
         <bpmn:messageEventDefinition messageRef="Message_CA_EventoClinico"/>
       </bpmn:startEvent>
       <bpmn:intermediateThrowEvent id="UT_EC_Comunicar" name="Informar evento clínico ao cliente">
-        <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EVENTO_CLINICO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M3_F01 → M3_T_Classificar</bpmn:documentation>
+        <bpmn:documentation>Base legal (hipótese REG-1.12 — NÃO ratificada; gate COUNSEL): comunicação do evento clínico ao próprio titular envolve dado pessoal sensível; dispositivos CANDIDATOS: arts. 7º e 11 da Lei 13.709/2018 — nenhuma base é afirmada nesta âncora (escolha do dispositivo e ratificação: docs/review-queue.md). Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EVENTO_CLINICO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M3_F01 → M3_T_Classificar</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:inputOutput>
             <camunda:inputParameter name="marcoJornada">EVENTO_CLINICO</camunda:inputParameter>
