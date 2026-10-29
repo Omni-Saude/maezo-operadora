@@ -13,7 +13,16 @@ _BOMB = b'<?xml version="1.0"?><!DOCTYPE l [<!ENTITY a "aaaa"><!ENTITY b "&a;&a;
 _XXE = b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>'
 
 
-@pytest.mark.parametrize("raw", [_BOMB, _XXE, b"<!doctype r><r/>"])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _BOMB,
+        _XXE,
+        b"<!doctype r><r/>",
+        _BOMB.replace(b'1.0"', b'1.0" encoding="UTF-16"').decode().encode("utf-16"),
+        _BOMB.decode().encode("utf-16-le"),
+    ],
+)
 def test_dtd_and_entities_are_refused(raw: bytes) -> None:
     with pytest.raises(DtdRefusedError):
         parse_xml_without_dtd(raw)

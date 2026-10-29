@@ -725,12 +725,13 @@ class BindingConnection:
             raise BindingUnavailableError()
 
         # Actual deployed task/candidate binding, including engine-pinned dynamic groups.
-        import xml.etree.ElementTree as ET
+        from maezo.platform.xml_safe import DtdRefusedError, parse_xml_without_dtd
 
         raw = bytes(r["bytes_"])
-        if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
-            raise BindingUnavailableError()
-        tree = ET.fromstring(raw)
+        try:
+            tree = parse_xml_without_dtd(raw)
+        except DtdRefusedError:
+            raise BindingUnavailableError() from None
         ns = {"b": "http://www.omg.org/spec/BPMN/20100524/MODEL", "c": "http://camunda.org/schema/1.0/bpmn"}
         processes = [p for p in tree.findall("b:process", ns) if p.get("id") == e.process_definition_key]
         tasks = [
@@ -772,9 +773,10 @@ class BindingConnection:
             dmraw = bytes(dm["bytes_"])
             if dmraw != artifact_bytes(material.group_dmn) or sha(dmraw) != domain.dmn_resource_digest:
                 raise BindingUnavailableError()
-            if b"<!DOCTYPE" in dmraw.upper() or b"<!ENTITY" in dmraw.upper():
-                raise BindingUnavailableError()
-            dmtree = ET.fromstring(dmraw)
+            try:
+                dmtree = parse_xml_without_dtd(dmraw)
+            except DtdRefusedError:
+                raise BindingUnavailableError() from None
             output_name = candidate[2:-1].split(".")[-1]
             decisions = [
                 n for n in dmtree if n.tag.endswith("}decision") and n.get("id") == domain.dmn_definition_key
