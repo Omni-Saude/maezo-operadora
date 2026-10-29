@@ -308,7 +308,7 @@ Fonte: `COORDINATION.md` "OWNER DECISIONS 2026-10-28" (sha `5ced0e09…`; pre-ap
 | 5 | **REG-1.11 + REG-1.12 EXECUTAR** (verbatim já banked); 1.3/1.8/1.10 seguem COUNSEL | **EXECUTADOS** — REG-1.11 **#1066** (merge `4e568589`) · REG-1.12 **#1067** (merge `c7b2da70`); **1.3/1.8/1.10 seguem COUNSEL-4/5 + D-06** |
 | 6 | **D-07: emenda com nota datada inline** (registro histórico preservado) | **Aplicada NESTE PR** — nota `[corrigido 2026-10-28: inciso correto VI — ver REG-1.5/#1057]` na linha D-07 |
 | 7 | **2 sessões owner batched** — (i) portal A1→A9 (D-34 primeiro); (ii) Lucas DPO (só contrassinaturas; janela aberta desde 10/11) | **Pacotes estacionados** (`d4d37b14…` + `b224de31…` — seção "Entregas nucleares") |
-| 8 | **W5 5.3: consertar FONTES dos 16 strict-xfails programa** (flips continuam ROLL; DSR shadow per D-39) | **14 consertados** — #1069 (merge `e7915159`, censo 22→9) + **PR #1071 (AX-02, censo 8) — merge imediato pós-lanes** (reabertura do #1070 fechado); **par CRED deferido ao dono** (Opção D-2 do plano `bba389b7…` — fronteira de guarda); cadeia 22→9→8 = 2 cred (D-2) + 6 teto humano; gate `dc657f39…` |
+| 8 | **W5 5.3: consertar FONTES dos 16 strict-xfails programa** (flips continuam ROLL; DSR shadow per D-39) | **14 consertados** — #1069 (merge `e7915159`, censo 22→9) + **#1071 (AX-02, censo 8) MERGED `988949f6`** (reabertura do #1070, fechado por deleção da branch-base empilhada); **par CRED deferido ao dono** (Opção D-2 do plano `bba389b7…` — fronteira de guarda); cadeia 22→9→8 = 2 cred (D-2) + 6 teto humano; gate `dc657f39…` |
 
 ### v30 N2 (opção (i) do v29 executada)
 
