@@ -1,6 +1,6 @@
 # ADR-0038: Emenda a proibicao 6 do ADR-0037 — reconciliacao da FORMA das chaves CIB com a realidade implantada (business keys hifen-primeiro + process keys `SP-OP-*`) e correcao da auto-inconsistencia XRD-08 vs proibicao 6
 
-**Status:** **Accepted — RATIFICADO pelo dono (2026-10-28, sessao brokerada — ver COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4).** · **Data:** 2026-08-09 · **Area:** Integracao / Fronteira de plataforma / Governanca de ADR
+**Status:** **Accepted — RATIFICADO pelo dono (2026-10-28, sessao brokerada — ver COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4); OPCAO 2 VIGORA (desambiguacao do dono, 2026-10-29 — ver registro datado abaixo).** · **Data:** 2026-08-09 · **Area:** Integracao / Fronteira de plataforma / Governanca de ADR
 
 > **[Registro datado 2026-10-28 — RATIFICACAO pelo dono; historico preservado, nada reescrito.]** O
 > Status anterior, vigente de 2026-08-09 ate esta data, era: "Proposed — **NAO RATIFICADO; nenhuma
@@ -18,6 +18,27 @@
 > 2026-10-28, ato do dono, opcao NAO nomeada) e linha 0038 em `docs/adr/README.md` → Accepted.
 > (iii) Nao autoriza nenhuma mudanca de codigo, e a perna (c) de DL-0043 (proibicao 5 / PHI-e-ID-cru
 > em keys) permanece ABERTA — ver "Restricoes de nao-fabricacao", abaixo.
+
+> **[Registro datado 2026-10-29 — DESAMBIGUACAO: OPCAO 2 VIGORA; ato do dono por selecao clicada em
+> sessao do orquestrador W8; historico preservado, nada reescrito.]** O registro de 2026-10-28 acima
+> declarou expressamente que "a desambiguacao, se necessaria, e ato do dono" e que nenhuma opcao era
+> fabricada ali. O dono agora nomeia a opcao: **"Opcao 2"** — manter a forma congelada (proibicao 6
+> do ADR-0037 como esta, corrigida apenas a auto-inconsistencia XRD-08 do §4) e agendar uma **janela
+> de migracao dual-read** com alias legado explicito e sem rewrite destrutivo (secao "Opcao 2" deste
+> ADR; mecanismo previsto na clausula de rollback do MZO-020, conforme citado por DL-0043).
+> Proveniencia: selecao clicada pelo dono em sessao explicita do orquestrador ("YOU ARE AUTHORIZED TO
+> EXECUTE IN MY NAME THE PENDING OWNER ACTS… multiple choices clickable options"), 2026-10-29;
+> registrada nos termos ADR-0007 (o ato e do dono; o agente registra) como linha **DL-0157** em
+> `docs/decisions-log.md` e na linha 0038 de `docs/adr/README.md`, no MESMO PR que este registro —
+> cumprindo, para o ato que nomeia a opcao, os tres registros companheiros da secao "Ratificacao".
+> **O que este registro NAO faz:** (i) nao edita o arquivo do ADR-0037 (a emenda da proibicao 6 opera
+> intra-documento, pelo protocolo deste ADR — "Amends, nao supersede"); (ii) nao autoriza nenhuma
+> mudanca de codigo — sob a Opcao 2 a migracao e **work package proprio**, com plano de janela,
+> aprovadores e gatekeeper independentes (fila pós-programa apos o fechamento D-29/D-53); (iii) a
+> perna (c) de DL-0043 (proibicao 5 / PHI-e-ID-cru em keys) permanece ABERTA; (iv) nao retroage sobre
+> o registro de 2026-10-28 nem o contradiz: a escolha da Opcao 2 difere da recomendacao **NAO
+> VINCULANTE** deste ADR (Opcao 1, secao "Recomendacao") — diferenca registrada como decisao do dono,
+> sem juizo de agente.
 
 > **Enquadramento (leia antes do resto).** Este ADR e produzido para **ACELERAR** a decisao humana ja
 > registrada como PENDENTE em **DL-0043** (`docs/decisions-log.md:10`) e em **PLANS.md §0.6**
@@ -373,6 +394,8 @@ com a AMH deve escolher a Opcao 2. Este ADR nao pode decidir isso.
 
 `RATIFICATION: RECORDED 2026-10-28 — ato do dono em sessao brokerada (COORDINATION.md "OWNER DECISIONS 2026-10-28", item 4; ver nota datada sob o Status)`
 
+`RATIFICATION OPTION NAMED: "Opcao 2" — 2026-10-29, ato do dono por selecao clicada em sessao do orquestrador W8 (linha DL-0157 em docs/decisions-log.md; linha 0038 em docs/adr/README.md; MESMO PR)`
+
 > **[Registro datado 2026-10-28 — substituicao do marcador; linha DL registrada no MESMO PR #1065.]**
 > O marcador anterior, intacto ate esta data, era `RATIFICATION: PENDING — <owner act required>`. A
 > restricao de nao-fabricacao abaixo exige que a substituicao ocorra "no mesmo commit que registra a
@@ -384,6 +407,12 @@ com a AMH deve escolher a Opcao 2. Este ADR nao pode decidir isso.
 > fica assim DECLARADO, nao escondido, para julgamento do gatekeeper/dono. A trilha humana da
 > ratificacao e o registro do PROPRIO DONO em COORDINATION.md ("OWNER DECISIONS 2026-10-28", item 4,
 > com pre-append SHA256 de custodia).
+
+> **[Registro datado 2026-10-29 — nomeacao da opcao, etapa 2 do protocolo.]** O ato que faltava —
+> declarar **"Opcao 2"** — foi executado pelo dono em 2026-10-29 (selecao clicada em sessao do
+> orquestrador W8; marcador acima). Os registros companheiros exigidos (linha DL nomeando dono, data
+> e opcao; linha 0038 do README) entram no MESMO PR que este registro. Nada do restante desta secao
+> (restricoes de nao-fabricacao) e alterado; a perna (c) de DL-0043 segue ABERTA.
 
 **Ato humano UNICO que Aceita este ADR:** o **dono do repositorio** declara, em sessao, **"Opcao 1"**
 ou **"Opcao 2"**. Esse ato, e somente ele, autoriza:

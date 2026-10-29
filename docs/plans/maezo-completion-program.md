@@ -1,6 +1,6 @@
 # Plano — Programa de Completude Maezo (clientes, vendors, providers, equipe)
 
-**Status:** **ATIVO** — retomada registrada 2026-10-23 (D-01, dono via sessão interativa; ver §Decisões). Todas as ondas despachadas conforme seus gates. **Data:** 23/10/2026 (`main` em `d21aed72`; auditoria-base `docs/audits/JOURNEYS-COMPLETENESS-2026-10/`, gate cego Tier-2/3 fechado). **Autor:** orquestrador (agente), a pedido do dono. **Este documento não aprova nada**: separa quem GERA de quem APROVA (§HDR) e todo bloqueio de aprovação/ratificação permanece com humanos nomeados.
+**Status:** **FECHADO (D-29 GO, 2026-10-29)** — anteriormente **ATIVO** (retomada registrada 2026-10-23, D-01, dono via sessão interativa; ver §Decisões). [Nota datada 2026-10-29 — fechamento pelo dono: **D-29 GO**, decisão tomada por seleção clicada em sessão do orquestrador W8 (proveniência transcrita nos adendos: "YOU ARE AUTHORIZED TO EXECUTE IN MY NAME THE PENDING OWNER ACTS… multiple choices clickable options"); supercessão formal v3→v4 (D-11) **EFETIVADA**; o programa encerra e o backlog ROLL (35 = 22+11+2) vira fila pós-programa; registros nos adendos append-only `W8-D29-SIGNATURE-PACKAGE-v1.md` (sha256 `a3e6b875…`) e `MASTER-PLAN-ANNEX.md` (sha256 `d41b99fc…`) do bundle `docs/audits/JOURNEYS-COMPLETENESS-2026-10/` (gitignored; shas conferidos por cp+sha nesta sessão de registro); ver bloco §Decisões D-53 abaixo; os prazos de verdade externa (OP21 1º/1/2027 · fecho C2 2027-01-26 · muro 2027-02-09) seguem correndo por natureza própria, independentes do programa]. Todas as ondas despachadas conforme seus gates. **Data:** 23/10/2026 (`main` em `d21aed72`; auditoria-base `docs/audits/JOURNEYS-COMPLETENESS-2026-10/`, gate cego Tier-2/3 fechado). **Autor:** orquestrador (agente), a pedido do dono. **Este documento não aprova nada**: separa quem GERA de quem APROVA (§HDR) e todo bloqueio de aprovação/ratificação permanece com humanos nomeados.
 
 Regra de leitura: toda afirmação de fato traz `arquivo:linha`, finding `F-*` ou PR# — base: bundle de auditoria acima (INVENTORY A/A-V4/B/C, TRACEABILITY, FINDINGS, REGULATORY-SWEEP, COMPARISON-V3-V4, VERIFICATION-TIER2). O que não foi executado está **NÃO VERIFICADO**.
 
@@ -191,6 +191,15 @@ Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 
 | D-51 | **Retenção fleet-retirement: DROP COM PROVA `git cherry`** — as branches do fleet-retirement cujo conteúdo estiver PROVADAMENTE em main (prova cherry por branch, missão própria com registro) são dropadas; o que NÃO fechar prova FICA (fail-closed); os packs/documentos já foram descartados pelo dono (2026-10-27) | **fail-closed**: prova cherry por branch em missão própria com registro é pré-condição de qualquer DROP de branch do fleet-retirement; sem prova, a branch permanece |
 | D-52 | **W8 CLOSE ANTICIPADA PARA DEZ-2026** (antes do alvo 2027-01-26, maximizando folga) | pacotes de evidência de prazo preparados antecipadamente; backlog ROLL (22 itens, da triagem D-49) entregue ao dono; assinatura D-29 na janela |
 
+## §Decisões registradas (2026-10-29, dono, via seleção clicada em sessão do orquestrador W8)
+
+| ID | Decisão | Efeito |
+|---|---|---|
+| D-53 | **D-29 EXECUTADO: GO** — programa FECHADO; supercessão D-11 efetivada | bundles c/ adendos `a3e6b875…`/`d41b99fc…`; ROLL vira fila pós-programa |
+| D-54 | **ADR-0038: OPÇÃO 2 vigora** (manter forma congelada + janela de migração dual-read) | ADR/README/DL ver itens abaixo |
+| D-55 | **Par CRED: Opção D-2 EXECUTAR test-scoped** | PR companheiro (censo 8→6) |
+| D-56 | **Lane N2: NOVO DESENHO autorizado — re-pin da congruência terminal** (v29 §6 opção (iii); execução só após design+gate próprios) | design em autoria; lane em repouso até lá |
+
 ## Status 2026-10-27 (janela pickup v6 — fecho)
 
 Registro do fechamento da janela — tabela fiel aos atos, nada acrescido/suavizado. Cadeia dos 11 PRs: autor especializado → gate cego opus (FAIL → reparos literais → re-gate quando aplicável) → squash → byte-check 0-diff.
@@ -333,7 +342,7 @@ assinatura D-29 (pacote `87df7c19…` estacionado) · CO-11 re-autorização da 
 **Dono:** D-01 retomada+escopo · D-02 F-M01 (a)/(b) · D-05 valor PT48H · D-07 LA-02 · D-10 ações de prazo · D-11 ratificar supercessão v3↔v4 · D-12 alvos de completude (de 9,0% → ?) · D-15 congelamento do contrato · D-16 erguer A1–A10 · D-21 ingresso Lucas · D-29 go/no-go + fechamento · D-30 broker CA_1 · D-31 papel deriva + casa do GAP-REGISTER · D-33 coordenação de PRs externos (AMH #149; revisão do #907).
 **Security-team:** D-14 ativação (GOV-0.10, 6 passos) + o APPROVED do #907 — poste mais longo; pré-estacionado.
 **Jurídico:** D-03/D-04 (COUNSEL-2/3; bloqueiam OP21) · D-06 (COUNSEL-5) · D-08 (COUNSEL-6) · D-09 (COUNSEL-4 NBA) · COUNSEL-1/7/8 como insumos do REG-1.13.
-**DPO:** **D-25 41 contras-assinaturas do erasure** (16 originais + 25 relações acréscidas — 9 de ADR-0049 nas migrações 0001-0014 e 16 de migrações 0015-0028; correção 2026-10-25; contagem viva em `src/maezo/platform/lifecycle/erasure_plan.py:9-12` e `docs/compliance/human-windows/LUCAS-DPO-OPERACAO-PACKAGE.md` §0/§1.3) + insumos GP11/M2 + VW4 · D-26 pontes de identidade. **Médico-auditor:** ratificação auth-criteria (nada ratificado hoje), 4 DMNs de triage, C2 até 2027-02-09. **Jurídico/operação/financeiro:** R1–R5 (bloqueiam OP17); revisões de habilitação do lucas.
+**DPO:** **D-25 41 contras-assinaturas do erasure** [corrigido 2026-10-29: contagem viva = 43 (16+25+2 das migrações 0029/0030 pós-correção 2026-10-25 — ver W8-OWNER-SESSION-DPO-PACKAGE-v1.md b224de31…)] (16 originais + 25 relações acréscidas — 9 de ADR-0049 nas migrações 0001-0014 e 16 de migrações 0015-0028; correção 2026-10-25; contagem viva em `src/maezo/platform/lifecycle/erasure_plan.py:9-12` e `docs/compliance/human-windows/LUCAS-DPO-OPERACAO-PACKAGE.md` §0/§1.3) + insumos GP11/M2 + VW4 · D-26 pontes de identidade. **Médico-auditor:** ratificação auth-criteria (nada ratificado hoje), 4 DMNs de triage, C2 até 2027-02-09. **Jurídico/operação/financeiro:** R1–R5 (bloqueiam OP17); revisões de habilitação do lucas.
 
 ## Cobertura de findings, verificação e riscos
 
