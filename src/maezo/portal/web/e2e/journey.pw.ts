@@ -115,6 +115,36 @@ test.describe("portal session journey", () => {
     await page.close();
   });
 
+  // R-071 (forensic audit): every staff area the navigation offers is scanned, not only the
+  // landing view. An area this session's capabilities do not enable renders its "not enabled"
+  // notice — that state is scanned too, since it is what this staff member actually sees.
+  test("every staff area renders and scans clean", async () => {
+    const config = runtime();
+    await install();
+    const page = await shared.newPage();
+    await page.goto(`${config.portalOrigin}/`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      config.fixture.expectations.signed_in_heading,
+      { timeout: 20_000 },
+    );
+    const tabs = page.getByRole("tablist", { name: "Áreas de trabalho" }).getByRole("tab");
+    const panels = await tabs.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("aria-controls") ?? ""),
+    );
+    if (panels.length === 0) throw new Error("staff navigation exposed no areas to scan");
+    for (const controls of panels) {
+      const tab = page.locator(`[role='tab'][aria-controls='${controls}']`);
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await page.waitForLoadState("networkidle");
+      axeResults.push({ when: `staff-area:${controls}`, result: await scanAxe(page) });
+    }
+    await page.goto(`${config.portalOrigin}/portal/cases`);
+    await page.waitForLoadState("networkidle");
+    axeResults.push({ when: "staff-route:/portal/cases", result: await scanAxe(page) });
+    await page.close();
+  });
+
   test("the earned session spends, storage holds nothing and WCAG scans clean", async () => {
     const config = runtime();
     await install();

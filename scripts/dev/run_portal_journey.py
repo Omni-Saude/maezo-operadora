@@ -205,7 +205,6 @@ class StaticOrigin:
         self.app = app
         self.dist = dist
         self._overlay = overlay or {}
-        self._spa = {"/", "/portal", "/portal/"}
 
     def _bundle(self, path: str) -> tuple[bytes, str] | None:
         overlaid = self._overlay.get(path)
@@ -216,7 +215,9 @@ class StaticOrigin:
             return None
         if candidate.is_file():
             return candidate.read_bytes(), self._type(candidate.name)
-        if path in self._spa:
+        # Same fallback as production (`maezo.portal.api.spa.WebBundle.respond`): an extensionless
+        # path outside /assets/ is a client route (e.g. /portal/cases/:ref) and gets index.html.
+        if "." not in PurePosixPath(path).name and not path.startswith("/assets/"):
             return (self.dist / "index.html").read_bytes(), self._type("index.html")
         return None
 
