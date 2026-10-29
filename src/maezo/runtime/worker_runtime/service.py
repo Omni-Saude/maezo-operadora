@@ -64,6 +64,7 @@ from maezo.gateway.tool_registry import (
     effect_seams_gated,
 )
 from maezo.gateway.vendor_suppression import SuppressionStore
+from maezo.platform.driver_idempotency import PostgresDriverIdempotencyRegistry
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import (
@@ -78,7 +79,7 @@ from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
-from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST, PublishLedger
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
@@ -272,6 +273,7 @@ def register_default_workers(
     document_request_host_installed: bool = False,
     suppression_admission: SuppressionAdmission | None = None,
     suppression_store: SuppressionStore | None = None,
+    publish_ledger: PublishLedger | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -360,6 +362,8 @@ def register_default_workers(
         # A6: the store rides the same `**seams` catch-all every bootstrap already accepts;
         # only a composition holding the REGISTERED A6 admission may pass it at all.
         **({"suppression_store": suppression_store} if suppression_store is not None else {}),
+        # F-092: redelivery dedup of the generic publish effect (dark; see settings).
+        **({"publish_ledger": publish_ledger} if publish_ledger is not None else {}),
     )
 
 
@@ -1056,6 +1060,11 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # Dossier-A2A seam (DL-0033/DL-0037): None when degraded — the raw dossier
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
+                publish_ledger=(
+                    PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.extask_publish_dedup and settings.database_url
+                    else None
+                ),
                 # WP-J1-03 exclusivity seam: when the dedicated PHI document-request bridge is
                 # installed, the generic harness must not also serve its topic.
                 document_request_host_installed=settings.document_request_host_installed,

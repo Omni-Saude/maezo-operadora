@@ -82,6 +82,12 @@ class WorkerRuntimeSettings(BaseSettings):
     # failure mode, and never a silent success.
     denial_notice_owner: bool = Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")
 
+    # Forensic audit F-092 (ADR-0024 claim/commit): when ON and DATABASE_URL is set, the generic
+    # `operadora.events.publish` handler records each task's publish in `driver_idempotency`, so a
+    # lock-expiry redelivery of the SAME external task does not publish a second time. DARK by
+    # default (ships OFF; flipping is a ROLL data change, never an agent act).
+    extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
+
     # --- Fetch-and-lock loop parameters (WorkerHarness, design §11) ---------------------------
     # GAP D4-03 (round-5, 2026-09-05): the register's concern is that this posture (30s lock / 5s
     # poll / 10 tasks per poll) could starve a cold topic behind a busy one once a single
