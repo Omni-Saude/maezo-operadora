@@ -445,6 +445,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -1029,6 +1030,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -1093,6 +1095,7 @@
                 "recurso_decisao": "#/components/schemas/RecursoDecisionInputs",
                 "reembolso_auditor": "#/components/schemas/ReembolsoAuditorInputs",
                 "reembolso_decisao": "#/components/schemas/ReembolsoDecisionInputs",
+                "reembolso_pagamento": "#/components/schemas/ReembolsoPagamentoInputs",
                 "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs",
                 "suppression_encarregado": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
@@ -1134,6 +1137,9 @@
               },
               {
                 "$ref": "#/components/schemas/ReembolsoAuditorInputs"
+              },
+              {
+                "$ref": "#/components/schemas/ReembolsoPagamentoInputs"
               },
               {
                 "$ref": "#/components/schemas/CancelDecisionInputs"
@@ -1979,6 +1985,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -3354,6 +3361,9 @@
                 "valor_reembolso_aprovado_cents",
                 "justificativa",
                 "fundamentacao_contratual",
+                "info_solicitada",
+                "texto_ao_beneficiario",
+                "data_pagamento",
                 "decisao_cancelamento",
                 "decisao_inadimplencia",
                 "comprovacao_periodo_minimo",
@@ -3463,6 +3473,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -4169,6 +4180,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -4445,6 +4457,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -7150,6 +7163,9 @@
                 "valor_reembolso_aprovado_cents",
                 "justificativa",
                 "fundamentacao_contratual",
+                "info_solicitada",
+                "texto_ao_beneficiario",
+                "data_pagamento",
                 "decisao_cancelamento",
                 "decisao_inadimplencia",
                 "comprovacao_periodo_minimo",
@@ -7259,6 +7275,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -7695,6 +7712,18 @@
             ],
             "title": "Fundamentacao Contratual"
           },
+          "info_solicitada": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Solicitada"
+          },
           "justificativa": {
             "anyOf": [
               {
@@ -7723,6 +7752,18 @@
               }
             ],
             "title": "Parecer Auditor"
+          },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
           },
           "valor_reembolso_aprovado_cents": {
             "anyOf": [
@@ -7769,6 +7810,18 @@
             ],
             "title": "Fundamentacao Contratual"
           },
+          "info_solicitada": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Solicitada"
+          },
           "justificativa": {
             "anyOf": [
               {
@@ -7786,6 +7839,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
+          },
           "valor_reembolso_aprovado_cents": {
             "anyOf": [
               {
@@ -7802,6 +7867,28 @@
           "decisao_reembolso"
         ],
         "title": "ReembolsoDecisionInputs",
+        "type": "object"
+      },
+      "ReembolsoPagamentoInputs": {
+        "additionalProperties": false,
+        "description": "Registro do pagamento feito fora do sistema (DL-0156, ``UT_RegistrarPagamento``).\n\nO sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).",
+        "properties": {
+          "data_pagamento": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Data Pagamento",
+            "type": "string"
+          },
+          "kind": {
+            "const": "reembolso_pagamento",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "data_pagamento"
+        ],
+        "title": "ReembolsoPagamentoInputs",
         "type": "object"
       },
       "ReembolsoPendingInputs": {
@@ -7884,6 +7971,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -8591,6 +8679,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
