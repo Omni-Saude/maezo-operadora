@@ -91,7 +91,7 @@ import asyncio
 import contextlib
 import signal
 from collections.abc import AsyncIterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
@@ -113,6 +113,22 @@ from maezo.agents.lucas.cancelamento_pf import (
     protocolo_do_cancelamento,
 )
 from maezo.domain.conversa.caso_clinico import chave_e_da_conversa
+from maezo.domain.reembolso.pedido import (
+    RESULTADO_INFO_SOLICITADA as RESULTADO_REEMBOLSO_INFO_SOLICITADA,
+)
+from maezo.domain.reembolso.pedido import (
+    RESULTADO_NEGADO as RESULTADO_REEMBOLSO_NEGADO,
+)
+from maezo.domain.reembolso.pedido import (
+    RESULTADO_PAGO as RESULTADO_REEMBOLSO_PAGO,
+)
+from maezo.domain.reembolso.pedido import (
+    RESULTADO_PARCIAL as RESULTADO_REEMBOLSO_PARCIAL,
+)
+from maezo.domain.reembolso.pedido import (
+    RESULTADOS_DO_REEMBOLSO,
+    protocolo_valido,
+)
 from maezo.gateway.recipient_custody import (
     DEFAULT_TTL_DAYS,
     RecipientRecord,
@@ -169,6 +185,24 @@ _CANCEL_HISTORY_NAMES: Final[tuple[str, ...]] = (
 )
 #: O agente que abre o pedido de cancelamento e o recebe de volta.
 AGENT_ID_CANCELAMENTO: Final[str] = "lucas"
+
+#: DL-0156/DL-0157: o retorno do reembolso. O historico traz o fato da decisao e, so' para o aviso, o texto
+#: que o ANALISTA escreveu (PHI: nunca viaja no evento; le-se do historico, por nome, so' aqui).
+PROCESS_KEY_REEMBOLSO: Final[str] = "SP-OP-REEMBOLSO-001"
+_REEMBOLSO_HISTORY_NAMES: Final[tuple[str, ...]] = (
+    "aviso_beneficiario_whatsapp",
+    "conversation_id",
+    "protocolo_reembolso",
+    "decisao_reembolso",
+    "texto_ao_beneficiario",
+    "info_solicitada",
+    "data_pagamento",
+)
+AGENT_ID_REEMBOLSO: Final[str] = "lucas"
+#: Os dois textos que o analista escreve nunca viajam no EVENTO (so' o historico os traz, por nome): um evento
+#: de reembolso que os carregue e' recusado como PHI. Cerca local; nao entram em `PHI_PROCESS_VARS` (cada
+#: nome ali tem disposicao propria no manifesto de PHI).
+_TEXTOS_DO_ANALISTA_NO_EVENTO: Final[frozenset[str]] = frozenset({"texto_ao_beneficiario", "info_solicitada"})
 
 #: Evento estruturado emitido pelo laco ANTES de propagar uma falha nao-malformada (o offset fica).
 #: E' o texto que o filtro de metrica do alarme procura (`deploy/.../escalation-alarms.tf`): o
@@ -290,6 +324,14 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
             {"phi_keys": phi},
             code=REASON_RESUME_PHI_IN_EVENT,
         )
+    if value.get("resultado") in RESULTADOS_DO_REEMBOLSO:
+        textos = sorted(_TEXTOS_DO_ANALISTA_NO_EVENTO.intersection(value))
+        if textos:
+            raise MalformedResumeEventError(
+                f"reembolso event carries analyst text {textos} (ADR-0006) — refused, content not read",
+                {"phi_keys": textos},
+                code=REASON_RESUME_PHI_IN_EVENT,
+            )
     campos = {
         nome: _campo(value, nome)
         for nome in (
@@ -308,7 +350,8 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
         )
     resultado = str(campos["resultado"])
     e_cancelamento = resultado in RESULTADOS_DO_CANCELAMENTO
-    if resultado not in RESULTADOS_DO_CONTRATO and not e_cancelamento:
+    e_reembolso = resultado in RESULTADOS_DO_REEMBOLSO
+    if resultado not in RESULTADOS_DO_CONTRATO and not e_cancelamento and not e_reembolso:
         raise MalformedResumeEventError(
             "resultado outside the contract's three outcomes",
             {"resultado_len": len(resultado)},
@@ -331,6 +374,19 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
         ):
             raise MalformedResumeEventError(
                 "cancel resume anchors are not CANCEL-{tenant_id}-... / agent lucas / wa conversation",
+                {},
+                code=REASON_RESUME_ANCHOR_MISMATCH,
+            )
+    elif e_reembolso:
+        # DL-0156: o retorno do reembolso ancora na chave do PEDIDO (REEMB-{tenant}-...); a conversa e'
+        # conferida contra o historico da instancia (`EngineHistoryReembolsoSource`).
+        if (
+            not business_key.startswith(f"REEMB-{evento_tenant}-")
+            or str(campos["agent_id"]) != AGENT_ID_REEMBOLSO
+            or not conversation_id.startswith(f"wa:{evento_tenant}:")
+        ):
+            raise MalformedResumeEventError(
+                "reembolso resume anchors are not REEMB-{tenant_id}-... / agent lucas / wa conversation",
                 {},
                 code=REASON_RESUME_ANCHOR_MISMATCH,
             )
@@ -476,6 +532,134 @@ class EngineHistoryCancelamentoSource:
             protocolo=protocolo_do_cancelamento(event.process_instance_id),
             data_efeito_iso=data if isinstance(data, str) else None,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class AvisoDeReembolso:
+    """O retorno do reembolso ja' conferido contra o historico. `texto_da_equipe` e' PHI: so' sai daqui
+    para o remetente do Lucas, que o submete as cercas; nunca e' logado."""
+
+    resultado: str
+    protocolo: str
+    texto_da_equipe: str = field(repr=False, default="")
+    data_pagamento_iso: str | None = None
+
+
+class ReembolsoSource(Protocol):
+    """De onde vem o fato do retorno do reembolso para um evento ja' validado."""
+
+    async def fetch(self, event: ProcessCompletedEvent) -> AvisoDeReembolso: ...
+
+
+class EngineHistoryReembolsoSource:
+    """DL-0156: o fato do retorno do reembolso, do HISTORICO do motor, cruzado com o evento.
+
+    Mesma costura cercada das outras fontes. Le' SO' `_REEMBOLSO_HISTORY_NAMES` por nome. Divergencia
+    (instancia ausente, outro processo, outra chave, outra conversa, aviso desligado, decisao que nao bate com
+    o `resultado`, protocolo fora da forma) -> fila morta. Conclusao LEGITIMA sem como entregar (negativa/
+    reducao/pedido de informacao sem o texto da equipe; pago sem data valida) -> `ResumeUndeliverableError`
+    (a equipe e' avisada): nunca se inventa texto em nome do analista.
+    """
+
+    def __init__(self, transport: Any) -> None:
+        if not isinstance(transport, HistoricVariableReadingTransport):
+            raise TypeError(
+                "EngineHistoryReembolsoSource: transport must implement `read_historic_variables` "
+                "(HistoricVariableReadingTransport)"
+            )
+        self._transport = transport
+
+    async def fetch(self, event: ProcessCompletedEvent) -> AvisoDeReembolso:
+        historico = await self._transport.read_historic_variables(
+            event.process_instance_id, _REEMBOLSO_HISTORY_NAMES
+        )
+        if historico is None:
+            raise MalformedResumeEventError(
+                "process instance not found in engine history", {}, code=REASON_RESUME_HISTORY_MISMATCH
+            )
+        variaveis = historico.variables
+        protocolo = variaveis.get("protocolo_reembolso")
+        divergencias = [
+            nome
+            for nome, ok in (
+                ("business_key", historico.business_key == event.business_key),
+                ("process_key", historico.process_key == PROCESS_KEY_REEMBOLSO),
+                ("aviso", variaveis.get("aviso_beneficiario_whatsapp") is True),
+                ("conversation_id", variaveis.get("conversation_id") == event.conversation_id),
+                ("protocolo", protocolo_valido(protocolo)),
+                (
+                    "protocolo_da_chave",
+                    isinstance(protocolo, str) and event.business_key.endswith(f"-{protocolo}"),
+                ),
+                ("fato", _fato_do_reembolso(event.resultado, variaveis)),
+            )
+            if not ok
+        ]
+        if divergencias:
+            raise MalformedResumeEventError(
+                "engine history does not back this reembolso notice",
+                {"divergencias": divergencias},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
+        assert isinstance(protocolo, str)
+        data = variaveis.get("data_pagamento")
+        if event.resultado == RESULTADO_REEMBOLSO_PAGO and data_br(data) is None:
+            raise ResumeUndeliverableError(
+                "reembolso pago sem data de pagamento valida no historico",
+                {},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
+        info = event.resultado == RESULTADO_REEMBOLSO_INFO_SOLICITADA
+        texto = variaveis.get("info_solicitada" if info else "texto_ao_beneficiario")
+        precisa_do_texto = event.resultado in (
+            RESULTADO_REEMBOLSO_PARCIAL,
+            RESULTADO_REEMBOLSO_NEGADO,
+            RESULTADO_REEMBOLSO_INFO_SOLICITADA,
+        )
+        if precisa_do_texto and not (isinstance(texto, str) and texto.strip()):
+            raise ResumeUndeliverableError(
+                "retorno do reembolso sem o texto escrito pela equipe no historico",
+                {},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
+        return AvisoDeReembolso(
+            resultado=event.resultado,
+            protocolo=protocolo,
+            texto_da_equipe=texto if precisa_do_texto and isinstance(texto, str) else "",
+            data_pagamento_iso=data if isinstance(data, str) else None,
+        )
+
+
+def _fato_do_reembolso(resultado: str, variaveis: Mapping[str, Any]) -> bool:
+    """O historico registra a decisao que o `resultado` afirma. `pago` vem de uma aprovacao (total ou
+    parcial) com a data registrada; `aprovado` exige APROVAR."""
+    decisao = variaveis.get("decisao_reembolso")
+    if resultado == RESULTADO_REEMBOLSO_PARCIAL:
+        return decisao == "APROVAR_PARCIAL"
+    if resultado == RESULTADO_REEMBOLSO_NEGADO:
+        return decisao == "NEGAR"
+    if resultado == RESULTADO_REEMBOLSO_INFO_SOLICITADA:
+        return decisao == "SOLICITAR_INFO"
+    if resultado == RESULTADO_REEMBOLSO_PAGO:
+        return decisao in ("APROVAR", "APROVAR_PARCIAL")
+    return decisao == "APROVAR"  # reembolso_aprovado
+
+
+@runtime_checkable
+class ReembolsoResumer(Protocol):
+    """A porta do retorno do reembolso. `LucasRetomada.retomar_reembolso` satisfaz esta forma."""
+
+    async def retomar_reembolso(
+        self,
+        *,
+        conversation_id: str,
+        resultado: str,
+        protocolo: str,
+        texto_da_equipe: str,
+        data_pagamento_iso: object,
+        raw_to: str,
+        resume_ref: str,
+    ) -> Mapping[str, Any]: ...
 
 
 def _fato_do_resultado(resultado: str, variaveis: Mapping[str, Any]) -> bool:
@@ -667,6 +851,9 @@ class ResumeHandler:
     #: DL-0111: o fato do retorno do cancelamento (historico do motor). `None` = o retorno do cancelamento
     #: e' confirmado com WARNING, sem envio (como um agente sem porta).
     cancelamentos: CancelamentoSource | None = None
+    #: DL-0156: o fato do retorno do reembolso (historico do motor). `None` = o retorno do reembolso e'
+    #: confirmado com WARNING, sem envio (como um agente sem porta).
+    reembolsos: ReembolsoSource | None = None
 
     async def resume_administrative(
         self, stimulus: RuntimeResumeStimulus
@@ -842,10 +1029,83 @@ class ResumeHandler:
         )
         return ResumeReceipt(ResumeOutcome.RESUMED, event.agent_id, event.resultado, desfecho)
 
+    async def _retomar_reembolso(self, event: ProcessCompletedEvent) -> ResumeReceipt:
+        """DL-0156: historico -> destinatario -> janela -> moldura fixa + texto da equipe (com cercas)."""
+        resumer = self.resumers.get(event.agent_id)
+        if self.reembolsos is None or not isinstance(resumer, ReembolsoResumer):
+            logger.warning(
+                "agent_resume.reembolso_notice_without_port",
+                tenant_id=event.tenant_id,
+                agent_id=event.agent_id,
+                resultado=event.resultado,
+                detail="retorno do reembolso sem fonte de historico ou sem retomador; nada enviado",
+            )
+            return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
+        try:
+            async with _etapa(MOTIVO_FALHA_MOTOR):
+                aviso = await self.reembolsos.fetch(event)
+            contato = await self.recipients.lookup(
+                tenant_id=event.tenant_id, conversation_id=event.conversation_id
+            )
+            if contato is None or not contato.phone:
+                raise ResumeUndeliverableError(
+                    "recipient custody has no number for this conversation",
+                    {},
+                    code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
+                )
+        except ResumeUndeliverableError as exc:
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_undeliverable(event)
+            logger.warning(
+                "agent_resume.reembolso_notice_undeliverable_team_alerted",
+                tenant_id=event.tenant_id,
+                conversation_id=event.conversation_id,
+                reason=exc.code,
+            )
+            raise
+        if not dentro_da_janela(contato.last_inbound_at):
+            # Fora da janela da Meta: nada sai (um template aprovado seria preciso). A equipe e' avisada.
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_outside_window(event)
+            _emit_fora_da_janela(event.agent_id)
+            logger.warning(
+                "agent_resume.reembolso_notice_outside_meta_window",
+                tenant_id=event.tenant_id,
+                conversation_id=event.conversation_id,
+                resultado=event.resultado,
+            )
+            return ResumeReceipt(
+                ResumeOutcome.OUTSIDE_WINDOW,
+                event.agent_id,
+                event.resultado,
+                DESFECHO_RETOMADA_FORA_DA_JANELA,
+            )
+        async with _etapa(MOTIVO_FALHA_ENVIO):
+            resultado = await resumer.retomar_reembolso(
+                conversation_id=event.conversation_id,
+                resultado=aviso.resultado,
+                protocolo=aviso.protocolo,
+                texto_da_equipe=aviso.texto_da_equipe,
+                data_pagamento_iso=aviso.data_pagamento_iso,
+                raw_to=contato.phone,
+                resume_ref=f"{event.process_instance_id}:{aviso.resultado}",
+            )
+        desfecho = str(resultado.get("desfecho") or "")
+        logger.info(
+            "agent_resume.reembolso_notice_sent",
+            tenant_id=event.tenant_id,
+            conversation_id=event.conversation_id,
+            resultado=event.resultado,
+            desfecho=desfecho,
+        )
+        return ResumeReceipt(ResumeOutcome.RESUMED, event.agent_id, event.resultado, desfecho)
+
     async def handle(self, value: Any) -> ResumeReceipt:
         event = parse_process_completed(value, tenant_id=self.tenant_id)
         if event.resultado in RESULTADOS_DO_CANCELAMENTO:
             return await self._retomar_cancelamento(event)
+        if event.resultado in RESULTADOS_DO_REEMBOLSO:
+            return await self._retomar_reembolso(event)
         if event.resultado != RESULTADO_DEVOLVIDO_AGENTE:
             # `resolvido_humano` / `emergencia_acionada` ENCERRAM o caso: nao acordam agente.
             logger.info(
@@ -1116,6 +1376,8 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
         alerter=NotifyTeamAlerter(build_notifications_publisher(settings.kafka_bootstrap_servers)),
         # DL-0111: o retorno do pedido de cancelamento (so' existe com `MAEZO_CANCEL_PF_V1` no receptor).
         cancelamentos=EngineHistoryCancelamentoSource(state.dispatcher.cibseven),
+        # DL-0156: o retorno do pedido de reembolso (so' existe com `MAEZO_REEMBOLSO_V1` no receptor).
+        reembolsos=EngineHistoryReembolsoSource(state.dispatcher.cibseven),
     )
     # The DLQ publisher is a fenced effect class (§8.1): built ONLY through the bridge's own
     # sanctioned constructor (`build_dlq_shunt`), exactly as the bridge's own root does.

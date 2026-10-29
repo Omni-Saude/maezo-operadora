@@ -66,7 +66,8 @@ def test_a_cadeia_local_e_head_linear_0030_revisando_0029() -> None:
     0030 = registro da verificacao de legitimidade da PJ contratante, OP21/REG-1.1, escura no
     substrato, 26/10/2026)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0030",)
+    assert heads == ("0031",)
+    assert edges["0031"] == "0030"
     assert edges["0030"] == "0029"
     assert edges["0027"] == "0026"
     assert edges["0026"] == "0025"
@@ -93,7 +94,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0030",),
+        "migration_heads": ("0031",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -311,7 +312,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0030",
+        "0031",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

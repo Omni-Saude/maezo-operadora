@@ -916,3 +916,19 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: cumprimento de obrigacao regulatoria de verificacao de legitimidade da contratante (RN 489/2022, art. 23-A - redacao dada pela RN 659/2025; RN 557/2022), sem dado de titular na relacao e sem decisao ratificada"
     retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — o prazo da verificacao (reconfirmacao anual, RN 557/2022 art. 10) e dado da relacao, nao do plano; prazo de eliminacao passa a existir no ato de habilitacao do dono, com revisao do DPO"
+  - camada: coleta_reembolso
+    tabela: reembolso_coleta
+    migracao: "0031_reembolso_coleta.py::upgrade (reembolso_coleta; expira_em index)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only the stage of the reimbursement collection (closed enum), the CLOSED answers (relation to the holder, procedure category, reimbursement type, reason for not using the network), the service date, the requested amount in cents and the list of {type, document_ref} where the ref is OPAQUE (the file lives in the PHI custody, ADR-0006) - no phone, no free text. After the process opens it also holds the protocol (`REE-XXXX-XXXX`, no PII). The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 44
+    tensao: null
+    notas: >-
+      DL-0156/DL-0157 (reembolso pelo WhatsApp, DRAFT para dev, flag `MAEZO_REEMBOLSO_V1` desligada).
+      Uma linha por conversa, gravada por CAS; a coleta nao concluida vence em `expira_em` e e' purgada
+      por quem a le'. O document_ref e' opaco: o arquivo (pedido medico, nota fiscal) vive na custodia
+      PHI, cuja retencao (5 anos, segundo a planilha do dono) e' decisao do DPO. Prazos sao PROPOSTA de
+      engenharia — pertencem ao DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

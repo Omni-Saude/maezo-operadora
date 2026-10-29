@@ -755,7 +755,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "E",
         "`lucas_v4`",
         "default `False`",
-        Anchor(WA_SETTINGS, "lucas_v4: bool = Field(", 558),
+        Anchor(WA_SETTINGS, "lucas_v4: bool = Field(", 577),
         None,
         "DL-0114",
         "idem",

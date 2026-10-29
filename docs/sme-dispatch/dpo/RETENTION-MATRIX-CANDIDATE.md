@@ -288,6 +288,17 @@ escopo_b:
         carimbos e o canal de envio (idempotencia) e o PARAR do beneficiario — nenhum telefone,
         valor ou texto; PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o
         alcanca); sem decisao de retencao ratificada e sem varredor
+    - camada: coleta_reembolso
+      tabelas: [reembolso_coleta]
+      motivo: >-
+        fora do escopo B; 0031 (DL-0156/DL-0157, reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1
+        desligada por padrao) guarda so' o conversation_id pseudonimo keyed, a etapa e as respostas
+        FECHADAS da coleta (relacao com o titular, categoria, tipo, motivo), a data do atendimento,
+        o valor pedido em centavos, a lista de {tipo, document_ref} com a referencia OPACA (o arquivo
+        vive na custodia PHI) e o protocolo — nenhum telefone, CPF, nome ou texto livre;
+        PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); a coleta
+        nao concluida vence em expira_em (PROPOSTA de engenharia); a retencao dos anexos PHI (5 anos,
+        segundo a planilha do dono) e' decisao do DPO, sem ratificacao
     - camada: acesso_beneficiario
       tabelas: [acesso_falhas_por_cpf]
       motivo: >-
