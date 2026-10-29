@@ -130,7 +130,7 @@ Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 
 | D-01 | **RETOMADA — todas as ondas** | `state: ATIVO`; W0/W2/W4/W5 despacham já; W1 espera jurídico (D-03/D-04); W3 espera security (D-14) |
 | D-02 | **Mapa primeiro + ponte delimitada SP-OP-nativa** (delegada pelo dono ao orquestrador: "excelência, sem workarounds, considerando impacto nas demais builds") — ver ruling abaixo | CORP-2.7 = mapa 355 elementos → capacidades → processos SP-OP → código/teste; ponte APENAS para lacunas provadas pelo mapa, como NOVOS process-keys SP-OP-* pelo caminho canônico (allowlist + engine_deploy + cercas), NUNCA como os 44 beans AI delegados (esses permanecem vocabulário de desenho mapeado às capacidades existentes do gateway) |
 | D-05 | Timers CA_1 = **classes RN 623/2024 art. 12** (urgência imediata; demais 5 dias úteis; PAC/internação eletiva 10 dias úteis) | REG-1.2 |
-| D-07 | LA-02 **modelado por inteiro** (coparticipação/faturamento/contas como objetos+tasks explícitos; reembolso 30d art. 12 VIII como timer) | REG-1.5 |
+| D-07 | LA-02 **modelado por inteiro** (coparticipação/faturamento/contas como objetos+tasks explícitos; reembolso 30d art. 12 VIII como timer) [corrigido 2026-10-28: inciso correto VI — ver REG-1.5/#1057] | REG-1.5 |
 | D-09 | NBA reward **dark** (constrói flag-off; ruling art. 11 §4º é a condição de habilitação) | REG-1.8 |
 | D-10 | **Enfrentar o muro** 2027-02-09 (W8 entrega pacotes de flip até 2027-01-26; sem segunda renovação) | W8 |
 | D-11 | **v4 = linhagem** ratificada (v3 = referência de autoria imutável) | cerca §0(1) |
@@ -281,6 +281,52 @@ Fontes: `PL-TIER2-RECONCILE-v1` (sha256 `04cc3ca02eed39042ee0e67a3ff6011ea33cc57
 ### W8 prep (D-52)
 
 4 pacotes banked no bundle `JOURNEYS-COMPLETENESS-2026-10/`: W8-PRE-OP21-DOSSIER-v1 `aad491b0…` · W8-PRE-DEADLINE-PACKAGES-v1 `7c47d3e6…` · W8-PRE-ROLL-BACKLOG-v1 `6daff61d…` · W8-PRE-SESSION-PLAN-v1 `7bee3c66…` (shas verificados nesta sessão). Multa-base desambiguada: **R$ 506.250 = escalão de 1º/1/2027**; **R$ 337.500 = valor vigente até lá**.
+
+## Status 2026-10-28 (janela W8 CLOSE — execução; D-52)
+
+Registro da execução da janela — tabela fiel aos atos, nada acrescido/suavizado. Cadeia: autor especializado → gate cego opus (FAIL → reparos literais → re-gate de delta) → PR rastreado. Bundle vivo `docs/audits/JOURNEYS-COMPLETENESS-2026-10/` (gitignored); shas conferidos por `cp`+sha nesta sessão de registro.
+
+### Entregas nucleares
+
+- **Reconciliações A–E re-rodadas em 2026-10-28** — 5 arquivos do bundle, um por especialista: `W8-RECON-LEDGERC-v1` `ec76a1ed…` · `W8-RECON-CENSUS-OP21-v1` `4812d168…` · `W8-RECON-C2-MURO-v1` `74faa8a7…` · `W8-RECON-HYGIENE-v1` `dbd7241f…` · `W8-RECON-WAVES-v1` `973bf6eb…`.
+- **Relatório de completude** `W8-COMPLETENESS-REPORT-v1.md` `3dd65c5f…` — gate cego Tier-2 **PASS** `72a93120…` (0 bloqueantes; observação menor O-1 reparada) → re-gate de delta **PASS** `c561135a…` (delta zero provado por reconstrução reversa, junto com o anexo).
+- **Anexo final** `MASTER-PLAN-ANNEX.md` `db85848f…` — gate **FAIL 3F** `87191adf…` (defeitos citacionais F-1/F-2/F-3) → reparos literais → re-gate de delta **PASS** `c561135a…`; contém a **matriz final** "Estado final das ondas — janela W8" e a **supercessão formal ESTACIONADA** (ato do dono — D-11/D-29; bloco de assinatura vazio).
+- **Pacote de assinatura D-29 ESTACIONADO** `W8-D29-SIGNATURE-PACKAGE-v1.md` `87df7c19…` (emenda §4-bis transcrevendo as 8 decisões brokeradas) — gate **FAIL 2F** `032784a7…` → reparos → **DELTA2 PASS** `8adb93ad…` (ESCOPO 1 = pacote D-29; ESCOPO 2 = PR #1065 head `524527d7…`; ESCOPO 3 = PR #1066 head `64640aee…`). **A assinatura D-29 é ato exclusivo do dono** (ADR-0007; bloco §6 do pacote vazio).
+- **Backlog ROLL ENTREGUE ao dono** `W8-PRE-ROLL-BACKLOG-v1.md` `6daff61d…` — **35 linhas = 22 (triagem D-49) + 11 (Fora de escopo → ROLL) + 2 (D-48/D-39)**, soma checada; nenhum item executa/flipa por agente.
+- **Sessões owner estacionadas**: `W8-OWNER-SESSION-A1A9-PACKAGE-v1.md` `d4d37b14…` (portal A1→A9; A1-A3 conjuntas primeiro, D-34) e `W8-OWNER-SESSION-DPO-PACKAGE-v1.md` `b224de31…` (Lucas DPO — só contrassinaturas; janela aberta desde 10/11), **com o achado de rótulo 43 ≠ 41**: a enumeração viva tem **43 relações** e o rótulo D-25 "41" ficou curto +2 (migrações `0029`/`0030` pós-correção de 2026-10-25) — **emenda do rótulo = dono** (o que o DPO assina é o plano, não o rótulo).
+
+### Decisões brokeradas 2026-10-28
+
+Fonte: `COORDINATION.md` "OWNER DECISIONS 2026-10-28" (sha `5ced0e09…`; pre-append do bloco `db24f43c…` reconstruído pelo gate). As 8:
+
+| # | Decisão do dono | Execução na janela |
+|---|---|---|
+| 1 | **CO-11 ACK DADO** — dedupe C001–C008 autorizada (fecha GOV-0.4/F-E08) | Execução da dedupe **BLOQUEADA 2×** pelo classificador de permissão da sessão (edição de arquivo compartilhado exige autorização explícita do dono no transcript) — **PENDÊNCIA de re-autorização** |
+| 2 | **v30 N2: GO** — Δ=8, harness-only, single-shot, na janela W8 | **EXECUTADA single-shot** (seção abaixo) |
+| 3 | **D-51 borda** (`codex/feedback-bpmn-refinement-closeout`) | **EXECUTADA pela sessão v6** — drop com prova cherry 0+; recovery ref criada ANTES do drop (`refs/archive/maezo/fleet-retirement-20261022/codex-feedback-bpmn-refinement-closeout` @ `059010e9…`); refs/archive = **232** (reconcilia os drifts D3/D4) |
+| 4 | **ADR-0038 RATIFICADA** — imagem 2.1.0 mantida; DL-0006 revisit = defer deliberado | Registrada no **PR #1065** (merge `213ab51c`; DL-0156 no topo do decisions-log; `docs/adr/README.md` 0038 → Accepted; desambiguação "opção não nomeada" segue dono; gate `b573b6bf…` + DELTA2 ESCOPO 2) |
+| 5 | **REG-1.11 + REG-1.12 EXECUTAR** (verbatim já banked); 1.3/1.8/1.10 seguem COUNSEL | **EXECUTADOS** — REG-1.11 **#1066** (merge `4e568589`) · REG-1.12 **#1067** (merge `c7b2da70`); **1.3/1.8/1.10 seguem COUNSEL-4/5 + D-06** |
+| 6 | **D-07: emenda com nota datada inline** (registro histórico preservado) | **Aplicada NESTE PR** — nota `[corrigido 2026-10-28: inciso correto VI — ver REG-1.5/#1057]` na linha D-07 |
+| 7 | **2 sessões owner batched** — (i) portal A1→A9 (D-34 primeiro); (ii) Lucas DPO (só contrassinaturas; janela aberta desde 10/11) | **Pacotes estacionados** (`d4d37b14…` + `b224de31…` — seção "Entregas nucleares") |
+| 8 | **W5 5.3: consertar FONTES dos 16 strict-xfails programa** (flips continuam ROLL; DSR shadow per D-39) | **14 consertados** — #1069 (merge `e7915159`, censo 22→9) + **PR #1071 (AX-02, censo 8) — merge imediato pós-lanes** (reabertura do #1070 fechado); **par CRED deferido ao dono** (Opção D-2 do plano `bba389b7…` — fronteira de guarda); cadeia 22→9→8 = 2 cred (D-2) + 6 teto humano; gate `dc657f39…` |
+
+### v30 N2 (opção (i) do v29 executada)
+
+- Release **`n2-lane-v30`** (publicada 2026-10-28T23:31:59Z; grant `ROOT-N2-R30-20261028-D8`; PR lane **#1068** merge `864c15f2`; gates: FASE A `ded474b5…` PASS + memo `cdb47393…`); run **40789370785** (single-shot; `conclusion=success`, `outcome=FAIL` — a recusa é a evidência).
+- **Família NOVA R30-F** (memo `P4-V30-RESULT-v1` `36b15725…`): o corner T3' de Δ=8 **ADMITIU** — 1ª admissão T3'-terminal da história da lane (1º `pg-s00-COMMITTING-*` banked) — **DERIVADA, inbancável no caminho de recusa** (a fidelidade do corner morre com a recusa; `t3_deferred_measured = "not-measured"`); **o muro mudou de lugar**: ~20-40 ms depois, a captura ROOT_SECOND leu o pid 81 **re-armado pelo emission-recheck** (SEVERE `ENGINE-16004` com stack do comando-recheck) → congruência fail-closed `:689`. Desacoplamento D2 provado na forma mais forte (commit + seal + confirmação + resposta + SEGUNDO comando dentro do sono do observador).
+- **1º N2 positivo INALCANÇADO no conjunto {"0","0.2","4","8"} — para TODO Δ no desenho atual**: sub-horizonte ⇒ recusa #63; supra-horizonte ⇒ admissão + recusa de congruência; única exceção formal = a **faca do report-lag do `pg_stat_activity`** (janela nunca medida na lane — calibração, não via).
+- **Próxima movida = DONO, sem recomendação** — opções (a) repouso · (b) desenho novo da aquisição pós-admissão · (c) re-despatch (benefício NENHUM: desfecho determinístico R30-F).
+
+### Estado dos prazos (inalterados)
+
+- **OP21 1º/1/2027** — escalonamento; multa-base R$ 506.250 = escalão (75%); R$ 337.500 vigente até lá; **65 dias** de 2026-10-28.
+- **C2 (fecho da janela de evidências) 2027-01-26** — **90 dias**; na mesma data abre o aviso do gate (`WARNING_WINDOW_DAYS = 14`).
+- **Muro 2027-02-09** — **104 dias**; **sem 2ª renovação (D-10)**; a partir daí todo PR fica vermelho no `validate-artifacts` enquanto `shadow`.
+- **R-131 2026-11-11** — **janela de aviso ACESA** — única linha ≤14d no dashboard (14 dias exatos de 2026-10-28).
+
+### Pendências-owner na saída
+
+assinatura D-29 (pacote `87df7c19…` estacionado) · CO-11 re-autorização da dedupe · par CRED (Opção D-2) · emenda do rótulo D-25 (41→43) · desambiguação da Opção da ADR-0038 · REG-1.3/1.8/1.10 COUNSEL · sessões batched (i)/(ii) · v30 sucessor (dono, sem recomendação).
 
 ## §HDR — Registro de decisões humanas (agentes preparam pacotes, nunca decidem)
 
