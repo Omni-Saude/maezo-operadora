@@ -190,7 +190,14 @@ already-fixed cross-family facts unless they apply):
      regression. In THIS suite both affected donor tests are ALSO blocked earlier by finding 1
      (`prepare_dossier` missing, so the instance never even reaches the UT to submit the
      incomplete decision) — finding 4 is the SECOND, independent blocker that would remain even
-     after finding 1 is fixed. `_CRED_GUARD_SHAPE_MISMATCH_REASON` below.
+     after finding 1 is fixed. **UPDATE (Opção D-2 do dono, 2026-10-29 — live-proven): BOTH
+     blockers are closed — finding 1 by t2-dossier-a2a #178 (prepare_dossier registered +
+     drained, ST_PrepareDossier no longer stalls) and finding 4 by t5-workers-f2 (the modeled
+     WorkerBpmnError raise shape) plus a TEST-SCOPED enablement of the two adverse codes in
+     THIS probe's harness allowlist (src/ untouched — production keeps both codes T-E-deferred
+     per ADR-0030 §4, rota adversa fail-closed a incidente auditado). Both strict-xfail markers
+     were removed in the same PR; `_CRED_GUARD_SHAPE_MISMATCH_REASON` remains below as retired
+     regime documentation, cited by no marker.**
   5. Kafka-publish gap (Step 3 systemic fact #1) — was VERIFIED N/A as an INDEPENDENT blocker at
      port-authoring time: `grep -rn "kafka[.]publish(" src/maezo/tools/workers/credenciamento.py`
      returned zero hits (consistent with `register_credenciamento_workers`'s own `del kafka  #
@@ -264,11 +271,10 @@ _DMN_PRIOR_NOTICE = _REPO / "spec/processes/dmn/cred_prior_notice.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/cred_sla.dmn"
 
 # External task topics do contrato SP-OP-CRED-001 — 9 declarados no BPMN (grep
-# camunda:topic="operadora.cred.*"). T2.5-p2b (this port's follow-up task) BUILT 3 of the
-# original 4 missing workers (notify_doc_pendente / register_credenciamento / notify_sla_risk) —
-# SOMENTE operadora.cred.prepare_dossier permanece sem worker registrado (Carolina A2A
-# integration, separately gated, genuinely out of scope for T2.5-p2b — module bootstrap
-# docstring documents this explicitly; NOT fabricated here either).
+# camunda:topic="operadora.cred.*"). T2.5-p2b BUILT 3 of the original 4 missing workers
+# (notify_doc_pendente / register_credenciamento / notify_sla_risk); t2-dossier-a2a #178 fechou o
+# último (prepare_dossier — real Carolina A2A delegation, DL-0033/DL-0037): os 9 topicos do
+# contrato têm worker registrado e entram no drain 1:1 (o drift guard abaixo fecha a cerca).
 _PUBLISH_TOPIC = "operadora.events.publish"
 _VERIFY_CRED_TOPIC = "operadora.cred.verify_credentials"
 _CHECK_NETWORK_TOPIC = "operadora.cred.check_network_criteria"
@@ -279,12 +285,11 @@ _REGISTER_DENIAL_TOPIC = "operadora.cred.register_cred_denial"
 _REGISTER_CREDENCIAMENTO_TOPIC = "operadora.cred.register_credenciamento"  # registrado desde T2.5-p2b
 _NOTIFY_SLA_TOPIC = "operadora.cred.notify_sla_risk"  # registrado desde T2.5-p2b
 
-# Declarado no BPMN, SEM worker registrado em `register_credenciamento_workers`
-# (credenciamento.py bootstrap docstring, "Carolina A2A integration, separately gated") — NAO
-# incluido no drain: o drain so deve poll topicos com handler real (poll-lo sem handler so
-# mudaria o SINTOMA do stall, nao o resultado). Mantido aqui, documentado, para o finding 1
-# residual e para os textos de xfail abaixo.
-_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # DL-0033 stub (registered; not drained here)
+# DL-0033 (t5) + t2-dossier-a2a #178: worker REAL registrado (raw async handler — Carolina A2A
+# delegation com gap marker fail-neutro quando o dispatcher nao esta plugado, NUNCA levanta) e
+# INCLUIDO no drain desde #178; o drift guard abaixo fecha a cerca 1:1 contra
+# `register_credenciamento_workers`.
+_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — espelha 1:1 o
 # que `register_credenciamento_workers` de fato registra (credenciamento.py, T2.5-p2b) + o
@@ -434,24 +439,27 @@ _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
 )
 
 _CRED_GUARD_SHAPE_MISMATCH_REASON = (
-    "GUARD-SHAPE finding 4 is RESOLVED in src (t5-workers-f2): register_descredenciamento/"
-    "register_cred_denial now raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/"
-    "WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED bpmn errors — instead of a bespoke "
-    "CredError (which FunctionWorker.execute reclassified to a bare ValueError -> generic "
-    "failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire). "
-    "The boundary is now REACHABLE — gate-proven/consumption-covered by "
-    "scripts/ci/check_bpmn_error_allowlist.py and proven at the harness layer by "
-    "tests/unit/tools/workers/test_credenciamento.py::test_decred_guard_reaches_boundary_when_"
-    "allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN). This ENGINE test nonetheless stays xfail on "
-    "the STILL-open finding 1 (_CRED_MISSING_WORKERS_REASON): operadora.cred.prepare_dossier is not "
-    "in this probe's _CRED_WORKER_TOPICS drain (a local stub worker now exists in the production "
-    "bootstrap per DL-0033/t5, but wiring it into THIS probe's drain + flipping this engine xfail "
-    "needs a dedicated live-engine proof, out of scope here), so the instance still stalls at "
-    "ST_PrepareDossier before ever reaching the UT to submit the incomplete decision. (The "
-    "credenciamento-direction sibling is additionally blocked by finding 2, the documentos_refs "
-    "overwrite.) The two adverse guard codes stay T-E-deferred out of PRODUCTION_BPMN_ERROR_"
-    "ALLOWLIST until T-E, so on a live engine today the guard still fails closed to an audited "
-    "incident — identical runtime effect, boundary now reachable the moment T-E flips the allowlist."
+    "RETIRED (decisão do dono 2026-10-29, Opção D-2 do plano W8-W5-XFAIL-PLAN-v1 §4 — live-proven "
+    "em engine local CIB Seven; constant kept as regime documentation, cited by no marker — mirrors "
+    "the retired _NOTIFY_REGULATORIO_GAP_REASON): the guard shape is RESOLVED in src since "
+    "t5-workers-f2 (register_descredenciamento/register_cred_denial raise "
+    "WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED "
+    "bpmn errors — instead of a bespoke CredError reclassified to ValueError -> generic "
+    "failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire); "
+    "gate-proven/consumption-covered by scripts/ci/check_bpmn_error_allowlist.py and proven at the "
+    "harness layer by tests/unit/tools/workers/test_credenciamento.py::"
+    "test_decred_guard_reaches_boundary_when_allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN); "
+    "and the drain gap is RESOLVED since t2-dossier-a2a #178 (operadora.cred.prepare_dossier "
+    "registered + drained — the instance reaches the UT to submit the incomplete decision). The two "
+    "strict-xfail ENGINE markers (test_descredenciar_exige_campos_worker_guard / "
+    "test_negar_exige_campos_worker_guard) were REMOVED in the same PR that enabled the two adverse "
+    "codes — TEST-SCOPED ONLY (dono D-2): the enablement lives in THIS probe's harness "
+    "(bpmn_error_allowlist = CRED_BPMN_ERROR_ALLOWLIST | {ERR_DECRED_NOT_HUMAN, "
+    "ERR_CRED_DENIAL_NOT_HUMAN}); src/ stays untouched, PRODUCTION_BPMN_ERROR_ALLOWLIST keeps both "
+    "codes T-E-deferred per ADR-0030 §4 (cerca: tests/unit/tools/workers/test_credenciamento.py), "
+    "so on a live production engine the guard still fails closed to an audited incident (ADR-0007 "
+    "mitigation — human-visible, never a silent clean end). "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 
@@ -522,7 +530,16 @@ async def cred_probe(
         # ADR-0030: mirror the production allowlist (credenciamento.CRED_BPMN_ERROR_ALLOWLIST ->
         # service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST) so ERR_CRED_INVALID_PRESTADOR fires the
         # modeled BE_PrestadorInvalido boundary instead of demoting to an incident.
-        bpmn_error_allowlist=CRED_BPMN_ERROR_ALLOWLIST,
+        # DIVERGENCIA probe x producao — decisão do dono 2026-10-29 (Opção D-2, "Par CRED —
+        # Executar D-2 test-scoped", plano W8-W5-XFAIL-PLAN-v1 §4): os 2 códigos adversos
+        # *_NOT_HUMAN (ADR-0030 §4, T-E-deferred) são habilitados SOMENTE NESTE PROBE. src/ NÃO é
+        # tocado — `credenciamento.CRED_BPMN_ERROR_ALLOWLIST` e o union de produção em
+        # worker_runtime/service.py continuam SEM os 2 códigos (cerca:
+        # tests/unit/tools/workers/test_credenciamento.py::208-209), então a rota adversa em
+        # produção segue fail-closed para incidente AUDITADO (postura ADR-0007/T-E inalterada —
+        # recusa humana-visível garantida, nunca um fim limpo silencioso). Este union existe
+        # apenas no harness deste arquivo de teste.
+        bpmn_error_allowlist=CRED_BPMN_ERROR_ALLOWLIST | {ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN},
     )
     kafka = FakeKafkaPublisher()
     # ADR-0028 §1 DMN-evaluation seam: assess_admissibility (operadora.cred.check_network_
@@ -539,15 +556,11 @@ async def cred_probe(
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors test_sp_op_cancel_001.py's cancel_probe fixture, verbatim technique):
     # todo topico operadora.cred.* registrado no harness DEVE estar na lista de drain — falha
-    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 8
-    # topicos que register_credenciamento_workers de fato registra desde T2.5-p2b — finding 1
-    # narrowed to the single remaining operadora.cred.prepare_dossier gap).
+    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 9
+    # topicos que register_credenciamento_workers de fato registra desde t2-dossier-a2a #178 —
+    # os 8 T2.5-p2b + operadora.cred.prepare_dossier). Sem exclusões: a cerca é estrita.
     cred_registered = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
-    # DL-0033 (t5): operadora.cred.prepare_dossier is now a REGISTERED local stub, but this probe
-    # deliberately does NOT drain it (keeps the guard-shape/HITL engine xfails valid pending a
-    # dedicated live-engine proof that would flip them). Exclude it explicitly from the drift check;
-    # the guard still catches any OTHER registered-but-undrained worker.
-    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS) - {_PREPARE_DOSSIER_TOPIC}
+    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS)
     assert not missing_from_drain, (
         f"_CRED_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )
@@ -1007,7 +1020,6 @@ async def test_happy_path_credenciamento_aprovado_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_GUARD_SHAPE_MISMATCH_REASON, strict=True)
 async def test_descredenciar_exige_campos_worker_guard(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1019,6 +1031,10 @@ async def test_descredenciar_exige_campos_worker_guard(
     (#96): o boundary catch BE_DecredNaoHumano captura ERR_DECRED_NOT_HUMAN e termina a instancia de
     forma LIMPA em End_DecredBloqueadoNaoHumano (guard/fail-safe NEUTRO) — antes do fix, o mesmo
     cenario deixava a instancia com incidente TRAVADO (sem nenhum end event atingido).
+
+    Enablement dos 2 códigos adversos é TEST-SCOPED (Opção D-2 do dono 2026-10-29): o union vive
+    só no allowlist do probe (fixture `cred_probe`); src/ e a postura de produção ficam intocados
+    (ADR-0030 §4/T-E; ADR-0007) — ver `_CRED_GUARD_SHAPE_MISMATCH_REASON` (retired).
     """
     inst = await start_cred(direcao="descredenciamento", tem_beneficiarios_vinculados=False)
     iid = inst["id"]
@@ -1039,7 +1055,6 @@ async def test_descredenciar_exige_campos_worker_guard(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_GUARD_SHAPE_MISMATCH_REASON, strict=True)
 async def test_negar_exige_campos_worker_guard(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1049,6 +1064,10 @@ async def test_negar_exige_campos_worker_guard(
 
     Regressao GAP-CRED-1 (#96): o boundary catch BE_CredDenialNaoHumano captura ERR_CRED_DENIAL_NOT_HUMAN
     e termina a instancia de forma LIMPA em End_CredGuardBloqueadoNaoHumano (guard/fail-safe NEUTRO).
+
+    Enablement dos 2 códigos adversos é TEST-SCOPED (Opção D-2 do dono 2026-10-29): o union vive
+    só no allowlist do probe (fixture `cred_probe`); src/ e a postura de produção ficam intocados
+    (ADR-0030 §4/T-E; ADR-0007) — ver `_CRED_GUARD_SHAPE_MISMATCH_REASON` (retired).
     """
     inst = await start_cred(
         direcao="credenciamento",
