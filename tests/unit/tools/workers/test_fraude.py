@@ -637,6 +637,31 @@ def test_fraud_seal_custody_rejects_phi() -> None:
     assert excinfo.value.code == ERR_PHI_IN_CUSTODY
 
 
+@pytest.mark.parametrize(
+    "ref",
+    [
+        {"tipo": "guia", "cpf": "52998224725"},
+        {"pessoa": {"nome": "Fulano"}},
+        ["ref-ok", {"contato": "maria@example.invalid"}],
+        "ref-529.982.247-25",
+        {"obs": "ligar para fulano@example.invalid"},
+    ],
+)
+def test_fraud_seal_custody_rejects_phi_in_structured_refs(ref: object) -> None:
+    """F-058: dict/list refs are scanned (keys and values), not only str refs."""
+    with pytest.raises(FraudeError) as excinfo:
+        seal_custody_bundle({"evidencia_refs": ["ref-ok", ref]})
+    assert excinfo.value.code == ERR_PHI_IN_CUSTODY
+
+
+def test_fraud_seal_custody_accepts_clean_structured_and_hash_refs() -> None:
+    hex_ref = "a" * 52 + "123456789012"  # hex digest ending in a long digit run is not PHI
+    result = seal_custody_bundle(
+        {"evidencia_refs": ["ref-001", {"tipo": "guia", "record_hash": hex_ref}, hex_ref]}
+    )
+    assert result["custody_sealed"] is True
+
+
 def test_fraud_seal_custody_empty() -> None:
     result = seal_custody_bundle({"evidencia_refs": []})
     assert result["custody_sealed"] is True
