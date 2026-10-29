@@ -321,6 +321,15 @@ def compose_human_plane(
             timeout_seconds=interim_completion.timeout_seconds,
         )
     )
+    # --- INTERIM anexos do reembolso (DL-0158) -----------------------------------------
+    # So' LEITURA (a role do portal so' tem GetObject + Decrypt); o mesmo portao da conclusao.
+    reembolso_anexos = None
+    if interim_completion is not None and interim_completion.reembolso_anexos_bucket:
+        from maezo.gateway.reembolso_anexos import CustodiaDeAnexosS3
+
+        reembolso_anexos = CustodiaDeAnexosS3(
+            bucket=interim_completion.reembolso_anexos_bucket, kms_key_arn=None, tenant=scope.tenant
+        )
     read = EngineReadComposition(
         new_bundle=new_bundle,
         command_credentials=command.partition,
@@ -329,6 +338,7 @@ def compose_human_plane(
         direct_completion=completion,
         completion_audit=(None if completion is None else PostgresCompletionAudit(scope=scope, pool=pool)),
         escalation_context=escalation_context,
+        reembolso_anexos=reembolso_anexos,
         # DL-0149: the read-access record rides the SAME tenant pool and chain as the completion
         # link. Always installed with the human plane (best-effort: without it reads still serve and
         # log), and the staff case detail borrows it (`portal/api/production.py::_human_slots`).

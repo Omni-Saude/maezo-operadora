@@ -1102,6 +1102,37 @@ variable "cancel_pf_v1" {
   }
 }
 
+variable "reembolso_v1" {
+  description = <<-EOT
+    Reembolso pelo WhatsApp (DL-0156/DL-0157, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
+    `false` = o canal de antes, byte a byte (nenhuma coleta, nenhum arquivo recebido). Ligada, o Lucas
+    conduz o pedido (perguntas fechadas, laco de documentos, confirmacao), o processo abre com
+    `aviso_beneficiario_whatsapp=true` e devolve o resultado pela retomada. 100% dos pedidos vao a analise
+    humana. SO' dev; revisao juridica dos textos, DPO (retencao de anexos PHI) e operacao antes de producao.
+    Ordem de subida: plugin do motor, catalogo do portal, depois esta chave. Runbook: docs/runbooks/reembolso-001.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "reembolso_anexos_enabled" {
+  description = <<-EOT
+    Custodia dos anexos do reembolso (DL-0158): bucket S3 privado com SSE-KMS de chave propria, receptor so' grava,
+    portal so' le. DEFAULT false — com false nenhum recurso de `reembolso-anexos.tf` existe e o plan nao muda. Dado de
+    saude (Zona PHI): NAO LIGAR sem ciencia registrada do DPO. Exige `recipient_vault_enabled = true` (a role propria
+    do receptor so' existe com o cofre do telefone; sem ela a permissao iria para a role compartilhada).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.reembolso_anexos_enabled || var.recipient_vault_enabled
+    error_message = "reembolso_anexos_enabled exige recipient_vault_enabled = true (role propria do receptor)."
+  }
+}
+
 variable "lucas_v4" {
   description = <<-EOT
     Lucas do catalogo v4 (DL-0114, aprovado pelo dono em 16/10/2026 SO' para dev; revisao juridica e do DPO antes

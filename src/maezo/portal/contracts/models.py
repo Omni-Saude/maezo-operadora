@@ -1331,23 +1331,23 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-REEMBOLSO-001", "UT_DecidirPendenciaExpirada"): (
         "reembolso_pendencia",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_AnaliseReembolso"): (
         "reembolso_decisao",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_CoordenacaoReembolso"): (
         "reembolso_decisao",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_RegistrarPagamento"): (
         "reembolso_pagamento",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_RevisaoAuditorMedico"): (
         "reembolso_auditor",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-CANCEL-001", "UT_AnaliseRescisao"): (
         "cancel_decisao",

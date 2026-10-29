@@ -51,6 +51,7 @@ from .escalation_context import (
     parse_iso_duration,
 )
 from .models import Scope
+from .reembolso_context import ReembolsoContexto, ler_contexto_do_reembolso
 
 #: Engine ids are UUIDs. The shape is deliberately broader than a UUID but excludes every
 #: character that could turn one path segment into two, a query or a fragment.
@@ -118,6 +119,18 @@ class EngineRestEscalationContext(EscalationContextSource):
             return json.loads(bytes(body))
         except ValueError:
             raise GatewayRefusalError("admission_unavailable") from None
+
+    async def get_json(self, path: str, params: dict[str, str] | None = None) -> Any:
+        """DL-0158: o MESMO GET limitado, para o contexto do reembolso (`reembolso_context.py`)."""
+        if self._closed:
+            raise GatewayRefusalError("task_unavailable")
+        return await self._get(path, params)
+
+    def same_tenant(self, payload: Any) -> None:
+        self._same_tenant(payload)
+
+    async def read_reembolso(self, *, task_id: str) -> ReembolsoContexto:
+        return await ler_contexto_do_reembolso(self, task_id=task_id)
 
     def _same_tenant(self, payload: Any) -> None:
         if not isinstance(payload, dict) or payload.get("tenantId") != self.scope.tenant:

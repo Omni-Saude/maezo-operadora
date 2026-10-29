@@ -464,7 +464,7 @@ PREEXISTING_BINDINGS = [
         "UT_RegistrarPagamento",
         "reembolso_pagamento",
         ("data_pagamento",),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -472,7 +472,7 @@ PREEXISTING_BINDINGS = [
         "UT_DecidirPendenciaExpirada",
         "reembolso_pendencia",
         ("decisao_pendencia",),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -487,7 +487,7 @@ PREEXISTING_BINDINGS = [
             "info_solicitada",
             "texto_ao_beneficiario",
         ),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -502,7 +502,7 @@ PREEXISTING_BINDINGS = [
             "info_solicitada",
             "texto_ao_beneficiario",
         ),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -519,7 +519,7 @@ PREEXISTING_BINDINGS = [
             "info_solicitada",
             "texto_ao_beneficiario",
         ),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -527,7 +527,7 @@ PREEXISTING_BINDINGS = [
         "UT_RegistrarPagamento",
         "reembolso_pagamento",
         ("data_pagamento",),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
 ]

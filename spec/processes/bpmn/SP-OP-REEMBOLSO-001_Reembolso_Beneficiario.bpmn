@@ -89,7 +89,13 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
     <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie de analise (agente analista)" camunda:type="external" camunda:topic="operadora.reembolso.analyze_request">
       <bpmn:documentation>Convoca o agente analista (Marina-classe) via A2A: evidencias + situacao do prazo. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005).</bpmn:documentation>
       <bpmn:extensionElements>
-        <camunda:inputOutput><camunda:inputParameter name="situacao_prazo">${prazo.situacao_prazo}</camunda:inputParameter></camunda:inputOutput>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="situacao_prazo">${prazo.situacao_prazo}</camunda:inputParameter>
+          <!-- DL-0158: o inputOutput cria escopo local; o que o processo precisa sobe por estes outputs. A espera
+               pela resposta da beneficiaria termina sempre que o dossie e' (re)preparado. -->
+          <camunda:outputParameter name="situacao_prazo">${situacao_prazo}</camunda:outputParameter>
+          <camunda:outputParameter name="aguardando_resposta">${false}</camunda:outputParameter>
+        </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
       <bpmn:incoming>Flow_DocsOk_Dossie</bpmn:incoming>
@@ -99,6 +105,25 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
     <bpmn:userTask id="UT_AnaliseReembolso" name="Analise do analista de reembolso" camunda:candidateGroups="analise-reembolso">
       <bpmn:documentation>HITL L0 hard (ADR-0005): TODO pedido passa aqui (v0.2.0, DL-0156). Saidas: decisao_reembolso in {APROVAR, NEGAR, APROVAR_PARCIAL, SOLICITAR_INFO, SOLICITAR_AUDITOR}.
 APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige valor_reembolso_aprovado_cents (&lt; valor_solicitado_cents) + justificativa + fundamentacao_contratual + texto_ao_beneficiario. NEGAR exige justificativa + fundamentacao_contratual + texto_ao_beneficiario (e, no merito clinico, cid10_referencia/parecer_auditor). SOLICITAR_INFO exige info_solicitada (a pergunta que o Lucas leva a beneficiaria). A decisao sai em nome do analista (assignee, ADR-0007). SLA: `sla.sla_analise` (DMN reembolso_sla).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (DL-0158, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+             as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
+             decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
+        <camunda:formData>
+          <camunda:formField id="decisao_reembolso" label="Decisao" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar"/>
+            <camunda:value id="APROVAR_PARCIAL" name="Aprovar parcial"/>
+            <camunda:value id="NEGAR" name="Negar"/>
+            <camunda:value id="SOLICITAR_INFO" name="Pedir mais informacoes"/>
+            <camunda:value id="SOLICITAR_AUDITOR" name="Escalar ao medico auditor"/>
+          </camunda:formField>
+          <camunda:formField id="valor_reembolso_aprovado_cents" label="Valor aprovado (centavos)" type="long"/>
+          <camunda:formField id="justificativa" label="Justificativa (interna)" type="string"/>
+          <camunda:formField id="fundamentacao_contratual" label="Fundamentacao contratual (interna)" type="string"/>
+          <camunda:formField id="info_solicitada" label="Informacao pedida a beneficiaria" type="string"/>
+          <camunda:formField id="texto_ao_beneficiario" label="Texto a beneficiaria (negativa/parcial)" type="string"/>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_Dossie_UTAnalista</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAnalista_GW</bpmn:outgoing>
     </bpmn:userTask>
@@ -129,11 +154,48 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_CoordenacaoReembolso" name="Coordenacao de reembolso assume a analise" camunda:candidateGroups="coordenacao-reembolso">
       <bpmn:documentation>Escalation do SLA: mesmas decisoes e mesmos campos obrigatorios de UT_AnaliseReembolso (decisao continua HUMANA — nunca auto-nega por timeout).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (DL-0158, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+             as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
+             decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
+        <camunda:formData>
+          <camunda:formField id="decisao_reembolso" label="Decisao" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar"/>
+            <camunda:value id="APROVAR_PARCIAL" name="Aprovar parcial"/>
+            <camunda:value id="NEGAR" name="Negar"/>
+            <camunda:value id="SOLICITAR_INFO" name="Pedir mais informacoes"/>
+            <camunda:value id="SOLICITAR_AUDITOR" name="Escalar ao medico auditor"/>
+          </camunda:formField>
+          <camunda:formField id="valor_reembolso_aprovado_cents" label="Valor aprovado (centavos)" type="long"/>
+          <camunda:formField id="justificativa" label="Justificativa (interna)" type="string"/>
+          <camunda:formField id="fundamentacao_contratual" label="Fundamentacao contratual (interna)" type="string"/>
+          <camunda:formField id="info_solicitada" label="Informacao pedida a beneficiaria" type="string"/>
+          <camunda:formField id="texto_ao_beneficiario" label="Texto a beneficiaria (negativa/parcial)" type="string"/>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="UT_RevisaoAuditorMedico" name="Revisao do medico auditor (merito clinico)" camunda:candidateGroups="medico-auditor">
       <bpmn:documentation>Botao 'escalar' do analista (SOLICITAR_AUDITOR). Merito clinico (RN 424 / ADR-0005): APROVAR/NEGAR/APROVAR_PARCIAL; negativa/reducao exige parecer_auditor + cid10_referencia + auditor_id + texto_ao_beneficiario.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (DL-0158, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+             as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
+             decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
+        <camunda:formData>
+          <camunda:formField id="decisao_reembolso" label="Decisao do auditor" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar"/>
+            <camunda:value id="APROVAR_PARCIAL" name="Aprovar parcial"/>
+            <camunda:value id="NEGAR" name="Negar"/>
+          </camunda:formField>
+          <camunda:formField id="valor_reembolso_aprovado_cents" label="Valor aprovado (centavos)" type="long"/>
+          <camunda:formField id="justificativa" label="Justificativa (interna)" type="string"/>
+          <camunda:formField id="fundamentacao_contratual" label="Fundamentacao contratual (interna)" type="string"/>
+          <camunda:formField id="cid10_referencia" label="CID-10 de referencia" type="string"/>
+          <camunda:formField id="parecer_auditor" label="Parecer do auditor" type="string"/>
+          <camunda:formField id="texto_ao_beneficiario" label="Texto a beneficiaria (negativa/parcial)" type="string"/>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWDec_Auditor</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAuditor_GW</bpmn:outgoing>
     </bpmn:userTask>
@@ -155,6 +217,14 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_RegistrarPagamento" name="Registrar pagamento do reembolso (pago em DD/MM)" camunda:candidateGroups="financeiro-reembolso">
       <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0156: o worker issue_payment/CNAB e o caminho automatico R-058 foram removidos).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (DL-0158, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+             as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
+             decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
+        <camunda:formData>
+          <camunda:formField id="data_pagamento" label="Pago em (AAAA-MM-DD)" type="date"/>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_AvisoAprovado_Nao</bpmn:incoming>
       <bpmn:incoming>Flow_AvisarAprovado_Next</bpmn:incoming>
       <bpmn:incoming>Flow_BEAvisoAprovado_Next</bpmn:incoming>
@@ -311,6 +381,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.reembolso.pended</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso</camunda:inputParameter>
+          <!-- DL-0158: a instancia ESPERA a resposta da beneficiaria (o Lucas le' so' esta variavel, por nome, para
+               saber se uma mensagem dela e' a resposta). A correlacao de msg.reembolso.docs_received a volta a false. -->
+          <camunda:outputParameter name="aguardando_resposta">${true}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Solicitar_PubPended</bpmn:incoming>
@@ -334,6 +407,18 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     </bpmn:intermediateCatchEvent>
     <bpmn:userTask id="UT_DecidirPendenciaExpirada" name="Decidir destino da solicitacao com pendencia expirada" camunda:candidateGroups="analise-reembolso">
       <bpmn:documentation>Conservador (L0 hard): nem o cancelamento por inacao da beneficiaria e automatizado. Saidas: decisao_pendencia in {cancelar_solicitacao, conceder_prazo_extra, seguir_analise}. A expiracao NUNCA auto-nega.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (DL-0158, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+             as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
+             decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
+        <camunda:formData>
+          <camunda:formField id="decisao_pendencia" label="Destino da solicitacao" type="enum">
+            <camunda:value id="cancelar_solicitacao" name="Cancelar a solicitacao"/>
+            <camunda:value id="conceder_prazo_extra" name="Conceder prazo extra"/>
+            <camunda:value id="seguir_analise" name="Seguir para a analise"/>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PrazoPendencia_UT</bpmn:incoming>
       <bpmn:outgoing>Flow_UTPend_GW</bpmn:outgoing>
     </bpmn:userTask>

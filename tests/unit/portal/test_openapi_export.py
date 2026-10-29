@@ -78,6 +78,8 @@ EXPECTED_PATHS = {
     # reader of the contract can see what the interim path is before deciding to enable it.
     "/api/v1/portal/tasks/{task_id}/completion",
     "/api/v1/portal/tasks/{task_id}/context",
+    "/api/v1/portal/tasks/{task_id}/reembolso",
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}",
     "/api/v1/portal/tasks/{task_id}/assignment-candidates",
     "/api/v1/portal/tasks/{task_id}/assignment-context",
     "/api/v1/portal/tasks/{task_id}/assignments",

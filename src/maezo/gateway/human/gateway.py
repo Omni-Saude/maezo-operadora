@@ -6,7 +6,7 @@ or production capability is inferred from port shape or successful unit substitu
 """
 
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -16,7 +16,7 @@ from pydantic import TypeAdapter
 
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.context import TaskContextResponse
-from maezo.portal.contracts.models import OpaqueRef, Revision, TaskDecision, TaskSnapshot
+from maezo.portal.contracts.models import Centavos, OpaqueRef, Revision, TaskDecision, TaskSnapshot
 from maezo.portal.contracts.queues import (
     PublicTaskSnapshot,
     QueueFreshness,
@@ -26,6 +26,7 @@ from maezo.portal.contracts.queues import (
     TaskReadResponse,
     utc,
 )
+from maezo.portal.contracts.reembolso import ReembolsoAnexoRef, TaskReembolsoContextResponse
 
 from .completion import (
     COMPLETION_FORM_KEY,
@@ -35,7 +36,9 @@ from .completion import (
     CompletionAck,
     CompletionAuditEntry,
     CompletionAuditSink,
+    CompletionExtras,
     CompletionRefusal,
+    build_completion_extras,
     pseudonymize_notes,
 )
 from .credentials import HumanCommandCredentialPartition
@@ -86,6 +89,7 @@ from .receipt import (
     ReceiptIdentity,
     parse_public_receipt,
 )
+from .reembolso_context import REEMBOLSO_PROCESS_KEY, REEMBOLSO_TASKS, LeitorDeAnexos, ReembolsoContexto
 from .retomada_precheck import check_resumption_note
 
 _ReadResult = TypeVar("_ReadResult")
@@ -129,6 +133,7 @@ class HumanGateway:
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
         read_audit: ReadAccessAuditSink | None = None,
+        reembolso_anexos: LeitorDeAnexos | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
@@ -146,6 +151,8 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
+        # INTERIM (DL-0158): `None` keeps `read_reembolso_anexo` refusing (o contexto continua servido).
+        self._reembolso_anexos = reembolso_anexos
         # DL-0149: `None` does NOT refuse the context read (owner's decision, best-effort): the
         # read is served and `portal_read_audit_skipped` (reason=sink_absent) is logged.
         self._read_audit = read_audit
@@ -783,6 +790,136 @@ class HumanGateway:
         except Exception:
             raise ReadRefusalError("read_dependency_unavailable") from None
 
+    async def _reembolso_autorizado(
+        self, session_secret: str, task_id: str
+    ) -> tuple[ResolvedHumanSession, AuthoritativeTask, CurrentTaskAuthority, ReembolsoContexto]:
+        """INTERIM (DL-0158): a MESMA autorizacao de `read_escalation_context`, para uma tarefa do reembolso.
+
+        Sessao `staff` resolvida, tarefa que a membership pode ler (`_read_authorized`), e a tarefa e' do
+        SP-OP-REEMBOLSO-001 e uma das cinco do catalogo. So' depois o motor e' perguntado, pelo cliente
+        fixo."""
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        first = await self._read_session(session_secret)
+        task, authority = await self._read_authorized(first, task_id, queue=False)
+        snapshot = task.snapshot
+        if (
+            snapshot.process_definition_key != REEMBOLSO_PROCESS_KEY
+            or snapshot.task_definition_key not in REEMBOLSO_TASKS
+        ):
+            raise ReadRefusalError("resource_unavailable")
+        source = self._escalation_context
+        if source is None or source.scope != self._scope:
+            raise ReadRefusalError("read_dependency_unavailable")
+        try:
+            contexto = await source.read_reembolso(task_id=task_id)
+        except GatewayRefusalError as exc:
+            if exc.code == "task_unavailable":
+                raise ReadRefusalError("resource_unavailable") from None
+            raise ReadRefusalError("read_dependency_unavailable") from None
+        if contexto.task_definition_key != snapshot.task_definition_key:
+            raise ReadRefusalError("resource_unavailable")
+        final = await self._read_session(session_secret)
+        if final.principal != first.principal:
+            raise ReadRefusalError("refresh_required")
+        if min(task.valid_until, authority.valid_until) <= datetime.now(UTC):
+            raise ReadRefusalError("refresh_required")
+        return final, task, authority, contexto
+
+    async def read_reembolso_context(
+        self,
+        *,
+        session_secret: str,
+        task_id: str,
+        render: Callable[[TaskReembolsoContextResponse], _ReadResult],
+    ) -> _ReadResult:
+        """INTERIM (DL-0158): os dados fechados do pedido e a lista de anexos de uma tarefa do reembolso."""
+        try:
+            final, _task, _authority, contexto = await self._reembolso_autorizado(session_secret, task_id)
+            now = datetime.now(UTC)
+            response = TaskReembolsoContextResponse(
+                task_id=task_id,
+                task_definition_key=contexto.task_definition_key,  # type: ignore[arg-type]
+                protocolo=contexto.protocolo,
+                relacao_com_titular=contexto.relacao_com_titular,  # type: ignore[arg-type]
+                categoria_procedimento=contexto.categoria_procedimento,  # type: ignore[arg-type]
+                tipo_reembolso=contexto.tipo_reembolso,  # type: ignore[arg-type]
+                motivo_nao_rede=contexto.motivo_nao_rede,  # type: ignore[arg-type]
+                data_atendimento=contexto.data_atendimento,
+                data_solicitacao=contexto.data_solicitacao,
+                dias_desde_atendimento=contexto.dias_desde_atendimento,
+                valor_solicitado_cents=(
+                    None
+                    if contexto.valor_solicitado_cents is None
+                    else Centavos.model_validate(str(contexto.valor_solicitado_cents))
+                ),
+                decisao_reembolso=contexto.decisao_reembolso,  # type: ignore[arg-type]
+                valor_reembolso_aprovado_cents=(
+                    None
+                    if contexto.valor_reembolso_aprovado_cents is None
+                    else Centavos.model_validate(str(contexto.valor_reembolso_aprovado_cents))
+                ),
+                anexos=[
+                    ReembolsoAnexoRef(tipo=a.tipo, document_ref=a.document_ref)  # type: ignore[arg-type]
+                    for a in contexto.anexos
+                ],
+                situacao_prazo=contexto.situacao_prazo,  # type: ignore[arg-type]
+                resposta_beneficiario=contexto.resposta_beneficiario,
+                observed_at=now,
+            )
+            result = render(response)
+            await record_read_best_effort(
+                self._read_audit,
+                ReadAccessEntry.of(
+                    scope=self._scope,
+                    read_kind="reembolso_context",
+                    resource_ref=task_id,
+                    principal=final.principal,
+                    read_at=now,
+                ),
+            )
+            return result
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
+    async def read_reembolso_anexo(self, *, session_secret: str, task_id: str, document_ref: str) -> Any:
+        """INTERIM (DL-0158): os BYTES de UM anexo do pedido de uma tarefa que a pessoa pode ler.
+
+        So' sai se a referencia estiver no `documentos_refs` DAQUELA instancia e o sha256 do objeto conferir
+        com o registrado no processo (ADR-0020, principio do `input_hash`). Cada leitura servida vira um elo
+        `portal_read.reembolso_anexo` na trilha (quem, qual tarefa, quando; nunca o conteudo)."""
+        try:
+            leitor = self._reembolso_anexos
+            if leitor is None:
+                raise ReadRefusalError("read_dependency_unavailable")
+            final, _task, _authority, contexto = await self._reembolso_autorizado(session_secret, task_id)
+            anexo = contexto.anexo(document_ref)
+            if anexo is None:
+                raise ReadRefusalError("resource_unavailable")
+            try:
+                conteudo = await leitor.abrir(anexo.document_ref, sha256_esperado=anexo.sha256)
+            except Exception:
+                raise ReadRefusalError("read_dependency_unavailable") from None
+            await record_read_best_effort(
+                self._read_audit,
+                ReadAccessEntry.of(
+                    scope=self._scope,
+                    read_kind="reembolso_anexo",
+                    resource_ref=task_id,
+                    principal=final.principal,
+                    read_at=datetime.now(UTC),
+                ),
+            )
+            return conteudo
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
     async def complete_task(
         self,
         *,
@@ -792,6 +929,7 @@ class HumanGateway:
         resultado: str,
         notas_resolucao: str,
         form_key: str = COMPLETION_FORM_KEY,
+        extras: Mapping[str, object] | None = None,
     ) -> CompletedTask:
         """INTERIM (DL-0049): authorize a human, scrub the note, claim the revision, complete.
 
@@ -836,6 +974,8 @@ class HumanGateway:
             # Belt: the route's closed contract already refused this with 422. DL-0111: a form
             # without a note (`cancel_execucao`) never carries free text to the engine.
             raise ReadRefusalError("invalid_request")
+        if extras and not form.extras:
+            raise ReadRefusalError("invalid_request")
         outcome: AnyCompletionOutcome = resultado  # type: ignore[assignment]
         first = await self._read_session(session_secret)
         if not csrf_token or not secrets.compare_digest(csrf_token, first.record.csrf_token):
@@ -844,6 +984,12 @@ class HumanGateway:
         if audit is None or audit.scope != self._scope:
             raise GatewayRefusalError("production_capabilities_unavailable")
         notes = pseudonymize_notes(notas_resolucao) if form.note_variable is not None else None
+        # DL-0158: os extras do formulario, validados e com os textos pelo MESMO scrub da nota, ANTES das
+        # leituras remotas, do elo de intent e do motor (texto longo demais: `NotesTooLongError`).
+        try:
+            prontos = build_completion_extras(form, extras or {}) if form.extras else None
+        except ValueError:
+            raise ReadRefusalError("invalid_request") from None
         if notes is not None:
             # P5: the note the Helena would bar never leaves as a "completed" task. Before the
             # remote reads, the intent link and the engine; refuses with the rule GROUP only.
@@ -858,6 +1004,17 @@ class HumanGateway:
             UTC
         ) or current.membership.reviewed_until <= datetime.now(UTC):
             raise GatewayRefusalError("authority_unavailable")
+        # Quem concluiu, pelo SERVIDOR (referencia pseudonima da sessao): o navegador nunca escolhe.
+        completion_extras = (
+            None
+            if prontos is None and form.principal_variable is None
+            else (prontos or CompletionExtras(())).with_principal(
+                form.principal_variable, current.principal.principal_ref
+            )
+        )
+        digest_do_que_vai = (
+            notes.digest if notes is not None else (completion_extras.digest if completion_extras else None)
+        )
         entry = CompletionAuditEntry(
             scope=self._scope,
             phase="intent",
@@ -867,7 +1024,7 @@ class HumanGateway:
             snapshot=snap,
             authority_revision=task.authority_revision,
             resultado=outcome,
-            notes_digest=notes.digest if notes is not None else None,
+            notes_digest=digest_do_que_vai,
         )
         try:
             intent_ref, deduped = await audit.record(entry)
@@ -881,12 +1038,14 @@ class HumanGateway:
         await self._revalidate_before_effect(
             session_secret, first=first, current=current, task=task, authority=authority, entry=entry
         )
+        com_extras = {} if completion_extras is None else {"extras": completion_extras}
         acknowledgement = await self._legacy_ports().task.complete_task(
             task_id,
             resultado=outcome,
             notes=notes,
             expected_task_revision=snap.task_revision,
             form_key=form_key,
+            **com_extras,
         )
         if (
             type(acknowledgement) is not CompletionAck
@@ -906,7 +1065,7 @@ class HumanGateway:
                     snapshot=snap,
                     authority_revision=task.authority_revision,
                     resultado=outcome,
-                    notes_digest=notes.digest if notes is not None else None,
+                    notes_digest=digest_do_que_vai,
                     outcome="completed",
                 )
             )

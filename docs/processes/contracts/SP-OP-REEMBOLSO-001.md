@@ -58,7 +58,7 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 | `valor_solicitado_cents` | integer | sim | Valor pago pela beneficiaria, em centavos de BRL (inteiro — nunca `number`) |
 | `data_atendimento` | date | sim | Data do atendimento/despesa |
 | `data_solicitacao` | date | sim | Data da solicitacao (base de contagem de prazo) |
-| `documentos_refs` | json | sim | Lista de `{tipo: pedido_medico \| nota_fiscal, document_ref}`. Aceita **mais de um arquivo por tipo**. Aponta para a Zona PHI (ADR-0006); o engine nunca recebe o arquivo |
+| `documentos_refs` | json | sim | Lista de `{tipo: pedido_medico \| nota_fiscal, document_ref, sha256}`. Aceita **mais de um arquivo por tipo**. `document_ref` (`rdoc_<32hex>`) aponta para a custodia S3 da Zona PHI (DL-0158, ADR-0006); o engine nunca recebe o arquivo. `sha256` e' o do conteudo (principio do `input_hash`, ADR-0020): o portal recusa entregar um objeto que nao confere |
 | `aviso_beneficiario_whatsapp` | boolean | nao | `true` so quando o Lucas abriu o pedido com a flag `MAEZO_REEMBOLSO_V1` ligada. Sem ela (outra origem) o processo segue calado |
 | `agent_id` | string | nao | `lucas` quando ha aviso |
 | `conversation_id` | string | nao | Conversa do WhatsApp para o aviso |
@@ -78,7 +78,11 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 | `cid10_referencia` | string | Obrigatoria se NEGAR/APROVAR_PARCIAL por merito clinico |
 | `parecer_auditor` | string | Obrigatoria se a negativa/reducao decorre de `UT_RevisaoAuditorMedico` |
 | `decisao_pendencia` | string | `cancelar_solicitacao` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano decide) |
-| `data_pagamento` | date | Registrada pelo financeiro em `UT_RegistrarPagamento` ("pago em DD/MM") |
+| `data_pagamento` | date | Registrada pelo financeiro em `UT_RegistrarPagamento` ("pago em DD/MM"), ISO `AAAA-MM-DD` |
+| `analista_id` / `auditor_id` | string | Referencia PSEUDONIMA de quem concluiu a decisao no portal, preenchida pelo SERVIDOR (o navegador nunca escolhe). Exigida pela guarda L0 na negativa/reducao (DL-0158) |
+| `aguardando_resposta` | boolean | `true` ao entrar na espera da resposta da beneficiaria (`ST_PublishReembolsoPended`), `false` ao (re)preparar o dossie e na correlacao. E' a UNICA variavel que o Lucas le' para saber se uma mensagem dela e' a resposta (DL-0158) |
+| `resposta_beneficiario` | string | A resposta da beneficiaria a um pedido de informacao (texto ja' pelo scrub de identificadores, ate' 1000 caracteres), entregue pela correlacao de `msg.reembolso.docs_received`. PHI: so' exibida ao analista |
+| `documentos_adicionais_refs` | json | Os arquivos da resposta (`{tipo: complemento, document_ref, sha256}`), na mesma correlacao. Uma nova rodada de pedido de informacao substitui a lista anterior (o analista ve' a ultima) |
 
 `texto_ao_beneficiario` e `info_solicitada` sao **PHI** e **nunca** viajam no evento de aviso: o consumidor os le do historico do motor (`PHI_PROCESS_VARS`).
 
@@ -181,7 +185,7 @@ Texto livre do analista numa comunicacao adversa exige **revisao juridica antes 
 - Definicao do prazo de reembolso (preencher `reembolso_prazo.dmn`) e confirmacao dos prazos de `reembolso_sla.dmn`; base RN 566/2022.
 - Template Meta para aviso fora da janela de 24h.
 - Pessoas reais nos grupos `analise-reembolso`, `medico-auditor`, `coordenacao-reembolso` e `financeiro-reembolso`; confirmacao dos nomes contra a taxonomia organizacional.
-- Zona PHI para os comprovantes (foto/PDF): armazenamento, limites de tipo/tamanho e retencao de 5 anos (decisao do dono — DL-0157).
+- Zona PHI para os comprovantes (foto/PDF): custodia em S3 com SSE-KMS implementada para dev (DL-0158; JPG/PNG/PDF ate' 10 MiB); a retencao de 5 anos (decisao do dono — DL-0157) e a disposicao dos cinco textos humanos (`phi_completeness.py::DISPOSITIONS`) sao do DPO.
 - Politica de suspensao de prazo em pendencia.
 
 ## Tópicos a registrar (REPORTE)

@@ -2,6 +2,7 @@ import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { TaskOwnershipControls } from "./TaskOwnershipControls";
+import { ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
 import { TaskCompletionControls } from "./TaskCompletionControls";
 import { TaskContextPanel } from "./TaskContextPanel";
 
@@ -503,7 +504,19 @@ export function EmployeeQueues({
           onSessionUnavailable={clearForSessionFailure}
         />
       )}
-      {completionTask && csrfToken && (
+      {/* DL-0158: a tarefa do reembolso tem painel proprio (dados do pedido, anexos e o formulario dela). */}
+      {completionTask && completionForm.startsWith("reembolso_") && (
+        <ReembolsoTaskPanel
+          key={`reembolso ${sessionBinding} ${completionTask}`}
+          taskId={completionTask}
+          formKey={completionForm}
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+          onCompleted={() => void loadFirstPage()}
+        />
+      )}
+      {completionTask && csrfToken && !completionForm.startsWith("reembolso_") && (
         <TaskCompletionControls
           key={`conclusao\u0000${sessionBinding}\u0000${completionTask}`}
           taskId={completionTask}

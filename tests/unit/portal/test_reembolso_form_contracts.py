@@ -94,7 +94,7 @@ def _snapshot(*, task_key: str, form_key: str, allowed_inputs: tuple[str, ...]) 
         "form_key": form_key,
         "form_version": 1,
         "form_digest": DIGEST,
-        "form_source_status": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "form_source_status": "BPMN_FORMDATA",
         "task_revision": 11,
         "assignee_ref": None,
         "eligible_candidate_groups": (group,),
@@ -371,14 +371,14 @@ def test_non_auditor_form_cannot_author_clinical_merit(clinical_field: str) -> N
         ("UT_RevisaoAuditorMedico", "reembolso_auditor", AUDITOR_INPUTS),
     ],
 )
-def test_each_reembolso_task_has_exact_draft_binding(
+def test_each_reembolso_task_has_exact_formdata_binding(
     task_key: str, form_key: str, allowed_inputs: tuple[str, ...]
 ) -> None:
     snapshot = TaskSnapshot.model_validate(
         _snapshot(task_key=task_key, form_key=form_key, allowed_inputs=allowed_inputs)
     )
 
-    assert snapshot.form_source_status == "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"
+    assert snapshot.form_source_status == "BPMN_FORMDATA"
     assert snapshot.read_only_evidence is None
 
 
@@ -391,7 +391,7 @@ def test_reembolso_binding_rejects_wrong_form_source_inputs_and_projection() -> 
 
     for field, value in (
         ("form_key", "reembolso_auditor"),
-        ("form_source_status", "BPMN_FORMDATA"),
+        ("form_source_status", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"),
         ("allowed_inputs", (*DECISION_INPUTS, "parecer_auditor")),
         (
             "read_only_evidence",

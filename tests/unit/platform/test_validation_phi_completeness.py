@@ -1542,9 +1542,12 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         date="2026-10-28",
         pr="#1051",
         name="valor_reembolso_aprovado_cents",
-        name_delta=-1,
-        occurrence_delta=-1,
-        reason=("DL-0156 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "DL-0156/DL-0158 (reembolso v2): saiu do caminho do calculo e voltou como camunda:formField dos "
+            "formularios fechados do portal (analise, coordenacao, auditor): 1 -> 3 ocorrencias."
+        ),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1762,6 +1765,126 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=-4,
         reason=("DL-0156 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="aguardando_resposta",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): outputParameter booleano que marca a espera "
+            "pela resposta da beneficiaria."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="data_pagamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField (date) de UT_RegistrarPagamento."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="fundamentacao_contratual",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            " (texto; Disposition)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="info_solicitada",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField da analise/coordenacao "
+            "(texto; Disposition)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="justificativa",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            " (texto; Disposition)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="parecer_auditor",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
+            " (texto; Disposition)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="texto_ao_beneficiario",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            " (texto; Disposition)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="cid10_referencia",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
+            " (ja' listado em PHI_PROCESS_VARS)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="decisao_pendencia",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField (enum) de "
+            "UT_DecidirPendenciaExpirada."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="decisao_reembolso",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): camunda:formField (enum) da analise, "
+            "coordenacao e auditor."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-29",
+        pr="#1051",
+        name="situacao_prazo",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "DL-0158 (formularios do reembolso no portal): inputParameter/outputParameter de "
+            "ST_PrepararDossie (a DMN informativa)."
+        ),
+    ),
 )
 
 
@@ -1771,14 +1894,17 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
-        expected_clean = expected_names - 6 - 10
+        expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 346
+            expected_clean == 349
+        )  # DL-0158: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
+        assert (
+            expected_clean == 349
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 10,
+            SHAPE_SUSPECT: 15,
             CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
@@ -1808,14 +1934,14 @@ class TestBuckets:
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
         # DL-0156 (reembolso v2): -8 nomes saidos, +6 novos
-        assert len(live_sweep.names) == expected_names == 362
+        assert len(live_sweep.names) == expected_names == 370
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
         # DL-0156 (reembolso v2): -23 ocorrencias liquidas
-        assert len(live_sweep.refs) == expected_refs == 1718
+        assert len(live_sweep.refs) == expected_refs == 1743
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1870,10 +1996,15 @@ class TestBuckets:
             "diagnostico_oncologico_confirmado",
             "diagnostico_tea_ou_neurodesenvolvimento",
             "exames_convencionais_inconclusivos",
+            "fundamentacao_contratual",
             "fundamentacao_legal",
             "has_cid10_codes",
+            "info_solicitada",
+            "justificativa",
+            "parecer_auditor",
             "sintoma_codigo",
             "sintoma_reconhecido",
+            "texto_ao_beneficiario",
         )
 
     def test_every_shape_suspect_provenance_is_pinned(self, live_sweep: Sweep) -> None:
@@ -1883,6 +2014,28 @@ class TestBuckets:
             for name in live_sweep.by_bucket()[SHAPE_SUSPECT]
         }
         assert actual == {
+            "fundamentacao_contratual": [
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:122 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:171 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:193 (bpmn_form_field)",
+            ],
+            "info_solicitada": [
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:123 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:172 (bpmn_form_field)",
+            ],
+            "justificativa": [
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:121 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:170 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:192 (bpmn_form_field)",
+            ],
+            "parecer_auditor": [
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:195 (bpmn_form_field)",
+            ],
+            "texto_ao_beneficiario": [
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:124 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:173 (bpmn_form_field)",
+                "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:196 (bpmn_form_field)",
+            ],
             "auditor_id": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:384 (bpmn_form_field)",
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:470 (bpmn_form_field)",
@@ -1939,11 +2092,11 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (10)" in rendered
+        assert f"## {SHAPE_SUSPECT} (15)" in rendered
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (346)" in rendered
+            f"## {CLEAN} (349)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
@@ -1952,7 +2105,7 @@ class TestBuckets:
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        assert rendered.count("DRAFT/verify (DPO)") == 10
+        assert rendered.count("DRAFT/verify (DPO)") == 15  # DL-0158: +5 perguntas dos textos do reembolso
 
 
 # ---------------------------------------------------------------------------
@@ -2578,18 +2731,31 @@ class TestStructuralFreeTextSignal:
     def test_the_live_free_text_fields_are_pinned(self, live_sweep: Sweep) -> None:
         """The whole measured cost of the structural signal on today's corpus."""
         occurrences = [ref for ref in live_sweep.refs if ref.free_text]
-        assert len(occurrences) == 14
+        assert len(occurrences) == 27  # DL-0158: +13 dos formularios de texto do reembolso
         assert live_sweep.free_text_names == {
             "auditor_id",
             "cid10_referencia",
+            "fundamentacao_contratual",
             "fundamentacao_dut",
+            "info_solicitada",
+            "justificativa",
             "justificativa_clinica",
             "notas_resolucao",
+            "parecer_auditor",
+            "texto_ao_beneficiario",
         }
-        # Four of the five are already covered by the runtime control; `auditor_id`
-        # is the single new DPO question the signal costs, and it is dispositioned.
-        assert live_sweep.free_text_names - PHI_LISTED_NAMES == {"auditor_id"}
-        assert "auditor_id" in DISPOSITIONS
+        # Os ja' listados ficam com o controle de runtime; cada nome que o sinal custa e' uma pergunta ao DPO
+        # com disposicao (DL-0158: os cinco textos dos formularios do reembolso).
+        novos = live_sweep.free_text_names - PHI_LISTED_NAMES
+        assert novos == {
+            "auditor_id",
+            "fundamentacao_contratual",
+            "info_solicitada",
+            "justificativa",
+            "parecer_auditor",
+            "texto_ao_beneficiario",
+        }
+        assert novos <= set(DISPOSITIONS)
 
     def test_a_roll_entry_that_annotates_itself_free_text_is_suspect(self) -> None:
         found = declared_input_free_text_names(

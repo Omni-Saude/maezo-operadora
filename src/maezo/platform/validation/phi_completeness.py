@@ -547,6 +547,103 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
         d.name: d
         for d in (
             Disposition(
+                name="justificativa",
+                evidence=(
+                    "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:121 "
+                    "(bpmn_form_field; lines :121, :170, :192) — "
+                    'camunda:formField type="string" without a camunda:value domain on the '
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0156/DL-0158: UT_AnaliseReembolso, "
+                    "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). Written by the analyst/auditor only "
+                    "on NEGAR/APROVAR_PARCIAL (portal/contracts/models.py::_ReembolsoDecisionFields); "
+                    "scrubbed of identifiers by gateway/human/completion.py::build_completion_extras before "
+                    "the engine; read by the L0 guard tools/workers/reembolso.py::send_reembolso_denial."
+                ),
+                recommendation=(
+                    "RECOMMEND adding it to PHI_PROCESS_VARS. It is the INTERNAL justification of an adverse "
+                    "outcome about one identified beneficiary — the same class as the listed "
+                    "`justificativa_clinica` — and nothing bounds what the analyst types (clinical reasoning "
+                    "will appear in it). Today its only protection is that the BPMN never publishes it (the "
+                    "reembolso events carry tenant_id/protocolo/analista_id only) and the identifier scrub at"
+                    " completion; listing it would add the name-anchored worker-egress redaction. "
+                    "COUNTER-EVIDENCE: the bare name `justificativa` is generic, so listing it redacts any "
+                    "future process that reuses the name for non-clinical text — a cost the DPO should accept"
+                    " knowingly. DRAFT for dev; the flag stays off."
+                ),
+            ),
+            Disposition(
+                name="fundamentacao_contratual",
+                evidence=(
+                    "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:122 "
+                    "(bpmn_form_field; lines :122, :171, :193) — "
+                    'camunda:formField type="string" without a camunda:value domain on the '
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0156/DL-0158: UT_AnaliseReembolso, "
+                    "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). Contractual basis of a "
+                    "denial/reduction; same completion path and scrub as `justificativa`; required by the L0 "
+                    "guard."
+                ),
+                recommendation=(
+                    "RECOMMEND treating it like `fundamentacao_legal` (already a dispositioned question): "
+                    "free text a human writes to justify an adverse outcome about one identified subject. "
+                    "Usually a clause reference, but unbounded by construction. Never published by the "
+                    "process events. Listing it is the conservative answer; the DPO decides."
+                ),
+            ),
+            Disposition(
+                name="info_solicitada",
+                evidence=(
+                    "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:123 "
+                    "(bpmn_form_field; lines :123, :172) — "
+                    'camunda:formField type="string" without a camunda:value domain on the '
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0156/DL-0158: UT_AnaliseReembolso, "
+                    "UT_CoordenacaoReembolso). The question the analyst asks the beneficiary on "
+                    "SOLICITAR_INFO; read by "
+                    "platform/integrations/agent_resume.py::EngineHistoryReembolsoSource BY NAME from the "
+                    "engine history and sent to the beneficiary's own WhatsApp after the Lucas output fences "
+                    "(lucas_retomada.py::retomar_reembolso). The resume parser REFUSES an event that carries "
+                    "it (_TEXTOS_DO_ANALISTA_NO_EVENTO)."
+                ),
+                recommendation=(
+                    "RECOMMEND listing it. It is addressed TO the data subject and may restate health facts "
+                    "('envie o laudo do exame X'). Its legitimate egress is exactly one channel (the "
+                    "subject's own conversation) and the history read is name-scoped; listing it costs "
+                    "nothing on that path and closes generic worker egress."
+                ),
+            ),
+            Disposition(
+                name="texto_ao_beneficiario",
+                evidence=(
+                    "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:124 "
+                    "(bpmn_form_field; lines :124, :173, :196) — "
+                    'camunda:formField type="string" without a camunda:value domain on the '
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0156/DL-0158: UT_AnaliseReembolso, "
+                    "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). The text of a denial/reduction notice"
+                    " the beneficiary receives (DL-0156 item 5); required by the L0 guard; read by name from "
+                    "the history by the resume and sent after the output fences; refused in any event "
+                    "payload."
+                ),
+                recommendation=(
+                    "RECOMMEND listing it, for the same reasons as `info_solicitada`, with more weight: it is"
+                    " the adverse communication itself and will often carry the clinical/contractual reason. "
+                    "REQUIRES legal review of the wording before production regardless of this classification"
+                    " (DL-0156)."
+                ),
+            ),
+            Disposition(
+                name="parecer_auditor",
+                evidence=(
+                    "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:195 "
+                    "(bpmn_form_field; lines :195) — "
+                    "UT_RevisaoAuditorMedico only (DL-0158). The medical auditor's opinion on clinical merit;"
+                    " required with cid10_referencia on NEGAR/APROVAR_PARCIAL "
+                    "(models.py::ReembolsoAuditorInputs)."
+                ),
+                recommendation=(
+                    "RECOMMEND adding it to PHI_PROCESS_VARS without hesitation: it is clinical narrative by "
+                    "definition (the same class as `justificativa_clinica` and `laudo`), and its sibling "
+                    "`cid10_referencia` is already listed. No DMN reads it, so listing it costs no decision."
+                ),
+            ),
+            Disposition(
                 name="sintoma_reconhecido",
                 evidence=(
                     "spec/processes/dmn/triage_sufficiency.dmn:58 (dmn_input_expression) — a "

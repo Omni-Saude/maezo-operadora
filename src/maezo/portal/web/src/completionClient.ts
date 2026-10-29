@@ -7,7 +7,13 @@ export type CompletionOutcome = Schemas["TaskCompletionSubmission"]["resultado"]
 // DL-0111: a execucao do cancelamento no cadastro (`cancel_execucao`): um campo fechado, sem nota.
 export type CancelExecucaoOutcome = Schemas["CancelExecucaoCompletionSubmission"]["execucao_cadastro"];
 export type CancelExecucaoSubmission = Schemas["CancelExecucaoCompletionSubmission"];
-export type CompletionSubmission = Schemas["TaskCompletionSubmission"] | CancelExecucaoSubmission;
+// DL-0158: os quatro formularios do reembolso.
+export type ReembolsoSubmission =
+  | Schemas["ReembolsoDecisaoCompletionSubmission"]
+  | Schemas["ReembolsoAuditorCompletionSubmission"]
+  | Schemas["ReembolsoPendenciaCompletionSubmission"]
+  | Schemas["ReembolsoPagamentoCompletionSubmission"];
+export type CompletionSubmission = Schemas["TaskCompletionSubmission"] | CancelExecucaoSubmission | ReembolsoSubmission;
 export type CompletionResponse = Schemas["TaskCompletionResponse"];
 export type CompletionFailure =
   | Schemas["PortalCompletionError"]["code"]
@@ -49,12 +55,30 @@ const errorStatus: Readonly<Record<number, readonly CompletionFailure[]>> = {
   503: ["completion_dependency_unavailable"],
 };
 
+const reembolsoSchemas = [
+  wireSchema("ReembolsoDecisaoCompletionSubmission"),
+  wireSchema("ReembolsoAuditorCompletionSubmission"),
+  wireSchema("ReembolsoPendenciaCompletionSubmission"),
+  wireSchema("ReembolsoPagamentoCompletionSubmission"),
+];
+
 export function validCompletionSubmission(value: unknown): value is CompletionSubmission {
-  return validWire(value, submissionSchema) || validWire(value, cancelExecucaoSchema);
+  return (
+    validWire(value, submissionSchema) ||
+    validWire(value, cancelExecucaoSchema) ||
+    reembolsoSchemas.some((schema) => validWire(value, schema))
+  );
 }
 
 function submittedOutcome(submission: CompletionSubmission): string {
-  return "execucao_cadastro" in submission ? submission.execucao_cadastro : submission.resultado;
+  if ("execucao_cadastro" in submission) return submission.execucao_cadastro;
+  if ("kind" in submission) {
+    // DL-0158: o desfecho do reembolso. O registro de pagamento nao tem desfecho: o servidor responde "PAGO".
+    if (submission.kind === "reembolso_pagamento") return "PAGO";
+    if (submission.kind === "reembolso_pendencia") return submission.decisao_pendencia;
+    return submission.decisao_reembolso;
+  }
+  return submission.resultado;
 }
 
 function validateResponse(value: unknown, taskId: string, submission: CompletionSubmission): CompletionResponse | null {

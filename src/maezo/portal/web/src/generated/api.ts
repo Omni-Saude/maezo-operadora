@@ -745,6 +745,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/reembolso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso
+         * @description INTERIM (DL-0158): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+         *
+         *     Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
+         *     a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
+         *     fechado, o mapa de erros e `no-store` (o middleware do app).
+         */
+        get: operations["read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso Anexo
+         * @description INTERIM (DL-0158): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+         *     `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
+         *     da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.
+         */
+        get: operations["read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/vendor/submissions": {
         parameters: {
             query?: never;
@@ -3566,6 +3612,43 @@ export interface components {
             valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
             valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
         };
+        /** ReembolsoAnexoRef */
+        ReembolsoAnexoRef: {
+            /** Document Ref */
+            document_ref: string;
+            /**
+             * Tipo
+             * @enum {string}
+             */
+            tipo: "pedido_medico" | "nota_fiscal" | "complemento";
+        };
+        /**
+         * ReembolsoAuditorCompletionSubmission
+         * @description Medico auditor (`reembolso_auditor`).
+         */
+        ReembolsoAuditorCompletionSubmission: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_auditor";
+            /** Parecer Auditor */
+            parecer_auditor?: string | null;
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
         /**
          * ReembolsoAuditorInputs
          * @description Medical-merit form (BPMN 383-388); no clinical content is inferred.
@@ -3596,6 +3679,31 @@ export interface components {
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
         };
         /**
+         * ReembolsoDecisaoCompletionSubmission
+         * @description Analise e coordenacao (`reembolso_decisao`).
+         */
+        ReembolsoDecisaoCompletionSubmission: {
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_decisao";
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
          * ReembolsoDecisionInputs
          * @description Analyst/coordination form; identities and clinical merit stay server/auditor-owned.
          */
@@ -3621,6 +3729,19 @@ export interface components {
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
         };
         /**
+         * ReembolsoPagamentoCompletionSubmission
+         * @description Registro do pagamento feito fora do sistema (`reembolso_pagamento`).
+         */
+        ReembolsoPagamentoCompletionSubmission: {
+            /** Data Pagamento */
+            data_pagamento: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pagamento";
+        };
+        /**
          * ReembolsoPagamentoInputs
          * @description Registro do pagamento feito fora do sistema (DL-0156, ``UT_RegistrarPagamento``).
          *
@@ -3634,6 +3755,22 @@ export interface components {
              * @enum {string}
              */
             kind: "reembolso_pagamento";
+        };
+        /**
+         * ReembolsoPendenciaCompletionSubmission
+         * @description Pendencia expirada (`reembolso_pendencia`).
+         */
+        ReembolsoPendenciaCompletionSubmission: {
+            /**
+             * Decisao Pendencia
+             * @enum {string}
+             */
+            decisao_pendencia: "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pendencia";
         };
         /**
          * ReembolsoPendingInputs
@@ -3955,7 +4092,7 @@ export interface components {
             /** Process Definition Version */
             process_definition_version: string;
             /** Resultado */
-            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO");
+            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO") | ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR" | "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise" | "PAGO");
             /**
              * Schema
              * @default portal-task-completion.v1
@@ -4072,6 +4209,53 @@ export interface components {
              */
             schema: "portal-task-read.v1";
             task: components["schemas"]["PublicTaskSnapshot"];
+        };
+        /** TaskReembolsoContextResponse */
+        TaskReembolsoContextResponse: {
+            /** Anexos */
+            anexos: components["schemas"]["ReembolsoAnexoRef"][];
+            /** Categoria Procedimento */
+            categoria_procedimento: ("consulta" | "exame" | "terapia") | null;
+            /** Data Atendimento */
+            data_atendimento: string | null;
+            /** Data Solicitacao */
+            data_solicitacao: string | null;
+            /** Decisao Reembolso */
+            decisao_reembolso: ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR") | null;
+            /** Dias Desde Atendimento */
+            dias_desde_atendimento: number | null;
+            /** Motivo Nao Rede */
+            motivo_nao_rede: ("urgencia" | "sem_prestador_no_prazo" | "preferencia_fora_rede") | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Protocolo */
+            protocolo: string | null;
+            /** Relacao Com Titular */
+            relacao_com_titular: ("titular" | "dependente") | null;
+            /** Resposta Beneficiario */
+            resposta_beneficiario?: string | null;
+            /**
+             * Schema
+             * @default portal-task-reembolso.v1
+             * @constant
+             */
+            schema: "portal-task-reembolso.v1";
+            /** Situacao Prazo */
+            situacao_prazo?: ("DENTRO" | "FORA" | "NAO_AVALIADO") | null;
+            /**
+             * Task Definition Key
+             * @enum {string}
+             */
+            task_definition_key: "UT_AnaliseReembolso" | "UT_CoordenacaoReembolso" | "UT_RevisaoAuditorMedico" | "UT_DecidirPendenciaExpirada" | "UT_RegistrarPagamento";
+            /** Task Id */
+            task_id: string;
+            /** Tipo Reembolso */
+            tipo_reembolso: ("livre_escolha" | "fora_rede" | "urgencia_emergencia" | "indisponibilidade_rede") | null;
+            valor_reembolso_aprovado_cents: components["schemas"]["Centavos"] | null;
+            valor_solicitado_cents: components["schemas"]["Centavos"] | null;
         };
         /** UploadCompletion */
         UploadCompletion: {
@@ -7263,7 +7447,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"];
+                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"] | components["schemas"]["ReembolsoDecisaoCompletionSubmission"] | components["schemas"]["ReembolsoAuditorCompletionSubmission"] | components["schemas"]["ReembolsoPendenciaCompletionSubmission"] | components["schemas"]["ReembolsoPagamentoCompletionSubmission"];
             };
         };
         responses: {
@@ -7596,6 +7780,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReembolsoContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+        };
+    };
+    read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                document_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
                 };
             };
         };

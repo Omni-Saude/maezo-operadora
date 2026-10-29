@@ -29,7 +29,9 @@ from typing import Final, Literal
 from maezo.portal.contracts.context import MAX_SUMMARY
 from maezo.tools.workers.phi_vars import redact_free_text
 
+from .errors import GatewayRefusalError
 from .models import Scope
+from .reembolso_context import ReembolsoContexto
 
 __all__ = [
     "DECISION_REF",
@@ -106,6 +108,12 @@ class EscalationContextSource(ABC):
         never an upstream string.
         """
         raise NotImplementedError
+
+    async def read_reembolso(self, *, task_id: str) -> ReembolsoContexto:
+        """INTERIM (DL-0158): o contexto de uma tarefa de REEMBOLSO ja' autorizada. O padrao RECUSA: so'
+        o adaptador do motor (`EngineRestEscalationContext`) sabe ler."""
+        del task_id
+        raise GatewayRefusalError("task_unavailable")
 
     @abstractmethod
     async def close(self) -> None:
