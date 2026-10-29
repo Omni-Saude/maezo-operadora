@@ -10,7 +10,7 @@
 - Arts. 8º e 9º: divulgar e manter atualizadas identidade e contato, "em local de destaque e de fácil acesso, no sítio eletrônico do agente de tratamento" (mínimo: nome completo; meios de contato que viabilizem o exercício dos direitos dos titulares e o recebimento de comunicações da ANPD).
 - Art. 12: pessoa natural (do quadro ou externa) ou pessoa jurídica. Arts. 18–21: autonomia técnica e vedação a conflito de interesse; o encarregado declara qualquer situação de conflito (art. 20).
 
-## 0. Questão prévia (COUNSEL/DPO — não decidida aqui)
+## 0. Questão prévia (COUNSEL/DPO — não decidida aqui; hipótese não vinculante)
 Quem é o **controlador** dos dados dos beneficiários tratados pela plataforma? Pela leitura usual, a **operadora** (tenant, ex.: AMH) é controladora e a plataforma Maezo atua como **operadora no sentido da LGPD** (art. 6º da Res. 18: indicação facultativa para operadores). Consequências: (a) o ato abaixo é assinado pelo representante legal do **controlador**; (b) se a Omni/Maezo também for controladora de algum dado próprio (ex.: identidades do portal, `portal_*`), ela precisa de ato próprio. CODEOWNERS de `spec/policies/retention/` já lista um revisor DPO (`.github/CODEOWNERS:138,142`), mas isso **não** substitui o ato formal.
 
 ## 1. Minuta do ato
@@ -22,7 +22,7 @@ Quem é o **controlador** dos dados dos beneficiários tratados pela plataforma?
 > **Titular:** [NOME COMPLETO, se pessoa natural / NOME EMPRESARIAL + pessoa natural responsável, se pessoa jurídica] — [interno/externo].
 > **Substituto (art. 4º):** [NOME COMPLETO].
 >
-> **Formas de atuação e atividades (art. 3º, caput; art. 15):** receber reclamações e comunicações dos titulares, prestar esclarecimentos e adotar providências; receber comunicações da ANPD e adotar providências; orientar funcionários e contratados sobre práticas de proteção de dados; e, no âmbito da plataforma Maezo: (i) contra-assinar as decisões por relação do plano de eliminação (`spec/policies/retention/erasure-plan.template.yaml`); (ii) revisar pontes de identidade do erasure (D-26) e insumos GP11/M2/VW4; (iii) decidir aceitação de risco e prazos de DSR (LGPD art. 18/19) registrados nas issues da auditoria.
+> **Formas de atuação e atividades (art. 3º, caput; art. 15):** receber reclamações e comunicações dos titulares, prestar esclarecimentos e adotar providências; receber comunicações da ANPD e adotar providências; orientar funcionários e contratados sobre práticas de proteção de dados; e, no âmbito da plataforma Maezo: (i) contra-assinar as decisões por relação do plano de eliminação (`spec/policies/retention/erasure-plan.template.yaml`); (ii) revisar pontes de identidade do erasure (D-26) e insumos GP11/M2/VW4; (iii) opinar sobre aceitação de risco e prazos de DSR (LGPD art. 18/19) registrados nas issues da auditoria.
 >
 > **Autonomia e conflito de interesse (arts. 18–21):** o encarregado atua com autonomia técnica e declarou [não possuir / possuir, com as medidas: __] situação de conflito de interesse.
 >
@@ -37,4 +37,4 @@ Quem é o **controlador** dos dados dos beneficiários tratados pela plataforma?
 4. [ ] Contagem viva das relações a contra-assinar re-conferida no dia: hoje **43** (`src/maezo/platform/lifecycle/erasure_plan.py`, `spec/policies/retention/erasure-plan.template.yaml`, pins `tests/unit/platform/test_erasure_plan.py:831,833`; base `ae8c9f52`). **Atenção:** o PR #1074 (REEMBOLSO v2) adiciona a migração `0031_reembolso_coleta` e edita o plano de eliminação — se entrar antes da sessão, a contagem passa a 44.
 5. [ ] Sessão: o DPO decide por relação o triplo `decisao_dpo` / `base_legal` / `retencao` (vocabulário em `erasure-plan.template.yaml`); agentes não preenchem campos humanos.
 6. [ ] Pós-sessão: PR de DADOS com o que foi assinado, testes anti-drift verdes, linha da `docs/review-queue.md:27` atualizada (checklist §4 do pacote de sessão).
-7. [ ] Emenda de rótulo D-25 "41 → 43" (ou 44) registrada pelo dono no plano (D-25 já registrada como "41→43" em D-53..D-56).
+7. [ ] Rótulo D-25: "41→43" já registrado no plano (#1075); re-emendar para 44 só se o #1074 entrar antes da sessão.
