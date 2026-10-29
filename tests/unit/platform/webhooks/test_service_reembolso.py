@@ -114,5 +114,12 @@ def test_a_chave_esta_no_terraform_com_default_false_e_no_receptor() -> None:
         encoding="utf-8"
     )
     assert 'name = "MAEZO_REEMBOLSO_V1", value = tostring(var.reembolso_v1)' in receptor
+    # Decisao do dono (29/10/2026): ligada SO' em dev, no mesmo PR do codigo; nenhum outro ambiente.
     tfvars = (RAIZ / "deploy/aws-ecs/envs/dev-sa-east-1/lucas.auto.tfvars").read_text(encoding="utf-8")
-    assert "reembolso_v1" not in tfvars  # a chave NAO sobe ligada em lugar nenhum
+    assert re.search(r"^reembolso_v1\s*=\s*true\s*$", tfvars, re.M)
+    assert re.search(r"^reembolso_anexos_enabled\s*=\s*true\s*$", tfvars, re.M)
+    for ambiente in (RAIZ / "deploy/aws-ecs/envs").iterdir():
+        if ambiente.name == "dev-sa-east-1" or not ambiente.is_dir():
+            continue
+        for arquivo in ambiente.glob("*.tfvars"):
+            assert "reembolso_v1" not in arquivo.read_text(encoding="utf-8"), arquivo
