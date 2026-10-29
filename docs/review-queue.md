@@ -2463,3 +2463,14 @@ do encarregado art. 41 §4d e o conteudo desta DMN seguem sob revisao; §4o do a
 VETADO e nao integra). Enquanto nao promovido, o processo opera com as recusas tipadas
 preservadas: seam ausente/ilegivel = UNKNOWN (nunca zero) e rota fora do vocabulario fechado
 = incidente CONTRACT_MISMATCH (nunca honra por omissao).
+
+## REG-1.12 — fila COUNSEL: hipótese LGPD do fluxo evento clínico→cliente (2026-10-28)
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| âncora REG-1.12 em `docs/processes/New_BPMN/Adapted_BPMN/CA_2_UTILIZACAO_v4_adaptado.bpmn` — documentation de `UT_EC_Comunicar` (bloco M3 evento clínico→cliente; CORRECOES_BPMN_2026-10.md §14) | **Hipótese de base legal LGPD documentada como CANDIDATA (REG-1.12; FINDINGS F-M15).** A comunicação do evento clínico ao próprio titular envolve dado pessoal sensível; dispositivos CANDIDATOS pinados: arts. 7º e 11 da Lei 13.709/2018 (Planalto, acesso 2026-10-28; caputs verbatim em CORRECOES §11/§14). Falta para fechar: (1) escolha do dispositivo inciso-level (art. 11 e seus incisos; art. 11 §1º delimita o escopo a qualquer tratamento que revele dado sensível); (2) leitura operacional das vedações aplicáveis (art. 11 §4º — comunicação/uso compartilhado de dado de saúde com objetivo de vantagem econômica); (3) ratificação formal da hipótese. A âncora NÃO afirma base (fail-closed cercado por `tests/processes/test_ca2_v4_regression_reg112_lgpd_anchor.py`); nada opera sob a hipótese até ratificação | COUNSEL (jurídico) | `DRAFT — hipótese + gate documentados; nenhuma base afirmada até ratificação` |
+
+Nota de posicionamento (cerca W7): linha registrada como seção datada NO FIM do arquivo de
+propósito — `docs/delivery/w7/shadow-deviation-dashboard.md` ancora tokens deste arquivo por
+número de linha (618, 640–644) e uma inserção na tabela principal desalinha as âncoras
+("fonte movida", reproduzido no CI do PR #1067 e reparado aqui).

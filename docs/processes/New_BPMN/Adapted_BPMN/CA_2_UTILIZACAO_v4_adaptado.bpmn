@@ -270,7 +270,7 @@
         <bpmn:messageEventDefinition messageRef="Message_CA_EventoClinico"/>
       </bpmn:startEvent>
       <bpmn:intermediateThrowEvent id="UT_EC_Comunicar" name="Informar evento clínico ao cliente">
-        <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EVENTO_CLINICO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M3_F01 → M3_T_Classificar</bpmn:documentation>
+        <bpmn:documentation>Base legal (hipótese REG-1.12 — NÃO ratificada; gate COUNSEL): comunicação do evento clínico ao próprio titular envolve dado pessoal sensível; dispositivos CANDIDATOS: arts. 7º e 11 da Lei 13.709/2018 — nenhuma base é afirmada nesta âncora (escolha do dispositivo e ratificação: docs/review-queue.md). Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EVENTO_CLINICO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M3_F01 → M3_T_Classificar</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:inputOutput>
             <camunda:inputParameter name="marcoJornada">EVENTO_CLINICO</camunda:inputParameter>
@@ -400,7 +400,7 @@
       <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_07</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:boundaryEvent id="U1_B_DiaServico" name="Dia do serviço" cancelActivity="true" attachedToRef="U1_T_CheckIn">
-      <bpmn:documentation>Origem: ES_Boundary_SemCheckin</bpmn:documentation>
+      <bpmn:documentation>Garantia de atendimento (REG-1.11): o instante deste timer é a data marcada para a EFETIVA REALIZAÇÃO do consumo — RN 566/2022, art. 3º, § 1º: os prazos de garantia de atendimento são contados a partir da data da demanda pelo serviço ou procedimento até a sua efetiva realização; § 2º: cumpre o prazo o acesso a qualquer prestador habilitado no município da demanda, não a um prestador específico. O timer consome ${dataHoraServico} e NÃO cria, antecipa nem comprova prazo: o agendamento dentro das classes do art. 3º (consulta básica — pediatria, clínica médica, cirurgia geral, ginecologia e obstetrícia — até 7 dias úteis; demais especialidades médicas até 14; internação eletiva até 21; quadro completo em RN-566-2022.md:65-95) é contrato externo não executado. Urgência/emergência = resposta imediata (RN 623/2024 art. 12, I); se o prazo da RN 566/2022 for inferior ao do inciso II do art. 12 da RN 623/2024, prevalece o da RN 566/2022 (art. 12, § 1º — interseção já registrada em CA_1 v4 C3_EV_Expirou, REG-1.2). Fonte: DOU 02/01/2023, Seção 1, p. 94 (texto-base checksumado em docs/compliance/legal/textos-base/RN-566-2022.md:63-105, sha256 49c550bc…, MANIFEST 16/16, acesso 2026-10-27). | Origem: ES_Boundary_SemCheckin</bpmn:documentation>
       <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_05</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${dataHoraServico}</bpmn:timeDate>
