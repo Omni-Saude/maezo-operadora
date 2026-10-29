@@ -52,7 +52,8 @@ class CustodyBundle:
             logger.info("custody_bundle_sealed_empty", root=root)
             return root
 
-        # Domain-separated Merkle tree (RFC 6962 style): leaf = H(0x00 || ref), node =
+        # Merkle tree with RFC 6962 DOMAIN SEPARATION (tree SHAPE is not RFC 6962 — bottom-up pairs,
+        # odd node promoted; do not validate with a CT library): leaf = H(0x00 || ref), node =
         # H(0x01 || left || right), and an odd node is PROMOTED unchanged to the next level. The
         # previous construction duplicated the last node on odd levels, so [a, b, c] and
         # [a, b, c, c] sealed to the SAME root (forensic audit F-003) — a duplicated evidence item

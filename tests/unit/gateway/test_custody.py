@@ -158,3 +158,16 @@ def test_verify_bundle_rejects_missing_or_blank_root() -> None:
     assert not CustodyBundle.verify_bundle(None, refs)
     assert not CustodyBundle.verify_bundle(None, [])
     assert not CustodyBundle.verify_bundle("", refs)
+
+
+def test_legacy_duplicate_last_node_root_no_longer_verifies() -> None:
+    """A root built the pre-F-003 way (no prefixes, duplicated last node) must not verify."""
+    refs = ["a", "b", "c"]
+    level = [hashlib.sha256(r.encode()).digest() for r in refs]
+    while len(level) > 1:
+        level = [
+            hashlib.sha256(level[i] + (level[i + 1] if i + 1 < len(level) else level[i])).digest()
+            for i in range(0, len(level), 2)
+        ]
+    assert not CustodyBundle.verify_bundle(level[0].hex(), refs)
+    assert not CustodyBundle.verify_bundle(level[0].hex(), [*refs, "c"])
