@@ -90,7 +90,7 @@ consulta a business key antes de iniciar — start idempotente, sem duplicar adj
 | `cid10_referencia` | string | Obrigatoria se NEGAR por merito clinico |
 | `parecer_auditor` | string | Obrigatoria se a negativa/reducao decorre de `UT_RevisaoAuditorMedico` |
 | `decisao_pendencia` | string | `cancelar_solicitacao` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano decide) |
-| `comprovante_pagamento_ref` | string | Referencia do pagamento emitido por `operadora.reembolso.issue_payment` (caminho CNAB/conciliacao) |
+| `comprovante_pagamento_ref` | string | Referencia da ORDEM de pagamento registrada por `operadora.reembolso.issue_payment` (prefixo `ORD-`). Enquanto o adaptador CNAB/conciliacao nao existir, `payment_issued=False` e `payment_status=REGISTERED_PENDING_CNAB`: nenhum valor foi movido (F-009) |
 
 ## Topicos
 

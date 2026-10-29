@@ -1408,8 +1408,9 @@ def test_register_reembolso_workers_orphans_absent() -> None:
 def test_process_payment() -> None:
     """process_payment issues payment and returns comprovante."""
     result = process_payment("REEMB-009", 35000, "BEN-PSEUDO-002")
-    assert result["payment_issued"] is True
-    assert result["comprovante_pagamento_ref"].startswith("PAY-")
+    assert result["payment_issued"] is False  # F-009: no CNAB adapter, nothing moved
+    assert result["payment_status"] == "REGISTERED_PENDING_CNAB"
+    assert result["comprovante_pagamento_ref"].startswith("ORD-")
     assert result["valor_cents"] == 35000
 
 
@@ -1555,7 +1556,8 @@ def test_send_denial_success_negar() -> None:
         analista_id="analista-789",
     )
     result = send_reembolso_denial(inp)
-    assert result["denial_sent"] is True
+    assert result["denial_sent"] is False  # F-009: no channel wired
+    assert result["denial_registered"] is True
     assert result["decisao_reembolso"] == "NEGAR"
 
 
@@ -1571,7 +1573,8 @@ def test_send_denial_success_aprovado_parcial() -> None:
         parecer_auditor="Parecer tecnico favoravel a reducao",
     )
     result = send_reembolso_denial(inp)
-    assert result["denial_sent"] is True
+    assert result["denial_sent"] is False  # F-009: no channel wired
+    assert result["denial_registered"] is True
 
 
 # ---------------------------------------------------------------------------

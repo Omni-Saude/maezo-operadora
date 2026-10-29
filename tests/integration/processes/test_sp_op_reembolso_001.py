@@ -1175,7 +1175,7 @@ async def test_worker_send_reembolso_denial_recusa_sem_humano() -> None:
         },
         kafka=kafka,
     )
-    assert result_e["denial_sent"] is True
+    assert result_e["denial_registered"] is True and result_e["denial_sent"] is False
     assert result_e["decisao_reembolso"] == "NEGAR"
     assert result_e["analista_id"] == "analista-sintetico-001"
 
@@ -1193,7 +1193,7 @@ async def test_worker_send_reembolso_denial_recusa_sem_humano() -> None:
         },
         kafka=kafka,
     )
-    assert result_f["denial_sent"] is True
+    assert result_f["denial_registered"] is True and result_f["denial_sent"] is False
     assert result_f["decisao_reembolso"] == "APROVAR_PARCIAL"
     assert result_f["analista_id"] == "auditor-sintetico-001"
     # Kafka gap (finding 1): the entry function never calls kafka.publish itself.
