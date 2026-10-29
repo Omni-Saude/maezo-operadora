@@ -9,6 +9,7 @@
 |---|---|
 | `MEDICO-AUDITOR-PACKAGE.md` | Pendências do médico-auditor (§HDR do plano): (A) ratificação das 6 fontes do portão auth-criteria (GAP-AUTH-4) — nada ratificado hoje; (B) as 4 DMNs de triage red-flag DRAFT; (C) o desvio C2 `leitura_phi_clinica` em sombra até o muro 2027-02-09 (janela de evidências fecha 2027-01-26). |
 | `LUCAS-DPO-OPERACAO-PACKAGE.md` | Pendências do DPO / operação-financeiro do Lucas: D-25 (contras-assinaturas do plano de eliminação — 41 relações PENDENTE + insumos GP11/M2 + VW4), D-26 (pontes de identidade do erasure — substrato #965 em dark), revisões de habilitação do Lucas (2 DMNs, fonte de cobrança, DPA, flag do roteador) e a cadeia R1–R5 que bloqueia OP17. |
+| `ATO-INDICACAO-ENCARREGADO-MINUTA.md` | Minuta do ato formal de indicação do encarregado (Res. CD/ANPD 18/2024, arts. 3º–4º, 8º–9º) + checklist até a janela DPO de 2026-11-10 (DEC-07/PEND-075, issue #1082). Campos humanos em branco. |
 
 ## Consumo esperado
 
