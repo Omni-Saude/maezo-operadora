@@ -662,6 +662,28 @@ def test_fraud_seal_custody_accepts_clean_structured_and_hash_refs() -> None:
     assert result["custody_sealed"] is True
 
 
+def test_fraud_seal_custody_versioned_ref_is_not_an_email() -> None:
+    assert seal_custody_bundle({"evidencia_refs": ["dmn@1.2.3", "pkg@2.0"]})["custody_sealed"] is True
+
+
+def test_fraud_seal_custody_rejects_numeric_formatted_cpf_and_deep_structures() -> None:
+    with pytest.raises(FraudeError):
+        seal_custody_bundle({"evidencia_refs": [{"obs": ["x", {"y": "529.982.247-25"}]}]})
+    deep: object = "ref-ok"
+    for _ in range(9):
+        deep = {"n": deep}
+    with pytest.raises(FraudeError):
+        seal_custody_bundle({"evidencia_refs": [deep]})
+
+
+def test_fraud_seal_custody_refusal_log_does_not_echo_the_ref() -> None:
+    from structlog.testing import capture_logs
+
+    with capture_logs() as logs, pytest.raises(FraudeError):
+        seal_custody_bundle({"evidencia_refs": [{"contato": "maria@example.invalid"}]})
+    assert "maria@example.invalid" not in repr(logs)
+
+
 def test_fraud_seal_custody_empty() -> None:
     result = seal_custody_bundle({"evidencia_refs": []})
     assert result["custody_sealed"] is True

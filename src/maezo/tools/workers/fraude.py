@@ -586,7 +586,7 @@ def assemble_dossier(variables: dict[str, Any]) -> dict[str, Any]:
 #: matched here on purpose — a SHA-256 hex ref can legitimately end in a long digit run.
 _PHI_SHAPES = (
     re.compile(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b"),
-    re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"),
+    re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b"),
 )
 
 
@@ -594,6 +594,8 @@ def _phi_hit(ref: Any, depth: int = 0) -> str | None:
     """First PHI marker found in an evidence ref (str, or dict/list walked recursively), or None."""
     if depth > 6:
         return "estrutura_profunda"
+    if isinstance(ref, (int, float)) and not isinstance(ref, bool):
+        ref = str(ref)
     if isinstance(ref, str):
         lowered = ref.lower()
         for marker in _PHI_MARKERS:
