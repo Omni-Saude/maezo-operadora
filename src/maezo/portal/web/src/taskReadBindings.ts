@@ -277,12 +277,6 @@ export const taskReadBindings = [
     "task": "UT_RevisaoAuditorMedico",
     "form": "reembolso_auditor",
     "source": "BPMN_FORMDATA"
-  },
-  {
-    "process": "SP-OP-SUPP-001",
-    "task": "UT_RotearEncarregado",
-    "form": "suppression_encarregado",
-    "source": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"
   }
 ] as const;
 
@@ -476,8 +470,5 @@ export const taskReadInputs = {
   ],
   "reembolso_pendencia": [
     "decisao_pendencia"
-  ],
-  "suppression_encarregado": [
-    "decisao_encarregado"
   ]
 } as const;
