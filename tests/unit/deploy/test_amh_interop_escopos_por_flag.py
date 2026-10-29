@@ -60,17 +60,18 @@ def _terraform_minor() -> str | None:
     """`major.minor` of the local terraform, or None when absent."""
     if shutil.which("terraform") is None:
         return None
-    saida = subprocess.run(["terraform", "version", "-json"], capture_output=True, text=True, timeout=30)
     try:
+        saida = subprocess.run(["terraform", "version", "-json"], capture_output=True, text=True, timeout=30)
         versao = str(json.loads(saida.stdout)["terraform_version"])
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
         return None
     return ".".join(versao.split(".")[:2])
 
 
-# CI pins terraform 1.10.x (.github/workflows/ci.yml, setup-terraform `terraform_version`). Newer
+# The repo pins terraform 1.10.x (.github/workflows/ci.yml, `validate-terraform` job). Newer
 # consoles print locals as "(known after apply)" without a plan (forensic audit F-193), so the
 # real-evaluation check only runs on the pinned minor; the textual fences above always run.
+# KNOWN GAP: the CI `unit` job installs no terraform, so this check runs only on a local 1.10.x.
 _TERRAFORM_CI_MINOR = "1.10"
 
 
