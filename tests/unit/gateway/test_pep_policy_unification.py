@@ -342,6 +342,20 @@ def test_agent_allowlist_actions_all_in_matrix() -> None:
     assert checked > 0, "expected at least one agent autonomy_action to check"
 
 
+def test_no_agent_declares_a_hard_action() -> None:
+    """Hard items (negativa, decisao clinica, acusacao de fraude, ...) are human-only (AGENTS.md
+    regra 7): no agent.yaml may list one in `autonomy_actions` (forensic audit F-054/R-043)."""
+    hard = {name for name, policy in build_pep().matrix.actions.items() if policy.hard}
+    assert hard, "matrix must expose hard actions"
+    offenders = []
+    for agent_yaml in sorted(resolve_spec_agents_dir().glob("*/agent.yaml")):
+        data = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
+        for action in data.get("autonomy_actions") or []:
+            if isinstance(action, str) and action in hard:
+                offenders.append(f"{agent_yaml.parent.name}:{action}")
+    assert not offenders, f"agent.yaml declares hard action(s): {offenders}"
+
+
 # --- 12: overlay referencing an unknown action → PolicyError -------------------------
 
 
