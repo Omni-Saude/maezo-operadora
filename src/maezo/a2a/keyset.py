@@ -28,7 +28,7 @@ tenant id upper-cased, joined by a DOUBLE underscore (`_ENV_TENANT_SEPARATOR`). 
 `MAEZO_A2A_CARD_SIGNING_KEY__AMH` for tenant `"amh"`. The double-underscore delimiter guarantees a
 per-tenant variable can NEVER collide with the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` (which
 carries no `__` suffix), and the tenant id is validated against the platform's tenant convention
-(`^[a-z][a-z0-9_]*$`, the SAME `_SAFE_TENANT_ID` regex `gateway.audit_postgres.schema_for_tenant`
+(`[a-z][a-z0-9_]*`, whole string, the SAME `_SAFE_TENANT_ID` regex `gateway.audit_postgres.schema_for_tenant`
 uses at `audit_postgres.py:74` for anti-injection). Because that convention is lowercase
 `[a-z0-9_]` only, upper-casing it is INJECTIVE — two distinct tenants can never map to the same
 variable name (there is no hyphen→underscore folding that could alias `"a-b"` onto `"a_b"`). A
@@ -103,7 +103,7 @@ def per_tenant_key_env_var(tenant: str) -> str:
     """Return the env var name carrying `tenant`'s signing key: `MAEZO_A2A_CARD_SIGNING_KEY__<T>`.
 
     `<T>` is `tenant` upper-cased. Fail-closed: a `tenant` that is not a valid platform tenant id
-    (`^[a-z][a-z0-9_]*$`) raises `ValueError` rather than being coerced into a possibly-colliding
+    (`[a-z][a-z0-9_]*`, whole string) raises `ValueError` rather than being coerced into a possibly-colliding
     variable name — an ambiguous tenant→variable mapping is a cross-tenant-confusion vector, so it
     must refuse, never guess (mirroring `schema_for_tenant`'s fail-closed validation).
     """
