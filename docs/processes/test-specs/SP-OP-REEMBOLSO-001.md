@@ -40,6 +40,13 @@ tenant `amh`. Business key `REEMB-amh-{protocolo}`. Valores em **centavos inteir
 | `test_pendencia_expira_decisao_humana_nunca_auto_nega` | Timer `ICE_PrazoPendencia` (P5D) → `UT_DecidirPendenciaExpirada`; `cancelar_solicitacao` → `End_ReembolsoCancelado`; nunca negativa |
 | `test_conceder_prazo_extra_volta_a_aguardar` | `conceder_prazo_extra` rearma o timer de pendencia |
 
+## Resposta da beneficiaria e conclusao pelo portal (DL-0158)
+
+| Teste | Garante |
+|---|---|
+| `test_resposta_da_beneficiaria_pelo_lucas_volta_a_analise_com_texto_e_arquivos` | Com o turno REAL do Lucas e o transporte HTTP real: sem pendencia a mensagem nao e' resposta; `SOLICITAR_INFO` marca `aguardando_resposta=true`; texto + arquivo + TERMINEI fazem UMA correlacao que volta a `UT_AnaliseReembolso` com `resposta_beneficiario` (sem o CPF digitado) e `documentos_adicionais_refs`, e a espera termina |
+| `test_conclusao_tipada_do_portal_passa_pela_guarda_l0` | O corpo da conclusao interina do portal (valor `Long`, textos, `analista_id` do servidor) passa pela guarda L0 de `send_reembolso_denial` e leva o parcial ao pagamento humano, sem incidente |
+
 ## SLA
 
 | Teste | Garante |

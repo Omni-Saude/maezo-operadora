@@ -594,3 +594,130 @@ async def test_business_key_uma_instancia_por_protocolo(
     ativas = await engine.find_active_instances(inst["businessKey"])
     assert len(ativas) == 1
     assert inst["businessKey"] == f"REEMB-amh-{protocolo}"
+
+
+# ===========================================================================
+# DL-0158: a resposta da beneficiaria ao "pedir informacao", pelo turno REAL do Lucas, contra o motor real
+# ===========================================================================
+
+
+async def test_resposta_da_beneficiaria_pelo_lucas_volta_a_analise_com_texto_e_arquivos(
+    engine: EngineRest, reembolso_probe: ReembolsoEngineProbe, start_reembolso: Callable[..., Any]
+) -> None:
+    """O BPMN marca `aguardando_resposta`; o turno do Lucas (transporte HTTP real, sem dublê do motor) le'
+    so' essa variavel, junta texto e arquivo e, no TERMINEI, faz UMA correlacao auditada que devolve o pedido
+    a analise com `resposta_beneficiario` (pelo scrub) e `documentos_adicionais_refs`."""
+    from datetime import UTC, datetime
+
+    from maezo.domain.reembolso.pedido import PedidoReembolso
+    from maezo.gateway.reembolso_anexos import AnexoGuardado
+    from maezo.platform.webhooks.whatsapp.reembolso_store import MemoriaColetaReembolsoStore
+    from maezo.platform.webhooks.whatsapp.reembolso_turno import ReembolsoTurno
+    from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+    from maezo.tools.mcp_whatsapp.media import MidiaBaixada
+    from tests.support.audit_fakes import FakeStartAuditSink
+
+    protocolo = f"REE-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+    conversa = "wa:amh:hk1_" + uuid.uuid4().hex
+    inst = await start_reembolso(protocolo_reembolso=protocolo, conversation_id=conversa)
+    iid = inst["id"]
+    await _drive_to_analista(engine, reembolso_probe, iid)
+    assert await engine.get_history_variable(iid, "aguardando_resposta") is False
+
+    class _Custodia:
+        async def guardar_anexo(self, *, conversation_id: str, mime: str, conteudo: bytes) -> AnexoGuardado:
+            return AnexoGuardado("rdoc_" + "1" * 32, "c" * 64)
+
+    class _Baixador:
+        async def baixar(self, media_id: str) -> MidiaBaixada:
+            return MidiaBaixada(conteudo=b"%PDF teste", mime="application/pdf")
+
+    store = MemoriaColetaReembolsoStore()
+    agora = datetime.now(UTC)
+    await store.gravar(
+        conversa,
+        PedidoReembolso(etapa="aberto"),
+        protocolo=protocolo,
+        agora=agora,
+        expira_em=agora.replace(year=agora.year + 1),
+        revisao_esperada=None,
+    )
+    transporte = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    turno = ReembolsoTurno(
+        tenant_id="amh",
+        store=store,
+        cibseven=transporte,  # type: ignore[arg-type]
+        audit_sink=FakeStartAuditSink(),
+        custodia=_Custodia(),
+        baixador=_Baixador(),
+    )
+
+    async def _texto(texto: str) -> Any:
+        return await turno.tratar_texto(
+            conversation_id=conversa, texto=texto, beneficiario_pseudo_id="b", sinal_de_emergencia=False
+        )
+
+    try:
+        # Sem pendencia, a mensagem NAO e' resposta (segue o fluxo de sempre).
+        assert await _texto("bom dia") is None
+
+        await _decidir(
+            engine,
+            reembolso_probe,
+            iid,
+            {"decisao_reembolso": "SOLICITAR_INFO", "info_solicitada": "Qual o nome do profissional?"},
+        )
+        assert await engine.get_history_variable(iid, "aguardando_resposta") is True
+
+        assert (await _texto("Dra. Fulana, CPF 123.456.789-01")).evento == "resposta_iniciada"
+        arquivo = await turno.tratar_arquivo(
+            conversation_id=conversa, media_id="m1", mime_declarado="image/png"
+        )
+        assert arquivo is not None and arquivo.evento == "resposta_arquivo"
+        assert (await _texto("terminei")).evento == "resposta_enviada"
+        await reembolso_probe.drain()
+    finally:
+        await transporte.close()
+
+    # Voltou a analise, a espera acabou, a resposta (sem o CPF) e o arquivo estao no processo.
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ANALISTA in open_keys
+    assert await engine.activity_instance_count(iid, _UT_ANALISTA) == 2
+    assert await engine.get_variable(iid, "aguardando_resposta") is False
+    resposta = await engine.get_variable(iid, "resposta_beneficiario")
+    assert "Dra. Fulana" in resposta and "123.456.789-01" not in resposta
+    # `deserialize=False`: como o codigo de producao le' (`deserializeValues=false`); senao vem o bean
+    # do Jackson em vez do JSON.
+    import json
+
+    adicionais = json.loads(await engine.get_variable(iid, "documentos_adicionais_refs", deserialize=False))
+    assert [d["tipo"] for d in adicionais] == ["complemento"]
+
+
+async def test_conclusao_tipada_do_portal_passa_pela_guarda_l0(
+    engine: EngineRest, reembolso_probe: ReembolsoEngineProbe, start_reembolso: Callable[..., Any]
+) -> None:
+    """O que a conclusao interina do portal manda (valor como Long, textos, analista_id do servidor) e' o que
+    a guarda L0 de `send_reembolso_denial` aceita: parcial vai ao pagamento humano, sem incidente."""
+    inst = await start_reembolso()
+    iid = inst["id"]
+    ut = await _drive_to_analista(engine, reembolso_probe, iid)
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            f"/task/{ut.id}/complete",
+            json={
+                "variables": {
+                    "decisao_reembolso": {"value": "APROVAR_PARCIAL", "type": "String"},
+                    "valor_reembolso_aprovado_cents": {"value": 8000, "type": "Long"},
+                    "justificativa": {"value": "Teto contratual", "type": "String"},
+                    "fundamentacao_contratual": {"value": "Clausula 5", "type": "String"},
+                    "texto_ao_beneficiario": {"value": "Aprovamos parte do valor.", "type": "String"},
+                    "analista_id": {"value": "prn_" + "a" * 32, "type": "String"},
+                }
+            },
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    await reembolso_probe.drain()
+    assert await engine.incidents(iid) == []
+    pagamento = await engine.await_user_task(iid, _UT_PAGAMENTO)
+    assert "financeiro-reembolso" in pagamento.candidate_groups
