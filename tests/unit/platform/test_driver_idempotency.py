@@ -197,3 +197,12 @@ async def test_a_tenant_that_is_not_a_valid_schema_identifier_is_refused() -> No
     """Anti-injection: the tenant becomes a `SET search_path TO "..."` literal."""
     with pytest.raises(Exception, match="(?i)tenant|schema"):
         PostgresDriverIdempotencyRegistry(dsn=_DSN, tenant='amh"; DROP SCHEMA public; --')
+
+
+async def test_mark_processed_and_release_are_tenant_scoped() -> None:
+    """Mutation guard (audit R-117 / F-190): the tenant is bound on seal and on release."""
+    conn = _FakeConn(["k1", "k1"])
+    registry = _registry(conn)
+    await registry.mark_processed("k1")
+    await registry.release("k1")
+    assert [args for _sql, args in conn.calls] == [("k1", "amh"), ("k1", "amh")]

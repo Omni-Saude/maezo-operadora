@@ -312,3 +312,19 @@ def test_c2_declared_without_tuple_refuses_the_whole_egress_fail_closed() -> Non
     assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
     assert telemetry._attempts[SuppressionEgressAttempt.EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE] == 1
     assert telemetry.phi_egress_violations == 0  # contenção ≠ violação (§4e critério 4)
+
+
+@pytest.mark.parametrize("k", [0, -1])
+def test_k_anon_floor_must_be_positive(k: int) -> None:
+    """Mutation guard (audit R-117): `k > 0` — k=0 or negative is a contract mismatch."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=k)
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+
+
+def test_k_equal_one_is_a_valid_floor() -> None:
+    """Mutation guard (audit R-117): `k > 0` must accept k=1 (a `k > 1` mutant would refuse)."""
+    lines = [_line(f"o{i}", (f"celula-{i % 3}",)) for i in range(EGRESS_AUDIENCE_GATE_MINIMUM)]
+    export = prepare_egress_export(lines, audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=1)
+    assert export.k == 1
+    assert export.suppressed_lines == 0
