@@ -3,7 +3,7 @@ import type { components } from "./generated/api";
 
 type Schemas = components["schemas"];
 
-// INTERIM (DL-0159). Os dados FECHADOS do pedido de reembolso e a lista de anexos da tarefa aberta. A forma
+// INTERIM (DL-0160). Os dados FECHADOS do pedido de reembolso e a lista de anexos da tarefa aberta. A forma
 // vem do artefato OpenAPI revisado, nunca redigitada: um campo que o servidor acrescente sem contrato revisado
 // invalida a resposta em vez de aparecer na tela de quem decide.
 export type ReembolsoContext = Schemas["TaskReembolsoContextResponse"];

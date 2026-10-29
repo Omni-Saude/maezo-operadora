@@ -221,7 +221,7 @@ async def test_the_route_answers_only_get(method):
 async def test_the_route_lives_on_its_own_router_and_the_read_surface_is_unchanged():
     """The shortcut is deletable whole: the two real read routes must stay two."""
     assert {r.path for r in task_router.routes} == {PREFIX, PREFIX + "/{task_id}"}
-    # DL-0159: as duas leituras interinas do reembolso moram no MESMO router (mesmo portao).
+    # DL-0160: as duas leituras interinas do reembolso moram no MESMO router (mesmo portao).
     assert {r.path for r in context_router.routes} == {
         PATH.replace("task-1", "{task_id}"),
         PREFIX + "/{task_id}/reembolso",

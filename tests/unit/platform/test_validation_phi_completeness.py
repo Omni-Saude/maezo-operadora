@@ -140,7 +140,7 @@ class TestNonVacuity:
         # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
         assert (
             len({p for p in touched if p.suffix == ".dmn"}) == 64
-        )  # VW4/GP11: +suppression_routing; DL-0157: reembolso -2 +1
+        )  # VW4/GP11: +suppression_routing; DL-0158: reembolso -2 +1
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -1504,7 +1504,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="cobertura_prevista",
         name_delta=-1,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        reason=("DL-0158 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1512,7 +1512,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="dentro_tabela",
         name_delta=-1,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        reason=("DL-0158 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1520,7 +1520,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="fonte_tabela",
         name_delta=-1,
         occurrence_delta=-1,
-        reason=("DL-0157 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        reason=("DL-0158 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1528,7 +1528,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="multiplo_tabela_aplicado",
         name_delta=-1,
         occurrence_delta=-1,
-        reason=("DL-0157 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        reason=("DL-0158 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1536,7 +1536,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="requer_avaliacao_clinica",
         name_delta=-1,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
+        reason=("DL-0158 (reembolso v2): a variavel saiu do corpus com o calculo e o pagamento removidos."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1545,7 +1545,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=0,
         occurrence_delta=2,
         reason=(
-            "DL-0157/DL-0159 (reembolso v2): saiu do caminho do calculo e voltou como camunda:formField dos "
+            "DL-0158/DL-0160 (reembolso v2): saiu do caminho do calculo e voltou como camunda:formField dos "
             "formularios fechados do portal (analise, coordenacao, auditor): 1 -> 3 ocorrencias."
         ),
     ),
@@ -1555,7 +1555,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="aviso_beneficiario_whatsapp",
         name_delta=1,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1563,7 +1563,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="dias_desde_atendimento",
         name_delta=1,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1571,7 +1571,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="motivo_nao_rede",
         name_delta=1,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1579,7 +1579,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="prazo",
         name_delta=1,
         occurrence_delta=2,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1587,7 +1587,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="relacao_com_titular",
         name_delta=1,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1595,7 +1595,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="situacao_prazo",
         name_delta=1,
         occurrence_delta=3,
-        reason=("DL-0157 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
+        reason=("DL-0158 (reembolso v2): nome novo (aviso, prazo informativo ou dado do pedido); nao PHI."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1603,7 +1603,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="admissibilidade",
         name_delta=0,
         occurrence_delta=-3,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1611,7 +1611,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="agent_id",
         name_delta=0,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1619,7 +1619,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="auto_aprovacao",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1627,7 +1627,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="beneficiario_ativo",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1635,7 +1635,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="calculo",
         name_delta=0,
         occurrence_delta=-5,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1643,7 +1643,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="carencia_cumprida",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1651,7 +1651,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="categoria_procedimento",
         name_delta=0,
         occurrence_delta=-1,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1659,7 +1659,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="conversation_id",
         name_delta=0,
         occurrence_delta=1,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1667,7 +1667,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="decisao_reembolso",
         name_delta=0,
         occurrence_delta=2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1675,7 +1675,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="dentro_prazo",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1683,7 +1683,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="dentro_teto_l2",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1691,7 +1691,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="documentacao_completa",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1699,7 +1699,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_desfecho",
         name_delta=0,
         occurrence_delta=-1,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1707,7 +1707,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_payload_vars",
         name_delta=0,
         occurrence_delta=4,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1715,7 +1715,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_topic",
         name_delta=0,
         occurrence_delta=4,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1723,7 +1723,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="motivo",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1731,7 +1731,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="recomendacao",
         name_delta=0,
         occurrence_delta=-2,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1739,7 +1739,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="resultado",
         name_delta=0,
         occurrence_delta=5,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1747,7 +1747,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="roteamento",
         name_delta=0,
         occurrence_delta=-3,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1755,7 +1755,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="tipo_reembolso",
         name_delta=0,
         occurrence_delta=-1,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-28",
@@ -1763,7 +1763,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="valor_calculado_tabela_cents",
         name_delta=0,
         occurrence_delta=-4,
-        reason=("DL-0157 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
+        reason=("DL-0158 (reembolso v2): a reescrita do BPMN mudou o numero de ocorrencias deste nome."),
     ),
     CorpusDelta(
         date="2026-10-29",
@@ -1772,7 +1772,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=2,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): outputParameter booleano que marca a espera "
+            "DL-0160 (formularios do reembolso no portal): outputParameter booleano que marca a espera "
             "pela resposta da beneficiaria."
         ),
     ),
@@ -1783,7 +1783,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField (date) de UT_RegistrarPagamento."
+            "DL-0160 (formularios do reembolso no portal): camunda:formField (date) de UT_RegistrarPagamento."
         ),
     ),
     CorpusDelta(
@@ -1793,7 +1793,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=3,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            "DL-0160 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
             " (texto; Disposition)."
         ),
     ),
@@ -1804,7 +1804,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=2,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField da analise/coordenacao "
+            "DL-0160 (formularios do reembolso no portal): camunda:formField da analise/coordenacao "
             "(texto; Disposition)."
         ),
     ),
@@ -1815,7 +1815,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=3,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            "DL-0160 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
             " (texto; Disposition)."
         ),
     ),
@@ -1826,7 +1826,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
+            "DL-0160 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
             " (texto; Disposition)."
         ),
     ),
@@ -1837,7 +1837,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=3,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
+            "DL-0160 (formularios do reembolso no portal): camunda:formField dos formularios de decisao"
             " (texto; Disposition)."
         ),
     ),
@@ -1848,7 +1848,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=0,
         occurrence_delta=1,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
+            "DL-0160 (formularios do reembolso no portal): camunda:formField de UT_RevisaoAuditorMedico"
             " (ja' listado em PHI_PROCESS_VARS)."
         ),
     ),
@@ -1859,7 +1859,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=0,
         occurrence_delta=1,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField (enum) de "
+            "DL-0160 (formularios do reembolso no portal): camunda:formField (enum) de "
             "UT_DecidirPendenciaExpirada."
         ),
     ),
@@ -1870,7 +1870,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=0,
         occurrence_delta=3,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): camunda:formField (enum) da analise, "
+            "DL-0160 (formularios do reembolso no portal): camunda:formField (enum) da analise, "
             "coordenacao e auditor."
         ),
     ),
@@ -1881,7 +1881,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=0,
         occurrence_delta=2,
         reason=(
-            "DL-0159 (formularios do reembolso no portal): inputParameter/outputParameter de "
+            "DL-0160 (formularios do reembolso no portal): inputParameter/outputParameter de "
             "ST_PrepararDossie (a DMN informativa)."
         ),
     ),
@@ -1897,7 +1897,7 @@ class TestBuckets:
         expected_clean = expected_names - 6 - 15
         assert (
             expected_clean == 349
-        )  # DL-0159: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
+        )  # DL-0160: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
         assert (
             expected_clean == 349
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
@@ -1933,14 +1933,14 @@ class TestBuckets:
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
-        # DL-0157 (reembolso v2): -8 nomes saidos, +6 novos
+        # DL-0158 (reembolso v2): -8 nomes saidos, +6 novos
         assert len(live_sweep.names) == expected_names == 370
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
-        # DL-0157 (reembolso v2): -23 ocorrencias liquidas
+        # DL-0158 (reembolso v2): -23 ocorrencias liquidas
         assert len(live_sweep.refs) == expected_refs == 1743
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
@@ -2105,7 +2105,7 @@ class TestBuckets:
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        assert rendered.count("DRAFT/verify (DPO)") == 15  # DL-0159: +5 perguntas dos textos do reembolso
+        assert rendered.count("DRAFT/verify (DPO)") == 15  # DL-0160: +5 perguntas dos textos do reembolso
 
 
 # ---------------------------------------------------------------------------
@@ -2731,7 +2731,7 @@ class TestStructuralFreeTextSignal:
     def test_the_live_free_text_fields_are_pinned(self, live_sweep: Sweep) -> None:
         """The whole measured cost of the structural signal on today's corpus."""
         occurrences = [ref for ref in live_sweep.refs if ref.free_text]
-        assert len(occurrences) == 27  # DL-0159: +13 dos formularios de texto do reembolso
+        assert len(occurrences) == 27  # DL-0160: +13 dos formularios de texto do reembolso
         assert live_sweep.free_text_names == {
             "auditor_id",
             "cid10_referencia",
@@ -2745,7 +2745,7 @@ class TestStructuralFreeTextSignal:
             "texto_ao_beneficiario",
         }
         # Os ja' listados ficam com o controle de runtime; cada nome que o sinal custa e' uma pergunta ao DPO
-        # com disposicao (DL-0159: os cinco textos dos formularios do reembolso).
+        # com disposicao (DL-0160: os cinco textos dos formularios do reembolso).
         novos = live_sweep.free_text_names - PHI_LISTED_NAMES
         assert novos == {
             "auditor_id",

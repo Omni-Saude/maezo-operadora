@@ -367,7 +367,7 @@ def _sitios() -> list[_Sitio]:
             },
             "ausente": "SEM DADO",
         },
-        # `marina._build_dossier/reembolso` saiu em 28/10/2026 (DL-0157): o reembolso v2 nao tem fato booleano
+        # `marina._build_dossier/reembolso` saiu em 28/10/2026 (DL-0158): o reembolso v2 nao tem fato booleano
         # pre-resolvido (sem cobertura, tabela nem teto por maquina), entao nao ha rotulo de SIM/NAO/SEM
         # DADO a provar.
         {

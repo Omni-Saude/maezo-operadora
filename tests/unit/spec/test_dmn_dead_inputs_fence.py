@@ -95,7 +95,7 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("pagto_sla.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("recurso_eligibility.dmn", "in_reason_code", "glosa_reason_code"),
         ("recurso_eligibility.dmn", "in_valor", "valor_glosado_brl"),
-        # DL-0157: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
+        # DL-0158: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
         # (DRAFT/verify). Quando o
         # juridico definir, as linhas DENTRO/FORA passam a ler a coluna e esta linha sai.
         ("reembolso_prazo.dmn", "in_dias", "dias_desde_atendimento"),

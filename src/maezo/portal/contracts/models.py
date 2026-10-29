@@ -162,7 +162,7 @@ FormKey = Literal[
     "reembolso_pendencia",
     "reembolso_decisao",
     "reembolso_auditor",
-    # DL-0157 (SP-OP-REEMBOLSO-001 v0.2.0): o financeiro registra o pagamento feito fora do sistema.
+    # DL-0158 (SP-OP-REEMBOLSO-001 v0.2.0): o financeiro registra o pagamento feito fora do sistema.
     "reembolso_pagamento",
     "cancel_decisao",
     "inad_decisao",
@@ -606,7 +606,7 @@ class _ReembolsoDecisionFields(_FrozenContract):
     valor_reembolso_aprovado_cents: Centavos | None = None
     justificativa: RequiredText | None = None
     fundamentacao_contratual: RequiredText | None = None
-    # DL-0157: texto ao beneficiario (negativa/reducao) e pergunta ao beneficiario (pedir informacao),
+    # DL-0158: texto ao beneficiario (negativa/reducao) e pergunta ao beneficiario (pedir informacao),
     # ambos escritos pelo analista; `justificativa`/`fundamentacao_contratual` seguem internas.
     info_solicitada: RequiredText | None = None
     texto_ao_beneficiario: RequiredText | None = None
@@ -671,7 +671,7 @@ class ReembolsoAuditorInputs(_ReembolsoDecisionFields):
 
 
 class ReembolsoPagamentoInputs(_FrozenContract):
-    """Registro do pagamento feito fora do sistema (DL-0157, ``UT_RegistrarPagamento``).
+    """Registro do pagamento feito fora do sistema (DL-0158, ``UT_RegistrarPagamento``).
 
     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
     """

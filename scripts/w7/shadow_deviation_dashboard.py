@@ -27,7 +27,7 @@ Fontes rastreadas (as ÚNICAS; cada linha do artefato cita arquivo:linha)
 2. `docs/plans/w5-5-1-flags-reancoragem.md` §3 — inventário rastreado das flags de
    habilitação dark (6 grupos; 32 interruptores ENUMERADOS linha a linha — o headline do doc
    diz 31, a soma dos parciais declarados por ele é 5+3+3+1+19+2 = 33, e a linha B-F1
-   (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com DL-0157, que removeu o interruptor; a divergência é
+   (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com DL-0158, que removeu o interruptor; a divergência é
    registrada no painel, não reproduzida). Cada linha cita a linha da tabela do doc E a âncora
    de código da flag (verificada viva contra a árvore).
 3. `docs/review-queue.md` — as linhas da fila que nomeiam interruptor + revisor + janela
@@ -806,7 +806,7 @@ _FLAGS_DOC_GRUPO_ANCHORS: Final[tuple[Anchor, ...]] = (
 #: O headline do doc §3 ("soma checada: 31 interruptores em 6 grupos") diverge da SOMA DOS
 #: PRÓPRIOS PARCIAIS que ele declara no fechamento (`TOTAL GERAL: 5+3+3+1+19+2`), que dá 33:
 #: A(5) + B(3) + C(3) + D(1) + E(19 = 17 default-False + 2 exceções default-True) + F(2) = 33 no doc; o
-#: painel enumera 32 (B-F1 removida por DL-0157).
+#: painel enumera 32 (B-F1 removida por DL-0158).
 #: O `31` do headline é o subtotal A..E (5+3+3+1+19) que ficou congelado no fechamento. O
 #: dashboard segue o INVENTÁRIO ENUMERADO (32 — é o que existe linha a linha no doc) e
 #: REGISTRA a divergência no título da seção com o número extraído VIVO do headline — sem
@@ -1616,7 +1616,7 @@ def self_check() -> list[str]:
 
     # (5) O inventário congelado de flags: soma dos parciais declarados pelo doc §3
     # (A5+B3+C3+D1+E19+F2 = 33) — e a DIVERGÊNCIA registrada com o headline do doc (31).
-    # DL-0157: o doc §3 ainda lista F=2; B-F1 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com o interruptor.
+    # DL-0158: o doc §3 ainda lista F=2; B-F1 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com o interruptor.
     soma_esperada = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 1}
     soma = {g: sum(1 for r in FLAG_ROWS if r.grupo == g) for g in soma_esperada}
     if soma != soma_esperada:

@@ -1186,7 +1186,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "conversa/competencia.py",
         "conversa/normalizacao.py",
         "conversa/terceiro_no_texto.py",
-        # DL-0158 / ADR-0067: a maquina de estados do pedido de reembolso (stdlib-only), usada pelo Lucas e
+        # DL-0159 / ADR-0067: a maquina de estados do pedido de reembolso (stdlib-only), usada pelo Lucas e
         # pelo despachante do WhatsApp; a plataforma nao pode importar `agents.lucas`.
         "reembolso/__init__.py",
         "reembolso/pedido.py",

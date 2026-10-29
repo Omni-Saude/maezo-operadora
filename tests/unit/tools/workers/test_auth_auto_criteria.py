@@ -990,7 +990,7 @@ def test_valor_zero_nao_satisfaz_o_teto_mesmo_com_teto_positivo() -> None:
 def test_o_teto_do_tenant_saiu_do_zero_e_reembolso_nao_tem_mais_teto() -> None:
     """D-07 fechada para autorizacao; reembolso nao tem mais teto de auto-aprovacao.
 
-    Desde DL-0157 (reembolso v2, 100% analise humana) a acao `reembolso_auto_approval` deixou de existir na
+    Desde DL-0158 (reembolso v2, 100% analise humana) a acao `reembolso_auto_approval` deixou de existir na
     matriz: nao ha aprovacao automatica de reembolso, entao nao ha teto a definir. Este teste impede que a
     proxima edicao a reintroduza sem um DL.
     """

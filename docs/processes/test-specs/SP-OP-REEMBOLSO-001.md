@@ -4,7 +4,7 @@ Testes de integracao (pytest, marker `integration`) contra **CIB Seven real** (d
 a stack docker o teste fica marcado e o CI o roda). Arquivo: `tests/integration/processes/test_sp_op_reembolso_001.py`.
 Unitarios (worker + cercas estruturais que leem o BPMN/DMN): `tests/unit/tools/workers/test_reembolso.py`.
 
-**v0.2.0 (DL-0157): 100% analise humana.** Nao ha calculo, tabela, teto, aprovacao automatica nem pagamento emitido pelo
+**v0.2.0 (DL-0158): 100% analise humana.** Nao ha calculo, tabela, teto, aprovacao automatica nem pagamento emitido pelo
 sistema; o financeiro paga fora e registra `data_pagamento`. Os testes de calculo, de teto D-07, do bloqueio R-058 e da
 aprovacao automatica L2 da v0.1.0 **foram removidos** com o caminho que cobriam — e ha testes que provam que ele nao voltou.
 
@@ -40,7 +40,7 @@ tenant `amh`. Business key `REEMB-amh-{protocolo}`. Valores em **centavos inteir
 | `test_pendencia_expira_decisao_humana_nunca_auto_nega` | Timer `ICE_PrazoPendencia` (P5D) → `UT_DecidirPendenciaExpirada`; `cancelar_solicitacao` → `End_ReembolsoCancelado`; nunca negativa |
 | `test_conceder_prazo_extra_volta_a_aguardar` | `conceder_prazo_extra` rearma o timer de pendencia |
 
-## Resposta da beneficiaria e conclusao pelo portal (DL-0159)
+## Resposta da beneficiaria e conclusao pelo portal (DL-0160)
 
 | Teste | Garante |
 |---|---|

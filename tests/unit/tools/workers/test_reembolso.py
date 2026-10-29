@@ -1,4 +1,4 @@
-"""Unit tests for maezo.tools.workers.reembolso — SP-OP-REEMBOLSO-001 v0.2.0 (DL-0157).
+"""Unit tests for maezo.tools.workers.reembolso — SP-OP-REEMBOLSO-001 v0.2.0 (DL-0158).
 
 100% analise humana: o worker NAO calcula, NAO compara teto, NAO auto-aprova e NAO emite pagamento.
 Estes testes exercitam os contratos de external task que sobraram e CERCAM a remocao: um teste que lê o BPMN
@@ -339,7 +339,7 @@ def test_registered_topics_are_exactly_the_bpmn_topics_plus_the_publish_conventi
 
 
 def test_the_removed_workers_never_come_back_without_a_dl() -> None:
-    """DL-0157: sem calculo, sem teto, sem pagamento pelo sistema, sem conferencia de prazo por maquina."""
+    """DL-0158: sem calculo, sem teto, sem pagamento pelo sistema, sem conferencia de prazo por maquina."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_reembolso_workers(harness, FakeKafkaPublisher())
     for topic in (
@@ -368,7 +368,7 @@ def test_the_removed_workers_never_come_back_without_a_dl() -> None:
     ],
 )
 def test_the_automatic_money_path_is_gone_from_the_module(nome: str) -> None:
-    assert not hasattr(reembolso, nome), f"{nome} voltou: o reembolso v2 nao calcula nem paga (DL-0157)"
+    assert not hasattr(reembolso, nome), f"{nome} voltou: o reembolso v2 nao calcula nem paga (DL-0158)"
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +396,7 @@ def test_the_automatic_path_elements_are_gone_from_the_bpmn() -> None:
         "End_ReembolsoAprovadoAutomatico",
         "ST_CheckPrazo",
     ):
-        assert removido not in ids, f"{removido} voltou ao BPMN de reembolso (DL-0157)"
+        assert removido not in ids, f"{removido} voltou ao BPMN de reembolso (DL-0158)"
 
 
 def test_every_path_to_a_terminal_crosses_a_human_task() -> None:

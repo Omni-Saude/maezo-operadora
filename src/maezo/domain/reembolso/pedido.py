@@ -1,4 +1,4 @@
-"""Pedido de reembolso pelo WhatsApp (SP-OP-REEMBOLSO-001 v0.2.0, DL-0157/DL-0158).
+"""Pedido de reembolso pelo WhatsApp (SP-OP-REEMBOLSO-001 v0.2.0, DL-0158/DL-0159).
 
 Atras da chave `MAEZO_REEMBOLSO_V1` (default desligada). Desligada, NADA deste modulo roda.
 
@@ -8,7 +8,7 @@ resumo com confirmacao. Sem modelo, sem I/O, sem relogio: a funcao `avancar` rec
 devolve o proximo estado, o texto a enviar e (so' na confirmacao) a ordem de abrir o processo.
 
 O QUE NAO E'. O Lucas NUNCA diz se a pessoa tem direito ao reembolso, nunca calcula valor e nunca promete
-prazo ou pagamento: quem decide e' a analise humana (DL-0157). Sem OCR: o arquivo nao e' lido; "tenho a nota
+prazo ou pagamento: quem decide e' a analise humana (DL-0158). Sem OCR: o arquivo nao e' lido; "tenho a nota
 fiscal" e' o que a pessoa declara. Nenhum texto livre da pessoa e' guardado — so' enumeracoes fechadas, uma
 data, um valor em centavos e a referencia opaca de cada documento (Zona PHI, ADR-0006).
 """
@@ -61,7 +61,7 @@ MOTIVOS_NAO_REDE: Final[tuple[str, ...]] = ("urgencia", "sem_prestador_no_prazo"
 TIPO_DOC_PEDIDO: Final[str] = "pedido_medico"
 TIPO_DOC_NOTA: Final[str] = "nota_fiscal"
 TIPOS_DOCUMENTO: Final[tuple[str, ...]] = (TIPO_DOC_PEDIDO, TIPO_DOC_NOTA)
-#: DL-0159: arquivo mandado na RESPOSTA a um pedido de informacao da equipe (vai em
+#: DL-0160: arquivo mandado na RESPOSTA a um pedido de informacao da equipe (vai em
 #: `documentos_adicionais_refs`).
 TIPO_DOC_COMPLEMENTO: Final[str] = "complemento"
 #: Teto do texto da resposta ao pedido de informacao (depois do scrub), guardado so' ate' a correlacao.
@@ -130,7 +130,7 @@ class PedidoReembolso:
     motivo_nao_rede: str = ""
     #: A ultima pergunta do laco de documentos foi "terminou de enviar esse tipo?" (aguardando Sim/Nao).
     perguntou_terminou: bool = False
-    #: DL-0159: a resposta da pessoa a um pedido de informacao (JA' pelo scrub de identificadores),
+    #: DL-0160: a resposta da pessoa a um pedido de informacao (JA' pelo scrub de identificadores),
     #: guardada so'
     #: ate' o "terminei" que a entrega ao processo. Fora da etapa `resposta` e' sempre vazia.
     resposta_texto: str = ""
@@ -256,7 +256,7 @@ TEXTO_RETORNO_TEXTO_BARRADO: Final[str] = (
     "possível repassar o texto por aqui. Para saber o andamento, fale com a central de atendimento do plano."
 )
 
-# Resposta a um pedido de informacao da equipe (DL-0159).
+# Resposta a um pedido de informacao da equipe (DL-0160).
 TEXTO_RESPOSTA_INICIADA: Final[str] = (
     "Recebi. Se tiver mais alguma informação ou arquivo para a equipe, pode mandar agora. "
     "Quando terminar, responda TERMINEI."
