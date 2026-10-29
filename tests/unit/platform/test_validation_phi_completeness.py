@@ -1500,7 +1500,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="cobertura_prevista",
         name_delta=-1,
         occurrence_delta=-2,
@@ -1508,7 +1508,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="dentro_tabela",
         name_delta=-1,
         occurrence_delta=-2,
@@ -1516,7 +1516,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="fonte_tabela",
         name_delta=-1,
         occurrence_delta=-1,
@@ -1524,7 +1524,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="multiplo_tabela_aplicado",
         name_delta=-1,
         occurrence_delta=-1,
@@ -1532,7 +1532,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="requer_avaliacao_clinica",
         name_delta=-1,
         occurrence_delta=-2,
@@ -1540,7 +1540,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="valor_reembolso_aprovado_cents",
         name_delta=0,
         occurrence_delta=2,
@@ -1551,7 +1551,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="aviso_beneficiario_whatsapp",
         name_delta=1,
         occurrence_delta=1,
@@ -1559,7 +1559,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="dias_desde_atendimento",
         name_delta=1,
         occurrence_delta=1,
@@ -1567,7 +1567,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="motivo_nao_rede",
         name_delta=1,
         occurrence_delta=1,
@@ -1575,7 +1575,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="prazo",
         name_delta=1,
         occurrence_delta=2,
@@ -1583,7 +1583,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="relacao_com_titular",
         name_delta=1,
         occurrence_delta=1,
@@ -1591,7 +1591,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="situacao_prazo",
         name_delta=1,
         occurrence_delta=3,
@@ -1599,7 +1599,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="admissibilidade",
         name_delta=0,
         occurrence_delta=-3,
@@ -1607,7 +1607,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="agent_id",
         name_delta=0,
         occurrence_delta=1,
@@ -1615,7 +1615,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="auto_aprovacao",
         name_delta=0,
         occurrence_delta=-2,
@@ -1623,7 +1623,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="beneficiario_ativo",
         name_delta=0,
         occurrence_delta=-2,
@@ -1631,7 +1631,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="calculo",
         name_delta=0,
         occurrence_delta=-5,
@@ -1639,7 +1639,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="carencia_cumprida",
         name_delta=0,
         occurrence_delta=-2,
@@ -1647,7 +1647,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="categoria_procedimento",
         name_delta=0,
         occurrence_delta=-1,
@@ -1655,7 +1655,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="conversation_id",
         name_delta=0,
         occurrence_delta=1,
@@ -1663,7 +1663,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="decisao_reembolso",
         name_delta=0,
         occurrence_delta=2,
@@ -1671,7 +1671,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="dentro_prazo",
         name_delta=0,
         occurrence_delta=-2,
@@ -1679,7 +1679,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="dentro_teto_l2",
         name_delta=0,
         occurrence_delta=-2,
@@ -1687,7 +1687,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="documentacao_completa",
         name_delta=0,
         occurrence_delta=-2,
@@ -1695,7 +1695,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="event_desfecho",
         name_delta=0,
         occurrence_delta=-1,
@@ -1703,7 +1703,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="event_payload_vars",
         name_delta=0,
         occurrence_delta=4,
@@ -1711,7 +1711,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="event_topic",
         name_delta=0,
         occurrence_delta=4,
@@ -1719,7 +1719,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="motivo",
         name_delta=0,
         occurrence_delta=-2,
@@ -1727,7 +1727,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="recomendacao",
         name_delta=0,
         occurrence_delta=-2,
@@ -1735,7 +1735,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="resultado",
         name_delta=0,
         occurrence_delta=5,
@@ -1743,7 +1743,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="roteamento",
         name_delta=0,
         occurrence_delta=-3,
@@ -1751,7 +1751,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="tipo_reembolso",
         name_delta=0,
         occurrence_delta=-1,
@@ -1759,7 +1759,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-28",
-        pr="#1051",
+        pr="#1074",
         name="valor_calculado_tabela_cents",
         name_delta=0,
         occurrence_delta=-4,
@@ -1767,7 +1767,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="aguardando_resposta",
         name_delta=1,
         occurrence_delta=2,
@@ -1778,7 +1778,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="data_pagamento",
         name_delta=1,
         occurrence_delta=1,
@@ -1788,7 +1788,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="fundamentacao_contratual",
         name_delta=1,
         occurrence_delta=3,
@@ -1799,7 +1799,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="info_solicitada",
         name_delta=1,
         occurrence_delta=2,
@@ -1810,7 +1810,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="justificativa",
         name_delta=1,
         occurrence_delta=3,
@@ -1821,7 +1821,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="parecer_auditor",
         name_delta=1,
         occurrence_delta=1,
@@ -1832,7 +1832,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="texto_ao_beneficiario",
         name_delta=1,
         occurrence_delta=3,
@@ -1843,7 +1843,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="cid10_referencia",
         name_delta=0,
         occurrence_delta=1,
@@ -1854,7 +1854,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="decisao_pendencia",
         name_delta=0,
         occurrence_delta=1,
@@ -1865,7 +1865,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="decisao_reembolso",
         name_delta=0,
         occurrence_delta=3,
@@ -1876,7 +1876,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-29",
-        pr="#1051",
+        pr="#1074",
         name="situacao_prazo",
         name_delta=0,
         occurrence_delta=2,
