@@ -16,19 +16,19 @@ resolution-markers = [
 exclude-newer = "2026-08-05T00:00:00Z"
 
 [options.exclude-newer-package]
-opentelemetry-sdk = "2026-10-08T00:00:00Z"
-opentelemetry-exporter-otlp-proto-common = "2026-10-08T00:00:00Z"
-opentelemetry-api = "2026-10-08T00:00:00Z"
+opentelemetry-sdk = "2026-10-07T00:00:00Z"
+opentelemetry-exporter-otlp-proto-common = "2026-10-07T00:00:00Z"
+opentelemetry-api = "2026-10-07T00:00:00Z"
 langgraph-sdk = "2026-10-17T00:00:00Z"
 urllib3 = "2026-09-16T00:00:00Z"
-opentelemetry-proto = "2026-10-08T00:00:00Z"
-opentelemetry-exporter-otlp-proto-grpc = "2026-10-08T00:00:00Z"
+opentelemetry-proto = "2026-10-07T00:00:00Z"
+opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z"
 certifi = "2026-10-21T00:00:00Z"
-opentelemetry-semantic-conventions = "2026-10-08T00:00:00Z"
-langgraph-checkpoint-postgres = "2026-10-14T00:00:00Z"
-langgraph-checkpoint = "2026-10-14T00:00:00Z"
+opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z"
+langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z"
+langgraph-checkpoint = "2026-10-13T00:00:00Z"
 mcp = "2026-09-08T00:00:00Z"
-opentelemetry-exporter-otlp-common = "2026-10-08T00:00:00Z"
+opentelemetry-exporter-otlp-common = "2026-10-07T00:00:00Z"
 pyjwt = "2026-09-24T00:00:00Z"
 
 [[package]]
