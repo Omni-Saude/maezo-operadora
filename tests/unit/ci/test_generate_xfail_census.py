@@ -3,11 +3,13 @@
 Three layers:
 
 1. **Real-tree** tests run the full scan against `tests/integration/processes/` and assert the
-   generator independently reproduces the ground truth confirmed 2026-08-10 (22 markers; 14
+   generator independently reproduces the ground truth confirmed 2026-10-28 (9 markers; 1
    ans_submit / 3 lgpd_dsr / 2 cred / 1 auth / 1 reembolso / 1 adequacao; six distinct `_*_REASON`
    constants, one per suite) — this is the load-bearing regression fence: if a future PR adds or
    flips a strict-xfail marker without updating the committed ledger, THIS test (and `make
-   xfail-census-check`) is what turns that into a red CI run.
+   xfail-census-check`) is what turns that into a red CI run. (Prior ground truth 2026-08-10 was
+   22 markers incl. 14 ans_submit TISS; the 13 TISS pins were flipped live by W8 W5-XFIX PR-1 —
+   the last one, `test_happy_path_envio_aprovado_e_acked`, flips with the FINDING C src fix.)
 2. **Synthetic-tree** tests build throwaway `tmp_path` modules to drive each fail-closed path in
    isolation: multiline decorator parsing, reversed-kwarg-order/extra-kwargs canonical recognition,
    an unclassified reason constant, a stale REASON_CLASSIFICATION entry, drift detection between a
@@ -68,10 +70,10 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
     assert not stale, [v.render() for v in stale]
 
     census = build_census(records, DEFAULT_TESTS_DIR)
-    assert census["total"] == 22
+    assert census["total"] == 9
     assert census["per_suite"] == {
         "adequacao": 1,
-        "ans_submit": 14,
+        "ans_submit": 1,
         "auth": 1,
         "cred": 2,
         "lgpd_dsr": 3,
@@ -83,15 +85,15 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
         "CRED_GUARD_SHAPE_TE": 2,
         "LGPD_DPO": 3,
         "REEMBOLSO_D07": 1,
-        "TISS_XSD_SME": 14,
+        "TISS_XSD_SME": 1,
     }
 
 
 def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite() -> None:
     """Ground-truth shape check: today, each of the 6 suites carrying strict-xfails cites exactly
-    ONE `_*_REASON` constant (ans_submit's 14 markers all cite `_NOTIFY_REGULATORIO_GAP_REASON`,
-    etc.) — pin that shape so a future PR that splits a suite's reason mid-flight is visible here,
-    not just in the opaque total."""
+    ONE `_*_REASON` constant (ans_submit's sole remaining marker cites
+    `_NOTIFY_REGULATORIO_GAP_REASON`, etc.) — pin that shape so a future PR that splits a suite's
+    reason mid-flight is visible here, not just in the opaque total."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
     records, violations = classify_markers(scan.markers)
     assert not violations
@@ -115,7 +117,7 @@ def test_real_tree_no_non_strict_xfail_decorators_are_miscounted() -> None:
     under this directory — if one ever appears, it must be silently skipped (out of scope for this
     census), never crash the parser or get miscounted as a strict marker."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
-    assert len(scan.markers) == 22
+    assert len(scan.markers) == 9
 
 
 # ---------------------------------------------------------------------------
