@@ -140,8 +140,13 @@ test.describe("portal session journey", () => {
       axeResults.push({ when: `staff-area:${controls}`, result: await scanAxe(page) });
     }
     await page.goto(`${config.portalOrigin}/portal/cases`);
+    // The deep link must land on the SPA's Cases area, not on a blank or error page.
+    await expect(page.locator("#navigation-cases")).toHaveAttribute("aria-selected", "true", {
+      timeout: 20_000,
+    });
     await page.waitForLoadState("networkidle");
     axeResults.push({ when: "staff-route:/portal/cases", result: await scanAxe(page) });
+    storageSnapshots.push({ when: "staff-areas", snapshot: await readStorage(page) });
     await page.close();
   });
 

@@ -217,6 +217,8 @@ class StaticOrigin:
             return candidate.read_bytes(), self._type(candidate.name)
         # Same fallback as production (`maezo.portal.api.spa.WebBundle.respond`): an extensionless
         # path outside /assets/ is a client route (e.g. /portal/cases/:ref) and gets index.html.
+        if path == "/api":
+            return None
         if "." not in PurePosixPath(path).name and not path.startswith("/assets/"):
             return (self.dist / "index.html").read_bytes(), self._type("index.html")
         return None
