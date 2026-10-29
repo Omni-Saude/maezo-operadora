@@ -95,7 +95,14 @@ def regular(path: Path) -> bytes:
 
 def clean_environment() -> dict[str, str]:
     forbidden = [k for k in os.environ if k.startswith(("UV_", "PYTHON", "PYTEST_"))]
-    require(not forbidden, "ambient Python/pytest/uv configuration")
+    require(
+        not forbidden,
+        "ambient Python/pytest/uv configuration: "
+        + ",".join(sorted(forbidden))
+        + " — rerun with `env "
+        + " ".join(f"-u {name}" for name in sorted(forbidden))
+        + " ...`",
+    )
     # Same HOME default as both existing offline preparers. In particular there
     # is no setup-uv UV_CACHE_DIR or inherited XDG_CACHE_HOME override here.
     return {
