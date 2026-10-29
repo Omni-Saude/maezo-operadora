@@ -267,7 +267,7 @@ class TestMainEndToEnd:
         # 54 DMN (T1.3) + 7 fraude_scoring (T2.7) + auth_criteria_contratual (GAP-AUTH-4) = 62
         assert (
             "17 BPMN, 64 DMN" in out
-        )  # VW4/GP11; DL-0104: +helena_triage_admissibility; DL-0156: reembolso -2 +1
+        )  # VW4/GP11; DL-0104: +helena_triage_admissibility; DL-0157: reembolso -2 +1
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

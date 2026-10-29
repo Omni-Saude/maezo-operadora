@@ -6,7 +6,7 @@
              name="Situacao do prazo de reembolso (informativa)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    reembolso_prazo v0.1.0 — status: DRAFT (DL-0156). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo).
+    reembolso_prazo v0.1.0 — status: DRAFT (DL-0157). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo).
     INFORMATIVA: a saida situacao_prazo so alimenta o dossie do analista; NAO roteia (todo pedido vai para
     analise humana) e NAO tem saida de negativa/reducao. O prazo contratual/regulatorio para pedir reembolso
     NAO esta confirmado (RN 259/2011 foi substituida pela RN 566/2022; a norma do prazo de ~30 dias segue

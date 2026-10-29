@@ -1427,14 +1427,14 @@ class TestLiveTree:
         """Guards the clean-outside proof against a silently shrinking corpus."""
         # 78 -> 79: `triage_sufficiency.dmn` (Frente 2.2). Ver a entrada #407 do CORPUS_DELTA_LOG.
         # 81 -> 82: `helena_triage_admissibility.dmn` (DL-0104), que nao e' artefato de cadeia.
-        # 82 -> 81: DL-0156 (reembolso v2) tirou `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e
+        # 82 -> 81: DL-0157 (reembolso v2) tirou `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e
         # pôs `reembolso_prazo.dmn`.
         assert len(_tier_a_paths()) == 81  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
         assert len([p for p in _tier_a_paths() if p.suffix == ".bpmn"]) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 71 -> 72 pela mesma razao: `triage_sufficiency.dmn` nao e' artefato de cadeia.
         assert (
             len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 74
-        )  # idem; DL-0104: +1; DL-0156: -1
+        )  # idem; DL-0104: +1; DL-0157: -1
 
     def test_tier_b_hit_lines_are_pinned(self) -> None:
         """The gate's own Tier-B re-measurement, line by line — now EMPTY.

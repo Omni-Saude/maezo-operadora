@@ -1104,7 +1104,7 @@ variable "cancel_pf_v1" {
 
 variable "reembolso_v1" {
   description = <<-EOT
-    Reembolso pelo WhatsApp (DL-0156/DL-0157, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
+    Reembolso pelo WhatsApp (DL-0157/DL-0158, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
     `false` = o canal de antes, byte a byte (nenhuma coleta, nenhum arquivo recebido). Ligada, o Lucas
     conduz o pedido (perguntas fechadas, laco de documentos, confirmacao), o processo abre com
     `aviso_beneficiario_whatsapp=true` e devolve o resultado pela retomada. 100% dos pedidos vao a analise
@@ -1118,7 +1118,7 @@ variable "reembolso_v1" {
 
 variable "reembolso_anexos_enabled" {
   description = <<-EOT
-    Custodia dos anexos do reembolso (DL-0158): bucket S3 privado com SSE-KMS de chave propria, receptor so' grava,
+    Custodia dos anexos do reembolso (DL-0159): bucket S3 privado com SSE-KMS de chave propria, receptor so' grava,
     portal so' le. DEFAULT false — com false nenhum recurso de `reembolso-anexos.tf` existe e o plan nao muda. Dado de
     saude (Zona PHI): NAO LIGAR sem ciencia registrada do DPO. Exige `recipient_vault_enabled = true` (a role propria
     do receptor so' existe com o cofre do telefone; sem ela a permissao iria para a role compartilhada).

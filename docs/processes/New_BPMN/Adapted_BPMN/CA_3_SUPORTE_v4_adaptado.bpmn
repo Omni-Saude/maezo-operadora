@@ -632,7 +632,7 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_18</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="S3_T_Priorizar" name="Priorizar protocolo em risco" camunda:formKey="ced:priorizar-protocolo" camunda:candidateGroups="supervisao-experiencia">
-      <bpmn:documentation>Origem: AH_T_Priorizar</bpmn:documentation>
+      <bpmn:documentation>Garantia de atendimento (REG-1.11): na priorização de protocolos em risco, os prazos de garantia de atendimento da RN 566/2022 (art. 3º, § 1º — da demanda do serviço/procedimento até a sua efetiva realização; § 2º — vale o acesso a qualquer prestador habilitado no município da demanda, não a um prestador específico) e o reembolso integral do art. 10 (até trinta dias, contado da solicitação, na hipótese de o beneficiário pagar atendimento não garantido por indisponibilidade/inexistência de prestador ou transporte — arts. 4º, 5º e 6º) são insumos DOCUMENTAIS de risco, não SLA: o PT4H do boundary permanece proposta sem homologação (registro próprio preservado) e nenhum prazo da RN 566/2022 é transplantado para timer desta jornada. Se o prazo da RN 566/2022 for inferior ao do inciso II do art. 12 da RN 623/2024, prevalece o da RN 566/2022 (art. 12, § 1º). Fonte: DOU 02/01/2023, Seção 1, p. 94 (texto-base checksumado em docs/compliance/legal/textos-base/RN-566-2022.md:63-105 e :165, sha256 49c550bc…, MANIFEST 16/16, acesso 2026-10-27). | Origem: AH_T_Priorizar</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_19</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_20</bpmn:outgoing>
     </bpmn:userTask>

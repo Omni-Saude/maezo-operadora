@@ -1,10 +1,9 @@
 {
   "generated_by": "scripts/ci/generate_xfail_census.py",
   "tests_dir": "tests/integration/processes",
-  "total": 21,
+  "total": 7,
   "per_suite": {
     "adequacao": 1,
-    "ans_submit": 14,
     "auth": 1,
     "cred": 2,
     "lgpd_dsr": 3
@@ -13,8 +12,7 @@
     "ADEQUACAO_RN259": 1,
     "AUTH_D07": 1,
     "CRED_GUARD_SHAPE_TE": 2,
-    "LGPD_DPO": 3,
-    "TISS_XSD_SME": 14
+    "LGPD_DPO": 3
   },
   "markers": [
     {
@@ -23,104 +21,6 @@
       "test": "test_l3_conforme_atinge_neutro_sem_user_task",
       "reason_constant": "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON",
       "classification": "ADEQUACAO_RN259"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 692,
-      "test": "test_aprovar_envio_exige_revisor_id",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 885,
-      "test": "test_happy_path_envio_aprovado_e_acked",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 927,
-      "test": "test_golden_por_report_type",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 965,
-      "test": "test_ack_pendente_completa_como_enviado_pendente_ack",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 996,
-      "test": "test_corrigir_pendencia_reavalia",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1028,
-      "test": "test_lgpd_nao_anonimizado_roteia_direto_a_revisao_humana",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1057,
-      "test": "test_corrigir_pendencia_lgpd_anonimizado_reavalia",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1092,
-      "test": "test_adiar_envio_registra_justificativa",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1126,
-      "test": "test_dmn_ans_calendar_resolve_due_date",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1147,
-      "test": "test_timer_deadline_risk_nao_interruptivo",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1169,
-      "test": "test_timer_due_date_coordenacao_assume",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1196,
-      "test": "test_coordenacao_assume_e_aprova",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1232,
-      "test": "test_timer_deadline_risk_nao_interruptivo_juridico",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
-    },
-    {
-      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
-      "line": 1373,
-      "test": "test_catch_all_calendar_roteia_para_humano",
-      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
-      "classification": "TISS_XSD_SME"
     },
     {
       "file": "tests/integration/processes/test_sp_op_auth_001.py",

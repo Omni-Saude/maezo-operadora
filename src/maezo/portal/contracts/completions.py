@@ -46,7 +46,7 @@ CANCEL_EXECUCAO_OUTCOMES: tuple[str, ...] = get_args(
     CancelExecucaoInputs.model_fields["execucao_cadastro"].annotation
 )
 
-#: DL-0158: os desfechos fechados do reembolso, lidos dos contratos canonicos dos formularios. `PAGO` e' o
+#: DL-0159: os desfechos fechados do reembolso, lidos dos contratos canonicos dos formularios. `PAGO` e' o
 #: token do registro de pagamento (o formulario so' tem a data; o token nunca vai ao motor).
 ReembolsoCompletionOutcome = Literal[
     "APROVAR",

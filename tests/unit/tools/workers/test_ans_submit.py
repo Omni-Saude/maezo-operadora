@@ -34,6 +34,7 @@ from maezo.tools.workers.ans_submit import (
     handle_nack,
     make_notify_regulatorio_handler,
     make_retransmit_handler,
+    make_submit_handler,
     notify_regulatorio,
     prepare_submission,
     publish_completed,
@@ -1222,6 +1223,89 @@ async def test_make_retransmit_handler_publishes_the_typed_notification() -> Non
     assert notification["revisor_id"] == "revisor-sintetico-001"
 
 
+# ---------------------------------------------------------------------------
+# submit (W8 W5-XFIX PR-2 — FINDING C closure for the LAST entry-function topic whose
+# notification an integration test asserts). `make_submit_handler` wraps the UNCHANGED sync core
+# `submit_entry` on the raw async seam and publishes the `anssubmit.submit` typed notification —
+# the same closure method as notify_regulatorio/retransmit above.
+# ---------------------------------------------------------------------------
+
+
+def _submit_task(**extra: object) -> ExternalTask:
+    return ExternalTask(
+        task_id="t-submit-1",
+        topic="regulatorio.anssubmit.submit",
+        process_instance_id="pi-1",
+        business_key="ANSSUB-amh-RN_124_SIP-2026-01",
+        worker_id="w-1",
+        variables={
+            "tenant_id": "amh",
+            "report_type": "RN_124_SIP",
+            "competencia": "2026-01",
+            "decisao_envio": "APROVAR_ENVIO",
+            "revisor_id": "revisor-sintetico-001",
+            **extra,
+        },
+    )
+
+
+async def test_make_submit_handler_publishes_the_typed_notification() -> None:
+    """FINDING C closure for `regulatorio.anssubmit.submit`: the filing leg is now observable on
+    the notification bus. The 3 fields the integration suite judges the filing by
+    (`decisao_envio`/`revisor_id`/`protocolo_ans`) must be present and honest, plus the filing's
+    own facts (`status_envio`/`synthetic`/`vinculativo`)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_submit_handler(kafka, ans_gateway=LabeledMockAnsGatewayTransport())
+    task = _submit_task()
+
+    result = await handler(task)
+
+    assert result["submitted"] is True
+    assert len(kafka.published) == 1
+    topic, notification, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert key == "ANSSUB-amh-RN_124_SIP-2026-01"
+    assert notification["type"] == "anssubmit.submit"
+    assert notification["report_type"] == "RN_124_SIP"
+    assert notification["competencia"] == "2026-01"
+    assert notification["decisao_envio"] == "APROVAR_ENVIO"
+    assert notification["revisor_id"] == "revisor-sintetico-001"
+    assert notification["protocolo_ans"] == (f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-RN_124_SIP-2026-01")
+    assert notification["status_envio"] == "enviado"
+    assert notification["synthetic"] is True
+    # DECIDED KEEP (DL-0038, t2-notify-integrity): the submit notification STAYS topic-default
+    # best-effort BY DESIGN — advisory observability; GW_AguardarAck routes on the process
+    # variables the harness completes with, never on the notification. Same posture pin as the
+    # notify_regulatorio fence above. This assert goes RED if someone flips the posture.
+    assert kafka.best_effort_calls == [None]
+
+
+async def test_make_submit_handler_publishes_nothing_when_the_human_guard_refuses() -> None:
+    """NEGATIVE fence: the publish happens ONLY after the sync core succeeded. The
+    `ERR_ANS_SUBMIT_NOT_HUMAN` guard (`AnsSubmitNotHumanError`, a `PermissionError` — reclassified
+    byte-identically to the `FunctionWorker` path via `reclassify_coded_exception`) raises BEFORE
+    any gateway touch, so no notification may exist — the exact shape the integration suite's
+    refusal test asserts (`notifications_of_type('anssubmit.submit')` empty)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_submit_handler(kafka, ans_gateway=LabeledMockAnsGatewayTransport())
+    task = _submit_task(revisor_id="")  # APROVAR_ENVIO sem revisor_id -> guard recusa
+
+    with pytest.raises(AnsSubmitNotHumanError):
+        await handler(task)
+
+    assert kafka.published == [], "guard refusal NAO pode publicar notificacao de submit"
+    assert not task.variables.get("protocolo_ans")
+
+
+async def test_make_submit_handler_fail_closed_no_producer() -> None:
+    """kafka=None: completes the external task ANYWAY (the notification is advisory — blocking
+    here would stall the filing leg AFTER the gateway already issued a protocol), logs loudly,
+    never fabricates a publish. Same decision as both sibling raw handlers."""
+    handler = make_submit_handler(None, ans_gateway=LabeledMockAnsGatewayTransport())
+    result = await handler(_submit_task())
+    assert result["submitted"] is True
+
+
 async def test_make_retransmit_handler_reclassifies_the_coded_gateway_exception() -> None:
     """Leaving the `FunctionWorker` registry path must NOT lose the ADR-0026 §5 reclassification.
 
@@ -1345,7 +1429,8 @@ async def test_make_notify_regulatorio_handler_fail_closed_no_producer() -> None
 
 def test_register_ans_submit_workers_registers_notify_regulatorio() -> None:
     """Regression fence for FINDING A: register_ans_submit_workers MUST wire all 7 BPMN topics
-    it owns (6 FunctionWorker entries + the notify_regulatorio raw handler)."""
+    it owns (4 FunctionWorker entries + the 3 raw async handlers — notify_regulatorio, retransmit
+    since t9-nack-vars, and submit since W8 W5-XFIX)."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_ans_submit_workers(harness, FakeKafkaPublisher())
     topics = set(harness.registered_topics)

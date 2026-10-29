@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monta o catalogo e as entradas `human` das 5 tarefas do SP-OP-REEMBOLSO-001 v0.2.0 (DL-0156/DL-0157).
+"""Monta o catalogo e as entradas `human` das 5 tarefas do SP-OP-REEMBOLSO-001 v0.2.0 (DL-0157/DL-0158).
 
 Runbook: `docs/runbooks/reembolso-001.md` §3 e `docs/runbooks/material-staff-na-aws.md` passo 5.
 Molde: `staff_material_cancel_catalogo.py`. Este script NAO executa nada na AWS por si: le o segredo vivo

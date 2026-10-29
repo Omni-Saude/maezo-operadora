@@ -477,7 +477,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
 
 
 def _custodia_de_arquivo(settings: WhatsAppWebhookSettings) -> CustodiaDeArquivo | None:
-    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0157/DL-0158).
+    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0158/DL-0159).
 
     S3 com SSE-KMS (`gateway/reembolso_anexos.py`), so' com o bucket E a chave configurados
     (`MAEZO_REEMBOLSO_ANEXOS_BUCKET`/`MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN`, `reembolso-anexos.tf`). O plano de
@@ -1162,7 +1162,7 @@ async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = Fal
     if state.acesso is not None:
         state.dispatcher.acesso = state.acesso
 
-    # DL-0156/DL-0157: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
+    # DL-0157/DL-0158: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
     # pre-condicoes (Lucas, acesso verificado, custodia de arquivo) = o receptor sobe SEM o reembolso e
     # diz por que (nunca aceita um arquivo que nao sabe onde guardar).
     try:

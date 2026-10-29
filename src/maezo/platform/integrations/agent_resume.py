@@ -186,7 +186,7 @@ _CANCEL_HISTORY_NAMES: Final[tuple[str, ...]] = (
 #: O agente que abre o pedido de cancelamento e o recebe de volta.
 AGENT_ID_CANCELAMENTO: Final[str] = "lucas"
 
-#: DL-0156/DL-0157: o retorno do reembolso. O historico traz o fato da decisao e, so' para o aviso, o texto
+#: DL-0157/DL-0158: o retorno do reembolso. O historico traz o fato da decisao e, so' para o aviso, o texto
 #: que o ANALISTA escreveu (PHI: nunca viaja no evento; le-se do historico, por nome, so' aqui).
 PROCESS_KEY_REEMBOLSO: Final[str] = "SP-OP-REEMBOLSO-001"
 _REEMBOLSO_HISTORY_NAMES: Final[tuple[str, ...]] = (
@@ -378,7 +378,7 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
                 code=REASON_RESUME_ANCHOR_MISMATCH,
             )
     elif e_reembolso:
-        # DL-0156: o retorno do reembolso ancora na chave do PEDIDO (REEMB-{tenant}-...); a conversa e'
+        # DL-0157: o retorno do reembolso ancora na chave do PEDIDO (REEMB-{tenant}-...); a conversa e'
         # conferida contra o historico da instancia (`EngineHistoryReembolsoSource`).
         if (
             not business_key.startswith(f"REEMB-{evento_tenant}-")
@@ -552,7 +552,7 @@ class ReembolsoSource(Protocol):
 
 
 class EngineHistoryReembolsoSource:
-    """DL-0156: o fato do retorno do reembolso, do HISTORICO do motor, cruzado com o evento.
+    """DL-0157: o fato do retorno do reembolso, do HISTORICO do motor, cruzado com o evento.
 
     Mesma costura cercada das outras fontes. Le' SO' `_REEMBOLSO_HISTORY_NAMES` por nome. Divergencia
     (instancia ausente, outro processo, outra chave, outra conversa, aviso desligado, decisao que nao bate com
@@ -851,7 +851,7 @@ class ResumeHandler:
     #: DL-0111: o fato do retorno do cancelamento (historico do motor). `None` = o retorno do cancelamento
     #: e' confirmado com WARNING, sem envio (como um agente sem porta).
     cancelamentos: CancelamentoSource | None = None
-    #: DL-0156: o fato do retorno do reembolso (historico do motor). `None` = o retorno do reembolso e'
+    #: DL-0157: o fato do retorno do reembolso (historico do motor). `None` = o retorno do reembolso e'
     #: confirmado com WARNING, sem envio (como um agente sem porta).
     reembolsos: ReembolsoSource | None = None
 
@@ -1030,7 +1030,7 @@ class ResumeHandler:
         return ResumeReceipt(ResumeOutcome.RESUMED, event.agent_id, event.resultado, desfecho)
 
     async def _retomar_reembolso(self, event: ProcessCompletedEvent) -> ResumeReceipt:
-        """DL-0156: historico -> destinatario -> janela -> moldura fixa + texto da equipe (com cercas)."""
+        """DL-0157: historico -> destinatario -> janela -> moldura fixa + texto da equipe (com cercas)."""
         resumer = self.resumers.get(event.agent_id)
         if self.reembolsos is None or not isinstance(resumer, ReembolsoResumer):
             logger.warning(
@@ -1376,7 +1376,7 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
         alerter=NotifyTeamAlerter(build_notifications_publisher(settings.kafka_bootstrap_servers)),
         # DL-0111: o retorno do pedido de cancelamento (so' existe com `MAEZO_CANCEL_PF_V1` no receptor).
         cancelamentos=EngineHistoryCancelamentoSource(state.dispatcher.cibseven),
-        # DL-0156: o retorno do pedido de reembolso (so' existe com `MAEZO_REEMBOLSO_V1` no receptor).
+        # DL-0157: o retorno do pedido de reembolso (so' existe com `MAEZO_REEMBOLSO_V1` no receptor).
         reembolsos=EngineHistoryReembolsoSource(state.dispatcher.cibseven),
     )
     # The DLQ publisher is a fenced effect class (§8.1): built ONLY through the bridge's own

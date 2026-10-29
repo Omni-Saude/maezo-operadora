@@ -156,7 +156,7 @@ locals {
       { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
       # DL-0111: cancelamento a pedido PF (default `false`; so' dev, ver `cancel_pf_v1`).
       { name = "MAEZO_CANCEL_PF_V1", value = tostring(var.cancel_pf_v1) },
-      # DL-0156/DL-0157: reembolso pelo WhatsApp (default `false`; so' dev, ver `reembolso_v1`).
+      # DL-0157/DL-0158: reembolso pelo WhatsApp (default `false`; so' dev, ver `reembolso_v1`).
       { name = "MAEZO_REEMBOLSO_V1", value = tostring(var.reembolso_v1) },
       # DL-0114: Lucas do catalogo v4 (default `false`; so' dev, ver `lucas_v4`).
       { name = "MAEZO_LUCAS_V4", value = tostring(var.lucas_v4) },
@@ -229,7 +229,7 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
     environment = concat(
       local.webhook_receiver_contrato.environment_app,
       local.recipient_vault_env,
-      # DL-0158: a custodia dos anexos do reembolso (so' gravar), lista vazia com `reembolso_anexos_enabled = false`.
+      # DL-0159: a custodia dos anexos do reembolso (so' gravar), lista vazia com `reembolso_anexos_enabled = false`.
       local.reembolso_anexos_env,
       local.webhook_receiver_contrato.environment_amh,
       # ADR-0067 §6 (agente-remoto.tf): URL do runtime remoto da Helena; vazio = turno em processo.

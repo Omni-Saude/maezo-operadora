@@ -133,7 +133,7 @@ class TestCollectArtifacts:
         # em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — publicada pelo deploy-processes como as demais.
         assert (
             len(dmn) == 64
-            # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility; DL-0156:
+            # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility; DL-0157:
             # -reembolso_calculo -reembolso_coverage +reembolso_prazo
         )
 

@@ -1,4 +1,4 @@
-"""Turno do pedido de reembolso no WhatsApp (DL-0156/DL-0157), atras da chave `MAEZO_REEMBOLSO_V1`.
+"""Turno do pedido de reembolso no WhatsApp (DL-0157/DL-0158), atras da chave `MAEZO_REEMBOLSO_V1`.
 
 Deterministico, SEM modelo: a maquina de estados (`domain/reembolso/pedido.py`) decide o texto; este
 modulo so' LE e GRAVA a coleta (CAS), RECEBE o arquivo (baixa da Meta e entrega a custodia) e ABRE o
@@ -62,7 +62,7 @@ SYSTEM_PROMPT_VERSION_REEMBOLSO: Final[str] = "reembolso-v1-deterministico"
 
 class CustodiaDeArquivo(Protocol):
     """Entrega os bytes a Zona PHI e devolve a referencia OPACA (`document_ref`) e o sha256 do conteudo
-    (`gateway/reembolso_anexos.py::CustodiaDeAnexosS3`, DL-0158)."""
+    (`gateway/reembolso_anexos.py::CustodiaDeAnexosS3`, DL-0159)."""
 
     async def guardar_anexo(self, *, conversation_id: str, mime: str, conteudo: bytes) -> AnexoGuardado: ...
 
@@ -178,7 +178,7 @@ class ReembolsoTurno:
                     "ja_registrado",
                     atual.protocolo,
                 )
-            # DL-0158: a equipe pediu informacao? Entao esta mensagem e' a resposta (senao, o fluxo de
+            # DL-0159: a equipe pediu informacao? Entao esta mensagem e' a resposta (senao, o fluxo de
             # sempre).
             if atual is None or await self._pendente(atual.protocolo) is None:
                 return None
@@ -263,7 +263,7 @@ class ReembolsoTurno:
         return RespostaReembolso(texto, "ja_registrado" if ja_existia else "aberto", protocolo)
 
     # ------------------------------------------------------------------------------------------
-    # Resposta a um pedido de informacao da equipe (DL-0158)
+    # Resposta a um pedido de informacao da equipe (DL-0159)
     # ------------------------------------------------------------------------------------------
     def _chave(self, protocolo: str) -> str:
         return f"REEMB-{self._tenant}-{protocolo}"
@@ -420,7 +420,7 @@ class ReembolsoTurno:
         for _ in range(_TENTATIVAS_DE_CAS):
             atual = await self._ler_vivo(conversation_id)
             if atual is not None and atual.pedido.etapa in ("aberto", "resposta"):
-                # DL-0158: arquivo da resposta a um pedido de informacao da equipe.
+                # DL-0159: arquivo da resposta a um pedido de informacao da equipe.
                 resposta = await self._arquivo_na_resposta(conversation_id, atual, media_id)
                 if isinstance(resposta, _CasPerdido):
                     continue

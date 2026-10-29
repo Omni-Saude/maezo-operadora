@@ -754,7 +754,7 @@ export interface paths {
         };
         /**
          * Read Task Reembolso
-         * @description INTERIM (DL-0158): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+         * @description INTERIM (DL-0159): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
          *
          *     Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
          *     a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
@@ -778,7 +778,7 @@ export interface paths {
         };
         /**
          * Read Task Reembolso Anexo
-         * @description INTERIM (DL-0158): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+         * @description INTERIM (DL-0159): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
          *     `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
          *     da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.
          */
@@ -3743,7 +3743,7 @@ export interface components {
         };
         /**
          * ReembolsoPagamentoInputs
-         * @description Registro do pagamento feito fora do sistema (DL-0156, ``UT_RegistrarPagamento``).
+         * @description Registro do pagamento feito fora do sistema (DL-0157, ``UT_RegistrarPagamento``).
          *
          *     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
          */

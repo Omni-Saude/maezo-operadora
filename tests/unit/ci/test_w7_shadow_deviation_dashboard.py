@@ -324,7 +324,7 @@ def test_divergencia_do_headline_do_doc_esta_registrada_viva() -> None:
     assert headline == "31 interruptores em 6 grupos"  # o número do headline…
     assert (
         len(dash.FLAG_ROWS) == 32
-    )  # …não é o tamanho do inventário enumerado (5+3+3+1+19+1; DL-0156 removeu B-F1)
+    )  # …não é o tamanho do inventário enumerado (5+3+3+1+19+1; DL-0157 removeu B-F1)
 
 
 def test_secao_b_na_arvore_real_rende_muro_herdado_e_ancoras_ok() -> None:

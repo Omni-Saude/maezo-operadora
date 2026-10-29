@@ -1,9 +1,9 @@
-"""SP-OP-REEMBOLSO-001 Worker — Reembolso ao Beneficiario (v0.2.0, DL-0156: 100% analise humana).
+"""SP-OP-REEMBOLSO-001 Worker — Reembolso ao Beneficiario (v0.2.0, DL-0157: 100% analise humana).
 
 External tasks for beneficiary reimbursement. O sistema so ORGANIZA o pedido, os documentos e a
 resposta; uma pessoa da analise decide direito e valor. Por isso este modulo NAO calcula valor, NAO
 compara teto, NAO auto-aprova e NAO emite pagamento (o financeiro paga fora e registra
-`data_pagamento` em `UT_RegistrarPagamento`). Foram removidos em DL-0156: `calculate_value`,
+`data_pagamento` em `UT_RegistrarPagamento`). Foram removidos em DL-0157: `calculate_value`,
 `calculate_amount_entry`, o interruptor R-058 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`), `process_payment`,
 `issue_payment_entry`, `validate_reembolso`/`check_prazo` e os tres erros de dinheiro associados.
 
@@ -146,7 +146,7 @@ def check_coverage(input_data: ReembolsoInput) -> dict[str, Any]:
     `protocolo_reembolso`
     ausente/em branco lanca o `WorkerBpmnError` modelado, antes de qualquer outro passo.
 
-    v0.2.0 (DL-0156): nao ha mais conferencia de cobertura por maquina (o analista avalia). O unico fato
+    v0.2.0 (DL-0157): nao ha mais conferencia de cobertura por maquina (o analista avalia). O unico fato
     resolvido e `dias_desde_atendimento`, insumo da DMN informativa `reembolso_prazo`. NUNCA decide
     pagar/negar.
     """
@@ -284,6 +284,11 @@ def send_reembolso_denial(denial_input: ReembolsoDenialInput) -> dict[str, Any]:
 
     return {
         "decisao_adversa_validada": True,
+        # HONEST STATE (F-009, #1063): este worker so' VALIDA e registra; nada foi enviado aqui. O aviso sai
+        # depois, pela tarefa de aviso do BPMN (agents.events.process_completed -> retomada do Lucas).
+        "denial_sent": False,
+        "denial_registered": True,
+        "notification_status": "PENDING_CHANNEL",
         "decisao_reembolso": denial_input.decisao_reembolso,
         "valor_solicitado_cents": denial_input.valor_solicitado_cents,
         "valor_reembolso_aprovado_cents": denial_input.valor_reembolso_aprovado_cents,

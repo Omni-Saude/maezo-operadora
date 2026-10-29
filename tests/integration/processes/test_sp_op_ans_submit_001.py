@@ -48,11 +48,11 @@ FINDING below documents a genuine v2 behavioral gap):
     `maezo.tools.workers.events.register_events_workers` + `maezo.tools.workers.harness
     .FakeKafkaPublisher` (T1.1/T3.1 R2 spine).
   - v1's `make_submit_handler(kafka) -> Callable[[ExternalTask], ...]` / `make_assemble_handler`
-    factories do NOT exist on v2 main (grep confirms zero hits) — v2 replaced the class/factory-
-    per-topic shape for this module with ADR-0026 SS2b's typed dict-boundary entry functions
-    (`submit_entry`/`assemble_entry(variables: dict, *, kafka=None) -> dict`). The 2 donor
-    unit-style tests that construct a handler directly are adapted to call the entry functions
-    with a plain dict (mirrors `test_sp_op_cancel_001.py`'s adaptation of
+    factories did NOT exist on v2 main AT PORT TIME (grep confirmed zero hits then) — v2 replaced
+    the class/factory-per-topic shape for this module with ADR-0026 SS2b's typed dict-boundary
+    entry functions (`submit_entry`/`assemble_entry(variables: dict, *, kafka=None) -> dict`). The
+    2 donor unit-style tests that construct a handler directly are adapted to call the entry
+    functions with a plain dict (mirrors `test_sp_op_cancel_001.py`'s adaptation of
     `send_cancellation_notice_entry`); `test_err_ans_submit_not_human_recusa_sem_aprovacao`'s guard
     genuinely still works end-to-end (port rule 1 verified) and is kept as a REAL, unmarked test —
     `AnsSubmitNotHumanError` (a `PermissionError` subclass) replaces the donor's
@@ -60,7 +60,10 @@ FINDING below documents a genuine v2 behavioral gap):
     `CancellationNotHumanError` did: v2 routes `PermissionError` guards straight to an engine
     incident, `harness.py`'s `_handle`, never through the `bpmn_error_allowlist`).
     `test_assemble_dataset_incompleto_roteia_a_humano` does NOT survive adaptation this way — see
-    FINDING D below (the guard it exercises does not exist in v2 at all).
+    FINDING D below (the guard it exercises does not exist in v2 at all). A `make_submit_handler`
+    factory EXISTS AGAIN since W8 W5-XFIX PR-2 — re-created on the donor's own name, as a raw
+    async handler that publishes the `anssubmit.submit` notification (FINDING C closure), with
+    `submit_entry` as its sync core.
   - `ans_probe`'s harness wires `dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL)` into
     `register_ans_submit_workers` (the ONLY entry function that evaluates a DMN table directly,
     `retransmit_entry` -> `ans_retry_policy`, ADR-0028 T1.5 cutover) — LIVE since t9-nack-vars
@@ -304,6 +307,13 @@ _ENDS_ENVIO = frozenset({_END_ENVIADO_ACK, _END_ENVIADO_PENDENTE_ACK})
 # `UT_RevisarEnvio`/`UT_RevisarEnvioJuridico`). FINDING A (registration gap, see below) is
 # RESOLVED and no longer the reason these tests block; do not re-cite it as a current cause.
 _NOTIFY_REGULATORIO_GAP_REASON = (
+    "RETIRADO (W8 W5-XFIX, 2026-10-28): NENHUM marcador strict-xfail cita mais esta constante — os "
+    "14 testes TISS que a citavam rodam ao vivo no regime PINADO (`ans_probe_tiss_pinned` + "
+    "`_write_tiss_dataset`/`_ensure_fixture_xsd`), com o ultimo deles (`test_happy_path_envio_"
+    "aprovado_e_acked`)-flip dependente do conserto de FONTE FINDING C em `ans_submit.py` "
+    "(`make_submit_handler`). Mantida APENAS como documentacao do regime T2.6-2 — as docstrings dos "
+    "testes do regime NAO-PINADO (deliberadamente fail-closed) e das fixtures a citam. Texto "
+    "historico abaixo, com a unica correcao de status da FINDING C (fechada por este PR). "
     "T2.6-2 fail-closed schema-pinning regime (CURRENT cause, not FINDING A — see PORT NOTES below "
     "for the historical finding): this test runs on the UNPINNED `ans_probe` fixture, so "
     "`validate_data` resolves a real `TissSchemaValidator()` with no `MAEZO_TISS_SCHEMA_VERSION` "
@@ -327,10 +337,10 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
     "any test, including this one; it is cited here only as historical context for why this reason "
     "constant predates the T2.6-2 finding above. Where a test would ALSO assert a per-worker "
     "notification (notifications_of_type('anssubmit.notify_regulatorio'/'anssubmit.submit'/etc.)) "
-    "even after reaching the relevant User Task under a pinned schema, that assertion would "
-    "SEPARATELY hit the still-open systemic FINDING C (no ans_submit.py entry function calls "
-    "kafka.publish; only the generic operadora.events.publish handler does) — noted for completeness, "
-    "not the reason this particular xfail currently fires."
+    "even after reaching the relevant User Task under a pinned schema, that assertion USED to "
+    "SEPARATELY hit the systemic FINDING C (no ans_submit.py entry function called kafka.publish; "
+    "only the generic operadora.events.publish handler did) — RESOLVED by W8 W5-XFIX PR-2 "
+    "(make_submit_handler publishes anssubmit.submit; notify_regulatorio/retransmit already did)."
 )
 
 # FINDING B — RESOLVIDA (t9-nack-vars). O antigo `_SUBMIT_NACK_UNREACHABLE_REASON` (constante de
@@ -350,8 +360,10 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
 #     recusador (AWS-blocked, issue #16), e so o mock rotulado de dev/test devolve um resultado.
 #   BLOQUEIO 3 (FINDING C, eco kafka morto NESTE topico) — `regulatorio.anssubmit.retransmit` virou
 #     raw async handler (`make_retransmit_handler`, o nome que o proprio contrato ja usa em :157) e
-#     publica a notificacao tipada `anssubmit.retransmit`. FINDING C segue valendo para os OUTROS
-#     topicos de entry function sincrona deste modulo.
+#     publica a notificacao tipada `anssubmit.retransmit`. FINDING C foi FECHADA no ultimo topico
+#     que restava (W8 W5-XFIX PR-2): `regulatorio.anssubmit.submit` virou raw async handler
+#     (`make_submit_handler`) e publica `anssubmit.submit` — nenhum topico de entry function
+#     sincrona deste modulo tem mais notificacao assertada por teste de integracao.
 # Os 2 testes tambem passaram a usar o probe PINADO (`ans_probe_tiss_pinned`) — o regime nao-pinado
 # nunca alcanca `UT_RevisarEnvio` (T2.6-2, ver `_NOTIFY_REGULATORIO_GAP_REASON`), e o pinado nao
 # exige XSD real nem SME (escreve um XSD de fixture em tmp_path).
@@ -494,6 +506,23 @@ def _write_tiss_dataset(tmp_path: Path, name: str, xml: str) -> str:
     path = tmp_path / name
     path.write_text(xml, encoding="utf-8")
     return str(path)
+
+
+def _ensure_fixture_xsd(tmp_path: Path, report_type: str) -> Path:
+    """Escreve o XSD minimo de fixture para `report_type` no schema-root da fixture pinada.
+
+    O `ans_probe_tiss_pinned` cria `tmp_path/tiss-fixture-schemas/TISS-FIXTURE-0/` e so pre-planta
+    `RN_124_SIP.xsd` (o report_type default). O load do XSD e LAZY por validacao — `validate()`
+    resolve `schema_root/version/{report_type}.xsd` a cada chamada (`tiss_schema.py` regra 2,
+    fail-closed "XSD nao vendorizado para report_type") — e pytest injeta o MESMO `tmp_path` na
+    fixture e no teste, entao escrever o XSD de fixture aqui (antes de `start_ans`) basta para o
+    validador enxerga-lo. Idempotente (sobrescreve o mesmo caminho; `RN_124_SIP` reescreve bytes
+    identicos).
+    """
+    xsd = tmp_path / "tiss-fixture-schemas" / _TISS_FIXTURE_VERSION / f"{report_type}.xsd"
+    xsd.parent.mkdir(parents=True, exist_ok=True)
+    xsd.write_text(_TISS_FIXTURE_XSD, encoding="utf-8")
+    return xsd
 
 
 @pytest_asyncio.fixture
@@ -689,23 +718,34 @@ async def test_dados_faltantes_roteiam_para_humano_nunca_auto_rejeita(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_aprovar_envio_exige_revisor_id(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """APROVAR_ENVIO sem revisor_id => worker submit recusa (ERR_ANS_SUBMIT_NOT_HUMAN)."""
-    inst = await start_ans(competencia="2026-NOREV")
+    """APROVAR_ENVIO sem revisor_id => worker submit recusa (ERR_ANS_SUBMIT_NOT_HUMAN).
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): sem o probe pinado este teste
+    nunca chegava a `UT_RevisarEnvio` (`schema_valid` sempre False => PENDENTE pre-emptava a
+    admissibilidade, ver `_NOTIFY_REGULATORIO_GAP_REASON`). Sob o pinado, a recusa do guard
+    (`AnsSubmitNotHumanError`, `PermissionError` FORA do allowlist) vira INCIDENTE auditado
+    (`harness._handle`, `failure(retries=0)`, nunca retry — ADR-0008) e nao um boundary modelado:
+    a instancia para antes de qualquer terminal de envio, e o handler de submit NUNCA publica a
+    notificacao tipada no caminho recusado (o publish acontece so apos o nucleo sincrono
+    bem-sucedido). As assercoes abaixo sao as originais, sem alteracao.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-norev.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-NOREV", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     await engine.complete_task_as_human(ut.id, {"decisao_envio": "APROVAR_ENVIO"})
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ENVIO), "Aprovacao sem revisor_id NAO pode atingir terminal de envio"
-    submits = ans_probe.notifications_of_type("anssubmit.submit")
+    submits = ans_probe_tiss_pinned.notifications_of_type("anssubmit.submit")
     assert not submits, "submit NAO deve transmitir sem revisor_id"
     await _assert_no_filing_without_human_task(engine, iid)
 
@@ -882,49 +922,53 @@ async def test_tiss_pinned_timer_due_date_coordenacao_assume_juridico(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_happy_path_envio_aprovado_e_acked(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Humano aprova o envio (APROVAR_ENVIO + revisor_id); ACK correlacionado => End_EnviadoAck."""
-    inst = await start_ans(competencia="2026-HAPPY")
+    """Humano aprova o envio (APROVAR_ENVIO + revisor_id); ACK correlacionado => End_EnviadoAck.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX PR-2) + conserto de FONTE
+    FINDING C: `make_submit_handler` publica a notificacao tipada `anssubmit.submit` apos o nucleo
+    sincrono `submit_entry` bem-sucedido (mesmo metodo de
+    `make_notify_regulatorio_handler`/`make_retransmit_handler`), entao as assercoes de
+    `notifications_of_type("anssubmit.submit")` abaixo sao as originais, agora observaveis.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-happy.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-HAPPY", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     assert "regulatorio-ans" in ut.candidate_groups
 
-    dossiers = ans_probe.notifications_of_type("anssubmit.notify_regulatorio")
+    dossiers = ans_probe_tiss_pinned.notifications_of_type("anssubmit.notify_regulatorio")
     assert dossiers, "Worker notify_regulatorio (dossie) deve ter sido executado"
 
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     await _assert_no_filing_without_human_task(engine, iid)
     assert _END_ENVIADO_ACK in ended, f"Envio aprovado+ACK deve atingir End_EnviadoAck. ended={ended}"
-    assert ans_probe.has_event(_ANS_SUBMITTED)
-    assert ans_probe.has_event(_ANS_ACKED)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_SUBMITTED)
+    assert ans_probe_tiss_pinned.has_event(_ANS_ACKED)
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
 
-    submits = ans_probe.notifications_of_type("anssubmit.submit")
+    submits = ans_probe_tiss_pinned.notifications_of_type("anssubmit.submit")
     assert submits, "Worker submit deve ser executado apos aprovacao humana"
     s = submits[0]
     assert s["decisao_envio"] == "APROVAR_ENVIO"
     assert s["revisor_id"] == "revisor-sintetico-001"
     # T2.6-1 (design §2.A): the probe injects the LabeledMock gateway, so the protocol is the
     # deterministic, unmistakably-synthetic `MOCK-ANS-NAO-VINCULATIVO-{business_key}` — NOT the old
-    # fabricated `ANSPROTO-{sha256(time_ns)}`. (This test stays strict-xfail on the T2.6-2
-    # fail-closed schema-pinning regime — see _NOTIFY_REGULATORIO_GAP_REASON — which blocks the
-    # flow before it ever reaches UT_RevisarEnvio, let alone submit; NOT FINDING A, which is
-    # resolved. The assertion is corrected for when this test runs under a pinned schema.)
+    # fabricated `ANSPROTO-{sha256(time_ns)}`.
     assert s["protocolo_ans"].startswith(MOCK_ANS_PROTOCOL_PREFIX)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 @pytest.mark.parametrize(
     ("report_type", "competencia", "periodicidade"),
     [
@@ -937,55 +981,77 @@ async def test_happy_path_envio_aprovado_e_acked(
 )
 async def test_golden_por_report_type(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
     report_type: str,
     competencia: str,
     periodicidade: str,
 ) -> None:
-    """Golden por report_type: ans_calendar resolve prazos coerentes; happy path ate enviado_ack."""
-    inst = await start_ans(report_type=report_type, competencia=competencia, periodicidade=periodicidade)
+    """Golden por report_type: ans_calendar resolve prazos coerentes; happy path ate enviado_ack.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): a fixture pinada so pre-planta
+    `RN_124_SIP.xsd`; para os outros 4 params o `ans_calendar` nativo ja resolve o literal, mas a
+    regra 2 do validador (`tiss_schema.py`, "XSD nao vendorizado para report_type") e fail-closed
+    por report_type — `_ensure_fixture_xsd` planta o XSD de fixture de CADA param no mesmo
+    `tmp_path` ANTES de `start_ans` (o load e LAZY por validacao). Sem isso, 4 dos 5 params caem
+    em PENDENTE mesmo pinados.
+    """
+    _ensure_fixture_xsd(tmp_path, report_type)
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-golden.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        report_type=report_type,
+        competencia=competencia,
+        periodicidade=periodicidade,
+        dataset_ref=dataset_ref,
+    )
     iid = inst["id"]
     assert inst["businessKey"] == f"ANSSUB-amh-{report_type}-{competencia}"
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     assert "regulatorio-ans" in ut.candidate_groups
 
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     assert _END_ENVIADO_ACK in ended, f"{report_type} {competencia} => enviado_ack. ended={ended}"
     await _assert_no_filing_without_human_task(engine, iid)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_ack_pendente_completa_como_enviado_pendente_ack(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Envio transmitido mas ACK nao chegou; ICE_AguardarAck (P1D) expira => enviado_pendente_ack."""
-    inst = await start_ans(competencia="2026-PENDACK")
+    """Envio transmitido mas ACK nao chegou; ICE_AguardarAck (P1D) expira => enviado_pendente_ack.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); mesma forma dos irmaos pinados
+    passando (submit -> ICE_AguardarAck -> terminal), com `dataset_ref` real (regra 3 do
+    validador: o default `DATASET-TESTE-0001` nao e arquivo).
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-pendack.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-PENDACK", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     job = await engine.await_timer_job(iid, "ICE_AguardarAck")
     await engine.execute_job(job.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     assert _END_ENVIADO_PENDENTE_ACK in ended, (
         f"ACK ausente no prazo => End_EnviadoPendenteAck. ended={ended}"
     )
     await _assert_no_filing_without_human_task(engine, iid)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_pendente_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_pendente_ack")
 
 
 # ===========================================================================
@@ -993,29 +1059,43 @@ async def test_ack_pendente_completa_como_enviado_pendente_ack(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_corrigir_pendencia_reavalia(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """dataset_complete=false => PENDENTE -> UT_CorrigirPendenciaEnvio; corrigido => reavalia.
 
-    Alcanca UT_CorrigirPendenciaEnvio (nao bloqueado): a correcao humana so seta
-    `dataset_complete=True` (nao `schema_valid`), e no regime NAO-PINADO `schema_valid`
-    permanece SEMPRE False (T2.6-2 — ver _NOTIFY_REGULATORIO_GAP_REASON), entao a reavaliacao
-    pos-correcao continua roteando PENDENTE em vez de SEGUE_ENVIO/REVISAO_HUMANA ->
-    UT_RevisarEnvio. BLOQUEADO por T2.6-2 (nao mais por FINDING A, que esta resolvida).
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX). No regime NAO-PINADO a
+    reavaliacao pos-correcao nunca saia de PENDENTE porque `schema_valid` era SEMPRE False; sob o
+    pinado ela volta a ser alcancavel — com DUAS adaptacoes de fixture (test-side, sem nenhuma
+    mudanca de assercao; mesmo molde do PORT FIX de
+    `test_dados_faltantes_roteiam_para_humano_nunca_auto_rejeita`):
+
+    1. A pendencia inicial tem de vir do eixo de COMPLETITUDE (a correcao humana e o que a fecha):
+       `dataset_complete=False` E `dataset_ref=""` — com um `dataset_ref` presente,
+       `prepare_submission` RECOMPUTA `dataset_complete = dataset_complete or bool(dataset_ref)`
+       e a admissibilidade nunca veria False.
+    2. A correcao humana carrega tambem o `dataset_ref` (alem do `dataset_complete=True`
+       original): sem ele, a 2a passada do laco (`Flow_Corrigir_Calendar` -> ST_AssembleDataset
+       -> ST_ValidateSchema -> BRT_Admissibilidade) revalida contra `dataset_ref` em branco,
+       `schema_valid` volta a ser False (regra 1/3 do validador) e o `[-, false, -] -> PENDENTE`
+       pre-empta `UT_RevisarEnvio` de novo. O cenário (pendencia de dados fechada por humano =>
+       reavaliacao => revisão humana) e o mesmo; as asserções são as originais.
     """
-    inst = await start_ans(competencia="2026-CORR", dataset_complete=False)
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-corr.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-CORR", dataset_complete=False, dataset_ref="")
     iid = inst["id"]
 
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     ut_corrigir = await engine.await_user_task(iid, _UT_CORRIGIR)
     assert "regulatorio-ans" in ut_corrigir.candidate_groups
 
-    await engine.complete_task_as_human(ut_corrigir.id, {"dataset_complete": True})
-    await ans_probe.drain()
+    await engine.complete_task_as_human(
+        ut_corrigir.id, {"dataset_complete": True, "dataset_ref": dataset_ref}
+    )
+    await ans_probe_tiss_pinned.drain()
 
     ut_revisar = await engine.await_user_task(iid, _UT_REVISAR)
     assert "regulatorio-ans" in ut_revisar.candidate_groups
@@ -1025,23 +1105,27 @@ async def test_corrigir_pendencia_reavalia(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_lgpd_nao_anonimizado_roteia_direto_a_revisao_humana(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """lgpd_anonimizado=false (com dataset_complete/schema_valid=true SEEDADOS) => intencao e
     REVISAO_HUMANA (rule r_revisao_lgpd) => Flow_GW_Revisao (default) => ST_PrepararDossie =>
-    UT_RevisarEnvio DIRETO. Na pratica, no regime NAO-PINADO `schema_valid` e recomputado SEMPRE
-    False (T2.6-2 — ver _NOTIFY_REGULATORIO_GAP_REASON), entao o seed `schema_valid=true` e
-    ignorado e a admissibilidade roteia PENDENTE em vez de REVISAO_HUMANA — BLOQUEADO por T2.6-2
-    (nao mais por FINDING A, que esta resolvida).
+    UT_RevisarEnvio DIRETO.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): no regime NAO-PINADO
+    `schema_valid` era recomputado SEMPRE False (o seed `schema_valid=true` era ignorado) e a
+    admissibilidade caia em PENDENTE; sob o pinado, com `dataset_ref` real (regra 3),
+    `schema_valid=True` COMPUTADO e o roteamento REVISAO_HUMANA do `lgpd_anonimizado=false` passa
+    a ser o que o teste exerce.
     """
-    inst = await start_ans(competencia="2026-LGPDREV", lgpd_anonimizado=False)
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-lgpdrev.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-LGPDREV", lgpd_anonimizado=False, dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     ut_revisar = await engine.await_user_task(iid, _UT_REVISAR)
     assert "regulatorio-ans" in ut_revisar.candidate_groups
     assert await engine.get_variable(iid, "lgpd_anonimizado") is False
@@ -1054,31 +1138,37 @@ async def test_lgpd_nao_anonimizado_roteia_direto_a_revisao_humana(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_corrigir_pendencia_lgpd_anonimizado_reavalia(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """GAP-ANS-5: lgpd_anonimizado=false => intencao e REVISAO_HUMANA => UT_RevisarEnvio, mas
-    BLOQUEADO por T2.6-2 (nao mais FINDING A, que esta resolvida) antes mesmo da primeira
-    UT_RevisarEnvio aparecer — `schema_valid` recomputado sempre False no regime NAO-PINADO
-    pre-empta a admissibilidade para PENDENTE (ver _NOTIFY_REGULATORIO_GAP_REASON)."""
-    inst = await start_ans(competencia="2026-CORRLGPD", lgpd_anonimizado=False)
+    """GAP-ANS-5: lgpd_anonimizado=false => intencao e REVISAO_HUMANA => UT_RevisarEnvio (1);
+    CORRIGIR_PENDENCIA => UT_CorrigirPendenciaEnvio; lgpd_anonimizado=true => reavalia =>
+    UT_RevisarEnvio (2).
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): no regime NAO-PINADO
+    `schema_valid` recomputado era sempre False e a admissibilidade nunca passava da primeira
+    PENDENTE (ver _NOTIFY_REGULATORIO_GAP_REASON); sob o pinado, com `dataset_ref` real (regra 3),
+    a 2a passada do laco (`Flow_Corrigir_Calendar`) revalida com `schema_valid=True` COMPUTADO e
+    `lgpd_anonimizado=true` roteia SEGUE_ENVIO -> ST_PrepararDossie -> UT_RevisarEnvio."""
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-corrlgpd.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-CORRLGPD", lgpd_anonimizado=False, dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     ut_revisar_1 = await engine.await_user_task(iid, _UT_REVISAR)
     assert "regulatorio-ans" in ut_revisar_1.candidate_groups
 
     await engine.complete_task_as_human(ut_revisar_1.id, {"decisao_envio": "CORRIGIR_PENDENCIA"})
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ut_corrigir = await engine.await_user_task(iid, _UT_CORRIGIR)
     assert "regulatorio-ans" in ut_corrigir.candidate_groups
 
     await engine.complete_task_as_human(ut_corrigir.id, {"lgpd_anonimizado": True})
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ut_revisar_2 = await engine.await_user_task(iid, _UT_REVISAR)
     assert "regulatorio-ans" in ut_revisar_2.candidate_groups
@@ -1089,17 +1179,21 @@ async def test_corrigir_pendencia_lgpd_anonimizado_reavalia(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_adiar_envio_registra_justificativa(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Humano completa ADIAR_ENVIO => End_AdiadoHumano; submit NAO executado."""
-    inst = await start_ans(competencia="2026-ADIAR")
+    """Humano completa ADIAR_ENVIO => End_AdiadoHumano; submit NAO executado.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); `dataset_ref` real (regra 3).
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-adiar.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-ADIAR", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     await engine.complete_task_as_human(
         ut.id,
         {
@@ -1108,13 +1202,13 @@ async def test_adiar_envio_registra_justificativa(
             "revisor_id": "revisor-sintetico-001",
         },
     )
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     assert _END_ADIADO in ended, f"ADIAR_ENVIO => End_AdiadoHumano. ended={ended}"
     assert _ST_SUBMETER not in ended, "Adiamento nao transmite a ANS"
     assert not (ended & _ENDS_ENVIO)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="adiado_humano")
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="adiado_humano")
     await _assert_no_filing_without_human_task(engine, iid)
 
 
@@ -1123,20 +1217,25 @@ async def test_adiar_envio_registra_justificativa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_dmn_ans_calendar_resolve_due_date(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """report_type=RN_124_SIP => ans_calendar resolve due_date; ans_sla resolve duracoes; timers
-    existem. NAO relacionado a taxonomia (module docstring) — bloqueado por T2.6-2 (nao mais
-    FINDING A, que esta resolvida): _drive_to_revisar nunca alcanca UT_RevisarEnvio no regime
-    NAO-PINADO (ver _NOTIFY_REGULATORIO_GAP_REASON)."""
-    inst = await start_ans(competencia="2026-CAL")
+    existem. NAO relacionado a taxonomia (module docstring).
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): no regime NAO-PINADO
+    `_drive_to_revisar` nunca alcancava UT_RevisarEnvio (ver _NOTIFY_REGULATORIO_GAP_REASON);
+    sob o pinado, com `dataset_ref` real (regra 3), a revisao e alcancavel e os 2 timers nativos
+    da UT existem.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-cal.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-CAL", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await _drive_to_revisar(engine, ans_probe, iid)
+    await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
 
     job_alerta = await engine.await_timer_job(iid, "BT_DeadlineRisk")
     assert job_alerta.activity_id == "BT_DeadlineRisk"
@@ -1144,43 +1243,56 @@ async def test_dmn_ans_calendar_resolve_due_date(
     assert job_due.activity_id == "BT_DueDate"
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_timer_deadline_risk_nao_interruptivo(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Timer BT_DeadlineRisk (nao-interruptivo): notify_regulatorio recebe task; UT segue aberta."""
-    inst = await start_ans(competencia="2026-DLRISK")
+    """Timer BT_DeadlineRisk (nao-interruptivo): notify_regulatorio recebe task; UT segue aberta.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); `dataset_ref` real (regra 3).
+    O evento `anssubmit.deadline_risk` (publicado pelo handler GENERICO operadora.events.publish em
+    ST_PublishDeadlineRisk) e o mesmo ja provado ao vivo pelo irmao do regime NAO-PINADO
+    `test_timer_deadline_risk_nao_interruptivo_pendencia`.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-dlrisk.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-DLRISK", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await _drive_to_revisar(engine, ans_probe, iid)
+    await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
 
     job = await engine.await_timer_job(iid, "BT_DeadlineRisk")
     await engine.execute_job(job.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
-    assert ans_probe.has_event(_ANS_DEADLINE_RISK), "anssubmit.deadline_risk deve ser publicado"
+    assert ans_probe_tiss_pinned.has_event(_ANS_DEADLINE_RISK), "anssubmit.deadline_risk deve ser publicado"
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_REVISAR in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_timer_due_date_coordenacao_assume(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Timer BT_DueDate (interruptivo): UT_RevisarEnvio cancelada; UT_CoordenacaoEnvioAssume criada."""
-    inst = await start_ans(competencia="2026-DUEDATE")
+    """Timer BT_DueDate (interruptivo): UT_RevisarEnvio cancelada; UT_CoordenacaoEnvioAssume criada.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); `dataset_ref` real (regra 3).
+    Espelho passante do ramo juridico: `test_tiss_pinned_timer_due_date_coordenacao_assume_juridico`
+    (mesma mecanica BT_* interruptivo -> UT_CoordenacaoEnvioAssume).
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-duedate.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-DUEDATE", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await _drive_to_revisar(engine, ans_probe, iid)
+    await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
 
     job = await engine.await_timer_job(iid, "BT_DueDate")
     await engine.execute_job(job.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
     assert "coordenacao-regulatorio" in ut_coord.candidate_groups
@@ -1193,31 +1305,36 @@ async def test_timer_due_date_coordenacao_assume(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_coordenacao_assume_e_aprova(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
-    """Prazo estourado; coordenacao assume e APROVAR_ENVIO => filing apos UT humana (invariante)."""
-    inst = await start_ans(competencia="2026-COORD")
+    """Prazo estourado; coordenacao assume e APROVAR_ENVIO => filing apos UT humana (invariante).
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); `dataset_ref` real (regra 3);
+    filing+ACK sob pinado, mesma forma do irmão pinado acima.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-coord.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-COORD", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    await _drive_to_revisar(engine, ans_probe, iid)
+    await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     job = await engine.await_timer_job(iid, "BT_DueDate")
     await engine.execute_job(job.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
     await _aprovar_envio(engine, ut_coord.id, revisor_id="coordenacao-sintetica-001")
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     assert _END_ENVIADO_ACK in ended
     await _assert_no_filing_without_human_task(engine, iid)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
 
 
 # ===========================================================================
@@ -1229,36 +1346,39 @@ async def test_coordenacao_assume_e_aprova(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_timer_deadline_risk_nao_interruptivo_juridico(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """Timer BT_DeadlineRiskJuridico (nao-interruptivo): converge em ST_NotificarDeadlineRisk
     (topico compartilhado regulatorio.anssubmit.notify_regulatorio, com worker registrado desde
     t5-workers-f1 — FINDING A resolvida), mesmo a UT_RevisarEnvioJuridico em si NAO precisando de
     notify_regulatorio para ser criada.
 
-    T2.6-2 (ver _NOTIFY_REGULATORIO_GAP_REASON): no regime NAO-PINADO este teste falha ANTES de
-    UT_RevisarEnvioJuridico sequer aparecer — sem schema pinado, `schema_valid` e sempre False
-    (fail-closed => UT_CorrigirPendenciaEnvio; ver docstring do modulo), entao o
-    `await_user_task` ja estoura. O strict-xfail continua satisfeito; este teste precisara do
-    probe pinado (`ans_probe_tiss_pinned` + dataset valido) para alcancar a UT juridica.
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX), exatamente como a docstring
+    original prescrevia: `ans_probe_tiss_pinned` + dataset valido alcancam a UT juridica no ramo
+    nip_filing (mesma forma do irmao pinado `test_tiss_pinned_nip_filing_valido_roteia_revisao_
+    juridica`).
     """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-dlrjur.xml", _TISS_VALID_XML)
     inst = await start_ans(
-        competencia="2026-DLRJUR", origem_envio="nip_filing", nip_protocolo_origem="NIP-TESTE-DLR"
+        competencia="2026-DLRJUR",
+        origem_envio="nip_filing",
+        nip_protocolo_origem="NIP-TESTE-DLR",
+        dataset_ref=dataset_ref,
     )
     iid = inst["id"]
 
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await engine.await_user_task(iid, _UT_REVISAR_JURIDICO)
 
     job = await engine.await_timer_job(iid, "BT_DeadlineRiskJuridico")
     await engine.execute_job(job.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
-    assert ans_probe.has_event(_ANS_DEADLINE_RISK), "anssubmit.deadline_risk deve ser publicado"
+    assert ans_probe_tiss_pinned.has_event(_ANS_DEADLINE_RISK), "anssubmit.deadline_risk deve ser publicado"
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_REVISAR_JURIDICO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
@@ -1370,21 +1490,34 @@ async def test_timer_due_date_coordenacao_assume_pendencia(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_catch_all_calendar_roteia_para_humano(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """report_type desconhecido => ans_calendar catch-all (fonte_regulatoria=REVISAO_HUMANA);
     intencao e admissibilidade SEGUE_ENVIO (demais facts default true) => ST_PrepararDossie =>
-    UT_RevisarEnvio. No regime NAO-PINADO `schema_valid` e recomputado SEMPRE False (T2.6-2 — ver
-    _NOTIFY_REGULATORIO_GAP_REASON) independente do report_type, entao a admissibilidade roteia
-    PENDENTE em vez disso — BLOQUEADO por T2.6-2 (nao mais FINDING A, que esta resolvida)."""
-    inst = await start_ans(report_type="RELATORIO_TESTE_INVALIDO", competencia="2026-CATCH")
+    UT_RevisarEnvio.
+
+    Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX): no regime NAO-PINADO
+    `schema_valid` era recomputado SEMPRE False independente do report_type e a admissibilidade
+    caia em PENDENTE (ver _NOTIFY_REGULATORIO_GAP_REASON). Sob o pinado, o catch-all do
+    `ans_calendar` (nativo, sem fixture) volta a ser o assunto do teste — POREM a regra 2 do
+    validador e fail-closed POR report_type (`tiss_schema.py`: "XSD nao vendorizado para
+    report_type"), entao `_ensure_fixture_xsd` planta `RELATORIO_TESTE_INVALIDO.xsd` no mesmo
+    `tmp_path` (load LAZY por validacao) para que o schema NAO seja o motivo do roteamento; o que
+    roteia a REVISAO_HUMANA aqui e o catch-all do calendar, provado ao vivo por `_drive_to_revisar`
+    alcancar `UT_RevisarEnvio` (PENDENTE teria ido a `UT_CorrigirPendenciaEnvio`).
+    """
+    _ensure_fixture_xsd(tmp_path, "RELATORIO_TESTE_INVALIDO")
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-catch.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        report_type="RELATORIO_TESTE_INVALIDO", competencia="2026-CATCH", dataset_ref=dataset_ref
+    )
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     assert "regulatorio-ans" in ut.candidate_groups
 
     job = await engine.await_timer_job(iid, "BT_DueDate")
@@ -1509,8 +1642,10 @@ async def test_retry_esgotado_roteia_para_humano(
 
 
 # ===========================================================================
-# Guards (unit-style, SEM engine) — port rule 1: v2 usa entry functions dict-boundary, nao
-# handler factories (make_submit_handler/make_assemble_handler nao existem em v2 main).
+# Guards (unit-style, SEM engine) — port rule 1: v2 usa entry functions dict-boundary; o nucleo
+# sincrono `submit_entry` segue sendo a unidade testavel aqui (o handler raw `make_submit_handler`
+# — recriado em W8 W5-XFIX PR-2 para publicar a notificacao — apenas o envolve; make_assemble_
+# handler segue sem existir em v2).
 # ===========================================================================
 
 

@@ -19,6 +19,7 @@ returns the cleaned dict.
 
 from __future__ import annotations
 
+import re
 from types import FrameType
 from typing import Any
 
@@ -223,4 +224,55 @@ class ErrorLogScrubber:
             return tuple(items) if isinstance(value, tuple) else items
         if error and value is not None and not isinstance(value, bool):
             return _ERROR_REDACTED
+        return value
+
+
+# --- Always-on, key-less PHI redaction (forensic audit F-063) -----------------------------
+# `LogScrubber` (keyed HMAC) needs a policy-enabled PHI_HMAC_KEY and was never installed in the
+# shipped structlog chain, so with the business-key policy inert the PHI field names and free
+# conversational text reached stdout raw. This processor needs no key and no policy: it REDACTS
+# (no correlation semantics, same posture as ErrorLogScrubber). It is a structured-field and
+# pattern net, NOT a PHI classifier: a name typed inside an unknown free-text field cannot be
+# detected, which is why the known conversational-text fields are redacted wholesale.
+_PHI_REDACTED = "[REDACTED_PHI]"
+_FREE_TEXT_FIELDS = frozenset(
+    {
+        "message_body",
+        "message_text",
+        "body",
+        "texto",
+        "text",
+        "mensagem",
+        "conteudo",
+        "transcript",
+        "raw_text",
+        "user_message",
+    }
+)
+_PHI_PATTERNS = (
+    re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b"),  # CPF
+    re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"),  # e-mail
+    re.compile(r"(?:\+?55\s?)?\(?\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}\b"),  # telefone BR
+)
+
+
+class PhiLogRedactor:
+    """Structlog processor: redact PHI field values, free-text fields and PHI-shaped substrings."""
+
+    def __call__(self, logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+        return {key: self._clean(key, value, 0) for key, value in event_dict.items()}
+
+    def _clean(self, key: Any, value: Any, depth: int) -> Any:
+        if isinstance(key, str) and (key in PHI_FIELDS or key in _FREE_TEXT_FIELDS):
+            return _PHI_REDACTED if value not in (None, "") else value
+        if depth >= 6:
+            return value
+        if isinstance(value, dict):
+            return {k: self._clean(k, v, depth + 1) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            items = [self._clean(None, v, depth + 1) for v in value]
+            return tuple(items) if isinstance(value, tuple) else items
+        if isinstance(value, str):
+            for pattern in _PHI_PATTERNS:
+                value = pattern.sub(_PHI_REDACTED, value)
         return value

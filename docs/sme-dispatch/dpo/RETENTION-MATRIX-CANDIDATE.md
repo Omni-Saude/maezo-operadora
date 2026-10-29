@@ -291,7 +291,7 @@ escopo_b:
     - camada: coleta_reembolso
       tabelas: [reembolso_coleta]
       motivo: >-
-        fora do escopo B; 0031 (DL-0156/DL-0157, reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1
+        fora do escopo B; 0031 (DL-0157/DL-0158, reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1
         desligada por padrao) guarda so' o conversation_id pseudonimo keyed, a etapa e as respostas
         FECHADAS da coleta (relacao com o titular, categoria, tipo, motivo), a data do atendimento,
         o valor pedido em centavos, a lista de {tipo, document_ref} com a referencia OPACA (o arquivo

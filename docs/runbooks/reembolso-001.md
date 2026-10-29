@@ -1,14 +1,14 @@
 # Reembolso pelo WhatsApp e pelo portal (dev): `MAEZO_REEMBOLSO_V1`
 
 **Status:** rascunho, SÓ no ambiente de desenvolvimento (dev). Decisões do dono de 28 e 29/10/2026
-(`docs/decisions-log.md`, DL-0156, DL-0157 e DL-0158), a partir da planilha `Reembolso_Pronto_x_Falta_v2.xlsx`.
+(`docs/decisions-log.md`, DL-0157, DL-0158 e DL-0159), a partir da planilha `Reembolso_Pronto_x_Falta_v2.xlsx`.
 **Revisão jurídica dos textos, DPO (retenção dos anexos e as cinco perguntas de PHI) e operação antes de
 produção.** Contrato: `docs/processes/contracts/SP-OP-REEMBOLSO-001.md` v0.2.0 (rascunho, sem sign-off).
 
 ## 1. O que é, em linguagem simples
 
 **Todo pedido de reembolso vai para análise humana.** Não há cálculo, tabela, teto nem aprovação automática
-(DL-0156). O sistema só **organiza** o pedido, os documentos e a resposta.
+(DL-0157). O sistema só **organiza** o pedido, os documentos e a resposta.
 
 1. A pessoa escreve "quero um reembolso" no WhatsApp. O **Lucas** conduz, sem modelo, com perguntas fechadas:
    - tem a nota fiscal? Se não tiver, encerra e **nenhum processo é aberto**;
@@ -157,7 +157,7 @@ Conclua cada passo dentro de 24 h da última mensagem da pessoa. Conferir o moto
 | Prazo de reembolso (`reembolso_prazo.dmn`) e base RN 566/2022 | jurídico |
 | Template Meta para aviso fora da janela de 24 h | operação |
 | Pessoas reais nos grupos | operação |
-| Imutabilidade dos anexos (Object-Lock), se o jurídico exigir: o destino é a Zona PHI do lake, por contrato com o datalake (DL-0158) | jurídico + datalake |
+| Imutabilidade dos anexos (Object-Lock), se o jurídico exigir: o destino é a Zona PHI do lake, por contrato com o datalake (DL-0159) | jurídico + datalake |
 | A leitura e a conclusão interinas do portal saem quando o modelo de leitura assinado carregar o reembolso (dívida da DL-0049/0050) | engenharia |
 
 ## 7. Onde está o código

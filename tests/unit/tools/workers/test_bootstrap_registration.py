@@ -198,6 +198,12 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # the SUB_RetryEnvio loop observable at all. The contract already names the factory
         # (`make_retransmit_handler`, docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:157).
         "regulatorio.anssubmit.retransmit",
+        # submit (W8 W5-XFIX PR-2): moved off `FunctionWorker` onto a raw async handler for the
+        # SAME reason — it publishes the `anssubmit.submit` notification the sync boundary cannot
+        # reach, closing FINDING C for the last entry-function topic whose notification an
+        # integration test asserts. `submit_entry` stays the sync dict-boundary core the handler
+        # wraps (classification byte-identical via `reclassify_coded_exception`).
+        "regulatorio.anssubmit.submit",
         # DL-0033 real wiring: the dossier workers are now RAW async handlers (the async
         # DelegationDispatcher seam a FunctionWorker boundary cannot reach — DL-0034 precedent).
         "operadora.cred.prepare_dossier",
@@ -257,6 +263,10 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
         "operadora.recurso.notify_sla_risk",
         "operadora.recurso.escalate_ans_timeout",
         "operadora.recurso.comunicar_resposta",
+        # retransmit + submit: the two ans_submit raw handlers (t9-nack-vars / W8 W5-XFIX) —
+        # dispatch-reachable via `_handlers`, absent from the WorkerRegistry.
+        "regulatorio.anssubmit.retransmit",
+        "regulatorio.anssubmit.submit",
         # DL-0033 real wiring: the dossier A2A raw handlers follow the same shape.
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",

@@ -59,7 +59,7 @@ to human review — never a silent auto_route (structurally: every `assess` bran
 prove a neutral, allow-listed DMN output returns `human_review`, mirroring Rafael's own
 "nothing ambiguous falls through to automatic by omission" invariant).
 
-REEMBOLSO (v0.2.0, DL-0156): the process has NO calculation, ceiling or auto-approval any more —
+REEMBOLSO (v0.2.0, DL-0157): the process has NO calculation, ceiling or auto-approval any more —
 every request is decided by a human. The only pre-resolved fact Marina carries for it is
 `situacao_prazo` (informative DMN `reembolso_prazo`); `_reembolso_facts` below is a pure
 pass-through of what the process already resolved and never computes anything.
@@ -597,7 +597,7 @@ _FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
     "documentacao_recurso_completa": "documentacao do recurso completa",
 }
 
-#: REEMBOLSO (v0.2.0, DL-0156): nao ha fato booleano pre-resolvido — nao ha cobertura, tabela nem teto
+#: REEMBOLSO (v0.2.0, DL-0157): nao ha fato booleano pre-resolvido — nao ha cobertura, tabela nem teto
 #: por maquina.
 #: `situacao_prazo` e texto (DENTRO | FORA | NAO_AVALIADO) e vai nos fatos, nao neste mapa de booleanos.
 _FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {}

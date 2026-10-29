@@ -1,4 +1,4 @@
-"""Unit tests for maezo.tools.workers.reembolso — SP-OP-REEMBOLSO-001 v0.2.0 (DL-0156).
+"""Unit tests for maezo.tools.workers.reembolso — SP-OP-REEMBOLSO-001 v0.2.0 (DL-0157).
 
 100% analise humana: o worker NAO calcula, NAO compara teto, NAO auto-aprova e NAO emite pagamento.
 Estes testes exercitam os contratos de external task que sobraram e CERCAM a remocao: um teste que lê o BPMN
@@ -233,13 +233,17 @@ def test_analyze_request_nao_carrega_fato_de_calculo_nem_de_teto() -> None:
 def test_negar_com_decisao_humana_completa_valida() -> None:
     result = send_reembolso_denial(_denial())
     assert result["decisao_adversa_validada"] is True
+    # F-009 (#1063): o worker so' registra; o aviso sai depois, pela tarefa de aviso do BPMN.
+    assert result["denial_registered"] is True and result["denial_sent"] is False
     assert result["analista_id"] == "analista-01"
 
 
 def test_o_worker_nao_afirma_ter_enviado_nada() -> None:
-    """O aviso sai pelo Lucas (agent_resume). Este worker so VALIDA: nenhuma chave afirma envio."""
+    """O aviso sai pelo Lucas (agent_resume). Este worker so VALIDA e registra: estado honesto (#1063)."""
     result = send_reembolso_denial(_denial())
-    assert "denial_sent" not in result
+    assert result["denial_sent"] is False
+    assert result["denial_registered"] is True
+    assert result["notification_status"] == "PENDING_CHANNEL"
     assert "notified" not in result
 
 
@@ -335,7 +339,7 @@ def test_registered_topics_are_exactly_the_bpmn_topics_plus_the_publish_conventi
 
 
 def test_the_removed_workers_never_come_back_without_a_dl() -> None:
-    """DL-0156: sem calculo, sem teto, sem pagamento pelo sistema, sem conferencia de prazo por maquina."""
+    """DL-0157: sem calculo, sem teto, sem pagamento pelo sistema, sem conferencia de prazo por maquina."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_reembolso_workers(harness, FakeKafkaPublisher())
     for topic in (
@@ -364,7 +368,7 @@ def test_the_removed_workers_never_come_back_without_a_dl() -> None:
     ],
 )
 def test_the_automatic_money_path_is_gone_from_the_module(nome: str) -> None:
-    assert not hasattr(reembolso, nome), f"{nome} voltou: o reembolso v2 nao calcula nem paga (DL-0156)"
+    assert not hasattr(reembolso, nome), f"{nome} voltou: o reembolso v2 nao calcula nem paga (DL-0157)"
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +396,7 @@ def test_the_automatic_path_elements_are_gone_from_the_bpmn() -> None:
         "End_ReembolsoAprovadoAutomatico",
         "ST_CheckPrazo",
     ):
-        assert removido not in ids, f"{removido} voltou ao BPMN de reembolso (DL-0156)"
+        assert removido not in ids, f"{removido} voltou ao BPMN de reembolso (DL-0157)"
 
 
 def test_every_path_to_a_terminal_crosses_a_human_task() -> None:

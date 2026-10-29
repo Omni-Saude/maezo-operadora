@@ -547,7 +547,7 @@ rows:
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_RegistrarPagamento
-  sla_ato: contrato v0.2.0 (DL-0156) -- o financeiro paga fora do sistema e registra data_pagamento
+  sla_ato: contrato v0.2.0 (DL-0157) -- o financeiro paga fora do sistema e registra data_pagamento
   proposto: true
   notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''
