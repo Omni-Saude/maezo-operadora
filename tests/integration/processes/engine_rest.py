@@ -517,16 +517,22 @@ class EngineRest:
         if resp.status_code not in (200, 204):
             raise EngineRestError(f"execute job {job_id} falhou [{resp.status_code}]: {resp.text[:300]}")
 
-    # --- timer-START jobs (SP-OP-ANS-CRON-001 dispatch por fato) ------------------------
+    # --- deployments (SP-OP-ANS-CRON-001: calendario automatico desligado, R-007) -------
 
-    async def start_timer_job_id(self, activity_id: str) -> str:
-        """Job-id do TimerStartEvent pendente (job ligado a process definition, sem instancia)."""
-        resp = await self._client.get("/job", params={"activityId": activity_id})
+    async def deployment_resource_names(self, deployment_id: str) -> set[str]:
+        """Nomes dos recursos (arquivos) de um deployment — prova que o artefato foi enviado."""
+        resp = await self._client.get(f"/deployment/{deployment_id}/resources")
         resp.raise_for_status()
-        jobs = resp.json()
-        if not jobs:
-            raise EngineRestError(f"job de timer-start `{activity_id}` nao encontrado")
-        return str(jobs[0]["id"])
+        return {str(r["name"]) for r in resp.json()}
+
+    async def process_definition_keys_of_deployment(self, deployment_id: str) -> set[str]:
+        """Chaves das process definitions que o engine criou para UM deployment.
+
+        Definition `isExecutable="false"` e ignorada no parse: nao aparece aqui e, sem definition,
+        nao existe job de timer-start (R-007, SP-OP-ANS-CRON-001)."""
+        resp = await self._client.get("/process-definition", params={"deploymentId": deployment_id})
+        resp.raise_for_status()
+        return {str(d["key"]) for d in resp.json()}
 
     async def instance_ids_of_definition(self, process_definition_key: str) -> set[str]:
         """Ids das instancias ATIVAS de uma process-definition-key (para diff antes/depois)."""
