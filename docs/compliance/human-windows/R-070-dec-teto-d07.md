@@ -102,4 +102,4 @@
 - **Atuária:** [nome]   **Data:** [  ]   **Assinatura:** [  ]
 - **Jurídico (ciência sobre tipos elegíveis):** [nome]   **Data:** [  ]
 
-**Fora do escopo desta decisão (seguem abertos):** a regra de overpay, a alçada e a segregação de funções do PAGTO (aprovador ≠ solicitante; `UT_AprovacaoComite`), e as medidas de adequação M-1 citadas na DEC-26. Elas ficam nos itens R-092 e R-076 do roadmap. Assinar este bloco **não** fecha esses pontos.
+**Fora do escopo desta decisão (seguem abertos):** a regra de overpay, a alçada e a segregação de funções do PAGTO (aprovador ≠ solicitante; `UT_AprovacaoComite`), e as medidas de adequação M-1 citadas na DEC-26. Elas seguem abertas: a alçada e a segregação de funções do PAGTO no item R-092 do roadmap; a regra de overpay e as medidas de adequação M-1 no próprio R-070 (fora deste bloco), em conjunto com o R-076. Assinar este bloco **não** fecha esses pontos.
