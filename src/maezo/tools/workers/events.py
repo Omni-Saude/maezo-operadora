@@ -73,7 +73,7 @@ silently dropped) as an open, separately-tracked gap — consistent with the aut
 finding 3.
 
 ans.cron_due anchor (GAP-ANS-1/GAP-ANS-3, ported verbatim from the donor for fidelity): when
-`event_type == "ans.cron_due"` (SP-OP-ANS-CRON-001's 5 timer branches, the only BPMN family that
+`event_type == "ans.cron_due"` (SP-OP-ANS-CRON-001's timer branches, the only BPMN family that
 sets this literal), the handler additionally stamps `payload["ans_cron_reference_date_iso"]` — the
 UTC date of the instant this serviceTask executes, captured ONCE here and sealed into the
 published fact (a BPMN `inputParameter` cannot carry "today"; only a worker can). Harmless
@@ -168,11 +168,12 @@ _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
 # SP-OP-ANS-CRON-001 contract: TimerStartEvent has no case/business key. Only these
-# fetched engine process/activity pairs publish its calendar fact (BPMN topology).
+# fetched engine process/activity pairs publish its calendar fact (BPMN topology). R-007: the SIP
+# definition was removed (RN 639/2025) and these 4 are `isExecutable="false"` until a COUNSEL
+# opinion anchors each one in a primary norm; kept so a re-enabled definition needs no code change.
 # Match exact source identities, never a prefix or caller-controlled event fields alone.
 _ANS_TIMER_PUBLICATION_SOURCES = frozenset(
     {
-        ("SP-OP-ANS-CRON-001-RN124SIP", "ST_PublishCronDueRn124Sip"),
         ("SP-OP-ANS-CRON-001-RN209", "ST_PublishCronDueRn209"),
         ("SP-OP-ANS-CRON-001-RN388", "ST_PublishCronDueRn388"),
         ("SP-OP-ANS-CRON-001-RN424TISS", "ST_PublishCronDueRn424Tiss"),

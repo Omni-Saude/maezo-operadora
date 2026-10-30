@@ -360,12 +360,18 @@ O que o Lucas usa, todo de contratos AMH JA' pinados em `config/integrations/amh
 
 O que NAO chega: numero do contrato e matricula/carteirinha em claro (a AMH entrega a carteirinha
 mascarada). A instancia carrega so' o pseudonimo (`matricula_beneficiario` = `beneficiario_pseudo_id`, como na
-v0.1.0) — nunca um identificador cru no motor. **Lacuna (decisao do dono/AMH, nao implementada):** para a
-pessoa do cadastro achar o beneficiario no Tasy e' indispensavel uma rota NOVA da AMH, na Zona PHI e so' para
-staff (ex.: `GET /subjects/{portable_subject_ref}/identificacao-cadastro`, finalidade
-`execucao-cancelamento`: `numero_contrato`, `matricula`/`carteirinha` sem mascara, `titular`), e o Maezo gravar
-na instancia o `portable_subject_ref` opaco para o portal consulta-la. Ate' la', so' teste em dev com
-beneficiario de teste conhecido.
+v0.1.0) — nunca um identificador cru no motor.
+
+**Rota de identificacao para o cadastro — publicada pela AMH, ainda NAO consumida pelo Maezo.** A AMH publicou
+a rota restrita (Zona PHI, so' staff do cadastro) `GET /subjects/{portable_subject_ref}/identificacao-cadastro`
+(finalidade fixa `execucao-cancelamento`: `numero_contrato`, `matricula`/`carteirinha` sem mascara, `titular`)
+no manifest aditivo **v1.7** (PUBLISHED em 16/10/2026, AMH #253, run 38866054259), pinada em
+`config/integrations/amh/contracts.lock.json` (bloco `manifest_v1_7`; OpenAPI vendorizado em
+`config/integrations/amh/openapi/tina-identificacao-cadastro.openapi.yaml`, sha256 `5a1afe0d…`, igual ao
+publicado) e reconhecida por `src/maezo/adapters/amh/contract.py` (`V1_7_*`). O pin e' so' RECONHECIMENTO: nenhum
+cliente, flag, worker ou tela do Maezo chama a rota, e a instancia continua sem o `portable_subject_ref` para o
+portal consulta-la. Ligar o consumo depende de decisao do dono e da ratificacao do DPO da base legal (o proprio
+OpenAPI registra "Ratificação do DPO pendente"). Enquanto isso, so' teste em dev com beneficiario de teste conhecido.
 
 ## Pendencias para promocao a FINAL
 

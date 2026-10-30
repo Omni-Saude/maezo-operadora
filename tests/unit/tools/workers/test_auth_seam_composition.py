@@ -2,13 +2,15 @@
 
 POR QUE ESTE ARQUIVO EXISTE. Em 18/09/2026 tres WPs mexeram no MESMO bootstrap e a resolucao do
 conflito foi feita por agente: J1-03 tira `RequestDocumentsWorker` da lista quando a ponte PHI
-esta' instalada, J1-06 tira `SendDenialNoticeWorker` quando o dono nativo do portal existe, e
-J1-09 converte `notify_sla_risk` de classe para handler CRU com o seam `kafka`. Cada um foi
+esta' instalada, J1-06 tirava `SendDenialNoticeWorker` quando o dono nativo do portal existia
+(R-004 / F-032 removeu esse segundo dono — decisao do dono DEC-01, issue #1081 — e o eixo virou
+`denial_written_notice`, a bandeira dark da entrega por escrito), e J1-09 converte
+`notify_sla_risk` de classe para handler CRU com o seam `kafka`. Cada um foi
 testado no seu proprio arquivo, SOZINHO. O que ninguem testou foi a COMBINACAO — e e' na
 combinacao que uma aritmetica de indice, um `append` na ordem errada ou um seam consumido duas
 vezes aparece.
 
-A INVARIANTE que este arquivo persegue, em todas as 16 combinacoes (`denial_notice_host` x
+A INVARIANTE que este arquivo persegue, em todas as 16 combinacoes (`denial_written_notice` x
 `document_request_host_installed` x `kafka` x chamada dupla): **cada topico tem EXATAMENTE um
 handler, e o handler certo**. Um topico com dois consumidores nao da' erro: os dois fazem
 fetch-and-lock da mesma tarefa externa e quem ganha a corrida decide se o pedido de documento foi
@@ -27,17 +29,14 @@ import itertools
 import pytest
 
 from maezo.runtime.worker_runtime.denial_notices import TOPIC as TOPICO_NEGATIVA
-from maezo.runtime.worker_runtime.denial_notices import (
-    NativeDenialNoticeWorker,
-    TopicOwnershipError,
-    install_denial_notice_host,
-)
+from maezo.runtime.worker_runtime.denial_notices import TopicOwnershipError
 from maezo.tools.workers.auth import (
     _NOTIFY_SLA_RISK_TOPIC,
     NotifySlaRiskWorker,
     SendDenialNoticeWorker,
     register_auth_workers,
 )
+from maezo.tools.workers.base import WorkerBase
 from maezo.tools.workers.bootstrap import register_all_workers
 from maezo.tools.workers.harness import (
     FakeKafkaPublisher,
@@ -68,11 +67,11 @@ def _harness() -> WorkerHarness:
 
 
 @pytest.mark.parametrize(
-    ("com_dono_de_negativa", "ponte_de_documentos", "com_kafka", "duas_vezes"),
+    ("entrega_por_escrito", "ponte_de_documentos", "com_kafka", "duas_vezes"),
     list(itertools.product([False, True], repeat=4)),
 )
 def test_toda_combinacao_de_seams_deixa_um_dono_por_topico(
-    com_dono_de_negativa: bool, ponte_de_documentos: bool, com_kafka: bool, duas_vezes: bool
+    entrega_por_escrito: bool, ponte_de_documentos: bool, com_kafka: bool, duas_vezes: bool
 ) -> None:
     """As 16 combinacoes, com a chamada dupla dentro da propria matriz.
 
@@ -82,9 +81,11 @@ def test_toda_combinacao_de_seams_deixa_um_dono_por_topico(
     exatamente onde a ordem de registro se desfaz.
     """
     harness = _harness()
-    host = install_denial_notice_host() if com_dono_de_negativa else None
     kafka = FakeKafkaPublisher() if com_kafka else None
-    seams = {"denial_notice_host": host, "document_request_host_installed": ponte_de_documentos}
+    seams = {
+        "denial_written_notice": entrega_por_escrito,
+        "document_request_host_installed": ponte_de_documentos,
+    }
 
     register_auth_workers(harness, kafka=kafka, **seams)
     if duas_vezes:
@@ -99,36 +100,30 @@ def test_toda_combinacao_de_seams_deixa_um_dono_por_topico(
     assert len(topicos) == esperados, f"esperado {esperados} topicos auth, obtido {sorted(topicos)}"
 
 
+@pytest.mark.parametrize("entrega_por_escrito", [False, True])
 @pytest.mark.parametrize("ponte_de_documentos", [False, True])
 @pytest.mark.parametrize("com_kafka", [False, True])
 @pytest.mark.parametrize("duas_vezes", [False, True])
-def test_o_dono_da_negativa_e_o_nativo_quando_o_seam_existe_e_o_generico_quando_nao(
-    ponte_de_documentos: bool, com_kafka: bool, duas_vezes: bool
+def test_o_dono_da_negativa_e_sempre_o_worker_do_contrato(
+    entrega_por_escrito: bool, ponte_de_documentos: bool, com_kafka: bool, duas_vezes: bool
 ) -> None:
-    """`send_denial_notice` tem um dono SO' — e o teste olha QUEM, nao quantos.
-
-    Contar handlers nao bastaria: o registro do generico DEPOIS do nativo tambem daria contagem 1
-    (o `WorkerRegistry` substitui com um simples warning), e o beneficiario receberia a negativa
-    redigida a partir das variaveis de processo em vez da fundamentacao humana em custodia PHI —
-    silenciosamente.
-    """
-    for com_dono, esperado in ((True, NativeDenialNoticeWorker), (False, SendDenialNoticeWorker)):
-        harness = _harness()
-        seams = {
-            "denial_notice_host": install_denial_notice_host() if com_dono else None,
-            "document_request_host_installed": ponte_de_documentos,
-        }
-        kafka = FakeKafkaPublisher() if com_kafka else None
+    """`send_denial_notice` tem um dono SO' — e o teste olha QUEM, nao quantos (R-004 / F-032)."""
+    harness = _harness()
+    seams = {
+        "denial_written_notice": entrega_por_escrito,
+        "document_request_host_installed": ponte_de_documentos,
+    }
+    kafka = FakeKafkaPublisher() if com_kafka else None
+    register_auth_workers(harness, kafka=kafka, **seams)
+    if duas_vezes:
         register_auth_workers(harness, kafka=kafka, **seams)
-        if duas_vezes:
-            register_auth_workers(harness, kafka=kafka, **seams)
-        assert type(harness.registry.get(TOPICO_NEGATIVA)) is esperado
+    assert type(harness.registry.get(TOPICO_NEGATIVA)) is SendDenialNoticeWorker
 
 
-@pytest.mark.parametrize("com_dono_de_negativa", [False, True])
+@pytest.mark.parametrize("entrega_por_escrito", [False, True])
 @pytest.mark.parametrize("com_kafka", [False, True])
 def test_o_alerta_de_sla_nunca_volta_a_ser_um_workerbase_na_lista(
-    com_dono_de_negativa: bool, com_kafka: bool
+    entrega_por_escrito: bool, com_kafka: bool
 ) -> None:
     """WP-J1-09: `notify_sla_risk` e' handler CRU, e `NotifySlaRiskWorker` NAO esta' na lista.
 
@@ -142,7 +137,7 @@ def test_o_alerta_de_sla_nunca_volta_a_ser_um_workerbase_na_lista(
     register_auth_workers(
         harness,
         kafka=FakeKafkaPublisher() if com_kafka else None,
-        denial_notice_host=install_denial_notice_host() if com_dono_de_negativa else None,
+        denial_written_notice=entrega_por_escrito,
     )
     assert _NOTIFY_SLA_RISK_TOPIC in harness.registered_topics
     assert harness.registry.get(_NOTIFY_SLA_RISK_TOPIC) is None, "SLA voltou a ser WorkerBase na lista"
@@ -170,53 +165,41 @@ def test_o_seam_de_kafka_e_consumido_e_nao_descartado() -> None:
 
 
 # =============================================================================================
-# SEQUENCIAS — o seam MUDANDO entre duas chamadas no mesmo harness
+# SEGUNDO DONO e SELO — o topico da negativa nunca fica com dois donos nem sem dono
 # =============================================================================================
 
 
-def test_ligar_o_dono_nativo_depois_do_generico_e_recusado_em_vez_de_substituir() -> None:
-    """Sequencia generico -> nativo (o env var ligado num processo que ja' registrou).
+def test_o_seam_do_segundo_dono_e_recusado_antes_de_registrar_qualquer_coisa() -> None:
+    """R-004 / F-032: o seam `denial_notice_host` nao instala mais nada — e e' RECUSADO, nao ignorado.
 
-    `assert_exclusive` e' re-executado DEPOIS do laco justamente para enxergar o que foi
-    registrado nesta mesma passagem. Substituir em silencio seria pior que recusar: o dono nativo
-    assumiria um topico que o generico ja' tinha travado, e o guard do perdedor nunca correria.
+    Recusar ANTES do laco e' o ponto: um harness que chegou a registrar metade do modulo para so'
+    entao recusar ficaria com o topico da negativa sem dono.
     """
     harness = _harness()
-    register_auth_workers(harness)
     with pytest.raises(TopicOwnershipError):
-        register_auth_workers(harness, denial_notice_host=install_denial_notice_host())
-    # A recusa acontece DEPOIS do laco e do handler cru: nenhum topico auth ficou de fora.
-    assert set(harness.registered_topics) >= _TOPICOS_INCONDICIONAIS
+        register_auth_workers(harness, denial_notice_host=object())
+    assert not harness.registered_topics
 
 
-def test_o_selo_impede_que_o_generico_retome_o_topico_do_dono_nativo() -> None:
-    """Sequencia nativo -> generico. O SELO (`seal_topic`, V14 MINOR-5) tem de segurar.
+class _DonoEstranho(WorkerBase):
+    """Um dono qualquer, fora do contrato, selado no topico da negativa."""
 
-    Esta e' a garantia central do WP-J1-06: sem o selo, um `register_all_workers(harness)` sem o
-    seam devolvia o topico ao worker generico com um mero warning de substituicao.
-    """
+    def __init__(self) -> None:
+        super().__init__(topic=TOPICO_NEGATIVA, max_retries=1)
+
+    def execute(self, process_vars):  # type: ignore[no-untyped-def]
+        return {}
+
+
+def _selado_por_estranho() -> WorkerHarness:
     harness = _harness()
-    register_auth_workers(harness, denial_notice_host=install_denial_notice_host())
-    with pytest.raises(TopicSealError):
-        register_auth_workers(harness)
-    assert type(harness.registry.get(TOPICO_NEGATIVA)) is NativeDenialNoticeWorker
-
-
-def test_reinstalar_o_mesmo_dono_nativo_continua_idempotente() -> None:
-    """Contraprova do selo: uma instancia NOVA do mesmo host (o que um bring-up repetido produz)
-    nao pode ser confundida com um invasor. Sem este teste, "selar" poderia significar
-    "congelar", e a idempotencia documentada de `register_all_workers` morreria com ela."""
-    harness = _harness()
-    register_auth_workers(harness, denial_notice_host=install_denial_notice_host())
-    register_auth_workers(harness, denial_notice_host=install_denial_notice_host())
-    assert type(harness.registry.get(TOPICO_NEGATIVA)) is NativeDenialNoticeWorker
+    harness.register_worker(_DonoEstranho())
+    harness.seal_topic(TOPICO_NEGATIVA, _DonoEstranho)
+    return harness
 
 
 def test_a_recusa_do_selo_nao_deveria_deixar_o_modulo_auth_pela_metade() -> None:
-    harness = _harness()
-    host = install_denial_notice_host(generic_topics=harness.registered_topics)
-    harness.register_worker(host.worker())
-    harness.seal_topic(TOPICO_NEGATIVA, type(host.worker()))
+    harness = _selado_por_estranho()
 
     with pytest.raises(TopicSealError):
         register_auth_workers(harness)
@@ -227,10 +210,7 @@ def test_a_recusa_do_selo_nao_deveria_deixar_o_modulo_auth_pela_metade() -> None
 
 
 def test_a_recusa_do_selo_nao_deveria_derrubar_os_outros_dezesseis_modulos() -> None:
-    harness = _harness()
-    host = install_denial_notice_host(generic_topics=harness.registered_topics)
-    harness.register_worker(host.worker())
-    harness.seal_topic(TOPICO_NEGATIVA, type(host.worker()))
+    harness = _selado_por_estranho()
 
     with pytest.raises(TopicSealError):
         register_all_workers(harness)

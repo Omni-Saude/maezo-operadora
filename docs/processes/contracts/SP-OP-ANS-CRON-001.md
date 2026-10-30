@@ -1,6 +1,6 @@
 # Contrato — SP-OP-ANS-CRON-001 (Agendador per-report_type dos Envios Periodicos ANS)
 
-**Status:** DRAFT (v0.3.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
+**Status:** DRAFT (v0.4.0) — R-007: calendario automatico desligado, ver secao propria. — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **BPMN:** `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn` (GAP-ANS-1)
 **Test spec:** `docs/processes/test-specs/SP-OP-ANS-CRON-001.md`
 **Natureza:** agendador puro (operadora -> regulador). **NAO negativa-like**; nenhum efeito
@@ -21,7 +21,8 @@ definition por report_type**, cada um com um unico TimerStartEvent proprio.
 
 ## Topologia por report_type: DOIS serviceTasks por definition
 
-Cada uma das 5 process definitions executa, a partir do seu proprio TimerStartEvent:
+Cada uma das 4 process definitions (hoje **desligadas**, `isExecutable="false"` — ver "Calendario
+automatico desligado") executaria, a partir do seu proprio TimerStartEvent:
 
 ```
 TimerStartEvent (timeCycle proprio)
@@ -107,8 +108,8 @@ auditoria + `find_active_instance` — idempotente), na regra
 **LACUNA ABERTA (FINDING #2, fora do escopo deste processo):** a REGRA existe e esta unit-testada,
 mas **nenhum consumidor vivo** le `operadora.notifications.internal` e chama
 `NotificationBridge.on_event(...)`. Contra o engine real, nenhuma instancia de
-SP-OP-ANS-SUBMIT-001 nasce de um tick hoje
-(`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`).
+SP-OP-ANS-SUBMIT-001 nascia de um tick (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`,
+retirado por R-007: hoje nao ha tick nenhum — calendario automatico desligado).
 
 > **Nota de escopo (decisao do dono, R-112, 2026-09-04).** Este estado e **intencional e
 > divulgado ate G4**: nenhum tick de cron abre uma instancia de SP-OP-ANS-SUBMIT-001 enquanto o
@@ -140,8 +141,8 @@ Dois external-task topics, ambos ja existentes e ambos ALCANCAVEIS a partir de u
 
 | Topico | Worker | Onde |
 |---|---|---|
-| `operadora.ans_cron.trigger_submissions` | `ans_cron.py::trigger_submissions` | `ST_ResolverCompetencia*` (5x) |
-| `operadora.events.publish` | `events.py::make_publish_event_handler` (generico, 16 BPMNs) | `ST_PublishCronDue*` (5x) |
+| `operadora.ans_cron.trigger_submissions` | `ans_cron.py::trigger_submissions` | `ST_ResolverCompetencia*` (4x, desligadas) |
+| `operadora.events.publish` | `events.py::make_publish_event_handler` (generico, 16 BPMNs) | `ST_PublishCronDue*` (4x, desligadas) |
 
 Nenhum topico Kafka novo (`ans.cron_due` e um `type` de envelope em
 `operadora.notifications.internal`, ja registrado), **nenhuma DMN propria** (zero
@@ -182,40 +183,58 @@ suite de integracao.
 > brasileira e os prazos ANS sao publicados em horario civil brasileiro); NAO foi confirmada com o
 > regulatorio. Pergunta 2b de SP-OP-ANS-CRON-001 em `docs/sme-dispatch/regulatorio/PACKAGE.md`.
 
-## RN 639/2025 — o timer `RN_124_SIP` agenda uma obrigacao EXTINTA (DRAFT/verify)
+## Calendario automatico desligado (R-007 — F-002, F-121; decisao do dono DEC-03)
 
-> **DRAFT/verify regulatorio.** `docs/decisions-log.md:26-27` (**DL-0029**, com **DL-0028**)
-> registra, de fonte primaria, que a **RN 639/2025** revoga a RN 551/2022, desobriga o envio do
-> **SIP** apos o 4o trimestre/2025 e vigora desde 02/03/2026 — a obrigacao esta **extinta**. O
-> despacho ao SME e explicito: o timer `SP-OP-ANS-CRON-001-RN124SIP` esta em **retirada cirurgica**
-> e a sua cadencia **NAO deve ser revisada**
-> (`docs/sme-dispatch/regulatorio/PACKAGE.md:79-82`). O literal `RN_124_SIP` continua neste
-> contrato, no BPMN e em `ans_calendar.dmn` porque e a **chave compartilhada** entre esses
-> artefatos: troca-lo ou remove-lo e decisao de SME/re-scope (T2.6), nao de engenharia. Nada aqui
-> afirma que a obrigacao esta vigente.
->
-> Mesma classe, tambem **DRAFT/verify** e tambem levantada no despacho
-> (`docs/sme-dispatch/regulatorio/PACKAGE.md:90-94`): `RN_209_UTILIZACAO` (RN 209/2009 e
-> financeira, revogada pela RN 451/2020) e `RN_388_QUALIDADE` (RN 388/2015 e fiscalizacao/NIP,
-> superseded pela RN 483/2022) sao **citacoes miscitadas** que precisam de re-derivacao, nao de
-> confirmacao.
+Decisao do dono DEC-03 (issue #1081, item R-006 da auditoria FORENSIC-COMPLETENESS-2026-10),
+aplicada aqui sem re-decidir: **retirar o timer do SIP** para competencias novas, manter caminho
+**manual** para o backlog ate o 4o trimestre/2025, **demais gatilhos so com norma primaria**, e os
+placeholders `DRAFT_*` de data saem do `ans_calendar`.
+
+| Gatilho | Base normativa verificada | Estado |
+|---|---|---|
+| SIP (`RN_124_SIP`; o literal cita a RN 124/2006, que e penalidades e nao o SIP) | RN 639/2025 revoga a RN 551/2022, desobriga o SIP apos o 4o tri/2025, vigente 2026-03-02 (**DL-0029**; aviso ANS conferido em `raw/prazos-verificados.csv`) | definition e DI **removidas** do BPMN; o literal sai da taxonomia do worker. Backlog ate o 4o tri/2025: start **manual** de SP-OP-ANS-SUBMIT-001; `ans_calendar` marca a competencia (`< 2026-01`, forma `YYYY-MM`/`YYYY-Qn`) como `CALENDARIO_MANUAL` e qualquer outra como `REVISAO_HUMANA` (extinta) |
+| `RN_209_UTILIZACAO` | nenhuma — RN 209/2009 revogada pela RN 451/2020 | `isExecutable="false"` |
+| `RN_388_QUALIDADE` | nenhuma — RN 388/2015 revogada pela RN 483/2022 | `isExecutable="false"` |
+| `RN_424_TISS_MONITORAMENTO` | nenhuma — RN 424/2017 trata de junta medica, nao de TISS | `isExecutable="false"` |
+| `DIOPS_TRIMESTRAL` | nenhuma norma primaria localizada | `isExecutable="false"` |
+
+**Efeito no engine (provado contra o CIB Seven local):** definition nao-executavel e ignorada no
+deploy — nao vira process definition e nao cria job de timer. Nenhum tick automatico acontece; o
+envio periodico e manual ate parecer.
+
+**Nenhuma data inventada.** `ans_calendar.dmn` (v0.2.0) devolve `due_date`/`sla_alerta` vazios em
+todas as rows, porque nenhuma obrigacao tem data verificada em fonte primaria; a
+`fonte_regulatoria` diz o motivo (`CALENDARIO_MANUAL — ...` ou `REVISAO_HUMANA — ...`). Uma data so
+entra como ISO `YYYY-MM-DD` real com a norma citada.
+
+**Religar um gatilho** exige, no MESMO PR: parecer COUNSEL (R-006) com norma primaria vigente e
+cadencia; `isExecutable="true"` na definition; `timeCycle` ancorado na norma; a data no
+`ans_calendar`; e a troca do fence
+`tests/unit/spec/test_ans_calendar_r007_fences.py::test_cron_nenhum_gatilho_automatico_sem_norma_primaria`.
+Ratificacao juridica antes de qualquer flip.
+
+**Competencia trimestral `YYYY-Qn` (F-121).** O contrato de envio (SP-OP-ANS-SUBMIT-001, entrada)
+define `competencia` como `YYYY-MM` (mensal) ou `YYYY-Qn` (trimestral). `_compute_competencia`
+passou a devolver o trimestre fechado anterior como `YYYY-Qn` (ex.: `2026-Q1`). O caso anual segue
+`YYYY-01` (o contrato de envio nao define forma anual; DRAFT/verify).
 
 ## Pendencias para promocao a FINAL
 
-- Confirmar os `timeCycle` reais por report_type (RN 124/209/388/424, DIOPS — **DRAFT/verify**),
-  incluindo ancora de data (ex.: `R/P1M` a partir de que dia do mes).
+- **Parecer COUNSEL (R-006)** com a norma primaria vigente, a cadencia e a data de cada gatilho
+  restante (RN 209/388/424, DIOPS — hoje desligados), incluindo ancora de data (ex.: `R/P1M` a
+  partir de que dia do mes). Sem isso nenhum gatilho volta a ser executavel.
 - **Confirmacao regulatoria do mapeamento periodo->competencia** (mes/trimestre/ano ANTERIOR ao
   da ancora do tick — assuncao **DRAFT**, `docs/review-queue.md`), incluindo a representacao
-  `YYYY-01` escolhida para o caso anual (P12M) por consistencia de forma com o `YYYY-MM` dos
-  demais dentro da business key `ANSSUB-...`. O WIRING ja existe (GAP-ANS-1/ANS-CRON-DEAD-CODE
+  `YYYY-01` escolhida para o caso anual (P12M) por consistencia de forma com o `YYYY-MM` mensal
+  dentro da business key `ANSSUB-...` (trimestral ja segue `YYYY-Qn`, F-121). O WIRING ja existe (GAP-ANS-1/ANS-CRON-DEAD-CODE
   fechados: `ST_ResolverCompetencia*` -> `ans_cron.trigger_submissions` ->
   `_compute_competencia`); o que falta e a ratificacao do CONTEUDO.
 - **Consumidor vivo da ponte (FINDING #2, ABERTO):** nenhum processo le
   `operadora.notifications.internal` e chama `NotificationBridge.on_event(...)`, entao nenhum
   tick abre de fato uma instancia de SP-OP-ANS-SUBMIT-001 hoje. Fora do escopo deste processo.
-- **Retirada do timer `RN_124_SIP`** (obrigacao extinta por RN 639/2025 — DL-0028/DL-0029) e
-  **re-derivacao** dos literais miscitados `RN_209_UTILIZACAO` / `RN_388_QUALIDADE`: decisao de
-  SME/re-scope T2.6, nao de engenharia (a taxonomia e chave compartilhada BPMN/DMN/contrato).
+- Timer do SIP: **retirado** (R-007). Resta a **re-derivacao** dos literais miscitados
+  `RN_209_UTILIZACAO` / `RN_388_QUALIDADE` / `RN_424_TISS_MONITORAMENTO`: decisao de SME/re-scope
+  T2.6, nao de engenharia (a taxonomia e chave compartilhada BPMN/DMN/contrato).
 - **Confirmacao do fuso civil da ancora** (`America/Sao_Paulo`, hoje um default de engenharia —
   pergunta 2b do despacho regulatorio).
 - Revisao humana registrada (regulatorio-ANS) antes de qualquer deploy.

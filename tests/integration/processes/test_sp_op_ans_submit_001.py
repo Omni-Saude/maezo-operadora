@@ -197,6 +197,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import re
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -1753,8 +1754,13 @@ def test_ans_admissibility_sem_saida_de_reject() -> None:
 
 
 def test_ans_calendar_catch_all_revisao_humana() -> None:
-    """ans_calendar: a row catch-all (ultima) tem fonte_regulatoria=REVISAO_HUMANA com prazos
-    conservadores (nunca prazo infinito)."""
+    """ans_calendar: a row catch-all (ultima) tem fonte_regulatoria=REVISAO_HUMANA e NENHUMA data
+    fabricada; o "nunca prazo infinito" e garantido pelos timers, que leem `ans_sla` (catch-all
+    com duracoes ISO conservadoras), nao datas do calendario.
+
+    R-007 (F-002): antes, a catch-all devolvia o placeholder `DRAFT_DUE_DATE`, que satisfazia um
+    "due_date nao vazio" sem ser data nenhuma. Agora a data do calendario e ISO `YYYY-MM-DD` real
+    ou vazia (sem data verificada em norma primaria)."""
     from xml.etree import ElementTree as ET
 
     tree = ET.parse(_DMN_CALENDAR)
@@ -1770,9 +1776,16 @@ def test_ans_calendar_catch_all_revisao_humana() -> None:
     assert len(outputs) == 4, "ans_calendar deve ter 4 outputs (due_date/sla_alerta/periodicidade/fonte)"
     due_date_el = next((c for c in outputs[0] if _local(c.tag) == "text"), None)
     fonte_el = next((c for c in outputs[3] if _local(c.tag) == "text"), None)
-    assert due_date_el is not None and due_date_el.text and due_date_el.text.strip().strip('"'), (
-        "catch-all deve ter due_date conservador (nunca prazo infinito/vazio)"
+    assert due_date_el is not None and due_date_el.text is not None
+    due_date = due_date_el.text.strip().strip('"')
+    assert due_date == "" or re.fullmatch(r"\d{4}-\d{2}-\d{2}", due_date), (
+        f"catch-all nao pode carregar data fabricada/placeholder: {due_date!r}"
     )
+    # O prazo nunca-infinito vive em ans_sla (timers): a catch-all de la tem duracoes ISO.
+    sla_rules = [e for e in ET.parse(_DMN_SLA).getroot().iter() if _local(e.tag) == "rule"]
+    sla_last = [c for c in sla_rules[-1] if _local(c.tag) == "outputEntry"]
+    duracoes = [next(c for c in o if _local(c.tag) == "text").text or "" for o in sla_last]
+    assert duracoes and all(re.fullmatch(r'"P\w+"', d.strip()) for d in duracoes), duracoes
     assert fonte_el is not None and fonte_el.text
     # v2's ans_calendar.dmn embeds a full descriptive sentence in fonte_regulatoria (not a bare
     # enum token like the donor's DMN) — adapted (port rule 1, verified against v2 main) to check
