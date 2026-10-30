@@ -1578,6 +1578,66 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "inadimplencia_purga (antes so citada em texto). CLEAN: +2 segmentos JUEL, duracao ISO 8601."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1108",
+        name="ans_cron_report_type",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
+            "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
+            "segue nas 4 definitions restantes. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1108",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
+            "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
+            "segue nas 4 definitions restantes. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1108",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
+            "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
+            "segue nas 4 definitions restantes. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1108",
+        name="event_type",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
+            "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
+            "segue nas 4 definitions restantes. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1108",
+        name="origem_envio",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
+            "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
+            "segue nas 4 definitions restantes. Sem dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1630,7 +1690,8 @@ class TestBuckets:
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
         # R-027 (timer do 50o dia de SP-OP-INADIMPLENCIA-001): +4 (purga, prazo_notificacao_previa)
-        assert len(live_sweep.refs) == expected_refs == 1745
+        # R-007 (definition do SIP removida do SP-OP-ANS-CRON-001, #1108): -5
+        assert len(live_sweep.refs) == expected_refs == 1740
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep

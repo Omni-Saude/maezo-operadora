@@ -1,5 +1,17 @@
 # Test spec — SP-OP-ANS-CRON-001 (DRAFT — acompanha o processo)
 
+> **R-007 (2026-10-30) — calendario automatico desligado.** A definition do SIP saiu do BPMN e as
+> 4 restantes estao `isExecutable="false"` (contrato, secao "Calendario automatico desligado"). O
+> engine nao cria definition nem job de timer, entao os casos de TICK descritos abaixo
+> (`test_cron_competencia_computada_por_report_type`,
+> `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`, helper `start_timer_job_id`)
+> foram **retirados** da suite de integracao. No lugar:
+> `test_calendario_automatico_desligado_engine_nao_cria_definition_nem_timer` e
+> `test_deploy_conjunto_com_submit_so_cria_o_processo_de_envio` (engine real) +
+> `tests/unit/spec/test_ans_calendar_r007_fences.py` (job unitario obrigatorio). Os casos de tick
+> abaixo ficam como especificacao para quando um gatilho for religado por parecer COUNSEL (R-006);
+> a taxonomia vigente tem 4 tipos (sem `RN_124_SIP`) e a competencia trimestral e `YYYY-Qn`.
+
 Stubs de integracao (pytest, marker `integration`) contra CIB Seven **real** (doutrina
 "nunca mockar o engine", Phase 0/1). Arquivos alvo:
 
