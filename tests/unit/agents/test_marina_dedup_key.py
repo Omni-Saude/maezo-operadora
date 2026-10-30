@@ -398,3 +398,37 @@ async def test_marina_dedup_handler_flag_default_off() -> None:
     )
     await handler(envelope)
     assert await cibseven.find_any_instance("CONTAS-amh-LOTE-001") is not None
+
+
+def test_marina_dedup_promotion_never_weakens_even_if_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A promotion entry for an already-gated key is inert: the policy map wins (never weaker)."""
+    monkeypatch.setattr(
+        transport_mod,
+        "_FLAGGED_START_DEDUP_PROMOTIONS",
+        {"SP-OP-PAGTO-001": StartDedupPosture.EXCLUSIVE, "SP-OP-CONTAS-001": StartDedupPosture.EXCLUSIVE},
+    )
+    assert start_dedup_posture("SP-OP-PAGTO-001", promote=True) is StartDedupPosture.PERMANENT
+
+
+@pytest.mark.parametrize(("flow", "expected"), [("contas", True), ("recurso", False)])
+async def test_marina_dedup_graph_asks_promotion_only_for_contas(
+    monkeypatch: pytest.MonkeyPatch, flow: str, expected: bool
+) -> None:
+    """The graph requests the promotion ONLY on the contas flow (defense in depth: the transport
+    map also lists only CONTAS, so this pins the caller side independently)."""
+    import maezo.agents.marina.graph as graph_mod
+
+    seen: list[Any] = []
+    real = graph_mod.start_process_idempotent
+
+    async def _spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs.get("promote_start_dedup"))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(graph_mod, "start_process_idempotent", _spy)
+    dmn = _dmn_contas() if flow == "contas" else _dmn_recurso()
+    state = _contas_state() if flow == "contas" else _recurso_state()
+    await _graph(flag=True, cibseven=FakeCibSevenTransport(), sink=FakeStartAuditSink(), dmn=dmn).ainvoke(
+        state
+    )
+    assert seen == [expected]
