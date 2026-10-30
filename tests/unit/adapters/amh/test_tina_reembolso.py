@@ -192,6 +192,20 @@ def test_composicao_desligada_nao_toca_nos_bytes() -> None:
     )
 
 
+@pytest.mark.usefixtures("pin_de_teste")
+def test_composicao_desligada_com_pin_publicado_continua_none() -> None:
+    """Com o contrato JA pinado (pin de teste), so' a flag segura o leitor: desligada = `None`."""
+    assert (
+        tina.compor_condicoes_reembolso(
+            ligado=False,
+            tina_openapi_bytes=TINA_BYTES,
+            executor=ExecutorReembolso(),
+            reembolso_openapi_bytes=PROPOSTA_BYTES,
+        )
+        is None
+    )
+
+
 def test_composicao_ligada_sem_pin_continua_none() -> None:
     assert (
         tina.compor_condicoes_reembolso(
