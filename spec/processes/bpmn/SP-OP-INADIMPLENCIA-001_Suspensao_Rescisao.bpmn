@@ -75,8 +75,11 @@ notificacao ate o 50o dia de inadimplencia e PRE-REQUISITO. Com MAEZO_INAD_RN593
 resolve_facts publica rn593_prerequisito_notificacao=true e GW_NotificacaoPrerequisito desvia o caso
 SEM notificacao comprovada para GW_JanelaNotificacao50: pagamento (purga) x confirmacao da notificacao
 (reavalia; o cure-window de 10 dias so corre DEPOIS dela) x timer ICE_PrazoNotificacao50
-(${purga.prazo_notificacao_previa}, DMN inadimplencia_purga = teto do 50o dia) -> analise HUMANA,
-nunca terminal adverso. Flag OFF (padrao) => default do gate = cure-window de hoje, sem mudanca.
+(${purga.prazo_notificacao_previa} = P50D da DMN inadimplencia_purga) -> analise HUMANA, nunca terminal
+adverso. ATENCAO: a duracao P50D conta da ENTRADA em GW_JanelaNotificacao50 e reinicia a cada
+notificacao_ack (laco via ST_ResolveFacts), NAO do 1o dia de inadimplencia: ainda nao e o teto absoluto
+do 50o dia da norma. Ancorar no vencimento exige o fato data_inicio_inadimplencia_iso (pendencia
+juridico/produto OBRIGATORIA antes do flip). Flag OFF (padrao) => default do gate = cure-window de hoje, sem mudanca.
 Suspensao so 10 dias apos a notificacao (notificacao tardia vale se garantir o prazo) e conferida pelo
 guard estrito de register_contract_suspension contra a mesma DMN. Minimo de 2 mensalidades sem janela
 de 12 meses (DMN inadimplencia_status). Assinatura juridica exigida antes do flip.
@@ -181,8 +184,11 @@ de 12 meses (DMN inadimplencia_status). Assinatura juridica exigida antes do fli
     </bpmn:exclusiveGateway>
 
     <!-- JANELA DO 50o DIA (event-based gateway): pagamento (purga, neutro) x confirmacao da
-         notificacao (reavalia; o prazo de 10 dias do cure-window so corre DEPOIS dela) x timer do
-         50o dia (${purga.prazo_notificacao_previa}) -> analise HUMANA. NUNCA terminal adverso. -->
+         notificacao (reavalia; o prazo de 10 dias do cure-window so corre DEPOIS dela) x timer
+         ${purga.prazo_notificacao_previa} (P50D) -> analise HUMANA. NUNCA terminal adverso.
+         O timer conta da ENTRADA neste gateway e reinicia a cada notificacao_ack — NAO do 1o dia de
+         inadimplencia (ancorar no vencimento exige data_inicio_inadimplencia_iso; pendencia
+         juridico/produto obrigatoria antes do flip). -->
     <bpmn:eventBasedGateway id="GW_JanelaNotificacao50" name="Janela da notificacao (ate o 50o dia)">
       <bpmn:incoming>Flow_Prereq_JanelaNotificacao</bpmn:incoming>
       <bpmn:outgoing>Flow_Janela_Pagamento</bpmn:outgoing>
@@ -202,7 +208,8 @@ de 12 meses (DMN inadimplencia_status). Assinatura juridica exigida antes do fli
       <bpmn:messageEventDefinition id="MED_NotificacaoAck50" messageRef="Msg_InadNotificacaoAck"/>
     </bpmn:intermediateCatchEvent>
 
-    <!-- Timer do pre-requisito: o 50o dia passou sem notificacao comprovada -> analise HUMANA
+    <!-- Timer do pre-requisito: P50D desde a ENTRADA em GW_JanelaNotificacao50 (nao desde o 1o dia
+         de inadimplencia) sem notificacao comprovada -> analise HUMANA
          (sem notificacao nao ha suspensao possivel: o guard exige a prova datada). -->
     <bpmn:intermediateCatchEvent id="ICE_PrazoNotificacao50" name="50o dia sem notificacao (RN 593)">
       <bpmn:incoming>Flow_Janela_Prazo50</bpmn:incoming>

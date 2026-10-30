@@ -79,6 +79,7 @@ Direcao do dono (issue #1081, DEC-10 -> R-019). Engine REAL (`tests/integration/
 ### test_rn593_sem_notificacao_aguarda_50o_dia_e_expira_para_humano
 - **Given** flag ON (probe `inad_probe_rn593`), sem notificacao comprovada
 - **Then** `GW_NotificacaoPrerequisito` desvia para `GW_JanelaNotificacao50`; o timer `ICE_PrazoNotificacao50` vence em ~50 dias (`${purga.prazo_notificacao_previa}` = `P50D` da DMN) e NAO ha timer `ICE_PrazoPurga`
+- **Nota de semantica:** os ~50 dias contam da ENTRADA em `GW_JanelaNotificacao50` (e reiniciam a cada `notificacao_ack`), NAO do 1o dia de inadimplencia — ainda nao e o teto absoluto do 50o dia da norma; ancorar no vencimento exige o fato `data_inicio_inadimplencia_iso` (pendencia juridico/produto obrigatoria antes do flip).
 - **When** o timer dispara **Then** `UT_AnaliseInadimplencia` abre; nenhum terminal adverso no historico.
 
 ### test_rn593_notificacao_confirmada_abre_prazo_de_10_dias
@@ -87,7 +88,7 @@ Direcao do dono (issue #1081, DEC-10 -> R-019). Engine REAL (`tests/integration/
 - **Then** reavalia e so entao abre o cure-window: timer `ICE_PrazoPurga` vence em ~10 dias (`P10D` da DMN); nenhum terminal adverso.
 
 ### test_inadimplencia_purge_* / test_inadimplencia_notificacao_50_* / test_inadimplencia_dois_meses_* (unidade)
-- `calculate_purge` nao existe mais e seu topico nao e registrado; prazos so na DMN (`prazo_purga >= 10` dias, `prazo_notificacao_previa = P50D` em todas as linhas).
+- `calculate_purge` nao existe mais e seu topico nao e registrado; prazos so na DMN (`prazo_purga >= 10` dias, `prazo_notificacao_previa = P50D` em todas as linhas). O `P15D` de coletivo/catch-all e herdado sem fonte primaria: DRAFT, a confirmar com o juridico antes do flip.
 - Guard estrito de `register_contract_suspension`: exige `tier`, `data_notificacao_iso` (nao futura) e `data_efeito_iso` nao retroativa `>= notificacao + prazo_purga` (DMN); notificacao tardia vale se garantir o prazo; DMN ausente/prazo fora de `P<n>D` => recusa. Worker registrado so fica estrito com a flag.
 - Minimo de 2 mensalidades sem janela de 12 meses: DMN `r_segue_analise` `meses_inadimplencia >= 2`; limiar Python preso a DMN; sob a flag, competencia repetida conta uma vez.
 
