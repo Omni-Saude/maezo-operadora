@@ -539,7 +539,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "B-C1",
         "C",
         "`denial_notice_owner` (`MAEZO_DENIAL_NOTICE_OWNER`)",
-        "default `False`; liga o dono nativo de `operadora.auth.send_denial_notice`",
+        "default `False`; LAPIDE (R-004): o dono nativo saiu — ligada, o daemon recusa registrar",
         Anchor(
             "src/maezo/runtime/worker_runtime/settings.py",
             'Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")',
@@ -547,7 +547,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         ),
         Anchor(FLAGS_DOC, "MAEZO_DENIAL_NOTICE_OWNER", 56),
         "WP-J1-06",
-        "fail-closed quando on; flip é a ativação inteira",
+        "fail-closed quando on (recusa de registro); nada a ativar",
     ),
     FlagRow(
         "B-C2",
