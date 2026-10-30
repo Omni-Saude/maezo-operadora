@@ -926,7 +926,8 @@ rows:
     arquivo: "spec/processes/dmn/inadimplencia_purga.dmn"
     linha: 12
     norma_token: "RN 412"
-    arquivo_linha: "spec/processes/dmn/inadimplencia_purga.dmn:12"
+    arquivo_linha: "spec/processes/dmn/inadimplencia_purga.dmn:12 [citação removida em 229e08f7, PR #1102]"
+    status: "citação removida em 229e08f7 (PR #1102, R-027 / DEC-10: a OQ 'RN 593 consolida RN 412/2016?' saiu da descricao da DMN, que passou a citar RN 593/2023 alterada pela RN 617/2024; entra em main com o merge do PR)"
     o_que_afirma: "Cancelamento a pedido; \"593 substitui 412\""
     status_rn_currency_review_1: "revogada"
     norma_corrente_indicada: "RN 561/2022 (NAO RN 593)"
