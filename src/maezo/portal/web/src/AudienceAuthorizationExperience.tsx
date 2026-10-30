@@ -9,7 +9,14 @@ import {
 } from "./CaseWorkspace";
 import { CaseCommunicationsPanel } from "./CaseCommunicationsPanel";
 import { IntakeRecoveryPanel } from "./IntakeRecoveryPanel";
-import { ExternalAreaPanel, ExternalNavigation, type ExternalArea } from "./PortalNavigation";
+import { downloadFileName } from "./documentFileName";
+import { pageTitle, usePageTitle } from "./pageTitle";
+import {
+  ExternalAreaPanel,
+  ExternalNavigation,
+  externalAreaLabel,
+  type ExternalArea,
+} from "./PortalNavigation";
 import type { CaseCommunicationsClient } from "./caseCommunicationsClient";
 import type {
   AuthorizationIntakeDraft,
@@ -560,7 +567,7 @@ function AudienceAuthorizationContext({
   const detailController = useRef<AbortController | null>(null);
   const downloadController = useRef<AbortController | null>(null);
   const downloadUrl = useRef<string | null>(null);
-  const [preparedDownload, setPreparedDownload] = useState<string>();
+  const [preparedDownload, setPreparedDownload] = useState<Readonly<{ url: string; name: string }>>();
   const [accessFailure, setAccessFailure] = useState<CaseExperienceFailure>();
 
   const releaseDownload = useCallback(() => {
@@ -700,11 +707,14 @@ function AudienceAuthorizationContext({
         handleFailure(result.failure);
         return;
       }
+      // F-155: the saved file carries an extension read from the content signature.
+      const name = await downloadFileName(result.value);
+      if (request.signal.aborted) return;
       // Render a download-only link, never interpret a protected Blob as HTML
       // or a remote destination. This component owns its temporary URL.
       const url = URL.createObjectURL(result.value);
       downloadUrl.current = url;
-      setPreparedDownload(url);
+      setPreparedDownload({ url, name });
     } catch (caught) {
       if (!request.signal.aborted && !isAbort(caught) && selectedCaseRef) {
         releaseDownload();
@@ -718,6 +728,7 @@ function AudienceAuthorizationContext({
   }, [accessFailure, detailState.kind, handleFailure, releaseDownload, selectedCaseRef, service]);
 
   const audienceLabel = audience === "beneficiary" ? "beneficiário" : "prestador";
+  usePageTitle(pageTitle(externalAreaLabel(activeArea), `Área do ${audienceLabel}`));
   return (
     <section className="audience-experience" aria-labelledby="authorization-heading">
       <header className="experience-heading">
@@ -736,7 +747,7 @@ function AudienceAuthorizationContext({
       {preparedDownload && (
         <section className="resource-message" aria-label="Documento preparado">
           <p role="status">O documento autorizado está pronto para baixar.</p>
-          <a href={preparedDownload} download="documento">Baixar documento preparado</a>
+          <a href={preparedDownload.url} download={preparedDownload.name}>Baixar documento preparado</a>
           <button type="button" onClick={releaseDownload}>Fechar acesso ao documento</button>
         </section>
       )}

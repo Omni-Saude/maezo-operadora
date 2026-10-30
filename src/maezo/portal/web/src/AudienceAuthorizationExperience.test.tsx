@@ -331,7 +331,8 @@ it("apresenta o Blob autorizado como download e libera a URL ao trocar caso e de
     await userEvent.click(screen.getByRole("button", { name: "Abrir documento" }));
     const link = await screen.findByRole("link", { name: "Baixar documento preparado" });
     expect(link).toHaveAttribute("href", "blob:synthetic-1");
-    expect(link).toHaveAttribute("download", "documento");
+    // F-155: the synthetic bytes match no known signature, so the name is generic but typed.
+    expect(link).toHaveAttribute("download", "documento.bin");
     expect(create).toHaveBeenCalledWith(expect.any(Blob));
     await userEvent.click(screen.getByRole("button", { name: "Solicitação aberta" }));
     expect(revoke).toHaveBeenCalledWith("blob:synthetic-1");
