@@ -3,7 +3,17 @@
 TDD London School: tests written BEFORE implementation.
 """
 
+import hashlib
+
 from maezo.gateway.custody import CustodyBundle
+
+
+def _leaf(ref: str) -> bytes:
+    return hashlib.sha256(b"\x00" + ref.encode("utf-8")).digest()
+
+
+def _node(left: bytes, right: bytes) -> bytes:
+    return hashlib.sha256(b"\x01" + left + right).digest()
 
 
 def test_custody_seal() -> None:
@@ -118,3 +128,46 @@ def test_custody_empty_evidence() -> None:
     assert root is not None
     assert len(root) == 64
     assert CustodyBundle.verify_bundle(root, [])
+
+
+# --- F-003 (forensic audit): domain-separated tree, no duplicate-last-node collision -----
+
+
+def test_duplicating_the_last_item_changes_the_root() -> None:
+    assert CustodyBundle.seal_bundle(["a", "b", "c"]) != CustodyBundle.seal_bundle(["a", "b", "c", "c"])
+    assert CustodyBundle.seal_bundle(["a"]) != CustodyBundle.seal_bundle(["a", "a"])
+
+
+def test_root_matches_independent_construction() -> None:
+    a, b, c, d, e = (_leaf(r) for r in "abcde")
+    assert CustodyBundle.seal_bundle(["a"]) == a.hex()
+    assert CustodyBundle.seal_bundle(["a", "b"]) == _node(a, b).hex()
+    assert CustodyBundle.seal_bundle(["a", "b", "c"]) == _node(_node(a, b), c).hex()
+    assert CustodyBundle.seal_bundle(list("abcde")) == _node(_node(_node(a, b), _node(c, d)), e).hex()
+
+
+def test_leaf_and_node_are_domain_separated() -> None:
+    a, b = _leaf("a"), _leaf("b")
+    # A single "leaf" whose bytes equal an inner node's preimage must not reproduce that node.
+    forged = (a + b).hex()
+    assert CustodyBundle.seal_bundle([forged]) != CustodyBundle.seal_bundle(["a", "b"])
+
+
+def test_verify_bundle_rejects_missing_or_blank_root() -> None:
+    refs = ["hash-record-001", "hash-record-002"]
+    assert not CustodyBundle.verify_bundle(None, refs)
+    assert not CustodyBundle.verify_bundle(None, [])
+    assert not CustodyBundle.verify_bundle("", refs)
+
+
+def test_legacy_duplicate_last_node_root_no_longer_verifies() -> None:
+    """A root built the pre-F-003 way (no prefixes, duplicated last node) must not verify."""
+    refs = ["a", "b", "c"]
+    level = [hashlib.sha256(r.encode()).digest() for r in refs]
+    while len(level) > 1:
+        level = [
+            hashlib.sha256(level[i] + (level[i + 1] if i + 1 < len(level) else level[i])).digest()
+            for i in range(0, len(level), 2)
+        ]
+    assert not CustodyBundle.verify_bundle(level[0].hex(), refs)
+    assert not CustodyBundle.verify_bundle(level[0].hex(), [*refs, "c"])

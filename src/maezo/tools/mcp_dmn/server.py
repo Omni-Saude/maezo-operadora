@@ -21,12 +21,13 @@ Its unit tests were reduced to the deprecation contract (`tests/unit/tools/test_
 from __future__ import annotations
 
 import os
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 import structlog
 from pydantic_settings import BaseSettings
+
+from maezo.platform.xml_safe import parse_xml_without_dtd
 
 logger = structlog.get_logger(__name__)
 
@@ -126,8 +127,7 @@ class DmnServer:
 
         logger.info("dmn_evaluate_decision", dmn_key=dmn_key)
 
-        tree = ET.parse(str(dmn_file))
-        root = tree.getroot()
+        root = parse_xml_without_dtd(dmn_file.read_bytes())
 
         # Find the decision table
         decision_table = root.find(".//dmn:decisionTable", self.NS)

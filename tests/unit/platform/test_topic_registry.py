@@ -75,6 +75,20 @@ class TestValidateTopic:
     def test_invalid_starts_with_number(self) -> None:
         assert TopicRegistry.validate("1contas.glosa.confirmed") is False
 
+    @pytest.mark.parametrize(
+        "topic",
+        [
+            "contas.glosa.confirmed\n",
+            "agents.events.contas\n",
+            "amh.billing.work-items.v1\n",
+            "contas.glosa.confirmed.dlq\n",
+            "contas\n.glosa.confirmed",
+        ],
+    )
+    def test_invalid_trailing_or_embedded_newline(self, topic: str) -> None:
+        """`$` matches before a final newline; validation must cover the whole string (audit F-129 class)."""
+        assert TopicRegistry.validate(topic) is False
+
     def test_invalid_uppercase(self) -> None:
         assert TopicRegistry.validate("CONTAS.glosa.confirmed") is False
 
