@@ -1,7 +1,7 @@
 # AGENTS.md — Maezo Operadora (Greenfield v2)
 
 > **Repo:** Omni-Saude/maezo-operadora · **Orquestrador:** Parreira
-> **Estado:** Greenfield Day 0 — especificação pronta, implementação a construir
+> **Estado:** spec-first — implementação em `src/maezo/`; estado das milestones em `PLANS.md`
 
 ## Contexto essencial (ler primeiro)
 
@@ -19,7 +19,7 @@
 | Spec | Escrita depois do código | Escrita antes do código |
 | Cobertura funcional | ~30-40% dos contratos | Alvo: 100% dos contratos |
 | Código inicial | 55K LOC Python portado | Zero — tudo reconstruído |
-| ADRs | 14/24 "Proposed" | Todos "Accepted" antes de implementar |
+| ADRs | 14/24 "Proposed" | 67 numerados (0001–0067): 49 "Accepted", 18 "Proposed"/"Proposto" (status no cabeçalho de cada ADR) |
 | Qualidade alvo | B+ (pré-produção) | A (alpha-dev, self-certified/unverified) |
 
 ## Regras duras para geração de código
@@ -30,9 +30,9 @@
 4. **Não mockar o engine em testes de integração.** Se a stack docker não está disponível, marque o teste como `integration` e deixe o CI rodá-lo.
 5. **Não inventar regra de negócio em Python/prompt.** Regra determinística → tabela DMN; nível de permissão → `spec/policies/autonomy/`; prazo regulatório → timer BPMN.
 6. **Não importar SDK de LLM fora do pacote `runtime.inference`** nem credencial fora do gateway.
-7. **Itens `hard` da matriz de autonomia são intocáveis** (negativa, decisão clínica, acusação de fraude).
-8. **82 findings da auditoria são checklist "não repetir".** Consulte `docs/reports/predeploy-findings.json` antes de implementar qualquer componente.
-9. **34 DL entries são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.
+7. **Itens `hard` da matriz de autonomia são intocáveis** — os 5 itens congelados em `spec/policies/autonomy/_hard_frozen.yaml`: `clinical_decision` (decisão clínica), `authorization_denial` (negativa de cobertura), `nip_manter_negativa` (manutenção de negativa em NIP), `fraud_accusation` (acusação de fraude) e `contract_termination` (rescisão contratual).
+8. **Os 78 registros da auditoria pré-deploy (60 confirmados + 18 refutados) são checklist "não repetir".** Consulte `docs/reports/predeploy-findings.json` antes de implementar qualquer componente — gerado de `docs/reports/predeploy-audit-report.md` (§3–§4) por `python -m scripts.docs.gerar_predeploy_findings`; registro refutado documenta o que o refutador derrubou, não é defeito vigente.
+9. **As 157 entradas DL (`DL-0001`–`DL-0157`) são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.
 10. Geração em massa (swarm): cada lote termina com `make lint type test validate-artifacts` verde **e poda do que não é usado**.
 11. **Todo merge encerra com manutenção segura do repositório.** Depois de atualizar e verificar `main`, execute integralmente a rotina de inventário, preservação, remoção conservadora e verificação final em `CONTRIBUTING.md`. Nunca use `prune`, `reset`, `clean`, remoção forçada de worktree ou `git branch -D` como atalho.
 
@@ -54,8 +54,8 @@ Para cada milestone:
 
 ### Anti-padrões de contexto
 
-- ❌ Carregar todos os 24 ADRs de uma vez
-- ❌ Carregar todos os 16 contratos SP-OP de uma vez  
+- ❌ Carregar todos os 67 ADRs de uma vez
+- ❌ Carregar todos os 17 contratos SP-OP de uma vez  
 - ❌ Ler arquivos sem search primeiro (`search_files` antes de `read_file`)
 - ❌ Repetir contexto que já está no PLANS.md ou RUNBOOK.md
 - ❌ Começar a codar sem verificar o contrato SP-OP correspondente
