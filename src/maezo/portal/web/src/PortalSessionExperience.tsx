@@ -7,8 +7,10 @@ import { StaffCaseWorkspace, casePath, caseRoutePrefix } from "./StaffCaseWorksp
 import {
   StaffAreaPanel,
   StaffNavigation,
+  staffAreaIds,
   type StaffArea,
 } from "./PortalNavigation";
+import { pageTitle, usePageTitle } from "./pageTitle";
 import type { PortalAudience } from "./caseExperienceModels";
 import type { PortalCapability, PortalSessionFlag } from "./sessionClient";
 import {
@@ -173,6 +175,7 @@ export function StaffPortalExperience({
   const staffDocumentsClient = useMemo(() => createStaffDocumentsClient(), [sessionBinding]);
   const staffOperationsClient = useMemo(() => createStaffOperationsClient(), [sessionBinding]);
   const staffAdminClient = useMemo(() => createStaffAdminClient(), [sessionBinding]);
+  usePageTitle(pageTitle(areaTitle[activeArea], "Área de colaboradores"));
 
   let content: React.ReactNode;
   if (notEnabled.has(activeArea)) {
@@ -266,9 +269,13 @@ export function StaffPortalExperience({
       <div className="staff-portal-workspace">
         <StaffNavigation active={activeArea} onChange={setActiveArea} notEnabled={notEnabled} />
         <div className="staff-panel-stack">
-          <StaffAreaPanel area={activeArea} active>
-            {content}
-          </StaffAreaPanel>
+          {/* F-156 (WCAG 4.1.2): every tab's aria-controls must resolve, so each area keeps
+              its (hidden, empty) tabpanel; only the active one renders content and requests. */}
+          {staffAreaIds.map((area) => (
+            <StaffAreaPanel area={area} active={area === activeArea} key={area}>
+              {area === activeArea ? content : null}
+            </StaffAreaPanel>
+          ))}
         </div>
       </div>
       <SecurityNote />
@@ -309,6 +316,8 @@ export function ExternalPortalExperience({
     () => createCaseCommunicationsClient({ csrfToken }),
     [csrfToken, sessionBinding],
   );
+  // The beneficiary/provider experience names its active area itself; vendor has one view.
+  usePageTitle(service === null ? pageTitle("Área vendor") : null);
 
   if (service === null) {
     return (
