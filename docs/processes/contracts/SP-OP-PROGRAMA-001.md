@@ -84,7 +84,7 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `programa_id` | string | sim | Id do programa de cuidado (ex.: cronicos/pre-natal/oncologia/APS — taxonomia DRAFT) |
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo do beneficiario (ADR-0006 — **NUNCA CPF/nome**) |
 | `ciclo` | string | sim | Ciclo de acompanhamento (compoe a business key) |
-| `gatilho` | string | sim | `canal_proativo` (start-signal-only PHI-minimizado — D9) \| `indicacao_clinica` \| `auto_inscricao_beneficiario` \| `estratificacao_populacional` |
+| `gatilho` | string | sim | `canal_proativo` (start-signal-only PHI-minimizado — D9) \| `indicacao_clinica` \| `auto_inscricao_beneficiario` \| `estratificacao_populacional`. **Vocabulario declarado, ainda NAO validado em codigo (F-136):** o esquema de start `valentina.programa.start.v1` o tipa so' como `String` e `agents/valentina/delegation.py` o repassa como texto; nenhum ponto recusa valor fora destes quatro |
 | `proactive_trigger_ref` | string | nao | Ref do `agents.events.proactive` que originou (D9: `{trigger_type, pseudonym/cohort/risk_band, source_ref, consent_checked, ts}` — **sem conteudo clinico cru**) |
 | `consent_scope` | string | sim | Escopo de consentimento requerido (`programa_cuidado` — fixo nesta fase) |
 | `consentimento_ativo` | boolean | sim* | Pre-resolvido por `operadora.programa.check_consent` (chokepoint): consentimento ativo e nao-revogado para `consent_scope` |
@@ -142,7 +142,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.proactive` | **consome (start)** | trigger proativo PHI-minimizado (D9: start-signal-only; `consent_checked==true` exigido) |
+| Kafka | `agents.events.proactive` | **consome (start)** | trigger proativo PHI-minimizado (D9: start-signal-only; `consent_checked==true` exigido). **ALVO, nao ligado (F-136):** nenhum codigo em `src/maezo/` assina este topico nem inicia o processo a partir dele |
 | Kafka | `agents.events.programa.received` | produz | apos start (enrollment iniciado; **sem PHI clinico cru**) |
 | Kafka | `agents.events.programa.consent_blocked` | produz | chokepoint barrou por falta de consentimento (auditoria LGPD) |
 | Kafka | `agents.events.programa.processing_stopped` | produz | processamento interrompido por revogacao (auditoria LGPD) |
@@ -307,6 +307,8 @@ zero DMN, zero processo) — nenhuma decisao nova nasce aqui (C3); so' o rotulo 
   (`consent_checked`, `cohort/risk_band`, `source_ref`), sem conteudo clinico cru; o consumidor
   re-busca PHI in-zone. `consent_checked==true` exigido antes de qualquer contato com o
   beneficiario.
+  **Estado hoje (F-136):** desenho ALVO — o consumidor deste topico NAO esta' implementado (nenhum
+  codigo o assina); ate' ser ligado, nenhuma instancia nasce com `gatilho=canal_proativo` por este canal.
 - **TASY write DROP** em todo worker: consumimos o CDC/Feature-Store do amh-data-platform; nunca
   escrevemos no Tasy (MEMORY/ADR-0013).
 
