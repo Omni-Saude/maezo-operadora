@@ -411,8 +411,10 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dossier_dispatcher: Any = None,
         document_request_host_installed: bool = False,
         publish_ledger: Any = None,
+        pagto_valor_invalido_pendente_dados: bool = False,
     ) -> None:
         captured["publish_ledger"] = publish_ledger
+        captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
@@ -449,6 +451,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
         assert captured["publish_ledger"] is None  # F-092 dedup ships dark (MAEZO_EXTASK_PUBLISH_DEDUP)
+        # F-142 / R-053: PAGTO invalid-amount -> PENDENTE_DADOS fact ships dark.
+        assert settings.pagto_valor_invalido_pendente_dados is False
+        assert captured["pagto_valor_invalido_pendente_dados"] is False
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
@@ -582,3 +587,69 @@ async def test_bring_up_refuses_to_register_when_the_retired_second_owner_is_req
             await state.transport.close()
         if state.audit_sink is not None:
             await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_pagto_flag_from_env_when_on(monkeypatch: Any) -> None:
+    """F-142 / R-053 fiação (a): `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS=true` chega ao
+    `register_default_workers` pela raiz de composição — sem isso a flag ligada seria inerte."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # no fetch rotation: this test only proves the threading
+
+    monkeypatch.setenv("MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS", "true")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    assert settings.pagto_valor_invalido_pendente_dados is True
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["pagto_valor_invalido_pendente_dados"] is True
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _pagto_calculate_facts_via_default_workers(**kwargs: Any) -> dict[str, Any]:
+    """Executa `operadora.pagto.calculate_facts` registrado pelo `register_default_workers` REAL
+    (não o `register_pagto_workers` direto), com `valor_pagamento_cents=0` (inválido)."""
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-pagto-default-workers")
+    register_default_workers(harness, dmn=fake, **kwargs)  # type: ignore[arg-type]
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(
+        {"tenant_id": "amh", "ordem_pagamento_id": "OP-F142-WIRE", "valor_pagamento_cents": 0}
+    )
+    return result
+
+
+def test_register_default_workers_threads_pagto_flag_when_on() -> None:
+    """F-142 / R-053 fiação (b): o kwarg ligado atravessa `register_default_workers` até o
+    handler de PAGTO — valor inválido vira o FATO `dados_pagamento_validos=False`."""
+    result = _pagto_calculate_facts_via_default_workers(pagto_valor_invalido_pendente_dados=True)
+    assert result["dados_pagamento_validos"] is False
+
+
+def test_register_default_workers_pagto_flag_omitted_stays_dark() -> None:
+    """Kwarg omitido (default off): o handler não escreve `dados_pagamento_validos`."""
+    result = _pagto_calculate_facts_via_default_workers()
+    assert "dados_pagamento_validos" not in result

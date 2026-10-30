@@ -146,6 +146,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # default (ships OFF; flipping is a ROLL data change, never an agent act).
     extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
 
+    # Forensic audit F-142 (roadmap R-053): when ON, `operadora.pagto.calculate_facts` writes the
+    # FACT `dados_pagamento_validos=False` for an absent/invalid `valor_pagamento_cents`, so the
+    # DMN `pagto_admissibility` routes it to PENDENTE_DADOS as SP-OP-PAGTO-001 declares (instead of
+    # the alcada catch-all). Both routes are human and non-releasing. DARK by default (ships OFF;
+    # flipping is a ROLL data change, never an agent act).
+    pagto_valor_invalido_pendente_dados: bool = Field(
+        default=False, alias="MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS"
+    )
+
     # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
     # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de
     # `operadora.auth.send_denial_notice` passa a registrar o estado honesto da entrega —
