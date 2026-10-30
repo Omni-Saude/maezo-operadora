@@ -87,7 +87,7 @@ Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR
 
 ## Jornadas cobertas
 
-16 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 63 tabelas DMN (`spec/processes/dmn/`):
+17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 65 arquivos DMN (`spec/processes/dmn/`):
 
 | Jornada | Processos SP-OP |
 |---------|-----------------|
@@ -124,19 +124,19 @@ O que separa esta base do go-live **não é código** — são ações que só h
 
 ---
 
-## Números (medidos em 2026-09-23 na `main`)
+## Números (medidos em 2026-09-23 na `main`; processos BPMN, arquivos DMN, ADRs e decision log recontados e verificados por `tests/unit/docs/test_contagens_canonicas.py`)
 
 | Métrica | Valor |
 |---------|-------|
 | Agentes de IA nomeados | 10 (8 ativos + 2 em DRAFT) |
-| Processos BPMN SP-OP | 16 |
-| Tabelas de decisão DMN | 63 |
+| Processos BPMN SP-OP | 17 |
+| Arquivos de decisão DMN (`.dmn`) | 65 |
 | Servidores MCP | 5 (CIB Seven, DMN, FHIR, WhatsApp, Memory) |
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
-| ADRs | 59 (0001–0059; 43 ratificados, 16 em proposta/DRAFT) |
-| Decision log | 49 decisões registradas |
+| ADRs | 67 (0001–0067; 49 Accepted, 18 Proposed/Proposto) |
+| Decision log | 157 decisões registradas (DL-0001–DL-0157) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
 
@@ -198,10 +198,10 @@ src/maezo/
 |-----------|----------|
 | [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 59 ADRs numerados (0001–0059; recontado 2026-09-23) |
+| [docs/adr/](docs/adr/) | 67 ADRs numerados (0001–0067; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
-| [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos SP-OP — ~1.000 regras de negócio |
-| [docs/decisions-log.md](docs/decisions-log.md) | 49 decisões operacionais |
+| [docs/processes/contracts/](docs/processes/contracts/) | 17 contratos SP-OP — ~1.000 regras de negócio |
+| [docs/decisions-log.md](docs/decisions-log.md) | 157 decisões operacionais (DL-0001–DL-0157) |
 | [docs/runbooks/](docs/runbooks/) | 32 runbooks operacionais (22 gerais + 8 de alerta + 2 drills) |
 | [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Como contribuir: princípios, receitas de agente/MCP/processo |
