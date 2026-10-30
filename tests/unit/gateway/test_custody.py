@@ -5,6 +5,8 @@ TDD London School: tests written BEFORE implementation.
 
 import hashlib
 
+import structlog
+
 from maezo.gateway.custody import CustodyBundle
 
 
@@ -171,3 +173,27 @@ def test_legacy_duplicate_last_node_root_no_longer_verifies() -> None:
         ]
     assert not CustodyBundle.verify_bundle(level[0].hex(), refs)
     assert not CustodyBundle.verify_bundle(level[0].hex(), [*refs, "c"])
+
+
+# --- R-117 (forensic audit F-188): mutation guards ------------------------------------------
+
+
+def test_verify_bundle_fails_closed_on_a_non_str_root() -> None:
+    """A root of the wrong type is rejected (False), never compared or raised on (fail-closed)."""
+    refs = ["hash-record-001", "hash-record-002"]
+    root = CustodyBundle.seal_bundle(refs)
+    assert root is not None
+    assert CustodyBundle.verify_bundle(root.encode("ascii"), refs) is False  # type: ignore[arg-type]
+    assert CustodyBundle.verify_bundle(123, refs) is False  # type: ignore[arg-type]
+
+
+def test_seal_log_carries_only_root_and_count_never_the_refs() -> None:
+    """ADR-0020/ADR-0006: custody carries hashes only — the seal event exposes the root and the
+    evidence count, never the evidence references themselves."""
+    refs = ["ref-sintetica-001", "ref-sintetica-002", "ref-sintetica-003"]
+    with structlog.testing.capture_logs() as logs:
+        root = CustodyBundle.seal_bundle(refs)
+    assert logs == [
+        {"event": "custody_bundle_sealed", "log_level": "info", "evidence_count": 3, "root": root}
+    ]
+    assert not any(ref in str(logs) for ref in refs)
