@@ -140,6 +140,12 @@ class WorkerRuntimeSettings(BaseSettings):
     # ST_SolicitarDocumentos, nunca uma entrega silenciosamente perdida.
     document_request_host_installed: bool = Field(default=False, alias="MAEZO_AUTH_DOCUMENT_REQUEST_HOST")
 
+    # Forensic audit F-092 (ADR-0024 claim/commit): when ON and DATABASE_URL is set, the generic
+    # `operadora.events.publish` handler records each task's publish in `driver_idempotency`, so a
+    # lock-expiry redelivery of the SAME external task does not publish a second time. DARK by
+    # default (ships OFF; flipping is a ROLL data change, never an agent act).
+    extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",

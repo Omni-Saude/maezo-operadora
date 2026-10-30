@@ -206,3 +206,12 @@ async def test_mark_processed_and_release_are_tenant_scoped() -> None:
     await registry.mark_processed("k1")
     await registry.release("k1")
     assert [args for _sql, args in conn.calls] == [("k1", "amh"), ("k1", "amh")]
+
+
+async def test_is_processed_is_tenant_scoped_and_reads_only_sealed_rows() -> None:
+    """F-092: `is_processed` distinguishes a sealed effect from an in-flight claim."""
+    from maezo.platform.driver_idempotency import PROCESSED_SQL
+
+    assert "status = 'processed'" in PROCESSED_SQL
+    assert "tenant = $2" in PROCESSED_SQL
+    assert "expires_at > now()" in PROCESSED_SQL
