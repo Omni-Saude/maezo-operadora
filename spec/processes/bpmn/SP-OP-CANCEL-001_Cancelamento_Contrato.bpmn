@@ -332,7 +332,7 @@ por automacao. Prazo: BT_PrazoExecucao (P5D — prazo a confirmar pelo juridico)
       <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
       <bpmn:incoming>Flow_PrazoNotif_Sla</bpmn:incoming>
       <bpmn:incoming>Flow_Execucao_Impedida</bpmn:incoming>
-      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Sla_Classificacao</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
     <!-- Wait-for-notification reusa o SLA: precisa de ${sla.prazo_notificacao_previa}. A DMN cancel_sla

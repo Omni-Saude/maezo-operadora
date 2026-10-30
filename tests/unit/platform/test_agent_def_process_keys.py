@@ -134,8 +134,8 @@ class TestTemplateStaysSkipped:
         real_dir.mkdir()
         (real_dir / "agent.yaml").write_text(_BASE_YAML.format(keys="  - SP-OP-AUTH-001"))
 
-        tools_root = tmp_path / "tools"
-        (tools_root / "mcp_dmn").mkdir(parents=True)
+        # Catalogo MCP real (`src/maezo/tools/mcp_*`): o fixture declara `mcp-dmn.evaluate`.
+        tools_root = _REPO_ROOT / "src" / "maezo" / "tools"
 
         report = Report()
         validate_dir(agents_root, tools_root, report)

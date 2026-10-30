@@ -119,6 +119,7 @@ from maezo.gateway.tool_registry import (
     build_worker_seam_context,
     effect_seams_gated,
 )
+from maezo.platform.integrations.bridge_heartbeat import DEFAULT_HEARTBEAT_INTERVAL_S, run_heartbeat
 from maezo.platform.notification_bridge import (
     PROCESS_KEY_ESCALATION,
     SLA_ALERT_DOMAINS,
@@ -173,6 +174,14 @@ class NotificationsBridgeSettings(BaseSettings):
     )
     # httpx client timeout for the CIB Seven transport (WorkerRuntimeSettings' own default).
     client_timeout_s: float = Field(default=40.0, alias="WORKER_CLIENT_TIMEOUT_S")
+
+    # --- Liveness (R-061 / F-149) ---------------------------------------------------------------
+    # Heartbeat lido pela probe `exec` do chart (a imagem nao tem `pgrep`). Vazio = desligado (default);
+    # deployment-bridge.yaml o liga. Ver `bridge_heartbeat` para o mecanismo e o limite honesto.
+    heartbeat_path: str | None = Field(default=None, alias="BRIDGE_HEARTBEAT_PATH")
+    heartbeat_interval_s: float = Field(
+        default=DEFAULT_HEARTBEAT_INTERVAL_S, gt=0, alias="BRIDGE_HEARTBEAT_INTERVAL_S"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1118,9 +1127,17 @@ async def main() -> None:
         tenant_id=settings.tenant_id,
         dlq_topic=dlq_topic_for(settings.kafka_topic),
     )
+    heartbeat_task = asyncio.create_task(
+        run_heartbeat(
+            settings.heartbeat_path, interval_s=settings.heartbeat_interval_s, stop_event=stop_event
+        )
+    )
     try:
         await run_consumer_loop(consumer, bridge, stop_event=stop_event, dlq=dlq)
     finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
         await consumer.stop()
         with contextlib.suppress(Exception):
             await dlq.publisher.stop()
