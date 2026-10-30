@@ -1557,7 +1557,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1102",
         name="purga",
         name_delta=0,
         occurrence_delta=2,
@@ -1569,7 +1569,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1102",
         name="prazo_notificacao_previa",
         name_delta=0,
         occurrence_delta=2,
