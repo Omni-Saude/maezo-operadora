@@ -1673,12 +1673,11 @@ async def test_business_key_uma_instancia_por_contrato(
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa.
 
     GREEN since the T3.1 topic reconciliation (finding 2b FIXED — the `cancel_probe` fixture's
-    drift-guard now passes naturally at setup). NOTE (unchanged from the phase-1 ledger row's
-    disclosure): this test uses a HARDCODED business key, so it is single-clean-run-only — a
-    rerun against a non-torn-down engine accumulates a second active instance and fails; CI
-    provisions a fresh stack per run.
+    drift-guard now passes naturally at setup). The contract number carries a per-run suffix
+    (forensic audit F-194): a hardcoded key made reruns against a non-torn-down engine
+    accumulate a second active instance and fail.
     """
-    contrato = "CONTRATO-TESTE-IDEM-001"
+    contrato = f"CONTRATO-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"CANCEL-amh-{contrato}"
 
     first = await start_cancel(

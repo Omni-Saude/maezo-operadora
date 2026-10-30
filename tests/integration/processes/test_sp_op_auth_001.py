@@ -1530,7 +1530,7 @@ async def test_business_key_uma_instancia_por_guia(
     Nao depende de `auth_probe.drain()` progredir alem do primeiro publish — sobrevive ao
     gap de `operadora.events.publish` acima (nao marcado xfail, ao contrario dos demais).
     """
-    guia = "GUIA-TESTE-IDEM-001"
+    guia = f"GUIA-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"AUTH-amh-{guia}"
 
     first = await start_auth(numero_guia_tiss=guia)

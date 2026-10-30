@@ -1801,7 +1801,7 @@ async def test_business_key_uma_instancia_por_caso(
     start_fraude: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa por caso."""
-    caso = "CASO-TESTE-IDEM-001"
+    caso = f"CASO-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"FRAUDE-amh-{caso}"
 
     first = await start_fraude(numero_caso=caso)

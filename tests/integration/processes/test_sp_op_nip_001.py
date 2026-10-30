@@ -1775,7 +1775,7 @@ async def test_business_key_uma_instancia_por_nip(
     start_nip: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    nip = "NIP-TESTE-IDEM-001"
+    nip = f"NIP-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"NIP-amh-{nip}"
 
     first = await start_nip(numero_nip_ans=nip)
