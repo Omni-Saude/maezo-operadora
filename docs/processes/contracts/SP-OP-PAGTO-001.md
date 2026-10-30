@@ -188,6 +188,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 
 | Grupo (candidate group) | Tier (DRAFT) | Tarefa | Faixa atendida (DRAFT) |
 |---|---|---|---|
+| `clerical-pagamentos` | 0 (`tier_minimo=0` em `r_dentro_teto_l2`) | nenhuma User Task de alcada — caminho clerical L2 (`release_low_value_payment`); grupo emitido pela DMN e enumerado no allowlist de candidate-groups (DL-0024) | `DENTRO_TETO_L2` |
 | `aprovacao-financeira-l1` | 1 | `UT_AprovacaoAlcada` (`decisao_pagamento ∈ {APROVAR, RECUSAR, SOLICITAR_INFO, CANCELAR}`) | `ALCADA_L1` |
 | `aprovacao-financeira-l2` | 2 | `UT_AprovacaoAlcada` | `ALCADA_L2` |
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |

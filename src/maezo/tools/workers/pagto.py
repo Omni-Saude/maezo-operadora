@@ -650,10 +650,11 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
     Serve `ST_NotificarRiscoSla` (topico `operadora.pagto.notify_sla_risk`,
     SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:306-310), alimentado SO pelo boundary NAO-interruptivo
     `BT_AlertaSlaPagto` (`cancelActivity="false"`) em `UT_AprovacaoAlcada`, em `${sla.sla_alerta}`
-    (60-70% de `pagto_sla.sla_alerta`, contrato DRAFT/verify). Informativa e jamais adversa: a
-    User Task segue aberta e NENHUM desfecho adverso (liberacao de pagamento, recusa ou outro)
-    nasce deste alerta — a liberacao so nasce da decisao humana em
-    `UT_AprovacaoAlcada`/`UT_CoordenacaoAlcada` (`release_high_value_payment`, guard inalterado).
+    (`${sla.sla_alerta}` = 60-70% de `sla_aprovacao`, ambos saidas da DMN `pagto_sla`; contrato
+    DRAFT/verify). Informativa e jamais adversa: a User Task segue aberta e NENHUM desfecho
+    adverso (liberacao de pagamento, recusa ou outro) nasce deste alerta — a liberacao so nasce
+    da decisao humana em `UT_AprovacaoAlcada`/`UT_CoordenacaoAlcada`
+    (`release_high_value_payment`, guard inalterado).
 
     FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
     calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
