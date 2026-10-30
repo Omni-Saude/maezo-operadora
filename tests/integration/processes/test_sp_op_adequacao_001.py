@@ -819,7 +819,7 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     suite) so `start_process_idempotent` has a live process definition to start against.
     """
     await engine.deploy(*_CRED_ARTIFACTS, name="SP-OP-CRED-001-qa-adequacao-handoff")
-    prestador_id = "PREST-TESTE-GAP-MODERADO"
+    prestador_id = f"PREST-TESTE-GAP-MODERADO-{uuid.uuid4().hex[:8]}"
     cred_bk = _cred_business_key("amh", prestador_id)
     assert not await engine.find_active_instances(cred_bk), (
         "Pre-condicao: nenhuma instancia CRED-001 deve existir ainda para este prestador de teste"
@@ -1270,7 +1270,7 @@ async def test_business_key_uma_instancia_por_celula(
     Nao depende de `adequacao_probe.drain()` progredir alem do primeiro publish — sobrevive a
     qualquer um dos gaps documentados acima (nao marcado xfail, ao contrario dos demais).
     """
-    regiao = "REGIAO-TESTE-IDEM-001"
+    regiao = f"REGIAO-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"ADEQ-amh-{regiao}-cardiologia-2026-Q2"
 
     first = await start_adequacao(regiao_saude=regiao)

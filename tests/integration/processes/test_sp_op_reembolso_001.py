@@ -1513,7 +1513,7 @@ async def test_business_key_uma_instancia_por_protocolo(
     start_reembolso: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    protocolo = "REEMB-TESTE-IDEM-001"
+    protocolo = f"REEMB-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"REEMB-amh-{protocolo}"
 
     first = await start_reembolso(protocolo_reembolso=protocolo, dentro_teto_l2=False)

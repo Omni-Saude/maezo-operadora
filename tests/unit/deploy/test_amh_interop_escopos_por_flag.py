@@ -8,6 +8,7 @@ Terraform E no default do receptor; os escopos do acesso so' entram com `acesso_
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -55,8 +56,28 @@ def test_default_do_receptor_e_o_da_main() -> None:
     assert WhatsAppWebhookSettings.model_fields["amh_interop_scopes"].default == ESCOPOS_DA_MAIN
 
 
+def _terraform_minor() -> str | None:
+    """`major.minor` of the local terraform, or None when absent."""
+    if shutil.which("terraform") is None:
+        return None
+    try:
+        saida = subprocess.run(["terraform", "version", "-json"], capture_output=True, text=True, timeout=30)
+        versao = str(json.loads(saida.stdout)["terraform_version"])
+    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
+        return None
+    return ".".join(versao.split(".")[:2])
+
+
+# The repo pins terraform 1.10.x (.github/workflows/ci.yml, `validate-terraform` job). Newer
+# consoles print locals as "(known after apply)" without a plan (forensic audit F-193), so the
+# real-evaluation check only runs on the pinned minor; the textual fences above always run.
+# KNOWN GAP: the CI `unit` job installs no terraform, so this check runs only on a local 1.10.x.
+_TERRAFORM_CI_MINOR = "1.10"
+
+
 @pytest.mark.skipif(
-    shutil.which("terraform") is None, reason="terraform ausente: as cercas textuais acima valem"
+    _terraform_minor() != _TERRAFORM_CI_MINOR,
+    reason=f"terraform ausente ou fora do pin do CI ({_TERRAFORM_CI_MINOR}.x): cercas textuais acima valem",
 )
 @pytest.mark.parametrize(
     ("consultas", "acesso", "esperado"),
