@@ -1186,6 +1186,9 @@ async def test_worker_send_reembolso_denial_recusa_sem_humano() -> None:
             "justificativa": "Reducao fundamentada (teste)",
             "fundamentacao_contratual": "Clausula 6.1",
             "auditor_id": "auditor-sintetico-001",
+            # F-045: reducao do auditor = merito clinico -> exige CID-10 + parecer (sinteticos).
+            "cid10_referencia": "Z00.0",
+            "parecer_auditor": "Parecer sintetico do auditor (teste L0)",
             "valor_reembolso_aprovado_cents": 8000,
             "valor_solicitado_cents": 12000,
             "tenant_id": "amh",
@@ -1513,7 +1516,7 @@ async def test_business_key_uma_instancia_por_protocolo(
     start_reembolso: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    protocolo = "REEMB-TESTE-IDEM-001"
+    protocolo = f"REEMB-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"REEMB-amh-{protocolo}"
 
     first = await start_reembolso(protocolo_reembolso=protocolo, dentro_teto_l2=False)
