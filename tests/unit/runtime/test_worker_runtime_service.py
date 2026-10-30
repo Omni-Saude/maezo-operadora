@@ -411,8 +411,10 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dossier_dispatcher: Any = None,
         document_request_host_installed: bool = False,
         publish_ledger: Any = None,
+        pagto_valor_invalido_pendente_dados: bool = False,
     ) -> None:
         captured["publish_ledger"] = publish_ledger
+        captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
@@ -449,6 +451,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
         assert captured["publish_ledger"] is None  # F-092 dedup ships dark (MAEZO_EXTASK_PUBLISH_DEDUP)
+        # F-142 / R-053: PAGTO invalid-amount -> PENDENTE_DADOS fact ships dark.
+        assert settings.pagto_valor_invalido_pendente_dados is False
+        assert captured["pagto_valor_invalido_pendente_dados"] is False
         # WP-J1-06 / V14 MAJOR-1: the NEGAR-owner seam IS threaded, and is dark unless
         # the deployment asks for it. `denial_notice_owner` defaults to False, so the
         # generic `SendDenialNoticeWorker` keeps the topic in this (default) bring-up.
