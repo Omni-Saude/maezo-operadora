@@ -191,7 +191,7 @@ it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e a
     .mockResolvedValueOnce(json(oneItemQueue()))
     .mockReturnValueOnce(detail.promise);
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Ver detalhes: Analise do medico auditor" }));
 
   // Loading state: "Consultando o snapshot autorizado da tarefa."
   await screen.findByRole("heading", { name: "Carregando detalhes" });
@@ -204,7 +204,7 @@ it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e a
 
   // Ready state: eyebrow "Snapshot somente leitura".
   detail.resolve(json(taskSnapshot()));
-  const region = await screen.findByRole("region", { name: "UT_AnaliseMedicoAuditor" });
+  const region = await screen.findByRole("region", { name: "Analise do medico auditor" });
   const eyebrow = within(region).getByText(/somente leitura$/);
   expect(eyebrow).toHaveTextContent("Snapshot somente leitura");
   expect(eyebrow.querySelector('[lang="en"]')).toHaveTextContent(/^Snapshot$/);
