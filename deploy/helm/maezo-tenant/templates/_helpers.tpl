@@ -189,3 +189,28 @@ OTel environment variables common to all deployments.
 - name: OTEL_RESOURCE_ATTRIBUTES
   value: "tenant={{ .Values.tenant.id }},environment={{ .Release.Namespace }}"
 {{- end }}
+
+{{/*
+R-061 / F-149 — liveness por heartbeat das pontes Kafka (a imagem nao tem `procps`, entao
+`pgrep` saia 127 e o kubelet reiniciava o pod para sempre). A ponte toca
+BRIDGE_HEARTBEAT_PATH a cada BRIDGE_HEARTBEAT_INTERVAL_S (maezo.platform.integrations
+.bridge_heartbeat); a probe le os MESMOS env vars do proprio container e calcula
+max(3 * intervalo, 5s) EM PYTHON (zero aritmetica Helm — achado G1 do a2a-outbox-relay).
+Uso: include "maezo-tenant.bridgeHeartbeatEnv" (dict "name" "<component>")
+*/}}
+{{- define "maezo-tenant.bridgeHeartbeatEnv" -}}
+- name: BRIDGE_HEARTBEAT_PATH
+  value: {{ printf "/tmp/maezo-%s.heartbeat" .name | quote }}
+- name: BRIDGE_HEARTBEAT_INTERVAL_S
+  value: "10"
+{{- end }}
+
+{{- define "maezo-tenant.bridgeHeartbeatProbe" -}}
+exec:
+  command:
+    - python
+    - -c
+    - "import os,sys,time; p=os.environ.get('BRIDGE_HEARTBEAT_PATH',''); i=float(os.environ.get('BRIDGE_HEARTBEAT_INTERVAL_S','10')); t=max(3.0*i,5.0); sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<t else 1)"
+initialDelaySeconds: 20
+periodSeconds: 30
+{{- end }}
