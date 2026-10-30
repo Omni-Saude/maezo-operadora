@@ -364,8 +364,8 @@ def route_aprovacao(
     deployed table's `DENTRO_TETO_L2` row ALSO requires `valor_pagamento_cents <= 10_000_000`
     (hardcoded ~R$100k) in addition to `dentro_teto_l2=true` — the old Python trusted the
     resolver's boolean alone. Today `high_value_payment.threshold_brl` in `L0-core.yaml` is
-    ALSO R$100,000 (unlike the D-07 `max_value_brl=0` gap on `authorization_approval`/
-    `reembolso_auto_approval`), so the two happen to agree — but they are NOT structurally
+    ALSO R$100,000 (unlike the D-07 `max_value_brl=0` gap on `authorization_approval`), so the two
+    happen to agree — but they are NOT structurally
     coupled: a future tenant overlay raising the resolver's ceiling above R$100k would silently
     diverge from the DMN's independently-hardcoded gate. Live-verified
     (`valor_pagamento_cents=15_000_000, dentro_teto_l2=True` -> DMN returns `ALCADA_L1`, not

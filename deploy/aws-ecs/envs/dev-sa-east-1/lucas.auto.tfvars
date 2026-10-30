@@ -45,3 +45,13 @@ lucas_v4 = true
 // pagador com ele; sem o caminho a cobranca le' o 0.2.0, que nao traz o sinal (achado do aceite de 16/10/2026: o
 // dependente ouviu valores do pagador). Exigido pela validacao de `lucas_v4`. Voltar: nao ha' (so' junto de lucas_v4 = false).
 amh_billing_status_contratacao_openapi_path = "/app/config/integrations/amh/openapi/billing-status-contratacao.openapi.yaml"
+
+// Reembolso v2 pelo WhatsApp (DL-0158/DL-0159/DL-0160, SP-OP-REEMBOLSO-001 v0.2.0): o Lucas recebe o pedido e os
+// arquivos, 100% dos pedidos vao a analise humana no portal e o financeiro registra o pagamento. Ligado SO' em dev
+// no mesmo PR do codigo (decisao do dono em 29/10/2026: recurso sem uso, so' dados de teste). Antes de producao:
+// revisao juridica dos textos, ciencia do DPO sobre a retencao dos anexos (PHI) e operacao.
+// ORDEM DO APPLY (docs/runbooks/reembolso-001.md): migration 0031, BPMN v2, imagens (plugin do motor primeiro) e
+// catalogo do portal ANTES de a chave valer; ate' la' um pedido aberto nao teria quem analisasse.
+// Voltar: reembolso_v1 = false (o canal volta ao de antes). O bucket exige recipient_vault_enabled = true.
+reembolso_anexos_enabled = true
+reembolso_v1             = true

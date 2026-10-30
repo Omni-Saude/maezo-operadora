@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_reembolso_prazo"
+             name="Situacao do prazo de reembolso (informativa)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    reembolso_prazo v0.1.0 — status: DRAFT (DL-0158). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo).
+    INFORMATIVA: a saida situacao_prazo so alimenta o dossie do analista; NAO roteia (todo pedido vai para
+    analise humana) e NAO tem saida de negativa/reducao. O prazo contratual/regulatorio para pedir reembolso
+    NAO esta confirmado (RN 259/2011 foi substituida pela RN 566/2022; a norma do prazo de ~30 dias segue
+    DRAFT/verify com regulatorio/juridico — docs/review-queue.md). Por isso hoje existe SOMENTE a linha
+    catch-all NAO_AVALIADO. Quando o juridico definir o prazo, entram as linhas DENTRO/FORA acima do catch-all
+    (prazo regulatorio vive AQUI, na DMN — nunca em Python; CONTRIBUTING).
+    Entrada: dias_desde_atendimento (integer; -1 quando as datas nao foram calculaveis).
+    hitPolicy FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="reembolso_prazo" name="Situacao do prazo de reembolso" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_reembolso_prazo" hitPolicy="FIRST">
+      <input id="in_dias" label="Dias entre o atendimento e a solicitacao (dias_desde_atendimento)">
+        <inputExpression id="ie_dias" typeRef="integer"><text>dias_desde_atendimento</text></inputExpression>
+      </input>
+      <output id="out_situacao_prazo" label="situacao_prazo" name="situacao_prazo" typeRef="string"/>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: prazo nao confirmado (DRAFT/verify) -> NAO_AVALIADO; o analista avalia pela data do atendimento.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"NAO_AVALIADO"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

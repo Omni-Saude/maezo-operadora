@@ -445,6 +445,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -1029,6 +1030,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -1093,6 +1095,7 @@
                 "recurso_decisao": "#/components/schemas/RecursoDecisionInputs",
                 "reembolso_auditor": "#/components/schemas/ReembolsoAuditorInputs",
                 "reembolso_decisao": "#/components/schemas/ReembolsoDecisionInputs",
+                "reembolso_pagamento": "#/components/schemas/ReembolsoPagamentoInputs",
                 "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs",
                 "suppression_encarregado": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
@@ -1134,6 +1137,9 @@
               },
               {
                 "$ref": "#/components/schemas/ReembolsoAuditorInputs"
+              },
+              {
+                "$ref": "#/components/schemas/ReembolsoPagamentoInputs"
               },
               {
                 "$ref": "#/components/schemas/CancelDecisionInputs"
@@ -1979,6 +1985,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -3354,6 +3361,9 @@
                 "valor_reembolso_aprovado_cents",
                 "justificativa",
                 "fundamentacao_contratual",
+                "info_solicitada",
+                "texto_ao_beneficiario",
+                "data_pagamento",
                 "decisao_cancelamento",
                 "decisao_inadimplencia",
                 "comprovacao_periodo_minimo",
@@ -3463,6 +3473,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -4169,6 +4180,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -4445,6 +4457,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -7150,6 +7163,9 @@
                 "valor_reembolso_aprovado_cents",
                 "justificativa",
                 "fundamentacao_contratual",
+                "info_solicitada",
+                "texto_ao_beneficiario",
+                "data_pagamento",
                 "decisao_cancelamento",
                 "decisao_inadimplencia",
                 "comprovacao_periodo_minimo",
@@ -7259,6 +7275,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -7658,6 +7675,132 @@
         "title": "RecursoDecisionInputs",
         "type": "object"
       },
+      "ReembolsoAnexoRef": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ref": {
+            "pattern": "^rdoc_[0-9a-f]{32}$",
+            "title": "Document Ref",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "pedido_medico",
+              "nota_fiscal",
+              "complemento"
+            ],
+            "title": "Tipo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "document_ref"
+        ],
+        "title": "ReembolsoAnexoRef",
+        "type": "object"
+      },
+      "ReembolsoAuditorCompletionSubmission": {
+        "additionalProperties": false,
+        "description": "Medico auditor (`reembolso_auditor`).",
+        "properties": {
+          "cid10_referencia": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cid10 Referencia"
+          },
+          "decisao_reembolso": {
+            "enum": [
+              "APROVAR",
+              "NEGAR",
+              "APROVAR_PARCIAL"
+            ],
+            "title": "Decisao Reembolso",
+            "type": "string"
+          },
+          "fundamentacao_contratual": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentacao Contratual"
+          },
+          "justificativa": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Justificativa"
+          },
+          "kind": {
+            "const": "reembolso_auditor",
+            "title": "Kind",
+            "type": "string"
+          },
+          "parecer_auditor": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parecer Auditor"
+          },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
+          },
+          "valor_reembolso_aprovado_cents": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Centavos"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "decisao_reembolso"
+        ],
+        "title": "ReembolsoAuditorCompletionSubmission",
+        "type": "object"
+      },
       "ReembolsoAuditorInputs": {
         "additionalProperties": false,
         "description": "Medical-merit form (BPMN 383-388); no clinical content is inferred.",
@@ -7695,6 +7838,18 @@
             ],
             "title": "Fundamentacao Contratual"
           },
+          "info_solicitada": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Solicitada"
+          },
           "justificativa": {
             "anyOf": [
               {
@@ -7724,6 +7879,18 @@
             ],
             "title": "Parecer Auditor"
           },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
+          },
           "valor_reembolso_aprovado_cents": {
             "anyOf": [
               {
@@ -7740,6 +7907,96 @@
           "decisao_reembolso"
         ],
         "title": "ReembolsoAuditorInputs",
+        "type": "object"
+      },
+      "ReembolsoDecisaoCompletionSubmission": {
+        "additionalProperties": false,
+        "description": "Analise e coordenacao (`reembolso_decisao`).",
+        "properties": {
+          "decisao_reembolso": {
+            "enum": [
+              "APROVAR",
+              "APROVAR_PARCIAL",
+              "NEGAR",
+              "SOLICITAR_INFO",
+              "SOLICITAR_AUDITOR"
+            ],
+            "title": "Decisao Reembolso",
+            "type": "string"
+          },
+          "fundamentacao_contratual": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentacao Contratual"
+          },
+          "info_solicitada": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Solicitada"
+          },
+          "justificativa": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Justificativa"
+          },
+          "kind": {
+            "const": "reembolso_decisao",
+            "title": "Kind",
+            "type": "string"
+          },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
+          },
+          "valor_reembolso_aprovado_cents": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Centavos"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "decisao_reembolso"
+        ],
+        "title": "ReembolsoDecisaoCompletionSubmission",
         "type": "object"
       },
       "ReembolsoDecisionInputs": {
@@ -7769,6 +8026,18 @@
             ],
             "title": "Fundamentacao Contratual"
           },
+          "info_solicitada": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Solicitada"
+          },
           "justificativa": {
             "anyOf": [
               {
@@ -7786,6 +8055,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "texto_ao_beneficiario": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texto Ao Beneficiario"
+          },
           "valor_reembolso_aprovado_cents": {
             "anyOf": [
               {
@@ -7802,6 +8083,76 @@
           "decisao_reembolso"
         ],
         "title": "ReembolsoDecisionInputs",
+        "type": "object"
+      },
+      "ReembolsoPagamentoCompletionSubmission": {
+        "additionalProperties": false,
+        "description": "Registro do pagamento feito fora do sistema (`reembolso_pagamento`).",
+        "properties": {
+          "data_pagamento": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Data Pagamento",
+            "type": "string"
+          },
+          "kind": {
+            "const": "reembolso_pagamento",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "data_pagamento"
+        ],
+        "title": "ReembolsoPagamentoCompletionSubmission",
+        "type": "object"
+      },
+      "ReembolsoPagamentoInputs": {
+        "additionalProperties": false,
+        "description": "Registro do pagamento feito fora do sistema (DL-0158, ``UT_RegistrarPagamento``).\n\nO sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).",
+        "properties": {
+          "data_pagamento": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Data Pagamento",
+            "type": "string"
+          },
+          "kind": {
+            "const": "reembolso_pagamento",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "data_pagamento"
+        ],
+        "title": "ReembolsoPagamentoInputs",
+        "type": "object"
+      },
+      "ReembolsoPendenciaCompletionSubmission": {
+        "additionalProperties": false,
+        "description": "Pendencia expirada (`reembolso_pendencia`).",
+        "properties": {
+          "decisao_pendencia": {
+            "enum": [
+              "cancelar_solicitacao",
+              "conceder_prazo_extra",
+              "seguir_analise"
+            ],
+            "title": "Decisao Pendencia",
+            "type": "string"
+          },
+          "kind": {
+            "const": "reembolso_pendencia",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "decisao_pendencia"
+        ],
+        "title": "ReembolsoPendenciaCompletionSubmission",
         "type": "object"
       },
       "ReembolsoPendingInputs": {
@@ -7884,6 +8235,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -8591,6 +8943,7 @@
               "reembolso_pendencia",
               "reembolso_decisao",
               "reembolso_auditor",
+              "reembolso_pagamento",
               "cancel_decisao",
               "inad_decisao",
               "programa_decisao",
@@ -8642,6 +8995,20 @@
                 "enum": [
                   "EXECUTADO",
                   "IMPEDIDO"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "APROVAR",
+                  "APROVAR_PARCIAL",
+                  "NEGAR",
+                  "SOLICITAR_INFO",
+                  "SOLICITAR_AUDITOR",
+                  "cancelar_solicitacao",
+                  "conceder_prazo_extra",
+                  "seguir_analise",
+                  "PAGO"
                 ],
                 "type": "string"
               }
@@ -9003,6 +9370,246 @@
           "freshness"
         ],
         "title": "TaskReadResponse",
+        "type": "object"
+      },
+      "TaskReembolsoContextResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "anexos": {
+            "items": {
+              "$ref": "#/components/schemas/ReembolsoAnexoRef"
+            },
+            "maxItems": 60,
+            "title": "Anexos",
+            "type": "array"
+          },
+          "categoria_procedimento": {
+            "anyOf": [
+              {
+                "enum": [
+                  "consulta",
+                  "exame",
+                  "terapia"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categoria Procedimento"
+          },
+          "data_atendimento": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Atendimento"
+          },
+          "data_solicitacao": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Solicitacao"
+          },
+          "decisao_reembolso": {
+            "anyOf": [
+              {
+                "enum": [
+                  "APROVAR",
+                  "APROVAR_PARCIAL",
+                  "NEGAR",
+                  "SOLICITAR_INFO",
+                  "SOLICITAR_AUDITOR"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisao Reembolso"
+          },
+          "dias_desde_atendimento": {
+            "anyOf": [
+              {
+                "minimum": -1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dias Desde Atendimento"
+          },
+          "motivo_nao_rede": {
+            "anyOf": [
+              {
+                "enum": [
+                  "urgencia",
+                  "sem_prestador_no_prazo",
+                  "preferencia_fora_rede"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Nao Rede"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "protocolo": {
+            "anyOf": [
+              {
+                "pattern": "^REE-[0-9A-F]{4}-[0-9A-F]{4}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocolo"
+          },
+          "relacao_com_titular": {
+            "anyOf": [
+              {
+                "enum": [
+                  "titular",
+                  "dependente"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relacao Com Titular"
+          },
+          "resposta_beneficiario": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resposta Beneficiario"
+          },
+          "schema": {
+            "const": "portal-task-reembolso.v1",
+            "default": "portal-task-reembolso.v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "situacao_prazo": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DENTRO",
+                  "FORA",
+                  "NAO_AVALIADO"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Situacao Prazo"
+          },
+          "task_definition_key": {
+            "enum": [
+              "UT_AnaliseReembolso",
+              "UT_CoordenacaoReembolso",
+              "UT_RevisaoAuditorMedico",
+              "UT_DecidirPendenciaExpirada",
+              "UT_RegistrarPagamento"
+            ],
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "tipo_reembolso": {
+            "anyOf": [
+              {
+                "enum": [
+                  "livre_escolha",
+                  "fora_rede",
+                  "urgencia_emergencia",
+                  "indisponibilidade_rede"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tipo Reembolso"
+          },
+          "valor_reembolso_aprovado_cents": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Centavos"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valor_solicitado_cents": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Centavos"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "task_id",
+          "task_definition_key",
+          "protocolo",
+          "relacao_com_titular",
+          "categoria_procedimento",
+          "tipo_reembolso",
+          "motivo_nao_rede",
+          "data_atendimento",
+          "data_solicitacao",
+          "dias_desde_atendimento",
+          "valor_solicitado_cents",
+          "decisao_reembolso",
+          "valor_reembolso_aprovado_cents",
+          "anexos",
+          "observed_at"
+        ],
+        "title": "TaskReembolsoContextResponse",
         "type": "object"
       },
       "UploadCompletion": {
@@ -12886,6 +13493,18 @@
                   },
                   {
                     "$ref": "#/components/schemas/CancelExecucaoCompletionSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReembolsoDecisaoCompletionSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReembolsoAuditorCompletionSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReembolsoPendenciaCompletionSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReembolsoPagamentoCompletionSubmission"
                   }
                 ],
                 "title": "Body"
@@ -13285,6 +13904,233 @@
           }
         },
         "summary": "Submit Decision"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/reembolso": {
+      "get": {
+        "description": "INTERIM (DL-0160): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.\n\nNenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que\na membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido\nfechado, o mapa de erros e `no-store` (o middleware do app).",
+        "operationId": "read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskReembolsoContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Task Reembolso"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}": {
+      "get": {
+        "description": "INTERIM (DL-0160): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e\n`attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`\nda instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.",
+        "operationId": "read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_ref",
+            "required": true,
+            "schema": {
+              "title": "Document Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Task Reembolso Anexo"
       }
     },
     "/api/v1/portal/vendor/submissions": {

@@ -123,6 +123,7 @@ from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .dedup import WhatsAppDedupGuard
 from .limite import LimitadorDeVolume, Veredito
+from .reembolso_turno import ReembolsoTurno
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
@@ -223,6 +224,11 @@ class InboundNonTextMessage:
     from_number: str
     message_type: str
     message_id: str
+    #: DL-0159 (`MAEZO_REEMBOLSO_V1`): o id da midia e o mime que a Meta declara, SO' para `image` e
+    #: `document`, e SO' usados quando ha' uma coleta de reembolso esperando arquivo. `repr=False`: o id da
+    #: midia liga o arquivo ao numero; nunca vai a log, metrica ou excecao. Sem a chave, nada os le'.
+    media_id: str = field(default="", repr=False)
+    mime_type: str = field(default="", repr=False)
 
 
 #: What `extract_inbound_messages` yields: a real message of either shape. Delivery-status
@@ -265,11 +271,18 @@ def extract_inbound_messages(payload: Any) -> list[InboundEvent]:
                         continue
                     message_id = str(msg.get("id", ""))
                     if message_type != "text":
+                        corpo_da_midia = msg.get(message_type)
+                        media_id, mime_type = "", ""
+                        if message_type in ("image", "document") and isinstance(corpo_da_midia, dict):
+                            media_id = str(corpo_da_midia.get("id") or "")
+                            mime_type = str(corpo_da_midia.get("mime_type") or "")
                         out.append(
                             InboundNonTextMessage(
                                 from_number=str(from_number),
                                 message_type=message_type,
                                 message_id=message_id,
+                                media_id=media_id,
+                                mime_type=mime_type,
                             )
                         )
                         continue
@@ -557,6 +570,11 @@ class HelenaDispatcher:
     #: fonte de
     #: cobranca do Lucas e a identidade da Helena nao resolvam pelo telefone de novo.
     refs_verificadas: RefsVerificadas | None = None
+    #: REEMBOLSO PELO WHATSAPP (DL-0158/DL-0159, `MAEZO_REEMBOLSO_V1`). `None` (o default, e o que
+    #: `service.py` passa com a chave desligada ou sem custodia de arquivo) = o despachante de sempre, byte a
+    #: byte. Presente, so' vale com o `acesso` (a conversa `verificada`): o turno do reembolso roda DEPOIS do
+    #: acesso e ANTES do agente, deterministico, sem modelo.
+    reembolso: ReembolsoTurno | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -841,6 +859,24 @@ class HelenaDispatcher:
             message_pseudonym=message_pseudonym,
             message_type=message.message_type,
         )
+        if self.reembolso is not None and message.media_id and message.message_type in ("image", "document"):
+            # DL-0159: com uma coleta de reembolso esperando arquivo, o arquivo e' o pedido (nunca o aviso de
+            # "so' texto"). Sem coleta ativa, `None` e o aviso de sempre.
+            resposta = await self.reembolso.tratar_arquivo(
+                conversation_id=conversation_id,
+                media_id=message.media_id,
+                mime_declarado=message.mime_type,
+            )
+            if resposta is not None:
+                enviado = await sender.send(phone_hash, resposta.texto)
+                logger.info(
+                    "reembolso_arquivo_respondido",
+                    tenant_id=self.tenant_id,
+                    conversation_id=conversation_id,
+                    message_pseudonym=message_pseudonym,
+                    evento=resposta.evento,
+                )
+                return enviado
         ack = await sender.send(phone_hash, NON_TEXT_ACK_TEXT)
         logger.info(
             "whatsapp_non_text_ack_sent",
@@ -1078,6 +1114,15 @@ class HelenaDispatcher:
                 raise RuntimeError("acesso: conversa verificada sem referencia ou sem ponte para os agentes")
             await acesso.persistir(decisao)
             with self.refs_verificadas.do_turno(beneficiario_pseudo_id, ref, decisao.consent_ref):
+                respondida = await self._responder_reembolso(
+                    message,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    sender=sender,
+                )
+                if respondida is not None:
+                    return respondida
                 respondida = await self._responder_cadastro(
                     message,
                     phone_hash=phone_hash,
@@ -1184,6 +1229,44 @@ class HelenaDispatcher:
             categoria="solicitacao_humano",
             start_desfecho=resultado.get("start_desfecho"),
         )
+
+    async def _responder_reembolso(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any] | None:
+        """DL-0158/DL-0159 (`MAEZO_REEMBOLSO_V1`): o pedido de reembolso, conversa VERIFICADA.
+
+        Texto fixo da maquina de estados, sem agente e sem modelo. Emergencia/saude na mensagem vence (segue
+        para o grafo). `None` = nao e' do reembolso: o fluxo de sempre."""
+        assert self.acesso is not None
+        if self.reembolso is None:
+            return None
+        resposta = await self.reembolso.tratar_texto(
+            conversation_id=conversation_id,
+            texto=message.text,
+            beneficiario_pseudo_id=beneficiario_pseudo_id,
+            sinal_de_emergencia=self.acesso.sinal_de_emergencia(message.text),
+        )
+        if resposta is None:
+            return None
+        await sender.send(phone_hash, resposta.texto)
+        logger.info(
+            "reembolso_turno_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            evento=resposta.evento,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": resposta.texto,
+            "acesso_estado": "verificado",
+            "reembolso_evento": resposta.evento,
+        }
 
     async def _responder_cadastro(
         self,

@@ -23,6 +23,7 @@ plus at most one pseudonymized note per form, and a body can only close a task o
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -35,8 +36,12 @@ from maezo.portal.contracts.completions import (
     CANCEL_EXECUCAO_OUTCOMES,
     COMPLETION_OUTCOMES,
     MAX_NOTES,
+    REEMBOLSO_AUDITOR_OUTCOMES,
+    REEMBOLSO_DECISAO_OUTCOMES,
+    REEMBOLSO_PENDENCIA_OUTCOMES,
     CancelExecucaoOutcome,
     CompletionOutcome,
+    ReembolsoCompletionOutcome,
 )
 from maezo.portal.contracts.models import TaskSnapshot
 from maezo.tools.workers.phi_vars import redact_free_text
@@ -80,23 +85,56 @@ COMPLETION_VARIABLES: tuple[str, str] = ("resultado", "notas_resolucao")
 #: SLA coordination). One closed outcome variable, NO note: nothing free-text reaches the engine.
 CANCEL_EXECUCAO_FORM_KEY = "cancel_execucao"
 
+#: DL-0160: os quatro formularios do reembolso (SP-OP-REEMBOLSO-001 v0.2.0, BPMN_FORMDATA).
+REEMBOLSO_DECISAO_FORM_KEY = "reembolso_decisao"
+REEMBOLSO_AUDITOR_FORM_KEY = "reembolso_auditor"
+REEMBOLSO_PENDENCIA_FORM_KEY = "reembolso_pendencia"
+REEMBOLSO_PAGAMENTO_FORM_KEY = "reembolso_pagamento"
+#: O "resultado" do registro de pagamento (o formulario nao tem desfecho fechado, so' a data): nunca vai ao
+#: motor como variavel; e' so' o token fechado da resposta e da trilha.
+RESULTADO_PAGAMENTO_REGISTRADO = "PAGO"
+
 #: The outcome of any form this path may close.
-AnyCompletionOutcome = CompletionOutcome | CancelExecucaoOutcome
+AnyCompletionOutcome = CompletionOutcome | CancelExecucaoOutcome | ReembolsoCompletionOutcome
+
+#: O tipo de cada variavel extra de um formulario (DL-0160): texto livre (passa pelo MESMO scrub da nota),
+#: centavos inteiros (Long no motor) ou data ISO.
+ExtraKind = Literal["texto", "centavos", "data"]
 
 
 @dataclass(frozen=True, slots=True)
 class CompletionForm:
     """One form the interim path may close: the outcome variable, its closed values and the
-    optional pseudonymized note variable. Server-owned: nothing here comes from the browser."""
+    optional pseudonymized note variable. Server-owned: nothing here comes from the browser.
+
+    DL-0160: um formulario pode ter VARIAVEIS EXTRAS tipadas (`extras`, nome -> tipo), todas declaradas no
+    `camunda:formData` da tarefa, e uma variavel que o SERVIDOR preenche com a referencia pseudonima de quem
+    concluiu (`principal_variable`, ex. `analista_id`). `outcome_variable=None`: o formulario nao manda
+    desfecho ao motor (o registro de pagamento so' manda a data)."""
 
     form_key: str
-    outcome_variable: str
+    outcome_variable: str | None
     outcomes: tuple[str, ...]
     note_variable: str | None
+    extras: tuple[tuple[str, ExtraKind], ...] = ()
+    principal_variable: str | None = None
 
     @property
     def variables(self) -> tuple[str, ...]:
-        return (self.outcome_variable,) + ((self.note_variable,) if self.note_variable else ())
+        """As variaveis que o NAVEGADOR preenche (a de quem concluiu e' do servidor)."""
+        base = (self.outcome_variable,) if self.outcome_variable else ()
+        nota = (self.note_variable,) if self.note_variable else ()
+        return base + nota + tuple(nome for nome, _ in self.extras)
+
+    def extra_kind(self, name: str) -> ExtraKind | None:
+        return next((kind for nome, kind in self.extras if nome == name), None)
+
+
+_TEXTOS_DA_DECISAO: tuple[tuple[str, ExtraKind], ...] = (
+    ("valor_reembolso_aprovado_cents", "centavos"),
+    ("justificativa", "texto"),
+    ("fundamentacao_contratual", "texto"),
+)
 
 
 #: The CLOSED set of forms the interim completion may close (DL-0049, extended by DL-0111).
@@ -108,8 +146,91 @@ COMPLETION_FORMS: Mapping[str, CompletionForm] = MappingProxyType(
         CANCEL_EXECUCAO_FORM_KEY: CompletionForm(
             CANCEL_EXECUCAO_FORM_KEY, "execucao_cadastro", CANCEL_EXECUCAO_OUTCOMES, None
         ),
+        # DL-0160: o reembolso. Os desfechos e as regras condicionais (texto exigido em NEGAR etc.) sao os
+        # do contrato canonico (`portal/contracts/models.py`), revalidados na rota; o worker refaz a
+        # guarda L0.
+        REEMBOLSO_DECISAO_FORM_KEY: CompletionForm(
+            REEMBOLSO_DECISAO_FORM_KEY,
+            "decisao_reembolso",
+            REEMBOLSO_DECISAO_OUTCOMES,
+            None,
+            extras=(*_TEXTOS_DA_DECISAO, ("info_solicitada", "texto"), ("texto_ao_beneficiario", "texto")),
+            principal_variable="analista_id",
+        ),
+        REEMBOLSO_AUDITOR_FORM_KEY: CompletionForm(
+            REEMBOLSO_AUDITOR_FORM_KEY,
+            "decisao_reembolso",
+            REEMBOLSO_AUDITOR_OUTCOMES,
+            None,
+            extras=(
+                *_TEXTOS_DA_DECISAO,
+                ("cid10_referencia", "texto"),
+                ("parecer_auditor", "texto"),
+                ("texto_ao_beneficiario", "texto"),
+            ),
+            principal_variable="auditor_id",
+        ),
+        REEMBOLSO_PENDENCIA_FORM_KEY: CompletionForm(
+            REEMBOLSO_PENDENCIA_FORM_KEY, "decisao_pendencia", REEMBOLSO_PENDENCIA_OUTCOMES, None
+        ),
+        REEMBOLSO_PAGAMENTO_FORM_KEY: CompletionForm(
+            REEMBOLSO_PAGAMENTO_FORM_KEY,
+            None,
+            (RESULTADO_PAGAMENTO_REGISTRADO,),
+            None,
+            extras=(("data_pagamento", "data"),),
+        ),
     }
 )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CompletionExtras:
+    """As variaveis extras JA' validadas e com os textos JA' passados pelo scrub (DL-0160).
+
+    `values`: (nome, tipo do motor, valor). `digest` e' o que vai a trilha de auditoria (Zona Geral): nunca o
+    texto. Construido SO' por `build_completion_extras`."""
+
+    values: tuple[tuple[str, str, str | int], ...] = field(repr=False)
+
+    @property
+    def digest(self) -> str:
+        canonico = "\x1f".join(f"{nome}\x1e{tipo}\x1e{valor}" for nome, tipo, valor in sorted(self.values))
+        return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+    def with_principal(self, variable: str | None, principal_ref: str) -> CompletionExtras:
+        if variable is None:
+            return self
+        return CompletionExtras((*self.values, (variable, "String", principal_ref)))
+
+
+_DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def build_completion_extras(form: CompletionForm, raw: Mapping[str, object]) -> CompletionExtras:
+    """Valida os extras contra o formulario FECHADO e passa os textos pelo scrub da nota.
+
+    Nome fora do formulario, tipo errado, centavos fora de [0, 10^12] ou data fora da forma: `ValueError`
+    (a rota ja' recusou com 422; isto e' o cinto). Texto longo demais DEPOIS do scrub: `NotesTooLongError`."""
+    values: list[tuple[str, str, str | int]] = []
+    for nome, valor in raw.items():
+        kind = form.extra_kind(nome)
+        if kind is None:
+            raise ValueError("completion extra outside the form")
+        if kind == "texto":
+            if not isinstance(valor, str) or not valor.strip():
+                raise ValueError("completion text extra must be non-blank text")
+            values.append((nome, "String", pseudonymize_notes(valor).text))
+        elif kind == "centavos":
+            if type(valor) is not int or not 0 <= valor <= 10**12:
+                raise ValueError("completion cents extra out of range")
+            values.append((nome, "Long", valor))
+        else:
+            if not isinstance(valor, str) or _DATA_ISO.match(valor) is None:
+                raise ValueError("completion date extra out of shape")
+            values.append((nome, "String", valor))
+    return CompletionExtras(tuple(values))
+
 
 #: The decision-log row that authorises this module's existence. Quoted in the audit trail and
 #: in the endpoint's refusal path so the shortcut is one `grep` away from its own registration.
@@ -295,6 +416,7 @@ class DirectTaskCompletion(ABC):
         notes: PseudonymizedNotes | None,
         expected_task_revision: int,
         form_key: str = COMPLETION_FORM_KEY,
+        extras: CompletionExtras | None = None,
     ) -> CompletionAck:
         raise NotImplementedError
 

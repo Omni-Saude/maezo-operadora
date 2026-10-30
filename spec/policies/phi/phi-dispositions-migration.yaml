@@ -124,6 +124,50 @@ ratificacao:
 #   rotulo          o rotulo obrigatorio enquanto a linha nao esta assinada.
 # ---------------------------------------------------------------------------------------------
 disposicoes:
+  # DL-0160 (29/10/2026): os textos humanos dos formularios do reembolso no portal (analise, coordenacao e
+  # auditor do SP-OP-REEMBOLSO-001 v0.2.0). As perguntas integrais vivem em `phi_completeness.py::DISPOSITIONS`;
+  # resumo: texto livre de quem decide sobre UM beneficiario identificado. Recomendacao da engenharia: LISTAR os
+  # cinco. A chave `MAEZO_REEMBOLSO_V1` segue desligada; registrado ANTES de ligar.
+  - nome: justificativa
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: fundamentacao_contratual
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: info_solicitada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: texto_ao_beneficiario
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: parecer_auditor
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
   # Frente 2.2 (15/09/2026). A pergunta integral vive em `phi_completeness.py::DISPOSITIONS`;
   # resumo: booleano de PRESENCA da tabela de suficiencia (`sintoma_codigo is not None`), que
   # nao carrega qual codigo nem palavra do beneficiario. Recomendacao da engenharia: NAO listar.

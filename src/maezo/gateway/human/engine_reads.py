@@ -21,6 +21,7 @@ from .completion import (
     AnyCompletionOutcome,
     CompletionAck,
     CompletionAuditSink,
+    CompletionExtras,
     DirectTaskCompletion,
     PseudonymizedNotes,
 )
@@ -53,6 +54,7 @@ from .read_profile import (
     wire,
 )
 from .read_transport import PortalReadClient, ReadResult
+from .reembolso_context import LeitorDeAnexos
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -290,6 +292,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         notes: PseudonymizedNotes | None,
         expected_task_revision: int,
         form_key: str = COMPLETION_FORM_KEY,
+        extras: CompletionExtras | None = None,
     ) -> CompletionAck:
         """INTERIM (DL-0049): the one write this Q2 read transport performs.
 
@@ -321,12 +324,15 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 raise unavailable()
             self._b.guard()
             self._b._completed.add(task_id)  # reserve before the first await
+            # DL-0160: `extras` so' quando existe (os formularios de sempre seguem a chamada de antes).
+            com_extras = {} if extras is None else {"extras": extras}
             ack = await self._completion.complete(
                 task_id=task_id,
                 resultado=resultado,
                 notes=notes,
                 expected_task_revision=expected_task_revision,
                 form_key=form_key,
+                **com_extras,
             )
             if (
                 type(ack) is not CompletionAck
@@ -452,6 +458,7 @@ class EngineReadComposition:
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
         read_audit: ReadAccessAuditSink | None = None,
+        reembolso_anexos: LeitorDeAnexos | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
@@ -468,6 +475,7 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
+        self._reembolso_anexos = reembolso_anexos
         # DL-0149 (owner's decision, best-effort): a context source without the access record is
         # composed anyway; the absence is logged here once and again on every read.
         if escalation_context is not None and read_audit is None:
@@ -508,6 +516,7 @@ class EngineReadComposition:
             ),
             completion_audit=self._completion_audit,
             escalation_context=self._escalation_context,
+            reembolso_anexos=self._reembolso_anexos,
             read_audit=self._read_audit,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),

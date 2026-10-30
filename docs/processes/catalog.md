@@ -15,7 +15,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
 | SP-OP-ANS-CRON-001 | Agendador dos envios ANS (5 definitions, 1 timer por report_type) | Calendario regulatorio (RN 124/209/388/424, DIOPS — DRAFT/verify) | 2 | modelado (agendador puro, NAO negativa-like; sem DMN propria e sem User Task propria — ver a nota sobre a quadrupla abaixo) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-REEMBOLSO-001** | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-REEMBOLSO-001** | Reembolso | RN 566/2022 (DRAFT/verify) | 2 | modelado — v0.2.0, 100% análise humana (DL-0158); suite de integração no CI |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-CRED-001 | (Des)credenciamento | RN 567 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ADEQUACAO-001 | Adequacao de rede | RN 259 geografia | 3 | modelado (suite de integração planejada — T3.1) |
@@ -85,15 +85,15 @@ A familia irma que devolve `published: True` sob a mesma forma (`ans_submit`, `c
 proprio mapa de consumidores a refazer, e cerca-los sem corrigi-los exigiria seis entradas de baseline
 que pareceriam cobertura sem nada ter mudado.
 
-\*\* SP-OP-REEMBOLSO-001: nenhum `agent.yaml` declara este processo em `process_keys`
-(`grep -rn REEMBOLSO spec/agents/*/agent.yaml` -> 0 hits) — arbitrado como MENOR PRIVILEGIO
-CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC). Marina serve o processo
+\*\* SP-OP-REEMBOLSO-001 (v0.2.0, DL-0158/DL-0159): **so o Lucas** declara este processo em `process_keys:` (abre o pedido
+pelo WhatsApp, flag `MAEZO_REEMBOLSO_V1`); a Marina NAO declara — arbitrado como MENOR PRIVILEGIO
+CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC; reproducao estrutural por parse de YAML, nao por grep). Marina serve o processo
 via A2A (`operadora.reembolso.analyze_request`) mas nunca o INICIA: seu node `start_process` é
 NO-OP nesse fluxo — `grep -n start_process src/maezo/agents/marina/graph.py` mostra o comentario
 "`start_process` is a NO-OP (Marina never starts a second instance)" na linha 33, e o corpo real
 do guard em `graph.py:685` (`if _flow(state) == "reembolso": return {}  # SP-OP-REEMBOLSO-001 is
 already running`). Ela é convocada de DENTRO de uma instância já em execução
-(`ST_PrepararDossie`, depois de `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` já terem
+(`ST_PrepararDossie`, depois de `BRT_PrazoInformativo`/`BRT_SlaAnalise` já terem
 rodado) — nunca abre uma instância nova. `process_keys` é o allowlist do effect-PEP
 (`effect_pep.py:487,493-494` — `declared_keys & KNOWN_PROCESS_KEYS`, consultado por
 `allows_process_key`), logo a ausência de SP-OP-REEMBOLSO-001 ali é exatamente o comportamento
@@ -352,11 +352,11 @@ Fonte: [SP-OP-RECURSO-001_Recurso_Glosa.bpmn](../../spec/processes/bpmn/SP-OP-RE
 Fonte: [SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn](../../spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-REEMBOLSO-001.md).
 
 - Gatilhos: `Start_SolicitacaoReembolso` (contract start).
-- Humanos (4): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`.
-- DMNs: `reembolso_admissibility`, `reembolso_auto_approval`, `reembolso_calculo`, `reembolso_sla`. Workers: `operadora.events.publish`, `operadora.reembolso.analyze_request`, `operadora.reembolso.calculate_amount`, `operadora.reembolso.check_coverage`, `operadora.reembolso.check_prazo`, `operadora.reembolso.issue_payment`, `operadora.reembolso.notify_sla_risk`, `operadora.reembolso.request_documents`, `operadora.reembolso.send_reembolso_denial`.
+- Humanos (5): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`; `UT_RegistrarPagamento` → `financeiro-reembolso` (paga fora do sistema e registra `data_pagamento`).
+- DMNs: `reembolso_prazo` (informativa), `reembolso_sla`. Workers: `operadora.events.publish`, `operadora.reembolso.analyze_request`, `operadora.reembolso.check_coverage`, `operadora.reembolso.notify_sla_risk`, `operadora.reembolso.request_documents`, `operadora.reembolso.send_reembolso_denial`.
 - Esperas/timers: `TD_PrazoPendencia` = `P5D`; `TD_AlertaSla` = `${sla.sla_alerta}`; `TD_SlaAnalise` = `${sla.sla_analise}`. Mensagens: `msg.reembolso.docs_received`.
 - Eventos: `agents.events.reembolso.completed`, `agents.events.reembolso.pended`, `agents.events.reembolso.received`, `agents.events.reembolso.sla_breached`. Call activities: —.
-- Terminais (inclusive neutros/técnicos, não todos decisões de negócio): `End_ReembolsoProtocoloInvalido` (Solicitacao com protocolo/guia inconsistente na origem — validacao barrou (fail-safe, nao adverso)); `End_ReembolsoCancelado` (Cancelado por pendencia (decisao humana — nao adverso)); `End_ReembolsoAprovadoAutomatico` (Reembolso aprovado automaticamente (L2 — integral)); `End_RiscoSlaNotificado` (Risco de SLA notificado (analise segue)); `End_ReembolsoAprovadoAnalista` (Reembolso aprovado pelo analista/auditor); `End_ReembolsoNegado` (Reembolso negado (L0 — humano-gated)); `End_ReembolsoParcial` (Reembolso aprovado parcial (L0 — humano-gated, reducao adversa)).
+- Terminais (inclusive neutros/técnicos, não todos decisões de negócio): `End_ReembolsoProtocoloInvalido` (Solicitacao com protocolo/guia inconsistente na origem — validacao barrou (fail-safe, nao adverso)); `End_ReembolsoCancelado` (Cancelado por pendencia (decisao humana — nao adverso)); `End_RiscoSlaNotificado` (Risco de SLA notificado (analise segue)); `End_ReembolsoAprovadoAnalista` (Reembolso aprovado pelo analista/auditor e pago); `End_ReembolsoNegado` (Reembolso negado (L0 — humano-gated)); `End_ReembolsoParcial` (Reembolso aprovado parcial (L0 — humano-gated, reducao adversa)).
 
 ### Convenção BPMNDI e limite da prova
 

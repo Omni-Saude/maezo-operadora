@@ -143,16 +143,12 @@ def _reembolso_state(**overrides: Any) -> MarinaState:
         "tipo_reembolso": "livre_escolha",
         "categoria_procedimento": "consulta",
         "codigo_procedimento_tuss": "10101012",
-        # GAP F-1: the reference value is the DMN's. `consulta` = 12000 cents in
-        # `spec/processes/dmn/reembolso_calculo.dmn` (rule `r_consulta`) — this fixture used to
-        # carry 35000, the amount of the DELETED Python shadow table in `workers/reembolso.py`.
-        # `dentro_tabela=True` below stays coherent: solicitado (10000) <= calculado (12000).
+        # DL-0158 (reembolso v2): no calculation, table or ceiling any more — the only pre-resolved fact is
+        # the informative `situacao_prazo` (DMN `reembolso_prazo`), plus closed-set facts of the request.
         "valor_solicitado_cents": 10000,
-        "valor_calculado_tabela_cents": 12000,
-        "cobertura_prevista": True,
-        "dentro_prazo": True,
-        "dentro_tabela": True,
-        "dentro_teto_l2": True,
+        "situacao_prazo": "NAO_AVALIADO",
+        "relacao_com_titular": "titular",
+        "motivo_nao_rede": "sem_prestador_no_prazo",
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -596,26 +592,23 @@ async def test_assess_reembolso_always_routes_human_no_dmn_calls() -> None:
     assert dmn.calls == []
 
 
-async def test_assess_reembolso_dentro_teto_l2_is_pure_passthrough() -> None:
-    """L0 guard: `dentro_teto_l2` never originates outside CeilingResolver
-    (`tests/unit/sec/test_dentro_teto_source.py`). Marina's reembolso flow only REPORTS the
-    pre-resolved fact — never computes/derives it, and evaluates no DMN at all."""
+async def test_assess_reembolso_is_always_human_review_and_passes_the_prazo_fact_through() -> None:
+    """L0 guard (DL-0158): every reembolso request is decided by a human. Marina's reembolso flow only REPORTS
+    the pre-resolved `situacao_prazo` — never computes/derives it, evaluates no DMN at all, and the fact never
+    drives an automatic outcome."""
     dmn = FakeDmnTransport()
     graph = _graph(dmn=dmn)
 
-    result_true = await graph.assess(_reembolso_state(dentro_teto_l2=True))
-    result_false = await graph.assess(_reembolso_state(dentro_teto_l2=False))
-
+    for situacao in ("DENTRO", "FORA", "NAO_AVALIADO"):
+        result = await graph.assess(_reembolso_state(situacao_prazo=situacao))
+        assert result["route"] == "human_review", situacao
     assert dmn.calls == []
-    # Both routes are human_review regardless of the ceiling fact's value (structurally proves
-    # the fact never drives an automatic outcome in this flow).
-    assert result_true["route"] == "human_review"
-    assert result_false["route"] == "human_review"
 
-    facts_true = graph._reembolso_facts(_reembolso_state(dentro_teto_l2=True))
-    facts_false = graph._reembolso_facts(_reembolso_state(dentro_teto_l2=False))
-    assert facts_true["dentro_teto_l2"] is True
-    assert facts_false["dentro_teto_l2"] is False
+    facts = graph._reembolso_facts(_reembolso_state(situacao_prazo="FORA"))
+    assert facts["situacao_prazo"] == "FORA"
+    # The removed calculation/ceiling facts must not come back as dossier facts.
+    for removido in ("dentro_tabela", "dentro_teto_l2", "valor_calculado_tabela_cents", "cobertura_prevista"):
+        assert removido not in facts
 
 
 # ---------------------------------------------------------------------------

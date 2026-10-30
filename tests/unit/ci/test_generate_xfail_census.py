@@ -71,18 +71,16 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
     assert not stale, [v.render() for v in stale]
 
     census = build_census(records, DEFAULT_TESTS_DIR)
-    assert census["total"] == 6
+    assert census["total"] == 5  # DL-0158: o xfail D-07 do reembolso saiu com o caminho automatico
     assert census["per_suite"] == {
         "adequacao": 1,
         "auth": 1,
         "lgpd_dsr": 3,
-        "reembolso": 1,
     }
     assert census["per_classification"] == {
         "ADEQUACAO_RN259": 1,
         "AUTH_D07": 1,
         "LGPD_DPO": 3,
-        "REEMBOLSO_D07": 1,
     }
 
 
@@ -106,7 +104,6 @@ def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite()
         "adequacao": {"_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON"},
         "auth": {"_AUTH_CEILING_D07_REASON"},
         "lgpd_dsr": {"_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON"},
-        "reembolso": {"_REEMBOLSO_CEILING_D07_REASON"},
     }
 
 
@@ -115,7 +112,7 @@ def test_real_tree_no_non_strict_xfail_decorators_are_miscounted() -> None:
     under this directory — if one ever appears, it must be silently skipped (out of scope for this
     census), never crash the parser or get miscounted as a strict marker."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
-    assert len(scan.markers) == 6
+    assert len(scan.markers) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +429,7 @@ def test_real_reason_classification_has_no_stale_entries() -> None:
     stale = check_stale_classification_entries(scan.assigned_names)
     assert stale == [], [v.render() for v in stale]
     # Non-vacuity: the mapping isn't accidentally empty.
-    assert len(REASON_CLASSIFICATION) == 6
+    assert len(REASON_CLASSIFICATION) == 5
 
 
 # ---------------------------------------------------------------------------

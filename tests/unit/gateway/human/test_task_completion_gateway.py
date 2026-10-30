@@ -78,9 +78,12 @@ class RecordingCompletion:
         self.forms: list[str] = []
         self.fail = fail
 
-    async def complete(self, *, task_id, resultado, notes, expected_task_revision, form_key="escalation"):
+    async def complete(
+        self, *, task_id, resultado, notes, expected_task_revision, form_key="escalation", extras=None
+    ):
         self.calls.append((task_id, resultado, notes, expected_task_revision))
         self.forms.append(form_key)
+        self.extras = extras
         if self.fail is not None:
             raise self.fail
         return CompletionAck(
@@ -110,8 +113,9 @@ class CompletingTransport(HumanTaskTransport):
         return self.task
 
     async def complete_task(
-        self, task_id, *, resultado, notes, expected_task_revision, form_key="escalation"
+        self, task_id, *, resultado, notes, expected_task_revision, form_key="escalation", extras=None
     ):
+        com_extras = {} if extras is None else {"extras": extras}
         if self.completion is None:
             return await super().complete_task(
                 task_id,
@@ -119,6 +123,7 @@ class CompletingTransport(HumanTaskTransport):
                 notes=notes,
                 expected_task_revision=expected_task_revision,
                 form_key=form_key,
+                **com_extras,
             )
         return await self.completion.complete(
             task_id=task_id,
@@ -126,6 +131,7 @@ class CompletingTransport(HumanTaskTransport):
             notes=notes,
             expected_task_revision=expected_task_revision,
             form_key=form_key,
+            **com_extras,
         )
 
 
@@ -615,3 +621,164 @@ async def test_cancel_execucao_outside_the_closed_form_is_refused_before_anythin
         await close(g, **values)
     assert refusal.value.code == "invalid_request"
     assert completion.calls == [] and audit.entries == []
+
+
+# ---------------------------------------------------------------------------------------
+# DL-0160: os formularios do reembolso pelo mesmo caminho interino (campos tipados + quem decidiu).
+# ---------------------------------------------------------------------------------------
+ANALISE = "analise-reembolso"
+REF_ANEXO = "rdoc_" + "1" * 32
+
+
+def reembolso_snapshot(**changes):
+    data = dict(
+        process_definition_key="SP-OP-REEMBOLSO-001",
+        process_definition_id="reemb:2:id",
+        task_definition_key="UT_AnaliseReembolso",
+        form_key="reembolso_decisao",
+        form_source_status="BPMN_FORMDATA",
+        eligible_candidate_groups=(ANALISE,),
+        allowed_actions=("claim", "release"),
+        allowed_inputs=(
+            "decisao_reembolso",
+            "valor_reembolso_aprovado_cents",
+            "justificativa",
+            "fundamentacao_contratual",
+            "info_solicitada",
+            "texto_ao_beneficiario",
+        ),
+    )
+    data.update(changes)
+    return snapshot(**data)
+
+
+async def test_reembolso_completes_with_typed_extras_and_the_server_names_the_analyst():
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion, snap=reembolso_snapshot(), member=staff_in(ANALISE))
+    result = await close(
+        g,
+        resultado="APROVAR_PARCIAL",
+        notas_resolucao="",
+        form_key="reembolso_decisao",
+        extras={
+            "valor_reembolso_aprovado_cents": 8000,
+            "justificativa": "Teto contratual, CPF 123.456.789-01",
+            "fundamentacao_contratual": "Clausula 5",
+            "texto_ao_beneficiario": "Aprovamos parte do valor.",
+        },
+    )
+    assert result.resultado == "APROVAR_PARCIAL"
+    assert completion.forms == ["reembolso_decisao"]
+    valores = {nome: (tipo, valor) for nome, tipo, valor in completion.extras.values}
+    assert valores["valor_reembolso_aprovado_cents"] == ("Long", 8000)
+    assert valores["analista_id"][0] == "String" and valores["analista_id"][1]
+    assert "123.456.789-01" not in str(valores["justificativa"][1])
+    # A trilha (Zona Geral) leva o digest dos campos, nunca o texto.
+    assert [e.notes_digest for e in audit.entries] == [completion.extras.digest] * 2
+
+
+async def test_a_reembolso_body_never_closes_an_escalation_task():
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion)
+    with pytest.raises(GatewayRefusalError) as refusal:
+        await close(
+            g,
+            resultado="APROVAR",
+            notas_resolucao="",
+            form_key="reembolso_decisao",
+            extras={"valor_reembolso_aprovado_cents": 1},
+        )
+    assert refusal.value.code == "operation_forbidden"
+    with pytest.raises(ReadRefusalError):
+        await close(g, extras={"justificativa": "x"})
+    assert completion.calls == [] and audit.entries == []
+
+
+async def test_reembolso_extras_outside_the_form_are_refused_before_anything():
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion, snap=reembolso_snapshot(), member=staff_in(ANALISE))
+    with pytest.raises(ReadRefusalError):
+        await close(
+            g,
+            resultado="NEGAR",
+            notas_resolucao="",
+            form_key="reembolso_decisao",
+            extras={"analista_id": "prn_forjado"},
+        )
+    assert completion.calls == [] and audit.entries == []
+
+
+class _ContextoReembolso:
+    """O adaptador do motor, so' com o que o gateway pergunta."""
+
+    def __init__(self, tarefa="UT_AnaliseReembolso"):
+        from maezo.gateway.human.reembolso_context import AnexoDoPedido, ReembolsoContexto
+
+        self.scope = SCOPE
+        self.calls = []
+        self.contexto = ReembolsoContexto(
+            task_definition_key=tarefa,
+            protocolo="REE-AB12-CD34",
+            relacao_com_titular="titular",
+            categoria_procedimento="consulta",
+            tipo_reembolso="livre_escolha",
+            motivo_nao_rede=None,
+            data_atendimento="2026-10-25",
+            data_solicitacao="2026-10-28",
+            dias_desde_atendimento=3,
+            valor_solicitado_cents=15000,
+            decisao_reembolso=None,
+            valor_reembolso_aprovado_cents=None,
+            anexos=(AnexoDoPedido(tipo="nota_fiscal", document_ref=REF_ANEXO, sha256="c" * 64),),
+        )
+
+    async def read_reembolso(self, *, task_id):
+        self.calls.append(task_id)
+        return self.contexto
+
+
+class _Leitor:
+    def __init__(self):
+        self.abertos = []
+
+    async def abrir(self, document_ref, *, sha256_esperado):
+        from maezo.gateway.reembolso_anexos import Anexo
+
+        self.abertos.append((document_ref, sha256_esperado))
+        return Anexo(conteudo=b"%PDF", mime="application/pdf")
+
+
+async def _gateway_reembolso(contexto=None, leitor=None, sem_leitor=False):
+    g, _, _ = await harness(
+        completion=RecordingCompletion(), snap=reembolso_snapshot(), member=staff_in(ANALISE)
+    )
+    g._escalation_context = contexto if contexto is not None else _ContextoReembolso()
+    g._reembolso_anexos = None if sem_leitor else (leitor if leitor is not None else _Leitor())
+    return g
+
+
+async def test_the_attachment_is_served_only_when_it_is_in_the_task_list_with_the_recorded_hash():
+    leitor = _Leitor()
+    g = await _gateway_reembolso(leitor=leitor)
+    anexo = await g.read_reembolso_anexo(session_secret=SECRET, task_id="task-1", document_ref=REF_ANEXO)
+    assert anexo.conteudo == b"%PDF" and leitor.abertos == [(REF_ANEXO, "c" * 64)]
+    with pytest.raises(ReadRefusalError) as refusal:
+        await g.read_reembolso_anexo(session_secret=SECRET, task_id="task-1", document_ref="rdoc_" + "2" * 32)
+    assert refusal.value.code == "resource_unavailable" and len(leitor.abertos) == 1
+
+
+async def test_the_attachment_of_a_task_of_another_process_is_refused_before_the_engine():
+    contexto = _ContextoReembolso()
+    g, _, _ = await harness(completion=RecordingCompletion())
+    g._escalation_context = contexto
+    g._reembolso_anexos = _Leitor()
+    with pytest.raises(ReadRefusalError) as refusal:
+        await g.read_reembolso_anexo(session_secret=SECRET, task_id="task-1", document_ref=REF_ANEXO)
+    assert refusal.value.code == "resource_unavailable" and contexto.calls == []
+
+
+async def test_without_the_attachment_reader_the_read_is_a_dependency_refusal():
+    g = await _gateway_reembolso(sem_leitor=True)
+    with pytest.raises(ReadRefusalError) as refusal:
+        await g.read_reembolso_anexo(session_secret=SECRET, task_id="task-1", document_ref=REF_ANEXO)
+    assert refusal.value.code == "read_dependency_unavailable"

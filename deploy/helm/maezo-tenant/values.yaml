@@ -1024,6 +1024,10 @@ lifecycle:
 #     `qa/simulador/composicao.py` importa `ProcessInstance`/`ProcessStatus`/`CibSevenError` para
 #     fingir SP-OP-ESCALATION-001 por tras do gate (nenhum start chega ao motor); os outros 39
 #     importadores permanecem.
+#     Recontado por AST em 41 no reembolso pelo WhatsApp (DL-0159):
+#     `platform/webhooks/whatsapp/reembolso_turno.py` abre SP-OP-REEMBOLSO-001 por
+#     `start_process_idempotent` e devolve a resposta por `correlate_message_audited`; os outros 40
+#     importadores permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -1050,5 +1054,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 40
+  transportFanIn: 41
   harnessFanIn: 23

@@ -1,9 +1,9 @@
 """Deterministic financial-ceiling resolution for the alcada/auto-approval workers.
 
 T1.9 — closes the "decorative ceiling" defect (B3/B4 family, absorbing the AUTH /
-REEMBOLSO / PAGTO auto-approval ceilings): the tenant governance ceilings —
-``authorization_approval.max_value_brl``, ``reembolso_auto_approval.max_value_brl``
-and ``high_value_payment.threshold_brl`` — were read by ZERO Python. ``dentro_teto_l2``
+PAGTO auto-approval ceilings; the REEMBOLSO one was removed with its automatic path in DL-0158): the tenant
+governance ceilings — ``authorization_approval.max_value_brl`` and ``high_value_payment.threshold_brl`` —
+(and, before DL-0158, ``reembolso_auto_approval.max_value_brl``) were read by ZERO Python. ``dentro_teto_l2``
 was defaulted/echoed from an INBOUND process variable, so an upstream that seeded
 ``dentro_teto_l2=true`` bypassed the ceiling entirely (reembolso.py:227-230, auth.py:66,
 pagto.py:123).
@@ -188,8 +188,8 @@ class CeilingResolver:
     def ceiling_brl(self, *, tenant: str, action: str, param: str) -> int:
         """Resolved ceiling in whole BRL for ``action.params[param]``. 0 (fail-closed) when absent/invalid.
 
-        ``param`` is ``max_value_brl`` for authorization_approval/reembolso_auto_approval
-        and ``threshold_brl`` for high_value_payment.
+        ``param`` is ``max_value_brl`` for authorization_approval and ``threshold_brl`` for
+        high_value_payment.
         """
         matrix = self._matrix_for(tenant)
         if matrix is None:

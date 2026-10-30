@@ -233,7 +233,7 @@ acoes:
       - referencia: "src/maezo/tools/workers/auth.py:1369"
         detalhe: "SendDenialNoticeWorker — topic operadora.auth.send_denial_notice"
         choked: true
-      - referencia: "src/maezo/tools/workers/reembolso.py:813"
+      - referencia: "src/maezo/tools/workers/reembolso.py:403"
         detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1488"
@@ -279,7 +279,7 @@ acoes:
   pagamento_emissao:
     enforcement: shadow
     descricao: >-
-      Liberação de pagamento (prestador ou reembolso ao beneficiário). Efeito financeiro
+      Liberação de pagamento (prestador). O reembolso ao beneficiário não emite pagamento pelo sistema desde a v0.2.0 (DL-0158): o financeiro paga fora e registra a data. Efeito financeiro
       irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
     superficies:
       - referencia: "src/maezo/tools/workers/pagto.py:896"
@@ -287,9 +287,6 @@ acoes:
         choked: true
       - referencia: "src/maezo/tools/workers/pagto.py:898"
         detalhe: "topic operadora.pagto.release_high_value_payment"
-        choked: true
-      - referencia: "src/maezo/tools/workers/reembolso.py:808"
-        detalhe: "topic operadora.reembolso.issue_payment"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -725,7 +722,6 @@ mapeamento_topicos:
 
   operadora.pagto.release_low_value_payment: pagamento_emissao
   operadora.pagto.release_high_value_payment: pagamento_emissao
-  operadora.reembolso.issue_payment: pagamento_emissao
 
   operadora.inadimplencia.register_contract_suspension: vinculo_contratual_mudanca
   operadora.cancel.effectuate_member_request: vinculo_contratual_mudanca

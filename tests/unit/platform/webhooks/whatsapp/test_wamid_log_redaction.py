@@ -529,6 +529,15 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         # transicao, numero da tentativa, `error_type` e a contagem da purga — nunca wamid nem
         # telefone; ele nem recebe o wamid. Os dois sao varridos abaixo como os demais.
         "pre_roteamento.py",
+        # `reembolso_store.py` e `reembolso_turno.py` (DL-0158/DL-0159, 28/10/2026): revisados ao entrar nesta
+        # lista. Nenhum dos dois recebe o wamid: o despachante entrega so' o `conversation_id` keyed, o
+        # texto do
+        # turno e (no arquivo) o id da midia, que nunca vai a log. `reembolso_store.py` nao tem logger;
+        # `reembolso_turno.py` loga `tenant_id`, o `conversation_id` keyed e tokens fechados — nunca o
+        # texto, o
+        # id da midia, o protocolo nem o telefone. Varridos abaixo como os demais.
+        "reembolso_store.py",
+        "reembolso_turno.py",
         "roteamento.py",
         "security.py",
         "settings.py",

@@ -745,6 +745,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/reembolso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso
+         * @description INTERIM (DL-0160): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+         *
+         *     Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
+         *     a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
+         *     fechado, o mapa de erros e `no-store` (o middleware do app).
+         */
+        get: operations["read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso Anexo
+         * @description INTERIM (DL-0160): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+         *     `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
+         *     da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.
+         */
+        get: operations["read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/vendor/submissions": {
         parameters: {
             query?: never;
@@ -1008,7 +1054,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Process Definition Digest */
@@ -1205,11 +1251,11 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Inputs */
-            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["CancelExecucaoInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["SuppressionEncarregadoDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
+            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["ReembolsoPagamentoInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["CancelExecucaoInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["SuppressionEncarregadoDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
             /** Process Definition Digest */
             process_definition_digest: string;
             /** Process Definition Id */
@@ -1544,7 +1590,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -2012,7 +2058,7 @@ export interface components {
                 "decision"
             ];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "info_solicitada" | "texto_ao_beneficiario" | "data_pagamento" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -2029,7 +2075,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /**
              * Form Source Status
              * @enum {string}
@@ -2301,7 +2347,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Generation Digest */
@@ -2386,7 +2432,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -3418,7 +3464,7 @@ export interface components {
              */
             allowed_actions: unknown[];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "info_solicitada" | "texto_ao_beneficiario" | "data_pagamento" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -3435,7 +3481,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /**
              * Form Source Status
              * @enum {string}
@@ -3566,6 +3612,43 @@ export interface components {
             valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
             valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
         };
+        /** ReembolsoAnexoRef */
+        ReembolsoAnexoRef: {
+            /** Document Ref */
+            document_ref: string;
+            /**
+             * Tipo
+             * @enum {string}
+             */
+            tipo: "pedido_medico" | "nota_fiscal" | "complemento";
+        };
+        /**
+         * ReembolsoAuditorCompletionSubmission
+         * @description Medico auditor (`reembolso_auditor`).
+         */
+        ReembolsoAuditorCompletionSubmission: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_auditor";
+            /** Parecer Auditor */
+            parecer_auditor?: string | null;
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
         /**
          * ReembolsoAuditorInputs
          * @description Medical-merit form (BPMN 383-388); no clinical content is inferred.
@@ -3580,6 +3663,8 @@ export interface components {
             decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
             /** Fundamentacao Contratual */
             fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
             /** Justificativa */
             justificativa?: string | null;
             /**
@@ -3589,6 +3674,33 @@ export interface components {
             kind: "reembolso_auditor";
             /** Parecer Auditor */
             parecer_auditor?: string | null;
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoDecisaoCompletionSubmission
+         * @description Analise e coordenacao (`reembolso_decisao`).
+         */
+        ReembolsoDecisaoCompletionSubmission: {
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_decisao";
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
         };
         /**
@@ -3603,6 +3715,8 @@ export interface components {
             decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
             /** Fundamentacao Contratual */
             fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
             /** Justificativa */
             justificativa?: string | null;
             /**
@@ -3610,7 +3724,53 @@ export interface components {
              * @enum {string}
              */
             kind: "reembolso_decisao";
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoPagamentoCompletionSubmission
+         * @description Registro do pagamento feito fora do sistema (`reembolso_pagamento`).
+         */
+        ReembolsoPagamentoCompletionSubmission: {
+            /** Data Pagamento */
+            data_pagamento: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pagamento";
+        };
+        /**
+         * ReembolsoPagamentoInputs
+         * @description Registro do pagamento feito fora do sistema (DL-0158, ``UT_RegistrarPagamento``).
+         *
+         *     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
+         */
+        ReembolsoPagamentoInputs: {
+            /** Data Pagamento */
+            data_pagamento: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reembolso_pagamento";
+        };
+        /**
+         * ReembolsoPendenciaCompletionSubmission
+         * @description Pendencia expirada (`reembolso_pendencia`).
+         */
+        ReembolsoPendenciaCompletionSubmission: {
+            /**
+             * Decisao Pendencia
+             * @enum {string}
+             */
+            decisao_pendencia: "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pendencia";
         };
         /**
          * ReembolsoPendingInputs
@@ -3648,7 +3808,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -3926,13 +4086,13 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Process Definition Key */
             process_definition_key: string;
             /** Process Definition Version */
             process_definition_version: string;
             /** Resultado */
-            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO");
+            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO") | ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR" | "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise" | "PAGO");
             /**
              * Schema
              * @default portal-task-completion.v1
@@ -4049,6 +4209,53 @@ export interface components {
              */
             schema: "portal-task-read.v1";
             task: components["schemas"]["PublicTaskSnapshot"];
+        };
+        /** TaskReembolsoContextResponse */
+        TaskReembolsoContextResponse: {
+            /** Anexos */
+            anexos: components["schemas"]["ReembolsoAnexoRef"][];
+            /** Categoria Procedimento */
+            categoria_procedimento: ("consulta" | "exame" | "terapia") | null;
+            /** Data Atendimento */
+            data_atendimento: string | null;
+            /** Data Solicitacao */
+            data_solicitacao: string | null;
+            /** Decisao Reembolso */
+            decisao_reembolso: ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR") | null;
+            /** Dias Desde Atendimento */
+            dias_desde_atendimento: number | null;
+            /** Motivo Nao Rede */
+            motivo_nao_rede: ("urgencia" | "sem_prestador_no_prazo" | "preferencia_fora_rede") | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Protocolo */
+            protocolo: string | null;
+            /** Relacao Com Titular */
+            relacao_com_titular: ("titular" | "dependente") | null;
+            /** Resposta Beneficiario */
+            resposta_beneficiario?: string | null;
+            /**
+             * Schema
+             * @default portal-task-reembolso.v1
+             * @constant
+             */
+            schema: "portal-task-reembolso.v1";
+            /** Situacao Prazo */
+            situacao_prazo?: ("DENTRO" | "FORA" | "NAO_AVALIADO") | null;
+            /**
+             * Task Definition Key
+             * @enum {string}
+             */
+            task_definition_key: "UT_AnaliseReembolso" | "UT_CoordenacaoReembolso" | "UT_RevisaoAuditorMedico" | "UT_DecidirPendenciaExpirada" | "UT_RegistrarPagamento";
+            /** Task Id */
+            task_id: string;
+            /** Tipo Reembolso */
+            tipo_reembolso: ("livre_escolha" | "fora_rede" | "urgencia_emergencia" | "indisponibilidade_rede") | null;
+            valor_reembolso_aprovado_cents: components["schemas"]["Centavos"] | null;
+            valor_solicitado_cents: components["schemas"]["Centavos"] | null;
         };
         /** UploadCompletion */
         UploadCompletion: {
@@ -7240,7 +7447,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"];
+                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"] | components["schemas"]["ReembolsoDecisaoCompletionSubmission"] | components["schemas"]["ReembolsoAuditorCompletionSubmission"] | components["schemas"]["ReembolsoPendenciaCompletionSubmission"] | components["schemas"]["ReembolsoPagamentoCompletionSubmission"];
             };
         };
         responses: {
@@ -7573,6 +7780,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReembolsoContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+        };
+    };
+    read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                document_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
                 };
             };
         };
