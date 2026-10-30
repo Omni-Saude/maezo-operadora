@@ -1563,13 +1563,33 @@ _START_DEDUP_POLICY: Mapping[str, StartDedupPosture] = {
 }
 
 
-def start_dedup_posture(process_key: str) -> StartDedupPosture:
+#: R-101 / F-139 — DARK promotions, applied ONLY when the starting caller passes
+#: `promote_start_dedup=True` (a default-off flag owned by that caller's composition root). The
+#: map above stays the policy of record: `SP-OP-CONTAS-001` remains `NON_STRICT` there because
+#: DL-0046 left it a "Human call" (lote correction semantics). `EXCLUSIVE` is the DL-0046
+#: posture that does not need that answer: it closes the concurrent re-send TOCTOU ("reenvio do
+#: mesmo lote/conta retorna a instancia ativa", contract §Business key) and still lets a NEW
+#: generation start once the claimed instance is PROVEN ended — it never refuses a later case the
+#: way `PERMANENT` would. Promotions only STRENGTHEN: a key already gated keeps its own posture.
+_FLAGGED_START_DEDUP_PROMOTIONS: Mapping[str, StartDedupPosture] = {
+    "SP-OP-CONTAS-001": StartDedupPosture.EXCLUSIVE,
+}
+
+
+def start_dedup_posture(process_key: str, *, promote: bool = False) -> StartDedupPosture:
     """`process_key`'s classified `StartDedupPosture` (`_START_DEDUP_POLICY`).
 
     An UNCLASSIFIED key defaults to `NON_STRICT` — today's behaviour — and logs a warning rather
     than guessing: a surprise gate on a flow that legitimately re-runs across cycles would
     silently swallow real cases, which is the worse failure of the two.
+
+    `promote=True` applies `_FLAGGED_START_DEDUP_PROMOTIONS` (R-101 dark flag) to a key the map
+    classifies `NON_STRICT`; it never changes a gated key and never touches an unlisted key.
     """
+    if promote and _START_DEDUP_POLICY.get(process_key) is StartDedupPosture.NON_STRICT:
+        promoted = _FLAGGED_START_DEDUP_PROMOTIONS.get(process_key)
+        if promoted is not None:
+            return promoted
     posture = _START_DEDUP_POLICY.get(process_key)
     if posture is None:
         logger.warning(
@@ -1828,8 +1848,13 @@ async def start_process_idempotent(
     variables: dict[str, Any],
     audit_sink: AuditStartSink | PostgresAuthDispatchStore,
     provenance: AgentDecisionProvenance | HumanIntakeProvenance,
+    promote_start_dedup: bool = False,
 ) -> ProcessInstance:
     """Idempotent, ADR-0007-audited process start — the SINGLE agent-side effect chokepoint (T-C2).
+
+    `promote_start_dedup` (R-101, default False) asks for the DARK posture promotion of
+    `_FLAGGED_START_DEDUP_PROMOTIONS`; the caller passes its own default-off flag. It can only
+    STRENGTHEN the posture of a key the policy map lists as `NON_STRICT`.
 
     This is the ONE call site agent graphs use to start a BPMN process — never
     `start_process_instance` directly. `audit_sink` and `provenance` are REQUIRED (no defaults):
@@ -1969,7 +1994,7 @@ async def start_process_idempotent(
         except EngineCapabilityError as exc:
             raise CibSevenStartAuthorizationError(exc.code) from None
 
-    posture = start_dedup_posture(process_key)
+    posture = start_dedup_posture(process_key, promote=promote_start_dedup is True)
     gated = posture is not StartDedupPosture.NON_STRICT
     # 0. Both gate seams, checked BEFORE the claim exists (see `_require_strict_gate_seams`).
     if gated:

@@ -34,6 +34,7 @@ import structlog
 
 from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
+from maezo.tools.process_business_keys import contas_business_key
 from maezo.tools.workers.base import (
     FunctionWorker,
     non_blank,
@@ -898,7 +899,11 @@ def emitir_demonstrativo(
             "tipo mais comum"
         )
 
-    key = business_key or f"CONTAS-{input_data.tenant_id}-{input_data.numero_lote_tiss}"
+    # R-101 / F-139: the SINGLE composer — an empty lote used to mint `CONTAS-{tenant}-`, one
+    # protocol shared by every lote-less conta of the tenant; it now refuses (ValueError).
+    key = business_key or contas_business_key(
+        tenant_id=input_data.tenant_id, numero_lote_tiss=input_data.numero_lote_tiss
+    )
     protocolo = _mint_protocolo_demonstrativo(key, tipo)
 
     # The automatic legs have no human author. `analista_id` is echoed ONLY when the process
