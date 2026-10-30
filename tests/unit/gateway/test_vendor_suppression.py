@@ -322,9 +322,17 @@ def test_k_anon_floor_must_be_positive(k: int) -> None:
     assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
 
 
-def test_k_equal_one_is_a_valid_floor() -> None:
-    """Mutation guard (audit R-117): `k > 0` must accept k=1 (a `k > 1` mutant would refuse)."""
-    lines = [_line(f"o{i}", (f"celula-{i % 3}",)) for i in range(EGRESS_AUDIENCE_GATE_MINIMUM)]
-    export = prepare_egress_export(lines, audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=1)
-    assert export.k == 1
-    assert export.suppressed_lines == 0
+@pytest.mark.parametrize("k", [True, 100.0])
+def test_k_must_be_a_real_int(k: object) -> None:
+    """Mutation guard (audit R-117): `type(k) is int` — bool/float k is a contract mismatch."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=k)  # type: ignore[arg-type]
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+
+
+@pytest.mark.parametrize("audience_size", [-1, 300.0, True])
+def test_audience_size_must_be_a_non_negative_int(audience_size: object) -> None:
+    """Mutation guard (audit R-117): `audience_size >= 0 and type(audience_size) is int`."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=audience_size)  # type: ignore[arg-type]
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH

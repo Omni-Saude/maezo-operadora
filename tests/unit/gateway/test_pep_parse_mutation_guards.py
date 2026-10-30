@@ -67,6 +67,16 @@ def test_frozen_file_diverging_from_code_is_refused(tmp_path: Path) -> None:
     assert sorted(HARD_ACTIONS)[0] in str(exc.value)
 
 
+def test_frozen_file_missing_a_code_hard_item_is_refused(tmp_path: Path) -> None:
+    """A `_hard_frozen.yaml` that is a strict SUBSET of the code set is refused (equality, not inclusion)."""
+    dropped = sorted(HARD_ACTIONS)[0]
+    items = "".join(f"  - action: {n}\n" for n in sorted(HARD_ACTIONS) if n != dropped)
+    core = _write_frozen(tmp_path, "hard_items:\n" + items)
+    with pytest.raises(PolicyError) as exc:
+        _assert_hard_frozen_matches(core)
+    assert dropped in str(exc.value)
+
+
 def test_frozen_file_matching_code_is_accepted(tmp_path: Path) -> None:
     items = "".join(f"  - action: {n}\n" for n in sorted(HARD_ACTIONS))
     _assert_hard_frozen_matches(_write_frozen(tmp_path, "hard_items:\n" + items))
