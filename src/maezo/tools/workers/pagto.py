@@ -126,15 +126,13 @@ DECISAO_CANCELAR = "CANCELAR"
 # variable than `decisao_pagamento`; GW_ResolucaoAdmissibilidade's own conservative default).
 DECISAO_ADMISSIBILIDADE_DEVOLVER = "DEVOLVER"
 
-# Tier constants
-# Tier required per faixa_valor: higher tiers require higher approval levels
-_TIER_MINIMO: dict[str, int] = {
-    "DENTRO_TETO_L2": 0,  # auto (no human)
-    "ALCADA_L1": 1,
-    "ALCADA_L2": 2,
-    "ALCADA_L3": 3,
-    "ANALISE_HUMANA": 4,  # comite
-}
+# Tier-match (R-053 / F-109): the faixa->tier ladder lives ONLY in the DMN `pagto_alcada` (output
+# `tier_minimo`, flattened into process scope by `BRT_AlcadaRouting`, ADR-0012 / AGENTS.md rule 5).
+# The worker keeps no Python copy of it. The single constant below is the FAIL-CLOSED floor the
+# DMN's own description declares for an absent/malformed fact ("ausente no escopo -> fail-closed
+# no tier mais alto (4)", pagto_alcada.dmn) — the comite tier of the table's own catch-all row
+# (`r_catchall`), never a band of the ladder.
+_TIER_COMITE_FAIL_CLOSED = 4
 
 
 # ---------------------------------------------------------------
@@ -295,6 +293,7 @@ def route_aprovacao(
     resolver: CeilingResolver | None = None,
     *,
     dmn: DmnTransport | None = None,
+    valor_invalido_pendente_dados: bool = False,
 ) -> dict[str, Any]:
     """Route payment to correct approval tier based on value.
 
@@ -393,6 +392,13 @@ def route_aprovacao(
     three booleans with the modeled defaults, echo the normalized cents) is deferred, not denied.
     """
     resolver = resolver if resolver is not None else CeilingResolver()
+    # R-053 / F-142 (DARK — `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS`, default off): the contract
+    # (SP-OP-PAGTO-001, `valor_pagamento_cents`) routes an absent/<=0 amount to the admissibility
+    # category PENDENTE_DADOS that `pagto_admissibility` already declares (`r_dados_invalidos`).
+    # When ON, this worker writes only the FACT `dados_pagamento_validos=False` on a rejected
+    # amount; `BRT_PagtoAdmissibility` (downstream) decides the route. A valid amount never touches
+    # the fact (no `True` is minted here). OFF = the historical return, byte-for-byte.
+    extra_facts: dict[str, Any] = {}
 
     # ONE normalized money fact for BOTH consumers (B-1): pre-fix the resolver received the RAW
     # `valor_cents` while the DMN received `int(valor_cents)` — two different readings of one fact
@@ -415,6 +421,8 @@ def route_aprovacao(
         )
         dentro_teto = False
         valor_dmn = _VALOR_CENTS_ROTA_CONSERVADORA
+        if valor_invalido_pendente_dados:
+            extra_facts["dados_pagamento_validos"] = False
     else:
         # COMPUTE the auto-release fact from policy: value within `high_value_payment.threshold_brl`.
         # A config problem / unloadable matrix => False => routes to a human alcada band.
@@ -468,6 +476,7 @@ def route_aprovacao(
         # calculate_facts design intent (design T1.9 §1.4/§2.4): the engine receives the
         # policy-computed fact, never the inbound boolean.
         "dentro_teto_l2": dentro_teto,
+        **extra_facts,
     }
 
 
@@ -532,14 +541,27 @@ def _norm_str(value: Any) -> str:
     return ""
 
 
+def _tier_minimo_or_comite(value: Any) -> int:
+    """The approver tier the DMN `pagto_alcada` required (`tier_minimo`) — FAIL-CLOSED.
+
+    Read from process scope (flattened by `BRT_AlcadaRouting`). Absent, `bool` (an `int` in
+    Python), non-`int` or negative -> `_TIER_COMITE_FAIL_CLOSED`, the highest tier, as the DMN's
+    own description declares. Never re-derived from `faixa_valor` in Python (R-053 / F-109).
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return int(value)
+    return _TIER_COMITE_FAIL_CLOSED
+
+
 def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     """Release high-value payment — GATED with tier-match.
 
     GUARDED: ERR_PAYMENT_RELEASE_NOT_HUMAN.
     Requires:
       - decisao_pagamento == APROVAR from human
-      - aprovador_id + justificativa + valor_aprovado_cents
-      - tier-match: aprovador_tier >= required for faixa_valor
+      - aprovador_id + justificativa + valor_aprovado_cents (integer centavos > 0, no default)
+      - tier-match: aprovador_tier >= `tier_minimo` emitted by the DMN `pagto_alcada`
+        (absent/malformed -> highest tier, fail-closed)
 
     NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
     #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
@@ -559,8 +581,15 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     aprovador_id = _norm_str(variables.get("aprovador_id", ""))
     aprovador_tier = variables.get("aprovador_tier", 0)
     justificativa = _norm_str(variables.get("justificativa_aprovacao", ""))
-    valor_aprovado = variables.get("valor_aprovado_cents", 0)
+    # R-053 / F-041: NO default. Pre-fix this read `.get(..., 0)` and was never checked, so an
+    # APROVAR without an approved amount RELEASED. Same integer-centavos domain as the order amount
+    # (`_valor_pagamento_cents_or_none`: int, not bool/float/str, > 0, <= Java long) — a type
+    # domain, not a ceiling/alcada (those stay with the owner, R-070).
+    valor_aprovado, motivo_valor_aprovado = _valor_pagamento_cents_or_none(
+        variables.get("valor_aprovado_cents")
+    )
     faixa = variables.get("faixa_valor", "")
+    tier_requerido = _tier_minimo_or_comite(variables.get("tier_minimo"))
 
     if not isinstance(aprovador_tier, int):
         try:
@@ -577,9 +606,11 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
         errors.append("aprovador_id ausente (ADR-0007)")
     if not justificativa:
         errors.append("justificativa_aprovacao ausente")
+    if valor_aprovado is None:
+        # Bounded token only — the raw amount never reaches the incident text / log.
+        errors.append(f"valor_aprovado_cents invalido ({motivo_valor_aprovado})")
 
-    # Guard 2: tier-match
-    tier_requerido = _TIER_MINIMO.get(faixa, 4)
+    # Guard 2: tier-match against the DMN's own `tier_minimo` fact (fail-closed -> comite).
     if aprovador_tier < tier_requerido:
         errors.append(
             f"tier-match falhou: aprovador_tier={aprovador_tier} "
@@ -619,10 +650,11 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
     Serve `ST_NotificarRiscoSla` (topico `operadora.pagto.notify_sla_risk`,
     SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:306-310), alimentado SO pelo boundary NAO-interruptivo
     `BT_AlertaSlaPagto` (`cancelActivity="false"`) em `UT_AprovacaoAlcada`, em `${sla.sla_alerta}`
-    (60-70% de `pagto_sla.sla_alerta`, contrato DRAFT/verify). Informativa e jamais adversa: a
-    User Task segue aberta e NENHUM desfecho adverso (liberacao de pagamento, recusa ou outro)
-    nasce deste alerta — a liberacao so nasce da decisao humana em
-    `UT_AprovacaoAlcada`/`UT_CoordenacaoAlcada` (`release_high_value_payment`, guard inalterado).
+    (`${sla.sla_alerta}` = 60-70% de `sla_aprovacao`, ambos saidas da DMN `pagto_sla`; contrato
+    DRAFT/verify). Informativa e jamais adversa: a User Task segue aberta e NENHUM desfecho
+    adverso (liberacao de pagamento, recusa ou outro) nasce deste alerta — a liberacao so nasce
+    da decisao humana em `UT_AprovacaoAlcada`/`UT_CoordenacaoAlcada`
+    (`release_high_value_payment`, guard inalterado).
 
     FAB-SLA-RISK-NOTIFIED-SLICE4 (o motivo desta docstring). O retorno era, em toda entrega e sem
     calcular nada, `{"sla_risk_notified": True, ...}`. NENHUM canal e contatado por esta funcao —
@@ -1102,8 +1134,15 @@ def register_pagto_workers(
             "operadora.pagto.assess_admissibility", functools.partial(assess_admissibility, dmn=dmn)
         )
     )
+    # R-053 / F-142 dark seam (settings `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS`, default off).
+    valor_invalido_pendente_dados = bool(seams.get("pagto_valor_invalido_pendente_dados", False))
     harness.register_worker(
-        FunctionWorker("operadora.pagto.calculate_facts", functools.partial(route_aprovacao, dmn=dmn))
+        FunctionWorker(
+            "operadora.pagto.calculate_facts",
+            functools.partial(
+                route_aprovacao, dmn=dmn, valor_invalido_pendente_dados=valor_invalido_pendente_dados
+            ),
+        )
     )
     harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
     harness.register_worker(

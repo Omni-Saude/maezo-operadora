@@ -6,10 +6,19 @@
              name="Prazos de purga/notificacao de inadimplencia (RN 593)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    inadimplencia_purga v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
-    texto vigente com regulatorio/juridico (RN 593 — janela de purga/cura, prazo de notificacao
-    previa ate o 50o dia, periodo minimo de inadimplencia; Lei 9.656 art. 13; consolidacao de
-    RN 412/2016 — OQ aberta; docs/review-queue.md). Consumida por SP-OP-INADIMPLENCIA-001 e mcp-dmn.
+    inadimplencia_purga v0.2.0 — status: DRAFT — direcao do dono (issue #1081, DEC-10 / R-019; R-027):
+    RN 593/2023 alterada pela RN 617/2024. prazo_notificacao_previa = P50D, a DURACAO do timer
+    ICE_PrazoNotificacao50 do BPMN. ATENCAO: o timer conta da ENTRADA em GW_JanelaNotificacao50 e
+    reinicia a cada notificacao_ack, NAO do 1o dia de inadimplencia; logo ainda NAO e o teto absoluto
+    do 50o dia da norma. Ancorar no vencimento exige o fato data_inicio_inadimplencia_iso (pendencia
+    juridico/produto OBRIGATORIA antes do flip). prazo_purga = prazo minimo ENTRE a notificacao
+    comprovada e o efeito da suspensao/exclusao (P10D individual/familiar; P15D coletivo/catch-all
+    HERDADO sem fonte primaria = DRAFT, a confirmar com o juridico antes do flip, pois o guard estrito
+    o torna vinculante; notificacao tardia continua valida se garantir esse prazo — conferido pelo guard estrito de
+    register_contract_suspension contra esta mesma saida); minimo de 2 mensalidades nao pagas SEM
+    janela de 12 meses (regra em inadimplencia_status). Assinatura juridica exigida antes do flip
+    (MAEZO_INAD_RN593_ESTRITO). Consumida por SP-OP-INADIMPLENCIA-001 e pelo guard estrito; o antigo
+    worker Python calculate_purge (copia divergente desta tabela, F-001) foi REMOVIDO.
     NOTA: prazos regulatorios sao em dias UTEIS / por vezes corridos; ISO 8601 usa dias corridos —
     valores abaixo sao aproximacao conservadora. Resolver calendario util no worker. Prazo
     regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING). Saidas de prazo
@@ -33,28 +42,28 @@
       <output id="out_periodo_minimo" label="periodo_minimo" name="periodo_minimo" typeRef="string"/>
       <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
       <rule id="r_individual_familiar">
-        <description>Planos individual/familiar: janela de purga + notificacao previa + periodo minimo (RN 593 / Lei 9.656 art. 13)</description>
+        <description>Planos individual/familiar: notificacao ate o 50o dia (pre-requisito) + 10 dias apos a notificacao (RN 593 alterada pela RN 617/2024)</description>
         <inputEntry id="r_individual_familiar_i1"><text>"individual","familiar"</text></inputEntry>
         <outputEntry id="r_individual_familiar_o1"><text>"P10D"</text></outputEntry>
-        <outputEntry id="r_individual_familiar_o2"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o2"><text>"P50D"</text></outputEntry>
         <outputEntry id="r_individual_familiar_o3"><text>"P60D"</text></outputEntry>
-        <outputEntry id="r_individual_familiar_o4"><text>"RN 593 / Lei 9.656/1998 art. 13 par. unico II — purga ~10d apos notificacao, notificacao previa ate o 50o dia, periodo minimo ~60d: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o4"><text>"RN 593/2023 alterada pela RN 617/2024 — notificacao ate o 50o dia de inadimplencia (pre-requisito); suspensao/exclusao so 10 dias apos a notificacao; minimo de 2 mensalidades sem janela de 12m: DRAFT/verify (assinatura juridica)"</text></outputEntry>
       </rule>
       <rule id="r_coletivo">
-        <description>Planos coletivos: prazos conservadores (regras do estipulante; sempre analise humana)</description>
+        <description>Planos coletivos: prazos conservadores (regras do estipulante; sempre analise humana). prazo_purga P15D HERDADO de d4e61891 SEM fonte primaria: DRAFT, a confirmar com o juridico antes do flip de MAEZO_INAD_RN593_ESTRITO (o guard estrito o torna vinculante)</description>
         <inputEntry id="r_coletivo_i1"><text>"coletivo_empresarial","coletivo_adesao"</text></inputEntry>
         <outputEntry id="r_coletivo_o1"><text>"P15D"</text></outputEntry>
-        <outputEntry id="r_coletivo_o2"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o2"><text>"P50D"</text></outputEntry>
         <outputEntry id="r_coletivo_o3"><text>"P60D"</text></outputEntry>
-        <outputEntry id="r_coletivo_o4"><text>"RN 593 — planos coletivos seguem regras do estipulante; prazos conservadores: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_coletivo_o4"><text>"RN 593/2023 alterada pela RN 617/2024 — coletivo: notificacao ate o 50o dia; prazo apos a notificacao conservador (15d) por regras do estipulante: DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
-        <description>Catch-all FAIL-SAFE: tipo de plano nao mapeado -> prazos conservadores (maiores) + fonte DRAFT_DEFAULT</description>
+        <description>Catch-all FAIL-SAFE: tipo de plano nao mapeado -> P50D para a notificacao + prazo conservador (maior) apos ela + fonte DRAFT_DEFAULT. prazo_purga P15D HERDADO de d4e61891 SEM fonte primaria: DRAFT, a confirmar com o juridico antes do flip de MAEZO_INAD_RN593_ESTRITO</description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>"P15D"</text></outputEntry>
-        <outputEntry id="r_catchall_o2"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P50D"</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"P60D"</text></outputEntry>
-        <outputEntry id="r_catchall_o4"><text>"DRAFT_DEFAULT — prazos conservadores na ausencia de classificacao de plano: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"DRAFT_DEFAULT — teto do 50o dia para a notificacao e prazo conservador (15d) apos ela na ausencia de classificacao de plano: DRAFT/verify"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

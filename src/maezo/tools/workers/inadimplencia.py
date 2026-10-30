@@ -8,7 +8,9 @@ NAO ha worker de rescisao gated AQUI — rescisao e propriedade de CANCEL-001.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import functools
+import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -79,6 +81,19 @@ ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
 DECISAO_SUSPENDER = "SUSPENDER"
 DECISAO_ENCAMINHAR_RESCISAO = "ENCAMINHAR_RESCISAO"
 DECISAO_MANTER = "MANTER"
+
+# R-027 (RN 593/2023 alterada pela RN 617/2024 — direcao do dono, issue #1081 DEC-10): minimo de
+# mensalidades nao pagas, consecutivas ou nao, SEM janela de 12 meses. A REGRA vive na DMN
+# `inadimplencia_status` (`r_segue_analise`: `meses_inadimplencia >= 2`); esta constante so alimenta o
+# FATO pre-resolvido `dentro_periodo_minimo` e e PRESA a DMN por teste de paridade
+# (`test_inadimplencia_rn593.py::test_inadimplencia_dois_meses_limiar_python_espelha_a_dmn`).
+MENSALIDADES_MINIMAS_INADIMPLIDAS = 2
+
+# Competencia `YYYY-MM` (mes 01-12) — forma do item de `competencias_em_aberto` no contrato.
+_COMPETENCIA_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+
+# Prazo da DMN `inadimplencia_purga` na unica forma que o guard sabe somar sem adivinhar: dias.
+_PRAZO_DIAS_RE = re.compile(r"P(\d{1,4})D")
 
 # Process key of the sole owner of the contract-termination (rescisao) terminal — SP-OP-CANCEL-001
 # holds End_ContratoRescindido, human-gated by UT_AnaliseRescisao (docs/processes/
@@ -202,8 +217,38 @@ def _query_ja_em_rescisao_cancel(
 # ---------------------------------------------------------------
 
 
-def resolve_facts(variables: dict[str, Any], *, engine: CibSevenTransport | None = None) -> dict[str, Any]:
+def _contar_mensalidades(competencias: Any, *, estrito: bool) -> int:
+    """Quantas mensalidades em aberto o FATO `meses_inadimplencia` reporta.
+
+    Legado (flag OFF, comportamento implantado): `len` da lista, como sempre foi. Estrito (R-027,
+    `MAEZO_INAD_RN593_ESTRITO`): conta COMPETENCIAS DISTINTAS bem formadas (`YYYY-MM`) — a mesma
+    competencia repetida, ou um item que nao e competencia, nao vira uma segunda mensalidade e,
+    portanto, nunca empurra o caso para o minimo de 2 mensalidades por artefato de dados. Erra
+    sempre para MENOS (fail-safe: abaixo do minimo o caso vai ao catch-all humano da DMN).
+    """
+    if not isinstance(competencias, list):
+        return 0
+    if not estrito:
+        return len(competencias)
+    return len(
+        {c.strip() for c in competencias if isinstance(c, str) and _COMPETENCIA_RE.fullmatch(c.strip())}
+    )
+
+
+def resolve_facts(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    rn593_estrito: bool = False,
+) -> dict[str, Any]:
     """Pre-resolve factual variables: mes count, value, period, purge window, rescisao correlation.
+
+    R-027 (`rn593_estrito`, dark — `MAEZO_INAD_RN593_ESTRITO`, default OFF): devolve tambem
+    `rn593_prerequisito_notificacao`, que o gate `GW_NotificacaoPrerequisito` do BPMN le para
+    desviar um caso SEM notificacao comprovada para a janela do 50o dia
+    (`ICE_PrazoNotificacao50`, `${purga.prazo_notificacao_previa}`) em vez do cure-window de purga.
+    OFF => `False` e o BPMN segue exatamente o caminho de hoje. Sob a flag a contagem de
+    mensalidades passa a ser por competencia distinta (`_contar_mensalidades`).
 
     This worker computes factual data — it NEVER makes an adverse decision.
     All monetary values in integer cents.
@@ -219,15 +264,17 @@ def resolve_facts(variables: dict[str, Any], *, engine: CibSevenTransport | None
     contract identity, or a transport/engine error) ``ja_em_rescisao_cancel := True`` — the guard
     downstream then REFUSES the suspension and routes to a human. See ``_query_ja_em_rescisao_cancel``.
     """
-    competencias = variables.get("competencias_em_aberto", [])
-    meses_inadimplencia = len(competencias) if isinstance(competencias, list) else 0
+    meses_inadimplencia = _contar_mensalidades(
+        variables.get("competencias_em_aberto", []), estrito=rn593_estrito
+    )
 
     valor_total = variables.get("valor_total_devido_cents", 0)
     if not isinstance(valor_total, int):
         valor_total = int(valor_total) if valor_total else 0
 
-    # Periodo minimo: DRAFT 60 dias (2 meses)
-    dentro_periodo_minimo = meses_inadimplencia >= 2
+    # Minimo de 2 mensalidades nao pagas, consecutivas ou nao, SEM janela de 12 meses (RN 593
+    # alterada pela RN 617/2024). Limiar preso a DMN `inadimplencia_status` (ver a constante).
+    dentro_periodo_minimo = meses_inadimplencia >= MENSALIDADES_MINIMAS_INADIMPLIDAS
 
     # Janela de purga: 10 dias apos notificacao (DRAFT/verify RN 593)
     dentro_janela_purga = variables.get("dentro_janela_purga", True)
@@ -260,6 +307,8 @@ def resolve_facts(variables: dict[str, Any], *, engine: CibSevenTransport | None
         "dentro_janela_purga": dentro_janela_purga,
         # RESOLVED by engine query (not echoed): the real anti-dupla-terminacao correlation fact.
         "ja_em_rescisao_cancel": ja_em_rescisao_cancel,
+        # R-027: liga (so sob a flag) o gate do pre-requisito de notificacao ate o 50o dia no BPMN.
+        "rn593_prerequisito_notificacao": rn593_estrito,
     }
 
 
@@ -315,43 +364,6 @@ def assess_status(variables: dict[str, Any], *, dmn: DmnTransport | None = None)
     return {
         "roteamento": roteamento,
         "motivo": motivo,
-    }
-
-
-# ---------------------------------------------------------------
-# calculate_purge — determine purge window (RN 593 DRAFT)
-# ---------------------------------------------------------------
-
-
-def calculate_purge(variables: dict[str, Any]) -> dict[str, Any]:
-    """Calculate the purge/cure window and prior notice deadlines.
-
-    Only determines regulatory deadlines — NEVER decides to suspend/rescind.
-    All deadlines DRAFT/verify against RN 593.
-    """
-    tipo_plano = variables.get("tipo_plano", "individual")
-
-    # DRAFT/verify: prazos RN 593
-    if tipo_plano in ("coletivo_empresarial", "coletivo_adesao"):
-        prazo_purga = "P30D"  # conservative for collective
-        prazo_notificacao_previa = "P60D"
-        periodo_minimo = "P90D"
-    else:
-        prazo_purga = "P10D"
-        prazo_notificacao_previa = "P50D"
-        periodo_minimo = "P60D"
-
-    logger.info(
-        "inadimplencia_calculate_purge",
-        tipo_plano=tipo_plano,
-        prazo_purga=prazo_purga,
-    )
-
-    return {
-        "prazo_purga": prazo_purga,
-        "prazo_notificacao_previa": prazo_notificacao_previa,
-        "periodo_minimo": periodo_minimo,
-        "fonte_regulatoria": "RN 593 (DRAFT/verify)",
     }
 
 
@@ -748,7 +760,101 @@ def _norm_str(value: Any) -> str:
     return ""
 
 
-def register_suspension(variables: dict[str, Any]) -> dict[str, Any]:
+def _hoje_no_brasil() -> dt.date:
+    """Data civil de hoje em America/Sao_Paulo (UTC-3 fixo se a imagem nao trouxer `tzdata`)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz: dt.tzinfo = ZoneInfo("America/Sao_Paulo")
+    except Exception:  # imagem slim sem banco de fusos: sem horario de verao desde 2019
+        tz = dt.timezone(dt.timedelta(hours=-3), "America/Sao_Paulo")
+    return dt.datetime.now(tz).date()
+
+
+def _data_iso(value: Any) -> dt.date | None:
+    """`YYYY-MM-DD` estrito -> `date`; qualquer outra coisa (None, branco, `DD/MM/AAAA`...) -> None."""
+    if not isinstance(value, str):
+        return None
+    texto = value.strip()
+    if len(texto) != 10:
+        return None
+    try:
+        return dt.date.fromisoformat(texto)
+    except ValueError:
+        return None
+
+
+def _prazo_apos_notificacao(variables: dict[str, Any], dmn: DmnTransport | None) -> tuple[int | None, str]:
+    """Dias minimos entre a notificacao comprovada e o efeito — lidos da DMN, NUNCA de Python.
+
+    Avalia `inadimplencia_purga` (a MESMA tabela que dirige os timers do BPMN) pelo `tipo_plano`
+    do caso e devolve `prazo_purga` em dias. Fail-closed: sem a costura `dmn` ou com um prazo fora
+    da forma `P<n>D` devolve `(None, motivo)` e o guard RECUSA — o prazo regulatorio nunca e
+    adivinhado. Falha de transporte do engine propaga (falha tecnica re-tentavel: nada e suspenso).
+    """
+    if dmn is None:
+        return None, (
+            "prazo apos a notificacao indisponivel: DMN inadimplencia_purga nao ligada ao worker "
+            "(fail-closed — o prazo regulatorio nunca e inventado em Python)"
+        )
+    rows, _version = evaluate_sync(
+        dmn, "inadimplencia_purga", {"tipo_plano": _norm_str(variables.get("tipo_plano"))}
+    )
+    prazo = first_row(rows, "inadimplencia_purga", variables).get("prazo_purga")
+    match = _PRAZO_DIAS_RE.fullmatch(prazo) if isinstance(prazo, str) else None
+    if match is None:
+        return (
+            None,
+            f"prazo_purga da DMN inadimplencia_purga fora da forma P<n>D (got {prazo!r}) — fail-closed",
+        )
+    return int(match.group(1)), ""
+
+
+def _erros_rn593_estrito(variables: dict[str, Any], *, dmn: DmnTransport | None, hoje: dt.date) -> list[str]:
+    """R-027 / F-038 — o que o guard ESTRITO acrescenta ao guard de sempre.
+
+    * `tier` de alcada do aprovador (presente, nao-branco, string) — F-038 (mesma forma do guard de
+      `fraude`);
+    * `data_efeito_iso` valida e NAO retroativa;
+    * `data_notificacao_iso` valida e ja ocorrida (prova datada da notificacao — RN 593);
+    * antecedencia: `data_efeito_iso >= data_notificacao_iso + prazo_purga` (DMN). Notificacao
+      TARDIA (depois do 50o dia) continua valida desde que garanta esse prazo (RN 617/2024) — por
+      isso o guard nao confere o 50o dia: isso e o timer do BPMN, nao uma recusa.
+    """
+    erros: list[str] = []
+    if not _norm_str(variables.get("tier")):
+        erros.append("tier ausente (alcada do aprovador humano — F-038, ADR-0007)")
+    efeito = _data_iso(variables.get("data_efeito_iso"))
+    notificacao = _data_iso(variables.get("data_notificacao_iso"))
+    if efeito is None:
+        erros.append("data_efeito_iso ausente ou fora de YYYY-MM-DD")
+    elif efeito < hoje:
+        erros.append(f"data_efeito_iso retroativa ({efeito.isoformat()} < hoje {hoje.isoformat()})")
+    if notificacao is None:
+        erros.append(
+            "data_notificacao_iso ausente ou fora de YYYY-MM-DD (prova datada da notificacao — RN 593)"
+        )
+    elif notificacao > hoje:
+        erros.append("data_notificacao_iso no futuro — a notificacao comprovada ainda nao ocorreu")
+    if efeito is not None and notificacao is not None:
+        dias, motivo = _prazo_apos_notificacao(variables, dmn)
+        if dias is None:
+            erros.append(motivo)
+        elif efeito < notificacao + dt.timedelta(days=dias):
+            erros.append(
+                f"antecedencia insuficiente: efeito {efeito.isoformat()} antes de notificacao "
+                f"{notificacao.isoformat()} + {dias} dias (DMN inadimplencia_purga.prazo_purga)"
+            )
+    return erros
+
+
+def register_suspension(
+    variables: dict[str, Any],
+    *,
+    estrito: bool = True,
+    dmn: DmnTransport | None = None,
+    hoje: dt.date | None = None,
+) -> dict[str, Any]:
     """Register contract suspension for default.
 
     GUARDED: ERR_CONTRACT_SUSPENSION_NOT_HUMAN.
@@ -758,14 +864,30 @@ def register_suspension(variables: dict[str, Any]) -> dict[str, Any]:
       - fundamentacao_contratual, referencia_regulatoria
       - comprovacao_notificacao_previa, comprovacao_periodo_minimo
       - NOT ja_em_rescisao_cancel (anti-double-termination)
+      - estrito (R-027 / F-038): tier + data_notificacao_iso + data_efeito_iso nao retroativa e
+        com antecedencia >= DMN `inadimplencia_purga.prazo_purga` apos a notificacao
     """
-    return _register_contract_suspension(variables)
+    return _register_contract_suspension(variables, estrito=estrito, dmn=dmn, hoje=hoje)
 
 
-def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
+def _register_contract_suspension(
+    variables: dict[str, Any],
+    *,
+    estrito: bool = True,
+    dmn: DmnTransport | None = None,
+    hoje: dt.date | None = None,
+) -> dict[str, Any]:
     """Internal: validate guard conditions and register suspension.
 
     Raises ERR_CONTRACT_SUSPENSION_NOT_HUMAN if any guard fails.
+
+    ESTRITO E O PADRAO DA FUNCAO; O WORKER IMPLANTADO E DARK (R-027 / F-038). Chamada direta =
+    guard estrito (`_erros_rn593_estrito`: tier, datas, antecedencia pela DMN). O worker registrado
+    em `register_inadimplencia_workers` recebe `estrito=` da flag `MAEZO_INAD_RN593_ESTRITO`
+    (default OFF): com ela desligada o topico `register_contract_suspension` aplica exatamente o
+    guard de antes, porque as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`
+    (GAP-INAD-3) — ligar a flag sem o formulario recusaria toda suspensao (fail-closed, nunca
+    adverso). Flip = ato humano apos a assinatura juridica.
 
     NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability STRING
     fields (`decisao_inadimplencia`, `responsavel_id`, `fundamentacao_contratual`,
@@ -809,6 +931,8 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
             "correlacao nao confirmada): suspensao recusada para evitar dupla-terminacao do "
             "contract_termination (anti-dupla-rescisao, harmonization-inadimplencia-cancel.md §1)"
         )
+    if estrito:
+        errors.extend(_erros_rn593_estrito(variables, dmn=dmn, hoje=hoje or _hoje_no_brasil()))
 
     if errors:
         logger.error(
@@ -825,6 +949,7 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
         "inadimplencia_contract_suspension_registered",
         numero_contrato=variables.get("numero_contrato"),
         responsavel_id=responsavel_id,
+        guard_rn593_estrito=estrito,
     )
 
     return {
@@ -1185,10 +1310,11 @@ class InadContratoInvalidoError(ValueError):
 #     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
 #   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
 #   notify_sla_risk -> operadora.inadimplencia.notify_sla_risk (exact spec match; informational)
-# assess_status/calculate_purge have no distinct spec topic (assess_status
-# evaluates the deployed `inadimplencia_status` decision table via the dmn=
-# seam since T1.5/ADR-0028; calculate_purge resolves regulatory deadlines) —
-# registered under function-derived topics for registry completeness.
+# assess_status has no distinct spec topic (it evaluates the deployed `inadimplencia_status`
+# decision table via the dmn= seam since T1.5/ADR-0028) — registered under a function-derived
+# topic for registry completeness. `calculate_purge` (the old Python copy of the regulatory
+# deadlines, divergent from the DMN — F-001) was REMOVED by R-027 (owner DEC-10): the deadlines
+# live ONLY in `inadimplencia_purga`, consumed by the BPMN timers and by the strict guard below.
 # ---------------------------------------------------------------
 
 
@@ -1200,7 +1326,8 @@ def register_inadimplencia_workers(
     """Register the SP-OP-INADIMPLENCIA-001 function workers on `harness`.
 
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_status` (`inadimplencia_status`, T1.5
-    cutover) via `functools.partial`; no other function here evaluates a DMN table.
+    cutover) and into `register_contract_suspension` (`inadimplencia_purga`, read ONLY by the
+    R-027 strict guard) via `functools.partial`.
 
     `engine` (a `CibSevenTransport`, the SAME `find_active_instance`/`start_process` seam the agent
     graphs use, ADR-0001/T1.11) is threaded into BOTH engine-touching workers:
@@ -1220,6 +1347,12 @@ def register_inadimplencia_workers(
     a `FreshSinkAuditEmitter` (gateway/audit_postgres.py) — the sink-side mirror of the
     fresh-client-per-call pattern, because each sync dispatch emits on its own `asyncio.run` loop.
 
+    `inad_rn593_estrito` (R-027, dark — `WorkerRuntimeSettings.inad_rn593_estrito`,
+    `MAEZO_INAD_RN593_ESTRITO`, default OFF; ABSENT == OFF) liga, juntos: (1) em `resolve_facts`, o
+    fato `rn593_prerequisito_notificacao` que desvia o BPMN para a janela do 50o dia e a contagem por
+    competencia distinta; (2) em `register_contract_suspension`, o guard estrito (tier + antecedencia
+    pela DMN `inadimplencia_purga`, avaliada pela mesma costura `dmn`). OFF => comportamento de hoje.
+
     `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
     `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
     composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
@@ -1233,15 +1366,16 @@ def register_inadimplencia_workers(
     engine: CibSevenTransport | None = seams.get("engine")
     audit_sink: AuditStartSink | None = seams.get("audit_sink")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
+    rn593_estrito = seams.get("inad_rn593_estrito") is True
     harness.register_worker(
         FunctionWorker(
-            "operadora.inadimplencia.resolve_facts", functools.partial(resolve_facts, engine=engine)
+            "operadora.inadimplencia.resolve_facts",
+            functools.partial(resolve_facts, engine=engine, rn593_estrito=rn593_estrito),
         )
     )
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.assess_status", functools.partial(assess_status, dmn=dmn))
     )
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.calculate_purge", calculate_purge))
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.check_prior_notice", dispatch_prior_notice)
     )
@@ -1251,7 +1385,10 @@ def register_inadimplencia_workers(
         "operadora.inadimplencia.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher)
     )
     harness.register_worker(
-        FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
+        FunctionWorker(
+            "operadora.inadimplencia.register_contract_suspension",
+            functools.partial(register_contract_suspension, estrito=rn593_estrito, dmn=dmn),
+        )
     )
     harness.register_worker(
         FunctionWorker(
