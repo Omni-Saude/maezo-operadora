@@ -141,6 +141,10 @@ test.describe("portal session journey", () => {
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await page.waitForLoadState("networkidle");
       await expect(page.locator(`#${controls}`)).not.toContainText(UNAVAILABLE_AREA_NOTICE);
+      // Flag-off stubs use other wording: no UnavailableArea and no operations guidance may render.
+      await expect(
+        page.locator(`#${controls} .portal-unavailable, #${controls} #operations-heading`),
+      ).toHaveCount(0);
       axeResults.push({ when: `staff-area:${controls}`, result: await scanAxe(page) });
     }
     await page.goto(`${config.portalOrigin}/portal/cases`);
