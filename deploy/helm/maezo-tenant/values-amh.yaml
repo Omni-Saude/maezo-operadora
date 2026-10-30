@@ -120,6 +120,23 @@ networkPolicy:
         port: 443
         cidr: "10.40.10.0/24"     # BR-resident PHI LLM endpoint NLB CIDR.
 
+  # TODO-OWNER (R-061 / F-069, segunda metade): `daemonEgress.endpoints` herda `[]` de values.yaml,
+  # entao em prod-amh `wr2-daemon-egress` renderiza com egress VAZIO (deny) e os daemons
+  # (worker-daemon, notifications-bridge, a2a-outbox-relay, intake-dispatch) nao alcancam CIB
+  # Seven / Kafka / Aurora. Os CIDRs concretos sao dado de ambiente (terraform output / VPC) e NAO
+  # sao inventados aqui — o dono/infra deve preencher, no formato de values.yaml:
+  # daemonEgress:
+  #   endpoints:
+  #     - host: "<cibseven>"
+  #       port: 8080
+  #       cidr: "<CIDR concreto>"
+  #     - host: "<msk>"
+  #       port: 9098
+  #       cidr: "<CIDR concreto>"
+  #     - host: "<aurora>"
+  #       port: 5432
+  #       cidr: "<CIDR concreto>"
+
 observability:
   otel:
     endpoint: "http://otel-collector.observability.svc.cluster.local:4317"
