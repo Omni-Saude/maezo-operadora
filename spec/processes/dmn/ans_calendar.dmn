@@ -50,7 +50,7 @@
       <output id="out_periodicidade" label="periodicidade" name="periodicidade" typeRef="string"/>
       <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
       <rule id="r_rn124_sip_backlog">
-        <description>SIP — backlog ate o 4o tri/2025 (competencia YYYY-MM ou YYYY-Qn anterior a 2026-01): envio manual, sem data automatica. RN 639/2025 art. 2 (DL-0029).</description>
+        <description>SIP — backlog ate o 4o tri/2025 (competencia YYYY-MM ou YYYY-Qn anterior a 2026-01): envio manual, sem data automatica. RN 639/2025 art. 2 (DL-0029). periodicidade do SIP herdada da v0.1.0, NAO verificada (pendente parecer COUNSEL R-006).</description>
         <inputEntry id="r_rn124_sip_backlog_i1"><text>"RN_124_SIP"</text></inputEntry>
         <inputEntry id="r_rn124_sip_backlog_i2"><text>matches(?, "^[0-9]{4}-(0[1-9]|1[0-2]|Q[1-4])$") and ? &lt; "2026-01"</text></inputEntry>
         <outputEntry id="r_rn124_sip_backlog_o1"><text>""</text></outputEntry>
@@ -59,7 +59,7 @@
         <outputEntry id="r_rn124_sip_backlog_o4"><text>"CALENDARIO_MANUAL — SIP: RN 639/2025 revogou a RN 551/2022 (vigente 2026-03-02) e desobrigou o SIP apos o 4o tri/2025; so backlog ate 4o tri/2025, envio manual; data do backlog sem fonte primaria verificada"</text></outputEntry>
       </rule>
       <rule id="r_rn124_sip_extinta">
-        <description>SIP — competencia nova (2026-01 em diante) ou de forma invalida: obrigacao extinta pela RN 639/2025; revisao humana, nunca um ciclo de envio automatico.</description>
+        <description>SIP — competencia nova (2026-01 em diante) ou de forma invalida: obrigacao extinta pela RN 639/2025; revisao humana, nunca um ciclo de envio automatico. periodicidade do SIP herdada da v0.1.0, NAO verificada (pendente parecer COUNSEL R-006).</description>
         <inputEntry id="r_rn124_sip_extinta_i1"><text>"RN_124_SIP"</text></inputEntry>
         <inputEntry id="r_rn124_sip_extinta_i2"><text>-</text></inputEntry>
         <outputEntry id="r_rn124_sip_extinta_o1"><text>""</text></outputEntry>

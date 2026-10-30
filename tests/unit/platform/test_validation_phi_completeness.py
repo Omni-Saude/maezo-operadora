@@ -1580,7 +1580,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#1108",
+        pr="#1110",
         name="ans_cron_report_type",
         name_delta=0,
         occurrence_delta=-1,
@@ -1592,7 +1592,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#1108",
+        pr="#1110",
         name="event_topic",
         name_delta=0,
         occurrence_delta=-1,
@@ -1604,7 +1604,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#1108",
+        pr="#1110",
         name="event_payload_vars",
         name_delta=0,
         occurrence_delta=-1,
@@ -1616,7 +1616,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#1108",
+        pr="#1110",
         name="event_type",
         name_delta=0,
         occurrence_delta=-1,
@@ -1628,7 +1628,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#1108",
+        pr="#1110",
         name="origem_envio",
         name_delta=0,
         occurrence_delta=-1,
@@ -1690,7 +1690,7 @@ class TestBuckets:
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
         # R-027 (timer do 50o dia de SP-OP-INADIMPLENCIA-001): +4 (purga, prazo_notificacao_previa)
-        # R-007 (definition do SIP removida do SP-OP-ANS-CRON-001, #1108): -5
+        # R-007 (definicao do SIP removida do SP-OP-ANS-CRON-001, #1110): -5
         assert len(live_sweep.refs) == expected_refs == 1740
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
