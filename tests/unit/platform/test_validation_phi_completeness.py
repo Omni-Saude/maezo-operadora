@@ -1557,12 +1557,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1108",
         name="ans_cron_report_type",
         name_delta=0,
         occurrence_delta=-1,
         reason=(
-            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. "
             "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
             "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
             "segue nas 4 definitions restantes. Sem dado pessoal."
@@ -1570,12 +1569,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1108",
         name="event_topic",
         name_delta=0,
         occurrence_delta=-1,
         reason=(
-            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. "
             "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
             "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
             "segue nas 4 definitions restantes. Sem dado pessoal."
@@ -1583,12 +1581,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1108",
         name="event_payload_vars",
         name_delta=0,
         occurrence_delta=-1,
         reason=(
-            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. "
             "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
             "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
             "segue nas 4 definitions restantes. Sem dado pessoal."
@@ -1596,12 +1593,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1108",
         name="event_type",
         name_delta=0,
         occurrence_delta=-1,
         reason=(
-            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. "
             "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
             "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
             "segue nas 4 definitions restantes. Sem dado pessoal."
@@ -1609,12 +1605,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
-        pr="#0",
+        pr="#1108",
         name="origem_envio",
         name_delta=0,
         occurrence_delta=-1,
         reason=(
-            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. "
             "R-007 (F-002, decisao do dono DEC-03): a definition SP-OP-ANS-CRON-001-RN124SIP saiu do "
             "BPMN (SIP extinto pela RN 639/2025). -1 inputParameter LITERAL dessa definition; o nome "
             "segue nas 4 definitions restantes. Sem dado pessoal."

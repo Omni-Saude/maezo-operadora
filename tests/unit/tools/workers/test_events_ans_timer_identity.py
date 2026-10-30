@@ -63,13 +63,17 @@ async def test_canonical_ans_timer_publishes_without_case_business_key(task: Ext
     assert kafka.published[1][2] == key
 
 
+#: Former engine identity of the SIP timer definition (removed by R-007).
+_REMOVED_SIP_SOURCE = ("SP-OP-ANS-CRON-001-RN124SIP", "ST_PublishCronDueRn124Sip")
+
+
 async def test_removed_sip_timer_source_is_refused() -> None:
     """R-007 (F-002): the SIP definition left the BPMN (RN 639/2025), so its former engine
     identity is no longer a tenant-less calendar publication source."""
     task = replace(
         _timer_tasks()[0],
-        process_definition_key="SP-OP-ANS-CRON-001-RN124SIP",
-        activity_id="ST_PublishCronDueRn124Sip",
+        process_definition_key=_REMOVED_SIP_SOURCE[0],
+        activity_id=_REMOVED_SIP_SOURCE[1],
     )
     kafka = FakeKafkaPublisher()
     with pytest.raises(ValueError, match="business_key"):
