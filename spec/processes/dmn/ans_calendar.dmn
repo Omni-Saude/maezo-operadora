@@ -6,26 +6,36 @@
              name="Calendario regulatorio ANS (datas de competencia por report_type)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    ans_calendar v0.1.0 — status: DRAFT — TODAS as datas, fontes e periodicidades marcadas
-    DRAFT/verify: confirmar texto vigente com regulatorio (RN 124/2006 SIP, RN 209/2009
-    utilizacao, RN 388/2015 indicadores/qualidade, RN 424/2017 TISS/monitoramento, DIOPS
-    trimestral; docs/review-queue.md). Consumida por SP-OP-ANS-SUBMIT-001 e mcp-dmn.
+    ans_calendar v0.2.0 (R-007, F-002) — status: DRAFT ate parecer COUNSEL (R-006) e ratificacao
+    juridica. NENHUMA DATA INVENTADA: due_date/sla_alerta so carregam data ISO YYYY-MM-DD quando a
+    data estiver verificada em norma primaria; hoje NENHUMA obrigacao tem data verificada
+    (FORENSIC-COMPLETENESS-2026-10 raw/prazos-verificados.csv e REGULATORIO.md), entao TODAS as
+    rows devolvem "" (sem data automatica) e a fonte_regulatoria diz por que. Os placeholders
+    literais de data da v0.1.0 SAIRAM (decisao do dono DEC-03, issue #1081).
 
-    POR QUE EXISTE (separada de ans_sla): ans_sla resolve DURACOES ISO 8601 relativas a
-    criacao da User Task (timeDuration nos boundary timers). ans_calendar resolve DATAS
-    ABSOLUTAS de competencia (due_date / sla_alerta como ISO YYYY-MM-DD) — consumidas pelo
-    dossie de revisao e pelos eventos de deadline-risk (due_date), nunca pelos timers
-    (que usam ans_sla). A separacao evita que um timer com timeDate de data fixa passada
-    insta-disparasse e cancelasse a User Task no instante de criacao.
+    SIP (RN_124_SIP): a RN 639/2025 revoga a RN 551/2022, desobriga o SIP apos o 4o trimestre/2025
+    e vigora desde 2026-03-02 (DL-0029; aviso ANS conferido). Duas rows: competencia de forma
+    valida ANTERIOR a 2026-01 (backlog ate o 4o tri/2025) -> CALENDARIO_MANUAL; qualquer outra
+    competencia do SIP -> REVISAO_HUMANA (obrigacao extinta; nao ha envio novo a fazer). O literal
+    RN_124_SIP continua sendo a chave compartilhada com ans_sla e SP-OP-ANS-SUBMIT-001, mas cita a
+    RN 124/2006, que trata de penalidades (revogada pela RN 489/2022), e nao o SIP.
 
-    NAO negativa-like: este processo e operadora -> regulador; NAO existe saida adversa contra
-    beneficiario/prestador. Esta tabela apenas resolve as datas do calendario regulatorio —
-    nunca decide envio nem rejeita. Catch-all FAIL-SAFE (report_type/competencia desconhecidos):
-    due_date/sla_alerta conservadores + fonte_regulatoria="REVISAO_HUMANA" (roteia a humano;
-    nunca prazo "infinito").
+    Demais tipos: sem norma primaria verificada (RN 209/2009 revogada pela RN 451/2020; RN 388/2015
+    revogada pela RN 483/2022; RN 424/2017 trata de junta medica, nao de TISS; DIOPS sem norma
+    localizada) -> CALENDARIO_MANUAL, sem data. A periodicidade de cada row e a mesma de antes e
+    continua NAO verificada (coerencia com a taxonomia do worker ans_cron, nao conteudo regulatorio).
 
-    Saidas sao string ISO 8601 DATE (YYYY-MM-DD) — typeRef string. hitPolicy FIRST
-    (catch-all conservador como ultima row — sob UNIQUE colidiria em runtime; espelha ans_sla).
+    POR QUE existe (separada de ans_sla): ans_sla resolve DURACOES ISO 8601 relativas a criacao da
+    User Task (timeDuration nos boundary timers). ans_calendar resolve DATAS ABSOLUTAS de
+    competencia (due_date / sla_alerta) — consumidas pelo dossie de revisao e pelos eventos,
+    nunca pelos timers. Consumida por SP-OP-ANS-SUBMIT-001 (BRT_Calendario) e mcp-dmn.
+
+    NAO negativa-like: operadora -> regulador; nenhuma saida adversa. Esta tabela nunca decide
+    envio nem rejeita. Catch-all FAIL-SAFE (report_type desconhecido): sem data +
+    fonte_regulatoria="REVISAO_HUMANA" (roteia a humano; nunca prazo "infinito").
+
+    Saidas string (typeRef string). hitPolicy FIRST (as rows do SIP sao ordenadas: backlog antes da
+    extinta; catch-all por ultimo).
   </description>
   <decision id="ans_calendar" name="Calendario regulatorio ANS" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_ans_calendar" hitPolicy="FIRST">
@@ -39,59 +49,68 @@
       <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
       <output id="out_periodicidade" label="periodicidade" name="periodicidade" typeRef="string"/>
       <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
-      <rule id="r_rn124_sip">
-        <description>RN 124/2006 — SIP, periodicidade mensal: due_date = ultimo dia do mes de competencia, alerta 5 dias antes — DRAFT/verify</description>
-        <inputEntry id="r_rn124_sip_i1"><text>"RN_124_SIP"</text></inputEntry>
-        <inputEntry id="r_rn124_sip_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_rn124_sip_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_rn124_sip_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
-        <outputEntry id="r_rn124_sip_o3"><text>"mensal"</text></outputEntry>
-        <outputEntry id="r_rn124_sip_o4"><text>"RN 124/2006 — SIP: periodicidade mensal, due_date ultimo dia do mes: DRAFT/verify regulatorio"</text></outputEntry>
+      <rule id="r_rn124_sip_backlog">
+        <description>SIP — backlog ate o 4o tri/2025 (competencia YYYY-MM ou YYYY-Qn anterior a 2026-01): envio manual, sem data automatica. RN 639/2025 art. 2 (DL-0029). periodicidade do SIP herdada da v0.1.0, NAO verificada (pendente parecer COUNSEL R-006).</description>
+        <inputEntry id="r_rn124_sip_backlog_i1"><text>"RN_124_SIP"</text></inputEntry>
+        <inputEntry id="r_rn124_sip_backlog_i2"><text>matches(?, "^[0-9]{4}-(0[1-9]|1[0-2]|Q[1-4])$") and ? &lt; "2026-01"</text></inputEntry>
+        <outputEntry id="r_rn124_sip_backlog_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_rn124_sip_backlog_o2"><text>""</text></outputEntry>
+        <outputEntry id="r_rn124_sip_backlog_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_backlog_o4"><text>"CALENDARIO_MANUAL — SIP: RN 639/2025 revogou a RN 551/2022 (vigente 2026-03-02) e desobrigou o SIP apos o 4o tri/2025; so backlog ate 4o tri/2025, envio manual; data do backlog sem fonte primaria verificada"</text></outputEntry>
+      </rule>
+      <rule id="r_rn124_sip_extinta">
+        <description>SIP — competencia nova (2026-01 em diante) ou de forma invalida: obrigacao extinta pela RN 639/2025; revisao humana, nunca um ciclo de envio automatico. periodicidade do SIP herdada da v0.1.0, NAO verificada (pendente parecer COUNSEL R-006).</description>
+        <inputEntry id="r_rn124_sip_extinta_i1"><text>"RN_124_SIP"</text></inputEntry>
+        <inputEntry id="r_rn124_sip_extinta_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_rn124_sip_extinta_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_rn124_sip_extinta_o2"><text>""</text></outputEntry>
+        <outputEntry id="r_rn124_sip_extinta_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_extinta_o4"><text>"REVISAO_HUMANA — SIP extinto pela RN 639/2025 (vigente 2026-03-02) para competencias apos o 4o tri/2025; nao ha envio novo; revisao humana obrigatoria"</text></outputEntry>
       </rule>
       <rule id="r_rn209_utilizacao">
-        <description>RN 209/2009 — utilizacao de servicos, mensal — DRAFT/verify</description>
+        <description>RN_209_UTILIZACAO — sem norma primaria vigente verificada (RN 209/2009 revogada pela RN 451/2020): calendario manual, sem data automatica.</description>
         <inputEntry id="r_rn209_utilizacao_i1"><text>"RN_209_UTILIZACAO"</text></inputEntry>
         <inputEntry id="r_rn209_utilizacao_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_rn209_utilizacao_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_rn209_utilizacao_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_o2"><text>""</text></outputEntry>
         <outputEntry id="r_rn209_utilizacao_o3"><text>"mensal"</text></outputEntry>
-        <outputEntry id="r_rn209_utilizacao_o4"><text>"RN 209/2009 — utilizacao de servicos: periodicidade mensal: DRAFT/verify regulatorio"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_o4"><text>"CALENDARIO_MANUAL — RN 209/2009 revogada pela RN 451/2020; base normativa vigente e data pendentes de parecer COUNSEL (R-006); sem data automatica"</text></outputEntry>
       </rule>
       <rule id="r_rn388_qualidade">
-        <description>RN 388/2015 — indicadores de qualidade, anual — DRAFT/verify</description>
+        <description>RN_388_QUALIDADE — sem norma primaria vigente verificada (RN 388/2015 revogada pela RN 483/2022): calendario manual, sem data automatica.</description>
         <inputEntry id="r_rn388_qualidade_i1"><text>"RN_388_QUALIDADE"</text></inputEntry>
         <inputEntry id="r_rn388_qualidade_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_rn388_qualidade_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_rn388_qualidade_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_o2"><text>""</text></outputEntry>
         <outputEntry id="r_rn388_qualidade_o3"><text>"anual"</text></outputEntry>
-        <outputEntry id="r_rn388_qualidade_o4"><text>"RN 388/2015 — indicadores de qualidade: periodicidade anual: DRAFT/verify regulatorio"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_o4"><text>"CALENDARIO_MANUAL — RN 388/2015 revogada pela RN 483/2022; base normativa vigente e data pendentes de parecer COUNSEL (R-006); sem data automatica"</text></outputEntry>
       </rule>
       <rule id="r_rn424_tiss">
-        <description>RN 424/2017 — padrao TISS / monitoramento, mensal — DRAFT/verify</description>
+        <description>RN_424_TISS_MONITORAMENTO — sem norma primaria verificada (RN 424/2017 trata de junta medica): calendario manual, sem data automatica.</description>
         <inputEntry id="r_rn424_tiss_i1"><text>"RN_424_TISS_MONITORAMENTO"</text></inputEntry>
         <inputEntry id="r_rn424_tiss_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_rn424_tiss_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_rn424_tiss_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_o2"><text>""</text></outputEntry>
         <outputEntry id="r_rn424_tiss_o3"><text>"mensal"</text></outputEntry>
-        <outputEntry id="r_rn424_tiss_o4"><text>"RN 424/2017 — TISS/monitoramento: periodicidade mensal: DRAFT/verify regulatorio"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_o4"><text>"CALENDARIO_MANUAL — RN 424/2017 trata de junta medica, nao de monitoramento TISS; base normativa e data pendentes de parecer COUNSEL (R-006); sem data automatica"</text></outputEntry>
       </rule>
       <rule id="r_diops_trimestral">
-        <description>DIOPS — economico-financeiro, trimestral — DRAFT/verify</description>
+        <description>DIOPS_TRIMESTRAL — sem norma primaria localizada: calendario manual, sem data automatica.</description>
         <inputEntry id="r_diops_trimestral_i1"><text>"DIOPS_TRIMESTRAL"</text></inputEntry>
         <inputEntry id="r_diops_trimestral_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_diops_trimestral_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_diops_trimestral_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_o2"><text>""</text></outputEntry>
         <outputEntry id="r_diops_trimestral_o3"><text>"trimestral"</text></outputEntry>
-        <outputEntry id="r_diops_trimestral_o4"><text>"DIOPS — economico-financeiro: periodicidade trimestral: DRAFT/verify regulatorio"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_o4"><text>"CALENDARIO_MANUAL — DIOPS: nenhuma norma primaria localizada; base normativa e data pendentes de parecer COUNSEL (R-006); sem data automatica"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
-        <description>Catch-all FAIL-SAFE: report_type/competencia desconhecidos -> due_date/sla_alerta conservadores + fonte REVISAO_HUMANA (roteia a humano; nunca prazo "infinito" nem envio de tipo desconhecido)</description>
+        <description>Catch-all FAIL-SAFE: report_type desconhecido -> sem data + fonte REVISAO_HUMANA (roteia a humano; nunca prazo "infinito" nem envio de tipo desconhecido)</description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_catchall_o1"><text>"DRAFT_DUE_DATE"</text></outputEntry>
-        <outputEntry id="r_catchall_o2"><text>"DRAFT_ALERTA"</text></outputEntry>
+        <outputEntry id="r_catchall_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>""</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"indeterminada"</text></outputEntry>
-        <outputEntry id="r_catchall_o4"><text>"REVISAO_HUMANA — report_type/competencia desconhecidos; revisao humana obrigatoria: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"REVISAO_HUMANA — report_type/competencia desconhecidos; revisao humana obrigatoria"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

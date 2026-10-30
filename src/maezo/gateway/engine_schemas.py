@@ -356,8 +356,9 @@ ESCALATION_NOTIFY_ERROR = EngineSchema(
 #: outcome it may report other than completion is the modeled incomplete-grounding
 #: error caught by `BE_NegativaIncompleta`. Declaring the row does not grant it: it
 #: states, for review, that this topic's reportable error set is exactly this one code
-#: — the same shape `ESCALATION_NOTIFY_ERROR` has for its boundary. Both owners of the
-#: topic (the generic worker and the portal-decision owner) raise only this code.
+#: — the same shape `ESCALATION_NOTIFY_ERROR` has for its boundary. The topic's single owner
+#: (`SendDenialNoticeWorker`, R-004) raises only this code; the custody-basis producer cited
+#: below raises the same code and is kept, uninstalled, for the future written-notice channel.
 AUTH_DENIAL_INCOMPLETE_ERROR = EngineSchema(
     "auth.send_denial_notice.bpmn_error.v1",
     EngineOperation.BPMN_ERROR,

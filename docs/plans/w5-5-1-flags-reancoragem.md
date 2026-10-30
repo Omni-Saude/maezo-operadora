@@ -53,7 +53,7 @@ O item 5.1 do programa diz: "PRs de habilitação dark por flag (**16 flags do `
 
 | # | Flag (env) | Local | Default | Estado |
 |---|---|---|---|---|
-| C1 | `denial_notice_owner` (`MAEZO_DENIAL_NOTICE_OWNER`) | `src/maezo/runtime/worker_runtime/settings.py:83` | `False` | WP-J1-06: liga o dono nativo de `operadora.auth.send_denial_notice`; fail-closed quando on (fundamentação incompleta → `End_FundamentacaoIncompletaBloqueada`); flip é a ativação inteira (`settings.py:69-83`) |
+| C1 | `denial_notice_owner` (`MAEZO_DENIAL_NOTICE_OWNER`) | `src/maezo/runtime/worker_runtime/settings.py:83` | `False` | LÁPIDE desde o R-004 (F-032; decisão do dono DEC-01, issue #1081): o dono nativo de `operadora.auth.send_denial_notice` (WP-J1-06) foi removido; ligada, o daemon recusa registrar os workers (`settings.py:69-83`). A entrega por escrito da negativa tem a sua própria flag dark, `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` |
 | C2 | `document_request_host_installed` (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`) | `settings.py:141` | `False` | WP-J1-03/decisão #18 do dono: exclusividade do tópico de documentos; ligar sem instalar a ponte deixa o tópico sem consumidor — visível em `/readyz` (`settings.py:126-141`) |
 | C3 | `agent_ingress_enabled` (`MAEZO_AGENT_INGRESS_ENABLED`) | `src/maezo/runtime/agent_runtime/settings.py:71` | `False` | **Declarada em deploy dev** `deploy/aws-ecs/envs/dev-sa-east-1/service-agents.tf:244` — ligada SÓ para o agente `rafael` (`each.key == "rafael" ? "1" : "0"`); postura própria, fora do escopo da cerca nova |
 

@@ -121,7 +121,7 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
                            camunda:decisionRef="ans_calendar"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="calendario">
-      <bpmn:documentation>Saidas: due_date, sla_alerta (ISO 8601 DATA YYYY-MM-DD), periodicidade, fonte_regulatoria. Datas de competencia para dossie/eventos. Catch-all -> fonte_regulatoria=REVISAO_HUMANA com prazos conservadores (nunca prazo infinito). NAO ha saida adversa. As DURACOES relativas dos timers de boundary da User Task vivem em ans_sla (BRT_AnsSla), nao aqui.</bpmn:documentation>
+      <bpmn:documentation>Saidas: due_date, sla_alerta (ISO 8601 DATA YYYY-MM-DD quando verificada em norma primaria; "" quando nao ha data verificada — R-007), periodicidade, fonte_regulatoria (CALENDARIO_MANUAL | REVISAO_HUMANA com o motivo). Datas de competencia para dossie/eventos. Catch-all -> fonte_regulatoria=REVISAO_HUMANA sem data; o nunca-prazo-infinito vive nos timers (ans_sla). NAO ha saida adversa. As DURACOES relativas dos timers de boundary da User Task vivem em ans_sla (BRT_AnsSla), nao aqui.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Calendar</bpmn:incoming>
       <bpmn:incoming>Flow_Corrigir_Calendar</bpmn:incoming>
       <bpmn:outgoing>Flow_Calendar_Sla</bpmn:outgoing>

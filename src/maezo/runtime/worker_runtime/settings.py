@@ -66,20 +66,20 @@ class WorkerRuntimeSettings(BaseSettings):
     # not consumed by this build (no T1.1-registered worker publishes PHI-adjacent values to
     # Kafka yet). Kept so a later worker-egress seam can read it without a settings-surface change.
     phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
-    # WP-J1-06 / V14 MAJOR-1. Installs the portal NEGAR owner
-    # (`NativeDenialNoticeWorker`) as the EXCLUSIVE owner of
-    # `operadora.auth.send_denial_notice`, displacing the generic
-    # `SendDenialNoticeWorker`. DARK BY DEFAULT: absent or false, the generic worker
-    # keeps the topic and the daemon is byte-for-byte what it is today. Flipping it is
-    # the whole activation — there is no other way to reach the native owner, and no
-    # deployment gets it by accident.
+    # TOMBSTONE (R-004 / F-032; decisao do dono DEC-01, issue #1081). WP-J1-06 usava esta
+    # bandeira para instalar um SEGUNDO dono de `operadora.auth.send_denial_notice`
+    # (`NativeDenialNoticeWorker`), fora do contrato SP-OP-AUTH-001. Esse dono foi REMOVIDO:
+    # o unico dono e' `SendDenialNoticeWorker`. O campo permanece (ancoras W7 rastreadas em
+    # `scripts/w7/shadow_deviation_dashboard.py` e `docs/plans/w5-5-1-flags-reancoragem.md`)
+    # apenas para RECUSAR: ligada, o daemon nao registra os workers
+    # (`refuse_retired_second_owner` -> `worker_harness_build_failed`, `/readyz` vermelho),
+    # em vez de ignorar em silencio um pedido por um dono que nao existe mais.
     #
-    # FAIL-CLOSED when on: the native owner reads the human-decision basis references
-    # from engine variables. Until the writer exists (PR-C's `ClassifiedDecision`), the
-    # references are blank, `read_basis` raises `DenialIncompleteError` and the worker
-    # raises `ERR_AUTH_DENIAL_INCOMPLETE` to `BE_NegativaIncompleta` -> the terminal
-    # `End_FundamentacaoIncompletaBloqueada` the process already reaches today. No new
-    # failure mode, and never a silent success.
+    # DESLIGADA (o padrao): nenhuma mudanca — o worker do contrato e' o dono, como sempre
+    # foi por padrao. A entrega por escrito da negativa (RN 623/2024 art. 14) tem a sua
+    # propria bandeira dark, `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`, abaixo. Nenhuma das duas
+    # decide negativa: a decisao e' sempre do medico auditor humano (item `hard`).
+    # Remover o campo exige re-ancorar o painel W7 no mesmo PR.
     denial_notice_owner: bool = Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")
 
     # --- Fetch-and-lock loop parameters (WorkerHarness, design §11) ---------------------------
@@ -169,6 +169,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
     pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
     inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+
+    # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
+    # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de
+    # `operadora.auth.send_denial_notice` passa a registrar o estado honesto da entrega —
+    # `entrega_negativa_status="entrega_manual_pendente"`, responsavel o medico auditor — e
+    # NUNCA um "entregue" sem recibo. DARK por padrao: desligada, a saida do worker e' a de
+    # sempre. Ligar e' ato da implantacao (ROLL), depois da assinatura do juridico sobre o
+    # termo (motivo, clausula/dispositivo, canais da Ouvidoria, formato imprimivel/baixavel).
+    auth_denial_written_notice: bool = Field(default=False, alias="MAEZO_AUTH_DENIAL_WRITTEN_NOTICE")
 
     @field_validator(
         "lock_duration_ms",
