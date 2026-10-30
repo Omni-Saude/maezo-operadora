@@ -52,6 +52,8 @@ function runtime(): Runtime {
 let shared: BrowserContext;
 let storageSnapshots: { when: string; snapshot: StorageSnapshot }[] = [];
 let axeResults: { when: string; result: AxeResult }[] = [];
+// `notEnabledMessage` in src/PortalSessionExperience.tsx — the UnavailableArea placeholder.
+const UNAVAILABLE_AREA_NOTICE = "Esta área ainda não está habilitada neste ambiente.";
 const observation: TargetObservation = { thirdPartyRequests: [], syntheticAuthorizeHits: 0 };
 
 test.describe("portal session journey", () => {
@@ -116,8 +118,9 @@ test.describe("portal session journey", () => {
   });
 
   // R-071 (forensic audit): every staff area the navigation offers is scanned, not only the
-  // landing view. An area this session's capabilities do not enable renders its "not enabled"
-  // notice — that state is scanned too, since it is what this staff member actually sees.
+  // landing view. The harness session names the full staff profile and enables every panel,
+  // so each area must render its REAL panel — the "not enabled" notice fails the test before
+  // the scan, otherwise the sweep would only ever cover that placeholder.
   test("every staff area renders and scans clean", async () => {
     const config = runtime();
     await install();
@@ -137,6 +140,7 @@ test.describe("portal session journey", () => {
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await page.waitForLoadState("networkidle");
+      await expect(page.locator(`#${controls}`)).not.toContainText(UNAVAILABLE_AREA_NOTICE);
       axeResults.push({ when: `staff-area:${controls}`, result: await scanAxe(page) });
     }
     await page.goto(`${config.portalOrigin}/portal/cases`);
@@ -145,7 +149,19 @@ test.describe("portal session journey", () => {
       timeout: 20_000,
     });
     await page.waitForLoadState("networkidle");
+    const casesPanel = page.locator(
+      `#${(await page.locator("#navigation-cases").getAttribute("aria-controls")) ?? ""}`,
+    );
+    await expect(casesPanel).not.toContainText(UNAVAILABLE_AREA_NOTICE);
     axeResults.push({ when: "staff-route:/portal/cases", result: await scanAxe(page) });
+    // The case-detail route: a deep link into one case lands on the real case workspace.
+    await page.goto(`${config.portalOrigin}/portal/cases/case-synthetic-0000000001`);
+    await expect(page.locator("#navigation-cases")).toHaveAttribute("aria-selected", "true", {
+      timeout: 20_000,
+    });
+    await page.waitForLoadState("networkidle");
+    await expect(casesPanel).not.toContainText(UNAVAILABLE_AREA_NOTICE);
+    axeResults.push({ when: "staff-route:/portal/cases/:ref", result: await scanAxe(page) });
     storageSnapshots.push({ when: "staff-areas", snapshot: await readStorage(page) });
     await page.close();
   });
