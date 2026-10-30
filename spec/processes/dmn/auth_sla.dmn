@@ -7,12 +7,12 @@
              namespace="http://maezo.health/dmn/operadora">
   <description>
     auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
-    texto vigente com regulatorio (docs/review-queue.md). Ancora normativa do prazo de
-    RESPOSTA: RN 623/2024 art. 12 (I urgencia/emergencia: imediata; II-a: ate 5 dias uteis;
-    II-b PAC/internacao eletiva: ate 10 dias uteis; texto-base em
-    docs/compliance/legal/textos-base/RN-623-2024.md). A RN 623 art. 28 revogou a RN 395/2016
-    (R-004, achado F-016). O prazo de REALIZACAO da RN 566/2022 nao e' prazo de resposta
-    (RN 623 art. 12 par. 4); se for menor, prevalece (art. 12 par. 1).
+    texto vigente com regulatorio (RN 259/2011 revogada pela RN 566/2022 art. 16;
+    RN 395/2016 revogada pela RN 623/2024 art. 28; docs/review-queue.md). Ancora do prazo de
+    RESPOSTA (R-004, achado F-016): RN 623/2024 art. 12 (I urgencia/emergencia: imediata;
+    II-a: ate 5 dias uteis; II-b PAC/internacao eletiva: ate 10 dias uteis; texto-base em
+    docs/compliance/legal/textos-base/RN-623-2024.md). O prazo de REALIZACAO da RN 566/2022
+    nao e' prazo de resposta (RN 623 art. 12 par. 4); se for menor, prevalece (art. 12 par. 1).
     NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores
     abaixo sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver
     calendario util no worker quando o validador W1 suportar.
