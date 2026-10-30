@@ -129,15 +129,23 @@ def _carregar_registro() -> dict[str, Any]:
 
 
 def _fonte_da_funcao_python(caminho: Path, nome: str) -> tuple[str, list[str]] | None:
-    """Fonte da funcao de teste (com os decoradores, onde vivem os parametros) e o texto dos decoradores."""
+    """Fonte da funcao de teste (com os decoradores, onde vivem os parametros) e as marcas que a alcancam
+    (decoradores da funcao e o `pytestmark` do modulo)."""
     fonte = caminho.read_text(encoding="utf-8")
     linhas = fonte.splitlines()
-    for no in ast.walk(ast.parse(fonte)):
+    arvore = ast.parse(fonte)
+    marcas_do_modulo = [
+        ast.get_source_segment(fonte, no) or ""
+        for no in arvore.body
+        if isinstance(no, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in no.targets)
+    ]
+    for no in ast.walk(arvore):
         if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)) and no.name == nome:
             inicio = min([no.lineno, *(d.lineno for d in no.decorator_list)])
             fim = no.end_lineno or no.lineno
             decoradores = [ast.get_source_segment(fonte, d) or "" for d in no.decorator_list]
-            return "\n".join(linhas[inicio - 1 : fim]), decoradores
+            return "\n".join(linhas[inicio - 1 : fim]), [*decoradores, *marcas_do_modulo]
     return None
 
 
@@ -329,6 +337,11 @@ def test_dl_runtime_evidence_guarda_reprova_teste_marcado_skip(tmp_path: Path) -
         'import pytest\n\n\n@pytest.mark.skip(reason="x")\ndef test_falso() -> None:\n    assert "ancora"\n'
     )
     evidencia = {"teste": "tests/unit/test_falso.py::test_falso", "ancora": "ancora"}
+    assert any("skip/xfail" in e for e in _erros_da_evidencia(evidencia, tmp_path))
+    alvo.write_text(
+        "import pytest\n\npytestmark = pytest.mark.xfail\n\n\n"
+        'def test_falso() -> None:\n    assert "ancora"\n'
+    )
     assert any("skip/xfail" in e for e in _erros_da_evidencia(evidencia, tmp_path))
 
 
