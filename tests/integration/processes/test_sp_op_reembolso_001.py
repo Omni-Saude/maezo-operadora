@@ -1186,6 +1186,9 @@ async def test_worker_send_reembolso_denial_recusa_sem_humano() -> None:
             "justificativa": "Reducao fundamentada (teste)",
             "fundamentacao_contratual": "Clausula 6.1",
             "auditor_id": "auditor-sintetico-001",
+            # F-045: reducao do auditor = merito clinico -> exige CID-10 + parecer (sinteticos).
+            "cid10_referencia": "Z00.0",
+            "parecer_auditor": "Parecer sintetico do auditor (teste L0)",
             "valor_reembolso_aprovado_cents": 8000,
             "valor_solicitado_cents": 12000,
             "tenant_id": "amh",
