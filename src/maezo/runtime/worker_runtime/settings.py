@@ -161,6 +161,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`, e o flip exige assinatura
     # juridica — ato humano (ROLL), nunca de agente.
     inad_rn593_estrito: bool = Field(default=False, alias="MAEZO_INAD_RN593_ESTRITO")
+    # Forensic audit F-029 (roadmap R-063): fatos "pre-resolvidos" deixam de ecoar a entrada.
+    # PAGTO: `validate_payment_data` resolve `dados_pagamento_validos` (credor + instrumento no
+    # dominio do contrato) e nunca ecoa `lastro_confirmado` semeado (ADR-0040 I-PAGTO-1 -> toda
+    # ordem passa por `UT_AnaliseAdmissibilidade`). INAD: `resolve_facts` nunca ecoa
+    # `dentro_janela_purga` (so o timer BPMN encerra a janela de purga). Ambos fail-closed/humanos.
+    # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
+    pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
+    inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
 
     @field_validator(
         "lock_duration_ms",
