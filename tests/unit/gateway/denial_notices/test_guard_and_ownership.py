@@ -1,19 +1,17 @@
-"""WP-J1-06 row j — the portal NEGAR path reaches `End_NegadaAuditor`, guarded.
+"""`operadora.auth.send_denial_notice` — the custody-basis producer and the ONE owner.
 
-Before this WP, every denial submitted through the portal died at
-`End_FundamentacaoIncompletaBloqueada`: `SendDenialNoticeWorker` demands the three ANS
-grounding fields in process variables, and ADR-0006 is the reason a portal NEGAR never
-puts them there (the clinical text goes to PHI custody; the engine gets references).
+History. WP-J1-06 added a second, dark owner for this topic (`NativeDenialNoticeWorker`,
+switched by `MAEZO_DENIAL_NOTICE_OWNER`) that composed the denial record from the
+human-decision basis in PHI custody instead of clinical strings in engine variables.
+Forensic finding F-032 (roadmap R-004) found that owner outside the AUTH contract, and the
+owner's decision DEC-01 (issue #1081) removed it: the contract's worker,
+`SendDenialNoticeWorker`, is the single owner. The old switch is now a tombstone — ON, the
+daemon refuses to register its workers instead of silently ignoring the request.
 
-These tests prove the replacement owner keeps the SAME rule with the SAME modeled
-error code, against the evidence that actually exists — and that exactly one owner
-serves the topic.
-
-The other half of row j — the PHI notice body delivered to provider and beneficiary —
-is NOT built or tested here: `HumanDecisionCustody.resolve` authorizes only the
-deciding principal and `EngineBackedPhiDecisionAuthorization` refuses once the task is
-no longer current, so a post-completion consumer cannot read that text under any
-ratified permission. That gap is reported, not papered over with a stub.
+What stays, and is tested here: the pure `DenialNoticeProducer` (the guard that reads the
+custody basis — completeness first, then human accountability). It is NOT installed as an
+owner by anything; it is kept for the future written-notice channel, which must read the
+basis from custody rather than clinical text (ADR-0006).
 """
 
 from __future__ import annotations
@@ -26,15 +24,16 @@ from maezo.gateway.denial_notices.models import (
     DenialNotHumanError,
 )
 from maezo.gateway.denial_notices.producer import TOPIC, DenialNoticeProducer, denial_record_ref
+from maezo.runtime.worker_runtime import denial_notices as ownership
 from maezo.runtime.worker_runtime.denial_notices import (
-    DenialNoticeHost,
-    NativeDenialNoticeWorker,
+    RetiredDenialOwnerError,
     TopicOwnershipError,
-    install_denial_notice_host,
+    assert_single_owner,
+    refuse_retired_second_owner,
 )
-from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, SendDenialNoticeWorker, register_auth_workers
-from maezo.tools.workers.base import ERR_AUTH_DENIAL_INCOMPLETE, ERR_DENIAL_NOT_HUMAN
-from maezo.tools.workers.harness import FakeWorkerTransport, WorkerBpmnError, WorkerHarness
+from maezo.tools.workers.auth import SendDenialNoticeWorker, register_auth_workers
+from maezo.tools.workers.base import ERR_AUTH_DENIAL_INCOMPLETE
+from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
 AUDITOR = "principal-auditor-7"
 WORKLOAD = "portal-human"
@@ -60,208 +59,85 @@ def _vars(**overrides: object) -> dict[str, object]:
     return payload
 
 
-def _worker() -> NativeDenialNoticeWorker:
-    return install_denial_notice_host().worker()
+def _compose(**overrides: object) -> dict[str, object]:
+    return DenialNoticeProducer().compose(_vars(**overrides)).variables()
 
 
-# --- the journey the WP exists to unblock ------------------------------------
+# --- the producer: completeness, unconditionally first ------------------------------------------
 
 
-def test_a_portal_negar_composes_the_formal_record():
-    """The path that ended at the blocked terminal now produces a denial record."""
-    result = _worker().execute(_vars())
-
+def test_a_complete_human_basis_composes_the_formal_record():
+    result = _compose()
     assert result["notice_type"] == "denial"
-    assert result["error_code"] is None
-    assert result["event"] == "agents.events.auth.completed"
     assert result["human_approved"] is True
     assert result["auditor_id"] == AUDITOR
     assert result["human_decision_custody_ref"] == CUSTODY
-    # No transmission is claimed: this step composes, the secure channel is Fase 1.
+    # No transmission is claimed: composing is not delivering.
     assert "status" not in result
 
 
 def test_the_record_reference_is_stable_and_decision_specific():
-    """Same decision, same reference; a different decision never collides with it."""
-    first = _worker().execute(_vars())
-    again = _worker().execute(_vars())
-    other = _worker().execute(_vars(human_decision_command_ref="command-other"))
-
+    first = _compose()
+    again = _compose()
+    other = _compose(human_decision_command_ref="command-other")
     assert first["denial_record_ref"] == again["denial_record_ref"]
     assert first["denial_record_ref"] != other["denial_record_ref"]
-    assert len(first["denial_record_ref"]) == 64
+    assert len(str(first["denial_record_ref"])) == 64
 
 
-def test_no_clinical_field_can_leave_this_worker():
-    """ADR-0006: the composed record carries references, never grounding text.
-
-    Even when clinical variables are present in engine scope (a legacy or forged
-    payload), nothing clinical is read, echoed or returned.
-    """
-    result = _worker().execute(
-        _vars(
-            justificativa_clinica="texto clinico",
-            cid10_referencia="Z00.0",
-            fundamentacao_dut="DUT 42",
-        )
+def test_no_clinical_field_can_leave_the_producer():
+    result = _compose(
+        justificativa_clinica="texto clinico", cid10_referencia="Z00.0", fundamentacao_dut="DUT 42"
     )
     assert not {"justificativa_clinica", "cid10_referencia", "fundamentacao_dut"} & set(result)
     assert "texto clinico" not in repr(result)
 
 
-# --- guard 1: completeness, unconditionally first ----------------------------
-
-
 @pytest.mark.parametrize("name", BASIS_VARIABLES)
-def test_every_missing_basis_reference_blocks_the_send(name):
-    """An ungrounded denial is never transmitted — one modeled boundary, unchanged."""
-    with pytest.raises(WorkerBpmnError) as raised:
-        _worker().execute(_vars(**{name: None}))
-    assert raised.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
-    assert ERR_AUTH_DENIAL_INCOMPLETE in AUTH_BPMN_ERROR_ALLOWLIST
+def test_every_missing_basis_reference_is_incomplete(name):
+    with pytest.raises(DenialIncompleteError) as raised:
+        DenialNoticeProducer().compose(_vars(**{name: None}))
+    assert raised.value.missing == (name,)
 
 
 @pytest.mark.parametrize("value", ["", "   ", "​", 7, True, None, [], {}])
 def test_a_blank_or_non_string_reference_is_missing(value):
-    """Cannot decide that the grounding exists = it does not = refuse the send."""
-    with pytest.raises(WorkerBpmnError) as raised:
-        _worker().execute(_vars(human_decision_custody_ref=value))
-    assert raised.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+    with pytest.raises(DenialIncompleteError):
+        DenialNoticeProducer().compose(_vars(human_decision_custody_ref=value))
 
 
 def test_a_malformed_digest_is_not_a_basis():
-    """A reference that cannot be resolved in PHI is not grounding evidence."""
-    with pytest.raises(WorkerBpmnError) as raised:
-        _worker().execute(_vars(human_decision_content_digest="not-a-digest"))
-    assert raised.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+    with pytest.raises(DenialIncompleteError):
+        DenialNoticeProducer().compose(_vars(human_decision_content_digest="not-a-digest"))
 
 
 def test_a_workload_may_never_be_the_deciding_principal():
-    """`ClassifiedDecision` refuses that projection; so does this owner."""
-    with pytest.raises(WorkerBpmnError) as raised:
-        _worker().execute(_vars(human_decision_principal_ref=WORKLOAD, auditor_id=WORKLOAD))
-    assert raised.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+    with pytest.raises(DenialIncompleteError):
+        DenialNoticeProducer().compose(_vars(human_decision_principal_ref=WORKLOAD, auditor_id=WORKLOAD))
 
 
 def test_completeness_is_checked_before_provenance():
-    """A payload failing BOTH guards is barred as incomplete, never as non-human."""
-    with pytest.raises(WorkerBpmnError) as raised:
-        _worker().execute(_vars(human_decision_custody_ref=None, auditor_id=""))
-    assert raised.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+    with pytest.raises(DenialIncompleteError):
+        DenialNoticeProducer().compose(_vars(human_decision_custody_ref=None, auditor_id=""))
 
 
-def test_the_incomplete_error_names_fields_never_values():
-    """PHI hygiene in diagnostics: names travel, values do not."""
-    producer = DenialNoticeProducer()
-    with pytest.raises(DenialIncompleteError) as raised:
-        producer.compose(_vars(human_decision_command_ref=None))
-    assert raised.value.missing == ("human_decision_command_ref",)
-
-
-# --- guard 2: human accountability -------------------------------------------
+# --- the producer: human accountability ---------------------------------------------------------
 
 
 @pytest.mark.parametrize("auditor", [None, "", "   ", "outro-principal", 7])
-def test_a_denial_without_matching_human_accountability_is_blocked(auditor):
-    """ERR_DENIAL_NOT_HUMAN is RETURNED: the BPMN declares no boundary for it."""
-    result = _worker().execute(_vars(auditor_id=auditor))
-    assert result["status"] == "blocked_by_guard"
-    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
-    assert ERR_DENIAL_NOT_HUMAN not in AUTH_BPMN_ERROR_ALLOWLIST
-
-
-def test_the_producer_raises_the_typed_provenance_refusal():
-    """The domain refusal is typed; only the host decides how it reaches the engine."""
+def test_a_denial_without_matching_human_accountability_is_refused(auditor):
     with pytest.raises(DenialNotHumanError):
-        DenialNoticeProducer().compose(_vars(auditor_id="outro-principal"))
-
-
-def test_a_non_negar_outcome_composes_no_denial():
-    """Defensive branch: `ST_EnviarNegativaFormal`'s only inbound flow is NEGAR."""
-    result = _worker().execute(_vars(decisao_auditor="APROVAR"))
-    assert result["notice_type"] == "approval"
-    assert "human_decision_custody_ref" not in result
-
-
-# --- one owner per topic ------------------------------------------------------
-
-
-def test_without_the_seam_the_generic_worker_still_owns_the_topic():
-    """Nothing regresses for a deployment that has not installed the new owner."""
-    harness = WorkerHarness(FakeWorkerTransport(), worker_id="j1-06-probe")
-    register_auth_workers(harness)
-    assert type(harness.registry.get(TOPIC)) is SendDenialNoticeWorker
-
-
-def test_with_the_seam_the_native_owner_replaces_it_exactly_once():
-    """Two workers on one topic would race for the task and skip a guard."""
-    harness = WorkerHarness(FakeWorkerTransport(), worker_id="j1-06-probe")
-    register_auth_workers(harness, denial_notice_host=install_denial_notice_host())
-
-    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
-    assert harness.registered_topics.count(TOPIC) == 1
-    assert not any(
-        isinstance(harness.registry.get(topic), SendDenialNoticeWorker) for topic in harness.registered_topics
-    )
-
-
-def test_the_seam_does_not_disturb_the_other_auth_workers():
-    """Same topic set either way: only the owner of this one topic changes."""
-    generic = WorkerHarness(FakeWorkerTransport(), worker_id="a")
-    native = WorkerHarness(FakeWorkerTransport(), worker_id="b")
-    register_auth_workers(generic)
-    register_auth_workers(native, denial_notice_host=install_denial_notice_host())
-    assert set(generic.registered_topics) == set(native.registered_topics)
-
-
-def test_installing_over_an_existing_owner_is_refused():
-    """Exclusivity is asserted at installation, not assumed."""
-    with pytest.raises(TopicOwnershipError):
-        install_denial_notice_host(generic_topics=[TOPIC])
-    with pytest.raises(TopicOwnershipError):
-        DenialNoticeHost.assert_exclusive(["operadora.auth.issue_authorization", TOPIC])
-
-
-def test_a_host_refuses_anything_that_is_not_the_real_producer():
-    """No seam through which a stand-in producer can be installed."""
-    with pytest.raises(TopicOwnershipError):
-        DenialNoticeHost(producer=object())  # type: ignore[arg-type]
+        DenialNoticeProducer().compose(_vars(auditor_id=auditor))
 
 
 def test_the_record_reference_is_computed_from_the_basis_alone():
-    """Determinism of `denial_record_ref` is a property of the basis, not the clock."""
     from maezo.gateway.denial_notices.producer import read_basis
 
     basis = read_basis(_vars())
     assert denial_record_ref(basis) == denial_record_ref(read_basis(_vars()))
 
 
-# --- the reviewed D7-A row for this topic ------------------------------------
-
-
-def test_the_topic_declares_exactly_one_reportable_error():
-    """The catalog row states the boundary set, and grants nothing by existing."""
-    from maezo.gateway.engine_contracts import EngineOperation
-    from maezo.gateway.engine_schemas import SCHEMAS, schema_by_id
-
-    row = schema_by_id("auth.send_denial_notice.bpmn_error.v1")
-    assert row in SCHEMAS
-    assert row.topic == TOPIC
-    assert row.operation is EngineOperation.BPMN_ERROR
-    assert row.error_codes == (ERR_AUTH_DENIAL_INCOMPLETE,)
-    # No clinical variable is readable through this row (ADR-0006).
-    assert not {"justificativa_clinica", "cid10_referencia", "fundamentacao_dut"} & set(row.read_projection)
-
-
 def test_the_record_can_never_grow_a_clinical_field():
-    """The closed record IS the ADR-0006 enforcement point for this owner.
-
-    This owner reads no clinical variable, so it needs no redactor — and adding one
-    would make a third `redact_phi_vars` call site, invalidating the two-call-site
-    measurement `PHI-DISPOSITIONS-RECOMMENDATION.md` §3.0 rests on. What replaces it
-    is stronger and local: the emitted key set is fixed here, so a clinical field
-    cannot be added without editing this assertion.
-    """
     from maezo.gateway.denial_notices.models import DenialNoticeRecord
 
     assert set(DenialNoticeRecord.model_fields) == {
@@ -272,105 +148,10 @@ def test_the_record_can_never_grow_a_clinical_field():
         "denial_record_ref",
         "human_decision_custody_ref",
     }
-    assert set(_worker().execute(_vars())) == {
-        "notice_type",
-        "error_code",
-        "event",
-        "human_approved",
-        "auditor_id",
-        "denial_record_ref",
-        "human_decision_custody_ref",
-    }
-
-
-def _harness():  # type: ignore[no-untyped-def]
-    return WorkerHarness(FakeWorkerTransport(), worker_id="j1-06-owner-probe")
-
-
-def test_the_production_daemon_installs_exactly_one_owner_and_is_dark_by_default():
-    """V14 MAJOR-1 — the NEGAR owner now HAS a production installation path.
-
-    Before this repair `denial_notice_host` was read by `register_auth_workers` and
-    passed by no caller in `src/`: the live daemon threaded six seams and this was not
-    among them, and no setting existed. So in every deployment the generic
-    `SendDenialNoticeWorker` stayed the owner and the portal NEGAR journey was as dead
-    as it is on `main` — while the PR read as delivered capability.
-
-    The switch is `MAEZO_DENIAL_NOTICE_OWNER`, dark by default. This proves both
-    positions and that the topic never has two owners.
-    """
-    from maezo.runtime.worker_runtime.denial_notices import TOPIC, NativeDenialNoticeWorker
-    from maezo.runtime.worker_runtime.service import register_default_workers
-    from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
-    from maezo.tools.workers.auth import SendDenialNoticeWorker
-
-    assert WorkerRuntimeSettings().denial_notice_owner is False, "dark by default"
-
-    dark = _harness()
-    register_default_workers(dark)
-    assert type(dark.registry.get(TOPIC)) is SendDenialNoticeWorker
-
-    live = _harness()
-    register_default_workers(live, denial_notice_host=install_denial_notice_host())
-    assert type(live.registry.get(TOPIC)) is NativeDenialNoticeWorker
-
-    # Exactly one owner, and the served topic set is identical either way — the
-    # daemon's readiness probe derives its expectation from this same function.
-    assert sorted(dark.registered_topics) == sorted(live.registered_topics)
-    assert live.registered_topics.count(TOPIC) == 1
-
-
-def test_the_installed_owner_survives_a_later_generic_registration():
-    """V14 MINOR-5 — exclusivity is durable, not a single moment in time.
-
-    `assert_exclusive` ran at construction and once after `register_auth_workers`.
-    Registering the generic worker afterwards silently won, because the registry warns
-    and overwrites on a duplicate topic — and `register_all_workers` is documented as
-    idempotent and safe to call again, so a second call without the seam handed the
-    topic straight back.
-    """
-    from maezo.runtime.worker_runtime.denial_notices import TOPIC, NativeDenialNoticeWorker
-    from maezo.runtime.worker_runtime.service import register_default_workers
-    from maezo.tools.workers.auth import SendDenialNoticeWorker
-    from maezo.tools.workers.harness import TopicSealError
-
-    harness = _harness()
-    register_default_workers(harness, denial_notice_host=install_denial_notice_host())
-    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
-
-    # The exact D9 mutation V14 observed: register the generic worker afterwards.
-    with pytest.raises(TopicSealError):
-        harness.register_worker(SendDenialNoticeWorker())
-    # And a raw handler cannot take it either.
-    with pytest.raises(TopicSealError):
-        harness.register(TOPIC, _never)
-    # A second seam-less bootstrap pass no longer hands the topic back.
-    with pytest.raises(TopicSealError):
-        register_default_workers(harness)
-    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
-
-    # Re-registering the SAME owner stays idempotent.
-    register_default_workers(harness, denial_notice_host=install_denial_notice_host())
-    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
-
-
-async def _never(task):  # type: ignore[no-untyped-def]
-    raise AssertionError("a sealed topic must never dispatch to a foreign handler")
 
 
 def test_the_basis_still_carries_no_denial_discriminator():
-    """V14 MINOR-7 tripwire — the known weakness, pinned so it cannot become permanent.
-
-    `HumanDecisionBasis` is what `AtomicHumanCommand` writes for EVERY admitted human
-    decision, APROVAR and NEGAR alike: no field says "denial", and none lets the
-    worker verify the sealed `content_digest` covers the three clinical fields. The
-    guard therefore proves a complete human decision exists in custody, not that a
-    denial with complete grounding does.
-
-    That is a property to know, not a defect this PR can fix — the discriminator has
-    to be written engine-side by PR-C's `ClassifiedDecision`. This test fails the day
-    one appears, which is exactly when this guard must start consuming it.
-    """
+    """V14 MINOR-7 tripwire: fails the day a basis field that discriminates denials lands."""
     from maezo.gateway.denial_notices.models import HumanDecisionBasis
 
     fields = set(HumanDecisionBasis.model_fields)
@@ -383,15 +164,125 @@ def test_the_basis_still_carries_no_denial_discriminator():
         "workload_ref",
         "command_ref",
         "audit_intent_ref",
-    }, "a new basis field landed — if it discriminates denials, the guard must read it"
+    }
     assert len(BASIS_VARIABLES) == len(fields)
-    # No field name hints at the decision's kind or at the clinical grounding itself.
-    assert not [f for f in fields if any(t in f for t in ("deni", "negar", "outcome", "decis", "kind"))]
 
-    # And the compensating control is real: the worker composes NO denial record for
-    # anything but a NEGAR — the discriminator the basis lacks is supplied, for this
-    # one decision, by the gateway variable the BPMN flow condition already sets.
-    approval = _worker().execute(_vars(decisao_auditor="APROVAR"))
-    assert approval["notice_type"] == "approval"
-    assert approval["error_code"] is None
-    assert "denial_record_ref" not in approval
+
+# --- the reviewed D7-A row for this topic -------------------------------------------------------
+
+
+def test_the_topic_declares_exactly_one_reportable_error():
+    from maezo.gateway.engine_contracts import EngineOperation
+    from maezo.gateway.engine_schemas import SCHEMAS, schema_by_id
+
+    row = schema_by_id("auth.send_denial_notice.bpmn_error.v1")
+    assert row in SCHEMAS
+    assert row.topic == TOPIC
+    assert row.operation is EngineOperation.BPMN_ERROR
+    assert row.error_codes == (ERR_AUTH_DENIAL_INCOMPLETE,)
+    assert not {"justificativa_clinica", "cid10_referencia", "fundamentacao_dut"} & set(row.read_projection)
+
+
+# --- R-004 / F-032: ONE owner, the contract's worker --------------------------------------------
+
+
+def _harness() -> WorkerHarness:
+    return WorkerHarness(FakeWorkerTransport(), worker_id="r004-owner-probe")
+
+
+def test_the_second_owner_no_longer_exists():
+    assert not hasattr(ownership, "NativeDenialNoticeWorker")
+    assert not hasattr(ownership, "DenialNoticeHost")
+    assert not hasattr(ownership, "install_denial_notice_host")
+
+
+def test_the_contract_worker_is_the_only_owner():
+    harness = _harness()
+    register_auth_workers(harness)
+    assert type(harness.registry.get(TOPIC)) is SendDenialNoticeWorker
+    assert harness.registered_topics.count(TOPIC) == 1
+    assert_single_owner(harness)
+
+
+def test_the_daemon_bootstrap_installs_only_the_contract_worker():
+    from maezo.runtime.worker_runtime.service import register_default_workers
+
+    harness = _harness()
+    register_default_workers(harness)
+    register_default_workers(harness)  # idempotent re-registration keeps the same single owner
+    assert type(harness.registry.get(TOPIC)) is SendDenialNoticeWorker
+    assert harness.registered_topics.count(TOPIC) == 1
+    assert_single_owner(harness)
+
+
+def test_a_second_owner_seam_is_refused_loudly():
+    """Nobody can thread a second owner back in through the old seam name."""
+    harness = _harness()
+    with pytest.raises(TopicOwnershipError):
+        register_auth_workers(harness, denial_notice_host=object())
+
+
+def test_a_foreign_worker_on_the_topic_fails_the_ownership_check():
+    from maezo.tools.workers.base import WorkerBase
+
+    class _Impostor(WorkerBase):
+        def __init__(self) -> None:
+            super().__init__(topic=TOPIC, max_retries=1)
+
+        def execute(self, process_vars):  # type: ignore[no-untyped-def]
+            return {}
+
+    from maezo.tools.workers.harness import TopicSealError
+
+    sealed = _harness()
+    register_auth_workers(sealed)
+    with pytest.raises(TopicSealError):  # the seal refuses it before the check ever runs
+        sealed.register_worker(_Impostor())
+    harness = _harness()
+    harness.register_worker(_Impostor())
+    with pytest.raises(TopicOwnershipError):
+        assert_single_owner(harness)
+
+
+def test_a_raw_handler_can_not_displace_the_contract_owner():
+    """B1: `harness.register` cru troca o handler de dispatch sem tocar o `registry` — o selo o recusa."""
+    from maezo.tools.workers.harness import TopicSealError
+
+    async def _impostor(task):  # type: ignore[no-untyped-def]
+        return {"entrega_negativa_status": "entregue"}
+
+    harness = _harness()
+    register_auth_workers(harness)
+    with pytest.raises(TopicSealError):
+        harness.register(TOPIC, _impostor)
+    # Re-registering the SAME owner stays accepted (idempotent bootstrap).
+    register_auth_workers(harness)
+    harness.register_worker(SendDenialNoticeWorker())
+    assert type(harness.registry.get(TOPIC)) is SendDenialNoticeWorker
+    assert_single_owner(harness)
+
+
+def test_a_missing_owner_fails_the_ownership_check():
+    with pytest.raises(TopicOwnershipError):
+        assert_single_owner(_harness())
+
+
+def test_the_retired_switch_is_a_tombstone(monkeypatch: pytest.MonkeyPatch):
+    from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
+
+    monkeypatch.delenv("MAEZO_DENIAL_NOTICE_OWNER", raising=False)
+    assert WorkerRuntimeSettings().denial_notice_owner is False
+    refuse_retired_second_owner(False)
+    with pytest.raises(RetiredDenialOwnerError):
+        refuse_retired_second_owner(True)
+
+
+def test_the_daemon_bootstrap_refuses_a_composition_without_the_contract_owner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Mutation guard: `register_default_workers` itself asserts the single owner."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    monkeypatch.setattr(svc, "register_all_workers", lambda harness, **seams: None)
+    with pytest.raises(TopicOwnershipError):
+        svc.register_default_workers(_harness())

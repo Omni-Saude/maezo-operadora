@@ -107,7 +107,8 @@ _CEILING_BLOCK_VALOR: str = "VALOR_AUSENTE_OU_INVALIDO"
 _CEILING_BLOCK_TETO: str = "TETO_NAO_AUTORIZA"
 _CEILING_BLOCK_RESOLVER: str = "RESOLVER_INDISPONIVEL"
 
-# ANS-required grounding fields for a *negativa fundamentada* (RN 395 art. 10). These are exactly
+# ANS-required grounding fields for a *negativa fundamentada* (RN 623/2024 art. 14: motivo + clausula
+# contratual ou dispositivo legal; a RN 395/2016 foi revogada pelo art. 28 da RN 623). These are exactly
 # the three fields SP-OP-AUTH-001 marks `requiredIf="decisao_auditor == NEGAR"` +
 # `enforcedBy="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"` on each of its three
 # human decision tasks (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta
@@ -1390,6 +1391,25 @@ class IssueAuthorizationWorker(WorkerBase):
 _ZERO_WIDTH_CHARS = ZERO_WIDTH_CHARS
 _ZERO_WIDTH_TRANSLATION = ZERO_WIDTH_TRANSLATION
 
+#: `ST_EnviarNegativaFormal`'s topic. ONE owner: `SendDenialNoticeWorker` (R-004 / F-032 — the
+#: second, out-of-contract owner was removed by the owner's decision DEC-01, issue #1081).
+SEND_DENIAL_NOTICE_TOPIC = "operadora.auth.send_denial_notice"
+
+#: R-004 (RN 623/2024 art. 14), written-notice delivery state — written ONLY when the deployment
+#: switches `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` on. No beneficiary channel exists in this build, so
+#: the only honest state is "manual delivery by the medico auditor, pending". There is
+#: deliberately NO "delivered" value here: a delivery is a fact a real channel's receipt (or the
+#: auditor's own record) proves, never something this synchronous worker can assert.
+DENIAL_DELIVERY_MANUAL_PENDING = "entrega_manual_pendente"
+DENIAL_DELIVERY_RESPONSIBLE = "medico_auditor"
+
+
+class TopicOwnershipError(RuntimeError):
+    """Two owners — or none — for `send_denial_notice` is a composition defect, not a warning."""
+
+    def __init__(self) -> None:
+        super().__init__("denial_notice_topic_not_exclusive")
+
 
 def _is_blank(value: Any) -> bool:
     """Fail-closed emptiness for a required denial-grounding field.
@@ -1418,7 +1438,7 @@ class SendDenialNoticeWorker(WorkerBase):
 
     1. COMPLETUDE (ERR_AUTH_DENIAL_INCOMPLETE, T3.1) — uma NEGAR cujo dossie nao carrega TODAS as
        fundamentacoes obrigatorias da ANS (`_REQUIRED_DENIAL_FIELDS`: justificativa_clinica,
-       cid10_referencia, fundamentacao_dut; RN 395 art. 10) NUNCA e transmitida. Levanta o
+       cid10_referencia, fundamentacao_dut; RN 623/2024 art. 14) NUNCA e transmitida. Levanta o
        WorkerBpmnError MODELADO `ERR_AUTH_DENIAL_INCOMPLETE`, capturado pelo boundary
        `BE_NegativaIncompleta` (ST_EnviarNegativaFormal) -> `End_FundamentacaoIncompletaBloqueada`
        (terminal NEUTRO: nada foi enviado ao beneficiario). Checado ANTES do guard `human_approved`
@@ -1457,14 +1477,27 @@ class SendDenialNoticeWorker(WorkerBase):
     propria recusa — e permanece byte-identico, assim como o `ERR_AUTH_DENIAL_INCOMPLETE` e o seu
     boundary `BE_NegativaIncompleta`. Nada mais mudou: o dossie redigido, `notice_type`,
     `error_code` e a proveniencia `human_approved` sao dados REAIS (ver `execute`).
+
+    R-004 (F-016/F-032; RN 623/2024 art. 14). Este e' o UNICO dono do topico — o segundo dono
+    fora do contrato saiu (decisao do dono DEC-01, issue #1081). A entrega do termo da negativa
+    ao beneficiario, enquanto nao houver canal real, e' MANUAL pelo medico auditor. Com
+    `written_notice=True` (bandeira de implantacao `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`, DARK por
+    padrao) o registro passa a carregar `entrega_negativa_status="entrega_manual_pendente"` +
+    `entrega_negativa_responsavel="medico_auditor"` — e nada que afirme entrega.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, written_notice: bool = False) -> None:
         # max_retries=1: os guards deste worker sao DETERMINISTICOS, nao transitorios. Um
         # WorkerBpmnError (completude) NUNCA deve ser re-tentado pelo retry in-process do
         # WorkerBase — o engine e' dono do retry duravel (T1.1 design §9). Sem isto o
         # WorkerBpmnError seria re-tentado (com sleeps) antes de propagar ao harness.
-        super().__init__(topic="operadora.auth.send_denial_notice", max_retries=1)
+        super().__init__(topic=SEND_DENIAL_NOTICE_TOPIC, max_retries=1)
+        # R-004 (RN 623/2024 art. 14), DARK: a bandeira vem da IMPLANTACAO
+        # (`MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`, default OFF), nunca de variavel de processo.
+        # Desligada, a saida e' a de sempre. Ligada, o registro da negativa passa a declarar o
+        # estado HONESTO da entrega por escrito: manual, pendente, do medico auditor — porque
+        # canal de entrega ao beneficiario nao existe neste build. Nenhum valor afirma entrega.
+        self._written_notice = written_notice
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Send denial (or approval) notice.
@@ -1521,12 +1554,12 @@ class SendDenialNoticeWorker(WorkerBase):
                     "auth_denial_blocked_incomplete",
                     tenant_id=tenant_id,
                     missing_fields=missing,
-                    reason="negativa formal exige fundamentacao completa (RN 395 art. 10, L0 hard)",
+                    reason="negativa formal exige fundamentacao completa (RN 623/2024 art. 14, L0 hard)",
                 )
                 raise WorkerBpmnError(
                     ERR_AUTH_DENIAL_INCOMPLETE,
                     f"send_denial_notice: fundamentacao incompleta, campos ausentes: {missing} — "
-                    "negativa formal NAO transmitida (RN 395 art. 10, L0 hard ADR-0005).",
+                    "negativa formal NAO transmitida (RN 623/2024 art. 14, L0 hard ADR-0005).",
                 )
 
             # GUARD 2 — proveniencia humana (derivada acima; retorna registro, nao levanta).
@@ -1563,10 +1596,23 @@ class SendDenialNoticeWorker(WorkerBase):
                 "cid10_referencia": process_vars.get("cid10_referencia", ""),
                 "fundamentacao_dut": process_vars.get("fundamentacao_dut", ""),
             }
+            if self._written_notice:
+                # R-004 (RN 623/2024 art. 14 + art. 16 §3), DARK. So' alcancavel DEPOIS dos dois
+                # guards: uma negativa incompleta ou sem decisao humana nunca ganha estado de
+                # entrega. Sem canal, a entrega do termo (motivo + clausula/dispositivo + canais
+                # da Ouvidoria, imprimivel/baixavel) e' do medico auditor — e este estado diz
+                # exatamente isso, "pendente". Nunca "entregue": nao ha recibo a apresentar.
+                notice["entrega_negativa_status"] = DENIAL_DELIVERY_MANUAL_PENDING
+                notice["entrega_negativa_responsavel"] = DENIAL_DELIVERY_RESPONSIBLE
+                self.logger.info(
+                    "auth_denial_written_notice_manual_pending",
+                    tenant_id=tenant_id,
+                    notice_composed_asserted_transmission=False,
+                )
             # ENFORCEMENT POINT (PHI egress, ADR-0006/GAP-XPHI-1): nenhum campo clinico cru sai em
             # variavel de engine. As chaves estruturais que restam (notice_type/error_code/event/
-            # human_approved) passam intactas — `status` nao esta mais entre elas
-            # (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL).
+            # human_approved e, com a bandeira R-004, o estado de entrega) passam intactas —
+            # `status` nao esta mais entre elas (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL).
             return redact_phi_vars(notice)
 
         # APROVAR ou outro — compoe o aviso de aprovacao (sem campos clinicos). Ramo DEFENSIVO:
@@ -1874,12 +1920,12 @@ def register_auth_workers(
     would leave `ST_ValidateAutoApprovalCriteria` unserved and STALL every authorization
     request — the outcome design §6 exists to prevent.
 
-    `denial_notice_host` (WP-J1-06) is the opposite kind of seam: it names ANOTHER owner
-    for `operadora.auth.send_denial_notice`, so `SendDenialNoticeWorker` must NOT be
-    registered alongside it. Two workers on one topic race for the same external task and
-    the loser's guard never runs — one owner per topic, decided here, at the only place
-    that registers the generic one. Absent the seam nothing changes: the generic worker
-    stays the owner and reads its grounding from process variables as it always has.
+    `operadora.auth.send_denial_notice` has exactly ONE owner, `SendDenialNoticeWorker`
+    (R-004 / F-032). WP-J1-06's `denial_notice_host` seam, which named a second owner, was
+    removed by the owner's decision DEC-01 (issue #1081); passing it now is refused with
+    `TopicOwnershipError` instead of being silently ignored. `denial_written_notice` (bool,
+    default False — `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`) is threaded into that one owner and
+    only switches on the honest manual-delivery state of the RN 623 art. 14 written notice.
 
     WP-J1-09: `operadora.auth.notify_sla_risk` is now a RAW `harness.register()` handler instead
     of a `register_worker(NotifySlaRiskWorker())` entry, because publishing the alert needs the
@@ -1892,12 +1938,15 @@ def register_auth_workers(
     COMPOSICAO DOS DOIS WPs (18/09/2026, resolucao do conflito de merge, feita por AGENTE — ver
     a nota no PR). Os dois retiram UM worker da lista abaixo, cada um o SEU, e os topicos sao
     DISJUNTOS: `send_denial_notice` (J1-06) e `notify_sla_risk` (J1-09). Por isso a lista base
-    nao tem NENHUM dos dois — cada um volta pelo seu proprio caminho, o primeiro por `append`
-    condicional ao seam e o segundo por `harness.register` cru depois do laco. O descarte do
+    nao tem NENHUM dos dois — cada um volta pelo seu proprio caminho, o primeiro (desde o R-004,
+    incondicional e unico dono) e o segundo por `harness.register` cru depois do laco. O descarte do
     `kafka` que a main fazia no topo SAI, porque o handler cru do J1-09 consome o seam: mante-lo
     devolveria o alerta ao caminho sem produtor, que e' o defeito que aquele WP fechou.
     """
-    host = seams.get("denial_notice_host")
+    if seams.get("denial_notice_host") is not None:
+        # R-004 / F-032: a second owner for `send_denial_notice` no longer exists. Refuse
+        # loudly, BEFORE registering anything, rather than ignore a caller asking for it.
+        raise TopicOwnershipError()
     workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
         IssueAuthorizationWorker,
@@ -1919,46 +1968,19 @@ def register_auth_workers(
     # historico byte-a-byte: o worker generico registra.
     if not seams.get("document_request_host_installed", False):
         workers.insert(1, RequestDocumentsWorker)
-    # WP-J1-06 — A MESMA REGRA, SEGUNDO TOPICO. `operadora.auth.send_denial_notice`
-    # tambem tem dois consumidores possiveis e exatamente um pode estar registrado:
-    #   (a) este `SendDenialNoticeWorker`, que le a fundamentacao das variaveis de
-    #       processo; e
-    #   (b) o dono nativo do portal (`DenialNoticeHost`, instalado so quando
-    #       `MAEZO_DENIAL_NOTICE_OWNER` esta ligado), que le a base da decisao humana em
-    #       custodia PHI.
-    # Dois workers num topico correm pela mesma tarefa externa e o guard do perdedor
-    # nunca corre. A ausencia do seam mantem o comportamento historico byte-a-byte.
-    # A ordem de registo e' indiferente (topicos distintos), por isso um `append` basta
-    # e evita aritmetica de indices que dependa do bloco acima.
+    # R-004 / F-032 — `operadora.auth.send_denial_notice` tem UM dono: este
+    # `SendDenialNoticeWorker`. O dono nativo do portal (WP-J1-06, `MAEZO_DENIAL_NOTICE_OWNER`)
+    # saiu por decisao do dono (DEC-01, issue #1081); o seam que o instalava e' recusado acima.
     for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
-    # POR ULTIMO, e nao no `append` a lista (18/09/2026, bateria adversarial): se um `register_all_
-    # workers` anterior instalou o dono nativo e SELOU o topico, esta chamada sem o seam e' recusada
-    # pelo selo — correto. Mas quando isso acontecia no MEIO do laco, `ValidateAutoCriteriaWorker` e
-    # o handler cru de `notify_sla_risk` (que vinham depois) NUNCA eram registrados, e via
-    # `register_all_workers` o estrago era global: 21 de ~99 topicos, 4 de 17 dominios sem dono —
-    # exatamente o "STALL every authorization request" que o docstring acima diz existir para
-    # impedir. A ordem e' indiferente para os topicos (sao distintos); e' decisiva para o que a
-    # recusa do selo deixa de pe.
-    if host is None:
-        harness.register_worker(SendDenialNoticeWorker())
-    if host is not None:
-        # Re-assert exclusivity AFTER registration: the seam's own installation check
-        # cannot see workers registered later on the same harness.
-        owner = host.worker()
-        # Re-installing the SAME owner is a no-op, not a conflict: `register_all_workers`
-        # is documented idempotent, and `assert_exclusive` only sees topic NAMES, so on a
-        # second pass it would otherwise refuse the owner its own topic. A topic held by
-        # anyone else still goes through the exclusivity check below and is refused.
-        if type(harness.registry.get(owner.topic)) is not type(owner):
-            host.assert_exclusive(harness.registered_topics)
-            harness.register_worker(owner)
-            # And make it durable (V14 MINOR-5): re-asserting at one moment in time let
-            # a LATER `register_all_workers(harness)` without the seam silently hand the
-            # topic back to the generic worker, because the registry warns and overwrites
-            # on a duplicate topic. The seal keeps this idempotent for the same owner and
-            # refuses anything else. Sealed from the host's own worker, so the seal can
-            # never name a type the host does not actually install.
-            harness.seal_topic(owner.topic, type(owner))
+    # POR ULTIMO (18/09/2026, bateria adversarial): um selo de topico pre-existente que recuse
+    # este registro nao pode deixar `ValidateAutoCriteriaWorker` nem o handler cru de
+    # `notify_sla_risk` sem registro — o "STALL every authorization request" que o docstring
+    # acima existe para impedir. A ordem e' indiferente para os topicos (sao distintos).
+    # `is True`, nao truthiness: um valor-lixo ("false", 1) nunca liga a bandeira (dark).
+    harness.register_worker(SendDenialNoticeWorker(written_notice=seams.get("denial_written_notice") is True))
+    # Selo (R-004 / B1): um `harness.register` cru posterior trocaria o handler de dispatch sem
+    # tocar o `registry`; o selo recusa qualquer outro dono e aceita o re-registro deste.
+    harness.seal_topic(SEND_DENIAL_NOTICE_TOPIC, SendDenialNoticeWorker)
