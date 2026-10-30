@@ -168,7 +168,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
         <div><dt>Revisão da tarefa</dt><dd className="exact-value">{task.task_revision}</dd></div>
         <div><dt>Revisão da evidência</dt><dd className="exact-value">{task.evidence_revision}</dd></div>
         <div><dt>Responsável atual</dt><dd>{task.assignee_ref ?? "Sem responsável"}</dd></div>
-        <div><dt>Prazo do engine</dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
+        <div><dt>Prazo do <span lang="en">engine</span></dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
       </dl>
       {evidence !== null && (
         <section className="evidence-card" aria-labelledby="evidence-heading">
