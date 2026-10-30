@@ -44,6 +44,13 @@ _L0_README_RE = re.compile(
     r"((?:`[a-z_]+`(?:, )?)+)"
 )
 
+# AGENTS.md regra 7: "os N itens congelados[ em `..._hard_frozen.yaml`]: `a` (...), `b` ..." — os
+# identificadores citados ate o fim da linha tem de ser IGUAIS ao conjunto congelado (F5: item
+# extra/duplicado e vermelho, nao so item faltante).
+_HARD_AGENTS_RE = re.compile(
+    r"os \d+ itens congelados(?: em `spec/policies/autonomy/_hard_frozen\.yaml`)?: ([^\n]*)"
+)
+
 
 @dataclass(frozen=True)
 class Contagens:
@@ -158,6 +165,12 @@ def verificar_agents(texto: str, c: Contagens) -> list[str]:
     for acao in c.itens_hard:
         if f"`{acao}`" not in texto:
             erros.append(f"{a}: item hard `{acao}` de _hard_frozen.yaml nao citado")
+    for m in _HARD_AGENTS_RE.finditer(texto):
+        citadas = re.findall(r"`([a-z_]+)`", m.group(1))
+        if sorted(citadas) != sorted(c.itens_hard):
+            erros.append(
+                f"{a}: lista de itens hard {citadas} difere de _hard_frozen.yaml {list(c.itens_hard)}"
+            )
     _confere(
         erros,
         a,

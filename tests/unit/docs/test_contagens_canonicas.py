@@ -107,6 +107,32 @@ class TestVerificarAgents:
         erros = verificar_agents(_AGENTS_OK.replace("os 2 itens", "os 3 itens"), c)
         assert any("contract_termination" in e for e in erros)
 
+    def test_item_hard_extra_nao_congelado_na_regra_7_e_vermelho(self) -> None:
+        # F5: a lista da regra 7 tem de ser IGUAL ao conjunto congelado — item extra fora de
+        # _hard_frozen.yaml (mesmo com a contagem ajustada) e vermelho, como no README.
+        texto = _AGENTS_OK.replace(
+            "os 2 itens congelados: `clinical_decision`, `fraud_accusation`.",
+            "os 2 itens congelados: `clinical_decision`, `fraud_accusation`, `glosa_total`.",
+        )
+        assert texto != _AGENTS_OK
+        erros = verificar_agents(texto, _C)
+        assert any("glosa_total" in e for e in erros), erros
+
+    def test_item_hard_duplicado_na_regra_7_e_vermelho(self) -> None:
+        texto = _AGENTS_OK.replace(
+            "`clinical_decision`, `fraud_accusation`.",
+            "`clinical_decision`, `fraud_accusation`, `clinical_decision`.",
+        )
+        assert verificar_agents(texto, _C)
+
+    def test_lista_da_regra_7_com_formato_real_passa(self) -> None:
+        texto = _AGENTS_OK.replace(
+            "os 2 itens congelados: `clinical_decision`, `fraud_accusation`.",
+            "os 2 itens congelados em `spec/policies/autonomy/_hard_frozen.yaml`: "
+            "`clinical_decision` (decisão clínica) e `fraud_accusation` (acusação de fraude).",
+        )
+        assert verificar_agents(texto, _C) == []
+
     @pytest.mark.parametrize(
         "frase", ["8. **82 findings da auditoria são checklist", "9. **34 DL entries são padrões"]
     )
@@ -287,6 +313,16 @@ class TestArvoreReal:
         assert m is not None, "README.md sem a lista de ações L0 congeladas"
         assert set(re.findall(r"`([a-z_]+)`", m.group(1))) == set(c.itens_hard)
         assert len(re.findall(r"`([a-z_]+)`", m.group(1))) == len(c.itens_hard)
+
+    def test_agents_regra_7_lista_igual_ao_conjunto_congelado(self) -> None:
+        c = contar(_REPO_ROOT)
+        texto = (_REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        m = re.search(
+            r"os \d+ itens congelados em `spec/policies/autonomy/_hard_frozen\.yaml`: ([^\n]*)", texto
+        )
+        assert m is not None, "AGENTS.md sem a lista de itens hard congelados (regra 7)"
+        citadas = re.findall(r"`([a-z_]+)`", m.group(1))
+        assert sorted(citadas) == sorted(c.itens_hard)
 
     def test_contagens_reais_nao_vacuas(self) -> None:
         c = contar(_REPO_ROOT)

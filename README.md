@@ -94,7 +94,7 @@ Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR
 | Autorização de atenção | `SP-OP-AUTH-001` |
 | Contas médicas e glosas | `SP-OP-CONTAS-001` · `SP-OP-RECURSO-001` |
 | Financeiro do beneficiário | `SP-OP-REEMBOLSO-001` · `SP-OP-PAGTO-001` · `SP-OP-INADIMPLENCIA-001` · `SP-OP-NIP-001` |
-| Rede e relacionamento | `SP-OP-CRED-001` · `SP-OP-ADEQUACAO-001` · `SP-OP-CANCEL-001` · `SP-OP-PROGRAMA-001` |
+| Rede e relacionamento | `SP-OP-CRED-001` · `SP-OP-ADEQUACAO-001` · `SP-OP-CANCEL-001` · `SP-OP-PROGRAMA-001` · `SP-OP-SUPP-001` |
 | Regulação e conformidade | `SP-OP-ANS-SUBMIT-001` · `SP-OP-ANS-CRON-001` · `SP-OP-FRAUDE-001` · `SP-OP-LGPD-DSR-001` · `SP-OP-ESCALATION-001` |
 
 O catálogo vivo com fase e status de cada processo está em [docs/processes/catalog.md](docs/processes/catalog.md).
@@ -184,7 +184,7 @@ src/maezo/
 ├── ports/           # Envelope canônico A2A (28 campos, pinado)
 ├── domain/          # Regras de domínio puras
 └── tools/
-    ├── workers/     # 16 workers BPMN (auth, contas, fraude, nip, ...)
+    ├── workers/     # 17 workers BPMN (auth, contas, fraude, nip, ...)
     ├── mcp_cibseven/
     ├── mcp_dmn/
     ├── mcp_fhir/
