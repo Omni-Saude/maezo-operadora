@@ -41,14 +41,29 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
-function VinculoRow({ vinculo }: { vinculo: StaffAdminVinculo }) {
+function VinculoRow({
+  vinculo,
+  position,
+  total,
+}: {
+  vinculo: StaffAdminVinculo;
+  position: number;
+  total: number;
+}) {
   const detailId = useId();
   const roles = vinculo.memberships.flatMap((membership) => membership.roles);
   const groups = vinculo.memberships.flatMap((membership) => membership.groups);
   return (
     <section className="admin-vinculo" aria-labelledby={`${detailId}-heading`}>
-      <h3 id={`${detailId}-heading`} className="exact-value">{vinculo.principal_ref}</h3>
+      {/* F-158: a legible heading; the opaque reference stays available, labelled, below. */}
+      <h3 id={`${detailId}-heading`}>
+        Vínculo {position} de {total}: {stateLabels[vinculo.state]}
+      </h3>
       <dl className="dependency-detail">
+        <div>
+          <dt>Referência do colaborador</dt>
+          <dd className="exact-value">{vinculo.principal_ref}</dd>
+        </div>
         <div>
           <dt>Situação da revisão</dt>
           <dd>{stateLabels[vinculo.state]}</dd>
@@ -188,8 +203,13 @@ export function StaffAdminPanel({
               ? "Nenhum vínculo administrativo revisado neste ambiente."
               : `${consult.roster.count} ${consult.roster.count === 1 ? "vínculo revisado" : "vínculos revisados"}.`}
           </p>
-          {consult.roster.vinculos.map((vinculo) => (
-            <VinculoRow key={vinculo.principal_ref} vinculo={vinculo} />
+          {consult.roster.vinculos.map((vinculo, index) => (
+            <VinculoRow
+              key={vinculo.principal_ref}
+              vinculo={vinculo}
+              position={index + 1}
+              total={consult.roster.vinculos.length}
+            />
           ))}
           <p className="freshness-detail">
             Consulta realizada em {formatTimestamp(consult.roster.generated_at)}.
