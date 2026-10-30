@@ -409,7 +409,103 @@ class TinaPort(Protocol):
     ) -> PortResult[RequisicoesView]: ...
 
 
+#: Teto de linhas de limite por categoria que o contrato proposto `tina-reembolso` devolve
+#: (`limites_truncados` avisa quando ha' mais).
+MAX_LIMITES_REEMBOLSO: int = 50
+
+
+@dataclass(frozen=True, slots=True)
+class VinculoReembolso:
+    """O vinculo vigente na data do atendimento. `produto_ref`/`contrato_ref` sao refs OPACAS da AMH, nunca o
+    codigo do produto nem o numero do contrato."""
+
+    produto_ref: str | None
+    contrato_ref: str | None
+    registro_ans_plano: str | None
+    tipo_contratacao: str | None
+    vigencia_inicio: str | None
+    vigencia_fim: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RegraValorReembolso:
+    """COMO o contrato define o valor de reembolso (a regra cadastrada, nunca o valor devido de um pedido)."""
+
+    tipo: str | None
+    tabela_referencia: str | None
+    multiplo: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class LimiteReembolso:
+    """Um limite contratual por categoria de despesa. Dinheiro em inteiro-centavos de BRL."""
+
+    categoria: str
+    tipo_limite: str
+    valor_cents: int | None
+    quantidade: int | None
+    periodo: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CoparticipacaoReembolso:
+    categoria: str
+    percentual: float | None
+    valor_fixo_cents: int | None
+    teto_cents: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class CondicoesReembolsoView:
+    """As condicoes CONTRATUAIS de reembolso do proprio sujeito, vigentes em `data_atendimento` (contrato
+    PROPOSTO `tina-reembolso`, NAO publicado; desenho em `docs/design/condicoes-reembolso-contratuais.md`).
+    Fatos do contrato, nunca decisao: nada aqui aprova, nega, reduz nem calcula o valor devido. Campo
+    ausente = `None` e o nome em `campos_ausentes`; quem consome nunca completa um fato ausente."""
+
+    portable_subject_ref: str
+    data_atendimento: str
+    vinculo: VinculoReembolso
+    livre_escolha: bool | None
+    regra_valor: RegraValorReembolso
+    limites: tuple[LimiteReembolso, ...]
+    limites_truncados: bool
+    coparticipacao_aplica: bool | None
+    coparticipacao: tuple[CoparticipacaoReembolso, ...]
+    prazo_pagamento_dias: int | None
+    prazo_pagamento_contagem: str | None
+    prazo_solicitacao_dias: int | None
+    documentos_exigidos: frozenset[str]
+    avisos: frozenset[str]
+    campos_ausentes: frozenset[str]
+    fonte_atualizada_em: str | None
+
+
+@runtime_checkable
+class TinaReembolsoPort(Protocol):
+    """Leitura read-only das condicoes contratuais de reembolso do proprio sujeito (contrato PROPOSTO
+    `tina-reembolso`). Sucesso ou recusa, nunca excecao. Port separado: quem so' implementa os fatos do plano
+    nao muda. `request_ref` e' o id OPACO da solicitacao de reembolso (sem PHI)."""
+
+    async def get_condicoes_reembolso(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        data_atendimento: str,
+        request_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CondicoesReembolsoView]: ...
+
+
 __all__ = [
+    "MAX_LIMITES_REEMBOLSO",
+    "CondicoesReembolsoView",
+    "CoparticipacaoReembolso",
+    "LimiteReembolso",
+    "RegraValorReembolso",
+    "TinaReembolsoPort",
+    "VinculoReembolso",
     "MAX_CARTEIRINHAS",
     "MAX_COBERTURA_ITENS",
     "MAX_DEPENDENTES",
