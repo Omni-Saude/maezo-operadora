@@ -37,9 +37,7 @@ def test_staging_invoca_o_modulo_observability() -> None:
 def test_a_invocacao_e_dark_por_flag() -> None:
     diretos = direct_attrs(_corpo_do_modulo())
     assert has_attr(diretos, "count"), "module.observability perdeu o `count` que o mantem dark"
-    count = attr_raw(diretos, "count")
-    assert "var.enable_observability" in count
-    assert "? 1 : 0" in count
+    assert attr_raw(diretos, "count") == "var.enable_observability ? 1 : 0"
 
 
 def test_a_flag_nasce_desligada() -> None:
@@ -53,4 +51,16 @@ def test_a_flag_nasce_desligada() -> None:
 def test_irsa_vem_do_cluster_do_proprio_env() -> None:
     corpo = _corpo_do_modulo()
     assert "module.eks.oidc_issuer_url" in attr_raw(corpo, "eks_oidc_provider_url")
-    assert "module.eks.oidc_provider_arn" in attr_raw(corpo, "eks_oidc_provider_arn")
+    # module.eks.oidc_provider_arn e' null com create_cluster=false (staging): o ARN tem de
+    # vir do data source do provider OIDC, senao o trust do collector quebra no plan.
+    assert attr_raw(corpo, "eks_oidc_provider_arn") == "data.aws_iam_openid_connect_provider.eks[0].arn"
+    data = direct_attrs(
+        block_body(read_tf(f"{_ENV}/main.tf"), r'data\s+"aws_iam_openid_connect_provider"\s+"eks"\s*')
+    )
+    assert attr_raw(data, "count") == "var.enable_observability ? 1 : 0"
+    assert "module.eks.oidc_issuer_url" in attr_raw(data, "url")
+
+
+def test_regras_de_alerta_vem_do_arquivo_canonico() -> None:
+    # ADR-0014: sem alert_rules_content, ligar a flag carregaria o placeholder vazio do modulo.
+    assert "observability/alert-rules.yml" in attr_raw(_corpo_do_modulo(), "alert_rules_content")

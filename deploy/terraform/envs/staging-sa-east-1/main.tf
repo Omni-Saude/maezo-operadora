@@ -175,6 +175,15 @@ module "observability" {
   environment           = local.env
   aws_region            = var.aws_region
   eks_oidc_provider_url = module.eks.oidc_issuer_url
-  eks_oidc_provider_arn = module.eks.oidc_provider_arn
+  # module.eks.oidc_provider_arn e' null quando create_cluster=false (cluster compartilhado
+  # AMH): o ARN do provider OIDC vem do data source abaixo, resolvido pela URL do issuer.
+  eks_oidc_provider_arn = data.aws_iam_openid_connect_provider.eks[0].arn
+  alert_rules_content   = file("${path.root}/../../../observability/alert-rules.yml")
+  kms_key_arn           = aws_kms_key.secrets.arn
   tags                  = local.base_tags
+}
+
+data "aws_iam_openid_connect_provider" "eks" {
+  count = var.enable_observability ? 1 : 0
+  url   = module.eks.oidc_issuer_url
 }
