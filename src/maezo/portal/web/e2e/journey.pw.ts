@@ -85,6 +85,9 @@ test.describe("portal session journey", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       config.fixture.expectations.signed_out_heading,
     );
+    // R-089 F-104/F-159: the state names itself in the title and the help region closes the page.
+    await expect(page).toHaveTitle("Sua sessão não está ativa · Portal Maezo");
+    await expect(page.getByRole("contentinfo").getByRole("heading", { name: "Ajuda" })).toBeVisible();
     axeResults.push({ when: "signed-out", result: await scanAxe(page) });
     const focused = await tabTo(page, config.fixture.expectations.sign_in_label);
     await assertFocusIsVisible(focused);
@@ -135,10 +138,17 @@ test.describe("portal session journey", () => {
       nodes.map((node) => node.getAttribute("aria-controls") ?? ""),
     );
     if (panels.length === 0) throw new Error("staff navigation exposed no areas to scan");
+    // R-089 F-156 (WCAG 4.1.2): every tab's aria-controls resolves to exactly one tabpanel.
+    for (const controls of panels) {
+      await expect(page.locator(`#${controls}[role='tabpanel']`)).toHaveCount(1);
+    }
     for (const controls of panels) {
       const tab = page.locator(`[role='tab'][aria-controls='${controls}']`);
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
+      // R-089 F-104 (WCAG 2.4.2): the title names the active area, not only the application.
+      const areaLabel = (await tab.locator("span").first().innerText()).replace(/\s*Em breve$/, "").trim();
+      await expect(page).toHaveTitle(`${areaLabel} · Área de colaboradores · Portal Maezo`);
       await page.waitForLoadState("networkidle");
       await expect(page.locator(`#${controls}`)).not.toContainText(UNAVAILABLE_AREA_NOTICE);
       // Flag-off stubs use other wording: no UnavailableArea and no operations guidance may render.

@@ -146,6 +146,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # default (ships OFF; flipping is a ROLL data change, never an agent act).
     extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
 
+    # Forensic audit F-142 (roadmap R-053): when ON, `operadora.pagto.calculate_facts` writes the
+    # FACT `dados_pagamento_validos=False` for an absent/invalid `valor_pagamento_cents`, so the
+    # DMN `pagto_admissibility` routes it to PENDENTE_DADOS as SP-OP-PAGTO-001 declares (instead of
+    # the alcada catch-all). Both routes are human and non-releasing. DARK by default (ships OFF;
+    # flipping is a ROLL data change, never an agent act).
+    pagto_valor_invalido_pendente_dados: bool = Field(
+        default=False, alias="MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS"
+    )
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",
