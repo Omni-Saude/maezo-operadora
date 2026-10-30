@@ -161,6 +161,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`, e o flip exige assinatura
     # juridica — ato humano (ROLL), nunca de agente.
     inad_rn593_estrito: bool = Field(default=False, alias="MAEZO_INAD_RN593_ESTRITO")
+    # Decisao do dono de 30/10/2026 (criterios de reembolso por beneficiario; desenho em
+    # docs/design/condicoes-reembolso-contratuais.md): liga a LEITURA das condicoes contratuais de
+    # reembolso pelo contrato AMH PROPOSTO `tina-reembolso`
+    # (`maezo.adapters.amh.tina.compor_condicoes_reembolso`).
+    # So' leitura de fatos, nunca decisao. DARK by default; ligada, ainda nao monta nada enquanto o
+    # contrato nao for publicado e pinado. Ligar e' ato humano (ROLL), nunca de agente.
+    reembolso_condicoes_contratuais: bool = Field(
+        default=False, alias="MAEZO_REEMBOLSO_CONDICOES_CONTRATUAIS"
+    )
 
     @field_validator(
         "lock_duration_ms",
