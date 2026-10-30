@@ -9,8 +9,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { downloadFileName } from "./documentFileName";
+import { EmployeeQueues } from "./EmployeeQueues";
 import { StaffAdminPanel } from "./StaffAdminPanel";
 import { createStaffAdminClient } from "./staffAdminClient";
+import { taskReadInputs } from "./taskReadBindings";
 
 type Audience = "staff" | "beneficiary" | "provider";
 
@@ -114,6 +116,107 @@ it("F-161: termos em inglês exibidos ao colaborador carregam lang=\"en\" (WCAG 
   const eyebrow = await screen.findByText("Workspace");
   expect(eyebrow.closest("[lang]")).toHaveAttribute("lang", "en");
   expect(eyebrow.closest(".eyebrow")).toHaveTextContent("Workspace operacional");
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function taskFreshness() {
+  return {
+    state: "current",
+    observed_at: "2099-09-10T12:00:01Z",
+    source_observed_at: "2099-09-10T12:00:00Z",
+    valid_until: "2099-09-10T13:00:00Z",
+    refresh_after_seconds: 10,
+  } as const;
+}
+
+function oneItemQueue() {
+  return {
+    schema: "portal-task-queue.v1",
+    queue: "mine",
+    items: [{
+      task_id: "task-1",
+      process_definition_key: "SP-OP-AUTH-001",
+      task_definition_key: "UT_AnaliseMedicoAuditor",
+      task_revision: "1",
+      ownership: "self",
+      engine_due_at: null,
+      snapshot_at: "2099-09-10T12:00:00Z",
+    }],
+    next_cursor: null,
+    freshness: taskFreshness(),
+  };
+}
+
+function taskSnapshot() {
+  const digest = "b".repeat(64);
+  return {
+    schema: "portal-task-read.v1",
+    task: {
+      schema_version: 1,
+      snapshot_at: "2099-09-10T12:00:00Z",
+      task_id: "task-1",
+      process_definition_key: "SP-OP-AUTH-001",
+      process_definition_version: "1",
+      process_definition_id: "AUTH:opaque",
+      process_definition_digest: digest,
+      task_definition_key: "UT_AnaliseMedicoAuditor",
+      form_key: "auth_decisao",
+      form_version: "1",
+      form_digest: digest,
+      form_source_status: "BPMN_FORMDATA",
+      task_revision: "1",
+      assignee_ref: null,
+      eligible_candidate_groups: ["medico-auditor"],
+      evidence_revision: "1",
+      evidence_digest: digest,
+      engine_due_at: null,
+      allowed_actions: [],
+      allowed_inputs: [...taskReadInputs.auth_decisao],
+      read_only_evidence: null,
+    },
+    freshness: taskFreshness(),
+  };
+}
+
+it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e ao exibir (WCAG 3.1.2)", async () => {
+  const detail = deferred<Response>();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json(oneItemQueue()))
+    .mockReturnValueOnce(detail.promise);
+  render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
+  await userEvent.click(await screen.findByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }));
+
+  // Loading state: "Consultando o snapshot autorizado da tarefa."
+  await screen.findByRole("heading", { name: "Carregando detalhes" });
+  const loadingLine = screen.getByText(/autorizado da tarefa/);
+  expect(loadingLine).toHaveTextContent("Consultando o snapshot autorizado da tarefa.");
+  expect(loadingLine.querySelector('[lang="en"]')).toHaveTextContent(/^snapshot$/);
+  for (const term of screen.getAllByText(/^snapshot$/i)) {
+    expect(term.closest("[lang]")).toHaveAttribute("lang", "en");
+  }
+
+  // Ready state: eyebrow "Snapshot somente leitura".
+  detail.resolve(json(taskSnapshot()));
+  const region = await screen.findByRole("region", { name: "UT_AnaliseMedicoAuditor" });
+  const eyebrow = within(region).getByText(/somente leitura$/);
+  expect(eyebrow).toHaveTextContent("Snapshot somente leitura");
+  expect(eyebrow.querySelector('[lang="en"]')).toHaveTextContent(/^Snapshot$/);
+  expect(screen.getByText("Snapshot").closest("[lang]")).toHaveAttribute("lang", "en");
+  // "Prazo do engine": the English term "engine" is wrapped too (WCAG 3.1.2).
+  const engineTerm = within(region).getByText("engine");
+  expect(engineTerm.closest("[lang]")).toHaveAttribute("lang", "en");
+  expect(engineTerm.closest("dt")).toHaveTextContent("Prazo do engine");
+  // No visible "snapshot" text anywhere escapes a lang="en" wrapper.
+  for (const term of screen.getAllByText(/^snapshot$/i)) {
+    expect(term.closest("[lang]")).toHaveAttribute("lang", "en");
+  }
 });
 
 it("F-159: um mecanismo de ajuda aparece no mesmo lugar em todo estado do portal (WCAG 3.2.6)", async () => {
