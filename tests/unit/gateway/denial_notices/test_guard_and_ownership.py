@@ -252,3 +252,14 @@ def test_the_retired_switch_is_a_tombstone(monkeypatch: pytest.MonkeyPatch):
     refuse_retired_second_owner(False)
     with pytest.raises(RetiredDenialOwnerError):
         refuse_retired_second_owner(True)
+
+
+def test_the_daemon_bootstrap_refuses_a_composition_without_the_contract_owner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Mutation guard: `register_default_workers` itself asserts the single owner."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    monkeypatch.setattr(svc, "register_all_workers", lambda harness, **seams: None)
+    with pytest.raises(TopicOwnershipError):
+        svc.register_default_workers(_harness())
