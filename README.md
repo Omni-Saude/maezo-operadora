@@ -81,7 +81,7 @@ Dez agentes com identidade, escopo e matriz de autonomia próprios (`spec/agents
 | **Fernando** *(DRAFT)* | Inadimplência / cobrança avançada |
 | **Valentina** *(DRAFT)* | Coordenação de Programas de Cuidado — estratificação de risco e plano de cuidado |
 
-Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR-0008): ações L0 — negativa de cobertura, acusação de fraude, cancelamento, decisão clínica — são **não-negociáveis** e sempre terminam em humano, com o runtime recusando (fail-closed) qualquer desvio.
+Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR-0008): as 5 ações L0 congeladas em `spec/policies/autonomy/_hard_frozen.yaml`: `clinical_decision`, `authorization_denial`, `nip_manter_negativa`, `fraud_accusation`, `contract_termination` (decisão clínica, negativa de cobertura, manutenção de negativa em NIP, acusação de fraude, rescisão contratual) — são **não-negociáveis** e sempre terminam em humano, com o runtime recusando (fail-closed) qualquer desvio.
 
 ---
 

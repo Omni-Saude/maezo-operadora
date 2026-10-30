@@ -15,6 +15,7 @@ de proposito: atualize a frase correspondente em AGENTS.md/README.md no mesmo PR
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,6 +68,8 @@ _README_OK = (
     "| docs/adr | 3 ADRs numerados (0001–0003; verificado) |\n"
     "| contracts | 2 contratos SP-OP |\n"
     "| log | 4 decisões operacionais (DL-0001–DL-0004) |\n"
+    "por ação: as 2 ações L0 congeladas em `spec/policies/autonomy/_hard_frozen.yaml`: "
+    "`clinical_decision`, `fraud_accusation` (decisão clínica, acusação de fraude) — são\n"
 )
 
 
@@ -110,6 +113,16 @@ class TestVerificarAgents:
     def test_frase_antiga_e_vermelha(self, frase: str) -> None:
         assert verificar_agents(_AGENTS_OK + frase + "\n", _C)
 
+    @pytest.mark.parametrize(
+        "frase",
+        [
+            "> **Estado:** Greenfield Day 0 — especificação pronta, implementação a construir",
+            "implementação a construir",
+        ],
+    )
+    def test_estado_greenfield_day0_e_vermelho(self, frase: str) -> None:
+        assert verificar_agents(_AGENTS_OK + frase + "\n", _C)
+
     def test_cita_json_inexistente_e_vermelho(self) -> None:
         c = replace(_C, predeploy_registros=-1, predeploy_confirmados=-1, predeploy_refutados=-1)
         assert any("nao existe" in e for e in verificar_agents(_AGENTS_OK, c))
@@ -139,6 +152,31 @@ class TestVerificarReadme:
     def test_contagem_estale_e_vermelha(self, de: str, para: str) -> None:
         assert de in _README_OK
         assert verificar_readme(_README_OK.replace(de, para), _C)
+
+    def test_lista_l0_sem_item_hard_e_vermelha(self) -> None:
+        c = replace(_C, itens_hard=(*_C.itens_hard, "nip_manter_negativa"))
+        texto = _README_OK.replace("as 2 ações", "as 3 ações")
+        assert any("nip_manter_negativa" in e for e in verificar_readme(texto, c))
+
+    def test_lista_l0_com_item_trocado_e_vermelha(self) -> None:
+        texto = _README_OK.replace("`fraud_accusation` (", "`contract_termination` (")
+        assert any("difere" in e for e in verificar_readme(texto, _C))
+
+    def test_lista_l0_com_contagem_divergente_e_vermelha(self) -> None:
+        assert verificar_readme(_README_OK.replace("as 2 ações", "as 4 ações"), _C)
+
+    def test_lista_l0_ausente_e_vermelha(self) -> None:
+        texto = _README_OK.replace("as 2 ações L0 congeladas", "ações L0")
+        assert any("ausente" in e for e in verificar_readme(texto, _C))
+
+    def test_lista_l0_em_prosa_do_main_e_vermelha(self) -> None:
+        # Formato do README em main (sem `nip_manter_negativa`, so prosa): tem de falhar.
+        prosa = (
+            "ações L0 — negativa de cobertura, acusação de fraude, cancelamento, "
+            "decisão clínica — são **não-negociáveis**\n"
+        )
+        inicio = _README_OK.index("por ação: as 2")
+        assert verificar_readme(_README_OK[:inicio] + prosa, _C)
 
     @pytest.mark.parametrize("frase", ["| Tabelas de decisão DMN | 63 |", "em 63 tabelas DMN"])
     def test_contagem_de_tabelas_dmn_antiga_e_vermelha(self, frase: str) -> None:
@@ -237,6 +275,18 @@ class TestArvoreReal:
     def test_readme_confere_com_a_arvore(self) -> None:
         c = contar(_REPO_ROOT)
         assert verificar_readme((_REPO_ROOT / "README.md").read_text(encoding="utf-8"), c) == []
+
+    def test_readme_lista_l0_igual_ao_conjunto_congelado(self) -> None:
+        c = contar(_REPO_ROOT)
+        texto = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        m = re.search(
+            r"as \d+ ações L0 congeladas em `spec/policies/autonomy/_hard_frozen\.yaml`: "
+            r"((?:`[a-z_]+`(?:, )?)+)",
+            texto,
+        )
+        assert m is not None, "README.md sem a lista de ações L0 congeladas"
+        assert set(re.findall(r"`([a-z_]+)`", m.group(1))) == set(c.itens_hard)
+        assert len(re.findall(r"`([a-z_]+)`", m.group(1))) == len(c.itens_hard)
 
     def test_contagens_reais_nao_vacuas(self) -> None:
         c = contar(_REPO_ROOT)

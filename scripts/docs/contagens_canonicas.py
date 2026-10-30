@@ -37,6 +37,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADR_FILE_RE = re.compile(r"^(\d{4})-.+\.md$")
 _STATUS_RE = re.compile(r"^\*\*Status:\*\*\s*(.*)$", re.MULTILINE)
 _DL_ROW_RE = re.compile(r"^\|[^|]*\|\s*(DL-(\d+))\b", re.MULTILINE)
+# README: "as N ações L0 congeladas em `..._hard_frozen.yaml`: `a`, `b`, ..." — a lista inteira
+# tem de ser IGUAL (como conjunto) a `hard_items[].action`, nao so a contagem.
+_L0_README_RE = re.compile(
+    r"as (\d+) ações L0 congeladas em `spec/policies/autonomy/_hard_frozen\.yaml`: "
+    r"((?:`[a-z_]+`(?:, )?)+)"
+)
 
 
 @dataclass(frozen=True)
@@ -160,7 +166,12 @@ def verificar_agents(texto: str, c: Contagens) -> list[str]:
         texto,
         (c.predeploy_registros, c.predeploy_confirmados, c.predeploy_refutados),
     )
-    for estale in (r"\b(\d+) findings da auditoria", r"\b(\d+) DL entries"):
+    for estale in (
+        r"\b(\d+) findings da auditoria",
+        r"\b(\d+) DL entries",
+        r"Greenfield Day 0",
+        r"implementação a construir",
+    ):
         if re.search(estale, texto):
             erros.append(f"{a}: frase de contagem antiga ainda presente ({estale!r})")
     if "docs/reports/predeploy-findings.json" in texto and c.predeploy_registros < 0:
@@ -203,6 +214,19 @@ def verificar_readme(texto: str, c: Contagens) -> list[str]:
         texto,
         (c.dls, c.dl_primeiro, c.dl_ultimo),
     )
+    _confere(
+        erros,
+        r,
+        "as N ações L0 congeladas",
+        r"as (\d+) ações L0 congeladas em `spec/policies/autonomy/_hard_frozen\.yaml`",
+        texto,
+        (len(c.itens_hard),),
+    )
+    for m in _L0_README_RE.finditer(texto):
+        lista = m.group(2)
+        citadas = re.findall(r"`([a-z_]+)`", lista)
+        if sorted(citadas) != sorted(c.itens_hard):
+            erros.append(f"{r}: lista de ações L0 {citadas} difere de _hard_frozen.yaml {list(c.itens_hard)}")
     if re.search(r"\d+ tabelas DMN|Tabelas de decisão DMN \| \d+", texto):
         erros.append(f"{r}: contagem de 'tabelas DMN' antiga ainda presente (use arquivos .dmn)")
     return erros

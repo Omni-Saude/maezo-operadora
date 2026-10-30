@@ -1,7 +1,7 @@
 # AGENTS.md — Maezo Operadora (Greenfield v2)
 
 > **Repo:** Omni-Saude/maezo-operadora · **Orquestrador:** Parreira
-> **Estado:** Greenfield Day 0 — especificação pronta, implementação a construir
+> **Estado:** spec-first — implementação em `src/maezo/`; estado das milestones em `PLANS.md`
 
 ## Contexto essencial (ler primeiro)
 
