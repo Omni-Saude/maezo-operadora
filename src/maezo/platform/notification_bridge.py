@@ -80,6 +80,7 @@ from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY as _INADIMPLENCIA_
 from maezo.tools.workers.base import mint_contract_business_key as _shared_mint_contract_business_key
 from maezo.tools.workers.base import non_blank as _shared_non_blank
 from maezo.tools.workers.base import resolve_fraude_numero_caso as _resolve_fraude_numero_caso
+from maezo.tools.workers.fraude import cred_start_seed_from_fraude
 
 logger = structlog.get_logger(__name__)
 
@@ -980,6 +981,9 @@ class NotificationBridge:
                 "numero_caso": p.get("numero_caso", ""),
                 "bundle_root": p.get("bundle_root", ""),
                 "destino_referral": p.get("destino_referral", {}),
+                # F-077: direcao, tipo_prestador, origem_solicitacao, data_solicitacao_iso e
+                # documentos_refs (obrigatorias no contrato CRED) pelo MESMO seed do worker in-flow.
+                **cred_start_seed_from_fraude(p),
                 "business_key": _cred_business_key(
                     str(p.get("tenant_id", "")), str(p.get("prestador_id", ""))
                 ),

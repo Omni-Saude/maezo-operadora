@@ -129,6 +129,13 @@ pseudonimizados sinteticos (**NUNCA PHI bruto**).
 - **Then** `operadora.fraude.start_credenciamento` executado (inicia SP-OP-CRED-001 — que tem **sua
   propria UT adversa**; FRAUDE nunca auto-descredencia); fim `End_EncaminhadoCredenciamento`.
 
+### test_handoff_credenciamento_semeia_variaveis_obrigatorias_do_cred_no_engine
+- **Given** o mesmo handoff, com `prestador_id` unico por execucao (engine persistente; CRED e' `NON_STRICT`)
+- **Then** a instancia SP-OP-CRED-001 aberta no engine carrega as obrigatorias do contrato CRED
+  (`direcao=descredenciamento`, `origem_solicitacao=operadora`, `tipo_prestador`, `data_solicitacao_iso`,
+  `documentos_refs=[]`), sem incidente, e `cred_route` avaliada com elas roteia a
+  `ANALISE_DESCREDENCIAMENTO` (humano) — F-077 / R-077.
+
 ### test_happy_path_acusar_handoff_contratual
 - **Given** acusacao humana com `entidade_tipo ∈ {beneficiario, contrato}` e `destino_referral.contratual=true`
 - **Then** `operadora.fraude.start_contratual` executado (inicia SP-OP-CANCEL-001/INADIMPLENCIA-001 —
