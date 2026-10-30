@@ -1557,6 +1557,29 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
+        pr="#1102",
+        name="purga",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "SP-OP-INADIMPLENCIA-001 (R-027, F-001; RN 593 alterada pela RN 617/2024): timer "
+            "ICE_PrazoNotificacao50 = ${purga.prazo_notificacao_previa} + a mesma expressao citada na "
+            "documentation do processo. CLEAN: +2 raizes JUEL do resultVariable da DMN, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1102",
+        name="prazo_notificacao_previa",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "SP-OP-INADIMPLENCIA-001 (R-027): o timer do 50o dia passa a ler a saida da DMN "
+            "inadimplencia_purga (antes so citada em texto). CLEAN: +2 segmentos JUEL, duracao ISO 8601."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
         pr="#1108",
         name="ans_cron_report_type",
         name_delta=0,
@@ -1666,8 +1689,9 @@ class TestBuckets:
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
-        # R-007 (definition do SIP removida do SP-OP-ANS-CRON-001): -5
-        assert len(live_sweep.refs) == expected_refs == 1736
+        # R-027 (timer do 50o dia de SP-OP-INADIMPLENCIA-001): +4 (purga, prazo_notificacao_previa)
+        # R-007 (definition do SIP removida do SP-OP-ANS-CRON-001, #1108): -5
+        assert len(live_sweep.refs) == expected_refs == 1740
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep

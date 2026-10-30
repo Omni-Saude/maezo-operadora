@@ -88,7 +88,6 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("fraude_sla.dmn", "in_entidade_tipo", "entidade_tipo"),
         ("fraude_sla.dmn", "in_origem_encaminhamento", "origem_encaminhamento"),
         ("glosa_triage.dmn", "in_tipo_item", "tipo_item"),
-        ("inadimplencia_status.dmn", "in_meses_inadimplencia", "meses_inadimplencia"),
         ("lucas_escalation_routing.dmn", "ler_in_ciclos", "ciclos_sem_conciliacao"),
         ("pagto_alcada.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("pagto_sla.dmn", "in_tipo_pagamento", "tipo_pagamento"),

@@ -6,7 +6,7 @@
              name="Estado de inadimplencia (classificacao + roteamento)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    inadimplencia_status v0.1.0 — status: DRAFT (conteudo requer SME juridico/contratos +
+    inadimplencia_status v0.2.0 — status: DRAFT (conteudo requer SME juridico/contratos +
     gestao-cobranca + regulatorio/compliance; RN 593 e Lei 9.656 art. 13 DRAFT/verify;
     docs/review-queue.md). Consumida por SP-OP-INADIMPLENCIA-001 e mcp-dmn. Coracao adverso-like
     do processo.
@@ -19,8 +19,9 @@
     e a rescisao via handoff a SP-OP-CANCEL-001 (que detem o terminal de rescisao).
     dentro_janela_purga=true -> AGUARDA_PURGA (cure-window RN 593; NUNCA adverso — a expiracao roteia
     a humano, nunca a um terminal adverso automatico). notificacao_previa_feita=false ->
-    PENDENTE_NOTIFICACAO. dentro_periodo_minimo=true + notificacao feita + purga decorrida ->
-    SEGUE_ANALISE (humano decide). tipo_plano coletivo -> ANALISE_HUMANA (regras do estipulante;
+    PENDENTE_NOTIFICACAO. meses_inadimplencia >= 2 (minimo de 2 mensalidades, sem janela de 12
+    meses — RN 617/2024; R-027) + dentro_periodo_minimo=true + notificacao feita + purga decorrida ->
+    SEGUE_ANALISE (humano decide); abaixo do minimo cai no catch-all humano. tipo_plano coletivo -> ANALISE_HUMANA (regras do estipulante;
     nunca auto-decide). Catch-all FAIL-SAFE -> ANALISE_HUMANA.
     Inputs booleanos pre-resolvidos por worker deterministico (operadora.inadimplencia.resolve_facts)
     — nunca por LLM, nunca decisao adversa. meses_inadimplencia como integer (nunca number).
@@ -76,8 +77,8 @@
         <outputEntry id="r_pendente_notificacao_o2"><text>"Notificacao previa nao comprovada — pendente de notificacao (RN 593 ate o 50o dia; expiracao do prazo roteia a humano, nunca auto-suspende); DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_segue_analise">
-        <description>Periodo minimo atingido + notificacao feita + purga decorrida -> segue analise humana (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER)</description>
-        <inputEntry id="r_segue_analise_i1"><text>-</text></inputEntry>
+        <description>Minimo de 2 mensalidades nao pagas (consecutivas ou nao, SEM janela de 12 meses — RN 593 alterada pela RN 617/2024) + periodo minimo + notificacao feita + purga decorrida -> segue analise humana (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER)</description>
+        <inputEntry id="r_segue_analise_i1"><text>&gt;= 2</text></inputEntry>
         <inputEntry id="r_segue_analise_i2"><text>true</text></inputEntry>
         <inputEntry id="r_segue_analise_i3"><text>true</text></inputEntry>
         <inputEntry id="r_segue_analise_i4"><text>false</text></inputEntry>
