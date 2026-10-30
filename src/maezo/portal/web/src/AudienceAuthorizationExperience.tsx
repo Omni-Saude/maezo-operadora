@@ -117,12 +117,11 @@ function CasePicker({
         {state.page.items.map((item) => (
           <li key={item.caseRef} className={selectedRef === item.caseRef ? "selected-case" : ""}>
             <div>
-              <p className="eyebrow">
-                {caseKindLabels[item.kind]}
-              </p>
-              <h3>Referência {item.caseRef}</h3>
+              {/* F-154: o caso e identificado pelo tipo e pela situacao; a referencia
+                  opaca continua visivel como dado de suporte, nao como titulo. */}
+              <h3>{caseKindLabels[item.kind]} · {item.state === "active" ? "Em andamento" : "Encerrada"}</h3>
               <p className="event-meta">
-                {item.state === "active" ? "Em andamento" : "Encerrada"} · atualização confirmada em {formatTimestamp(item.stateObservedAt)}
+                Referência <span className="exact-value">{item.caseRef}</span> · atualização confirmada em {formatTimestamp(item.stateObservedAt)}
               </p>
             </div>
             <button

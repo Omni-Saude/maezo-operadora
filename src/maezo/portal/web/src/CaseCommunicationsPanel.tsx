@@ -120,7 +120,7 @@ function CommunicationsSection({
               <li key={item.communication_ref}>
                 <header>
                   <div>
-                    <h3>Comunicação do portal</h3>
+                    <h3>Comunicação de {formatTimestamp(item.authored_at!)}</h3>
                     <p className="event-meta">Origem registrada: {senderLabels[item.sender_kind!]}</p>
                   </div>
                   <time dateTime={item.authored_at!}>{formatTimestamp(item.authored_at!)}</time>
