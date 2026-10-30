@@ -8,7 +8,6 @@ Terraform E no default do receptor; os escopos do acesso so' entram com `acesso_
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
@@ -56,29 +55,16 @@ def test_default_do_receptor_e_o_da_main() -> None:
     assert WhatsAppWebhookSettings.model_fields["amh_interop_scopes"].default == ESCOPOS_DA_MAIN
 
 
-def _terraform_minor() -> str | None:
-    """`major.minor` of the local terraform, or None when absent."""
-    if shutil.which("terraform") is None:
-        return None
-    try:
-        saida = subprocess.run(["terraform", "version", "-json"], capture_output=True, text=True, timeout=30)
-        versao = str(json.loads(saida.stdout)["terraform_version"])
-    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
-        return None
-    return ".".join(versao.split(".")[:2])
+#: Locals do `amh-interop.tf` que a expressao le e que a fixture declara (desligados). Sem eles o console
+#: imprime "(known after apply)" em qualquer versao do terraform (auditoria forense F-193).
+_LOCALS_DA_FIXTURE = {"amh_tina_carteirinha_ligada": False, "amh_tina_dependentes_nome_ligada": False}
 
 
-# The repo pins terraform 1.10.x (.github/workflows/ci.yml, `validate-terraform` job). Newer
-# consoles print locals as "(known after apply)" without a plan (forensic audit F-193), so the
-# real-evaluation check only runs on the pinned minor; the textual fences above always run.
-# KNOWN GAP: the CI `unit` job installs no terraform, so this check runs only on a local 1.10.x.
-_TERRAFORM_CI_MINOR = "1.10"
+def test_expressao_so_referencia_locals_declarados_na_fixture() -> None:
+    assert set(re.findall(r"local\.(\w+)", _expressao_efetiva())) <= set(_LOCALS_DA_FIXTURE)
 
 
-@pytest.mark.skipif(
-    _terraform_minor() != _TERRAFORM_CI_MINOR,
-    reason=f"terraform ausente ou fora do pin do CI ({_TERRAFORM_CI_MINOR}.x): cercas textuais acima valem",
-)
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform ausente: as cercas textuais valem")
 @pytest.mark.parametrize(
     ("consultas", "acesso", "esperado"),
     [
@@ -93,7 +79,9 @@ def test_avaliacao_real_da_expressao(tmp_path: Path, consultas: bool, acesso: bo
         f'variable "amh_interop_scopes" {{\n  default = "{ESCOPOS_DA_MAIN}"\n}}\n'
         f'variable "helena_consultas_amh" {{\n  default = {str(consultas).lower()}\n}}\n'
         f'variable "acesso_beneficiario" {{\n  default = {str(acesso).lower()}\n}}\n'
-        f"locals {{\n  amh_interop_scopes_efetivos = {_expressao_efetiva()}\n}}\n",
+        "locals {\n"
+        + "".join(f"  {nome} = {str(valor).lower()}\n" for nome, valor in _LOCALS_DA_FIXTURE.items())
+        + f"  amh_interop_scopes_efetivos = {_expressao_efetiva()}\n}}\n",
         encoding="utf-8",
     )
     saida = subprocess.run(

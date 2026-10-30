@@ -1823,7 +1823,7 @@ async def test_multiplos_encaminhamentos_consolidam_no_caso(
     A nova evidencia anexa ao dossie e re-sela o bundle_root (boundary message BME_EvidenciaAnexada
     em UT_DecisaoInvestigador) enquanto nao houver decisao; business key idempotente.
     """
-    caso = "CASO-TESTE-CONSOLIDA-001"
+    caso = f"CASO-TESTE-CONSOLIDA-{uuid.uuid4().hex[:8]}"
     business_key = f"FRAUDE-amh-{caso}"
 
     inst = await start_fraude(numero_caso=caso)
