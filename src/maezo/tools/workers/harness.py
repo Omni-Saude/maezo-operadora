@@ -325,7 +325,12 @@ _SAFE_BPMN_ERROR_VARIABLE_KEYS: frozenset[str] = frozenset({"protocolo_ans", "st
 #: whitespace, `,`/`;`/`:`/`/`/`@`, quotes, newlines, and anything over the length cap. It is NOT a
 #: PHI detector (no regex is) — the KEY allowlist above is the primary control; this is the
 #: defence-in-depth second gate that keeps an allowlisted key from carrying a paragraph.
-_ERROR_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")
+#:
+#: Anchored at the TRUE string ends and used with `fullmatch` (F-129 bug class, same shape as
+#: #1080/#1087/#1094): with `^...$` + `.match`, `$` also matches before a final newline, so
+#: `"enviado\n"` crossed into process scope as a bounded value. Strictly narrowing — alphabet and
+#: length unchanged.
+_ERROR_VAR_TOKEN_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}\Z")
 
 
 class BpmnErrorVariables(NamedTuple):
@@ -430,7 +435,7 @@ def _is_bounded_error_variable(value: Any) -> bool:
     rather than stored in the clear must not move because an unrelated channel needed hyphens.
     """
     if isinstance(value, str):
-        return bool(_ERROR_VAR_TOKEN_RE.match(value))
+        return bool(_ERROR_VAR_TOKEN_RE.fullmatch(value))
     return False  # bools/ints/floats/None/dicts/lists -> never through the error channel
 
 
