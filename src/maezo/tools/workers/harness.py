@@ -240,7 +240,11 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
 #: lowercase_snake (`liberado_automatico`). Rejects free text (has spaces), minted identifiers
 #: (`AUTH-amh-guia-abc`, `ANSPROTO-...` — hyphens), and anything over the length cap. This is the
 #: value-side fail-closed guard behind the key allowlist (defense in depth).
-_ENUM_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+#:
+#: Anchored at the TRUE string ends and used with `fullmatch` (F-129 bug class, same shape as
+#: #1080/#1087): with `^...$` + `.match`, `$` also matches before a final newline, so
+#: `"APROVAR\n"` passed as a bounded token. Strictly narrowing — alphabet and length unchanged.
+_ENUM_TOKEN_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9_]{0,39}\Z")
 
 #: Bound on integer tokens admitted in the clear (tier numbers, small counts). A bound keeps a
 #: large numeric that happened to land under an allowlisted key (should not occur) out of the
@@ -397,7 +401,7 @@ def _is_bounded_token(value: Any) -> bool:
     if isinstance(value, int):  # note: bool is handled above (bool is a subclass of int)
         return -_MAX_BASIS_INT <= value <= _MAX_BASIS_INT
     if isinstance(value, str):
-        return bool(_ENUM_TOKEN_RE.match(value))
+        return bool(_ENUM_TOKEN_RE.fullmatch(value))
     return False  # dicts/lists/floats/None/identifiers -> never in the clear
 
 
