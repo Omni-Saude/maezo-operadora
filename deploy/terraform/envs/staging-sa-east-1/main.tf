@@ -161,3 +161,20 @@ module "cost_guardrails" {
 
   tags = local.base_tags
 }
+
+# ---------------------------------------------------------------------------
+# Observabilidade gerenciada AMP/AMG (ADR-0014; F-070 / R-075)
+# DARK por default: enable_observability=false => count=0, nenhum recurso, custo zero.
+# Ligar e' decisao do dono (ADR-0014 estima ~$30-50/mes na escala Phase 0-1).
+# ---------------------------------------------------------------------------
+module "observability" {
+  source = "../../modules/observability"
+  count  = var.enable_observability ? 1 : 0
+
+  name_prefix           = local.name_prefix
+  environment           = local.env
+  aws_region            = var.aws_region
+  eks_oidc_provider_url = module.eks.oidc_issuer_url
+  eks_oidc_provider_arn = module.eks.oidc_provider_arn
+  tags                  = local.base_tags
+}
