@@ -377,7 +377,6 @@ def _stored_to_result(stored: StoredResult) -> DelegationResult:
     )
 
 
-
 #: R-085: a guarda ADR-0003 que recusou -> o token fechado do rotulo `guard` de
 #: `maezo_a2a_guard_refusal_total`. Ordem irrelevante (as tres classes sao irmas); uma subclasse
 #: futura de `DelegationError` sem entrada aqui vira `outro` em `_guard_token`.

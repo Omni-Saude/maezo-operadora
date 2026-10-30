@@ -125,9 +125,10 @@ def test_alert_rules_governanca_labels_used_in_expr_exist_on_the_metric() -> Non
             for matcher in re.findall(re.escape(metric) + r"\{([^}]*)\}", expr):
                 used = {part.split("=")[0].strip() for part in matcher.split(",") if part.strip()}
                 assert used <= labels, (rule["alert"], used - labels)
+        metrics_in_expr = re.findall(r"(maezo_[a-z0-9_]+_total)", expr)
         for grouped in re.findall(r"by \(([^)]*)\)", expr):
             for label in (x.strip() for x in grouped.split(",")):
-                assert any(label in _labelnames(m) for m in re.findall(r"(maezo_[a-z0-9_]+_total)", expr)), label
+                assert any(label in _labelnames(m) for m in metrics_in_expr), label
 
 
 # --- emissores vivos (comportamento) -----------------------------------------------------------
@@ -216,7 +217,8 @@ async def test_alert_rules_successful_delegation_counts_no_guard_refusal() -> No
     dispatcher, _sink, _producer = build_test_dispatcher(
         cards=[make_card("rafael")], handlers={"rafael": handler}
     )
-    before = {g: _sample("maezo_a2a_guard_refusal_total", target="rafael", guard=g) for g in ("budget_exhausted", "cyclic", "max_hops", "outro")}
+    guards = ("budget_exhausted", "cyclic", "max_hops", "outro")
+    before = {g: _sample("maezo_a2a_guard_refusal_total", target="rafael", guard=g) for g in guards}
     result = await dispatcher.delegate(_root(budget=Budget(tokens=100, time_ms=100)))
     after = {g: _sample("maezo_a2a_guard_refusal_total", target="rafael", guard=g) for g in before}
 

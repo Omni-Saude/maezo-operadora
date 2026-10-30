@@ -689,7 +689,8 @@ class MetricsCollector:
     def a2a_guard_refusal(self) -> Counter:
         """Counter for A2A delegations refused by a structural anti-loop guard (R-085, ADR-0010).
 
-        Labels: target (a REGISTERED agent id), guard (closed `platform.observability.A2A_GUARDS`). COUNTS ONLY.
+        Labels: target (a REGISTERED agent id), guard (closed
+        `platform.observability.A2A_GUARDS`). COUNTS ONLY.
         """
         return self._a2a_guard_refusal
 

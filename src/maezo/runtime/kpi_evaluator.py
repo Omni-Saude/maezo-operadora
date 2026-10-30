@@ -236,7 +236,9 @@ MEASUREMENT_SOURCES: Final[Mapping[tuple[str, str], KpiSource]] = {
         SourceKind.HISTOGRAM_P95, "maezo_agent_first_response_seconds"
     ),
     ("helena", "eval_score"): _EVAL,
-    ("helena", "nps"): _sem_fonte("CSAT/NPS e placeholder no agent.yaml (hook no encerramento ainda nao existe)"),
+    ("helena", "nps"): _sem_fonte(
+        "CSAT/NPS e placeholder no agent.yaml (hook no encerramento ainda nao existe)"
+    ),
     # lucas
     ("lucas", "resolution_rate"): KpiSource(SourceKind.RECORDING_RULE, "maezo_lucas_resolution_rate"),
     ("lucas", "escalation_precision"): _SEM_ROTEAMENTO,
@@ -244,10 +246,16 @@ MEASUREMENT_SOURCES: Final[Mapping[tuple[str, str], KpiSource]] = {
     ("lucas", "false_denial_rate"): _INVARIANTE_L0,
     # marina
     ("marina", "dossier_completeness"): _SEM_DOSSIE,
-    ("marina", "glosa_rate"): _sem_fonte("taxa de glosa e fato da decisao humana no engine; nenhum emissor em src/"),
+    ("marina", "glosa_rate"): _sem_fonte(
+        "taxa de glosa e fato da decisao humana no engine; nenhum emissor em src/"
+    ),
     ("marina", "prazo_medio_analise_conta"): _sem_fonte("prazo de analise e fato do engine; nenhum emissor"),
-    ("marina", "taxa_deferimento_recurso"): _sem_fonte("deferimento e decisao humana no engine; nenhum emissor"),
-    ("marina", "prazo_medio_resposta_recurso"): _sem_fonte("prazo de resposta e fato do engine; nenhum emissor"),
+    ("marina", "taxa_deferimento_recurso"): _sem_fonte(
+        "deferimento e decisao humana no engine; nenhum emissor"
+    ),
+    ("marina", "prazo_medio_resposta_recurso"): _sem_fonte(
+        "prazo de resposta e fato do engine; nenhum emissor"
+    ),
     ("marina", "human_routing_precision"): _SEM_ROTEAMENTO,
     ("marina", "eval_score"): _EVAL,
     ("marina", "false_denial_rate"): _INVARIANTE_L0,
