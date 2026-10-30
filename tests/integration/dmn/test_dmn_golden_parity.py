@@ -589,9 +589,9 @@ async def test_ans_calendar_periodicidade_paridade_com_taxonomia_do_worker(
 
     Este teste e a evidencia engine-side dessa paridade: para cada report_type da taxonomia do
     worker, a tabela REAL (avaliada no CIB Seven) casa uma row propria — nao a catch-all — e a
-    `periodicidade` que ela devolve e a MESMA string pt-BR que o worker usa. Os valores de
-    `due_date`/`sla_alerta` permanecem DRAFT (`DRAFT_DUE_DATE`/`DRAFT_ALERTA`) e nao sao
-    asseridos como conteudo regulatorio.
+    `periodicidade` que ela devolve e a MESMA string pt-BR que o worker usa. R-007: `due_date`/
+    `sla_alerta` saem vazios (nenhuma data verificada em norma primaria; nada inventado) e a row
+    e de calendario MANUAL.
     """
     row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
     assert not row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), (
@@ -602,6 +602,8 @@ async def test_ans_calendar_periodicidade_paridade_com_taxonomia_do_worker(
         f"drift de periodicidade para {report_type!r}: DMN={row['periodicidade']!r} vs "
         f"worker={periodicidade_esperada!r}"
     )
+    assert row["fonte_regulatoria"].startswith("CALENDARIO_MANUAL"), row
+    assert row["due_date"] == "" and row["sla_alerta"] == "", row
 
 
 @pytest.mark.parametrize("report_type", ["MAPEAMENTO_REDE", "QUALIFICACAO", "TIPO_INEXISTENTE"])
@@ -616,3 +618,35 @@ async def test_ans_calendar_report_type_fora_da_taxonomia_cai_no_catchall(
     row = await _eval(dmn, "ans_calendar", {"report_type": report_type, "competencia": "2026-06"})
     assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA")
     assert row["periodicidade"] == PERIODICIDADE_INDETERMINADA
+
+
+# ---------------------------------------------------------------------------
+# ans_calendar — SIP (R-007, F-002; decisao do dono DEC-03): backlog manual x obrigacao extinta
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("competencia", ["2025-12", "2025-Q4", "2025-01", "2024-Q3"])
+async def test_ans_calendar_sip_backlog_ate_4o_tri_2025_e_manual(
+    dmn: CibSevenDmnTransport, competencia: str
+) -> None:
+    """RN 639/2025 (DL-0029): o SIP deixa de ser exigido apos o 4o tri/2025. Competencia de forma
+    valida ANTERIOR a `2026-01` (mensal ou trimestral) e backlog: row propria de calendario
+    MANUAL, sem data automatica (nenhuma data do backlog verificada em fonte primaria)."""
+    row = await _eval(dmn, "ans_calendar", {"report_type": "RN_124_SIP", "competencia": competencia})
+    assert row["fonte_regulatoria"].startswith("CALENDARIO_MANUAL"), row
+    assert "RN 639/2025" in row["fonte_regulatoria"]
+    assert row["due_date"] == "" and row["sla_alerta"] == ""
+
+
+@pytest.mark.parametrize(
+    "competencia", ["2026-01", "2026-Q1", "2027-06", "COMPETENCIA_PENDENTE", "", "2025-13", "2025-Q5"]
+)
+async def test_ans_calendar_sip_competencia_nova_ou_invalida_e_extinta(
+    dmn: CibSevenDmnTransport, competencia: str
+) -> None:
+    """Competencia do SIP a partir de 2026-01 (ou de forma invalida/sentinela) nao e backlog: a
+    obrigacao esta extinta e a row propria roteia a humano — nunca um ciclo de envio do SIP."""
+    row = await _eval(dmn, "ans_calendar", {"report_type": "RN_124_SIP", "competencia": competencia})
+    assert row["fonte_regulatoria"].startswith("REVISAO_HUMANA"), row
+    assert "RN 639/2025" in row["fonte_regulatoria"]
+    assert row["due_date"] == "" and row["sla_alerta"] == ""

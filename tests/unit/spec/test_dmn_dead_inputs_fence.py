@@ -75,7 +75,6 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("lucas_billing_admissibility.dmn", "lba_in_ciclos", "ciclos_sem_conciliacao"),
         ("lucas_billing_admissibility.dmn", "lba_in_status_conciliado", "status_conciliado"),
         ("lucas_billing_admissibility.dmn", "lba_in_valores_com_atraso", "valores_com_atraso"),
-        ("ans_calendar.dmn", "in_competencia", "competencia"),
         ("auth_auto_approval.dmn", "in_carater", "carater_atendimento"),
         ("auth_criteria_contratual.dmn", "in_tenant", "tenant_id"),
         ("auth_criteria_contratual.dmn", "in_categoria", "categoria_procedimento"),
