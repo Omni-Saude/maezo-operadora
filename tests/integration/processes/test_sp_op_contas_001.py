@@ -1941,7 +1941,7 @@ async def test_business_key_uma_instancia_por_lote(
     start_contas: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    lote = "LOTE-TESTE-IDEM-001"
+    lote = f"LOTE-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"CONTAS-amh-{lote}"
 
     first = await start_contas(numero_lote_tiss=lote, categoria_normalizada="tecnica", has_glosas=True)

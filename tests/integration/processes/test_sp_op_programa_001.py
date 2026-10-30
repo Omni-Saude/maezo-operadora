@@ -1384,7 +1384,7 @@ async def test_business_key_uma_instancia_por_ciclo(
     Roteia a ANALISE_HUMANA (risco alto) para manter a instancia ativa (User Task aberta) e provar
     a unicidade por business key.
     """
-    benef = "bnf-teste-idem-0001"
+    benef = f"bnf-teste-idem-{uuid.uuid4().hex[:8]}"
     business_key = f"PROG-amh-cronicos-{benef}-2026-Q2"
 
     first = await start_programa(

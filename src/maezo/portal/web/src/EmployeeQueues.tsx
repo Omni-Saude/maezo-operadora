@@ -128,7 +128,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
     return (
       <section className="task-detail" aria-live="polite">
         <h2>Carregando detalhes</h2>
-        <p>Consultando o snapshot autorizado da tarefa.</p>
+        <p>Consultando o <span lang="en">snapshot</span> autorizado da tarefa.</p>
       </section>
     );
   }
@@ -152,7 +152,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
     <section className="task-detail" aria-labelledby="task-detail-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Snapshot somente leitura</p>
+          <p className="eyebrow"><span lang="en">Snapshot</span> somente leitura</p>
           <h2 id="task-detail-heading">{task.task_definition_key}</h2>
         </div>
         <p className="freshness">Consultado em {formatTimestamp(state.observedAt)}</p>
@@ -169,7 +169,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
         <div><dt>Revisão da tarefa</dt><dd className="exact-value">{task.task_revision}</dd></div>
         <div><dt>Revisão da evidência</dt><dd className="exact-value">{task.evidence_revision}</dd></div>
         <div><dt>Responsável atual</dt><dd>{task.assignee_ref ?? "Sem responsável"}</dd></div>
-        <div><dt>Prazo do engine</dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
+        <div><dt>Prazo do <span lang="en">engine</span></dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
       </dl>
       {evidence !== null && (
         <section className="evidence-card" aria-labelledby="evidence-heading">
@@ -448,7 +448,7 @@ export function EmployeeQueues({
     <section className="queue-workspace" id="work" aria-labelledby="queue-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Workspace operacional</p>
+          <p className="eyebrow"><span lang="en">Workspace</span> operacional</p>
           <h2 id="queue-heading">Tarefas elegíveis</h2>
         </div>
         {queueState.kind === "ready" && (

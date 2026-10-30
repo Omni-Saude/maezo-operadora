@@ -330,3 +330,41 @@ saida do aviso sem resposta desapareceu, nos dois sentidos.
 - **When** o auditor completa com `decisao_auditor=SOLICITAR_INFO`
 - **Then** DUAS linhas de caixa de entrada, uma por destinatario, e a tarefa externa concluida
   exatamente uma vez
+
+## Negativa por escrito — entrega (R-004, RN 623/2024 art. 14) — DARK
+
+Contrato: secao "Negativa por escrito — entrega (R-004, RN 623/2024 art. 14) — DARK".
+Testes: `tests/unit/tools/workers/test_auth_denial_written_notice.py`,
+`tests/unit/gateway/denial_notices/test_guard_and_ownership.py`.
+
+### Dono unico
+
+#### test_the_contract_worker_is_the_only_owner / test_the_daemon_bootstrap_installs_only_the_contract_worker
+- **Then** `operadora.auth.send_denial_notice` tem exatamente um dono, `SendDenialNoticeWorker`
+  (`assert_single_owner` passa), inclusive apos re-registro
+
+#### test_a_second_owner_seam_is_refused_loudly / test_the_retired_switch_is_a_tombstone
+- **When** um chamador passa `denial_notice_host` ou a implantacao liga `MAEZO_DENIAL_NOTICE_OWNER`
+- **Then** `TopicOwnershipError` / `RetiredDenialOwnerError` — nunca um segundo dono silencioso
+
+#### test_a_foreign_worker_on_the_topic_fails_the_ownership_check / test_a_missing_owner_fails_the_ownership_check
+- **Then** dois donos, dono estranho ou nenhum dono = recusa
+
+### Entrega manual, nunca "entregue"
+
+#### test_default_worker_output_is_unchanged
+- **Given** `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` desligada (padrao)
+- **Then** a saida do worker e' a de antes do R-004 (nenhuma chave `entrega_negativa_*`)
+
+#### test_without_a_channel_the_delivery_is_manual_and_pending
+- **Given** a bandeira ligada e uma NEGAR humana completa
+- **Then** `entrega_negativa_status=entrega_manual_pendente`, `entrega_negativa_responsavel=medico_auditor`,
+  nenhuma chave/valor afirma entrega, envio ou registro; texto clinico redigido
+
+#### test_an_incomplete_denial_gets_no_delivery_state / test_a_denial_without_a_human_gets_no_delivery_state
+- **Then** os guards (`ERR_AUTH_DENIAL_INCOMPLETE`, `ERR_DENIAL_NOT_HUMAN`) continuam o desfecho;
+  nenhum estado de entrega e' escrito
+
+#### test_the_flag_can_not_be_switched_on_or_faked_by_a_process_variable
+- **Given** variaveis forjadas (`entrega_negativa_status=entregue`, `written_notice=true`)
+- **Then** nada muda: a bandeira e' da implantacao, e o unico estado escrito e' `entrega_manual_pendente`

@@ -55,9 +55,16 @@ def test_default_do_receptor_e_o_da_main() -> None:
     assert WhatsAppWebhookSettings.model_fields["amh_interop_scopes"].default == ESCOPOS_DA_MAIN
 
 
-@pytest.mark.skipif(
-    shutil.which("terraform") is None, reason="terraform ausente: as cercas textuais acima valem"
-)
+#: Locals do `amh-interop.tf` que a expressao le e que a fixture declara (desligados). Sem eles o console
+#: imprime "(known after apply)" em qualquer versao do terraform (auditoria forense F-193).
+_LOCALS_DA_FIXTURE = {"amh_tina_carteirinha_ligada": False, "amh_tina_dependentes_nome_ligada": False}
+
+
+def test_expressao_so_referencia_locals_declarados_na_fixture() -> None:
+    assert set(re.findall(r"local\.(\w+)", _expressao_efetiva())) <= set(_LOCALS_DA_FIXTURE)
+
+
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform ausente: as cercas textuais valem")
 @pytest.mark.parametrize(
     ("consultas", "acesso", "esperado"),
     [
@@ -72,7 +79,9 @@ def test_avaliacao_real_da_expressao(tmp_path: Path, consultas: bool, acesso: bo
         f'variable "amh_interop_scopes" {{\n  default = "{ESCOPOS_DA_MAIN}"\n}}\n'
         f'variable "helena_consultas_amh" {{\n  default = {str(consultas).lower()}\n}}\n'
         f'variable "acesso_beneficiario" {{\n  default = {str(acesso).lower()}\n}}\n'
-        f"locals {{\n  amh_interop_scopes_efetivos = {_expressao_efetiva()}\n}}\n",
+        "locals {\n"
+        + "".join(f"  {nome} = {str(valor).lower()}\n" for nome, valor in _LOCALS_DA_FIXTURE.items())
+        + f"  amh_interop_scopes_efetivos = {_expressao_efetiva()}\n}}\n",
         encoding="utf-8",
     )
     saida = subprocess.run(

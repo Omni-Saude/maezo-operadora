@@ -127,6 +127,13 @@ RELEASE_SQL: Final[str] = (
 )
 
 
+#: Is `key` sealed as processed and still inside its window? (One row, tenant-scoped.)
+PROCESSED_SQL: Final[str] = (
+    "SELECT 1 FROM driver_idempotency "
+    "WHERE key = $1 AND tenant = $2 AND status = 'processed' AND expires_at > now()"
+)
+
+
 class DedupRegistryUnavailableError(RuntimeError):
     """The dedup registry could not be read/written — never "no duplicate" by default.
 
@@ -257,6 +264,15 @@ class PostgresDriverIdempotencyRegistry:
         released = await self._fetchval(RELEASE_SQL, key, self._tenant)
         if released is None:
             logger.warning("dedup_claim_not_released", tenant=self._tenant, dedup_key=key)
+
+    async def is_processed(self, key: str) -> bool:
+        """`True` only for a key SEALED as processed inside its window (not a pending claim).
+
+        Lets a caller that lost `claim()` tell "the effect already happened" (safe to skip) from
+        "another attempt is still in flight" (must not be treated as done) — the distinction the
+        external-task publish dedup needs (forensic audit F-092). Fail-closed like every method.
+        """
+        return await self._fetchval(PROCESSED_SQL, key, self._tenant) is not None
 
     async def aclose(self) -> None:
         """Close the pool, if this registry opened it (an injected pool belongs to its owner)."""

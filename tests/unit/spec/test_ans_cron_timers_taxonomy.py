@@ -45,7 +45,8 @@ _BPMN_CRON = _REPO / "spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_AN
 
 _PUBLISH_TOPIC = "operadora.events.publish"
 
-#: O topico proprio de `ans_cron.py` — declarado por `ST_ResolverCompetencia*` nas 5 definitions.
+#: O topico proprio de `ans_cron.py` — declarado por `ST_ResolverCompetencia*` nas 4 definitions
+#: (R-007: SIP removido; as 4 estao `isExecutable="false"` ate parecer COUNSEL).
 _ANS_CRON_TRIGGER_TOPIC = "operadora.ans_cron.trigger_submissions"
 
 #: `R/<ISO period>` do BPMN -> periodo ISO da taxonomia do worker. `R/P1Y` e a forma que o CIB
@@ -105,7 +106,7 @@ def test_ans_cron_timecycle_do_bpmn_bate_com_a_taxonomia_do_worker() -> None:
     """
     root = ET.fromstring(_bpmn_xml())
     processes = root.findall("b:process", _NS)
-    assert len(processes) == len(_REPORT_PERIODICIDADE) == 5, (
+    assert len(processes) == len(_REPORT_PERIODICIDADE) == 4, (  # R-007: SIP removido
         "uma process definition por report_type (GAP-ANS-1): "
         f"{len(processes)} definitions vs {len(_REPORT_PERIODICIDADE)} tipos"
     )
@@ -157,7 +158,7 @@ def test_ans_cron_payload_vars_nao_carregam_tenant_id() -> None:
     nao-vazio — ficaria permanentemente dormente (ou produziria a chave degenerada `ANSSUB--...`).
     """
     payload_var_lists = re.findall(r'name="event_payload_vars">([^<]*)</camunda:inputParameter>', _bpmn_xml())
-    assert len(payload_var_lists) == 5, f"esperado 1 event_payload_vars por definition; {payload_var_lists}"
+    assert len(payload_var_lists) == 4, f"esperado 1 event_payload_vars por definition; {payload_var_lists}"
     for raw in payload_var_lists:
         nomes = [n.strip() for n in raw.split(",") if n.strip()]
         assert "tenant_id" not in nomes, (

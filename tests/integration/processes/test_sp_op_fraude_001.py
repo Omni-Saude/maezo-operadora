@@ -40,7 +40,7 @@ unless a real v2 gap/shape difference is documented below):
     handler is `maezo.tools.workers.events.register_events_workers` (T3.1 R2, already merged,
     already exercised green by auth/escalation/cancel) — composed here exactly like those
     suites' probes.
-  - `maezo.tools.mcp_dmn.server.CibSevenDmnTransport` (donor, v1's now-dead in-process XML
+  - the donor's `CibSevenDmnTransport` (in v1's DMN MCP `server.py`, the now-dead in-process XML
     evaluator module) -> v2's REAL engine-side DMN seam is
     `maezo.tools.workers.dmn_transport.CibSevenDmnTransport` (ADR-0028) — wired into
     `register_fraude_workers(harness, kafka, dmn=dmn)`'s `dmn=` seam, which `score_indicators`
@@ -1801,7 +1801,7 @@ async def test_business_key_uma_instancia_por_caso(
     start_fraude: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa por caso."""
-    caso = "CASO-TESTE-IDEM-001"
+    caso = f"CASO-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"FRAUDE-amh-{caso}"
 
     first = await start_fraude(numero_caso=caso)
@@ -1823,7 +1823,7 @@ async def test_multiplos_encaminhamentos_consolidam_no_caso(
     A nova evidencia anexa ao dossie e re-sela o bundle_root (boundary message BME_EvidenciaAnexada
     em UT_DecisaoInvestigador) enquanto nao houver decisao; business key idempotente.
     """
-    caso = "CASO-TESTE-CONSOLIDA-001"
+    caso = f"CASO-TESTE-CONSOLIDA-{uuid.uuid4().hex[:8]}"
     business_key = f"FRAUDE-amh-{caso}"
 
     inst = await start_fraude(numero_caso=caso)

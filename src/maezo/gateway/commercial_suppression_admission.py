@@ -3,7 +3,7 @@
 The GP11 non-contact path is fail-closed by construction even without this module: the
 runtime composition never threads the `suppression_store` seam
 (`runtime/worker_runtime/service.py#register_default_workers` passes only
-`dmn/engine/audit_sink/denial_notice_host/tenant_id/kafka/dossier_dispatcher/
+`dmn/engine/audit_sink/tenant_id/kafka/dossier_dispatcher/
 document_request_host_installed`), so `vendor.suppression.verify_subject` refuses its
 modeled boundary error (`ERR_SUPP_SUBJECT_UNRESOLVED` — UNKNOWN, never zero) on EVERY
 tick, and the effect PEP refuses any `EffectCall` naming `SP-OP-SUPP-001` with

@@ -157,7 +157,7 @@ from .conftest import (
     count_chain_rows_for_action,
     drain_topics,
 )
-from .engine_rest import EngineRest
+from .engine_rest import EngineRest, EngineRestError
 
 pytestmark = pytest.mark.integration
 
@@ -452,15 +452,10 @@ async def deploy_artifacts(engine: EngineRest) -> str:
     return await engine.deploy(_BPMN, _DMN_ADMISS, _DMN_AUTO, _DMN_SLA, name="SP-OP-AUTH-001-qa")
 
 
-@pytest_asyncio.fixture
-async def auth_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
-) -> AsyncIterator[AuthEngineProbe]:
-    """Probe que serve as external tasks com os workers reais Phase-1 de auth.
-
-    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
-    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
-    """
+def _build_auth_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, **seams: Any
+) -> AuthEngineProbe:
+    """Monta o probe com os workers reais de auth; `seams` vai direto a `register_auth_workers`."""
     worker_id = f"qa-auth-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # T3.1 (auth-denial-hardening): ERR_AUTH_DENIAL_INCOMPLETE is catchable by SP-OP-AUTH-001's own
@@ -479,12 +474,12 @@ async def auth_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
-    register_auth_workers(harness, kafka)
+    register_auth_workers(harness, kafka, **seams)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
     # this BPMN routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
     analyze_stub = _AnalyzeRequestStub(transport, worker_id)
-    probe = AuthEngineProbe(
+    return AuthEngineProbe(
         engine=engine,
         harness=harness,
         transport=transport,
@@ -492,10 +487,34 @@ async def auth_probe(
         analyze_stub=analyze_stub,
         worker_id=worker_id,
     )
+
+
+@pytest_asyncio.fixture
+async def auth_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """Probe que serve as external tasks com os workers reais Phase-1 de auth.
+
+    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
+    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
+    """
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant)
     try:
         yield probe
     finally:
-        await transport.close()
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_written_notice(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-004: o mesmo probe, com `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` ligada no unico dono."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, denial_written_notice=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
 
 
 def _unique_guia(prefix: str = "GUIA-TESTE") -> str:
@@ -1530,7 +1549,7 @@ async def test_business_key_uma_instancia_por_guia(
     Nao depende de `auth_probe.drain()` progredir alem do primeiro publish — sobrevive ao
     gap de `operadora.events.publish` acima (nao marcado xfail, ao contrario dos demais).
     """
-    guia = "GUIA-TESTE-IDEM-001"
+    guia = f"GUIA-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"AUTH-amh-{guia}"
 
     first = await start_auth(numero_guia_tiss=guia)
@@ -1540,3 +1559,58 @@ async def test_business_key_uma_instancia_por_guia(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# R-004 (F-016) — entrega por escrito da negativa (RN 623/2024 art. 14), DARK
+# ===========================================================================
+
+
+async def _negar_pela_ut(engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any]) -> str:
+    inst = await start_auth(dut_atendida=False)
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    ut = await engine.await_user_task(inst["id"], _UT_AUDITOR)
+    assert "medico-auditor" in ut.candidate_groups
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_auditor": "NEGAR",
+            "justificativa_clinica": "Motivo sintetico (teste R-004)",
+            "cid10_referencia": "Z00.0",
+            "fundamentacao_dut": "Clausula sintetica 9.9 (teste R-004)",
+            "auditor_id": "auditor-sintetico-r004",
+        },
+    )
+    await probe.drain()
+    ended = await _await_end(engine, inst["id"])
+    assert _END_NEGADA in ended, f"negativa humana deve atingir End_NegadaAuditor. ended={ended}"
+    await _assert_no_denial_without_human_task(engine, inst["id"])
+    return str(inst["id"])
+
+
+async def test_r004_entrega_por_escrito_ligada_registra_entrega_manual_pendente(
+    engine: EngineRest,
+    auth_probe_written_notice: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira ON: o historico do engine diz "entrega manual pendente", nunca "entregue"."""
+    iid = await _negar_pela_ut(engine, auth_probe_written_notice, start_auth)
+    assert await engine.get_history_variable(iid, "entrega_negativa_status") == "entrega_manual_pendente"
+    assert await engine.get_history_variable(iid, "entrega_negativa_responsavel") == "medico_auditor"
+    assert await engine.get_history_variable(iid, "human_approved") is True
+    # O texto clinico continua redigido no engine (ADR-0006).
+    assert await engine.get_history_variable(iid, "justificativa_clinica") == REDACTED_PHI
+
+
+async def test_r004_entrega_por_escrito_desligada_nao_escreve_estado_de_entrega(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira OFF (padrao): nenhuma variavel de entrega no historico — a saida e' a de antes."""
+    iid = await _negar_pela_ut(engine, auth_probe, start_auth)
+    for name in ("entrega_negativa_status", "entrega_negativa_responsavel"):
+        with pytest.raises(EngineRestError):
+            await engine.get_history_variable(iid, name)

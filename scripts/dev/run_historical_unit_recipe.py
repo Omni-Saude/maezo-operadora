@@ -359,7 +359,11 @@ def environment() -> dict[str, str]:
     ]
     if contaminated:
         raise CaptureRefusedError(
-            "ambient Python/pytest/uv configuration present: " + ",".join(sorted(contaminated))
+            "ambient Python/pytest/uv configuration present: "
+            + ",".join(sorted(contaminated))
+            + " — rerun without it, e.g. `env "
+            + " ".join(f"-u {name}" for name in sorted(contaminated))
+            + " make test`"
         )
     env = checker.recipe_environment()
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_NO_REPLACE_OBJECTS="1")

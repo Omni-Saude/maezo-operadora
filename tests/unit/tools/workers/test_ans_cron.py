@@ -36,8 +36,8 @@ from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 # ---------------------------------------------------------------
 
 #: A taxonomia canonica: os MESMOS literais do BPMN, do contrato e das rows de ans_calendar.dmn.
+#: R-007 (F-002): `RN_124_SIP` saiu — o agendador nao tem mais definition do SIP (RN 639/2025).
 _TAXONOMIA_CANONICA: dict[str, tuple[str, str]] = {
-    "RN_124_SIP": ("mensal", "P1M"),
     "RN_209_UTILIZACAO": ("mensal", "P1M"),
     "RN_388_QUALIDADE": ("anual", "P12M"),
     "RN_424_TISS_MONITORAMENTO": ("mensal", "P1M"),
@@ -45,10 +45,19 @@ _TAXONOMIA_CANONICA: dict[str, tuple[str, str]] = {
 }
 
 
+def test_sip_fora_da_taxonomia_do_agendador_e_fail_closed() -> None:
+    """R-007 (F-002 / DEC-03): sem timer do SIP no BPMN, um tick com esse literal (que so poderia
+    vir de um BPMN desatualizado) cai no fail-closed: periodicidade `indeterminada` e competencia
+    SENTINELA — nunca um ciclo de envio do SIP extinto pela RN 639/2025."""
+    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+    assert result["periodicidade"] == PERIODICIDADE_INDETERMINADA
+    assert result["competencia"] == COMPETENCIA_PENDENTE
+
+
 def test_taxonomia_report_type_e_a_do_bpmn_contrato_e_dmn() -> None:
     """PERSP-B5-ANSCRON-TOPICS: a taxonomia paralela anterior (`MAPEAMENTO_REDE`/`DIOPS`/`SIP`/
     `RPC`/`ANS_TISS`/`QUALIFICACAO`) tinha intersecao VAZIA com BPMN/contrato/DMN. Pin de
-    regressao: nenhum daqueles literais volta, e os 5 canonicos estao todos presentes."""
+    regressao: nenhum daqueles literais volta, e os 4 canonicos estao todos presentes (R-007: SIP fora)."""
     assert _REPORT_PERIODICIDADE == _TAXONOMIA_CANONICA
     orfaos = {"MAPEAMENTO_REDE", "DIOPS", "SIP", "RPC", "ANS_TISS", "QUALIFICACAO"}
     assert not (orfaos & set(_REPORT_PERIODICIDADE)), (
@@ -81,7 +90,7 @@ def test_trigger_submissions_resolve_periodicidade_e_competencia_por_tipo(
 def test_trigger_submissions_nao_devolve_fato_fabricado() -> None:
     """ANS-CRON-DEAD-CODE / classe GAP-FAB-NOTIF: esta funcao NAO publica nada (quem publica e o
     `ST_PublishCronDue*` seguinte), entao nao pode devolver `fato_publicado`/`event_type`."""
-    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+    result = trigger_submissions({"ans_cron_report_type": "RN_209_UTILIZACAO"})
     assert "fato_publicado" not in result
     assert "event_type" not in result
     assert set(result) == {
@@ -114,7 +123,9 @@ def test_trigger_submissions_sem_report_type_e_fail_closed() -> None:
 def test_trigger_submissions_ignora_report_type_do_escopo_de_processo() -> None:
     """O tipo vem SO do literal local `ans_cron_report_type` (ver o racional de escopo Camunda na
     docstring do modulo): um `report_type` que ja exista no escopo de processo nunca e a fonte."""
-    result = trigger_submissions({"ans_cron_report_type": "DIOPS_TRIMESTRAL", "report_type": "RN_124_SIP"})
+    result = trigger_submissions(
+        {"ans_cron_report_type": "DIOPS_TRIMESTRAL", "report_type": "RN_209_UTILIZACAO"}
+    )
     assert result["report_type"] == "DIOPS_TRIMESTRAL"
     assert result["periodicidade"] == "trimestral"
 
@@ -184,18 +195,18 @@ def test_register_ans_cron_workers_registra_apenas_o_topico_alcancavel() -> None
 #: quarter — pre-fix, only the quarter's first month (Jan/Apr/Jul/Oct) did; the other 8 months
 #: wrongly returned the CURRENT, still-open quarter's own start month instead.
 _COMPETENCIA_TABLE: list[tuple[int, str, str]] = [
-    (1, "2025-12", "2025-10"),  # Q1 month 1 -> still-open Q1 -> prior CLOSED quarter is Q4/2025
-    (2, "2026-01", "2025-10"),  # Q1 month 2 (mid-quarter) -> same prior quarter, Q4/2025
-    (3, "2026-02", "2025-10"),  # Q1 month 3 (quarter-end) -> same prior quarter, Q4/2025
-    (4, "2026-03", "2026-01"),  # Q2 month 1 -> prior CLOSED quarter is Q1/2026
-    (5, "2026-04", "2026-01"),  # Q2 month 2 (mid-quarter) -> same prior quarter, Q1/2026
-    (6, "2026-05", "2026-01"),  # Q2 month 3 (quarter-end) -> same prior quarter, Q1/2026
-    (7, "2026-06", "2026-04"),  # Q3 month 1 -> prior CLOSED quarter is Q2/2026
-    (8, "2026-07", "2026-04"),  # Q3 month 2 (mid-quarter) -> same prior quarter, Q2/2026
-    (9, "2026-08", "2026-04"),  # Q3 month 3 (quarter-end) -> same prior quarter, Q2/2026
-    (10, "2026-09", "2026-07"),  # Q4 month 1 -> prior CLOSED quarter is Q3/2026
-    (11, "2026-10", "2026-07"),  # Q4 month 2 (mid-quarter) -> same prior quarter, Q3/2026
-    (12, "2026-11", "2026-07"),  # Q4 month 3 (quarter-end) -> same prior quarter, Q3/2026
+    (1, "2025-12", "2025-Q4"),  # Q1 month 1 -> still-open Q1 -> prior CLOSED quarter is Q4/2025
+    (2, "2026-01", "2025-Q4"),  # Q1 month 2 (mid-quarter) -> same prior quarter, Q4/2025
+    (3, "2026-02", "2025-Q4"),  # Q1 month 3 (quarter-end) -> same prior quarter, Q4/2025
+    (4, "2026-03", "2026-Q1"),  # Q2 month 1 -> prior CLOSED quarter is Q1/2026
+    (5, "2026-04", "2026-Q1"),  # Q2 month 2 (mid-quarter) -> same prior quarter, Q1/2026
+    (6, "2026-05", "2026-Q1"),  # Q2 month 3 (quarter-end) -> same prior quarter, Q1/2026
+    (7, "2026-06", "2026-Q2"),  # Q3 month 1 -> prior CLOSED quarter is Q2/2026
+    (8, "2026-07", "2026-Q2"),  # Q3 month 2 (mid-quarter) -> same prior quarter, Q2/2026
+    (9, "2026-08", "2026-Q2"),  # Q3 month 3 (quarter-end) -> same prior quarter, Q2/2026
+    (10, "2026-09", "2026-Q3"),  # Q4 month 1 -> prior CLOSED quarter is Q3/2026
+    (11, "2026-10", "2026-Q3"),  # Q4 month 2 (mid-quarter) -> same prior quarter, Q3/2026
+    (12, "2026-11", "2026-Q3"),  # Q4 month 3 (quarter-end) -> same prior quarter, Q3/2026
 ]
 
 
@@ -218,7 +229,7 @@ def test_compute_competencia_p3m_table(month: int, expected_p1m: str, expected_p
 @pytest.mark.parametrize("month", [m for m, _, _ in _COMPETENCIA_TABLE])
 def test_compute_competencia_p12m_table_is_always_the_prior_calendar_year(month: int) -> None:
     """P12M (annual) REGRESSION PIN: every month of the year resolves to the previous calendar
-    YEAR, represented "YYYY-01" — shape-consistent with the "YYYY-MM" of P1M/P3M, never a bare
+    YEAR, represented "YYYY-01" — shape-consistent with the "YYYY-MM" of P1M, never a bare
     "YYYY" (see ans_cron.py's `_compute_competencia` P12M branch for the shape-consistency
     rationale) — and never a month WITHIN that year."""
     assert _compute_competencia(f"2026-{month:02d}-15", "P12M") == "2025-01"
@@ -299,7 +310,7 @@ def test_ancora_carrega_offset_explicito_e_nao_e_data_nua(monkeypatch: pytest.Mo
     """`competencia_referencia_iso` viaja em ISO-8601 COM OFFSET: sem o offset o consumidor do
     fato nao consegue dizer em que calendario civil o periodo foi fechado."""
     _freeze_business_clock(monkeypatch, "2026-02-28T23:30:00+00:00")
-    ancora = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})["competencia_referencia_iso"]
+    ancora = trigger_submissions({"ans_cron_report_type": "RN_209_UTILIZACAO"})["competencia_referencia_iso"]
 
     assert ancora == "2026-02-28T20:30:00-03:00"
     momento = parse_competencia_referencia_iso(ancora)
@@ -313,7 +324,7 @@ def test_ancora_mensal_na_virada_do_mes_usa_o_calendario_brasileiro(
     fevereiro AINDA ESTA ABERTO, logo a ultima competencia FECHADA e janeiro. Com a ancora UTC
     (o defeito) o resultado seria `2026-02` — um mes ainda aberto para o regulador."""
     _freeze_business_clock(monkeypatch, "2026-03-01T00:30:00+00:00")
-    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+    result = trigger_submissions({"ans_cron_report_type": "RN_209_UTILIZACAO"})
 
     assert result["competencia_referencia_iso"] == "2026-02-28T21:30:00-03:00"
     assert result["competencia"] == "2026-01"
@@ -327,7 +338,7 @@ def test_ancora_mensal_depois_da_virada_no_brasil_fecha_o_mes(
     """03:00 UTC do dia 1 = 00:00 BRT do dia 1: marco COMECOU tambem no Brasil, entao fevereiro
     fechou e passa a ser a competencia. O outro lado da mesma fronteira."""
     _freeze_business_clock(monkeypatch, "2026-03-01T03:00:00+00:00")
-    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+    result = trigger_submissions({"ans_cron_report_type": "RN_209_UTILIZACAO"})
 
     assert result["competencia_referencia_iso"] == "2026-03-01T00:00:00-03:00"
     assert result["competencia"] == "2026-02"
@@ -339,7 +350,7 @@ def test_ancora_mensal_no_fim_do_mes_nunca_nomeia_o_mes_aberto(
     """23:30 UTC do ULTIMO dia do mes = 20:30 BRT do MESMO dia: UTC e BRT concordam no mes, e o
     mes corrente (ainda aberto) nunca e a resposta."""
     _freeze_business_clock(monkeypatch, "2026-03-31T23:30:00+00:00")
-    result = trigger_submissions({"ans_cron_report_type": "RN_124_SIP"})
+    result = trigger_submissions({"ans_cron_report_type": "RN_209_UTILIZACAO"})
 
     assert result["competencia_referencia_iso"] == "2026-03-31T20:30:00-03:00"
     assert result["competencia"] == "2026-02"
@@ -349,13 +360,13 @@ def test_ancora_trimestral_na_virada_do_trimestre_usa_o_calendario_brasileiro(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Mesma janela na virada de TRIMESTRE: 00:30 UTC de 01/abr = 21:30 BRT de 31/mar, com o Q1
-    ainda aberto no Brasil — a ultima competencia trimestral FECHADA e o Q4/2025 (`2025-10`).
-    Pela ancora UTC seria `2026-01` (o proprio Q1, ainda aberto)."""
+    ainda aberto no Brasil — a ultima competencia trimestral FECHADA e o Q4/2025 (`2025-Q4`).
+    Pela ancora UTC seria `2026-Q1` (o proprio Q1, ainda aberto)."""
     _freeze_business_clock(monkeypatch, "2026-04-01T00:30:00+00:00")
     result = trigger_submissions({"ans_cron_report_type": "DIOPS_TRIMESTRAL"})
 
-    assert result["competencia"] == "2025-10"
-    assert _compute_competencia("2026-04-01T00:30:00+00:00", "P3M") == "2026-01"
+    assert result["competencia"] == "2025-Q4"
+    assert _compute_competencia("2026-04-01T00:30:00+00:00", "P3M") == "2026-Q1"
 
 
 def test_ancora_anual_na_virada_do_ano_usa_o_calendario_brasileiro(
@@ -406,7 +417,7 @@ def test_parse_competencia_referencia_iso_aceita_a_ancora_exata_que_quebrou_no_e
 
 @pytest.mark.parametrize(
     ("periodicidade_iso", "esperada"),
-    [("P1M", "2026-08"), ("P3M", "2026-04"), ("P12M", "2025-01")],
+    [("P1M", "2026-08"), ("P3M", "2026-Q2"), ("P12M", "2025-01")],
 )
 def test_compute_competencia_aceita_a_ancora_exata_que_quebrou_no_engine(
     periodicidade_iso: str, esperada: str

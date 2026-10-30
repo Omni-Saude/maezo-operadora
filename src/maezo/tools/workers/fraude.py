@@ -18,11 +18,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import math
+import re
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.gateway.custody import CustodyBundle
+from maezo.gateway.pseudonymizer import PHI_FIELDS
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     CANCEL_KEY_FAMILY,
@@ -579,6 +581,46 @@ def assemble_dossier(variables: dict[str, Any]) -> dict[str, Any]:
     return {"dossie_gap": GAP_BEATRIZ_A2A_NAO_LIGADO}
 
 
+#: Shapes that are PHI on sight and cannot occur in a hash/pointer ref (hex digests carry no '.',
+#: '-' between digit groups or '@'): formatted CPF and e-mail. Unformatted digit runs are NOT
+#: matched here on purpose — a SHA-256 hex ref can legitimately end in a long digit run.
+_PHI_SHAPES = (
+    re.compile(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b"),
+    re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b"),
+)
+
+
+def _phi_hit(ref: Any, depth: int = 0) -> str | None:
+    """First PHI marker found in an evidence ref (str, or dict/list walked recursively), or None."""
+    if depth > 6:
+        return "estrutura_profunda"
+    if isinstance(ref, (int, float)) and not isinstance(ref, bool):
+        ref = str(ref)
+    if isinstance(ref, str):
+        lowered = ref.lower()
+        for marker in _PHI_MARKERS:
+            if marker in lowered:
+                return marker
+        for shape in _PHI_SHAPES:
+            if shape.search(ref):
+                return "padrao_phi"
+        return None
+    if isinstance(ref, dict):
+        for key, value in ref.items():
+            if key in PHI_FIELDS:
+                return "campo_phi"
+            hit = _phi_hit(str(key), depth + 1) or _phi_hit(value, depth + 1)
+            if hit:
+                return hit
+        return None
+    if isinstance(ref, (list, tuple)):
+        for item in ref:
+            hit = _phi_hit(item, depth + 1)
+            if hit:
+                return hit
+    return None
+
+
 # ---------------------------------------------------------------
 # seal_custody_bundle — Merkle seal BEFORE human decision
 # ---------------------------------------------------------------
@@ -597,20 +639,17 @@ def seal_custody_bundle(variables: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
 
-    # Check for PHI in evidence (ADR-0006)
-    for ref in evidencia_refs:
-        if isinstance(ref, str):
-            for marker in _PHI_MARKERS:
-                if marker in ref.lower():
-                    logger.error(
-                        "fraude_phi_in_custody_detected",
-                        ref=ref,
-                        marker=marker,
-                    )
-                    raise FraudeError(
-                        ERR_PHI_IN_CUSTODY,
-                        f"PHI marker '{marker}' detected in evidence reference",
-                    )
+    # Check for PHI in evidence (ADR-0006). Structured refs (dict/list) are walked too: before
+    # forensic audit F-058 only `str` refs were inspected and a `{"cpf": ...}` ref sealed silently.
+    for index, ref in enumerate(evidencia_refs):
+        marker = _phi_hit(ref)
+        if marker is not None:
+            # Never log the ref itself: it is exactly the value suspected of carrying PHI.
+            logger.error("fraude_phi_in_custody_detected", ref_index=index, marker=marker)
+            raise FraudeError(
+                ERR_PHI_IN_CUSTODY,
+                f"PHI marker '{marker}' detected in evidence reference",
+            )
 
     # Compute Merkle root over ordered evidence references
     bundle_root = CustodyBundle.seal_bundle([str(r) for r in evidencia_refs])

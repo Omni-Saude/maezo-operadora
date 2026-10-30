@@ -64,6 +64,7 @@ from maezo.gateway.tool_registry import (
     effect_seams_gated,
 )
 from maezo.gateway.vendor_suppression import SuppressionStore
+from maezo.platform.driver_idempotency import PostgresDriverIdempotencyRegistry
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import (
@@ -71,14 +72,14 @@ from maezo.platform.observability import (
     bootstrap_observability,
     get_metrics_collector,
 )
-from maezo.runtime.worker_runtime.denial_notices import DenialNoticeHost, install_denial_notice_host
+from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
-from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST, PublishLedger
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
@@ -265,13 +266,16 @@ def register_default_workers(
     dmn: GatedDmnTransport | None = None,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
-    denial_notice_host: DenialNoticeHost | None = None,
+    denial_written_notice: bool = False,
     tenant_id: str = "",
     kafka: AioKafkaEventsProducer | None = None,
     dossier_dispatcher: DelegationDispatcher | None = None,
     document_request_host_installed: bool = False,
     suppression_admission: SuppressionAdmission | None = None,
     suppression_store: SuppressionStore | None = None,
+    publish_ledger: PublishLedger | None = None,
+    pagto_valor_invalido_pendente_dados: bool = False,
+    inad_rn593_estrito: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -352,7 +356,7 @@ def register_default_workers(
         dmn=dmn,
         engine=engine,
         audit_sink=audit_sink,
-        denial_notice_host=denial_notice_host,
+        denial_written_notice=denial_written_notice,
         tenant_id=tenant_id,
         kafka=kafka,
         dossier_dispatcher=dossier_dispatcher,
@@ -360,7 +364,16 @@ def register_default_workers(
         # A6: the store rides the same `**seams` catch-all every bootstrap already accepts;
         # only a composition holding the REGISTERED A6 admission may pass it at all.
         **({"suppression_store": suppression_store} if suppression_store is not None else {}),
+        # F-092: redelivery dedup of the generic publish effect (dark; see settings).
+        **({"publish_ledger": publish_ledger} if publish_ledger is not None else {}),
+        # F-142 / R-053: invalid PAGTO amount -> PENDENTE_DADOS fact (dark; see settings).
+        pagto_valor_invalido_pendente_dados=pagto_valor_invalido_pendente_dados,
+        # R-027: guard/timer RN 593 estritos de SP-OP-INADIMPLENCIA-001 (dark; see settings).
+        **({"inad_rn593_estrito": True} if inad_rn593_estrito else {}),
     )
+    # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
+    # every module registered (a later module, or a stray handler, cannot sneak a second one in).
+    assert_single_owner(harness)
 
 
 def _expected_worker_topics(document_request_host_installed: bool = False) -> frozenset[str]:
@@ -1039,6 +1052,10 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             # Worker seams: the pooled `state.audit_sink` serves the harness on the daemon's main
             # loop; the `audit_sink` SEAM for sync per-call workers (handoff_rescisao's fenced
             # CANCEL-001 start) is a FreshSinkAuditEmitter — per-call loop-safe, same DSN/tenant.
+            # R-004 / F-032: `MAEZO_DENIAL_NOTICE_OWNER` names a second owner that was removed.
+            # Still set => refuse to register (caught below => workers_registered unhealthy),
+            # never a silent fallback that leaves the deployment believing it is live.
+            refuse_retired_second_owner(settings.denial_notice_owner)
             register_default_workers(
                 harness,
                 dmn=state.dmn_transport,
@@ -1046,19 +1063,24 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 audit_sink=FreshSinkAuditEmitter(settings.database_url, settings.tenant_id)
                 if settings.database_url
                 else None,
-                # WP-J1-06 / V14 MAJOR-1: the portal NEGAR owner's ONE installation
-                # path. Dark unless the deployment asks for it; when asked, this is the
-                # only construction of the host, and `register_auth_workers` then omits
-                # the generic worker so the topic has exactly one owner.
-                denial_notice_host=install_denial_notice_host() if settings.denial_notice_owner else None,
+                # R-004 (RN 623/2024 art. 14), DARK: the one owner of `send_denial_notice`
+                # records the honest manual-delivery state only when the deployment asks.
+                denial_written_notice=settings.auth_denial_written_notice,
                 tenant_id=settings.tenant_id,
                 kafka=state.kafka_publisher,
                 # Dossier-A2A seam (DL-0033/DL-0037): None when degraded — the raw dossier
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
+                inad_rn593_estrito=settings.inad_rn593_estrito,
+                publish_ledger=(
+                    PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.extask_publish_dedup and settings.database_url
+                    else None
+                ),
                 # WP-J1-03 exclusivity seam: when the dedicated PHI document-request bridge is
                 # installed, the generic harness must not also serve its topic.
                 document_request_host_installed=settings.document_request_host_installed,
+                pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)

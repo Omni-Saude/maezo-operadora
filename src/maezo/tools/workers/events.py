@@ -73,7 +73,7 @@ silently dropped) as an open, separately-tracked gap — consistent with the aut
 finding 3.
 
 ans.cron_due anchor (GAP-ANS-1/GAP-ANS-3, ported verbatim from the donor for fidelity): when
-`event_type == "ans.cron_due"` (SP-OP-ANS-CRON-001's 5 timer branches, the only BPMN family that
+`event_type == "ans.cron_due"` (SP-OP-ANS-CRON-001's timer branches, the only BPMN family that
 sets this literal), the handler additionally stamps `payload["ans_cron_reference_date_iso"]` — the
 UTC date of the instant this serviceTask executes, captured ONCE here and sealed into the
 published fact (a BPMN `inputParameter` cannot carry "today"; only a worker can). Harmless
@@ -87,7 +87,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 import structlog
 
@@ -102,7 +102,7 @@ from maezo.platform.privacy.program_publication import (
     validate_program_publication,
     validate_program_publication_source,
 )
-from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
+from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError, WorkerFailureError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, TaskHandler, WorkerHarness
@@ -168,11 +168,12 @@ _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
 # SP-OP-ANS-CRON-001 contract: TimerStartEvent has no case/business key. Only these
-# fetched engine process/activity pairs publish its calendar fact (BPMN topology).
+# fetched engine process/activity pairs publish its calendar fact (BPMN topology). R-007: the SIP
+# definition was removed (RN 639/2025) and these 4 are `isExecutable="false"` until a COUNSEL
+# opinion anchors each one in a primary norm; kept so a re-enabled definition needs no code change.
 # Match exact source identities, never a prefix or caller-controlled event fields alone.
 _ANS_TIMER_PUBLICATION_SOURCES = frozenset(
     {
-        ("SP-OP-ANS-CRON-001-RN124SIP", "ST_PublishCronDueRn124Sip"),
         ("SP-OP-ANS-CRON-001-RN209", "ST_PublishCronDueRn209"),
         ("SP-OP-ANS-CRON-001-RN388", "ST_PublishCronDueRn388"),
         ("SP-OP-ANS-CRON-001-RN424TISS", "ST_PublishCronDueRn424Tiss"),
@@ -215,11 +216,28 @@ def _parse_payload_vars(raw: Any) -> list[str]:
     return []
 
 
+class PublishLedger(Protocol):
+    """Durable once-only ledger for the publish effect (satisfied by
+    `platform.driver_idempotency.PostgresDriverIdempotencyRegistry`)."""
+
+    async def claim(self, key: str) -> bool: ...
+    async def is_processed(self, key: str) -> bool: ...
+    async def mark_processed(self, key: str) -> None: ...
+    async def release(self, key: str) -> None: ...
+
+
+def publish_ledger_key(tenant: str, task_id: str) -> str:
+    """Ledger key of one external task's publish effect. `task_id` is the engine's own id (stable
+    across lock-expiry redeliveries of the same task; carries no PHI)."""
+    return f"extask-publish:{tenant or '-'}:{task_id}"
+
+
 def make_publish_event_handler(
     kafka: KafkaPublisher | None,
     *,
     bpmn_error_topics: frozenset[str] = frozenset(),
     deployment_tenant_id: str = "",
+    publish_ledger: PublishLedger | None = None,
 ) -> TaskHandler:
     """Create the handler for `operadora.events.publish`.
 
@@ -411,6 +429,27 @@ def make_publish_event_handler(
         # per-entity ordering). The hoist above the `try` is preserved verbatim for the reason the
         # paragraph above gives.
         message_key = partition_key_for_task(task, str(event_topic), payload)
+        # Redelivery dedup (forensic audit F-092; ADR-0024 claim/commit protocol). Without a ledger
+        # the behaviour is unchanged. With one: a task redelivered after its effect was sealed is
+        # completed WITHOUT a second publish; a redelivery while the first attempt is still in
+        # flight is reported back to the engine as a retryable failure, never as "published".
+        ledger_key = publish_ledger_key(deployment_tenant_id, task.task_id) if publish_ledger else ""
+        if publish_ledger is not None and not await publish_ledger.claim(ledger_key):
+            if await publish_ledger.is_processed(ledger_key):
+                logger.info(
+                    "event_publish_deduplicated",
+                    event_topic=event_topic,
+                    task_id=task.task_id,
+                    process_instance_id=task.process_instance_id,
+                )
+                return {
+                    "event_published": True,
+                    "event_publish_deduplicated": True,
+                    "event_topic": str(event_topic),
+                }
+            raise WorkerFailureError(
+                f"publish of {event_topic} for task {task.task_id} still in flight on another attempt"
+            )
         try:
             event_delivered = await kafka.publish(
                 str(event_topic),
@@ -425,6 +464,8 @@ def make_publish_event_handler(
                 business_key=task.business_key,
                 error=str(exc),
             )
+            if publish_ledger is not None:
+                await publish_ledger.release(ledger_key)
             if str(event_topic) in bpmn_error_topics:
                 # GAP-ESC-5: opt-in topic (module docstring) -> BPMN error catchable by a
                 # boundaryEvent.
@@ -433,6 +474,12 @@ def make_publish_event_handler(
                     f"Falha ao publicar evento {event_topic}: {exc}",
                 ) from exc
             raise  # Pre-existing behavior preserved for every non-opt-in topic (zero regression).
+
+        if publish_ledger is not None:
+            if event_delivered:
+                await publish_ledger.mark_processed(ledger_key)
+            else:
+                await publish_ledger.release(ledger_key)
 
         if not event_delivered:
             # t2-notify-integrity (false-success fix): the producer SWALLOWED a best-effort
@@ -510,5 +557,6 @@ def register_events_workers(
             kafka,
             bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS,
             deployment_tenant_id=deployment_tenant_id,
+            publish_ledger=seams.get("publish_ledger"),
         ),
     )
