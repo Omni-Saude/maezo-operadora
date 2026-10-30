@@ -16,10 +16,11 @@ A DMN e a fonte unica da regra (AGENTS.md regra 5); o contrato espelha a DMN.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+
+from maezo.platform.xml_safe import parse_xml_without_dtd
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DMN_DIR = _ROOT / "spec" / "processes" / "dmn"
@@ -35,7 +36,7 @@ def _horas(iso: str) -> int:
 
 
 def _regras(dmn_file: str) -> list[dict[str, str]]:
-    root = ET.parse(_DMN_DIR / dmn_file).getroot()  # noqa: S314 - spec do proprio repo
+    root = parse_xml_without_dtd((_DMN_DIR / dmn_file).read_bytes())
     table = root.find(".//dmn:decisionTable", _NS)
     assert table is not None
     names = [o.get("name", "") for o in table.findall("dmn:output", _NS)]
