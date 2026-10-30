@@ -18,16 +18,16 @@
 | Nenhum dinheiro se move: o pagamento só é registrado | `src/maezo/tools/workers/reembolso.py:971` (`REGISTERED_PENDING_CNAB`) |
 | Resolvedor de teto fail-closed | `src/maezo/tools/workers/ceilings.py:213` (`within_l2_ceiling`) |
 | Precedente AUTH: teto de R$ 500, escolhido sobre a distribuição real das guias (72% das guias com valor) | `spec/policies/autonomy/tenants-amh.yaml:7` e seguintes |
-| Lições do AUTH que este teto herda: valor ausente/zero nunca satisfaz o teto; arredondamento para cima | `src/maezo/tools/workers/auth.py:299` (`_FIN_VALOR_ZERO`); `src/maezo/tools/workers/ceilings.py:259` (`math.ceil`) |
+| Lições do AUTH que este teto herda: valor ausente/zero nunca satisfaz o teto; arredondamento para cima | `src/maezo/tools/workers/auth.py:299` (`_FIN_VALOR_ZERO`); `src/maezo/tools/workers/auth.py:259` (`math.ceil`, em `_ceiling_valor_cents`) |
 
 **PR #1074 (REEMBOLSO v2, aprovado pelo dono em 2026-10-30):** passa 100% dos pedidos para análise humana. A faixa automática fica **adiada, não abolida**. Os critérios contratuais por beneficiário (contratos no Tasy / lake AMH, via contrato canônico AMH, ADR-0037) estão em construção em paralelo.
 
 ## 2. Moldura regulatória (fontes primárias; detalhes na revisão do #1074)
 
-- **Lei 9.656/1998, art. 12, VI** e **RN 566/2022, art. 10 §1º:** o reembolso respeita os limites contratuais e é pago em até 30 dias.
-- **RN 529/2022, art. 5º, I, n:** pagar acima do valor da despesa é sinal de alerta de lavagem de dinheiro. Por isso o pagamento nunca excede a despesa.
-- **Aprovação INTEGRAL automática:** não há vedação em texto primário.
-- **Parcial, redução e negativa:** humanas. A política L0 `hard` do repo exige isso. Para mérito clínico, a Lei 12.842/2013, art. 5º, II e a RN 424 também. Para negativa: termo motivado (RN 623, art. 14), reanálise pela Ouvidoria (art. 16) e revisão a pedido (LGPD, art. 20).
+- **Lei 9.656/1998, art. 12, VI** (urgência/emergência fora da rede: limites contratuais, prazo de 30 dias) e **RN 566/2022, art. 10** (caput: reembolso integral em até 30 dias quando há descumprimento dos arts. 4º–6º; §1º: em livre escolha, reembolso nos limites do contrato). Para a consulta eletiva em livre escolha (fase 1), o prazo é o do contrato e do timer P30D já modelado (REG-1.5), não o do §1º.
+- **RN 529/2022, art. 5º, I, n:** reembolso em valor superior ao valor declarado no contrato é indício de lavagem de dinheiro (Lei 9.613). A alínea m (pagamento sem documentação comprobatória) também se aplica. Por isso o valor aprovado nunca excede o limite contratual. Não exceder a despesa é regra de desenho deste documento, não texto da alínea.
+- **Aprovação INTEGRAL automática:** leitura do orquestrador, não verificada pelo jurídico, de que não há vedação em texto primário. Depende do parecer (#1081, §3.7 d).
+- **Parcial, redução e negativa:** humanas. O guard `ERR_REEMBOLSO_DENIAL_NOT_HUMAN` do contrato SP-OP-REEMBOLSO-001 exige isso (worker `send_reembolso_denial`); no mérito clínico, a negativa é `authorization_denial` (L0 hard), e a Lei 12.842/2013, art. 5º, II e a RN 424 também se aplicam. Para negativa: termo motivado (RN 623, art. 14) e reanálise pela Ouvidoria (art. 16). A LGPD, art. 20 (revisão de decisão unicamente automatizada) alcança a própria faixa automática (aprovação e roteamento), não a negativa humana.
 - **Itens do art. 10-B da Lei 9.656** (bolsas de colostomia e correlatos) não podem ter limite de valor. Ficam fora da faixa automática.
 
 ## 3. Proposta do orquestrador, rígida, a pedido do dono (não vinculante)
@@ -101,3 +101,5 @@
 - **Decisor (dono):** [nome]   **Data:** [  ]   **Assinatura:** [  ]
 - **Atuária:** [nome]   **Data:** [  ]   **Assinatura:** [  ]
 - **Jurídico (ciência sobre tipos elegíveis):** [nome]   **Data:** [  ]
+
+**Fora do escopo desta decisão (seguem abertos):** a regra de overpay, a alçada e a segregação de funções do PAGTO (aprovador ≠ solicitante; `UT_AprovacaoComite`), e as medidas de adequação M-1 citadas na DEC-26. Elas ficam nos itens R-092 e R-076 do roadmap. Assinar este bloco **não** fecha esses pontos.
