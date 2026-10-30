@@ -207,6 +207,7 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
       <bpmn:incoming>Flow_GW_Pendente</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_Corrigir</bpmn:incoming>
       <bpmn:incoming>Flow_AssembleIncompleto_Corrigir</bpmn:incoming>
+      <bpmn:incoming>Flow_GWNack_Retransmitir</bpmn:incoming>
       <bpmn:outgoing>Flow_Corrigir_Calendar</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -316,6 +317,7 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       <bpmn:incoming>Flow_Deadline_Notify</bpmn:incoming>
       <bpmn:incoming>Flow_DeadlinePendencia_Notify</bpmn:incoming>
       <bpmn:incoming>Flow_DeadlineJuridico_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_DeadlineNack_Notify</bpmn:incoming>
       <bpmn:outgoing>Flow_Notify_PubDeadline</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_PublishDeadlineRisk" name="Publicar evento: anssubmit.deadline_risk"
@@ -342,20 +344,37 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     </bpmn:boundaryEvent>
     <bpmn:userTask id="UT_CoordenacaoEnvioAssume" name="Coordenacao regulatoria assume o envio"
                    camunda:candidateGroups="coordenacao-regulatorio">
-      <bpmn:documentation>Escalation path do prazo de calendario estourado: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da revisao (decisao de envio continua HUMANA — nunca envio automatico por timeout). Saidas: decisao_envio in {APROVAR_ENVIO, ADIAR_ENVIO}; APROVAR_ENVIO exige revisor_id. GAP-ANS-4: UNICO ponto de escalada de "SLA de calendario estourado" do contrato (§candidate-groups coordenacao-regulatorio) — reusado tambem pelo estouro de BT_DueDatePendencia (UT_CorrigirPendenciaEnvio) e BT_DueDateJuridico (UT_RevisarEnvioJuridico), alem do estouro original de BT_DueDate (UT_RevisarEnvio).</bpmn:documentation>
+      <bpmn:documentation>Escalation path do prazo de calendario estourado: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da revisao (decisao de envio continua HUMANA — nunca envio automatico por timeout). Saidas: decisao_envio in {APROVAR_ENVIO, ADIAR_ENVIO}; APROVAR_ENVIO exige revisor_id. GAP-ANS-4: UNICO ponto de escalada de "SLA de calendario estourado" do contrato (§candidate-groups coordenacao-regulatorio) — reusado tambem pelo estouro de BT_DueDatePendencia (UT_CorrigirPendenciaEnvio) e BT_DueDateJuridico (UT_RevisarEnvioJuridico), alem do estouro original de BT_DueDate (UT_RevisarEnvio). R-066 (F-138): tambem recebe o default de GW_DecisaoEnvio — decisao_envio ausente/desconhecida ou ADIAR_ENVIO sem justificativa_adiamento nao vira desfecho; a coordenacao decide de novo, com a mesma exigencia.</bpmn:documentation>
       <bpmn:incoming>Flow_DueDate_UTCoord</bpmn:incoming>
       <bpmn:incoming>Flow_DueDatePendencia_UTCoord</bpmn:incoming>
       <bpmn:incoming>Flow_DueDateJuridico_UTCoord</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_Invalida</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
     </bpmn:userTask>
 
-    <bpmn:exclusiveGateway id="GW_DecisaoEnvio" name="Decisao de envio (humana)" default="Flow_GWDec_Adiar">
+    <!-- R-066 (bpmnlint no-gateway-join-fork): o merge das tres User Tasks que decidem o envio
+         fica num gateway proprio; GW_DecisaoEnvio so faz o split. Semantica identica. -->
+    <bpmn:exclusiveGateway id="GW_MergeDecisaoEnvio" name="Decisao humana registrada">
       <bpmn:incoming>Flow_UTRevisar_GW</bpmn:incoming>
       <bpmn:incoming>Flow_UTJuridico_GW</bpmn:incoming>
       <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_MergeDecisao_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- R-066 (F-138): a regra do contrato "justificativa_adiamento obrigatoria se
+         decisao_envio==ADIAR_ENVIO" e validada PELO ENGINE, nao so no formulario do portal
+         (contornavel por chamada direta a REST API). Antes, o default deste gateway era o
+         adiamento: decisao ausente, desconhecida ou ADIAR sem justificativa virava
+         desfecho adiado_humano (nao-envio no prazo sem motivo registrado). Agora o adiamento e
+         CONDICIONAL e o default devolve o caso a coordenacao regulatoria (User Task humana, o
+         unico ponto de escalada do contrato) — nunca um terminal. execution.getVariable: uma
+         conclusao sem a variavel cai no default em vez de lancar "Cannot resolve identifier". -->
+    <bpmn:exclusiveGateway id="GW_DecisaoEnvio" name="Decisao de envio (humana)" default="Flow_GWDec_Invalida">
+      <bpmn:incoming>Flow_MergeDecisao_GW</bpmn:incoming>
       <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Corrigir</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Adiar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Invalida</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
     <!-- Ramo APROVAR_ENVIO: ato vinculante GATED por worker (ERR_ANS_SUBMIT_NOT_HUMAN) -->
@@ -385,9 +404,15 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     </bpmn:serviceTask>
 
     <!-- Corrida: ACK da ANS chega OU timer de aguardo de ACK expira -->
-    <bpmn:eventBasedGateway id="GW_AguardarAck" name="Aguardar ACK da ANS">
+    <!-- R-066 (bpmnlint no-gateway-join-fork): envio e retransmissao convergem num merge
+         proprio antes da corrida do eventBasedGateway. Semantica identica. -->
+    <bpmn:exclusiveGateway id="GW_MergeAguardarAck" name="Envio transmitido">
       <bpmn:incoming>Flow_PubSubmitted_WaitAck</bpmn:incoming>
       <bpmn:incoming>Flow_PubRetransmitido_WaitAck</bpmn:incoming>
+      <bpmn:outgoing>Flow_MergeAck_WaitAck</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:eventBasedGateway id="GW_AguardarAck" name="Aguardar ACK da ANS">
+      <bpmn:incoming>Flow_MergeAck_WaitAck</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_AckMsg</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_AckTimer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -396,9 +421,14 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       <bpmn:outgoing>Flow_AckMsg_Track</bpmn:outgoing>
       <bpmn:messageEventDefinition id="MED_AckRecebido" messageRef="Msg_AnsAckReceived"/>
     </bpmn:intermediateCatchEvent>
+    <!-- R-066 (F-137): expirado o aguardo, o caso vai a UT_TratarNack (contrato §SLAs, "Aguardo
+         de ACK": "expirado -> UT_TratarNack/alerta"), nao mais direto ao terminal
+         enviado_pendente_ack. O humano decide: registrar (desfecho enviado_pendente_ack, o envio
+         saiu e o ACK nao veio) ou corrigir e retransmitir. Duracao P1D = a do contrato
+         (DRAFT/verify), sem valor novo. -->
     <bpmn:intermediateCatchEvent id="ICE_AguardarAck" name="Aguardo de ACK (P1D — DRAFT/verify)">
       <bpmn:incoming>Flow_Wait_AckTimer</bpmn:incoming>
-      <bpmn:outgoing>Flow_AckTimer_PubPendente</bpmn:outgoing>
+      <bpmn:outgoing>Flow_AckTimer_UTNack</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_AguardarAck">
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P1D</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
@@ -438,7 +468,8 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       <bpmn:incoming>Flow_PubCompletedAck_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- ACK nao chegou no prazo: fecha como enviado_pendente_ack (nao trava indefinidamente) -->
+    <!-- ACK nao chegou no prazo e o humano registrou em UT_TratarNack: fecha como
+         enviado_pendente_ack (o envio saiu; nao trava indefinidamente) -->
     <bpmn:serviceTask id="ST_PublishCompletedPendente" name="Publicar evento: anssubmit.completed (enviado_pendente_ack)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -448,7 +479,7 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
           <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_AckTimer_PubPendente</bpmn:incoming>
+      <bpmn:incoming>Flow_GWNack_PendenteAck</bpmn:incoming>
       <bpmn:outgoing>Flow_PubPendente_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_EnviadoPendenteAck" name="Enviado, ACK pendente (nao trava)">
@@ -569,12 +600,48 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_TratarNack" name="Tratar NACK da ANS (humano)"
                    camunda:candidateGroups="regulatorio-ans">
-      <bpmn:documentation>Retry esgotado: o humano do grupo regulatorio-ans trata o NACK (corrige e retransmite, ou registra falha). Nunca encerra silenciosamente. Saida: decisao_nack in {retransmitir_manual, registrar_falha}.</bpmn:documentation>
+      <bpmn:documentation>Chega por dois caminhos: retry esgotado (status_envio=nack, apos anssubmit.failed) ou ACK nao recebido no prazo de ICE_AguardarAck (status_envio=enviado|retransmitido). O humano do grupo regulatorio-ans trata o caso. Saida: decisao_nack in {retransmitir_manual, registrar_falha}, CONSUMIDA pelo engine em GW_DecisaoNack (R-066, F-138): retransmitir_manual -> UT_CorrigirPendenciaEnvio (corrige e volta ao ciclo de reavaliacao + revisao humana; nenhum novo envio sem nova assinatura); registrar_falha -> anssubmit.completed (falha_retransmissao se status_envio=nack; enviado_pendente_ack se o envio saiu e o ACK nao veio) -> fim; decisao ausente/invalida -> a mesma User Task reabre. Alerta de prazo nao-interruptivo BT_DeadlineRiskNack (sla.sla_alerta, DMN ans_sla). Nunca encerra silenciosamente.</bpmn:documentation>
       <bpmn:incoming>Flow_PubFailed_UTNack</bpmn:incoming>
-      <bpmn:outgoing>Flow_UTNack_End</bpmn:outgoing>
+      <bpmn:incoming>Flow_AckTimer_UTNack</bpmn:incoming>
+      <bpmn:incoming>Flow_GWNack_Invalida</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTNack_GW</bpmn:outgoing>
     </bpmn:userTask>
+
+    <!-- R-066: alerta nao-interruptivo de risco de prazo tambem na espera humana do NACK/ACK
+         (mesma duracao relativa das demais User Tasks: sla.sla_alerta de ans_sla, resolvida por
+         BRT_AnsSla em todo caminho que chega ao envio). Converge no MESMO ST_NotificarDeadlineRisk. -->
+    <bpmn:boundaryEvent id="BT_DeadlineRiskNack" name="Alerta de risco de prazo (sla_alerta)" cancelActivity="false" attachedToRef="UT_TratarNack">
+      <bpmn:outgoing>Flow_DeadlineNack_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DeadlineRiskNack">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- R-066 (F-138): decisao_nack deixa de ser so registro de formulario. Condicoes mutuamente
+         exclusivas via execution.getVariable (variavel ausente cai no default, nunca lanca). -->
+    <bpmn:exclusiveGateway id="GW_DecisaoNack" name="Tratamento do NACK (humano)" default="Flow_GWNack_Invalida">
+      <bpmn:incoming>Flow_UTNack_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWNack_Retransmitir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWNack_PendenteAck</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWNack_Falha</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWNack_Invalida</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- R-066 (F-071): o desfecho falha_retransmissao e publicado antes do fim (ADR-0007). -->
+    <bpmn:serviceTask id="ST_PublishCompletedFalha" name="Publicar evento: anssubmit.completed (falha_retransmissao)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">falha_retransmissao</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,nack_motivo</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWNack_Falha</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubFalha_End</bpmn:outgoing>
+    </bpmn:serviceTask>
     <bpmn:endEvent id="End_FalhaRetransmissao" name="Falha de retransmissao (tratada por humano)">
-      <bpmn:incoming>Flow_UTNack_End</bpmn:incoming>
+      <bpmn:incoming>Flow_PubFalha_End</bpmn:incoming>
     </bpmn:endEvent>
 
     <!-- Ramo ADIAR_ENVIO: nao-envio no prazo como decisao humana registrada (nunca automatico) -->
@@ -613,8 +680,8 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_GW_Revisao" name="SEGUE_ENVIO | REVISAO_HUMANA (default — sempre humano)" sourceRef="GW_Admissibilidade" targetRef="ST_PrepararDossie"/>
     <bpmn:sequenceFlow id="Flow_Corrigir_Calendar" sourceRef="UT_CorrigirPendenciaEnvio" targetRef="BRT_Calendario"/>
     <bpmn:sequenceFlow id="Flow_Dossie_UTRevisar" sourceRef="ST_PrepararDossie" targetRef="UT_RevisarEnvio"/>
-    <bpmn:sequenceFlow id="Flow_UTRevisar_GW" sourceRef="UT_RevisarEnvio" targetRef="GW_DecisaoEnvio"/>
-    <bpmn:sequenceFlow id="Flow_UTJuridico_GW" sourceRef="UT_RevisarEnvioJuridico" targetRef="GW_DecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_UTRevisar_GW" sourceRef="UT_RevisarEnvio" targetRef="GW_MergeDecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_UTJuridico_GW" sourceRef="UT_RevisarEnvioJuridico" targetRef="GW_MergeDecisaoEnvio"/>
     <bpmn:sequenceFlow id="Flow_Deadline_Notify" sourceRef="BT_DeadlineRisk" targetRef="ST_NotificarDeadlineRisk"/>
     <bpmn:sequenceFlow id="Flow_Notify_PubDeadline" sourceRef="ST_NotificarDeadlineRisk" targetRef="ST_PublishDeadlineRisk"/>
     <bpmn:sequenceFlow id="Flow_PubDeadline_End" sourceRef="ST_PublishDeadlineRisk" targetRef="End_DeadlineRiskNotificado"/>
@@ -626,447 +693,599 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_DueDatePendencia_UTCoord" sourceRef="BT_DueDatePendencia" targetRef="UT_CoordenacaoEnvioAssume"/>
     <bpmn:sequenceFlow id="Flow_DeadlineJuridico_Notify" sourceRef="BT_DeadlineRiskJuridico" targetRef="ST_NotificarDeadlineRisk"/>
     <bpmn:sequenceFlow id="Flow_DueDateJuridico_UTCoord" sourceRef="BT_DueDateJuridico" targetRef="UT_CoordenacaoEnvioAssume"/>
-    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoEnvioAssume" targetRef="GW_DecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoEnvioAssume" targetRef="GW_MergeDecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_MergeDecisao_GW" name="decisao registrada" sourceRef="GW_MergeDecisaoEnvio" targetRef="GW_DecisaoEnvio"/>
     <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR_ENVIO (somente humano)" sourceRef="GW_DecisaoEnvio" targetRef="ST_SubmeterEnvio">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_envio == 'APROVAR_ENVIO'}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_envio') == 'APROVAR_ENVIO'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWDec_Corrigir" name="CORRIGIR_PENDENCIA" sourceRef="GW_DecisaoEnvio" targetRef="UT_CorrigirPendenciaEnvio">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_envio == 'CORRIGIR_PENDENCIA'}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_envio') == 'CORRIGIR_PENDENCIA'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWDec_Adiar" name="ADIAR_ENVIO (default — nao-envio humano)" sourceRef="GW_DecisaoEnvio" targetRef="ST_PublishAdiado"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Adiar" name="ADIAR_ENVIO com justificativa (nao-envio humano)" sourceRef="GW_DecisaoEnvio" targetRef="ST_PublishAdiado">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_envio') == 'ADIAR_ENVIO' and execution.getVariable('justificativa_adiamento') != null and execution.getVariable('justificativa_adiamento').trim() != ''}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Invalida" name="decisao ausente/invalida ou ADIAR sem justificativa (default — coordenacao)" sourceRef="GW_DecisaoEnvio" targetRef="UT_CoordenacaoEnvioAssume"/>
     <bpmn:sequenceFlow id="Flow_Submeter_PubSubmitted" sourceRef="ST_SubmeterEnvio" targetRef="ST_PublishSubmitted"/>
     <bpmn:sequenceFlow id="Flow_SubmitNack_Retry" sourceRef="BE_SubmitNack" targetRef="SUB_RetryEnvio"/>
-    <bpmn:sequenceFlow id="Flow_PubSubmitted_WaitAck" sourceRef="ST_PublishSubmitted" targetRef="GW_AguardarAck"/>
-    <bpmn:sequenceFlow id="Flow_Wait_AckMsg" sourceRef="GW_AguardarAck" targetRef="ICE_AckRecebido"/>
-    <bpmn:sequenceFlow id="Flow_Wait_AckTimer" sourceRef="GW_AguardarAck" targetRef="ICE_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_PubSubmitted_WaitAck" sourceRef="ST_PublishSubmitted" targetRef="GW_MergeAguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_MergeAck_WaitAck" name="aguardar ACK" sourceRef="GW_MergeAguardarAck" targetRef="GW_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_Wait_AckMsg" name="ACK recebido" sourceRef="GW_AguardarAck" targetRef="ICE_AckRecebido"/>
+    <bpmn:sequenceFlow id="Flow_Wait_AckTimer" name="prazo do ACK" sourceRef="GW_AguardarAck" targetRef="ICE_AguardarAck"/>
     <bpmn:sequenceFlow id="Flow_AckMsg_Track" sourceRef="ICE_AckRecebido" targetRef="ST_TrackProtocol"/>
-    <bpmn:sequenceFlow id="Flow_AckTimer_PubPendente" sourceRef="ICE_AguardarAck" targetRef="ST_PublishCompletedPendente"/>
+    <bpmn:sequenceFlow id="Flow_AckTimer_UTNack" sourceRef="ICE_AguardarAck" targetRef="UT_TratarNack"/>
     <bpmn:sequenceFlow id="Flow_Track_PubAcked" sourceRef="ST_TrackProtocol" targetRef="ST_PublishAcked"/>
     <bpmn:sequenceFlow id="Flow_PubAcked_PubCompleted" sourceRef="ST_PublishAcked" targetRef="ST_PublishCompletedAck"/>
     <bpmn:sequenceFlow id="Flow_PubCompletedAck_End" sourceRef="ST_PublishCompletedAck" targetRef="End_EnviadoAck"/>
     <bpmn:sequenceFlow id="Flow_PubPendente_End" sourceRef="ST_PublishCompletedPendente" targetRef="End_EnviadoPendenteAck"/>
     <bpmn:sequenceFlow id="Flow_Sub_PubRetransmitido" sourceRef="SUB_RetryEnvio" targetRef="ST_PublishRetransmitido"/>
     <bpmn:sequenceFlow id="Flow_RetryEsgotado_PubFailed" sourceRef="BE_RetryEsgotado" targetRef="ST_PublishFailed"/>
-    <bpmn:sequenceFlow id="Flow_PubRetransmitido_WaitAck" sourceRef="ST_PublishRetransmitido" targetRef="GW_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_PubRetransmitido_WaitAck" sourceRef="ST_PublishRetransmitido" targetRef="GW_MergeAguardarAck"/>
     <bpmn:sequenceFlow id="Flow_PubFailed_UTNack" sourceRef="ST_PublishFailed" targetRef="UT_TratarNack"/>
-    <bpmn:sequenceFlow id="Flow_UTNack_End" sourceRef="UT_TratarNack" targetRef="End_FalhaRetransmissao"/>
+    <bpmn:sequenceFlow id="Flow_UTNack_GW" sourceRef="UT_TratarNack" targetRef="GW_DecisaoNack"/>
+    <bpmn:sequenceFlow id="Flow_DeadlineNack_Notify" sourceRef="BT_DeadlineRiskNack" targetRef="ST_NotificarDeadlineRisk"/>
+    <bpmn:sequenceFlow id="Flow_GWNack_Retransmitir" name="retransmitir_manual (corrige e re-assina)" sourceRef="GW_DecisaoNack" targetRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_nack') == 'retransmitir_manual'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWNack_PendenteAck" name="registrar_falha (envio saiu, ACK nao veio)" sourceRef="GW_DecisaoNack" targetRef="ST_PublishCompletedPendente">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_nack') == 'registrar_falha' and (execution.getVariable('status_envio') == 'enviado' or execution.getVariable('status_envio') == 'retransmitido')}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWNack_Falha" name="registrar_falha (NACK definitivo)" sourceRef="GW_DecisaoNack" targetRef="ST_PublishCompletedFalha">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_nack') == 'registrar_falha' and execution.getVariable('status_envio') != 'enviado' and execution.getVariable('status_envio') != 'retransmitido'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWNack_Invalida" name="decisao ausente/invalida (default — reabre)" sourceRef="GW_DecisaoNack" targetRef="UT_TratarNack"/>
+    <bpmn:sequenceFlow id="Flow_PubFalha_End" sourceRef="ST_PublishCompletedFalha" targetRef="End_FalhaRetransmissao"/>
     <bpmn:sequenceFlow id="Flow_PubAdiado_End" sourceRef="ST_PublishAdiado" targetRef="End_AdiadoHumano"/>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-SUBMIT-001">
     <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-SUBMIT-001" bpmnElement="SP-OP-ANS-SUBMIT-001">
       <bpmndi:BPMNShape id="Shape_Start_DespachoEnvio" bpmnElement="Start_DespachoEnvio">
-        <dc:Bounds x="438" y="74" width="36" height="36"/>
+        <dc:Bounds x="232" y="342" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="202" y="384" width="96" height="84"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
-        <dc:Bounds x="952" y="52" width="100" height="80"/>
+        <dc:Bounds x="390" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Calendario" bpmnElement="BRT_Calendario">
-        <dc:Bounds x="1132" y="52" width="100" height="80"/>
+        <dc:Bounds x="580" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_AnsSla" bpmnElement="BRT_AnsSla">
-        <dc:Bounds x="1312" y="52" width="100" height="80"/>
+        <dc:Bounds x="770" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_AssembleDataset" bpmnElement="ST_AssembleDataset">
-        <dc:Bounds x="1492" y="52" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_AssembleDatasetIncompleto" bpmnElement="BE_AssembleDatasetIncompleto">
-        <dc:Bounds x="1540" y="114" width="36" height="36"/>
+        <dc:Bounds x="960" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_ValidateSchema" bpmnElement="ST_ValidateSchema">
-        <dc:Bounds x="1672" y="52" width="100" height="80"/>
+        <dc:Bounds x="1150" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishGenerated" bpmnElement="ST_PublishGenerated">
-        <dc:Bounds x="1852" y="52" width="100" height="80"/>
+        <dc:Bounds x="1340" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
-        <dc:Bounds x="2032" y="52" width="100" height="80"/>
+        <dc:Bounds x="1530" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
-        <dc:Bounds x="2032" y="67" width="50" height="50"/>
+        <dc:Bounds x="1745" y="335" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1722" y="301" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_CorrigirPendenciaEnvio" bpmnElement="UT_CorrigirPendenciaEnvio">
-        <dc:Bounds x="2652" y="52" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskPendencia" bpmnElement="BT_DeadlineRiskPendencia">
-        <dc:Bounds x="2667" y="114" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DueDatePendencia" bpmnElement="BT_DueDatePendencia">
-        <dc:Bounds x="2700" y="114" width="36" height="36"/>
+        <dc:Bounds x="1815" y="190" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_RevisarEnvioJuridico" bpmnElement="UT_RevisarEnvioJuridico">
-        <dc:Bounds x="2162" y="52" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskJuridico" bpmnElement="BT_DeadlineRiskJuridico">
-        <dc:Bounds x="2177" y="114" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DueDateJuridico" bpmnElement="BT_DueDateJuridico">
-        <dc:Bounds x="2210" y="114" width="36" height="36"/>
+        <dc:Bounds x="2195" y="60" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
-        <dc:Bounds x="2162" y="196" width="100" height="80"/>
+        <dc:Bounds x="1910" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_RevisarEnvio" bpmnElement="UT_RevisarEnvio">
-        <dc:Bounds x="2342" y="196" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DeadlineRisk" bpmnElement="BT_DeadlineRisk">
-        <dc:Bounds x="2357" y="258" width="36" height="36"/>
+        <dc:Bounds x="2100" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_NotificarDeadlineRisk" bpmnElement="ST_NotificarDeadlineRisk">
-        <dc:Bounds x="406" y="196" width="100" height="80"/>
+        <dc:Bounds x="1910" y="710" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishDeadlineRisk" bpmnElement="ST_PublishDeadlineRisk">
-        <dc:Bounds x="952" y="196" width="100" height="80"/>
+        <dc:Bounds x="1910" y="840" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_DeadlineRiskNotificado" bpmnElement="End_DeadlineRiskNotificado">
-        <dc:Bounds x="1164" y="218" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_DueDate" bpmnElement="BT_DueDate">
-        <dc:Bounds x="2390" y="258" width="36" height="36"/>
+        <dc:Bounds x="1942" y="992" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1912" y="1034" width="96" height="70"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_CoordenacaoEnvioAssume" bpmnElement="UT_CoordenacaoEnvioAssume">
-        <dc:Bounds x="406" y="328" width="100" height="80"/>
+        <dc:Bounds x="2290" y="580" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_MergeDecisaoEnvio" bpmnElement="GW_MergeDecisaoEnvio" isMarkerVisible="true">
+        <dc:Bounds x="2315" y="335" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2292" y="287" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_DecisaoEnvio" bpmnElement="GW_DecisaoEnvio" isMarkerVisible="true">
-        <dc:Bounds x="2522" y="211" width="50" height="50"/>
+        <dc:Bounds x="2505" y="335" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2482" y="287" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SubmeterEnvio" bpmnElement="ST_SubmeterEnvio">
-        <dc:Bounds x="2652" y="196" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_SubmitNack" bpmnElement="BE_SubmitNack">
-        <dc:Bounds x="2684" y="258" width="36" height="36"/>
+        <dc:Bounds x="2670" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishSubmitted" bpmnElement="ST_PublishSubmitted">
-        <dc:Bounds x="2832" y="196" width="100" height="80"/>
+        <dc:Bounds x="2860" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_AguardarAck" bpmnElement="GW_AguardarAck" isMarkerVisible="true">
-        <dc:Bounds x="3012" y="343" width="50" height="50"/>
+      <bpmndi:BPMNShape id="Shape_GW_MergeAguardarAck" bpmnElement="GW_MergeAguardarAck" isMarkerVisible="true">
+        <dc:Bounds x="3075" y="335" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3052" y="301" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarAck" bpmnElement="GW_AguardarAck">
+        <dc:Bounds x="3265" y="335" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3242" y="301" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ICE_AckRecebido" bpmnElement="ICE_AckRecebido">
-        <dc:Bounds x="3142" y="350" width="36" height="36"/>
+        <dc:Bounds x="3462" y="342" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3432" y="384" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ICE_AguardarAck" bpmnElement="ICE_AguardarAck">
-        <dc:Bounds x="3142" y="615" width="36" height="36"/>
+        <dc:Bounds x="3462" y="472" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3432" y="514" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_TrackProtocol" bpmnElement="ST_TrackProtocol">
-        <dc:Bounds x="3258" y="328" width="100" height="80"/>
+        <dc:Bounds x="3620" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishAcked" bpmnElement="ST_PublishAcked">
-        <dc:Bounds x="3438" y="328" width="100" height="80"/>
+        <dc:Bounds x="3810" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishCompletedAck" bpmnElement="ST_PublishCompletedAck">
-        <dc:Bounds x="3618" y="328" width="100" height="80"/>
+        <dc:Bounds x="4000" y="320" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_EnviadoAck" bpmnElement="End_EnviadoAck">
-        <dc:Bounds x="3798" y="350" width="36" height="36"/>
+        <dc:Bounds x="4222" y="342" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4192" y="384" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishCompletedPendente" bpmnElement="ST_PublishCompletedPendente">
-        <dc:Bounds x="3258" y="593" width="100" height="80"/>
+        <dc:Bounds x="4760" y="580" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_EnviadoPendenteAck" bpmnElement="End_EnviadoPendenteAck">
-        <dc:Bounds x="3470" y="615" width="36" height="36"/>
+        <dc:Bounds x="4982" y="602" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4952" y="644" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_SUB_RetryEnvio" bpmnElement="SUB_RetryEnvio" isExpanded="true">
-        <dc:Bounds x="40" y="460" width="832" height="346"/>
+        <dc:Bounds x="2860" y="580" width="760" height="380"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Start_Retry" bpmnElement="Start_Retry">
-        <dc:Bounds x="70" y="522" width="36" height="36"/>
+        <dc:Bounds x="2932" y="642" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2902" y="684" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_RetransmitirEnvio" bpmnElement="ST_RetransmitirEnvio">
-        <dc:Bounds x="186" y="500" width="100" height="80"/>
+        <dc:Bounds x="3050" y="620" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_RetransmissaoOk" bpmnElement="GW_RetransmissaoOk" isMarkerVisible="true">
-        <dc:Bounds x="366" y="515" width="50" height="50"/>
+        <dc:Bounds x="3225" y="635" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3202" y="601" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RetryOk" bpmnElement="End_RetryOk">
-        <dc:Bounds x="528" y="522" width="36" height="36"/>
+        <dc:Bounds x="3382" y="642" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3352" y="684" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_RetryPolicy" bpmnElement="BRT_RetryPolicy">
-        <dc:Bounds x="496" y="620" width="100" height="80"/>
+        <dc:Bounds x="3200" y="720" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_ContinuarRetry" bpmnElement="GW_ContinuarRetry" isMarkerVisible="true">
-        <dc:Bounds x="676" y="635" width="50" height="50"/>
+        <dc:Bounds x="3375" y="735" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3352" y="687" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ICE_Backoff" bpmnElement="ICE_Backoff">
-        <dc:Bounds x="806" y="642" width="36" height="36"/>
+        <dc:Bounds x="3382" y="842" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3352" y="884" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RetryEsgotado" bpmnElement="End_RetryEsgotado">
-        <dc:Bounds x="806" y="740" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_RetryEsgotado" bpmnElement="BE_RetryEsgotado">
-        <dc:Bounds x="438" y="788" width="36" height="36"/>
+        <dc:Bounds x="3532" y="742" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3502" y="784" width="96" height="70"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishRetransmitido" bpmnElement="ST_PublishRetransmitido">
-        <dc:Bounds x="952" y="593" width="100" height="80"/>
+        <dc:Bounds x="3050" y="450" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishFailed" bpmnElement="ST_PublishFailed">
-        <dc:Bounds x="406" y="858" width="100" height="80"/>
+        <dc:Bounds x="3582" y="1100" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_TratarNack" bpmnElement="UT_TratarNack">
-        <dc:Bounds x="952" y="858" width="100" height="80"/>
+        <dc:Bounds x="4380" y="580" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoNack" bpmnElement="GW_DecisaoNack" isMarkerVisible="true">
+        <dc:Bounds x="4595" y="595" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4572" y="561" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCompletedFalha" bpmnElement="ST_PublishCompletedFalha">
+        <dc:Bounds x="4760" y="710" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_FalhaRetransmissao" bpmnElement="End_FalhaRetransmissao">
-        <dc:Bounds x="1164" y="880" width="36" height="36"/>
+        <dc:Bounds x="4982" y="732" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4952" y="774" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishAdiado" bpmnElement="ST_PublishAdiado">
-        <dc:Bounds x="2652" y="328" width="100" height="80"/>
+        <dc:Bounds x="2670" y="190" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_AdiadoHumano" bpmnElement="End_AdiadoHumano">
-        <dc:Bounds x="2864" y="350" width="36" height="36"/>
+        <dc:Bounds x="2892" y="212" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2862" y="254" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_AssembleDatasetIncompleto" bpmnElement="BE_AssembleDatasetIncompleto">
+        <dc:Bounds x="992" y="302" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="908" y="244" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskPendencia" bpmnElement="BT_DeadlineRiskPendencia">
+        <dc:Bounds x="1821" y="252" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1737" y="290" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDatePendencia" bpmnElement="BT_DueDatePendencia">
+        <dc:Bounds x="1873" y="252" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1903" y="290" width="96" height="70"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskJuridico" bpmnElement="BT_DeadlineRiskJuridico">
+        <dc:Bounds x="2201" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2117" y="160" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDateJuridico" bpmnElement="BT_DueDateJuridico">
+        <dc:Bounds x="2253" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2283" y="160" width="96" height="70"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRisk" bpmnElement="BT_DeadlineRisk">
+        <dc:Bounds x="2106" y="382" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2022" y="420" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDate" bpmnElement="BT_DueDate">
+        <dc:Bounds x="2158" y="382" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2188" y="420" width="96" height="84"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_SubmitNack" bpmnElement="BE_SubmitNack">
+        <dc:Bounds x="2702" y="382" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2618" y="420" width="96" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_RetryEsgotado" bpmnElement="BE_RetryEsgotado">
+        <dc:Bounds x="3578" y="942" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3608" y="980" width="96" height="42"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskNack" bpmnElement="BT_DeadlineRiskNack">
+        <dc:Bounds x="4386" y="642" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4302" y="680" width="96" height="56"/>
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_StartRetry_Retransmitir" bpmnElement="Flow_StartRetry_Retransmitir">
-        <di:waypoint x="106" y="540"/>
-        <di:waypoint x="186" y="540"/>
+        <di:waypoint x="2968" y="660"/>
+        <di:waypoint x="3050" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Retransmitir_GWOk" bpmnElement="Flow_Retransmitir_GWOk">
-        <di:waypoint x="286" y="540"/>
-        <di:waypoint x="366" y="540"/>
+        <di:waypoint x="3150" y="660"/>
+        <di:waypoint x="3225" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWOk_EndOk" bpmnElement="Flow_GWOk_EndOk">
-        <di:waypoint x="416" y="540"/>
-        <di:waypoint x="528" y="540"/>
+        <di:waypoint x="3275" y="660"/>
+        <di:waypoint x="3382" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWOk_Policy" bpmnElement="Flow_GWOk_Policy">
-        <di:waypoint x="416" y="540"/>
-        <di:waypoint x="456" y="540"/>
-        <di:waypoint x="456" y="660"/>
-        <di:waypoint x="496" y="660"/>
+        <di:waypoint x="3250" y="685"/>
+        <di:waypoint x="3250" y="720"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Policy_GWContinuar" bpmnElement="Flow_Policy_GWContinuar">
-        <di:waypoint x="596" y="660"/>
-        <di:waypoint x="676" y="660"/>
+        <di:waypoint x="3300" y="760"/>
+        <di:waypoint x="3375" y="760"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWContinuar_Backoff" bpmnElement="Flow_GWContinuar_Backoff">
-        <di:waypoint x="726" y="660"/>
-        <di:waypoint x="806" y="660"/>
+        <di:waypoint x="3400" y="785"/>
+        <di:waypoint x="3400" y="842"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Backoff_Retransmitir" bpmnElement="Flow_Backoff_Retransmitir">
-        <di:waypoint x="824" y="678"/>
-        <di:waypoint x="824" y="738"/>
-        <di:waypoint x="186" y="738"/>
-        <di:waypoint x="186" y="540"/>
+        <di:waypoint x="3400" y="878"/>
+        <di:waypoint x="3400" y="925"/>
+        <di:waypoint x="3100" y="925"/>
+        <di:waypoint x="3100" y="700"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWContinuar_Esgotado" bpmnElement="Flow_GWContinuar_Esgotado">
-        <di:waypoint x="726" y="660"/>
-        <di:waypoint x="766" y="660"/>
-        <di:waypoint x="766" y="758"/>
-        <di:waypoint x="806" y="758"/>
+        <di:waypoint x="3425" y="760"/>
+        <di:waypoint x="3532" y="760"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
-        <di:waypoint x="474" y="92"/>
-        <di:waypoint x="952" y="92"/>
+        <di:waypoint x="268" y="360"/>
+        <di:waypoint x="390" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Calendar" bpmnElement="Flow_PubReceived_Calendar">
-        <di:waypoint x="1052" y="92"/>
-        <di:waypoint x="1132" y="92"/>
+        <di:waypoint x="490" y="360"/>
+        <di:waypoint x="580" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Calendar_Sla" bpmnElement="Flow_Calendar_Sla">
-        <di:waypoint x="1232" y="92"/>
-        <di:waypoint x="1312" y="92"/>
+        <di:waypoint x="680" y="360"/>
+        <di:waypoint x="770" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Sla_Assemble" bpmnElement="Flow_Sla_Assemble">
-        <di:waypoint x="1412" y="92"/>
-        <di:waypoint x="1492" y="92"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_AssembleIncompleto_Corrigir" bpmnElement="Flow_AssembleIncompleto_Corrigir">
-        <di:waypoint x="1558" y="150"/>
-        <di:waypoint x="1558" y="210"/>
-        <di:waypoint x="2702" y="210"/>
-        <di:waypoint x="2702" y="132"/>
+        <di:waypoint x="870" y="360"/>
+        <di:waypoint x="960" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Assemble_Validate" bpmnElement="Flow_Assemble_Validate">
-        <di:waypoint x="1592" y="92"/>
-        <di:waypoint x="1672" y="92"/>
+        <di:waypoint x="1060" y="360"/>
+        <di:waypoint x="1150" y="360"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AssembleIncompleto_Corrigir" bpmnElement="Flow_AssembleIncompleto_Corrigir">
+        <di:waypoint x="1010" y="302"/>
+        <di:waypoint x="1010" y="230"/>
+        <di:waypoint x="1815" y="230"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Validate_Generated" bpmnElement="Flow_Validate_Generated">
-        <di:waypoint x="1772" y="92"/>
-        <di:waypoint x="1852" y="92"/>
+        <di:waypoint x="1250" y="360"/>
+        <di:waypoint x="1340" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Generated_Admiss" bpmnElement="Flow_Generated_Admiss">
-        <di:waypoint x="1952" y="92"/>
-        <di:waypoint x="2032" y="92"/>
+        <di:waypoint x="1440" y="360"/>
+        <di:waypoint x="1530" y="360"/>
       </bpmndi:BPMNEdge>
-      <!-- NOTE: GW_Admissibilidade and downstream DI elements need re-layout due to
-           ST_PublishGenerated insertion. DI sera refinado na promocao a FINAL. -->
       <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
-        <di:waypoint x="2132" y="92"/>
-        <di:waypoint x="2212" y="92"/>
+        <di:waypoint x="1630" y="360"/>
+        <di:waypoint x="1745" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendente" bpmnElement="Flow_GW_Pendente">
-        <di:waypoint x="2082" y="92"/>
-        <di:waypoint x="2652" y="92"/>
+        <di:waypoint x="1770" y="335"/>
+        <di:waypoint x="1770" y="230"/>
+        <di:waypoint x="1815" y="230"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_NipFiling" bpmnElement="Flow_GW_NipFiling">
-        <di:waypoint x="2082" y="92"/>
-        <di:waypoint x="2162" y="92"/>
+        <di:waypoint x="1770" y="335"/>
+        <di:waypoint x="1770" y="100"/>
+        <di:waypoint x="2195" y="100"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_Revisao" bpmnElement="Flow_GW_Revisao">
-        <di:waypoint x="2082" y="92"/>
-        <di:waypoint x="2122" y="92"/>
-        <di:waypoint x="2122" y="236"/>
-        <di:waypoint x="2162" y="236"/>
+        <di:waypoint x="1795" y="360"/>
+        <di:waypoint x="1910" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Corrigir_Calendar" bpmnElement="Flow_Corrigir_Calendar">
-        <di:waypoint x="2702" y="132"/>
-        <di:waypoint x="2702" y="92"/>
-        <di:waypoint x="1182" y="92"/>
-        <di:waypoint x="1182" y="52"/>
+        <di:waypoint x="1865" y="190"/>
+        <di:waypoint x="1865" y="165"/>
+        <di:waypoint x="630" y="165"/>
+        <di:waypoint x="630" y="320"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTRevisar" bpmnElement="Flow_Dossie_UTRevisar">
-        <di:waypoint x="2262" y="236"/>
-        <di:waypoint x="2342" y="236"/>
+        <di:waypoint x="2010" y="360"/>
+        <di:waypoint x="2100" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTRevisar_GW" bpmnElement="Flow_UTRevisar_GW">
-        <di:waypoint x="2442" y="236"/>
-        <di:waypoint x="2522" y="236"/>
+        <di:waypoint x="2200" y="360"/>
+        <di:waypoint x="2315" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTJuridico_GW" bpmnElement="Flow_UTJuridico_GW">
-        <di:waypoint x="2262" y="92"/>
-        <di:waypoint x="2392" y="92"/>
-        <di:waypoint x="2392" y="236"/>
-        <di:waypoint x="2522" y="236"/>
+        <di:waypoint x="2295" y="100"/>
+        <di:waypoint x="2305" y="100"/>
+        <di:waypoint x="2305" y="360"/>
+        <di:waypoint x="2315" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Deadline_Notify" bpmnElement="Flow_Deadline_Notify">
-        <di:waypoint x="2375" y="294"/>
-        <di:waypoint x="2375" y="354"/>
-        <di:waypoint x="406" y="354"/>
-        <di:waypoint x="406" y="236"/>
+        <di:waypoint x="2124" y="418"/>
+        <di:waypoint x="2124" y="750"/>
+        <di:waypoint x="2010" y="750"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Notify_PubDeadline" bpmnElement="Flow_Notify_PubDeadline">
-        <di:waypoint x="506" y="236"/>
-        <di:waypoint x="952" y="236"/>
+        <di:waypoint x="1960" y="790"/>
+        <di:waypoint x="1960" y="840"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubDeadline_End" bpmnElement="Flow_PubDeadline_End">
-        <di:waypoint x="1052" y="236"/>
-        <di:waypoint x="1164" y="236"/>
+        <di:waypoint x="1960" y="920"/>
+        <di:waypoint x="1960" y="992"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_DueDate_UTCoord" bpmnElement="Flow_DueDate_UTCoord">
-        <di:waypoint x="2408" y="294"/>
-        <di:waypoint x="2408" y="311"/>
-        <di:waypoint x="456" y="311"/>
-        <di:waypoint x="456" y="328"/>
+        <di:waypoint x="2176" y="418"/>
+        <di:waypoint x="2176" y="620"/>
+        <di:waypoint x="2290" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_DeadlinePendencia_Notify" bpmnElement="Flow_DeadlinePendencia_Notify">
-        <di:waypoint x="2685" y="150"/>
-        <di:waypoint x="2685" y="173"/>
-        <di:waypoint x="456" y="173"/>
-        <di:waypoint x="456" y="196"/>
+        <di:waypoint x="1839" y="288"/>
+        <di:waypoint x="1839" y="750"/>
+        <di:waypoint x="1910" y="750"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_DueDatePendencia_UTCoord" bpmnElement="Flow_DueDatePendencia_UTCoord">
-        <di:waypoint x="2718" y="150"/>
-        <di:waypoint x="2718" y="239"/>
-        <di:waypoint x="456" y="239"/>
-        <di:waypoint x="456" y="328"/>
+        <di:waypoint x="1891" y="288"/>
+        <di:waypoint x="1891" y="620"/>
+        <di:waypoint x="2290" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_DeadlineJuridico_Notify" bpmnElement="Flow_DeadlineJuridico_Notify">
-        <di:waypoint x="2195" y="150"/>
-        <di:waypoint x="2195" y="173"/>
-        <di:waypoint x="456" y="173"/>
-        <di:waypoint x="456" y="196"/>
+        <di:waypoint x="2219" y="158"/>
+        <di:waypoint x="2219" y="750"/>
+        <di:waypoint x="2010" y="750"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_DueDateJuridico_UTCoord" bpmnElement="Flow_DueDateJuridico_UTCoord">
-        <di:waypoint x="2228" y="150"/>
-        <di:waypoint x="2228" y="239"/>
-        <di:waypoint x="456" y="239"/>
-        <di:waypoint x="456" y="328"/>
+        <di:waypoint x="2271" y="158"/>
+        <di:waypoint x="2271" y="620"/>
+        <di:waypoint x="2290" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
-        <di:waypoint x="506" y="368"/>
-        <di:waypoint x="1514" y="368"/>
-        <di:waypoint x="1514" y="236"/>
-        <di:waypoint x="2522" y="236"/>
+        <di:waypoint x="2340" y="580"/>
+        <di:waypoint x="2340" y="385"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MergeDecisao_GW" bpmnElement="Flow_MergeDecisao_GW">
+        <di:waypoint x="2365" y="360"/>
+        <di:waypoint x="2505" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
-        <di:waypoint x="2572" y="236"/>
-        <di:waypoint x="2652" y="236"/>
+        <di:waypoint x="2555" y="360"/>
+        <di:waypoint x="2670" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Corrigir" bpmnElement="Flow_GWDec_Corrigir">
-        <di:waypoint x="2572" y="236"/>
-        <di:waypoint x="2612" y="236"/>
-        <di:waypoint x="2612" y="92"/>
-        <di:waypoint x="2652" y="92"/>
+        <di:waypoint x="2530" y="335"/>
+        <di:waypoint x="2530" y="165"/>
+        <di:waypoint x="1865" y="165"/>
+        <di:waypoint x="1865" y="190"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Adiar" bpmnElement="Flow_GWDec_Adiar">
-        <di:waypoint x="2572" y="236"/>
-        <di:waypoint x="2612" y="236"/>
-        <di:waypoint x="2612" y="368"/>
-        <di:waypoint x="2652" y="368"/>
+        <di:waypoint x="2530" y="335"/>
+        <di:waypoint x="2530" y="230"/>
+        <di:waypoint x="2670" y="230"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida">
+        <di:waypoint x="2530" y="385"/>
+        <di:waypoint x="2530" y="685"/>
+        <di:waypoint x="2340" y="685"/>
+        <di:waypoint x="2340" y="660"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Submeter_PubSubmitted" bpmnElement="Flow_Submeter_PubSubmitted">
-        <di:waypoint x="2752" y="236"/>
-        <di:waypoint x="2832" y="236"/>
+        <di:waypoint x="2770" y="360"/>
+        <di:waypoint x="2860" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SubmitNack_Retry" bpmnElement="Flow_SubmitNack_Retry">
-        <di:waypoint x="2702" y="294"/>
-        <di:waypoint x="2702" y="377"/>
-        <di:waypoint x="456" y="377"/>
-        <di:waypoint x="456" y="460"/>
+        <di:waypoint x="2720" y="418"/>
+        <di:waypoint x="2720" y="770"/>
+        <di:waypoint x="2860" y="770"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubSubmitted_WaitAck" bpmnElement="Flow_PubSubmitted_WaitAck">
-        <di:waypoint x="2932" y="236"/>
-        <di:waypoint x="2972" y="236"/>
-        <di:waypoint x="2972" y="368"/>
-        <di:waypoint x="3012" y="368"/>
+        <di:waypoint x="2960" y="360"/>
+        <di:waypoint x="3075" y="360"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MergeAck_WaitAck" bpmnElement="Flow_MergeAck_WaitAck">
+        <di:waypoint x="3125" y="360"/>
+        <di:waypoint x="3265" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_AckMsg" bpmnElement="Flow_Wait_AckMsg">
-        <di:waypoint x="3062" y="368"/>
-        <di:waypoint x="3142" y="368"/>
+        <di:waypoint x="3315" y="360"/>
+        <di:waypoint x="3462" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_AckTimer" bpmnElement="Flow_Wait_AckTimer">
-        <di:waypoint x="3062" y="368"/>
-        <di:waypoint x="3102" y="368"/>
-        <di:waypoint x="3102" y="633"/>
-        <di:waypoint x="3142" y="633"/>
+        <di:waypoint x="3290" y="385"/>
+        <di:waypoint x="3290" y="490"/>
+        <di:waypoint x="3462" y="490"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_AckMsg_Track" bpmnElement="Flow_AckMsg_Track">
-        <di:waypoint x="3178" y="368"/>
-        <di:waypoint x="3258" y="368"/>
+        <di:waypoint x="3498" y="360"/>
+        <di:waypoint x="3620" y="360"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_AckTimer_PubPendente" bpmnElement="Flow_AckTimer_PubPendente">
-        <di:waypoint x="3178" y="633"/>
-        <di:waypoint x="3258" y="633"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_AckTimer_UTNack" bpmnElement="Flow_AckTimer_UTNack">
+        <di:waypoint x="3498" y="490"/>
+        <di:waypoint x="4335" y="490"/>
+        <di:waypoint x="4335" y="620"/>
+        <di:waypoint x="4380" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Track_PubAcked" bpmnElement="Flow_Track_PubAcked">
-        <di:waypoint x="3358" y="368"/>
-        <di:waypoint x="3438" y="368"/>
+        <di:waypoint x="3720" y="360"/>
+        <di:waypoint x="3810" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubAcked_PubCompleted" bpmnElement="Flow_PubAcked_PubCompleted">
-        <di:waypoint x="3538" y="368"/>
-        <di:waypoint x="3618" y="368"/>
+        <di:waypoint x="3910" y="360"/>
+        <di:waypoint x="4000" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubCompletedAck_End" bpmnElement="Flow_PubCompletedAck_End">
-        <di:waypoint x="3718" y="368"/>
-        <di:waypoint x="3798" y="368"/>
+        <di:waypoint x="4100" y="360"/>
+        <di:waypoint x="4222" y="360"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubPendente_End" bpmnElement="Flow_PubPendente_End">
-        <di:waypoint x="3358" y="633"/>
-        <di:waypoint x="3470" y="633"/>
+        <di:waypoint x="4860" y="620"/>
+        <di:waypoint x="4982" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Sub_PubRetransmitido" bpmnElement="Flow_Sub_PubRetransmitido">
-        <di:waypoint x="872" y="633"/>
-        <di:waypoint x="952" y="633"/>
+        <di:waypoint x="3240" y="580"/>
+        <di:waypoint x="3240" y="490"/>
+        <di:waypoint x="3150" y="490"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_RetryEsgotado_PubFailed" bpmnElement="Flow_RetryEsgotado_PubFailed">
-        <di:waypoint x="456" y="824"/>
-        <di:waypoint x="456" y="858"/>
+        <di:waypoint x="3596" y="978"/>
+        <di:waypoint x="3596" y="1140"/>
+        <di:waypoint x="3582" y="1140"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubRetransmitido_WaitAck" bpmnElement="Flow_PubRetransmitido_WaitAck">
-        <di:waypoint x="1052" y="633"/>
-        <di:waypoint x="2032" y="633"/>
-        <di:waypoint x="2032" y="368"/>
-        <di:waypoint x="3012" y="368"/>
+        <di:waypoint x="3100" y="450"/>
+        <di:waypoint x="3100" y="385"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubFailed_UTNack" bpmnElement="Flow_PubFailed_UTNack">
-        <di:waypoint x="506" y="898"/>
-        <di:waypoint x="952" y="898"/>
+        <di:waypoint x="3682" y="1140"/>
+        <di:waypoint x="4335" y="1140"/>
+        <di:waypoint x="4335" y="620"/>
+        <di:waypoint x="4380" y="620"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTNack_End" bpmnElement="Flow_UTNack_End">
-        <di:waypoint x="1052" y="898"/>
-        <di:waypoint x="1164" y="898"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTNack_GW" bpmnElement="Flow_UTNack_GW">
+        <di:waypoint x="4480" y="620"/>
+        <di:waypoint x="4595" y="620"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DeadlineNack_Notify" bpmnElement="Flow_DeadlineNack_Notify">
+        <di:waypoint x="4404" y="678"/>
+        <di:waypoint x="4404" y="1348"/>
+        <di:waypoint x="2207" y="1348"/>
+        <di:waypoint x="2207" y="750"/>
+        <di:waypoint x="2010" y="750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNack_Retransmitir" bpmnElement="Flow_GWNack_Retransmitir">
+        <di:waypoint x="4620" y="595"/>
+        <di:waypoint x="4620" y="165"/>
+        <di:waypoint x="1865" y="165"/>
+        <di:waypoint x="1865" y="190"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNack_PendenteAck" bpmnElement="Flow_GWNack_PendenteAck">
+        <di:waypoint x="4645" y="620"/>
+        <di:waypoint x="4760" y="620"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNack_Falha" bpmnElement="Flow_GWNack_Falha">
+        <di:waypoint x="4620" y="645"/>
+        <di:waypoint x="4620" y="750"/>
+        <di:waypoint x="4760" y="750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNack_Invalida" bpmnElement="Flow_GWNack_Invalida">
+        <di:waypoint x="4620" y="595"/>
+        <di:waypoint x="4620" y="555"/>
+        <di:waypoint x="4430" y="555"/>
+        <di:waypoint x="4430" y="580"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubFalha_End" bpmnElement="Flow_PubFalha_End">
+        <di:waypoint x="4860" y="750"/>
+        <di:waypoint x="4982" y="750"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubAdiado_End" bpmnElement="Flow_PubAdiado_End">
-        <di:waypoint x="2752" y="368"/>
-        <di:waypoint x="2864" y="368"/>
+        <di:waypoint x="2770" y="230"/>
+        <di:waypoint x="2892" y="230"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

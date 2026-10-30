@@ -1029,7 +1029,8 @@ async def test_ack_pendente_completa_como_enviado_pendente_ack(
     start_ans: Callable[..., Any],
     tmp_path: Path,
 ) -> None:
-    """Envio transmitido mas ACK nao chegou; ICE_AguardarAck (P1D) expira => enviado_pendente_ack.
+    """Envio transmitido mas ACK nao chegou; ICE_AguardarAck (P1D) expira => UT_TratarNack
+    (humano, R-066/F-137); `registrar_falha` com o envio saido => enviado_pendente_ack.
 
     Regime PINADO (T2.6-2 — antigo strict-xfail, flip W8 W5-XFIX); mesma forma dos irmaos pinados
     passando (submit -> ICE_AguardarAck -> terminal), com `dataset_ref` real (regra 3 do
@@ -1047,12 +1048,75 @@ async def test_ack_pendente_completa_como_enviado_pendente_ack(
     await engine.execute_job(job.id)
     await ans_probe_tiss_pinned.drain()
 
+    ut_nack = await engine.await_user_task(iid, _UT_TRATAR_NACK)
+    assert "regulatorio-ans" in ut_nack.candidate_groups
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED), "timeout do ACK nao fecha sozinho"
+    await engine.complete_task_as_human(ut_nack.id, {"decisao_nack": "registrar_falha"})
+    await ans_probe_tiss_pinned.drain()
+
     ended = await _await_end(engine, iid)
     assert _END_ENVIADO_PENDENTE_ACK in ended, (
-        f"ACK ausente no prazo => End_EnviadoPendenteAck. ended={ended}"
+        f"ACK ausente + registrar_falha => End_EnviadoPendenteAck. ended={ended}"
     )
     await _assert_no_filing_without_human_task(engine, iid)
     assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_pendente_ack")
+
+
+async def _drive_to_tratar_nack_por_timeout_do_ack(
+    engine: EngineRest, probe: AnsEngineProbe, start_ans: Callable[..., Any], tmp_path: Path, tag: str
+) -> tuple[str, Any]:
+    """Aprova, transmite e expira ICE_AguardarAck => UT_TratarNack aberta (R-066/F-137)."""
+    dataset_ref = _write_tiss_dataset(tmp_path, f"dataset-{tag.lower()}.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia=f"2026-{tag}", dataset_ref=dataset_ref)
+    iid = inst["id"]
+    ut = await _drive_to_revisar(engine, probe, iid)
+    await _aprovar_envio(engine, ut.id)
+    await probe.drain()
+    job = await engine.await_timer_job(iid, "ICE_AguardarAck")
+    await engine.execute_job(job.id)
+    await probe.drain()
+    return iid, await engine.await_user_task(iid, _UT_TRATAR_NACK)
+
+
+async def test_tratar_nack_retransmitir_manual_volta_a_correcao(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+) -> None:
+    """R-066/F-138: `decisao_nack=retransmitir_manual` e consumida pelo ENGINE (GW_DecisaoNack) e
+    devolve o caso a UT_CorrigirPendenciaEnvio — corrige e passa de novo pela revisao humana antes
+    de qualquer novo envio. Nenhum desfecho publicado."""
+    iid, ut_nack = await _drive_to_tratar_nack_por_timeout_do_ack(
+        engine, ans_probe_tiss_pinned, start_ans, tmp_path, "RETRANS-MANUAL"
+    )
+    await engine.complete_task_as_human(ut_nack.id, {"decisao_nack": "retransmitir_manual"})
+    await ans_probe_tiss_pinned.drain()
+
+    ut_corrigir = await engine.await_user_task(iid, _UT_CORRIGIR)
+    assert "regulatorio-ans" in ut_corrigir.candidate_groups
+    assert await engine.history_state(iid) != "COMPLETED"
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
+
+
+async def test_tratar_nack_decisao_invalida_reabre(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+) -> None:
+    """R-066/F-138: concluir UT_TratarNack sem `decisao_nack` valida (REST direto, sem o formulario)
+    nao vira terminal — o default de GW_DecisaoNack reabre a mesma User Task."""
+    iid, ut_nack = await _drive_to_tratar_nack_por_timeout_do_ack(
+        engine, ans_probe_tiss_pinned, start_ans, tmp_path, "NACK-INVALIDA"
+    )
+    await engine.complete_task_as_human(ut_nack.id, {"decisao_nack": "qualquer_coisa"})
+    await ans_probe_tiss_pinned.drain()
+
+    reaberta = await engine.await_user_task(iid, _UT_TRATAR_NACK)
+    assert reaberta.id != ut_nack.id, "a User Task deve reabrir como nova instancia de tarefa"
+    assert await engine.history_state(iid) != "COMPLETED"
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
 
 
 # ===========================================================================
@@ -1211,6 +1275,38 @@ async def test_adiar_envio_registra_justificativa(
     assert not (ended & _ENDS_ENVIO)
     assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="adiado_humano")
     await _assert_no_filing_without_human_task(engine, iid)
+
+
+@pytest.mark.parametrize("justificativa", [None, "", "   "])
+async def test_adiar_sem_justificativa_vai_a_coordenacao(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+    justificativa: str | None,
+) -> None:
+    """R-066/F-138: o ENGINE (nao so o formulario) exige `justificativa_adiamento` no ADIAR_ENVIO.
+    Ausente, vazia ou so espacos => default de GW_DecisaoEnvio => UT_CoordenacaoEnvioAssume;
+    nunca `adiado_humano`, nunca submit."""
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-adiar-sem-just.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        competencia=f"2026-ADIAR-SJ-{ {None: 'AUSENTE', '': 'VAZIA'}.get(justificativa, 'BRANCOS') }",
+        dataset_ref=dataset_ref,
+    )
+    iid = inst["id"]
+
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
+    variaveis: dict[str, Any] = {"decisao_envio": "ADIAR_ENVIO", "revisor_id": "revisor-sintetico-001"}
+    if justificativa is not None:
+        variaveis["justificativa_adiamento"] = justificativa
+    await engine.complete_task_as_human(ut.id, variaveis)
+    await ans_probe_tiss_pinned.drain()
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-regulatorio" in ut_coord.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_ADIADO not in ended and _ST_SUBMETER not in ended, ended
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
 
 
 # ===========================================================================
@@ -1640,6 +1736,15 @@ async def test_retry_esgotado_roteia_para_humano(
         "anssubmit.failed deve ser publicado no esgotamento do retry"
     )
     await _assert_no_filing_without_human_task(engine, iid)
+
+    # R-066/F-071: o humano registra a falha => o desfecho falha_retransmissao e PUBLICADO antes
+    # do fim (antes, UT_TratarNack ligava direto a End_FalhaRetransmissao sem anssubmit.completed).
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
+    await engine.complete_task_as_human(ut_nack.id, {"decisao_nack": "registrar_falha"})
+    await ans_probe_tiss_pinned.drain()
+    ended = await _await_end(engine, iid)
+    assert "End_FalhaRetransmissao" in ended, ended
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="falha_retransmissao")
 
 
 # ===========================================================================
