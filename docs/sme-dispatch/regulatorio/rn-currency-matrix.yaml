@@ -939,7 +939,7 @@ rows:
     arquivo: "spec/processes/dmn/inadimplencia_purga.dmn"
     linha: 6
     norma_token: "RN 593"
-    arquivo_linha: "spec/processes/dmn/inadimplencia_purga.dmn:6 (+4 ocorrencia(s) tambem em linhas 10,36,41,49)"
+    arquivo_linha: "spec/processes/dmn/inadimplencia_purga.dmn:6 (+4 ocorrencia(s) tambem em linhas 10,45,50,58)"
     o_que_afirma: "Cancelamento/rescisao + inadimplencia; \"consolida 412\""
     status_rn_currency_review_1: "vigente (citacao correta), mas ha uma afirmacao falsa associada (ver nota)"
     norma_corrente_indicada: "RN 593/2023"
@@ -963,7 +963,7 @@ rows:
     arquivo: "spec/processes/dmn/inadimplencia_status.dmn"
     linha: 10
     norma_token: "RN 593"
-    arquivo_linha: "spec/processes/dmn/inadimplencia_status.dmn:10 (+5 ocorrencia(s) tambem em linhas 20,59,66,69,76)"
+    arquivo_linha: "spec/processes/dmn/inadimplencia_status.dmn:10 (+6 ocorrencia(s) tambem em linhas 20,60,67,70,77,80)"
     o_que_afirma: "Cancelamento/rescisao + inadimplencia; \"consolida 412\""
     status_rn_currency_review_1: "vigente (citacao correta), mas ha uma afirmacao falsa associada (ver nota)"
     norma_corrente_indicada: "RN 593/2023"

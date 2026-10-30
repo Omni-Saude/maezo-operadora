@@ -211,7 +211,7 @@ de 12 meses (DMN inadimplencia_status). Assinatura juridica exigida antes do fli
     <!-- Timer do pre-requisito: P50D desde a ENTRADA em GW_JanelaNotificacao50 (nao desde o 1o dia
          de inadimplencia) sem notificacao comprovada -> analise HUMANA
          (sem notificacao nao ha suspensao possivel: o guard exige a prova datada). -->
-    <bpmn:intermediateCatchEvent id="ICE_PrazoNotificacao50" name="50o dia sem notificacao (RN 593)">
+    <bpmn:intermediateCatchEvent id="ICE_PrazoNotificacao50" name="P50D desde a entrada na janela sem notificacao (RN 593 — nao ancorado no vencimento)">
       <bpmn:incoming>Flow_Janela_Prazo50</bpmn:incoming>
       <bpmn:outgoing>Flow_Prazo50_Sla</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_PrazoNotificacao50">
@@ -494,7 +494,7 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Janela_Pagamento" name="Pagamento recebido" sourceRef="GW_JanelaNotificacao50" targetRef="ICE_PagamentoAntesNotificacao"/>
     <bpmn:sequenceFlow id="Flow_Janela_NotifAck" name="Notificacao confirmada" sourceRef="GW_JanelaNotificacao50" targetRef="ICE_NotificacaoAck50"/>
-    <bpmn:sequenceFlow id="Flow_Janela_Prazo50" name="50o dia expirou" sourceRef="GW_JanelaNotificacao50" targetRef="ICE_PrazoNotificacao50"/>
+    <bpmn:sequenceFlow id="Flow_Janela_Prazo50" name="P50D expirou" sourceRef="GW_JanelaNotificacao50" targetRef="ICE_PrazoNotificacao50"/>
     <bpmn:sequenceFlow id="Flow_PagamentoAntes_PubPurgado" sourceRef="ICE_PagamentoAntesNotificacao" targetRef="ST_PublishPurgado"/>
     <bpmn:sequenceFlow id="Flow_NotifAck50_ResolveFacts" sourceRef="ICE_NotificacaoAck50" targetRef="ST_ResolveFacts"/>
     <bpmn:sequenceFlow id="Flow_Prazo50_Sla" sourceRef="ICE_PrazoNotificacao50" targetRef="BRT_Sla"/>
