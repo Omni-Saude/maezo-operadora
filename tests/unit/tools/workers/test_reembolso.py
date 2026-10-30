@@ -1570,11 +1570,120 @@ def test_send_denial_success_aprovado_parcial() -> None:
         valor_reembolso_aprovado_cents=30000,
         valor_solicitado_cents=50000,
         auditor_id="auditor-001",
+        cid10_referencia="Z00.0",
         parecer_auditor="Parecer tecnico favoravel a reducao",
     )
     result = send_reembolso_denial(inp)
     assert result["denial_sent"] is False  # F-009: no channel wired
     assert result["denial_registered"] is True
+
+
+# ---------------------------------------------------------------------------
+# send_reembolso_denial — merito clinico (F-045 / R-029)
+#
+# Contrato SP-OP-REEMBOLSO-001 ("Variaveis de saida" + "Campos obrigatorios por decisao adversa")
+# e BPMN `UT_RevisaoAuditorMedico`: negativa/reducao por merito clinico exige `auditor_id` +
+# `cid10_referencia` + `parecer_auditor`. A guarda NAO decide merito (L0 hard, decisao do medico
+# auditor); so recusa COMUNICAR uma negativa clinica sem o lastro clinico.
+# ---------------------------------------------------------------------------
+
+_SINTETICO_CID = "Z00.0"
+_SINTETICO_PARECER = "Parecer sintetico do auditor (teste)"
+
+
+def _denial_clinico(**overrides: object) -> ReembolsoDenialInput:
+    base: dict[str, object] = {
+        "decisao_reembolso": "NEGAR",
+        "justificativa": "Sem indicacao clinica (sintetico)",
+        "fundamentacao_contratual": "Clausula 5.2",
+        "valor_solicitado_cents": 50000,
+        "auditor_id": "auditor-sintetico-001",
+        "cid10_referencia": _SINTETICO_CID,
+        "parecer_auditor": _SINTETICO_PARECER,
+    }
+    base.update(overrides)
+    return ReembolsoDenialInput(**base)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("campo", ["cid10_referencia", "parecer_auditor"])
+@pytest.mark.parametrize("vazio", ["", "   "])
+def test_send_denial_negar_do_auditor_exige_lastro_clinico(campo: str, vazio: str) -> None:
+    """NEGAR decidido pelo medico auditor sem CID-10 ou sem parecer => recusa (fail-closed)."""
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(_denial_clinico(**{campo: vazio}))
+    assert campo in exc.value.missing_fields
+
+
+@pytest.mark.parametrize("campo", ["cid10_referencia", "parecer_auditor"])
+def test_send_denial_parcial_do_auditor_exige_lastro_clinico(campo: str) -> None:
+    """APROVAR_PARCIAL do auditor (reducao por merito clinico) sem lastro clinico => recusa."""
+    inp = _denial_clinico(
+        decisao_reembolso="APROVAR_PARCIAL",
+        valor_reembolso_aprovado_cents=30000,
+        **{campo: ""},
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert campo in exc.value.missing_fields
+
+
+@pytest.mark.parametrize(
+    "parcial",
+    [
+        {"cid10_referencia": "", "parecer_auditor": _SINTETICO_PARECER},
+        {"cid10_referencia": _SINTETICO_CID, "parecer_auditor": ""},
+        {"cid10_referencia": _SINTETICO_CID, "parecer_auditor": _SINTETICO_PARECER},
+    ],
+)
+def test_send_denial_lastro_clinico_sem_auditor_id_recusa(parcial: dict[str, str]) -> None:
+    """Lastro clinico (CID/parecer) sem `auditor_id` => recusa: merito clinico sem o medico auditor
+    responsavel na trilha (ADR-0005/ADR-0007), mesmo com `analista_id` presente."""
+    inp = _denial_clinico(auditor_id="", analista_id="analista-sintetico-001", **parcial)
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "auditor_id" in exc.value.missing_fields
+
+
+def test_send_denial_recusa_clinica_nao_vaza_conteudo_phi() -> None:
+    """A mensagem da recusa cita NOMES de campo, nunca o VALOR clinico (cid10/parecer sao PHI)."""
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(_denial_clinico(cid10_referencia="", auditor_id=""))
+    assert _SINTETICO_PARECER not in str(exc.value)
+
+
+def test_send_denial_negar_do_auditor_completo_registra() -> None:
+    """Negativa clinica completa (auditor_id + CID + parecer) passa a guarda e so e' REGISTRADA."""
+    result = send_reembolso_denial(_denial_clinico())
+    assert result["denial_sent"] is False
+    assert result["denial_registered"] is True
+    assert result["analista_id"] == "auditor-sintetico-001"
+
+
+def test_send_denial_negar_administrativa_do_analista_nao_exige_cid() -> None:
+    """Negativa administrativa (analista, sem merito clinico) segue sem CID/parecer — o contrato so'
+    os exige no merito clinico; a guarda nao inventa obrigacao fora dele."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="NEGAR",
+        justificativa="Fora do prazo contratual (sintetico)",
+        fundamentacao_contratual="Clausula 9.1",
+        valor_solicitado_cents=50000,
+        analista_id="analista-sintetico-001",
+    )
+    assert send_reembolso_denial(inp)["denial_registered"] is True
+
+
+def test_send_denial_entry_negar_do_auditor_sem_cid_recusa() -> None:
+    """Fronteira dict (engine) => mesma recusa: o entry so' marshalla."""
+    with pytest.raises(ReembolsoDenialNotHumanError):
+        send_reembolso_denial_entry(
+            {
+                "decisao_reembolso": "NEGAR",
+                "justificativa": "x",
+                "fundamentacao_contratual": "y",
+                "auditor_id": "auditor-sintetico-001",
+                "parecer_auditor": _SINTETICO_PARECER,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
