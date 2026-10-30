@@ -209,6 +209,10 @@ it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e a
   expect(eyebrow).toHaveTextContent("Snapshot somente leitura");
   expect(eyebrow.querySelector('[lang="en"]')).toHaveTextContent(/^Snapshot$/);
   expect(screen.getByText("Snapshot").closest("[lang]")).toHaveAttribute("lang", "en");
+  // "Prazo do engine": the English term "engine" is wrapped too (WCAG 3.1.2).
+  const engineTerm = within(region).getByText("engine");
+  expect(engineTerm.closest("[lang]")).toHaveAttribute("lang", "en");
+  expect(engineTerm.closest("dt")).toHaveTextContent("Prazo do engine");
   // No visible "snapshot" text anywhere escapes a lang="en" wrapper.
   for (const term of screen.getAllByText(/^snapshot$/i)) {
     expect(term.closest("[lang]")).toHaveAttribute("lang", "en");
