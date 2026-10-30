@@ -287,7 +287,7 @@ rows:
   nome_real: ''
 - grupo_declarado: juridico-contratos
   arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
-  linha: 235
+  linha: 298
   processo: SP-OP-INADIMPLENCIA-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_AnaliseInadimplencia
@@ -297,7 +297,7 @@ rows:
   nome_real: ''
 - grupo_declarado: gestao-cobranca
   arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
-  linha: 235
+  linha: 298
   processo: SP-OP-INADIMPLENCIA-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_AnaliseInadimplencia (co-candidate)
@@ -307,7 +307,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-cobranca
   arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
-  linha: 297
+  linha: 360
   processo: SP-OP-INADIMPLENCIA-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_CoordenacaoCobranca

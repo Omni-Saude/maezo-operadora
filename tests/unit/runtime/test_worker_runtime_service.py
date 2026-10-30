@@ -20,6 +20,8 @@ import asyncio
 import contextlib
 from typing import Any
 
+import pytest
+
 from maezo.runtime.worker_runtime.service import (
     WorkerState,
     _expected_worker_topics,
@@ -411,8 +413,12 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dossier_dispatcher: Any = None,
         document_request_host_installed: bool = False,
         publish_ledger: Any = None,
+        pagto_valor_invalido_pendente_dados: bool = False,
+        inad_rn593_estrito: bool = False,
     ) -> None:
         captured["publish_ledger"] = publish_ledger
+        captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
+        captured["inad_rn593_estrito"] = inad_rn593_estrito
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
@@ -449,6 +455,10 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
         assert captured["publish_ledger"] is None  # F-092 dedup ships dark (MAEZO_EXTASK_PUBLISH_DEDUP)
+        # F-142 / R-053: PAGTO invalid-amount -> PENDENTE_DADOS fact ships dark.
+        assert settings.pagto_valor_invalido_pendente_dados is False
+        assert captured["pagto_valor_invalido_pendente_dados"] is False
+        assert captured["inad_rn593_estrito"] is False  # R-027 ships dark (MAEZO_INAD_RN593_ESTRITO)
         # WP-J1-06 / V14 MAJOR-1: the NEGAR-owner seam IS threaded, and is dark unless
         # the deployment asks for it. `denial_notice_owner` defaults to False, so the
         # generic `SendDenialNoticeWorker` keeps the topic in this (default) bring-up.
@@ -505,3 +515,136 @@ async def test_bring_up_does_not_spawn_when_sink_probe_red(monkeypatch: Any) -> 
             await state.transport.close()
         if state.audit_sink is not None:
             await state.audit_sink.aclose()
+
+
+# ---------------------------------------------------------------------------------------------
+# R-027 — fiacao da flag dark `MAEZO_INAD_RN593_ESTRITO` (revisao independente do PR #1102, F1):
+# (a) `register_default_workers` repassa a flag aos DOIS workers de SP-OP-INADIMPLENCIA-001;
+# (b) o alias de env da setting; (c) `_bring_up_dependencies` repassa a setting ao bootstrap.
+# Sem estes testes, forcar o modo estrito ligado (ou desligado) em producao nao quebrava nada.
+# ---------------------------------------------------------------------------------------------
+
+_INAD_RESOLVE_FACTS = "operadora.inadimplencia.resolve_facts"
+_INAD_SUSPENSION = "operadora.inadimplencia.register_contract_suspension"
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_register_default_workers_threads_inad_rn593_flag_to_both_workers(flag: bool) -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_default_workers(harness, inad_rn593_estrito=flag)
+
+    facts = harness.registry.get(_INAD_RESOLVE_FACTS)
+    susp = harness.registry.get(_INAD_SUSPENSION)
+    assert facts is not None and susp is not None
+    assert facts._fn.keywords["rn593_estrito"] is flag  # type: ignore[attr-defined]
+    assert susp._fn.keywords["estrito"] is flag  # type: ignore[attr-defined]
+
+
+def test_settings_inad_rn593_estrito_env_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_INAD_RN593_ESTRITO", raising=False)
+    assert WorkerRuntimeSettings().inad_rn593_estrito is False
+    monkeypatch.setenv("MAEZO_INAD_RN593_ESTRITO", "true")
+    assert WorkerRuntimeSettings().inad_rn593_estrito is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_inad_rn593_estrito_setting(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_INAD_RN593_ESTRITO=flag
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["inad_rn593_estrito"] is flag
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_pagto_flag_from_env_when_on(monkeypatch: Any) -> None:
+    """F-142 / R-053 fiação (a): `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS=true` chega ao
+    `register_default_workers` pela raiz de composição — sem isso a flag ligada seria inerte."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # no fetch rotation: this test only proves the threading
+
+    monkeypatch.setenv("MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS", "true")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    assert settings.pagto_valor_invalido_pendente_dados is True
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["pagto_valor_invalido_pendente_dados"] is True
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _pagto_calculate_facts_via_default_workers(**kwargs: Any) -> dict[str, Any]:
+    """Executa `operadora.pagto.calculate_facts` registrado pelo `register_default_workers` REAL
+    (não o `register_pagto_workers` direto), com `valor_pagamento_cents=0` (inválido)."""
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-pagto-default-workers")
+    register_default_workers(harness, dmn=fake, **kwargs)  # type: ignore[arg-type]
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(
+        {"tenant_id": "amh", "ordem_pagamento_id": "OP-F142-WIRE", "valor_pagamento_cents": 0}
+    )
+    return result
+
+
+def test_register_default_workers_threads_pagto_flag_when_on() -> None:
+    """F-142 / R-053 fiação (b): o kwarg ligado atravessa `register_default_workers` até o
+    handler de PAGTO — valor inválido vira o FATO `dados_pagamento_validos=False`."""
+    result = _pagto_calculate_facts_via_default_workers(pagto_valor_invalido_pendente_dados=True)
+    assert result["dados_pagamento_validos"] is False
+
+
+def test_register_default_workers_pagto_flag_omitted_stays_dark() -> None:
+    """Kwarg omitido (default off): o handler não escreve `dados_pagamento_validos`."""
+    result = _pagto_calculate_facts_via_default_workers()
+    assert "dados_pagamento_validos" not in result

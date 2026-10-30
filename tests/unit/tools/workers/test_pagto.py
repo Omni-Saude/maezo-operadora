@@ -716,6 +716,7 @@ def test_release_high_value_happy_path() -> None:
             "justificativa_aprovacao": "Contrato emergencial aprovado pelo comite",
             "valor_aprovado_cents": 500_000_000,
             "faixa_valor": "ALCADA_L3",
+            "tier_minimo": 3,
         }
     )
     assert result["pagamento_liberado"] is True
@@ -745,7 +746,9 @@ def test_release_high_value_tier_mismatch() -> None:
                 "aprovador_id": "fin-001",
                 "aprovador_tier": 1,
                 "justificativa_aprovacao": "Fora de alcada",
+                "valor_aprovado_cents": 500_000_000,
                 "faixa_valor": "ALCADA_L3",
+                "tier_minimo": 3,
             }
         )
     assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
@@ -787,6 +790,7 @@ def _release_high_value_baseline(**overrides: object) -> dict[str, object]:
         "justificativa_aprovacao": "Contrato emergencial aprovado pelo comite",
         "valor_aprovado_cents": 500_000_000,
         "faixa_valor": "ALCADA_L3",
+        "tier_minimo": 3,
     }
     base.update(overrides)
     return base
@@ -876,6 +880,210 @@ def test_release_high_value_non_exact_decisao_literal_still_refuses(decision: st
     with pytest.raises(PagtoError) as excinfo:
         release_high_value_payment(_release_high_value_baseline(decisao_pagamento=decision))
     assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# release_high_value_payment — valor_aprovado_cents FAIL-CLOSED (R-053 / F-041)
+# ---------------------------------------------------------------
+# Contrato SP-OP-PAGTO-001 §Codigos de erro, ERR_PAYMENT_RELEASE_NOT_HUMAN (b): o worker RECUSA
+# liberar se faltar `valor_aprovado_cents`. Pre-fix o guard lia `variables.get(..., 0)` e NUNCA
+# validava — um APROVAR sem valor (ou com 0/negativo/float/str/bool) liberava o pagamento.
+# Dinheiro e inteiro-centavos estritamente positivo (ADR-0018 parte 2); nada aqui e um teto ou
+# alcada novo (R-070 segue com o dono): so o dominio do tipo.
+
+_VALOR_APROVADO_INVALIDO = [
+    pytest.param(_ABSENT, id="ausente"),
+    pytest.param(None, id="none"),
+    pytest.param(0, id="zero"),
+    pytest.param(-1, id="negativo"),
+    pytest.param(-500_000_000, id="negativo-grande"),
+    pytest.param(500_000_000.0, id="float-integral"),
+    pytest.param(0.5, id="float-fracionario"),
+    pytest.param(math.nan, id="nan"),
+    pytest.param(math.inf, id="inf"),
+    pytest.param("500000000", id="string-numerica"),
+    pytest.param("", id="string-vazia"),
+    pytest.param(True, id="bool-true"),
+    pytest.param(False, id="bool-false"),
+    pytest.param(Decimal("500000000"), id="decimal"),
+    pytest.param([500_000_000], id="lista"),
+    pytest.param({"value": 500_000_000}, id="dict"),
+    pytest.param(2**63, id="acima-int64"),
+]
+
+
+@pytest.mark.parametrize("valor", _VALOR_APROVADO_INVALIDO)
+def test_release_high_value_valor_aprovado_invalido_recusa(valor: object) -> None:
+    """Todo o resto do guard satisfeito; SO o valor aprovado e invalido -> recusa, nunca libera."""
+    variables = _release_high_value_baseline()
+    if valor is _ABSENT:
+        del variables["valor_aprovado_cents"]
+    else:
+        variables["valor_aprovado_cents"] = valor
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(variables)
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "valor_aprovado_cents" in excinfo.value.message
+
+
+def test_release_high_value_valor_aprovado_recusa_nao_vaza_o_valor() -> None:
+    """A mensagem de recusa (vira texto de incidente) carrega so um token limitado, nunca o valor."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(valor_aprovado_cents="987654321"))
+    assert "987654321" not in excinfo.value.message
+
+
+def test_release_high_value_f041_repro_shape_recusa() -> None:
+    """A forma EXATA do repro F-041 (sem valor_aprovado_cents, sem tier_minimo) agora recusa."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(
+            {
+                "decisao_pagamento": "APROVAR",
+                "aprovador_id": "x",
+                "aprovador_tier": 3,
+                "justificativa_aprovacao": "j",
+                "faixa_valor": "ALCADA_L3",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+
+
+@pytest.mark.parametrize("valor", [1, 120_000_000, 2**63 - 1])
+def test_release_high_value_valor_aprovado_inteiro_positivo_libera(valor: int) -> None:
+    result = release_high_value_payment(_release_high_value_baseline(valor_aprovado_cents=valor))
+    assert result["pagamento_liberado"] is True
+
+
+# ---------------------------------------------------------------
+# release_high_value_payment — tier-match le `tier_minimo` da DMN (R-053 / F-109)
+# ---------------------------------------------------------------
+# A escada faixa->tier vive SO na DMN `pagto_alcada` (saida `tier_minimo`, achatada por
+# BRT_AlcadaRouting). O worker nao tem mais copia Python dela (AGENTS.md regra 5); fato ausente
+# ou mal-formado -> tier mais alto (comite), conforme a descricao da propria DMN.
+
+
+def test_worker_nao_duplica_a_escada_faixa_tier() -> None:
+    assert not hasattr(pagto_module, "_TIER_MINIMO")
+    assert not any(
+        isinstance(value, dict) and {"ALCADA_L1", "ALCADA_L3"} <= set(value)
+        for value in vars(pagto_module).values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("aprovador_tier", "tier_minimo"),
+    [(1, 1), (2, 1), (2, 2), (3, 3), (4, 3), (4, 4)],
+)
+def test_release_high_value_tier_match_le_tier_minimo_da_dmn(aprovador_tier: int, tier_minimo: int) -> None:
+    result = release_high_value_payment(
+        _release_high_value_baseline(aprovador_tier=aprovador_tier, tier_minimo=tier_minimo)
+    )
+    assert result["pagamento_liberado"] is True
+
+
+@pytest.mark.parametrize(("aprovador_tier", "tier_minimo"), [(0, 1), (1, 2), (2, 3), (3, 4)])
+def test_release_high_value_tier_abaixo_do_tier_minimo_recusa(aprovador_tier: int, tier_minimo: int) -> None:
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(
+            _release_high_value_baseline(aprovador_tier=aprovador_tier, tier_minimo=tier_minimo)
+        )
+    assert "tier-match" in excinfo.value.message.lower()
+
+
+def test_release_high_value_tier_minimo_prevalece_sobre_rotulo_da_faixa() -> None:
+    """O fato da DMN decide; o rotulo `faixa_valor` nao e reinterpretado em Python."""
+    with pytest.raises(PagtoError):
+        release_high_value_payment(
+            _release_high_value_baseline(aprovador_tier=1, faixa_valor="ALCADA_L1", tier_minimo=3)
+        )
+
+
+@pytest.mark.parametrize(
+    "tier_minimo",
+    [_ABSENT, None, "1", 1.0, True, False, -1, [1], {"v": 1}],
+    ids=["ausente", "none", "str", "float", "bool-true", "bool-false", "negativo", "lista", "dict"],
+)
+def test_release_high_value_tier_minimo_invalido_exige_comite(tier_minimo: object) -> None:
+    """Fato ausente/mal-formado -> fail-closed no tier mais alto: tier 3 recusa, tier 4 libera."""
+    variables = _release_high_value_baseline(aprovador_tier=3)
+    if tier_minimo is _ABSENT:
+        del variables["tier_minimo"]
+    else:
+        variables["tier_minimo"] = tier_minimo
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(variables)
+    assert "tier-match" in excinfo.value.message.lower()
+    assert release_high_value_payment({**variables, "aprovador_tier": 4})["pagamento_liberado"] is True
+
+
+# ---------------------------------------------------------------
+# route_aprovacao — valor invalido -> PENDENTE_DADOS (R-053 / F-142; DARK por padrao)
+# ---------------------------------------------------------------
+# Contrato SP-OP-PAGTO-001 (valor_pagamento_cents): ausente ou <= 0 roteia para a categoria
+# PENDENTE_DADOS que a DMN `pagto_admissibility` declara (`r_dados_invalidos`). O worker so
+# escreve o FATO `dados_pagamento_validos=False`; a DMN decide a rota. Ships dark
+# (MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS); desligado o retorno e byte-identico ao historico.
+
+
+@pytest.mark.parametrize(("valor", "motivo"), _INVALID_VALORES)
+def test_valor_invalido_flag_ligada_marca_dados_invalidos(valor: object, motivo: str) -> None:
+    del motivo
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    result = route_aprovacao(
+        _vars_with_valor(valor),
+        _RecordingCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+        valor_invalido_pendente_dados=True,
+    )
+    assert result["dados_pagamento_validos"] is False
+    assert result["dentro_teto_l2"] is False
+
+
+@pytest.mark.parametrize(("valor", "motivo"), _INVALID_VALORES)
+def test_valor_invalido_flag_desligada_nao_muda_o_retorno(valor: object, motivo: str) -> None:
+    del motivo
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    result = route_aprovacao(_vars_with_valor(valor), _RecordingCeilingResolver(), dmn=fake)  # type: ignore[arg-type]
+    assert "dados_pagamento_validos" not in result
+
+
+def test_valor_valido_flag_ligada_nao_toca_dados_validos() -> None:
+    """Valor valido: o fato de validate_pagto fica intocado (nenhum True fabricado aqui)."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
+    )
+    result = route_aprovacao(
+        _vars_with_valor(30_000_000),
+        _RecordingCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+        valor_invalido_pendente_dados=True,
+    )
+    assert "dados_pagamento_validos" not in result
+
+
+def _calculate_facts_via_registration(**seams: object) -> dict[str, object]:
+    """Executa o worker REGISTRADO de `operadora.pagto.calculate_facts` com valor ausente."""
+    harness = WorkerHarness(None, worker_id="unit-test-pagto-flag")  # type: ignore[arg-type]
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    register_pagto_workers(harness, None, dmn=fake, **seams)
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    return worker.execute({"tenant_id": "amh", "ordem_pagamento_id": "OP-F142"})
+
+
+def test_register_pagto_workers_flag_default_off() -> None:
+    assert "dados_pagamento_validos" not in _calculate_facts_via_registration()
+
+
+def test_register_pagto_workers_flag_threaded_when_on() -> None:
+    result = _calculate_facts_via_registration(pagto_valor_invalido_pendente_dados=True)
+    assert result["dados_pagamento_validos"] is False
 
 
 # ---------------------------------------------------------------

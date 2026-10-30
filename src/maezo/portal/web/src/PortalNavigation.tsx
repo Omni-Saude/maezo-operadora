@@ -30,6 +30,12 @@ const externalAreas: readonly Readonly<{ id: ExternalArea; label: string }>[] = 
   { id: "receipts", label: "Recibos" },
 ];
 
+export const staffAreaIds: readonly StaffArea[] = staffAreas.map((area) => area.id);
+
+export function externalAreaLabel(area: ExternalArea): string {
+  return externalAreas.find((candidate) => candidate.id === area)?.label ?? "";
+}
+
 function nextIndex(current: number, key: string, length: number) {
   if (key === "ArrowRight" || key === "ArrowDown") return (current + 1) % length;
   if (key === "ArrowLeft" || key === "ArrowUp") return (current - 1 + length) % length;
