@@ -16,13 +16,15 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from maezo.platform.xml_safe import parse_xml_without_dtd
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _BPMN = _REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn"
 _NS = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
 
 
 def _process() -> ET.Element:
-    root = ET.parse(_BPMN).getroot()  # noqa: S314 - arquivo versionado do proprio repo
+    root = parse_xml_without_dtd(_BPMN.read_bytes())
     procs = root.findall(f"{_NS}process")
     assert len(procs) == 1, f"esperado 1 processo por arquivo, achei {len(procs)}"
     return procs[0]
