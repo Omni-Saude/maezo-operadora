@@ -375,3 +375,8 @@
   .case-detail-heading { flex-direction: column; }
   .case-lookup-row .primary-action { width: 100%; }
 }
+
+/* F-159: ajuda consistente — mesma posição relativa (fim da página) em todo estado. */
+.portal-help { width: min(100% - 2rem, 78rem); margin: 0 auto; padding: 1.5rem 0 2rem; border-top: 1px solid #cadbd3; color: #18302b; }
+.portal-help h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.portal-help p { max-width: 62rem; margin: 0.3rem 0; }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ExternalPortalExperience, StaffPortalExperience } from "./PortalSessionExperience";
+import { pageTitle, usePageTitle } from "./pageTitle";
+import { PortalHelp } from "./PortalHelp";
 import { getSession, portalPaths, postLogout, type SessionDTO } from "./sessionClient";
 import "./portalExperience.css";
 
@@ -25,15 +27,42 @@ function SignInLink({ label = "Entrar no portal" }: { label?: string }) {
 
 function StatusPage({ children }: { children: React.ReactNode }) {
   return (
-    <main className="page-shell">
-      <section className="status-card" aria-live="polite">
-        <div className="brand-mark" aria-hidden="true">
-          M
-        </div>
-        {children}
-      </section>
-    </main>
+    <>
+      <main className="page-shell">
+        <section className="status-card" aria-live="polite">
+          <div className="brand-mark" aria-hidden="true">
+            M
+          </div>
+          {children}
+        </section>
+      </main>
+      <PortalHelp />
+    </>
   );
+}
+
+// F-104 (WCAG 2.4.2): every state outside a session names its topic in the document title;
+// a signed-in session leaves the title to the audience view, which names the active area.
+function statusTitle(state: ViewState): string | null {
+  switch (state.kind) {
+    case "authenticated":
+      return null;
+    case "loading":
+      return state.reason === "initial" ? "Validando sua sessão" : "Revalidando sua sessão";
+    case "logging-out":
+      return "Encerrando a sessão";
+    case "logout-unconfirmed":
+      return "Não foi possível confirmar a saída";
+    case "logged-out":
+      return "Sessão encerrada";
+    case "dependency-unavailable":
+    case "invalid-response":
+      return "Não foi possível validar sua sessão";
+    case "expired":
+      return "Sessão expirada";
+    case "unauthenticated":
+      return "Sua sessão não está ativa";
+  }
 }
 
 export function App() {
@@ -42,6 +71,8 @@ export function App() {
   const activeRequest = useRef<AbortController | null>(null);
   const transitionHeading = useRef<HTMLHeadingElement | null>(null);
   const focusUserTransition = useRef(false);
+  const title = statusTitle(state);
+  usePageTitle(title === null ? null : pageTitle(title));
 
   const revalidate = useCallback(async (reason: "initial" | "revalidation" | "expiry") => {
     const epoch = ++requestEpoch.current;
@@ -209,6 +240,7 @@ export function App() {
           />
         )}
         </div>
+        <PortalHelp audience={state.session.audience} />
       </div>
     );
   }

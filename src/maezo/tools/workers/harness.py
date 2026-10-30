@@ -240,7 +240,11 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
 #: lowercase_snake (`liberado_automatico`). Rejects free text (has spaces), minted identifiers
 #: (`AUTH-amh-guia-abc`, `ANSPROTO-...` — hyphens), and anything over the length cap. This is the
 #: value-side fail-closed guard behind the key allowlist (defense in depth).
-_ENUM_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+#:
+#: Anchored at the TRUE string ends and used with `fullmatch` (F-129 bug class, same shape as
+#: #1080/#1087): with `^...$` + `.match`, `$` also matches before a final newline, so
+#: `"APROVAR\n"` passed as a bounded token. Strictly narrowing — alphabet and length unchanged.
+_ENUM_TOKEN_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9_]{0,39}\Z")
 
 #: Bound on integer tokens admitted in the clear (tier numbers, small counts). A bound keeps a
 #: large numeric that happened to land under an allowlisted key (should not occur) out of the
@@ -321,7 +325,12 @@ _SAFE_BPMN_ERROR_VARIABLE_KEYS: frozenset[str] = frozenset({"protocolo_ans", "st
 #: whitespace, `,`/`;`/`:`/`/`/`@`, quotes, newlines, and anything over the length cap. It is NOT a
 #: PHI detector (no regex is) — the KEY allowlist above is the primary control; this is the
 #: defence-in-depth second gate that keeps an allowlisted key from carrying a paragraph.
-_ERROR_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")
+#:
+#: Anchored at the TRUE string ends and used with `fullmatch` (F-129 bug class, same shape as
+#: #1080/#1087/#1094): with `^...$` + `.match`, `$` also matches before a final newline, so
+#: `"enviado\n"` crossed into process scope as a bounded value. Strictly narrowing — alphabet and
+#: length unchanged.
+_ERROR_VAR_TOKEN_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}\Z")
 
 
 class BpmnErrorVariables(NamedTuple):
@@ -397,7 +406,7 @@ def _is_bounded_token(value: Any) -> bool:
     if isinstance(value, int):  # note: bool is handled above (bool is a subclass of int)
         return -_MAX_BASIS_INT <= value <= _MAX_BASIS_INT
     if isinstance(value, str):
-        return bool(_ENUM_TOKEN_RE.match(value))
+        return bool(_ENUM_TOKEN_RE.fullmatch(value))
     return False  # dicts/lists/floats/None/identifiers -> never in the clear
 
 
@@ -426,7 +435,7 @@ def _is_bounded_error_variable(value: Any) -> bool:
     rather than stored in the clear must not move because an unrelated channel needed hyphens.
     """
     if isinstance(value, str):
-        return bool(_ERROR_VAR_TOKEN_RE.match(value))
+        return bool(_ERROR_VAR_TOKEN_RE.fullmatch(value))
     return False  # bools/ints/floats/None/dicts/lists -> never through the error channel
 
 

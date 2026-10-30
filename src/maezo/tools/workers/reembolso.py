@@ -987,7 +987,9 @@ def send_reembolso_denial(denial_input: ReembolsoDenialInput) -> dict[str, Any]:
     - decisao_reembolso not in {NEGAR, APROVAR_PARCIAL}
     - Missing justificativa, fundamentacao_contratual
     - Missing analista_id (or auditor_id for clinical merit)
-    - If clinical merit: missing cid10_referencia or parecer_auditor
+    - If clinical merit: missing cid10_referencia or parecer_auditor (F-045). Clinical merit is
+      signalled by any of auditor_id / cid10_referencia / parecer_auditor (fields only the
+      `UT_RevisaoAuditorMedico` form fills); then all three are required.
     """
     logger.info(
         "reembolso.send_reembolso_denial.start",
@@ -1008,6 +1010,21 @@ def send_reembolso_denial(denial_input: ReembolsoDenialInput) -> dict[str, Any]:
     has_human = bool(denial_input.analista_id.strip() or denial_input.auditor_id.strip())
     if not has_human:
         missing.append("analista_id (or auditor_id)")
+
+    # Merito clinico (F-045): contrato SP-OP-REEMBOLSO-001 ("Variaveis de saida" e "Campos
+    # obrigatorios por decisao adversa") + BPMN `UT_RevisaoAuditorMedico` — negativa/reducao por
+    # merito clinico exige auditor_id + cid10_referencia + parecer_auditor. A guarda NAO julga o
+    # merito (L0 hard, medico auditor); ela so recusa COMUNICAR uma decisao clinica sem lastro.
+    # Sinal de merito clinico = qualquer um dos tres campos que so o formulario do auditor
+    # preenche; lastro parcial falha fechado, nunca um default silencioso. Nomes, nunca valores
+    # (cid10_referencia/parecer_auditor sao PHI) entram na mensagem.
+    clinical_fields = {
+        "auditor_id": denial_input.auditor_id,
+        "cid10_referencia": denial_input.cid10_referencia,
+        "parecer_auditor": denial_input.parecer_auditor,
+    }
+    if any(value.strip() for value in clinical_fields.values()):
+        missing.extend(name for name, value in clinical_fields.items() if not value.strip())
 
     requested_exact = is_exact_engine_integer(denial_input.valor_solicitado_cents)
     approved_exact = is_exact_engine_integer(denial_input.valor_reembolso_aprovado_cents)
