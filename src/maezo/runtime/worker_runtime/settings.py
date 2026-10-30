@@ -146,6 +146,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # default (ships OFF; flipping is a ROLL data change, never an agent act).
     extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
 
+    # Forensic audit R-027 (F-001/F-038; owner DEC-10 — RN 593/2023 alterada pela RN 617/2024):
+    # liga, em SP-OP-INADIMPLENCIA-001, o pre-requisito de notificacao ate o 50o dia (gate BPMN ->
+    # timer `${purga.prazo_notificacao_previa}`), a contagem por competencia distinta e o guard
+    # estrito da suspensao (tier + antecedencia lida da DMN `inadimplencia_purga`). DARK by default:
+    # as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`, e o flip exige assinatura
+    # juridica — ato humano (ROLL), nunca de agente.
+    inad_rn593_estrito: bool = Field(default=False, alias="MAEZO_INAD_RN593_ESTRITO")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",

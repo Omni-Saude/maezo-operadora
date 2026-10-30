@@ -142,6 +142,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -181,7 +182,6 @@ _DMN_SLA = _REPO / "spec/processes/dmn/inadimplencia_sla.dmn"
 _PUBLISH_TOPIC = "operadora.events.publish"
 _RESOLVE_FACTS_TOPIC = "operadora.inadimplencia.resolve_facts"
 _ASSESS_STATUS_TOPIC = "operadora.inadimplencia.assess_status"  # function-derived, no BPMN topic
-_CALCULATE_PURGE_TOPIC = "operadora.inadimplencia.calculate_purge"  # function-derived, no BPMN topic
 _CHECK_PRIOR_NOTICE_TOPIC = "operadora.inadimplencia.check_prior_notice"
 _REGISTER_SUSPENSION_TOPIC = "operadora.inadimplencia.register_contract_suspension"
 _HANDOFF_RESCISAO_TOPIC = "operadora.inadimplencia.handoff_rescisao"
@@ -191,14 +191,13 @@ _HANDOFF_RESCISAO_TOPIC = "operadora.inadimplencia.handoff_rescisao"
 _PREPARE_DOSSIER_TOPIC = "operadora.inadimplencia.prepare_dossier"
 _NOTIFY_SLA_RISK_TOPIC = "operadora.inadimplencia.notify_sla_risk"
 
-# Topicos servidos pelos workers REAIS registrados no harness (drain generico). Inclui os 2
-# topicos function-derived sem contraparte BPMN (assess_status/calculate_purge) para que o
-# drift-guard do `inad_probe` passe naturalmente.
+# Topicos servidos pelos workers REAIS registrados no harness (drain generico). Inclui o
+# topico function-derived sem contraparte BPMN (assess_status) para que o drift-guard do
+# `inad_probe` passe naturalmente (calculate_purge saiu no R-027 — prazos so na DMN).
 _INAD_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _RESOLVE_FACTS_TOPIC,
     _ASSESS_STATUS_TOPIC,
-    _CALCULATE_PURGE_TOPIC,
     _CHECK_PRIOR_NOTICE_TOPIC,
     _PREPARE_DOSSIER_TOPIC,  # #93 sync
     _REGISTER_SUSPENSION_TOPIC,
@@ -323,7 +322,23 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 async def inad_probe(
     engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[InadEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de inadimplencia."""
+    """Probe que serve as external tasks com os workers reais de inadimplencia (flag R-027 OFF)."""
+    async for probe in _inad_probe_gen(engine, audit_sink, audit_tenant, audit_pg, rn593_estrito=False):
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def inad_probe_rn593(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[InadEngineProbe]:
+    """Mesmo probe com a flag dark R-027 LIGADA (`inad_rn593_estrito=True`, = MAEZO_INAD_RN593_ESTRITO)."""
+    async for probe in _inad_probe_gen(engine, audit_sink, audit_tenant, audit_pg, rn593_estrito=True):
+        yield probe
+
+
+async def _inad_probe_gen(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str], *, rn593_estrito: bool
+) -> AsyncIterator[InadEngineProbe]:
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # inadimplencia.py's guard raises WorkerBpmnError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN) (D3-01,
@@ -365,7 +380,14 @@ async def inad_probe(
     deploy_for_tenant(CIBSEVEN_BASE_URL, audit_tenant, "SP-OP-CANCEL-001")
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id=audit_tenant)
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
-    register_inadimplencia_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
+    register_inadimplencia_workers(
+        harness,
+        kafka,
+        dmn=dmn,
+        engine=engine_seam,
+        audit_sink=handoff_audit_sink,
+        **({"inad_rn593_estrito": True} if rn593_estrito else {}),
+    )
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's/contas's — verbatim style): todo topico inadimplencia.*
@@ -1107,7 +1129,8 @@ def test_register_contract_suspension_recusa_sem_humano() -> None:
             "numero_contrato": "CONTRATO-TESTE-GUARD",
             "data_efeito_iso": "2026-06-01",
             **_CAMPOS_SUSP,
-        }
+        },
+        estrito=False,  # guard legado (flag R-027 OFF, o implantado); estrito: testes rn593 abaixo
     )
     assert result["suspensao_registrada"] is True
     assert result["data_efeito_iso"] == "2026-06-01"
@@ -1281,3 +1304,86 @@ def test_bpmn_xml_ids_unicos() -> None:
     assert len(ids) == len(set(ids)), (
         f"ids duplicados no BPMN: {sorted({i for i in ids if ids.count(i) > 1})}"
     )
+
+
+# ---------------------------------------------------------------------------
+# R-027 — RN 593/2023 alterada pela RN 617/2024 (owner DEC-10): notificacao ate o 50o dia como
+# pre-requisito (timer BPMN dirigido pela DMN), DARK atras de MAEZO_INAD_RN593_ESTRITO.
+# ---------------------------------------------------------------------------
+
+
+def _dias_ate(due_date: str | None) -> float:
+    assert due_date, "timer sem dueDate"
+    due = datetime.fromisoformat(due_date.replace("+0000", "+00:00"))
+    return (due - datetime.now(UTC)).total_seconds() / 86400
+
+
+async def test_rn593_flag_off_sem_notificacao_segue_cure_window_legado(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """Dark provado no engine: flag OFF + sem notificacao => o caminho de HOJE (ICE_PrazoPurga)."""
+    inst = await start_inad(dentro_janela_purga=True, notificacao_previa_feita=False)
+    iid = inst["id"]
+    await inad_probe.drain()
+    job = await engine.await_timer_job(iid, "ICE_PrazoPurga")
+    assert job.due_date
+    pending = {j.activity_id for j in await engine.list_timer_jobs(iid)}
+    assert "ICE_PrazoNotificacao50" not in pending
+
+
+async def test_rn593_sem_notificacao_aguarda_50o_dia_e_expira_para_humano(
+    engine: EngineRest,
+    inad_probe_rn593: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """Flag ON + sem notificacao comprovada => janela do 50o dia (timer P50D da DMN); expirado =>
+    analise HUMANA, NUNCA terminal adverso."""
+    inst = await start_inad(dentro_janela_purga=True, notificacao_previa_feita=False)
+    iid = inst["id"]
+    await inad_probe_rn593.drain()
+
+    job = await engine.await_timer_job(iid, "ICE_PrazoNotificacao50")
+    assert 49.5 < _dias_ate(job.due_date) <= 50.0, f"timer do 50o dia fora de P50D: {job.due_date}"
+    pending = {j.activity_id for j in await engine.list_timer_jobs(iid)}
+    assert "ICE_PrazoPurga" not in pending, "o prazo de 10 dias so corre DEPOIS da notificacao"
+
+    await engine.execute_job(job.id)
+    await inad_probe_rn593.drain()
+    ut = await engine.await_user_task(iid, _UT_ANALISE)
+    assert "juridico-contratos" in ut.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert not (ended & _ENDS_ADVERSOS), "50o dia expirado NUNCA auto-suspende (L0)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_rn593_notificacao_confirmada_abre_prazo_de_10_dias(
+    engine: EngineRest,
+    inad_probe_rn593: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """Flag ON: a confirmacao da notificacao reavalia e SO ENTAO abre o cure-window (P10D da DMN)."""
+    inst = await start_inad(dentro_janela_purga=True, notificacao_previa_feita=False)
+    iid = inst["id"]
+    await inad_probe_rn593.drain()
+    await engine.await_timer_job(iid, "ICE_PrazoNotificacao50")
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={
+                "messageName": "msg.inadimplencia.notificacao_ack",
+                "businessKey": inst["businessKey"],
+                "processVariables": {"notificacao_previa_feita": {"value": True, "type": "Boolean"}},
+            },
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    await inad_probe_rn593.drain()
+
+    job = await engine.await_timer_job(iid, "ICE_PrazoPurga")
+    assert 9.5 < _dias_ate(job.due_date) <= 10.0, f"prazo apos a notificacao fora de P10D: {job.due_date}"
+    pending = {j.activity_id for j in await engine.list_timer_jobs(iid)}
+    assert "ICE_PrazoNotificacao50" not in pending
+    ended = await engine.activity_instances_ended(iid)
+    assert not (ended & _ENDS_ADVERSOS)

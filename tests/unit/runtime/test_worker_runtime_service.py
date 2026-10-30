@@ -411,8 +411,10 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dossier_dispatcher: Any = None,
         document_request_host_installed: bool = False,
         publish_ledger: Any = None,
+        inad_rn593_estrito: bool = False,
     ) -> None:
         captured["publish_ledger"] = publish_ledger
+        captured["inad_rn593_estrito"] = inad_rn593_estrito
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
@@ -449,6 +451,7 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
         assert captured["publish_ledger"] is None  # F-092 dedup ships dark (MAEZO_EXTASK_PUBLISH_DEDUP)
+        assert captured["inad_rn593_estrito"] is False  # R-027 ships dark (MAEZO_INAD_RN593_ESTRITO)
         # WP-J1-06 / V14 MAJOR-1: the NEGAR-owner seam IS threaded, and is dark unless
         # the deployment asks for it. `denial_notice_owner` defaults to False, so the
         # generic `SendDenialNoticeWorker` keeps the topic in this (default) bring-up.
