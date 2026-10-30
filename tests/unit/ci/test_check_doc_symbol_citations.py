@@ -1007,7 +1007,7 @@ def test_disclosure_breakdown_and_bounded_historical_exclusions_are_exact() -> N
         "schemas-validate.yml",
         "test_autonomy.py",
     }
-    assert len(gate._HISTORICAL_LINE_EXCLUSIONS) == 3
+    assert len(gate._HISTORICAL_LINE_EXCLUSIONS) == 4
 
 
 @pytest.mark.parametrize("removed_index", range(3))
@@ -1044,7 +1044,7 @@ def test_real_corpus_reports_nonvacuity_and_all_boundary_counts() -> None:
     assert len(result.disclosed) == 7
     assert len(result.ignored) == 2
     assert len(result.excluded) == 3
-    assert len(result.historical) == 3
+    assert len(result.historical) == 4
 
 
 def test_five_old_false_green_mutants_are_observable() -> None:
