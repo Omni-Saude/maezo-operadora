@@ -1246,6 +1246,67 @@ async def test_happy_path_acusar_handoff_credenciamento(
     )
 
 
+async def test_handoff_credenciamento_semeia_variaveis_obrigatorias_do_cred_no_engine(
+    engine: EngineRest,
+    fraude_probe: FraudeEngineProbe,
+    start_fraude: Callable[..., Any],
+) -> None:
+    """F-077 (R-077): a instancia SP-OP-CRED-001 que o handoff da FRAUDE abre NO ENGINE carrega
+    `direcao`/`tipo_prestador`/`origem_solicitacao`/`data_solicitacao_iso`/`documentos_refs`
+    (obrigatorias em `docs/processes/contracts/SP-OP-CRED-001.md`), e o valor semeado de `direcao`
+    roteia a DMN nativa `cred_route` ao ramo de analise HUMANA de descredenciamento.
+
+    `prestador_id` UNICO por execucao: o engine local e' persistente e o CRED e' `NON_STRICT` —
+    com a chave fixa dos outros testes (`prov:teste-0001`) o start acharia a instancia ATIVA de uma
+    corrida anterior e devolveria as variaveis DELA, nao as deste start.
+    """
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn",
+        _REPO / "spec/processes/dmn/cred_admissibility.dmn",
+        _REPO / "spec/processes/dmn/cred_prior_notice.dmn",
+        _REPO / "spec/processes/dmn/cred_route.dmn",
+        _REPO / "spec/processes/dmn/cred_sla.dmn",
+        name="SP-OP-CRED-001-qa-fraude-handoff-f077",
+    )
+    prestador = f"prov:teste-f077-{uuid.uuid4().hex[:8]}"
+    inst = await start_fraude(entidade_tipo="prestador", prestador_id=prestador, entidade_pseudo_id=prestador)
+    iid = inst["id"]
+
+    ut = await _drive_to_decisao(engine, fraude_probe, iid)
+    bundle_root = await _sealed_bundle_root(fraude_probe)
+    await engine.complete_task_as_human(ut.id, _acusacao_vars(bundle_root, destino_referral={"cred": True}))
+    await fraude_probe.drain()
+    ut_revisao = await engine.await_user_task(iid, _UT_REVISAO_REFERRAL)
+    await engine.complete_task_as_human(
+        ut_revisao.id,
+        {"destino_referral_cred": True, "destino_referral_contratual": False},
+    )
+    await fraude_probe.drain()
+    ended = await _await_end(engine, iid)
+    assert "ST_StartCredenciamento" in ended, "start_credenciamento deve ter executado nesta instancia"
+
+    [cred] = await engine.find_active_instances(f"CRED-amh-{prestador}")
+    cred_id = cred["id"]
+    assert await engine.incidents(cred_id) == [], "CRED aberto pelo handoff nao pode nascer com incidente"
+    assert await engine.get_variable(cred_id, "direcao") == "descredenciamento"
+    assert await engine.get_variable(cred_id, "origem_solicitacao") == "operadora"
+    assert await engine.get_variable(cred_id, "tipo_prestador") == ""  # FRAUDE nao carrega o tipo
+    data_iso = await engine.get_variable(cred_id, "data_solicitacao_iso")
+    assert isinstance(data_iso, str) and len(data_iso) == 10
+    assert json.loads(await engine.get_variable(cred_id, "documentos_refs", deserialize=False)) == []
+
+    rows, _, _ = await engine.evaluate_decision_raw(
+        "cred_route",
+        {
+            "direcao": await engine.get_variable(cred_id, "direcao"),
+            "tipo_prestador": await engine.get_variable(cred_id, "tipo_prestador"),
+            "origem_solicitacao": await engine.get_variable(cred_id, "origem_solicitacao"),
+            "indicio_irregularidade_sinalizado": False,
+        },
+    )
+    assert rows and rows[0]["roteamento"] == "ANALISE_DESCREDENCIAMENTO", rows
+
+
 # FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
 # ST_StartContratual + ST_PublishEncaminhadoContratual COMPLETED canceled=False; has_event matched
 # completed(desfecho=encaminhado_contratual, investigator_id=investigador-sintetico-001, tier=T2).
