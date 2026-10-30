@@ -206,3 +206,12 @@ async def test_is_processed_is_tenant_scoped_and_reads_only_sealed_rows() -> Non
     assert "status = 'processed'" in PROCESSED_SQL
     assert "tenant = $2" in PROCESSED_SQL
     assert "expires_at > now()" in PROCESSED_SQL
+
+
+async def test_mark_processed_and_release_are_tenant_scoped() -> None:
+    """Mutation guard (audit R-117 / F-190): the tenant is bound on seal and on release."""
+    conn = _FakeConn(["k1", "k1"])
+    registry = _registry(conn)
+    await registry.mark_processed("k1")
+    await registry.release("k1")
+    assert conn.calls == [(MARK_PROCESSED_SQL, ("k1", "amh")), (RELEASE_SQL, ("k1", "amh"))]
