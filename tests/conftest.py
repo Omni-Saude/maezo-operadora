@@ -45,6 +45,7 @@ for the few tests that reconfigure structlog, not for the ~8000 that do not.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Iterator
 from typing import Any
@@ -96,3 +97,38 @@ def _structlog_configuration_isolation() -> Iterator[None]:
     if dict(structlog.get_config()) != snapshot:
         structlog.configure(**snapshot)
         _uncache_lazy_loggers()
+
+
+#: Text every historical-recipe refusal carries (current runner AND the sha-pinned historical blobs,
+#: whose own message cannot change). Forensic audit F-192: 238 such refusals read as a broken suite.
+_AMBIENT_REFUSAL_MARKER = "ambient Python/pytest/uv configuration"
+_AMBIENT_ENV_EXEMPT = frozenset({"PYTEST_CURRENT_TEST", "PYTEST_VERSION"})
+
+
+def _ambient_python_env() -> list[str]:
+    """The PYTEST_*/PYTHON*/UV_* variables the historical recipes refuse to run under."""
+    return sorted(
+        name
+        for name in os.environ
+        if name not in _AMBIENT_ENV_EXEMPT and name.startswith(("PYTEST_", "PYTHON", "UV_"))
+    )
+
+
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: pytest.Config) -> None:
+    """Turn ambient-env refusals into one actionable line (F-192).
+
+    Silent unless a failed/errored test's report carries the refusal marker, so a clean run prints
+    nothing extra.
+    """
+    reports = [*terminalreporter.stats.get("failed", []), *terminalreporter.stats.get("error", [])]
+    refused = sum(1 for report in reports if _AMBIENT_REFUSAL_MARKER in getattr(report, "longreprtext", ""))
+    if not refused:
+        return
+    names = _ambient_python_env()
+    command = "env " + " ".join(f"-u {name}" for name in names) + " make test" if names else "make test"
+    terminalreporter.write_sep("=", "ambient Python/pytest/uv environment", yellow=True)
+    terminalreporter.write_line(
+        f"{refused} failure(s)/error(s) are historical-recipe refusals caused by ambient "
+        f"configuration ({', '.join(names) or 'PYTEST_*/PYTHON*/UV_*'}), not by the code under test."
+    )
+    terminalreporter.write_line(f"Rerun without it: `{command}`")
