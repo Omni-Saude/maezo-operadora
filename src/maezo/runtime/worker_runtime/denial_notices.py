@@ -1,151 +1,59 @@
-"""Dedicated host for the `auth_denial_record` consumer of SP-OP-AUTH-001 (WP-J1-06).
+"""One owner for `operadora.auth.send_denial_notice` — the AUTH contract's worker (R-004).
 
-One topic, one owner. `operadora.auth.send_denial_notice` is served either by the
-generic `SendDenialNoticeWorker` (which reads the ANS grounding from process
-variables) or by this host's producer (which reads the human-decision basis the
-portal's decision plane actually carries) — never by both, because two workers on one
-topic race for the same external task and the loser's guard never runs.
+WP-J1-06 once installed a second, dark owner on this topic (`NativeDenialNoticeWorker`,
+switched by `MAEZO_DENIAL_NOTICE_OWNER`). It was not in the SP-OP-AUTH-001 contract
+(forensic finding F-032), and the owner's decision DEC-01 (issue #1081) removed it: the
+contract's `SendDenialNoticeWorker` is the single owner, and the written notice of RN 623/2024
+art. 14 is delivered through that worker — manually, by the médico auditor, until a real
+beneficiary channel exists (contract §SLAs, "Negativa por escrito").
 
-The exclusivity is asserted, not assumed: `assert_exclusive` must pass at
-installation and again after any re-registration on the harness. `register_auth_workers`
-takes the same seam and simply does not register the generic worker when this host
-owns the topic, so a deployment cannot end up with both by forgetting a step.
+What this module keeps is the exclusivity, asserted rather than assumed:
+
+* `assert_single_owner` runs after the daemon registers its workers. Two workers on one topic
+  race for the same external task and the loser's guard never runs; a topic with NO owner
+  stalls every human denial at `ST_EnviarNegativaFormal`. Both are composition defects, not
+  warnings, so both refuse.
+* `refuse_retired_second_owner` turns the old switch into a tombstone. A deployment that still
+  sets `MAEZO_DENIAL_NOTICE_OWNER=true` asked for an owner that no longer exists; ignoring that
+  silently would leave it believing the custody-basis path is live. The daemon refuses to
+  register its workers instead (`/readyz` stays red), which is visible and recoverable.
+
+Neither function decides anything about a denial. The denial DECISION stays with the human
+médico auditor (`hard` autonomy item, ADR-0005/ADR-0008).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
-
-from maezo.gateway.denial_notices.models import (
-    DenialIncompleteError,
-    DenialNotHumanError,
-)
-from maezo.gateway.denial_notices.producer import TOPIC, DenialNoticeProducer
-from maezo.tools.workers.base import ERR_AUTH_DENIAL_INCOMPLETE, ERR_DENIAL_NOT_HUMAN, WorkerBase
-from maezo.tools.workers.harness import WorkerBpmnError
+from maezo.tools.workers.auth import SEND_DENIAL_NOTICE_TOPIC as TOPIC
+from maezo.tools.workers.auth import SendDenialNoticeWorker, TopicOwnershipError
+from maezo.tools.workers.harness import WorkerHarness
 
 
-class TopicOwnershipError(RuntimeError):
-    """Two owners for one external-task topic is a composition defect, not a warning."""
+class RetiredDenialOwnerError(RuntimeError):
+    """`MAEZO_DENIAL_NOTICE_OWNER` names an owner that was removed (R-004 / F-032)."""
 
     def __init__(self) -> None:
-        super().__init__("denial_notice_topic_not_exclusive")
+        super().__init__("denial_notice_second_owner_removed")
 
 
-class NativeDenialNoticeWorker(WorkerBase):
-    """External task: `operadora.auth.send_denial_notice`, portal-decision variant.
-
-    Serves `ST_EnviarNegativaFormal` exactly like the generic worker — same topic,
-    same boundary, same error codes — but grounds its completeness guard in the human
-    decision basis (custody reference + digests + the projected principal) instead of
-    clinical strings that ADR-0006 keeps out of engine variables in the first place.
-
-    Like its sibling it TRANSMITS NOTHING: it composes the formal record and returns
-    it. The AUTH contract places the real secure channel in Fase 1, and no key emitted
-    here claims a delivery happened.
-    """
-
-    def __init__(self, producer: DenialNoticeProducer) -> None:
-        # max_retries=1 for the same reason the generic worker uses it: these guards
-        # are deterministic, not transient, and the engine owns durable retry. An
-        # in-process retry would only delay the modeled bpmnError.
-        super().__init__(topic=TOPIC, max_retries=1)
-        self._producer = producer
-
-    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Compose the formal denial, or refuse with the code the BPMN models.
-
-        Raises:
-            WorkerBpmnError: `ERR_AUTH_DENIAL_INCOMPLETE` when no complete human
-                decision basis backs this denial — caught by `BE_NegativaIncompleta`
-                and ended, neutrally, at `End_FundamentacaoIncompletaBloqueada`.
-        """
-        tenant_id = process_vars.get("tenant_id", "")
-        decisao = process_vars.get("decisao_auditor", "")
-        if decisao != "NEGAR":
-            # Defensive, exactly as in the generic worker: `ST_EnviarNegativaFormal`
-            # has one inbound flow and it is `${decisao_auditor == 'NEGAR'}`.
-            self.logger.info("auth_approval_notice_composed", tenant_id=tenant_id)
-            return {
-                "notice_type": "approval",
-                "error_code": None,
-                "event": "agents.events.auth.completed",
-            }
-        try:
-            record = self._producer.compose(process_vars)
-        except DenialIncompleteError as incomplete:
-            # Names only, never values: a reference is not PHI but the habit is.
-            self.logger.error(
-                "auth_denial_blocked_incomplete",
-                tenant_id=tenant_id,
-                missing_fields=list(incomplete.missing),
-                reason=(
-                    "negativa formal exige fundamentacao completa em custodia PHI (RN 395 art. 10, L0 hard)"
-                ),
-            )
-            raise WorkerBpmnError(
-                ERR_AUTH_DENIAL_INCOMPLETE,
-                "send_denial_notice: decisao humana sem base completa em custodia, campos "
-                f"ausentes: {list(incomplete.missing)} — negativa formal NAO transmitida "
-                "(RN 395 art. 10, L0 hard ADR-0005).",
-            ) from None
-        except DenialNotHumanError:
-            self.logger.error(
-                "auth_denial_blocked_by_guard",
-                tenant_id=tenant_id,
-                reason="NEGAR sem responsabilidade humana correspondente (L0 hard, ADR-0007)",
-            )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Negativa automatica PROIBIDA. Requer decisao de medico auditor humano.",
-            }
-        self.logger.info(
-            "auth_denial_notice_composed",
-            tenant_id=tenant_id,
-            notice_composed_asserted_transmission=False,
-        )
-        # No `redact_phi_vars` here, deliberately. The generic worker needs it because it
-        # reads clinical strings out of engine variables; this owner never does — the
-        # record is a `Closed` model with a fixed, non-clinical field set, so there is
-        # nothing to redact and the enforcement point is the model itself (proven by
-        # `test_the_record_can_never_grow_a_clinical_field`). Adding a third call site
-        # would also invalidate the two-call-site MEASUREMENT that
-        # `PHI-DISPOSITIONS-RECOMMENDATION.md` §3.0 rests on, before a DPO signs it.
-        return record.variables()
+def assert_single_owner(harness: WorkerHarness) -> None:
+    """Refuse unless the contract's worker is the one and only owner of the topic."""
+    if harness.registered_topics.count(TOPIC) != 1:
+        raise TopicOwnershipError()
+    if type(harness.registry.get(TOPIC)) is not SendDenialNoticeWorker:
+        raise TopicOwnershipError()
 
 
-class DenialNoticeHost:
-    """Installs the portal-decision denial owner and keeps the topic exclusive."""
-
-    topic = TOPIC
-
-    def __init__(self, *, producer: DenialNoticeProducer, generic_topics: Iterable[str] = ()) -> None:
-        if type(producer) is not DenialNoticeProducer:
-            raise TopicOwnershipError()
-        self.assert_exclusive(generic_topics)
-        self._producer = producer
-
-    @staticmethod
-    def assert_exclusive(generic_topics: Iterable[str]) -> None:
-        """Run at installation and after any daemon worker re-registration."""
-        if TOPIC in tuple(generic_topics):
-            raise TopicOwnershipError()
-
-    def worker(self) -> NativeDenialNoticeWorker:
-        return NativeDenialNoticeWorker(self._producer)
-
-
-def install_denial_notice_host(generic_topics: Iterable[str] = ()) -> DenialNoticeHost:
-    """The one construction path: a real producer, and a topic nobody else holds."""
-    return DenialNoticeHost(producer=DenialNoticeProducer(), generic_topics=generic_topics)
+def refuse_retired_second_owner(requested: bool) -> None:
+    """Fail closed when a deployment still asks for the removed second owner."""
+    if requested:
+        raise RetiredDenialOwnerError()
 
 
 __all__ = [
     "TOPIC",
-    "DenialNoticeHost",
-    "NativeDenialNoticeWorker",
+    "RetiredDenialOwnerError",
     "TopicOwnershipError",
-    "install_denial_notice_host",
+    "assert_single_owner",
+    "refuse_retired_second_owner",
 ]
