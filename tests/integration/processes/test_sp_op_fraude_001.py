@@ -40,7 +40,7 @@ unless a real v2 gap/shape difference is documented below):
     handler is `maezo.tools.workers.events.register_events_workers` (T3.1 R2, already merged,
     already exercised green by auth/escalation/cancel) — composed here exactly like those
     suites' probes.
-  - `maezo.tools.mcp_dmn.server.CibSevenDmnTransport` (donor, v1's now-dead in-process XML
+  - the donor's `CibSevenDmnTransport` (in v1's DMN MCP `server.py`, the now-dead in-process XML
     evaluator module) -> v2's REAL engine-side DMN seam is
     `maezo.tools.workers.dmn_transport.CibSevenDmnTransport` (ADR-0028) — wired into
     `register_fraude_workers(harness, kafka, dmn=dmn)`'s `dmn=` seam, which `score_indicators`
