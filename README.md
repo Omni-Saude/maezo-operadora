@@ -81,20 +81,20 @@ Dez agentes com identidade, escopo e matriz de autonomia próprios (`spec/agents
 | **Fernando** *(DRAFT)* | Inadimplência / cobrança avançada |
 | **Valentina** *(DRAFT)* | Coordenação de Programas de Cuidado — estratificação de risco e plano de cuidado |
 
-Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR-0008): ações L0 — negativa de cobertura, acusação de fraude, cancelamento, decisão clínica — são **não-negociáveis** e sempre terminam em humano, com o runtime recusando (fail-closed) qualquer desvio.
+Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR-0008): as 5 ações L0 congeladas em `spec/policies/autonomy/_hard_frozen.yaml`: `clinical_decision`, `authorization_denial`, `nip_manter_negativa`, `fraud_accusation`, `contract_termination` (decisão clínica, negativa de cobertura, manutenção de negativa em NIP, acusação de fraude, rescisão contratual) — são **não-negociáveis** e sempre terminam em humano, com o runtime recusando (fail-closed) qualquer desvio.
 
 ---
 
 ## Jornadas cobertas
 
-16 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 63 tabelas DMN (`spec/processes/dmn/`):
+17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 65 arquivos DMN (`spec/processes/dmn/`):
 
 | Jornada | Processos SP-OP |
 |---------|-----------------|
 | Autorização de atenção | `SP-OP-AUTH-001` |
 | Contas médicas e glosas | `SP-OP-CONTAS-001` · `SP-OP-RECURSO-001` |
 | Financeiro do beneficiário | `SP-OP-REEMBOLSO-001` · `SP-OP-PAGTO-001` · `SP-OP-INADIMPLENCIA-001` · `SP-OP-NIP-001` |
-| Rede e relacionamento | `SP-OP-CRED-001` · `SP-OP-ADEQUACAO-001` · `SP-OP-CANCEL-001` · `SP-OP-PROGRAMA-001` |
+| Rede e relacionamento | `SP-OP-CRED-001` · `SP-OP-ADEQUACAO-001` · `SP-OP-CANCEL-001` · `SP-OP-PROGRAMA-001` · `SP-OP-SUPP-001` |
 | Regulação e conformidade | `SP-OP-ANS-SUBMIT-001` · `SP-OP-ANS-CRON-001` · `SP-OP-FRAUDE-001` · `SP-OP-LGPD-DSR-001` · `SP-OP-ESCALATION-001` |
 
 O catálogo vivo com fase e status de cada processo está em [docs/processes/catalog.md](docs/processes/catalog.md).
@@ -124,19 +124,19 @@ O que separa esta base do go-live **não é código** — são ações que só h
 
 ---
 
-## Números (medidos em 2026-09-23 na `main`)
+## Números (medidos em 2026-09-23 na `main`; processos BPMN, arquivos DMN, ADRs e decision log recontados e verificados por `tests/unit/docs/test_contagens_canonicas.py`)
 
 | Métrica | Valor |
 |---------|-------|
 | Agentes de IA nomeados | 10 (8 ativos + 2 em DRAFT) |
-| Processos BPMN SP-OP | 16 |
-| Tabelas de decisão DMN | 63 |
+| Processos BPMN SP-OP | 17 |
+| Arquivos de decisão DMN (`.dmn`) | 65 |
 | Servidores MCP | 5 (CIB Seven, DMN, FHIR, WhatsApp, Memory) |
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
-| ADRs | 59 (0001–0059; 43 ratificados, 16 em proposta/DRAFT) |
-| Decision log | 49 decisões registradas |
+| ADRs | 67 (0001–0067; 49 Accepted, 18 Proposed/Proposto) |
+| Decision log | 157 decisões registradas (DL-0001–DL-0157) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
 
@@ -184,7 +184,7 @@ src/maezo/
 ├── ports/           # Envelope canônico A2A (28 campos, pinado)
 ├── domain/          # Regras de domínio puras
 └── tools/
-    ├── workers/     # 16 workers BPMN (auth, contas, fraude, nip, ...)
+    ├── workers/     # 17 workers BPMN (auth, contas, fraude, nip, ...)
     ├── mcp_cibseven/
     ├── mcp_dmn/
     ├── mcp_fhir/
@@ -198,10 +198,10 @@ src/maezo/
 |-----------|----------|
 | [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 59 ADRs numerados (0001–0059; recontado 2026-09-23) |
+| [docs/adr/](docs/adr/) | 67 ADRs numerados (0001–0067; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
-| [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos SP-OP — ~1.000 regras de negócio |
-| [docs/decisions-log.md](docs/decisions-log.md) | 49 decisões operacionais |
+| [docs/processes/contracts/](docs/processes/contracts/) | 17 contratos SP-OP — ~1.000 regras de negócio |
+| [docs/decisions-log.md](docs/decisions-log.md) | 157 decisões operacionais (DL-0001–DL-0157) |
 | [docs/runbooks/](docs/runbooks/) | 32 runbooks operacionais (22 gerais + 8 de alerta + 2 drills) |
 | [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Como contribuir: princípios, receitas de agente/MCP/processo |
