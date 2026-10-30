@@ -232,11 +232,34 @@ def test_a_foreign_worker_on_the_topic_fails_the_ownership_check():
         def execute(self, process_vars):  # type: ignore[no-untyped-def]
             return {}
 
+    from maezo.tools.workers.harness import TopicSealError
+
+    sealed = _harness()
+    register_auth_workers(sealed)
+    with pytest.raises(TopicSealError):  # the seal refuses it before the check ever runs
+        sealed.register_worker(_Impostor())
     harness = _harness()
-    register_auth_workers(harness)
     harness.register_worker(_Impostor())
     with pytest.raises(TopicOwnershipError):
         assert_single_owner(harness)
+
+
+def test_a_raw_handler_can_not_displace_the_contract_owner():
+    """B1: `harness.register` cru troca o handler de dispatch sem tocar o `registry` — o selo o recusa."""
+    from maezo.tools.workers.harness import TopicSealError
+
+    async def _impostor(task):  # type: ignore[no-untyped-def]
+        return {"entrega_negativa_status": "entregue"}
+
+    harness = _harness()
+    register_auth_workers(harness)
+    with pytest.raises(TopicSealError):
+        harness.register(TOPIC, _impostor)
+    # Re-registering the SAME owner stays accepted (idempotent bootstrap).
+    register_auth_workers(harness)
+    harness.register_worker(SendDenialNoticeWorker())
+    assert type(harness.registry.get(TOPIC)) is SendDenialNoticeWorker
+    assert_single_owner(harness)
 
 
 def test_a_missing_owner_fails_the_ownership_check():

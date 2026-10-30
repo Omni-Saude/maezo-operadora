@@ -1981,3 +1981,6 @@ def register_auth_workers(
     # acima existe para impedir. A ordem e' indiferente para os topicos (sao distintos).
     # `is True`, nao truthiness: um valor-lixo ("false", 1) nunca liga a bandeira (dark).
     harness.register_worker(SendDenialNoticeWorker(written_notice=seams.get("denial_written_notice") is True))
+    # Selo (R-004 / B1): um `harness.register` cru posterior trocaria o handler de dispatch sem
+    # tocar o `registry`; o selo recusa qualquer outro dono e aceita o re-registro deste.
+    harness.seal_topic(SEND_DENIAL_NOTICE_TOPIC, SendDenialNoticeWorker)

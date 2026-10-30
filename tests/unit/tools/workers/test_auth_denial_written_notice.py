@@ -159,6 +159,16 @@ def test_register_auth_workers_threads_the_flag_into_the_single_owner(enabled: b
     assert ("entrega_negativa_status" in owner.execute(_negar())) is enabled
 
 
+@pytest.mark.parametrize("junk", ["true", "false", 1, "1"])
+def test_a_junk_seam_value_does_not_switch_the_flag_on(junk: object) -> None:
+    """N1: so o booleano `True` liga a bandeira (`is True`, nunca truthiness)."""
+    harness = _harness()
+    register_auth_workers(harness, denial_written_notice=junk)
+    owner = harness.registry.get(TOPIC)
+    assert type(owner) is SendDenialNoticeWorker
+    assert not _ENTREGA_KEYS & set(owner.execute(_negar()))
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_the_daemon_bootstrap_threads_the_flag(enabled: bool) -> None:
     from maezo.runtime.worker_runtime.service import register_default_workers

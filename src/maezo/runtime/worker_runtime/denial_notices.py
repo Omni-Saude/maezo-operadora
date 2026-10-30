@@ -37,8 +37,14 @@ class RetiredDenialOwnerError(RuntimeError):
 
 
 def assert_single_owner(harness: WorkerHarness) -> None:
-    """Refuse unless the contract's worker is the one and only owner of the topic."""
-    if harness.registered_topics.count(TOPIC) != 1:
+    """Refuse unless the contract's worker is the one and only owner of the topic.
+
+    `registered_topics` are dict keys, so a topic appears at most once; the check here is
+    presence plus owner type. Exclusivity against a later raw `harness.register` (which would
+    swap the dispatch handler while `registry` still names the worker) is enforced by the seal
+    `register_auth_workers` places on the topic (`harness.seal_topic`, `TopicSealError`).
+    """
+    if TOPIC not in harness.registered_topics:
         raise TopicOwnershipError()
     if type(harness.registry.get(TOPIC)) is not SendDenialNoticeWorker:
         raise TopicOwnershipError()
