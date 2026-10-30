@@ -247,9 +247,11 @@ Emergência: `terraform apply ... -var=cancel_pf_v1=false` com os mesmos `-targe
 - Meta: retorno fora da janela de 24 h precisa de template aprovado (hoje só o aviso à equipe).
 - **Identificação para executar no Tasy (precisa de decisão do dono / AMH):** a AMH não entrega ao Maezo número
   de contrato nem matrícula/carteirinha em claro, e o portal não mostra referência do beneficiário na tarefa. A
-  instância carrega só o pseudônimo do Maezo (`beneficiario_pseudo_id`). Para a pessoa do cadastro achar o
-  beneficiário no Tasy é indispensável uma rota NOVA da AMH, na Zona PHI e só para staff, por exemplo
-  `GET /subjects/{portable_subject_ref}/identificacao-cadastro` (finalidade `execucao-cancelamento`) devolvendo
-  `numero_contrato`, `matricula`/`carteirinha` (sem máscara) e `titular` — mais o Maezo gravar na instância o
-  `portable_subject_ref` (opaco) para o portal pedir essa rota. **Não implementado** (aguarda o dono). Para o
-  teste em dev, quem testa sabe quem é o beneficiário de teste.
+  instância carrega só o pseudônimo do Maezo (`beneficiario_pseudo_id`). A rota restrita da AMH para isso,
+  `GET /subjects/{portable_subject_ref}/identificacao-cadastro` (Zona PHI, só staff, finalidade
+  `execucao-cancelamento`, devolvendo `numero_contrato`, `matricula`/`carteirinha` sem máscara e `titular`), já
+  foi PUBLICADA pela AMH no manifest v1.7 (16/10/2026, AMH #253) e está pinada em
+  `config/integrations/amh/contracts.lock.json` (`manifest_v1_7`). O Maezo **ainda não a consome**: nenhum
+  cliente/tela chama a rota e a instância não grava o `portable_subject_ref` para o portal pedi-la. Ligar o
+  consumo aguarda o dono e a ratificação do DPO da base legal (ver SP-OP-CANCEL-001 §Dados do beneficiario).
+  Para o teste em dev, quem testa sabe quem é o beneficiário de teste.
