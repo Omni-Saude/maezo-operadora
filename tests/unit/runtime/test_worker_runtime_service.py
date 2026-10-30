@@ -506,3 +506,79 @@ async def test_bring_up_does_not_spawn_when_sink_probe_red(monkeypatch: Any) -> 
             await state.transport.close()
         if state.audit_sink is not None:
             await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_the_written_notice_flag_when_the_deployment_turns_it_on(
+    monkeypatch: Any,
+) -> None:
+    """R-004 (RN 623 art. 14): `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE=true` reaches the bootstrap.
+
+    Mutation guard for the wiring: a hard-coded `denial_written_notice=False` in the live
+    composition would pass the default bring-up test above and fail here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_AUTH_DENIAL_WRITTEN_NOTICE=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["denial_written_notice"] is True
+        assert isinstance(state.harness, _SpyHarness)
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_refuses_to_register_when_the_retired_second_owner_is_requested(
+    monkeypatch: Any,
+) -> None:
+    """R-004 / F-032: `MAEZO_DENIAL_NOTICE_OWNER=true` is a tombstone — the daemon registers
+    NOTHING (harness unbuilt => readiness red), never a silent fallback to a removed owner."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    calls: list[Any] = []
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_DENIAL_NOTICE_OWNER=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert calls == [], "the retired owner switch must stop registration before it starts"
+        assert state.harness is None
+        assert state.harness_task is None
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
