@@ -574,6 +574,32 @@ networkPolicy:
   intraNamespaceEgressComponents:
     - gateway
 
+  # R-061 / F-069 — egress de telemetria para o OTel collector IN-CLUSTER. Sem esta policy o
+  # default-deny-egress descarta em silencio todo trace/metrica que os pods exportam para
+  # `observability.otel.endpoint`. So renderiza com `defaultDenyEgress: true` (uma policy de
+  # Egress com `podSelector: {}` isolaria todos os pods por efeito colateral).
+  #   - destino: SO o namespace do collector (namespaceSelector), nunca ipBlock/0.0.0.0/0;
+  #   - porta: a da URL de `observability.otel.endpoint` (sem porta explicita = render FALHA);
+  #   - namespace: vazio = derivado do host `<svc>.<ns>.svc[.cluster.local]` do endpoint; host
+  #     fora desse formato sem `namespace` explicito = render FALHA (fail-closed).
+  #   - podLabels: opcional, estreita ao(s) pod(s) do collector (gerenciado fora deste chart —
+  #     opentelemetry-operator — por isso nenhum label e inventado aqui).
+  # Vale para TODOS os pods, inclusive Zona PHI: o collector e in-cluster e a ausencia de PHI na
+  # telemetria depende do scrub do PROPRIO collector (configmap-otel-collector.yaml) — decisao de
+  # seguranca declarada no PR de R-061, nao assumida aqui.
+  otelEgress:
+    enabled: true
+    namespace: ""
+    podLabels: {}
+
+  # R-061 / F-069 — egress para o CIB Seven IN-CLUSTER (ADR-0021) por SELETOR de pod
+  # (`app.kubernetes.io/component: cibseven`, porta 8080), so para quem recebe
+  # `CIBSEVEN_BASE_URL` (agent-runtime, worker-daemon e as tres pontes). So renderiza quando
+  # `cibseven.inCluster.enabled` (com engine externo o egress segue por
+  # `daemonEgress.endpoints` com CIDR concreto) e com `defaultDenyEgress: true`.
+  inClusterEngineEgress:
+    enabled: true
+
   # General Zone: agents with PHI pseudonymized (Helena, Lucas, Fernando, Gustavo).
   # May reach: pseudonymized LLM endpoint + intra-namespace + Kafka MSK.
   generalZone:

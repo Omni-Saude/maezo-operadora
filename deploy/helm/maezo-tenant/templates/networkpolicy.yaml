@@ -11,6 +11,10 @@ Layers:
   2. allow-dns              — kube-dns (UDP/TCP 53) for every pod.
   3. allow-intra-namespace  — agent -> gateway/shared-infra ONLY (SCOPED by
                               app.kubernetes.io/component; NOT peer agents — FIX 2).
+  3b. allow-otel-egress     — every pod -> in-cluster OTel collector namespace,
+                              endpoint port only (R-061/F-069; no ipBlock).
+  3c. allow-cibseven-egress — CIBSEVEN_BASE_URL consumers -> in-cluster engine
+                              pod selector (only with cibseven.inCluster).
   4. per-agent egress       — one NetworkPolicy per agent, selecting on
                               maezo.io/agent=<name>, opening ONLY that agent's
                               zone-appropriate external egress to CONCRETE CIDRs
@@ -102,6 +106,113 @@ spec:
                   {{- range $.Values.networkPolicy.intraNamespaceEgressComponents }}
                   - {{ . | quote }}
                   {{- end }}
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 3b. OTel collector egress (R-061 / F-069)                            */}}
+{{- /*                                                                       */}}
+{{- /* Every pod exports OTLP to observability.otel.endpoint; under          */}}
+{{- /* default-deny-egress that traffic was silently dropped. We open ONLY   */}}
+{{- /* the collector's namespace (namespaceSelector, optional podLabels) on  */}}
+{{- /* the endpoint's OWN port — no ipBlock, never 0.0.0.0/0. Namespace and   */}}
+{{- /* port are derived from the endpoint URL so the policy cannot drift     */}}
+{{- /* from the env var the pods actually use; an endpoint outside Service   */}}
+{{- /* DNS (<svc>.<ns>.svc...) without an explicit namespace, or without a   */}}
+{{- /* port, ABORTS rendering (fail-closed). PHI-zone pods are included: the */}}
+{{- /* collector is in-cluster; keeping PHI out of telemetry is the          */}}
+{{- /* collector's scrub (security-team decision, declared in R-061's PR).   */}}
+{{- /* Rendered INSIDE the defaultDenyEgress gate: an Egress policy with     */}}
+{{- /* podSelector {} would otherwise isolate every pod as a side effect.    */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- if .Values.networkPolicy.otelEgress.enabled }}
+{{- $otelErr := "networkPolicy.otelEgress: observability.otel.endpoint must be an in-cluster Service URL with an explicit port (http://<svc>.<ns>.svc[.cluster.local]:<port>), or set networkPolicy.otelEgress.namespace — refusing to open OTel egress to an unknown destination (R-061, fail-closed)" }}
+{{- $otelHostPort := (urlParse .Values.observability.otel.endpoint).host }}
+{{- $otelParts := splitList ":" $otelHostPort }}
+{{- if ne (len $otelParts) 2 }}{{- fail $otelErr }}{{- end }}
+{{- $otelPort := last $otelParts | atoi }}
+{{- if le $otelPort 0 }}{{- fail $otelErr }}{{- end }}
+{{- $otelNs := .Values.networkPolicy.otelEgress.namespace }}
+{{- if not $otelNs }}
+{{- $otelLabels := splitList "." (first $otelParts) }}
+{{- if or (lt (len $otelLabels) 3) (ne (index $otelLabels 2) "svc") }}{{- fail $otelErr }}{{- end }}
+{{- $otelNs = index $otelLabels 1 }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otel-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+  annotations:
+    maezo.io/adr: "ADR-0006"
+    maezo.io/note: "OTLP egress -> in-cluster OTel collector namespace ONLY (R-061/F-069). PHI-zone pods included; PHI scrub is the collector's responsibility (security-team)."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $otelNs | quote }}
+          {{- with .Values.networkPolicy.otelEgress.podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - port: {{ $otelPort }}
+          protocol: TCP
+{{- end }}
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 3c. In-cluster CIB Seven egress (R-061 / F-069; ADR-0021)            */}}
+{{- /*                                                                       */}}
+{{- /* Only when the engine runs IN-CLUSTER (statefulset-cibseven.yaml). By  */}}
+{{- /* pod selector (component=cibseven, port 8080), only for the workloads  */}}
+{{- /* that carry CIBSEVEN_BASE_URL: agent-runtime (every enabled agent),    */}}
+{{- /* worker-daemon and the three bridges. The cibseven pod holds no        */}}
+{{- /* cloud-LLM egress, so this opens no PHI -> cloud relay (FIX 2).        */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- if and .Values.networkPolicy.inClusterEngineEgress.enabled .Values.cibseven.inCluster.enabled }}
+{{- $engineClients := list }}
+{{- range $agent := .Values.agents }}{{- if $agent.enabled }}{{- $engineClients = append $engineClients (include "maezo-tenant.agentComponent" (dict "name" $agent.name)) }}{{- end }}{{- end }}
+{{- if .Values.workerDaemon.enabled }}{{- $engineClients = append $engineClients "worker-daemon" }}{{- end }}
+{{- if .Values.notificationsBridge.enabled }}{{- $engineClients = append $engineClients "notifications-bridge" }}{{- end }}
+{{- if .Values.networkChangeBridge.enabled }}{{- $engineClients = append $engineClients "network-change-bridge" }}{{- end }}
+{{- if .Values.consentRevocationBridge.enabled }}{{- $engineClients = append $engineClients "consent-revocation-bridge" }}{{- end }}
+{{- if $engineClients }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cibseven-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+  annotations:
+    maezo.io/adr: "ADR-0021"
+    maezo.io/note: "Egress -> in-cluster CIB Seven (component=cibseven:8080) ONLY for CIBSEVEN_BASE_URL consumers (R-061/F-069)."
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          {{- range $engineClients }}
+          - {{ . | quote }}
+          {{- end }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: cibseven
+      ports:
+        - port: 8080
+          protocol: TCP
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- /* ------------------------------------------------------------------- */}}
@@ -292,6 +403,9 @@ spec:
 {{- $components := list }}
 {{- if .Values.workerDaemon.enabled }}{{- $components = append $components "worker-daemon" }}{{- end }}
 {{- if .Values.notificationsBridge.enabled }}{{- $components = append $components "notifications-bridge" }}{{- end }}
+{{- /* R-061: as pontes irmas (Kafka consumer + CIB Seven) caiam fora desta policy — sem egress. */}}
+{{- if .Values.networkChangeBridge.enabled }}{{- $components = append $components "network-change-bridge" }}{{- end }}
+{{- if .Values.consentRevocationBridge.enabled }}{{- $components = append $components "consent-revocation-bridge" }}{{- end }}
 {{- if .Values.a2aOutboxRelay.enabled }}{{- $components = append $components "a2a-outbox-relay" }}{{- end }}
 {{- /* WP-J1-01: o daemon de intake fala com o MESMO plano que os demais daemons W-R2 (CIB */}}
 {{- /* Seven + Postgres protegido). Sem esta linha o pod subiria sem egress e recusaria tudo. */}}

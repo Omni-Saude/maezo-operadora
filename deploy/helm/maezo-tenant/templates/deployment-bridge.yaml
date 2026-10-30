@@ -10,7 +10,7 @@ mcp-cibseven.start_process (idempotente). Identidade = principal de SERVICO
 
 PROBE (seam): o daemon da ponte NAO sobe um servidor de health (o `main.py` so roda o loop do
 consumer — diferente do worker-daemon/agent-runtime). Por isso usamos uma liveness `exec`
-(processo vivo) em vez de httpGet /healthz. Seam: adicionar um app de health (mirror R7) e
+(heartbeat em BRIDGE_HEARTBEAT_PATH, R-061/F-149 — a imagem nao tem `pgrep`) em vez de httpGet /healthz. Seam: adicionar um app de health (mirror R7) e
 trocar por probes HTTP /healthz+/readyz quando o consumer ganhar readiness.
 */ -}}
 {{- if .Values.notificationsBridge.enabled }}
@@ -59,6 +59,7 @@ spec:
                   name: maezo-kafka-config
                   key: bootstrap-servers
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+            {{- include "maezo-tenant.bridgeHeartbeatEnv" (dict "name" "notifications-bridge") | nindent 12 }}
           resources:
             {{- toYaml .Values.notificationsBridge.resources | nindent 12 }}
           securityContext:
@@ -66,15 +67,10 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-          # SEAM: a ponte nao expoe /healthz (sem app de health). Liveness por processo vivo.
+          # R-061 / F-149: a imagem nao tem `pgrep` (sem procps — exit 127, restart-loop). Liveness
+          # por heartbeat (maezo-tenant.bridgeHeartbeatProbe em _helpers.tpl).
           livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - "pgrep -f maezo.platform.integrations.notifications_bridge > /dev/null"
-            initialDelaySeconds: 20
-            periodSeconds: 30
+            {{- include "maezo-tenant.bridgeHeartbeatProbe" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
