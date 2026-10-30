@@ -435,6 +435,36 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # R-085 / F-090 (ADR-0010 "Alertas: budget A2A estourado"; ADR-0003 guardas anti-loop).
+        # UMA contagem por delegacao recusada por uma guarda ESTRUTURAL dentro do handler
+        # (`DelegationError` capturado em `a2a.dispatcher.DelegationDispatcher._finish_handler`).
+        # Rotulos limitados: `target` e um agent id REGISTRADO (o dispatcher ja rejeitou o resto
+        # com `no_handler`) e `guard` e o vocabulario FECHADO `platform.observability.A2A_GUARDS`
+        # (`budget_exhausted` | `max_hops` | `cyclic` | `outro`). Nunca task_id, chain ou payload.
+        self._a2a_guard_refusal = Counter(
+            "maezo_a2a_guard_refusal_total",
+            "A2A delegations refused by a structural anti-loop guard, by guard (COUNTS ONLY)",
+            labelnames=["target", "guard"],
+            registry=self._registry,
+        )
+
+        # R-085 / F-090 (ADR-0010 metricas por agente; docs/runbooks/devops-stack.md "PEP deny
+        # spike", prefixo `maezo_gateway_pep_*` do catalogo §5). UMA contagem por decisao do PEP de
+        # efeitos (`gateway.effect_pep.decide`, via `gateway.seams._base.gate` — o unico ponto por
+        # onde toda chamada gated passa). Rotulos TODOS limitados e sem PHI (ADR-0006): `tenant` e
+        # `principal` sao os mesmos tokens validados de `SeamContext` (mesma postura de
+        # `maezo_effect_rate_limited_total`); `decision` e `allow` | `deny`; `layer` e o enum
+        # fechado `EffectLayer`; `reason` e o vocabulario fechado de razoes do PEP (normalizado
+        # para `outro` no chamador); `enforced` e `true` | `false` — separa a recusa REAL da
+        # recusa-sombra (WOULD_DENY), para que nenhum alerta pagine sobre o modo shadow.
+        # `operation` fica de FORA de proposito (um token nao catalogado e alcancavel aqui).
+        self._gateway_pep_decision = Counter(
+            "maezo_gateway_pep_decision_total",
+            "Effect-PEP decisions by decision/layer/reason/enforced (COUNTS ONLY)",
+            labelnames=["tenant", "principal", "decision", "layer", "reason", "enforced"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -654,3 +684,20 @@ class MetricsCollector:
         matricula value ever reaches this metric.
         """
         return self._phi_business_key_mint
+
+    @property
+    def a2a_guard_refusal(self) -> Counter:
+        """Counter for A2A delegations refused by a structural anti-loop guard (R-085, ADR-0010).
+
+        Labels: target (a REGISTERED agent id), guard (closed `platform.observability.A2A_GUARDS`). COUNTS ONLY.
+        """
+        return self._a2a_guard_refusal
+
+    @property
+    def gateway_pep_decision(self) -> Counter:
+        """Counter for effect-PEP decisions (R-085, ADR-0010, runbook "PEP deny spike").
+
+        Labels: tenant, principal, decision (allow | deny), layer (closed `EffectLayer`), reason
+        (closed PEP reason vocabulary or `outro`), enforced (true | false). COUNTS ONLY.
+        """
+        return self._gateway_pep_decision

@@ -51,10 +51,16 @@ import structlog
 
 from maezo.gateway.audit import AuditRecord
 from maezo.platform.error_types import classify_agent_error_type
-from maezo.platform.observability import record_a2a_handler_error
+from maezo.platform.observability import record_a2a_guard_refusal, record_a2a_handler_error
 from maezo.tools.workers.phi_vars import redact_error_message
 
-from .delegation import DelegationEnvelope, DelegationError
+from .delegation import (
+    BudgetExhaustedError,
+    CyclicDelegationError,
+    DelegationEnvelope,
+    DelegationError,
+    MaxHopsExceededError,
+)
 from .facts import DelegationFact, DelegationFactKind, build_fact
 from .idempotency import _row_to_stored
 from .registry import A2ARegistry, RegistryError
@@ -371,6 +377,25 @@ def _stored_to_result(stored: StoredResult) -> DelegationResult:
     )
 
 
+
+#: R-085: a guarda ADR-0003 que recusou -> o token fechado do rotulo `guard` de
+#: `maezo_a2a_guard_refusal_total`. Ordem irrelevante (as tres classes sao irmas); uma subclasse
+#: futura de `DelegationError` sem entrada aqui vira `outro` em `_guard_token`.
+_GUARD_TOKEN_BY_ERROR: tuple[tuple[type[DelegationError], str], ...] = (
+    (BudgetExhaustedError, "budget_exhausted"),
+    (MaxHopsExceededError, "max_hops"),
+    (CyclicDelegationError, "cyclic"),
+)
+
+
+def _guard_token(exc: DelegationError) -> str:
+    """O token fechado da guarda que recusou `exc` (ou `outro`)."""
+    for error_class, token in _GUARD_TOKEN_BY_ERROR:
+        if isinstance(exc, error_class):
+            return token
+    return "outro"
+
+
 class DelegationDispatcher:
     """Validates (anti-loop), audits, emits a fact, and routes a delegation to its target agent.
 
@@ -650,6 +675,8 @@ class DelegationDispatcher:
             exc = outcome
             # Structural failure raised by the handler (e.g. a cyclic sub-delegation): rejection.
             reason = RejectionReason.ANTI_LOOP
+            # R-085 / F-090 (ADR-0010 "budget A2A estourado"): uma contagem por recusa, por guarda.
+            record_a2a_guard_refusal(target=envelope.target, guard=_guard_token(exc))
             # TERMINAL-outcome audit (T-F follow-up): the pre-exec ALLOW row above already fired —
             # without this, an ALLOWed-then-internally-failed delegation would leave no audit trace
             # distinguishing it from one still silently in flight (see `_audit_delegation_outcome`).
