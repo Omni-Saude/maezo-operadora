@@ -274,6 +274,7 @@ def register_default_workers(
     suppression_admission: SuppressionAdmission | None = None,
     suppression_store: SuppressionStore | None = None,
     publish_ledger: PublishLedger | None = None,
+    pagto_valor_invalido_pendente_dados: bool = False,
     inad_rn593_estrito: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
@@ -365,6 +366,8 @@ def register_default_workers(
         **({"suppression_store": suppression_store} if suppression_store is not None else {}),
         # F-092: redelivery dedup of the generic publish effect (dark; see settings).
         **({"publish_ledger": publish_ledger} if publish_ledger is not None else {}),
+        # F-142 / R-053: invalid PAGTO amount -> PENDENTE_DADOS fact (dark; see settings).
+        pagto_valor_invalido_pendente_dados=pagto_valor_invalido_pendente_dados,
         # R-027: guard/timer RN 593 estritos de SP-OP-INADIMPLENCIA-001 (dark; see settings).
         **({"inad_rn593_estrito": True} if inad_rn593_estrito else {}),
     )
@@ -1072,6 +1075,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # WP-J1-03 exclusivity seam: when the dedicated PHI document-request bridge is
                 # installed, the generic harness must not also serve its topic.
                 document_request_host_installed=settings.document_request_host_installed,
+                pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)

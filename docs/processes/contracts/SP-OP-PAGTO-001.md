@@ -165,7 +165,7 @@ Escada de alcada (**DRAFT/verify — sign-off financas obrigatorio; valores ilus
 
 | Ordem | Condicao (`valor_pagamento_cents`, em centavos BRL) | `faixa_valor` | `grupo_aprovador` (DRAFT) |
 |---|---|---|---|
-| 1 | `<= 10000000` (R$ 100.000 — teto L2 DRAFT) **e** `dentro_teto_l2=true` | `DENTRO_TETO_L2` | `(nenhum — caminho clerical L2)` |
+| 1 | `<= 10000000` (R$ 100.000 — teto L2 DRAFT) **e** `dentro_teto_l2=true` | `DENTRO_TETO_L2` | `clerical-pagamentos` (caminho clerical L2; sem User Task de alcada — DL-0024) |
 | 2 | `> 10000000` e `<= 50000000` (R$ 100k–500k DRAFT) | `ALCADA_L1` | `aprovacao-financeira-l1` |
 | 3 | `> 50000000` e `<= 200000000` (R$ 500k–2MM DRAFT) | `ALCADA_L2` | `aprovacao-financeira-l2` |
 | 4 | `> 200000000` e `<= 1000000000` (R$ 2MM–10MM DRAFT) | `ALCADA_L3` | `aprovacao-financeira-l3` |
@@ -188,6 +188,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 
 | Grupo (candidate group) | Tier (DRAFT) | Tarefa | Faixa atendida (DRAFT) |
 |---|---|---|---|
+| `clerical-pagamentos` | 0 (`tier_minimo=0` em `r_dentro_teto_l2`) | nenhuma User Task de alcada — caminho clerical L2 (`release_low_value_payment`); grupo emitido pela DMN e enumerado no allowlist de candidate-groups (DL-0024) | `DENTRO_TETO_L2` |
 | `aprovacao-financeira-l1` | 1 | `UT_AprovacaoAlcada` (`decisao_pagamento ∈ {APROVAR, RECUSAR, SOLICITAR_INFO, CANCELAR}`) | `ALCADA_L1` |
 | `aprovacao-financeira-l2` | 2 | `UT_AprovacaoAlcada` | `ALCADA_L2` |
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
@@ -206,7 +207,7 @@ grupos validos). O conjunto de valores possiveis e a **allowlist fechada** de gr
 
 | Timer | Valor (DRAFT/verify financas) | Tipo | Fonte |
 |---|---|---|---|
-| Alerta de risco (`BT_AlertaSlaPagto`) | 60–70% de `${sla.sla_alerta}` (DMN `pagto_sla`) | nao-interruptivo → `operadora.pagto.notify_sla_risk` | politica interna |
+| Alerta de risco (`BT_AlertaSlaPagto`) | `${sla.sla_alerta}` (DMN `pagto_sla`) = 60–70% de `sla_aprovacao` da mesma regra (ex.: **PT32H** L1 … **PT80H** comite) | nao-interruptivo → `operadora.pagto.notify_sla_risk` | politica interna |
 | Aprovacao (`BT_SlaAprovacao`) | `${sla.sla_aprovacao}` (ex.: **P2D** L1 … **P5D** comite — **DRAFT/verify financas**) | interruptivo → publica `pagto.sla_breached` → cancela `UT_AprovacaoAlcada`, cria `UT_CoordenacaoAlcada` (humano de tier >= faixa assume) | politica interna |
 
 Nota: **substitui qualquer auto-liberacao por timeout** — no estouro de SLA a coordenacao
@@ -251,7 +252,7 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents`, OU (c) **tier-match falhar** — `aprovador_tier` insuficiente para `faixa_valor` (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents` (este **sem default**: ausente, nao-inteiro, booleano, `<= 0` ou acima do `long` = recusa — R-053), OU (c) **tier-match falhar** — `aprovador_tier` < `tier_minimo` emitido pela DMN `pagto_alcada` para a faixa (ausente/mal-formado → tier mais alto, comite; o worker nao guarda copia Python da escada) (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
 | `ERR_PAGTO_ORDEM_INVALIDA` | declarado (`Error_PagtoOrdemInvalida`) para uso dos workers | worker `validate_payment_data` lanca BPMN error se a ordem de pagamento for inconsistente/sem lastro na origem (ex.: `ordem_pagamento_id` ausente); capturado por boundary event `BE_PagtoOrdemInvalida` em `ST_ValidatePaymentData` -> `End_PagtoOrdemInvalida` (GAP-PAGTO-4; fail-safe tecnico, NAO decisao de liberacao/negativa) |
 
 > **Tier-match — extensao do guard no-adverse (parte 4 de 5 do padrao §4-bis-F/ADR-0018):**
