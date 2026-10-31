@@ -255,3 +255,17 @@ def test_monitoramento_official_set_does_not_compile_missing_include() -> None:
     files = _verified_pinned_files(_tiss_root() / "01.06.00", manifest_name, digest)
     assert files is not None
     assert _compile_pinned_schema(files, "tissMonitoramentoV1_06_00.xsd") is None
+
+
+def test_pinned_resolver_refuses_include_outside_the_verified_set(tmp_path: Path) -> None:
+    """Includes resolvem SO a partir dos bytes pinados ja verificados: um include apontando para
+    um XSD real fora do conjunto (file://) e recusado, nunca carregado do disco."""
+    outside = tmp_path / "fora.xsd"
+    outside.write_text(_FIXTURE_XSD, encoding="utf-8")
+    files = {
+        "e.xsd": (
+            '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
+            f'<xs:include schemaLocation="{outside.as_uri()}"/></xs:schema>'
+        ).encode()
+    }
+    assert _compile_pinned_schema(files, "e.xsd") is None
