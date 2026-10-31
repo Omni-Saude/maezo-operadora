@@ -39,9 +39,17 @@ including the shared technical-failure token, same rule as the `maezo_agent_kpi_
 recording rules. The runbook originally imagined `maezo_escalation_total` /
 `maezo_conversation_total`; those never existed and are not created.
 
+**Limits (TODO-OWNER, no threshold invented here):**
+- `sum by (agent_id)` SUMS every tenant scraped by the same Prometheus/AMP; the alert carries no
+  tenant label, so the tenant cannot be read from the alert. No tenant/namespace label is proven on
+  these series in every destination (no rule in `alert-rules.yml` and the dev `prometheus.yml` do
+  not use `namespace`), so per-tenant aggregation is an owner decision.
+- It measures TURNS (one desfecho per terminal turn), not conversations as the source sentence says.
+- No minimum-volume guard and no `for:`: a low-traffic hour can fire on a handful of turns.
+
 ## 2. What this means in business terms
 
-More than 30% of an agent's turns in the last hour ended in a human handoff
+More than 30% of an agent's turns in the last hour (summed across tenants, see §1) ended in a human handoff
 (SP-OP-ESCALATION-001). Helena's `escalation_rate` KPI is "track" (neither too high — useless —
 nor too low — risky; `spec/agents/helena/agent.yaml`); this alert is the operational ceiling the
 runbook declares, not a KPI target.

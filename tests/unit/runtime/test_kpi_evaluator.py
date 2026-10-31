@@ -79,12 +79,13 @@ def test_kpi_evaluator_histogram_sources_are_declared_histograms() -> None:
     assert wanted <= histograms, sorted(wanted - histograms)
 
 
-def test_kpi_evaluator_ci_eval_source_is_a_real_make_target() -> None:
-    makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    for source in MEASUREMENT_SOURCES.values():
-        if source.kind is SourceKind.CI_EVAL:
-            target = source.ref.removeprefix("make ")
-            assert f"\n{target}:" in makefile, source.ref
+def test_kpi_evaluator_eval_score_is_sem_fonte_while_no_dataset_is_collectable() -> None:
+    """`make evals` existe, mas tests/evals nao tem golden dataset coletavel: sem medicao."""
+    entries = [s for (_agent, kpi), s in MEASUREMENT_SOURCES.items() if kpi == "eval_score"]
+    assert len(entries) == 10, len(entries)
+    for source in entries:
+        assert source.kind is SourceKind.SEM_FONTE
+        assert "make evals" in source.note and "coletavel" in source.note
 
 
 # --- gramatica de meta -----------------------------------------------------------------------
@@ -158,11 +159,12 @@ def test_kpi_evaluator_evaluates_declared_kpis_with_injected_measurements() -> N
         (r.agent_id, r.name): r
         for r in evaluate_declared(
             declared,
-            {("helena", "first_response_p95"): 12.0, ("helena", "eval_score"): 0.8},
+            {("helena", "first_response_p95"): 12.0, ("lucas", "resolution_rate"): 0.4},
         )
     }
     assert results[("helena", "first_response_p95")].verdict is KpiVerdict.ATINGIDA
-    assert results[("helena", "eval_score")].verdict is KpiVerdict.NAO_ATINGIDA
+    assert results[("lucas", "resolution_rate")].verdict is KpiVerdict.SEM_META
+    assert results[("helena", "eval_score")].verdict is KpiVerdict.SEM_MEDICAO
     assert results[("helena", "nps")].verdict is KpiVerdict.SEM_MEDICAO
     assert results[("helena", "escalation_rate")].verdict is KpiVerdict.SEM_META
     assert results[("rafael", "sla_analise_p95")].verdict is KpiVerdict.META_NAO_RESOLVIVEL
@@ -181,3 +183,14 @@ def test_kpi_evaluator_rejects_a_malformed_blueprint_entry(tmp_path: Path) -> No
     (agent_dir / "agent.yaml").write_text("kpis:\n  - { name: so_nome }\n", encoding="utf-8")
     with pytest.raises(KpiTargetError):
         load_declared_kpis(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [("helena", "nps"), ("rafael", "false_denial_rate"), ("andre", "eval_score")],
+)
+def test_kpi_evaluator_refuses_a_measurement_injected_for_a_sem_fonte_kpi(key: tuple[str, str]) -> None:
+    """Sem emissor, o numero veio de lugar nenhum: nunca vira `atingida` (inclusive invariante L0)."""
+    assert MEASUREMENT_SOURCES[key].kind is SourceKind.SEM_FONTE
+    with pytest.raises(KpiTargetError):
+        evaluate_declared(load_declared_kpis(_AGENTS_DIR), {key: 0.0})
