@@ -3,8 +3,8 @@
 **Natureza:** ARTEFATO DE RATIFICAÇÃO. Registra a opção que o dono escolheu e o que foi construído em seguida. Segue a regra de ouro desta árvore: o agente informa, não decide (ADR-0007). O bloco de ratificação (§4) fica em branco: nenhum agente preenche nome, data de assinatura ou assinatura.
 
 **Origem:**
-- Item R-040 do roadmap da auditoria forense (`docs/audits/FORENSIC-COMPLETENESS-2026-10/raw/roadmap.yaml`): decisão humana; dono: owner; flag `decision_conflict`; refs F-051 e PEND-168.
-- Achado F-051 (alias F-ADR-07): `src/maezo/conhecimento/busca_semantica.py:102-106` criava `boto3.client("bedrock-runtime")` fora de `runtime.inference`.
+- Item R-040 do roadmap da auditoria forense FORENSIC-COMPLETENESS-2026-10 @f57f0821 (bundle fora da árvore versionada): decisão humana; dono: owner; flag `decision_conflict`; refs F-051 e PEND-168.
+- Achado F-051 (alias F-ADR-07): `src/maezo/conhecimento/busca_semantica.py:102-106` (em `main` @331f7c4f, antes deste pacote) criava `boto3.client("bedrock-runtime")` fora de `runtime.inference`.
 - Regra violada: AGENTS.md, regra dura 6 ("Não importar SDK de LLM fora do pacote `runtime.inference` nem credencial fora do gateway"); ADR-0009 §1.
 - DEC-20 na issue #1084: <https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766> (registrado em 2026-10-31T15:52:05Z): "DEC-20 embeddings boto3: (a) mover para runtime.inference."
 
@@ -38,6 +38,6 @@ Recomendação do roadmap: (a). A regra é dura e o custo é baixo.
 
 - **Opção ratificada:** [  ]
 - **Decisor (papel owner):** [nome]   **Data:** [  ]   **Assinatura:** [  ]
-- **Status:** [  ] (o dono escreve aqui a palavra de status que o `dod` do item R-040 procura em `raw/roadmap.yaml`)
+- **Status:** [  ] (o dono escreve aqui a palavra de status que o `dod` do item R-040 procura no roadmap da auditoria)
 
 **Fora do escopo desta decisão:** credenciais. A credencial AWS continua sendo a cadeia padrão do `boto3` no processo (papel da tarefa), como antes. Esta decisão não muda onde a credencial vive.
