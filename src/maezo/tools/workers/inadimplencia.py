@@ -240,8 +240,20 @@ def resolve_facts(
     *,
     engine: CibSevenTransport | None = None,
     rn593_estrito: bool = False,
+    fatos_estritos: bool = True,
 ) -> dict[str, Any]:
     """Pre-resolve factual variables: mes count, value, period, purge window, rescisao correlation.
+
+    R-063 / F-029 (`fatos_estritos`): o caminho legado (`fatos_estritos=False`, o que o worker
+    REGISTRADO usa enquanto `MAEZO_INAD_FATOS_ESTRITOS` estiver desligada) ECOA
+    `dentro_janela_purga` da entrada (default `True`) — uma semente/correlacao com `false` pula a
+    janela de cura/purga do beneficiario e leva o caso direto a analise de suspensao, sem que nada
+    tenha medido a janela. Estrito (default DESTA FUNCAO): o worker nao tem fonte autoritativa da
+    janela — o prazo regulatorio e o timer BPMN `ICE_PrazoPurga` (`${purga.prazo_purga}`, AGENTS.md
+    regra 5), cuja expiracao ja roteia a humano (`Flow_PrazoPurga_Sla`) sem passar por este worker.
+    Logo o fato fica `True` (fail-safe: `inadimplencia_status` roteia `AGUARDA_PURGA`, nunca
+    adverso) e so o timer encerra a janela. Uma confirmacao de notificacao (`ICE_NotificacaoAck`)
+    re-resolve e reabre a janela a partir da confirmacao — a direcao conservadora.
 
     R-027 (`rn593_estrito`, dark — `MAEZO_INAD_RN593_ESTRITO`, default OFF): devolve tambem
     `rn593_prerequisito_notificacao`, que o gate `GW_NotificacaoPrerequisito` do BPMN le para
@@ -276,8 +288,9 @@ def resolve_facts(
     # alterada pela RN 617/2024). Limiar preso a DMN `inadimplencia_status` (ver a constante).
     dentro_periodo_minimo = meses_inadimplencia >= MENSALIDADES_MINIMAS_INADIMPLIDAS
 
-    # Janela de purga: 10 dias apos notificacao (DRAFT/verify RN 593)
-    dentro_janela_purga = variables.get("dentro_janela_purga", True)
+    # Janela de purga: 10 dias apos notificacao (DRAFT/verify RN 593). Estrito (R-063): nunca ecoa a
+    # entrada — quem encerra a janela e o timer BPMN `ICE_PrazoPurga`, nao uma semente.
+    dentro_janela_purga = True if fatos_estritos else variables.get("dentro_janela_purga", True)
 
     notificacao_previa_feita = variables.get("notificacao_previa_feita", False)
 
@@ -297,6 +310,8 @@ def resolve_facts(
         dentro_periodo_minimo=dentro_periodo_minimo,
         notificacao_previa_feita=notificacao_previa_feita,
         ja_em_rescisao_cancel=ja_em_rescisao_cancel,
+        dentro_janela_purga=dentro_janela_purga,
+        fatos_estritos=fatos_estritos,
     )
 
     return {
@@ -1353,6 +1368,10 @@ def register_inadimplencia_workers(
     competencia distinta; (2) em `register_contract_suspension`, o guard estrito (tier + antecedencia
     pela DMN `inadimplencia_purga`, avaliada pela mesma costura `dmn`). OFF => comportamento de hoje.
 
+    `inad_fatos_estritos` (R-063 / F-029, dark — `WorkerRuntimeSettings.inad_fatos_estritos`,
+    `MAEZO_INAD_FATOS_ESTRITOS`, default OFF; ABSENT == OFF): `resolve_facts` deixa de ecoar
+    `dentro_janela_purga` (a janela so se encerra pelo timer BPMN). OFF => comportamento de hoje.
+
     `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
     `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
     composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
@@ -1367,10 +1386,18 @@ def register_inadimplencia_workers(
     audit_sink: AuditStartSink | None = seams.get("audit_sink")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     rn593_estrito = seams.get("inad_rn593_estrito") is True
+    # R-063 / F-029 dark seam (`MAEZO_INAD_FATOS_ESTRITOS`, default off; ABSENT == OFF). Passado
+    # SEMPRE explicito: o default de `resolve_facts` e o estrito (pinado por teste de fiacao).
+    inad_fatos_estritos = seams.get("inad_fatos_estritos") is True
     harness.register_worker(
         FunctionWorker(
             "operadora.inadimplencia.resolve_facts",
-            functools.partial(resolve_facts, engine=engine, rn593_estrito=rn593_estrito),
+            functools.partial(
+                resolve_facts,
+                engine=engine,
+                rn593_estrito=rn593_estrito,
+                fatos_estritos=inad_fatos_estritos,
+            ),
         )
     )
     harness.register_worker(
