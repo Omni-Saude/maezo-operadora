@@ -368,3 +368,41 @@ Testes: `tests/unit/tools/workers/test_auth_denial_written_notice.py`,
 #### test_the_flag_can_not_be_switched_on_or_faked_by_a_process_variable
 - **Given** variaveis forjadas (`entrega_negativa_status=entregue`, `written_notice=true`)
 - **Then** nada muda: a bandeira e' da implantacao, e o unico estado escrito e' `entrega_manual_pendente`
+
+## Junta medica — RN 424/2017 art. 3 I (R-064, DEC-15) — DARK
+
+Testes: `tests/unit/tools/workers/test_auth_junta_rn424.py` (worker, composicao, DMN, BPMN) e
+`tests/integration/processes/test_sp_op_auth_001.py` (engine real). A suspensao de prazo do
+art. 4 par. 2 NAO e' modelada (sem texto-base; ver o contrato) e portanto nao tem teste.
+
+### test_junta_rn424_guarda_desligada_urgencia_segue_para_a_junta_como_antes (integracao)
+- **Given** `MAEZO_AUTH_JUNTA_RN424_GUARD` desligada (padrao), `carater_atendimento=urgencia`
+- **When** o auditor decide `JUNTA_MEDICA`
+- **Then** `BRT_JuntaAdmissibilidade` roda (sombra), `junta_guarda_rn424_ativa=false` e o caso
+  chega a `UT_RegistrarParecerJunta` como antes
+
+### test_junta_rn424_guarda_ligada_urgencia_vedada_volta_a_coordenacao_humana (integracao)
+- **Given** a guarda ligada, `carater_atendimento=urgencia`
+- **When** o auditor decide `JUNTA_MEDICA`
+- **Then** `UT_RegistrarParecerJunta` NUNCA e' criada; `UT_CoordenacaoAssume` (humana) decide;
+  nenhum `auth.sla_breached`; nenhuma negativa sem User Task humana
+
+### test_junta_rn424_guarda_ligada_eletivo_admite_a_junta (integracao)
+- **Given** a guarda ligada, `carater_atendimento=eletivo`
+- **Then** a DMN admite e o parecer humano da junta decide
+
+### test_dmn_forbids_the_junta_in_urgency_or_emergency / test_dmn_fails_closed_on_an_unknown_character
+- **Then** `urgencia`/`emergencia` -> `VEDADA_URGENCIA_EMERGENCIA`; carater ausente ou fora do
+  dominio -> `CARATER_INDETERMINADO` (volta ao humano); so `eletivo` -> `ADMITIDA`; nenhuma saida
+  de aprovacao ou negativa
+
+### test_the_worker_never_applies_the_urgency_rule_itself / test_a_seeded_process_variable_can_not_switch_the_guard
+- **Then** `convene_junta` devolve o mesmo para qualquer carater (a regra e' a DMN) e
+  `junta_guarda_rn424_ativa` vem so da implantacao, sobrescrevendo qualquer semente
+
+### Composicao (mutacao)
+- `test_settings_flag_is_dark_by_default`, `test_register_auth_workers_threads_the_flag`,
+  `test_the_daemon_bootstrap_threads_the_flag`, `test_a_junk_seam_value_does_not_switch_the_guard_on`
+  e `test_bring_up_threads_the_junta_rn424_guard_when_the_deployment_turns_it_on`
+  (`tests/unit/runtime/test_worker_runtime_service.py`): cada elo settings -> bring-up ->
+  `register_default_workers` -> `register_auth_workers` -> worker falha sob mutacao

@@ -138,7 +138,8 @@ class TestNonVacuity:
         # 62 -> 63 com `triage_sufficiency.dmn` (Frente 2.2) — ver a entrada #407 do
         # CORPUS_DELTA_LOG, que nomeia o arquivo e os sete nomes que ele traz.
         # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 65  # VW4/GP11: +suppression_routing
+        # 65 -> 66 com `auth_junta_admissibility.dmn` (R-064) — ver as entradas do CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 66  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -1723,6 +1724,56 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "(`${sla.sla_alerta}`): duracao ISO 8601. Sem dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1121",
+        name="junta_admissibilidade",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "R-064 (F-017, decisao do dono DEC-15): DMN nova auth_junta_admissibility (RN 424/2017 art. 3"
+            " I) e BRT_JuntaAdmissibilidade + GW_JuntaAdmissivel em SP-OP-AUTH-001. Nova resultVariable "
+            "de BRT_JuntaAdmissibilidade (+1) e a condicao de Flow_GWJunta_UTJunta que le `.resultado` "
+            "(+1). Mapa {resultado, motivo} de roteamento, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1121",
+        name="carater_atendimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-064 (F-017, decisao do dono DEC-15): DMN nova auth_junta_admissibility (RN 424/2017 art. 3"
+            " I) e BRT_JuntaAdmissibilidade + GW_JuntaAdmissivel em SP-OP-AUTH-001. +1 inputExpression da"
+            " nova DMN. Nome ja no corpus (carater urgencia/eletivo), sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1121",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-064 (F-017, decisao do dono DEC-15): DMN nova auth_junta_admissibility (RN 424/2017 art. 3"
+            " I) e BRT_JuntaAdmissibilidade + GW_JuntaAdmissivel em SP-OP-AUTH-001. +1 output da nova DMN"
+            " (texto fixo da regra). Nome ja no corpus, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1121",
+        name="resultado",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-064 (F-017, decisao do dono DEC-15): DMN nova auth_junta_admissibility (RN 424/2017 art. 3"
+            " I) e BRT_JuntaAdmissibilidade + GW_JuntaAdmissivel em SP-OP-AUTH-001. +1 output da nova DMN"
+            " e +1 leitura `junta_admissibilidade.resultado` na condicao do gateway. Nome ja no corpus, "
+            "sem dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1734,7 +1785,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 348
+            expected_clean == 349
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
@@ -1768,7 +1819,7 @@ class TestBuckets:
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
-        assert len(live_sweep.names) == expected_names == 364
+        assert len(live_sweep.names) == expected_names == 365
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -1778,7 +1829,9 @@ class TestBuckets:
         # R-007 (definicao do SIP removida do SP-OP-ANS-CRON-001, #1110): -5
         # R-066 (SP-OP-ANS-SUBMIT-001, #1120): +4 (completed falha_retransmissao +3, alerta NACK +2,
         #   decisao_envio via getVariable -2, `trim` do guard da justificativa +1); nomes: +1 -1 = 0
-        assert len(live_sweep.refs) == expected_refs == 1744
+        # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
+        #   nomes: +1 (junta_admissibilidade)
+        assert len(live_sweep.refs) == expected_refs == 1750
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1906,7 +1959,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (348)" in rendered
+            f"## {CLEAN} (349)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).

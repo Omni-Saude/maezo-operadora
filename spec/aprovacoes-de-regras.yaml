@@ -111,6 +111,9 @@ pendentes:
   - artefato: spec/processes/dmn/auth_criteria_contratual.dmn
     responsavel: a definir
     marca_no_arquivo: "auth_criteria_contratual v0.1.0 — status: DRAFT — **COSTURA VAZIA, DELIBERADAMENTE**."
+  - artefato: spec/processes/dmn/auth_junta_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_junta_admissibility v0.1.0 — status: DRAFT (vedacao RN 424 art. 3 I requer ratificacao do medico auditor antes do flip)."
   - artefato: spec/processes/dmn/auth_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
