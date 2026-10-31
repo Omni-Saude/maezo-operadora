@@ -1799,6 +1799,194 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "`sla.sla_analise` (mesma contagem). Nome ja no corpus, sem dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="faixa_auto_desligada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "kill-switch de politica (bool) relaiado pelo worker calculate_amount e lido por uma coluna da "
+            "DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="valor_nf_verificado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "fato booleano 'valor da NF verificado' (sem fonte hoje = false) lido pela DMN "
+            "reembolso_auto_approval; nao carrega a NF nem o valor."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="limite_contratual_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "limite contratual do beneficiario em centavos (sem fonte hoje = nulo) lido pela DMN "
+            "reembolso_auto_approval; valor monetario, nao identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="teto_l2_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "teto de politica em centavos (max_value_brl x 100) lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "contador de aprovacoes automaticas do beneficiario em 30 dias (sem fonte hoje = nulo); contagem"
+            " agregada, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="limite_aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "limite DRAFT de politica (contagem) lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "valor automatico acumulado do beneficiario em 30 dias (sem fonte hoje = nulo); agregado "
+            "monetario, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="limite_valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "limite DRAFT de politica em centavos lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="valor_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "valor automatico do tenant no dia (sem fonte hoje = nulo); agregado do tenant."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="orcamento_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "orcamento DRAFT diario do tenant em centavos lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="valor_aprovado_auto_cents",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "nova saida integer da DMN reembolso_auto_approval (= valor_solicitado_cents so na regra r_auto)"
+            " (+1) e o segmento JUEL `auto_aprovacao.valor_aprovado_auto_cents` do inputParameter de "
+            "ST_IssuePaymentAuto (+1)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="auto_aprovacao",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "+1 raiz JUEL no inputParameter de ST_IssuePaymentAuto, que passou a pagar o valor da DMN (fim "
+            "do sobrepagamento F-028). Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="calculo",
+        name_delta=0,
+        occurrence_delta=-1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "-1 raiz JUEL: ST_IssuePaymentAuto deixou de pagar `calculo.valor_calculado_tabela_cents` (o "
+            "valor da TABELA). Nome segue no corpus (ST_CalculateAmount)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="tipo_reembolso",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so livre_escolha). Nome ja no "
+            "corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="categoria_procedimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so consulta; art. 10-B fora). Nome"
+            " ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1149",
+        name="valor_solicitado_cents",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B (dono 2026-10-31, #1084): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (valor > 0 e comparacoes). Nome ja no "
+            "corpus."
+        ),
+    ),
 )
 
 
@@ -1810,10 +1998,11 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 350
+            expected_clean == 361
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
+        # R-076/R-070 B (#1149): +11 (fatos da faixa automatica do REEMBOLSO)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1846,7 +2035,7 @@ class TestBuckets:
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
-        assert len(live_sweep.names) == expected_names == 366
+        assert len(live_sweep.names) == expected_names == 377
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -1859,7 +2048,7 @@ class TestBuckets:
         # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
         #   nomes: +1 (junta_admissibilidade)
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
-        assert len(live_sweep.refs) == expected_refs == 1754
+        assert len(live_sweep.refs) == expected_refs == 1769
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1987,11 +2176,12 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (350)" in rendered
+            f"## {CLEAN} (361)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
         # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
+        # R-076/R-070 B (#1149): +11 (fatos da faixa automatica do REEMBOLSO).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

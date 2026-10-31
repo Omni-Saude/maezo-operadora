@@ -116,59 +116,387 @@
     </decisionTable>
   </decision>
 
-  <!-- Decisao 2: auto-aprovacao L2 — saidas {AUTO_APROVAR, ANALISE_HUMANA}; NUNCA negativa/reducao -->
+  <!-- Decisao 2: auto-aprovacao L2 — R-070 opcao B (dono, 2026-10-31, #1084). Saidas {AUTO_APROVAR, ANALISE_HUMANA};
+       NUNCA negativa/reducao. Toda comparacao de valor da faixa automatica vive AQUI (ADR-0012): o worker
+       calculate_amount so RELAIA fatos (teto/limites da politica, contadores, limite contratual, NF). Fato nulo
+       nao casa com nenhuma entrada true/false -> catch-all humano. Teto de politica = 0 ate o lake AMH existir. -->
   <decision id="reembolso_auto_approval" name="Auto-aprovacao de reembolso (L2)" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_reembolso_auto_approval" hitPolicy="FIRST">
+      <input id="in_desligada" label="Kill-switch de politica (faixa_auto_desligada; true/ausente = fechada)">
+        <inputExpression id="ie_desligada" typeRef="boolean"><text>faixa_auto_desligada</text></inputExpression>
+      </input>
+      <input id="in_clinica" label="Requer avaliacao clinica (requer_avaliacao_clinica)">
+        <inputExpression id="ie_clinica" typeRef="boolean"><text>requer_avaliacao_clinica</text></inputExpression>
+      </input>
+      <input id="in_tipo" label="Tipo de reembolso (fase 1: so livre_escolha)">
+        <inputExpression id="ie_tipo" typeRef="string"><text>tipo_reembolso</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria (fase 1: so consulta; art. 10-B e demais fora por lista fechada)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_procedimento</text></inputExpression>
+      </input>
+      <input id="in_nf" label="Valor da NF verificado (valor_nf_verificado)">
+        <inputExpression id="ie_nf" typeRef="boolean"><text>valor_nf_verificado</text></inputExpression>
+      </input>
       <input id="in_dentro_tabela" label="Valor solicitado dentro da tabela (dentro_tabela)">
         <inputExpression id="ie_dentro_tabela" typeRef="boolean"><text>dentro_tabela</text></inputExpression>
       </input>
       <input id="in_dentro_teto" label="Valor de tabela dentro do teto L2 do tenant (dentro_teto_l2)">
         <inputExpression id="ie_dentro_teto" typeRef="boolean"><text>dentro_teto_l2</text></inputExpression>
       </input>
-      <input id="in_clinica" label="Requer avaliacao clinica (requer_avaliacao_clinica)">
-        <inputExpression id="ie_clinica" typeRef="boolean"><text>requer_avaliacao_clinica</text></inputExpression>
+      <input id="in_valor_presente" label="Valor solicitado presente e positivo (valor_solicitado_cents)">
+        <inputExpression id="ie_valor_presente" typeRef="integer"><text>valor_solicitado_cents</text></inputExpression>
+      </input>
+      <input id="in_tabela" label="Valor de tabela cobre o solicitado (valor_calculado_tabela_cents)">
+        <inputExpression id="ie_tabela" typeRef="integer"><text>valor_calculado_tabela_cents</text></inputExpression>
+      </input>
+      <input id="in_limite_contratual" label="Limite contratual do beneficiario cobre o solicitado (ausente = humano)">
+        <inputExpression id="ie_limite_contratual" typeRef="integer"><text>limite_contratual_cents</text></inputExpression>
+      </input>
+      <input id="in_teto" label="Teto L2 cobre o solicitado (teto 0 = humano; o teto so roteia)">
+        <inputExpression id="ie_teto" typeRef="integer"><text>teto_l2_cents</text></inputExpression>
+      </input>
+      <input id="in_expo_qtd" label="Aprovacoes automaticas do beneficiario em 30d (contador ausente = humano)">
+        <inputExpression id="ie_expo_qtd" typeRef="integer"><text>aprovacoes_auto_benef_30d</text></inputExpression>
+      </input>
+      <input id="in_expo_qtd_limite" label="Limite DRAFT de aprovacoes automaticas por beneficiario/30d">
+        <inputExpression id="ie_expo_qtd_limite" typeRef="integer"><text>limite_aprovacoes_auto_benef_30d</text></inputExpression>
+      </input>
+      <input id="in_expo_valor" label="Valor automatico do beneficiario em 30d (contador ausente = humano)">
+        <inputExpression id="ie_expo_valor" typeRef="integer"><text>valor_auto_benef_30d_cents</text></inputExpression>
+      </input>
+      <input id="in_expo_valor_limite" label="Limite DRAFT de valor automatico por beneficiario/30d">
+        <inputExpression id="ie_expo_valor_limite" typeRef="integer"><text>limite_valor_auto_benef_30d_cents</text></inputExpression>
+      </input>
+      <input id="in_expo_tenant" label="Valor automatico do tenant no dia (contador ausente = humano)">
+        <inputExpression id="ie_expo_tenant" typeRef="integer"><text>valor_auto_tenant_dia_cents</text></inputExpression>
+      </input>
+      <input id="in_expo_tenant_limite" label="Orcamento DRAFT diario da faixa automatica do tenant">
+        <inputExpression id="ie_expo_tenant_limite" typeRef="integer"><text>orcamento_auto_tenant_dia_cents</text></inputExpression>
       </input>
       <output id="out_recomendacao" label="recomendacao" name="recomendacao" typeRef="string"/>
       <output id="out_auto_motivo" label="motivo" name="motivo" typeRef="string"/>
-      <rule id="r_auto">
-        <description>Dentro da tabela, dentro do teto L2 e sem merito clinico -> auto-aprovacao integral</description>
-        <inputEntry id="r_auto_i1"><text>true</text></inputEntry>
-        <inputEntry id="r_auto_i2"><text>true</text></inputEntry>
-        <inputEntry id="r_auto_i3"><text>false</text></inputEntry>
-        <outputEntry id="r_auto_o1"><text>"AUTO_APROVAR"</text></outputEntry>
-        <outputEntry id="r_auto_o2"><text>"Dentro da tabela, dentro do teto L2 e sem merito clinico — aprovacao integral automatica (nunca parcial)"</text></outputEntry>
-      </rule>
-      <rule id="r_fora_tabela_humano">
-        <description>Fora da tabela (inclui SEM_TABELA) -> medico/analista (nunca auto-aprova fora de tabela)</description>
-        <inputEntry id="r_fora_tabela_humano_i1"><text>false</text></inputEntry>
-        <inputEntry id="r_fora_tabela_humano_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_fora_tabela_humano_i3"><text>-</text></inputEntry>
-        <outputEntry id="r_fora_tabela_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_fora_tabela_humano_o2"><text>"Valor solicitado fora da tabela de referencia — analise humana (nunca auto-aprova fora de tabela; nunca reduz por automacao)"</text></outputEntry>
-      </rule>
-      <rule id="r_acima_teto_humano">
-        <description>Acima do teto L2 do tenant -> analise humana</description>
-        <inputEntry id="r_acima_teto_humano_i1"><text>true</text></inputEntry>
-        <inputEntry id="r_acima_teto_humano_i2"><text>false</text></inputEntry>
-        <inputEntry id="r_acima_teto_humano_i3"><text>-</text></inputEntry>
-        <outputEntry id="r_acima_teto_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_acima_teto_humano_o2"><text>"Valor de tabela acima do teto L2 do tenant — analise humana"</text></outputEntry>
+      <output id="out_valor_aprovado_auto" label="valor_aprovado_auto_cents" name="valor_aprovado_auto_cents" typeRef="integer"/>
+      <rule id="r_desligada_humano">
+        <description>Kill-switch de politica fechado (faixa_auto_desligada=true) -&gt; humano</description>
+        <inputEntry id="r_desligada_humano_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_desligada_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_desligada_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_desligada_humano_o2"><text>"Faixa automatica desligada pela politica (kill-switch) — analise humana"</text></outputEntry>
+        <outputEntry id="r_desligada_humano_o3"><text>null</text></outputEntry>
       </rule>
       <rule id="r_clinica_humano">
-        <description>Merito clinico (alta complexidade/OPME/CID sensivel) -> medico auditor</description>
+        <description>Merito clinico (alta complexidade/OPME/CID sensivel) -&gt; medico auditor</description>
         <inputEntry id="r_clinica_humano_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_clinica_humano_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_clinica_humano_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i17"><text>-</text></inputEntry>
         <outputEntry id="r_clinica_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
         <outputEntry id="r_clinica_humano_o2"><text>"Merito clinico — requer medico auditor (L0 hard)"</text></outputEntry>
+        <outputEntry id="r_clinica_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_tipo_fora_fase1_humano">
+        <description>Fase 1 so cobre livre escolha (urgencia/emergencia, fora de rede e indisponibilidade de rede -&gt; humano)</description>
+        <inputEntry id="r_tipo_fora_fase1_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i3"><text>not("livre_escolha")</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_tipo_fora_fase1_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_tipo_fora_fase1_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_tipo_fora_fase1_humano_o2"><text>"Tipo de reembolso fora da fase 1 (so livre escolha) — analise humana"</text></outputEntry>
+        <outputEntry id="r_tipo_fora_fase1_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_categoria_fora_fase1_humano">
+        <description>Fase 1 so cobre consulta eletiva; exames, terapias, itens do art. 10-B da Lei 9.656 e demais -&gt; humano (lista fechada)</description>
+        <inputEntry id="r_categoria_fora_fase1_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i4"><text>not("consulta")</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_categoria_fora_fase1_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_categoria_fora_fase1_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_categoria_fora_fase1_humano_o2"><text>"Categoria fora da fase 1 (so consulta eletiva; art. 10-B sempre fora) — analise humana"</text></outputEntry>
+        <outputEntry id="r_categoria_fora_fase1_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_nf_nao_verificada_humano">
+        <description>Valor da NF nao verificado (valor apenas declarado nao basta) -&gt; humano</description>
+        <inputEntry id="r_nf_nao_verificada_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i5"><text>false</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_nf_nao_verificada_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_nf_nao_verificada_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_nf_nao_verificada_humano_o2"><text>"Valor da nota fiscal nao verificado — analise humana"</text></outputEntry>
+        <outputEntry id="r_nf_nao_verificada_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_fora_tabela_humano">
+        <description>Fora da tabela (inclui SEM_TABELA) -&gt; medico/analista (nunca auto-aprova fora de tabela)</description>
+        <inputEntry id="r_fora_tabela_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i6"><text>false</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_fora_tabela_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_fora_tabela_humano_o2"><text>"Valor solicitado fora da tabela de referencia — analise humana (nunca auto-aprova fora de tabela; nunca reduz por automacao)"</text></outputEntry>
+        <outputEntry id="r_fora_tabela_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_valor_ausente_humano">
+        <description>Valor solicitado zero ou negativo -&gt; humano (licao _FIN_VALOR_ZERO do AUTH)</description>
+        <inputEntry id="r_valor_ausente_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i8"><text>&lt;= 0</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_ausente_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_valor_ausente_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_valor_ausente_humano_o2"><text>"Valor solicitado ausente ou zero — analise humana"</text></outputEntry>
+        <outputEntry id="r_valor_ausente_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_acima_limite_contratual_humano">
+        <description>Sem limite contratual do beneficiario, ou solicitado acima dele -&gt; humano</description>
+        <inputEntry id="r_acima_limite_contratual_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i10"><text>&lt; valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_limite_contratual_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_acima_limite_contratual_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_acima_limite_contratual_humano_o2"><text>"Limite contratual ausente ou excedido — analise humana (nunca paga acima do contrato)"</text></outputEntry>
+        <outputEntry id="r_acima_limite_contratual_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_acima_teto_humano">
+        <description>Teto 0 ou solicitado acima do teto L2 -&gt; humano (o teto so roteia: nunca paga ate o teto)</description>
+        <inputEntry id="r_acima_teto_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i11"><text>&lt; valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_acima_teto_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_acima_teto_humano_o2"><text>"Valor solicitado acima do teto L2 do tenant (ou teto 0) — analise humana; o teto nunca reduz o pagamento"</text></outputEntry>
+        <outputEntry id="r_acima_teto_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_exposicao_humano">
+        <description>Exposicao acumulada do beneficiario (quantidade) esgotada -&gt; humano</description>
+        <inputEntry id="r_exposicao_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i12"><text>&gt;= limite_aprovacoes_auto_benef_30d</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_exposicao_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_exposicao_humano_o2"><text>"Limite de aprovacoes automaticas do beneficiario em 30 dias atingido — analise humana"</text></outputEntry>
+        <outputEntry id="r_exposicao_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_exposicao_valor_humano">
+        <description>Exposicao acumulada do beneficiario (valor) esgotada -&gt; humano</description>
+        <inputEntry id="r_exposicao_valor_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i14"><text>&gt; limite_valor_auto_benef_30d_cents - valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_exposicao_valor_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_exposicao_valor_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_exposicao_valor_humano_o2"><text>"Limite de valor automatico do beneficiario em 30 dias atingido — analise humana"</text></outputEntry>
+        <outputEntry id="r_exposicao_valor_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_orcamento_tenant_humano">
+        <description>Orcamento diario da faixa automatica do tenant esgotado -&gt; humano</description>
+        <inputEntry id="r_orcamento_tenant_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i16"><text>&gt; orcamento_auto_tenant_dia_cents - valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_orcamento_tenant_humano_i17"><text>-</text></inputEntry>
+        <outputEntry id="r_orcamento_tenant_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_orcamento_tenant_humano_o2"><text>"Orcamento diario da faixa automatica do tenant atingido — analise humana"</text></outputEntry>
+        <outputEntry id="r_orcamento_tenant_humano_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_auto">
+        <description>Todas as condicoes da opcao B verdadeiras -&gt; aprovacao INTEGRAL automatica do valor solicitado (= min(solicitado, limite contratual, teto), pois o solicitado nao excede nenhum dos dois)</description>
+        <inputEntry id="r_auto_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_auto_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_auto_i3"><text>"livre_escolha"</text></inputEntry>
+        <inputEntry id="r_auto_i4"><text>"consulta"</text></inputEntry>
+        <inputEntry id="r_auto_i5"><text>true</text></inputEntry>
+        <inputEntry id="r_auto_i6"><text>true</text></inputEntry>
+        <inputEntry id="r_auto_i7"><text>true</text></inputEntry>
+        <inputEntry id="r_auto_i8"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_auto_i9"><text>&gt;= valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_auto_i10"><text>&gt;= valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_auto_i11"><text>&gt;= valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_auto_i12"><text>&lt; limite_aprovacoes_auto_benef_30d</text></inputEntry>
+        <inputEntry id="r_auto_i13"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_auto_i14"><text>&lt;= limite_valor_auto_benef_30d_cents - valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_auto_i15"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_auto_i16"><text>&lt;= orcamento_auto_tenant_dia_cents - valor_solicitado_cents</text></inputEntry>
+        <inputEntry id="r_auto_i17"><text>&gt; 0</text></inputEntry>
+        <outputEntry id="r_auto_o1"><text>"AUTO_APROVAR"</text></outputEntry>
+        <outputEntry id="r_auto_o2"><text>"Opcao B: dentro da tabela, do limite contratual, do teto e da exposicao, NF verificada, sem merito clinico — aprovacao integral automatica (nunca parcial)"</text></outputEntry>
+        <outputEntry id="r_auto_o3"><text>valor_solicitado_cents</text></outputEntry>
       </rule>
       <rule id="r_auto_catchall">
-        <description>Catch-all FAIL-SAFE: nunca auto-aprovar por omissao</description>
+        <description>Catch-all FAIL-SAFE: qualquer fato ausente/nulo ou combinacao nao mapeada -&gt; humano; nunca auto-aprovar por omissao</description>
         <inputEntry id="r_auto_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="r_auto_catchall_i2"><text>-</text></inputEntry>
         <inputEntry id="r_auto_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i9"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i10"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i11"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i12"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i13"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i14"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i15"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i16"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i17"><text>-</text></inputEntry>
         <outputEntry id="r_auto_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_auto_catchall_o2"><text>"Combinacao nao mapeada — analise humana por seguranca (nunca auto-aprova; nunca reduz)"</text></outputEntry>
+        <outputEntry id="r_auto_catchall_o2"><text>"Combinacao nao mapeada ou fato ausente — analise humana por seguranca (nunca auto-aprova; nunca reduz)"</text></outputEntry>
+        <outputEntry id="r_auto_catchall_o3"><text>null</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

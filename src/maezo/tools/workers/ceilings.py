@@ -17,9 +17,10 @@ receives as an input — never the inbound boolean.
 FAIL-CLOSED invariants (ADR-0005/0008/0018, defense-in-depth — a config problem NEVER
 auto-approves):
   - a resolved ceiling of 0 (or absent, or negative, or non-numeric, or a bool) forces
-    ``within_l2_ceiling == False``. This is the D-07 state for AUTH/REEMBOLSO
-    (``max_value_brl=0`` in ``L0-core.yaml`` and ``tenants-amh.yaml`` until the diretoria
-    sets a real teto): every AUTO_APROVAR route falls through to ANALISE_HUMANA;
+    ``within_l2_ceiling == False``. ``L0-core.yaml`` ships 0 for every tenant without an
+    overlay. Tenant ``amh``: AUTH has R$ 500 (D-07 closed 25/08/2026, ``tenants-amh.yaml``);
+    REEMBOLSO stays 0 under R-070 option B until the AMH lake history exists — so every
+    REEMBOLSO AUTO_APROVAR route falls through to ANALISE_HUMANA;
   - a VALUE that is not a non-negative ``int`` of centavos forces ``within_l2_ceiling ==
     False`` — see :func:`_is_valid_value_cents`. The ceiling clamp above guards the teto
     side of the comparison; this guards the VALUE side, which until now was compared raw;
@@ -42,6 +43,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -191,13 +193,34 @@ class CeilingResolver:
         ``param`` is ``max_value_brl`` for authorization_approval/reembolso_auto_approval
         and ``threshold_brl`` for high_value_payment.
         """
+        return self.int_param(tenant=tenant, action=action, param=param)
+
+    def _raw_param(self, *, tenant: str, action: str, param: str) -> Any:
+        """Raw ``action.params[param]`` from the resolved matrix; None when absent or unloadable."""
         matrix = self._matrix_for(tenant)
         if matrix is None:
-            return 0
+            return None
         policy = matrix.policy_for(action)
         if policy is None:
-            return 0
-        raw = policy.params.get(param)
+            return None
+        return policy.params.get(param)
+
+    def bool_param(self, *, tenant: str, action: str, param: str) -> bool | None:
+        """``action.params[param]`` only when it is a REAL YAML bool; None otherwise (absent/invalid).
+
+        Config-validity read, not a rule: the caller relays the value to the DMN, where a
+        None never matches a ``true``/``false`` input entry and so falls to the human catch-all.
+        """
+        raw = self._raw_param(tenant=tenant, action=action, param=param)
+        return raw if isinstance(raw, bool) else None
+
+    def int_param(self, *, tenant: str, action: str, param: str) -> int:
+        """Non-negative integer ``action.params[param]``; 0 (fail-closed) when absent/invalid.
+
+        Same clamp as :meth:`ceiling_brl` (which delegates here): bool, negative or
+        non-numeric config resolves to 0 — a zero limit admits nothing downstream.
+        """
+        raw = self._raw_param(tenant=tenant, action=action, param=param)
         # bool is a subclass of int — a YAML `max_value_brl: true` is NOT a valid teto
         # (fail-closed). Reject it before the int() coercion would silently accept it.
         if raw is None or isinstance(raw, bool):

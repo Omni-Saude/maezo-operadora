@@ -90,6 +90,14 @@
   - o teto em `tenants-amh.yaml` só muda no PR de ativação, depois do §6.
 - **Opção A:** nada.
 
+## 5-bis. Registro da escolha do dono (transcrição; não substitui o §6)
+
+- **Opção escolhida pelo dono:** **B — proposta rígida** (§3).
+- **Data:** 2026-10-31.
+- **Fonte:** issue #1084, Rodada 1, texto do dono: "R-070 teto REEMBOLSO: (B) proposta rígida" — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766
+- **O que o agente construiu em seguida (R-076):** os invariantes do §3.1 na DMN `reembolso_auto_approval` (`spec/processes/dmn/reembolso_coverage.dmn`), o mapeamento do valor pago em `ST_IssuePaymentAuto` e os parâmetros DRAFT de exposição e kill-switch em `spec/policies/autonomy/L0-core.yaml`. O teto continua **R$ 0** e a trava de código continua desligada, então nada é pago automaticamente.
+- **O que esta transcrição NÃO é:** não é assinatura. O bloco do §6 continua em branco. Sem o preenchimento do dono e da atuária no §6, a faixa não vai para o ativo (§3.6, item 2). Nenhum agente preenche o §6 (ADR-0007).
+
 ## 6. Bloco de decisão (preenchimento exclusivo do dono e da atuária; agentes não preenchem)
 
 - **Opção escolhida:** [  ]
