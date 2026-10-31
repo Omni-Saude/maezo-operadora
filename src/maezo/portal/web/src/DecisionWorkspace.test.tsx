@@ -131,7 +131,7 @@ it("abre decisão a partir da consulta Q1 sem presumir ação no snapshot", asyn
   } : { schema: "portal-task-read.v1", task: { ...c.snapshot, allowed_actions: [] }, freshness: fresh })));
   vi.stubGlobal("fetch", fetcher); const user = userEvent.setup();
   render(<EmployeeQueues sessionBinding="binding" csrfToken="csrf" onSessionUnavailable={vi.fn()} />);
-  await user.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await user.click(await screen.findByRole("button", { name: /^Ver detalhes/ }));
   await user.click(await screen.findByRole("button", { name: "Preparar decisão humana" }));
   expect(await screen.findByRole("button", { name: "Revisar decisão" })).toBeVisible();
   expect(fetcher.mock.calls.at(-1)![0]).toBe("/api/v1/portal/tasks/task-1/decision-context");
