@@ -126,6 +126,10 @@ ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_worker_error_count_total": "record_worker_error",
     "maezo_agent_errors_total": "record_agent_error",
     "maezo_tool_calls_total": "record_tool_call",
+    # R-085 / F-090 (ADR-0010) — grupo `maezo_governanca_agentes`.
+    "maezo_gateway_pep_decision_total": "record_pep_decision",
+    "maezo_a2a_guard_refusal_total": "record_a2a_guard_refusal",
+    "maezo_agent_desfecho_total": "record_agent_desfecho",
 }
 
 #: The mirror of `ALERT_METRIC_EMITTERS`, one hop upstream (GAP 11.2, round-5 2026-09-05): every

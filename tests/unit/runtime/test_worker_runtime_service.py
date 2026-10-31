@@ -415,7 +415,11 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         publish_ledger: Any = None,
         pagto_valor_invalido_pendente_dados: bool = False,
         inad_rn593_estrito: bool = False,
+        pagto_fatos_estritos: bool = False,
+        inad_fatos_estritos: bool = False,
     ) -> None:
+        captured["pagto_fatos_estritos"] = pagto_fatos_estritos
+        captured["inad_fatos_estritos"] = inad_fatos_estritos
         captured["publish_ledger"] = publish_ledger
         captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
         captured["inad_rn593_estrito"] = inad_rn593_estrito
@@ -459,6 +463,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         assert settings.pagto_valor_invalido_pendente_dados is False
         assert captured["pagto_valor_invalido_pendente_dados"] is False
         assert captured["inad_rn593_estrito"] is False  # R-027 ships dark (MAEZO_INAD_RN593_ESTRITO)
+        # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
+        assert captured["pagto_fatos_estritos"] is False
+        assert captured["inad_fatos_estritos"] is False
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
@@ -725,3 +732,108 @@ def test_register_default_workers_pagto_flag_omitted_stays_dark() -> None:
     """Kwarg omitido (default off): o handler não escreve `dados_pagamento_validos`."""
     result = _pagto_calculate_facts_via_default_workers()
     assert "dados_pagamento_validos" not in result
+
+
+# ---------------------------------------------------------------------------------------------
+# R-063 / F-029 — fiacao das flags dark `MAEZO_PAGTO_FATOS_ESTRITOS` / `MAEZO_INAD_FATOS_ESTRITOS`:
+# (a) alias de env + default OFF; (b) `_bring_up_dependencies` repassa a setting; (c)
+# `register_default_workers` REAL repassa ao worker, provado pela execucao do handler registrado
+# (o default das funcoes e o estrito, entao um kwarg nao repassado tambem quebra o teste OFF).
+# ---------------------------------------------------------------------------------------------
+
+_R063_FLAGS = [
+    ("pagto_fatos_estritos", "MAEZO_PAGTO_FATOS_ESTRITOS"),
+    ("inad_fatos_estritos", "MAEZO_INAD_FATOS_ESTRITOS"),
+]
+
+
+@pytest.mark.parametrize(("campo", "alias"), _R063_FLAGS)
+def test_settings_r063_flags_env_alias_defaults_off(
+    monkeypatch: pytest.MonkeyPatch, campo: str, alias: str
+) -> None:
+    monkeypatch.delenv(alias, raising=False)
+    assert getattr(WorkerRuntimeSettings(), campo) is False
+    monkeypatch.setenv(alias, "true")
+    assert getattr(WorkerRuntimeSettings(), campo) is True
+
+
+@pytest.mark.parametrize(("campo", "alias"), _R063_FLAGS)
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_r063_flags(
+    monkeypatch: pytest.MonkeyPatch, campo: str, alias: str, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # no fetch rotation: this test only proves the threading
+
+    monkeypatch.setenv(alias, "true" if flag else "false")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    state = WorkerState(
+        settings=WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured[campo] is flag
+        outro = next(c for c, _a in _R063_FLAGS if c != campo)
+        assert captured[outro] is False
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _executa_registrado(topic: str, variables: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r063-default-workers")
+    register_default_workers(harness, **kwargs)
+    worker = harness.registry.get(topic)
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(variables)
+    return result
+
+
+_PAGTO_SEMENTE = {
+    "ordem_pagamento_id": "OP-R063-WIRE",
+    "prestador_id": "prov:teste-0001",
+    "instrumento_pagamento": "ted",
+    "lastro_confirmado": True,
+}
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_fatos_estritos": False}])
+def test_register_default_workers_pagto_fatos_flag_off_ecoa(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado("operadora.pagto.validate_payment_data", dict(_PAGTO_SEMENTE), **kwargs)
+    assert out["lastro_confirmado"] is True
+
+
+def test_register_default_workers_pagto_fatos_flag_on_resolve() -> None:
+    out = _executa_registrado(
+        "operadora.pagto.validate_payment_data", dict(_PAGTO_SEMENTE), pagto_fatos_estritos=True
+    )
+    assert out["lastro_confirmado"] is False
+    assert out["dados_pagamento_validos"] is True
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"inad_fatos_estritos": False}])
+def test_register_default_workers_inad_fatos_flag_off_ecoa(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado(
+        "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, **kwargs
+    )
+    assert out["dentro_janela_purga"] is False
+
+
+def test_register_default_workers_inad_fatos_flag_on_nao_ecoa() -> None:
+    out = _executa_registrado(
+        "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, inad_fatos_estritos=True
+    )
+    assert out["dentro_janela_purga"] is True
