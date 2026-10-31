@@ -164,6 +164,7 @@ from maezo.agents.rafael.graph import FhirReader as _RafaelFhirReader
 from maezo.runtime.agent_runtime.a2a_composition import FhirSummaryReader
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.inference.br_regional import BrRegionalTransport
+from maezo.runtime.inference.embeddings import TransporteDeEmbeddings
 from maezo.tools.workers.dmn_transport import DmnTransport
 from maezo.tools.workers.harness import AuditEmitter as _HarnessAuditEmitter
 
@@ -388,6 +389,9 @@ _FAMILIAS: tuple[_Familia, ...] = (
     _Familia("FhirSummaryReader:carolina", ("NEW-12", "NEW-C1-2"), _CarolinaSummaryReader, agente="carolina"),
     _Familia("FhirSummaryReader:andre", ("NEW-12", "NEW-C1-2"), _AndrePatientSummaryReader, agente="andre"),
     _Familia("BrRegionalTransport", ("NEW-12", "NEW-C1-2"), BrRegionalTransport),
+    # R-040 (DEC-20, 31/10/2026): a porta de embeddings entrou em `runtime.inference` (AGENTS.md regra 6);
+    # todo falso com `vetores` em `tests/` acompanha o Protocol real.
+    _Familia("TransporteDeEmbeddings", ("F-051",), TransporteDeEmbeddings),
     _Familia("OutboxClaimStore", ("NEW-12", "NEW-C1-2"), OutboxClaimStore),
     _Familia("FactBrokerPublisher", ("NEW-12", "NEW-C1-2"), FactBrokerPublisher),
     _Familia("AuditEmitter:harness", ("NEW-12", "NEW-C1-2"), _HarnessAuditEmitter),
@@ -1631,7 +1635,8 @@ def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
     teste torna a lista fechada tambem uma asserção viva, nao so' um comentario. §Delta-F7:
     17 entradas module-scoped (nao mais 10 agrupadas) -- `WhatsAppSender`/`FhirSummaryReader`/
     `AuditEmitter` viraram 3/5/2 entradas por (modulo, classe), uma por agente/modulo dono. 16 desde
-    a ADR-0071 (31/10/2026): `FhirSummaryReader:gustavo` saiu com o acesso FHIR do gustavo."""
+    a ADR-0071 (31/10/2026): `FhirSummaryReader:gustavo` saiu com o acesso FHIR do gustavo; 17 com
+    R-040 (31/10/2026): entra `TransporteDeEmbeddings` (`runtime/inference/embeddings.py`)."""
     esperado = {
         "DmnTransport",
         "WhatsAppSender:helena",
@@ -1644,6 +1649,7 @@ def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
         "FhirSummaryReader:carolina",
         "FhirSummaryReader:andre",
         "BrRegionalTransport",
+        "TransporteDeEmbeddings",
         "OutboxClaimStore",
         "FactBrokerPublisher",
         "AuditEmitter:harness",
@@ -1795,6 +1801,19 @@ def test_achados_estruturais_recusa_whatsapp_com_nome_da_evidencia_reg04() -> No
 
 def test_achados_estruturais_aceita_whatsapp_com_nome_certo() -> None:
     fonte = "class _RecordingWhatsApp:\n    async def send(self, to_hash, text):\n        return {}\n"
+    assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
+
+
+def test_achados_estruturais_recusa_falso_de_embeddings_sem_consulta() -> None:
+    """R-040: um falso de `TransporteDeEmbeddings` sem o kwonly `consulta` e' apontado (negativo)."""
+    fonte = "class _Embeddings:\n    async def vetores(self, textos):\n        return []\n"
+    achados = _achados_estruturais_em_fonte(fonte, "sintetico.py")
+    assert len(achados) == 1
+    assert "consulta" in achados[0]
+
+
+def test_achados_estruturais_aceita_falso_de_embeddings_conforme() -> None:
+    fonte = "class _Embeddings:\n    async def vetores(self, textos, *, consulta):\n        return []\n"
     assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
 
 
