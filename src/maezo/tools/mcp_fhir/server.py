@@ -3,8 +3,9 @@
 Provides read_resource(resource_type, id) and search_resources(resource_type, params).
 Uses httpx.AsyncClient for async HTTP calls to the HAPI FHIR server.
 
-Per ADR-0006, FHIR resources containing PHI must only be read through
-the ToolRegistry gateway (PEP + audit + scrub-PHI).
+Per ADR-0006, FHIR resources containing PHI must only be read through the gated seam built by
+`gateway/tool_registry.py::build_fhir_seam` (PEP + audit), which refuses to build for a principal
+outside the PHI zone (ADR-0068 I-5). There is no result-pseudonymizing `ToolRegistry`.
 
 Tools:
 - read_resource(resource_type, id) -> resource_dict
@@ -220,8 +221,9 @@ class FhirServer:
     """MCP server for FHIR R4 — in-process (ADR-0022).
 
     Wraps the HAPI FHIR REST API with async httpx calls.
-    Tools are registered via register_tools() for integration
-    with the ToolRegistry (ADR-0016).
+    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0068): the
+    single construction authority is `gateway/tool_registry.py`, which wraps this server in a gated
+    seam.
 
     Usage:
         server = FhirServer()
@@ -244,7 +246,11 @@ class FhirServer:
         )
 
     def list_tools(self) -> list[dict[str, str]]:
-        """Return tool definitions for registration with ToolRegistry.
+        """Return this server's tool definitions (descriptive inventory; ADR-0068).
+
+        Nothing registers them: there is no `ToolRegistry`. Agents reach the transport through the
+        gated seams built by `gateway/tool_registry.py`, and tool identity lives in the closed
+        operation catalogue (`gateway/effect_classes.py`) plus each `agent.yaml` `tools:` list.
 
         Returns:
             List of tool dicts with 'name' and 'description' keys.
@@ -259,16 +265,6 @@ class FhirServer:
                 "description": "Search FHIR R4 resources with query parameters.",
             },
         ]
-
-    def register_tools(self, registry: Any) -> None:
-        """Register FHIR tools with the given ToolRegistry (ADR-0022, ADR-0016).
-
-        Args:
-            registry: A ToolRegistry instance that accepts register(name, handler).
-        """
-        registry.register("read_resource", self.read_resource)
-        registry.register("search_resources", self.search_resources)
-        logger.info("fhir_tools_registered", count=2)
 
     async def read_resource(
         self,
