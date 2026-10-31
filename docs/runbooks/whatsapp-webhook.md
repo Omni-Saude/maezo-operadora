@@ -257,18 +257,17 @@ e um pseudonimo com chave.
 
 ## 5. Failure modes
 
-### Kafka producer unavailable
+### Kafka producer unavailable — not applicable in this build
 
-**Symptom:** Pod logs show `whatsapp_kafka_publish_failed`
+**Status:** there is no Kafka producer in the webhook receiver. Dispatch to Helena is an explicit
+in-process call (`platform/webhooks/whatsapp/app.py` module docstring; `dispatch.py`), so there is
+no publish to fail and no `whatsapp_kafka_publish_failed` log event (that name is not emitted
+anywhere in `src/`).
 
-**Impact:** Event lost; no retry (fire-and-forget by design)
-
-**Recovery:**
-1. Verify Kafka health — production Kafka is **MSK Serverless** (no in-cluster
-   broker pods/namespace): check the MSK cluster in the AWS console / CloudWatch.
-   Local dev: `docker compose logs kafka`.
-2. Check network connectivity from webhook pod to Kafka bootstrap servers
-3. Restart webhook pod (the Deployment is named `webhook-receiver`): `kubectl rollout restart deploy/webhook-receiver -n maezo-amh`
+**What to watch instead:** a turn that could not be dispatched is counted as
+`maezo_webhook_requests_total{status="dispatch_failed"}` (whole batch failed — the receiver answers
+500 so Meta retries) or `{status="partial_failure"}` (mixed batch); see section 7. Restart, if
+needed, targets the `webhook-receiver` Deployment: `kubectl rollout restart deploy/webhook-receiver -n maezo-amh`.
 
 ### Invalid HMAC signature
 
@@ -333,9 +332,10 @@ Expected response: `test_challenge_value`
 
 ## 7. Monitoring
 
-**Metrics to track** (Prometheus — real emitted names, defined in
-`src/maezo/platform/webhooks/whatsapp/app.py`; scrape job `maezo-webhook` in
-`config/prometheus.yml`; there are no `whatsapp_*`-prefixed metrics):
+**Metrics to track** (Prometheus — real emitted names: `maezo_webhook_requests_total` is defined in
+`src/maezo/platform/webhooks/whatsapp/app.py`, `maezo_webhook_mensagem_limitada_total` in
+`src/maezo/runtime/metrics.py`; both live on the registry the receiver exposes at its own
+`/metrics`; there are no `whatsapp_*`-prefixed metrics):
 
 | Metric | Query | Alert threshold |
 |--------|-------|-----------------|
@@ -344,21 +344,21 @@ Expected response: `test_challenge_value`
 | Lote misto (algo entregue, algo falhou) | `rate(maezo_webhook_requests_total{status="partial_failure"}[5m])` — gap `WHATSAPP-MIXED-BATCH-RETRY-TRADEOFF` (R-100): antes deste rotulo, um ack de nao-texto perdido dentro de um lote bem-sucedido era indistinguivel de um `ok` limpo | > 0 merece investigacao |
 | Registro de dedup indisponivel | `rate(maezo_webhook_requests_total{status="dedup_unavailable"}[5m])` — o receptor recusou-se a despachar sem protecao de duplicata (fail-closed). Enquanto isso durar, a Meta esta retentando e nenhuma mensagem esta sendo processada | > 0 e incidente |
 | Inbound que o canal NAO processa | `rate(maezo_webhook_requests_total{status="non_text_acked"}[5m])` — requests cujo lote so trazia mensagens NAO-texto, todas respondidas com o ack fixo (`app.py::receive_event`). E a medida de quanto do volume de entrada este canal so consegue recusar educadamente; subida sustentada e insumo para as decisoes 9.6/10.2 do dono, nao um alerta de falha | N/A (baseline) |
-| Messages processed/s | `rate(maezo_webhook_messages_total[5m])` — labels `tenant`, `message_type`, `deduplicated` | N/A (baseline) |
+| Mensagens recusadas pelo teto de volume | `sum by (tenant, escopo) (rate(maezo_webhook_mensagem_limitada_total[5m]))` — `escopo` `conversa` (um numero em laco) ou `tenant` (pico agregado); emitido por `dispatch.py` via `record_mensagem_limitada`. Nao ha contador por mensagem processada (o `maezo_webhook_messages_total` citado antes nunca existiu): o volume vem de `maezo_webhook_requests_total`, que conta requests (lotes), nao mensagens | N/A (baseline) |
 | Invalid signatures | `rate(maezo_webhook_requests_total{status="invalid_signature"}[5m])` | > 0.1/s (attack) |
-| Kafka publish latency | `histogram_quantile(0.95, rate(maezo_webhook_kafka_publish_duration_seconds_bucket[5m]))` — **defined in code but not yet observed anywhere; expect no data until emission is wired** | — |
 
-**Kafka publish failures have no metric today** — the only signal is the
-structured log event `whatsapp_kafka_publish_failed` (fire-and-forget `_publish`
-logs and swallows the error). Watch it via log aggregation, not PromQL.
+**No Kafka publish metric** — and none is needed today: the receiver has no Kafka producer
+(dispatch is in-process; section 5), so there is no publish latency or publish failure to measure.
+Dispatch failures are the `dispatch_failed` / `partial_failure` statuses above.
 
-**Dashboard:** none yet — `deploy/observability/dashboards/gateway.json` has **no**
-WhatsApp-ingestion section; the webhook metrics are not on any checked-in dashboard.
+**Dashboard:** none yet — `deploy/observability/dashboards/` holds only `agentes.json`,
+`dlq-lifecycle.json` and `worker-runtime.json`, and none has a WhatsApp-ingestion section; the
+webhook metrics are not on any checked-in dashboard.
 
-**Alerts:** none defined — `deploy/observability/alert-rules.yaml` contains **no**
+**Alerts:** none defined — `deploy/observability/alert-rules.yml` contains **no**
 WhatsApp-specific alerts (`WhatsAppInvalidSignatureSpike` /
 `WhatsAppKafkaPublishFailure` do not exist). Until rules are added, use the
-invalid-signature query above and the `whatsapp_kafka_publish_failed` log event
-as the manual watch points.
+invalid-signature and `dispatch_failed` / `dedup_unavailable` queries above as the manual watch
+points.
 
 **Logs:** Structured JSON to stdout; aggregate in ELK/CloudWatch.
