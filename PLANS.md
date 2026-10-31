@@ -70,7 +70,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | M10 Multi-Tenancy & Infra | **◔** | Helm/Terraform passam `lint`/`validate`, mas **NÃO provisionados** — Phase 4 = 0%, external-blocked (AWS/creds/secrets). IaC-only. |
 | M11 Observability | **◔** | Configs podem existir; **sem verificação zero-trust**; não é um gate fechado. |
 | M12 PHI & LGPD Hardening | **◑** | PHI egress NetworkPolicy existe; **o fail-open de identidade provava que não estava completo** (#113). Erasure/retention não totalmente verificados; DPO+RIPD external-blocked. |
-| M13 Production Hardening | **✗→◑** | **Chaos/seam-fault + cross-process suites LANDARAM (T3.3, #147/#155/#157, 2026-07-27).** Load/DR reais = P4-externo (ainda não iniciado). |
+| M13 Production Hardening | **✗→◑** | **Chaos/seam-fault + cross-process suites LANDARAM (T3.3, #147/#155/#157, 2026-07-27).** **Recontado 2026-10-31 (R-012/F-120):** carga AUTH existe (`tests/load/locustfile_auth.py`, `tests/integration/perf/test_auth_p95.py`); carga de webhook/A2A, runbook de DR da plataforma (failover sa-east-1) e go-live checklist **NÃO existem** no repo versionado (existe só o restore do banco de auditoria: `docs/runbooks/audit-recovery.md` §4 e `docs/runbooks/drills/recovery-drill.md`, stack local) — DR real e go-live = P4-externo. |
 | M14 Docs & Handoff | **◔** | Docs existem; handoff operacional formal não feito. |
 
 ### 0.4 Sprints ainda pendentes (resumo — detalhe técnico no prompt de execução em `docs/prompts/`)
@@ -99,7 +99,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 
 **Pendências reais (2026-07-27):**
 - **Tier 1 — FEITO:** PR #171 merged; #170 (versão hollow) curado pelo v2; PRs #172–#176 = bumps dependabot (fora de escopo).
-- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo — **JÁ EXISTEM** (Helm `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, três jobs `expurgo-working`/`verify-erasure`/`audit-retention`, anotados `maezo.io/expected-fail-until` — R-040/SC-07) e falham POR DESENHO até a matriz de retenção `AF-07` existir (`src/maezo/platform/lifecycle/__init__.py` recusa fail-closed, nenhum comando implementado); implementar o expurgo real é decisão B do dono (`OWNER-DECISIONS-REGISTER` R-106) — só depois de `AF-07`, sem antecipar código sem regra; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
+- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo — **JÁ EXISTEM** (Helm `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, três jobs `expurgo-working`/`verify-erasure`/`audit-retention`, anotados `maezo.io/expected-fail-until` — R-040/SC-07) e falham POR DESENHO até a matriz de retenção `AF-07` existir (`src/maezo/platform/lifecycle/__init__.py` recusa fail-closed, nenhum comando implementado); implementar o expurgo real é decisão B do dono (`OWNER-DECISIONS-REGISTER` R-106) — só depois de `AF-07`, sem antecipar código sem regra; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (recontado 2026-10-31 em `docs/adr/`, R-012/F-116: 18 arquivos com Status Proposed/Proposto — 0029/0031/0033/0040/0041–0048/0050/0052/0059/0061/0062/0067; 0025/0026/0028/0030 e 0038 já estão Accepted no próprio arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
 - **Tier 3 — teto humano (escalate/track SOMENTE — NÃO forçar):** sign-offs SME (contratos DRAFT→FINAL, médico-auditor→jurídico/DPO/regulatório/finanças/PO); AWS + `terraform apply` + billing; 6 secrets de produção (LLM/Tasy/WABA/**PHI_HMAC_KEY**/card-signing); DPA endpoint PHI-BR; DPO + RIPD + retention-matrix; sign-off DMN clínico + validação de personas (Beatriz↔Valentina) + atestação de segurança clínica; atestação ANS + competências reais; GHAS; **valores de teto D-07** (diretoria); parecer ANVISA SaMD (GAP-C10); emissão de cert T-G (ADR-0033); 3 gatekeepers + go/no-go. Detalhe humano: `docs/Tarefas_Pendentes.md`.
 - **Resolvido nesta janela:** edições BPMN obsoletas descartadas (stash-drop aprovado pelo dono, commit 259e6a42e) → main local sincronizado; higiene de branches remotas/locais executada.
 
@@ -566,7 +566,7 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 - `Makefile` funcional (setup, dev-stack, test, lint, type, validate-artifacts)
 - `.github/workflows/ci.yml` adaptado (union-green, sem gateway)
 - `.github/workflows/cd.yml` revisado (DB-9 fix incorporado)
-- `docker-compose.yml` funcional com CIB Seven 2.1.3, HAPI FHIR R4, PostgreSQL+pgvector, Kafka
+- `docker-compose.yml` funcional com CIB Seven 2.1.0 (2.1.3 sem imagem publicada — DL-0006), HAPI FHIR R4, PostgreSQL 17 (pgvector removido — `0009_drop_pgvector`, decisão do dono R-005/R-006, ADR-0047 Proposto), Kafka
 - `deploy/Dockerfile` revisado
 
 **Verificação:**
@@ -594,7 +594,7 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 - `docs/adr/README.md` atualizado
 
 **Verificação:**
-- Nenhum ADR "Proposed" restante entre os que serão implementados
+- Nenhum ADR "Proposed" restante entre os que serão implementados — **NÃO atendido** (recontado 2026-10-31, R-012/F-116: 18 ADRs Proposed/Proposto em `docs/adr/`, lista no item (8) do Tier-2 §0.5)
 - Consistência cross-ref entre ADRs verificada
 
 **Gatekeepers:** `arch-system-design`, `security-manager`
@@ -607,11 +607,11 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 
 ### M2 — BPMN/DMN Regeneration ✅ CONCLUÍDO (Esforço: XL)
 
-**Objetivo:** Regenerar 16 BPMN e 53 DMN a partir dos contratos `docs/processes/contracts/`.
+**Objetivo:** Regenerar os 17 BPMN e 66 DMN de `spec/processes/` (recontados 2026-10-31, R-012/F-116; o envelope original dizia 16/53) a partir dos contratos `docs/processes/contracts/`.
 
 **Artefatos:**
-- 16 `.bpmn` validados contra contratos SP-OP (variáveis, tópicos, external tasks, invariantes)
-- 53 `.dmn` com regras reais (substituir placeholders DRAFT)
+- 17 `.bpmn` validados contra contratos SP-OP (variáveis, tópicos, external tasks, invariantes)
+- 66 `.dmn` com regras reais (substituir placeholders DRAFT)
 - DI (diagrama) 100% em todos os BPMN
 - `docs/processes/catalog.md` atualizado
 
@@ -637,7 +637,7 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 
 **Artefatos:**
 - `src/maezo/runtime/` — LangGraph harness, checkpointer, inference abstraction (ADR-0001, 0009)
-- `src/maezo/runtime/inference.py` — abstração de provider (ADR-0009)
+- `src/maezo/runtime/inference/` (pacote; o envelope original dizia `inference.py`) — abstração de provider (ADR-0009)
 - `src/maezo/tools/mcp_cibseven/` — MCP server para CIB Seven
 - Migrations Alembic (schema agents, tenant isolation)
 - `tests/unit/runtime/` e `tests/integration/`
@@ -723,9 +723,9 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 **Objetivo:** Implementar Phase 0-1: ESCALATION, AUTH, LGPD-DSR + agentes Helena e Rafael.
 
 **Artefatos:**
-- Workers para SP-OP-ESCALATION-001 (~8 external tasks)
-- Workers para SP-OP-AUTH-001 (~7 external tasks)
-- Workers para SP-OP-LGPD-DSR-001 (~6 external tasks)
+- Workers para SP-OP-ESCALATION-001 (3 tópicos distintos / 9 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~8 external tasks)
+- Workers para SP-OP-AUTH-001 (8 tópicos distintos / 16 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~7 external tasks)
+- Workers para SP-OP-LGPD-DSR-001 (7 tópicos distintos / 12 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~6 external tasks)
 - `src/maezo/agents/helena/graph.py` + prompts (AGJ-HELENA-TRIAGE)
 - `src/maezo/agents/rafael/graph.py` + prompts
 - Testes de integração contra spec (15 test-specs, começando por AUTH)
@@ -758,11 +758,11 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 - `src/maezo/agents/gustavo/graph.py` + prompts
 - `src/maezo/agents/lucas/graph.py` + prompts
 - Testes de integração para os 6 processos
-- Handoffs entre processos (ex: CONTAS → RECURSO)
+- Handoffs entre processos (ex: CONTAS → PAGTO, CONTAS → FRAUDE) — a aresta CONTAS → RECURSO foi deletada por ADR-0040
 
 **Verificação:**
 - CONTAS: invariante L0 (glosa substantiva só humana)
-- RECURSO: handoff de CONTAS funcional
+- RECURSO: intake do recurso transmitido pelo prestador (ADR-0040; não há mais handoff de CONTAS)
 - ANS-SUBMIT: retry/backoff com DMN
 - `make test-integration` verde para processos Phase 2
 
@@ -894,9 +894,9 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 
 **Verificação:**
 - PHI não vaza para zona geral
-- Erasure remove dados das 3 camadas (working, episódica, semântica)
+- Erasure remove dados das 3 camadas (working, episódica, semântica) — hoje só a de trabalho opera: a tabela episódica `agent_memory` existe, mas o `MemoryServer` recusa fail-closed a escrita episódica e a leitura semântica (ADR-0043 Proposed), e a coluna semântica foi removida (`0009_drop_pgvector`, decisão do dono R-005/R-006, ADR-0047 Proposto)
 - Auditoria retida por 5 anos, expurgada após
-- `make test-security` verde
+- `make test-security` verde — **alvo NÃO existe no `Makefile`** (R-012/F-116); não há suíte de segurança dedicada (penetração/fuzzing/boundary escape); os testes de segurança existentes (ex.: `tests/unit/gateway/`, `tests/unit/platform/webhooks/whatsapp/test_security.py`) rodam dentro de `make test`; criar o alvo é mudança em `/Makefile` (CODEOWNERS security-team)
 
 **Gatekeepers:** `security-manager` (OBRIGATÓRIO), `ops-compliance-gate`
 
@@ -908,15 +908,15 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 
 ---
 
-### M13 — Production Hardening ✅ CONCLUÍDO (Esforço: L)
+### M13 — Production Hardening ◑ PARCIAL — selo corrigido 2026-10-31, R-012/F-120 (Esforço: L)
 
 **Objetivo:** Chaos testing, load testing, DR, go-live checklist.
 
 **Artefatos:**
 - Chaos tests (pod kill, network partition, DB failover)
-- Load tests (locust para webhook e A2A)
-- DR runbook (restore de backup, failover sa-east-1)
-- Go-live checklist
+- Load tests (locust para webhook e A2A) — **só a carga AUTH existe** (`tests/load/`); webhook e A2A ausentes
+- DR runbook (restore de backup, failover sa-east-1) — **PARCIAL**: restore do banco de auditoria existe (`docs/runbooks/audit-recovery.md` §4, `docs/runbooks/drills/recovery-drill.md`, stack local); runbook de DR da plataforma e failover sa-east-1 **AUSENTES**
+- Go-live checklist — **AUSENTE** no repo versionado
 
 **Verificação:**
 - Plataforma sobrevive a chaos tests
@@ -939,7 +939,7 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 **Artefatos:**
 - 8 runbooks atualizados com comandos verificados
 - `docs/architecture/overview.md` atualizado
-- `docs/adr/` limpo (Proposed→Accepted nos implementados)
+- `docs/adr/` limpo (Proposed→Accepted nos implementados) — pendente: 18 Proposed/Proposto em 2026-10-31 (R-012)
 - `README.md` com métricas reais (não do repo anterior)
 - Handoff para equipe de operações
 
