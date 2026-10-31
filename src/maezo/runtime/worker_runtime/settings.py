@@ -169,6 +169,12 @@ class WorkerRuntimeSettings(BaseSettings):
     # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
     pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
     inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+    # Forensic audit F-124 (roadmap R-027; decisao do DPO de 31/10/2026, #1082 opcao a): a business
+    # key `INAD-{tenant}-{numero_contrato}` exige o numero do contrato — sem fallback para
+    # `matricula_beneficiario` — e o start sem ele e' RECUSADO no chokepoint (fail-notify ADR-0045);
+    # `prepare_dossier` deixa de delegar ao Fernando sem contrato. DARK by default (ships OFF):
+    # starts sem contrato passam a exigir saneamento cadastral, e o flip e' ato humano (ROLL).
+    inad_chave_exige_contrato: bool = Field(default=False, alias="MAEZO_INAD_CHAVE_EXIGE_CONTRATO")
     # Decisao do dono de 30/10/2026 (criterios de reembolso por beneficiario; desenho em
     # docs/design/condicoes-reembolso-contratuais.md): liga a LEITURA das condicoes contratuais de
     # reembolso pelo contrato AMH PROPOSTO `tina-reembolso`

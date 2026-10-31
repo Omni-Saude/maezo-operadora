@@ -417,11 +417,13 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         inad_rn593_estrito: bool = False,
         pagto_fatos_estritos: bool = False,
         inad_fatos_estritos: bool = False,
+        inad_chave_exige_contrato: bool = False,
         contas_sla_risk_entrega: bool = False,
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
     ) -> None:
+        captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
         captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
         captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
         captured["pagto_fatos_estritos"] = pagto_fatos_estritos
@@ -474,6 +476,8 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
         assert captured["pagto_fatos_estritos"] is False
         assert captured["inad_fatos_estritos"] is False
+        # F-124: a chave INAD so' sobre o contrato ships dark (MAEZO_INAD_CHAVE_EXIGE_CONTRATO).
+        assert captured["inad_chave_exige_contrato"] is False
         # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
         assert settings.contas_sla_risk_entrega is False
         assert captured["contas_sla_risk_entrega"] is False

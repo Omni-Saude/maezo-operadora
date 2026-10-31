@@ -551,7 +551,9 @@ def _record_dossier_delegation_gap(token: str) -> None:
         logger.warning("inadimplencia_dossier_delegation_metric_failed", error=redact_error_message(exc))
 
 
-def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+def make_prepare_dossier_handler(
+    dispatcher: DelegationDispatcher | None, *, chave_exige_contrato: bool = False
+) -> TaskHandler:
     """Cria o handler de `operadora.inadimplencia.prepare_dossier` — dossie local + delegacao REAL.
 
     METADE DE ORIGEM de R-081 (decisao do dono, `APROVADO-APOS-REVISÃO-HUMANA` 2026-09-04, gap
@@ -592,7 +594,13 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
     SEM PHI NO LOG: so' `numero_contrato`/`tenant_id`/`business_key` (identificadores de contrato
     ja usados pelos demais logs deste modulo) e tokens de classe; texto de erro cru fica no campo
     `error` do log estruturado e NUNCA nas variaveis de engine (ADR-0006/ADR-0010).
+
+    F-124 (`chave_exige_contrato`, dark — `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF; decisao
+    do DPO de 31/10/2026, #1082 opcao a): so' o `numero_contrato` deriva o `task_id` INAD; sem ele
+    a delegacao NAO acontece (mesma lacuna divulgada `missing_business_identifiers`), nunca sobre a matricula.
     """
+    if type(chave_exige_contrato) is not bool:
+        raise TypeError("chave_exige_contrato must be a bool (dark flag, default off)")
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = dict(task.variables)
@@ -617,7 +625,12 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
             _record_dossier_delegation_gap(_GAP_DISPATCHER_UNAVAILABLE)
             return _com_lacuna(_GAP_DISPATCHER_UNAVAILABLE)
 
-        if not non_blank(tenant_id) or not (non_blank(numero_contrato) or non_blank(matricula_beneficiario)):
+        identidade_presente = (
+            non_blank(numero_contrato)
+            if chave_exige_contrato
+            else (non_blank(numero_contrato) or non_blank(matricula_beneficiario))
+        )
+        if not non_blank(tenant_id) or not identidade_presente:
             # Nenhum `task_id` INAD idempotente pode ser derivado (disciplina `non_blank` EB-4):
             # jamais delegar com chave degenerada — `fernando.graph._business_key` mintaria uma
             # identidade vazia, e a Guarda 4 selaria casos DIFERENTES sob o mesmo `task_id`.
@@ -1372,6 +1385,10 @@ def register_inadimplencia_workers(
     `MAEZO_INAD_FATOS_ESTRITOS`, default OFF; ABSENT == OFF): `resolve_facts` deixa de ecoar
     `dentro_janela_purga` (a janela so se encerra pelo timer BPMN). OFF => comportamento de hoje.
 
+    `inad_chave_exige_contrato` (F-124, dark — `WorkerRuntimeSettings.inad_chave_exige_contrato`,
+    `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF; ABSENT == OFF): `prepare_dossier` so' delega ao
+    Fernando com `numero_contrato` (sem fallback para a matricula). OFF => comportamento de hoje.
+
     `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
     `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
     composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
@@ -1409,7 +1426,10 @@ def register_inadimplencia_workers(
     # HANDLER RAW (NAO `register_worker`) — precisa da costura assincrona do dispatcher (R-081,
     # metade de ORIGEM; nota do mapa de topicos deste modulo e o precedente `credenciamento.py`).
     harness.register(
-        "operadora.inadimplencia.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher)
+        "operadora.inadimplencia.prepare_dossier",
+        make_prepare_dossier_handler(
+            dossier_dispatcher, chave_exige_contrato=seams.get("inad_chave_exige_contrato") is True
+        ),
     )
     harness.register_worker(
         FunctionWorker(
