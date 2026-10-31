@@ -28,7 +28,7 @@
 ## Invariante L0-HARD (no-adverse — nao negociavel; ADR-0018; covers EVERY adverse effect)
 
 `contract_termination` e **L0-hard** (`_hard_frozen.yaml`, CI-enforced). NENHUM caminho automatizado suspende NEM rescinde um contrato por inadimplencia. Ambos os efeitos adversos SO nascem em User Task humana:
-- Suspensao → `UT_AnaliseInadimplencia` (grupo `juridico-contratos` / `gestao-cobranca`), `decisao_inadimplencia == SUSPENDER`.
+- Suspensao → `UT_AnaliseInadimplencia` (grupo unico `juridico-contratos` — R-041 / #1084), `decisao_inadimplencia == SUSPENDER`.
 - Rescisao → `UT_AnaliseInadimplencia`, `decisao_inadimplencia == ENCAMINHAR_RESCISAO` — **NAO materializa a rescisao aqui** (DRAFT-A shipped, §Harmonizacao): dispara o worker NEUTRO `handoff_rescisao`, que inicia/correlaciona SP-OP-CANCEL-001 (unico detentor do terminal `End_ContratoRescindido`); a instancia de INADIMPLENCIA termina no terminal neutro `End_RescisaoHandoffCancel`.
 
 Nenhuma DMN deste processo possui saida que suspenda/rescinda. As DMN apenas **classificam o estado de inadimplencia e roteiam** (sem variante adversa). Inadimplencia aparente, prazo de purga expirado, notificacao previa ausente, ambiguidade de valor/competencia, contrato coletivo e indisponibilidade da DMN **todos fail-safe para a User Task humana** (catch-all conservador → `ANALISE_HUMANA`, allowlist fechada `frozenset`). O UNICO efeito adverso local e materializado pelo worker `operadora.inadimplencia.register_contract_suspension`, guardado por `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` (carrega `responsavel_id`+tier — cadeia de auditoria ADR-0007; verifica tambem `ja_em_rescisao_cancel`, anti-dupla-terminacao cross-process, GAP-INAD-1). O terminal adverso so e alcancavel apos a User Task humana concluida na history. INADIMPLENCIA-001 **NAO** implementa `register_contract_rescission`/`Error_ContractRescissionNotHuman` — a rescisao e propriedade exclusiva de CANCEL-001 (ver §Harmonizacao).
@@ -233,10 +233,10 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos (compartilhado com CANCEL-001) | `UT_AnaliseInadimplencia` (**suspensao/encaminhamento de rescisao SO aqui**: `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO, MANTER, SOLICITAR_INFO}`) |
-| `gestao-cobranca` | Gestao de cobranca/financeiro | `UT_AnaliseInadimplencia` (co-candidate para o merito de cobranca) |
+| `gestao-cobranca` | Gestao de cobranca/financeiro | nenhuma User Task desde R-041 / #1084 (saiu de `UT_AnaliseInadimplencia`); consultivo — os fatos de cobranca chegam pelo dossie; nao registrado no engine |
 | `coordenacao-cobranca` | Coordenacao de cobranca | `UT_CoordenacaoCobranca` (SLA de analise estourado — assume a decisao, que continua humana) |
 
-A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios.
+A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios. Q1 (R-041 / #1084): o coordenador so reatribui/prorroga/MANTER; SUSPENDER/ENCAMINHAR_RESCISAO ficam com `juridico-contratos` — guarda a entregar (ainda NAO aplicada).
 
 Campos obrigatorios por decisao adversa (validacao de formulario/listener da User Task — sem eles a task NAO completa):
 - `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO}` → `fundamentacao_contratual` + `referencia_regulatoria` + `comprovacao_notificacao_previa` + `comprovacao_periodo_minimo`.

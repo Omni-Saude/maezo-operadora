@@ -153,7 +153,7 @@ def test_notify_deadline_risk_nenhuma_entrada_produz_eco() -> None:
     for kwargs in (
         {},
         {"numero_nip_ans": "NIP-020"},
-        {"grupo_humano": "nucleo-ans"},
+        {"grupo_humano": "regulatorio-ans"},
         {"sla_breach_task_name": "UT_RevisaoJuridicaNip", "event_topic_deadline_risk": "x"},
         {
             "numero_nip_ans": "NIP-021",

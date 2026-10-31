@@ -159,7 +159,7 @@ duplicidade_suspeita (bool, informativo). Contrato completo: docs/processes/cont
          roteamento. Nunca auto-libera; o humano decide PROSSEGUIR (segue para a alcada) ou DEVOLVER
          (devolucao para revisao). Fail-safe: default = DEVOLVER (nao segue roteamento sem decisao). -->
     <bpmn:userTask id="UT_AnaliseAdmissibilidade" name="Analisar admissibilidade da ordem (dados/lastro/duplicidade)"
-                   camunda:candidateGroups="coordenacao-financeira">
+                   camunda:candidateGroups="analise-contas-pagar">
       <bpmn:documentation><![CDATA[
 HITL de admissibilidade (L1 hard, high_value_payment): ponto humano que resolve uma ordem de
 pagamento nao-admissivel (dados invalidos, lastro nao confirmado ou suspeita de duplicidade) ANTES
@@ -168,7 +168,7 @@ de qualquer roteamento de alcada. NUNCA auto-libera. Saidas: decisao_admissibili
 duplicidade / validado os dados (a ordem segue entao para a escada de alcada pagto_alcada, que por
 sua vez ainda exige aprovacao humana de tier para alto valor). DEVOLVER (default conservador) exige
 justificativa_recusa + aprovador_id e devolve a ordem para revisao (nao libera; NAO e glosa). O
-grupo coordenacao-financeira e DRAFT/verify (taxonomia organizacional — docs/review-queue.md).
+grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (taxonomia organizacional).
 ]]></bpmn:documentation>
       <bpmn:incoming>Flow_GWAdmiss_Humana</bpmn:incoming>
       <bpmn:outgoing>Flow_AnaliseAdmiss_GW</bpmn:outgoing>

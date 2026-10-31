@@ -183,7 +183,7 @@ CONTRATOS/GESTAO_COBRANCA/COORDENACAO_COBRANCA). The DEPLOYED v2 spec table
 (`spec/processes/dmn/inadimplencia_sla.dmn`) takes ONLY `tipo_plano` and outputs
 `{sla_analise, sla_alerta, fonte_regulatoria}` — there is no `roteamento`/group-selection output.
 The v2 BPMN (`spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`) uses STATIC
-`candidateGroups` on `UT_AnaliseInadimplencia` (`juridico-contratos,gestao-cobranca`) and
+`candidateGroups` on `UT_AnaliseInadimplencia` (`juridico-contratos`, sole decider since R-041) and
 `UT_CoordenacaoCobranca` (`coordenacao-cobranca`) instead of agent-computed group routing. Per
 "spec wins," this graph does NOT compute/emit a `grupo_humano` — `inadimplencia_sla` is consulted
 purely for informational dossier content (`sla_analise_iso`/`sla_alerta_iso`/

@@ -288,8 +288,8 @@ diretamente e ecoa no dossie; nenhum gateway ou worker downstream consome esta s
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos | `UT_AnaliseRescisao` (**rescisao/negativa/suspensao SO aqui**) — `decisao_cancelamento ∈ {RESCINDIR, MANTER, SUSPENDER, EFETIVAR_PEDIDO, SOLICITAR_INFO}` |
-| `gestao-contratos` | Gestao de contratos | `UT_AnaliseRescisao` (co-candidate group para casos de pedido/efetivacao clerical revisada) |
-| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana); v0.2.0: tambem `UT_CoordenacaoExecucaoCadastro` (prazo da execucao estourado) |
+| `gestao-contratos` | Gestao de contratos | nenhuma User Task desde R-041 / #1084 (saiu de `UT_AnaliseRescisao`, decisor unico `juridico-contratos`); segue como `grupo_sugerido` advisory da `cancel_routing` e registrado no engine. O pedido do titular admissivel vai direto a `UT_ExecutarCancelamentoCadastro` |
+| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana; Q1 R-041 / #1084: RESCINDIR/SUSPENDER so por `juridico-contratos` — guarda a entregar); v0.2.0: tambem `UT_CoordenacaoExecucaoCadastro` (prazo da execucao estourado) |
 | `cadastro-beneficiarios` | Cadastro de beneficiarios (NOVO, v0.2.0, so' dev — pessoas reais ficam para a operacao) | `UT_ExecutarCancelamentoCadastro` — executa no Tasy o cancelamento a pedido ja' reconhecido e conclui `EXECUTADO`/`IMPEDIDO`; nunca decide rescisao/negativa |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa NUNCA

@@ -14,7 +14,7 @@
 - **nega** um pedido de credenciamento de um prestador candidato (efeito adverso direcao B).
 
 Ambas as direcoes adversas SO nascem em User Tasks humanas:
-- Descredenciamento → `UT_AnaliseDescredenciamento` (grupo `gestao-rede` / `juridico-rede`), `decisao_cred == DESCREDENCIAR`.
+- Descredenciamento → `UT_AnaliseDescredenciamento` (grupo unico `juridico-rede` — R-041 / #1084), `decisao_cred == DESCREDENCIAR`.
 - Negativa de credenciamento → `UT_AnaliseCredenciamento` (grupo `gestao-rede`), `decisao_cred == NEGAR_CREDENCIAMENTO`.
 
 Nenhuma DMN deste processo possui saida que negue/descredencie. As DMN so produzem dominios de roteamento **sem variante adversa** (ver §DMN). Documentacao incompleta, licenca aparentemente irregular, indicio de irregularidade, queixa de qualidade, vencimento de credencial, ambiguidade e indisponibilidade da DMN **todos fail-safe para uma User Task humana** (catch-all conservador → `ANALISE_HUMANA`, allowlist fechada `frozenset`). Os efeitos adversos sao materializados apenas pelos workers `operadora.cred.register_descredenciamento` e `operadora.cred.register_cred_denial`, guardados respectivamente por `ERR_DECRED_NOT_HUMAN` e `ERR_CRED_DENIAL_NOT_HUMAN` (carregam `responsavel_id` + tier na cadeia de auditoria ADR-0007). Os terminais adversos so sao alcancaveis apos a User Task humana concluida na history.
@@ -160,9 +160,9 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
-| `gestao-rede` | Gestao de rede credenciada | `UT_AnaliseCredenciamento` (**negativa de credenciamento SO aqui**: `decisao_cred ∈ {APROVAR_CREDENCIAMENTO, NEGAR_CREDENCIAMENTO, SOLICITAR_INFO}`); `UT_AnaliseDescredenciamento` (co-candidate) |
+| `gestao-rede` | Gestao de rede credenciada | `UT_AnaliseCredenciamento` (**negativa de credenciamento SO aqui**: `decisao_cred ∈ {APROVAR_CREDENCIAMENTO, NEGAR_CREDENCIAMENTO, SOLICITAR_INFO}`). Saiu de `UT_AnaliseDescredenciamento` (R-041 / #1084: decisor unico) |
 | `juridico-rede` | Juridico de rede/contratos de prestador | `UT_AnaliseDescredenciamento` (**descredenciamento SO aqui**: `decisao_cred ∈ {DESCREDENCIAR, MANTER, SOLICITAR_INFO}`; tambem decide `encaminhar_fraude`) |
-| `coordenacao-rede` | Coordenacao de rede | `UT_CoordenacaoRede` (SLA de analise estourado — assume a decisao, que continua humana) |
+| `coordenacao-rede` | Coordenacao de rede | `UT_CoordenacaoRedeDescred` / `UT_CoordenacaoRedeCred` (SLA de analise estourado — assume a decisao, que continua humana). Q1 (R-041 / #1084): o coordenador so reatribui/prorroga/decide favoravel; DESCREDENCIAR fica com `juridico-rede` — guarda a entregar (ainda NAO aplicada) |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoRede` herda os mesmos campos obrigatorios.
 

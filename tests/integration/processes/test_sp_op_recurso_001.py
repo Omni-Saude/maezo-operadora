@@ -879,7 +879,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     await pagto_drain.drain()
 
     pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"}), (
         "a ordem tem de parar na fila HUMANA de admissibilidade — quem julgou o recurso nao e "
         "quem admite a ordem de pagamento (I-PAGTO-1, segregacao de funcoes)"
     )

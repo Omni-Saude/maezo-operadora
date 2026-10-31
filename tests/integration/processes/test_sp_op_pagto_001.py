@@ -777,7 +777,7 @@ async def test_duplicidade_suspeita_roteia_humano_nunca_alcada(
 ) -> None:
     """duplicidade_suspeita=true -> analise humana; NUNCA alcanca a escada de alcada nem auto-libera.
 
-    O gate bloqueia o roteamento: a instancia cria UT_AnaliseAdmissibilidade (coordenacao-financeira),
+    O gate bloqueia o roteamento: a instancia cria UT_AnaliseAdmissibilidade (analise-contas-pagar, R-041),
     NAO executa BRT_AlcadaRouting, NAO publica pagto.routed e nao atinge nenhum terminal adverso/auto.
     """
     inst = await start_pagto(
@@ -787,7 +787,8 @@ async def test_duplicidade_suspeita_roteia_humano_nunca_alcada(
 
     await pagto_probe.drain()
     ut = await engine.await_user_task(iid, _UT_ANALISE_ADMISS)
-    assert "coordenacao-financeira" in ut.candidate_groups
+    # R-041 / #1084: checker segregado da aprovacao — nenhum grupo aprovador na fila.
+    assert ut.candidate_groups == frozenset({"analise-contas-pagar"})
 
     ended = await engine.activity_instances_ended(iid)
     assert _BRT_ADMISSIBILITY in ended, "o gate de admissibilidade deve ter executado"
@@ -815,7 +816,8 @@ async def test_lastro_nao_confirmado_nunca_auto_libera_clerical(
 
     await pagto_probe.drain()
     ut = await engine.await_user_task(iid, _UT_ANALISE_ADMISS)
-    assert "coordenacao-financeira" in ut.candidate_groups
+    # R-041 / #1084: checker segregado da aprovacao — nenhum grupo aprovador na fila.
+    assert ut.candidate_groups == frozenset({"analise-contas-pagar"})
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_LIBERADO_AUTOMATICO not in ended, (
@@ -842,7 +844,8 @@ async def test_fatos_estritos_lastro_semeado_nao_abre_faixa_clerical(
 
     await pagto_probe_fatos_estritos.drain()
     ut = await engine.await_user_task(iid, _UT_ANALISE_ADMISS)
-    assert "coordenacao-financeira" in ut.candidate_groups
+    # R-041 / #1084: checker segregado da aprovacao — nenhum grupo aprovador na fila.
+    assert ut.candidate_groups == frozenset({"analise-contas-pagar"})
 
     assert await engine.get_variable(iid, "lastro_confirmado") is False
     assert await engine.get_variable(iid, "dados_pagamento_validos") is True  # credor + instrumento ok

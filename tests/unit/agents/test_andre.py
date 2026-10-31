@@ -1270,7 +1270,7 @@ async def test_assess_pagto_pendente_dados_routes_coordenacao_before_alcada() ->
 
     assert result["route"] == "human_review"
     assert result["motivo_humano"] == "pendencia_dados"
-    assert result["grupo_humano"] == "coordenacao-financeira"  # BPMN UT_AnaliseAdmissibilidade
+    assert result["grupo_humano"] == "analise-contas-pagar"  # BPMN UT_AnaliseAdmissibilidade (R-041)
     called_tables = {table for table, _ in dmn.calls}
     assert called_tables == {"pagto_admissibility"}  # terminates before alcada/sla
 
@@ -1296,7 +1296,7 @@ async def test_assess_pagto_admissibility_analise_humana_without_duplicity() -> 
     result = await _graph(dmn=dmn).assess(_pagto_state(lastro_confirmado=False))
     assert result["route"] == "human_review"
     assert result["motivo_humano"] == "analise_humana"
-    assert result["grupo_humano"] == "coordenacao-financeira"
+    assert result["grupo_humano"] == "analise-contas-pagar"
 
 
 async def test_assess_pagto_out_of_allowlist_admissibility_routes_comite() -> None:

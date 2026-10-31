@@ -133,9 +133,10 @@ DIVERGENCES FROM DONOR (disclosed, spec wins per this task's charter):
    value, with that faixa as input; admissibility human shortcuts terminate before it (mirrors
    `UT_AnaliseAdmissibilidade`'s branch, which has no SLA task). Informative-only either way —
    SLA failure never blocks routing (mirrors Rafael's `auth_sla`).
-3. **Admissibility-branch human group is `coordenacao-financeira`, not comite.** The BPMN's
+3. **Admissibility-branch human group is `analise-contas-pagar`, not comite.** The BPMN's
    `UT_AnaliseAdmissibilidade` (the target of the non-admissible branch) declares
-   `camunda:candidateGroups="coordenacao-financeira"`; the donor sent `PENDENTE_DADOS`/
+   `camunda:candidateGroups="analise-contas-pagar"` (R-041 / #1084: checker split from
+   approval); the donor sent `PENDENTE_DADOS`/
    admissibility-`ANALISE_HUMANA` to `comite-financeiro`. This graph follows the BPMN. DMN-down/
    ambiguity/out-of-allowlist still go to the conservative `comite-financeiro` (highest tier).
 4. **The clerical path echoes the DMN's own `grupo_aprovador` output verbatim**
@@ -297,8 +298,9 @@ _FAIXA_TO_GRUPO: dict[str, str] = {
     "ANALISE_HUMANA": "comite-financeiro",  # conservative catch-all -> highest tier
 }
 _GRUPO_CONSERVADOR = "comite-financeiro"
-# BPMN `UT_AnaliseAdmissibilidade`'s candidate group (module docstring divergence #3).
-_GRUPO_ADMISSIBILIDADE = "coordenacao-financeira"
+# BPMN `UT_AnaliseAdmissibilidade`'s candidate group (module docstring divergence #3). Deliberately
+# OUTSIDE `_GRUPOS_VALIDOS`: the checker is never an approver (R-041 / #1084, SoD S5).
+_GRUPO_ADMISSIBILIDADE = "analise-contas-pagar"
 # Human group of the adequacao_dossier flow: the factual remediation dossier feeds
 # `UT_DecisaoFallback` of SP-OP-ADEQUACAO-001 (candidate group per that contract).
 _GRUPO_GESTAO_REDE = "gestao-rede"

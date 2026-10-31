@@ -170,7 +170,7 @@ conservador. **Nenhuma DMN abaixo tem saida de negativa/`decisao_nip`.**
 | in | `contesta_negativa` | boolean | a NIP contesta uma negativa previa |
 | out | `classificacao` | string | `ASSISTENCIAL_CONTESTA_NEGATIVA` \| `ASSISTENCIAL_OUTRO` \| `NAO_ASSISTENCIAL` |
 | out | `prazo_dias` | integer | prazo de resposta em **dias uteis** (worker converte → ISO) — **DRAFT/verify RN 388** |
-| out | `grupo_revisor` | string | `regulatorio-ans` \| `nucleo-ans` \| `juridico-regulatorio` |
+| out | `grupo_revisor` | string | `regulatorio-ans` \| `juridico-regulatorio` (`nucleo-ans` fundido em `regulatorio-ans` — R-041 / #1084) |
 
 Catch-all (tema nao reconhecido OU `contesta_negativa=true` ambiguo) → `classificacao =
 ASSISTENCIAL_CONTESTA_NEGATIVA`, `grupo_revisor = juridico-regulatorio`, menor `prazo_dias`
@@ -182,7 +182,7 @@ ASSISTENCIAL_CONTESTA_NEGATIVA`, `grupo_revisor = juridico-regulatorio`, menor `
 |---|---|---|---|
 | in | `classificacao` | string | saida de `nip_classification` |
 | in | `documentacao_suficiente` | boolean | base documental disponivel |
-| out | `grupo_humano` | string | `regulatorio-ans` \| `nucleo-ans` \| `juridico-regulatorio` |
+| out | `grupo_humano` | string | `regulatorio-ans` \| `juridico-regulatorio` (`nucleo-ans` fundido — R-041 / #1084) |
 | out | `roteamento` | string | `ELABORAR_RESPOSTA` \| `PENDENTE_INFO` \| `REVISAO_JURIDICA` (catch-all) |
 
 Catch-all → `roteamento = REVISAO_JURIDICA`, `grupo_humano = juridico-regulatorio`. **Sem
@@ -204,7 +204,7 @@ dot-path na mesma transacao sincrona que completa `ST_PublishClassified` lanca E
 apareceu"). A promocao flat (mesmo idioma do fix ja aplicado a
 `classificacao`/`prazo_dias`/`grupo_revisor` em `BRT_Classificacao`) resolve o bug — seguro porque
 essa User Task tem um unico incoming flow, so alcancado quando `roteamento=='ELABORAR_RESPOSTA'`
-(grupo_humano sempre `nucleo-ans` ou `regulatorio-ans` nessa condicao, nunca
+(grupo_humano sempre `regulatorio-ans` nessa condicao, nunca
 `juridico-regulatorio`; fail-safe conservador `juridico-regulatorio` se a saida da DMN vier vazia).
 `UT_RevisaoJuridicaNip` permanece com candidateGroups ESTATICO (`juridico-regulatorio,medico-auditor`):
 tem tres incoming flows e nos dois que nao vem direto do roteamento (pos-elaboracao via `GW_Minuta`;
@@ -228,13 +228,13 @@ nem o dossie do agente Gustavo) foi REMOVIDO: superseded por `nip_sla.sla_alerta
 
 ## Papeis humanos (candidate groups)
 
-> Nomes de grupo **PROPOSTOS** — `nucleo-ans`, `regulatorio-ans`, `medico-auditor` (quando
+> Nomes de grupo **PROPOSTOS** — `regulatorio-ans` (absorveu `nucleo-ans`, R-041 / #1084), `medico-auditor` (quando
 > assistencial), `juridico-regulatorio`. **Confirmar contra a taxonomia organizacional da
 > operadora antes da promocao a FINAL** (ver §9 / open_questions).
 
 | Grupo | Tarefa | Notas |
 |---|---|---|
-| `regulatorio-ans` / `nucleo-ans` | `UT_ElaborarRespostaNip` (autora a minuta da resposta) | origem do texto; humano sempre autora; candidateGroups DMN-decidido (`${grupo_humano}`, flat var promovida em `BRT_Roteamento` — GAP-NIP-2) |
+| `regulatorio-ans` (absorve `nucleo-ans` — R-041 / #1084) | `UT_ElaborarRespostaNip` (autora a minuta da resposta) | origem do texto; humano sempre autora; candidateGroups DMN-decidido (`${grupo_humano}`, flat var promovida em `BRT_Roteamento` — GAP-NIP-2) |
 | `juridico-regulatorio` | `UT_RevisaoJuridicaNip` (manter-negativa / casos complexos — **unica origem de `decisao_nip==MANTER_NEGATIVA`**) | gate adverso; campos obrigatorios; candidateGroups ESTATICO por design (multiplos incoming flows — GAP-NIP-2) |
 | `medico-auditor` | parecer assistencial quando o merito da NIP e clinico (consulta dentro de `UT_RevisaoJuridicaNip` ou User Task dedicada) | so quando assistencial; auditor decide o merito clinico, nunca automacao |
 | `coordenacao-regulatorio` (proposto) | `UT_CoordenacaoNip` (SLA estourado — coordenacao/juridico assume) | decisao continua humana |
@@ -279,7 +279,7 @@ desatualizado** — direcao de fix invertida em relacao ao plano original. Motiv
 `BRT_Roteamento` no BPMN): `UT_RevisaoJuridicaNip` tem TRES incoming flows; nos dois que NAO
 partem diretamente de `GW_Roteamento` (pos-elaboracao via `GW_Minuta`, e a retomada via
 `ICE_PrazoInfo`) as variaveis flat `roteamento`/`grupo_humano` ainda carregam o valor promovido na
-rodada `ELABORAR_RESPOSTA` (`nucleo-ans`/`regulatorio-ans`) — usa-las para roteamento dinamico
+rodada `ELABORAR_RESPOSTA` (`regulatorio-ans`) — usa-las para roteamento dinamico
 naqueles dois pontos reatribuiria `UT_RevisaoJuridicaNip` a um grupo nao-juridico, violando o
 invariante L0 "revisao sempre juridica" deste processo (§"Invariante L0 hard" acima:
 `decisao_nip==MANTER_NEGATIVA` so pode nascer em `UT_RevisaoJuridicaNip`, com candidateGroups
@@ -334,7 +334,7 @@ DI (diagrama); **confirmacao dos prazos exatos RN 388 assistencial (~5 uteis) /
 nao-assistencial (~10 uteis) e da conversao dias-uteis→ISO** com regulatorio/juridico (R1/R2
 do phase2-plan §9 — exposicao a sancao); confirmacao do identificador estavel da business key
 (`numero_nip_ans` vs `protocolo_ans`); confirmacao dos **nomes de candidate groups** contra a
-taxonomia da operadora (`nucleo-ans`/`regulatorio-ans`/`juridico-regulatorio`/`medico-auditor`/
+taxonomia da operadora (`regulatorio-ans`/`juridico-regulatorio`/`medico-auditor`/
 `coordenacao-regulatorio`); detalhamento do handoff `NIP → ANS-SUBMIT-001` (correlacao de
 protocolo); politica de suspensao/recontagem de prazo durante `SOLICITAR_INFO`; anexos
 obrigatorios por classificacao de NIP.
