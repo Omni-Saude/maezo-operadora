@@ -240,3 +240,12 @@ f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:114
 93d808eebf8bae3221f978873997bd5ee5d1ec04:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93
 93d808eebf8bae3221f978873997bd5ee5d1ec04:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:114
+
+# Falso positivo (mesma classe das entradas acima): process key BPM sintético num teste unitário.
+# A regra 'generic-api-key' casa o "key" de `process_definition_key=` + a entropia do literal
+# `SP-OP-ANS-CRON-001-RN124SIP` — identificador público do processo, não credencial.
+# Escopo: um commit histórico da branch fix/r007-anscron-calendario-norma (PR #1108, fechado e
+# substituído pelo squash #1110). O `gitleaks detect` sem --log-opts varre todo commit alcançável,
+# então essa branch preservada deixa o Security de main vermelho desde 30/10. Removível quando a
+# branch for apagada pela rotina de manutenção do CONTRIBUTING.
+5a694e2193a36a6248e3db3bc91b5b22ad552a2b:tests/unit/tools/workers/test_events_ans_timer_identity.py:generic-api-key:71
