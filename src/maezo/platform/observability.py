@@ -661,6 +661,66 @@ def record_a2a_handler_error(*, target: str, error_type: str) -> None:
         logger.debug("a2a_handler_error_metric_emit_failed", exc_info=True)
 
 
+#: R-085: vocabulario FECHADO do rotulo `guard` de `maezo_a2a_guard_refusal_total` — as tres
+#: guardas estruturais de ADR-0003 (`a2a.delegation`) mais o fallback para uma subclasse futura de
+#: `DelegationError` sem token proprio. Um valor fora do conjunto vira `outro`, nunca o valor cru.
+A2A_GUARD_OUTRO: Final[str] = "outro"
+A2A_GUARDS: Final[frozenset[str]] = frozenset({"budget_exhausted", "max_hops", "cyclic", A2A_GUARD_OUTRO})
+
+
+def record_a2a_guard_refusal(*, target: str, guard: str) -> None:
+    """Count ONE A2A delegation refused by a structural anti-loop guard — R-085 / F-090.
+
+    `maezo_a2a_guard_refusal_total{target,guard}`. ADR-0010 promete o alerta "budget A2A
+    estourado"; ADR-0003 define as guardas (aciclicidade, `max_hops`, orcamento por salto). Um
+    unico sitio de chamada: o ramo `DelegationError` de
+    `a2a.dispatcher.DelegationDispatcher._finish_handler` — uma contagem por delegacao recusada.
+
+    Best-effort: a telemetria nunca mascara a rejeicao estruturada que ela conta.
+    """
+    rotulo = guard if guard in A2A_GUARDS else A2A_GUARD_OUTRO
+    try:
+        _get_metrics_collector().a2a_guard_refusal.labels(target=target, guard=rotulo).inc()
+    except Exception:  # never mask the delegation rejection this is counting.
+        logger.debug("a2a_guard_refusal_metric_emit_failed", exc_info=True)
+
+
+#: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
+PEP_DECISION_ALLOW: Final[str] = "allow"
+PEP_DECISION_DENY: Final[str] = "deny"
+PEP_REASON_OUTRO: Final[str] = "outro"
+
+
+def record_pep_decision(
+    *, tenant: str, principal: str, allow: bool, layer: str, reason: str, enforced: bool
+) -> None:
+    """Count ONE effect-PEP decision — `maezo_gateway_pep_decision_total` (R-085 / F-090).
+
+    ADR-0010 (metricas por agente) e o runbook `docs/runbooks/devops-stack.md` "PEP deny spike".
+    Um unico sitio de chamada: `gateway.seams._base.gate`, o ponto por onde toda chamada gated
+    passa exatamente uma vez. O chamador ja normalizou `layer`/`reason` para os vocabularios
+    fechados do PEP (`EffectLayer`, razoes do PEP ou `outro`); nenhum argumento da chamada, nenhum
+    identificador de negocio e nenhum PHI chega a um rotulo (ADR-0006).
+
+    `enforced` separa a recusa que BLOQUEIA (modo `enforcing`) da recusa-sombra (`WOULD_DENY`):
+    com o manifesto ainda DRAFT toda classe nega em sombra, e um alerta sobre recusas-sombra
+    paginaria por todo trafego normal.
+
+    Best-effort: a telemetria nunca derruba a chamada de efeito.
+    """
+    try:
+        _get_metrics_collector().gateway_pep_decision.labels(
+            tenant=tenant,
+            principal=principal,
+            decision=PEP_DECISION_ALLOW if allow else PEP_DECISION_DENY,
+            layer=layer,
+            reason=reason,
+            enforced="true" if enforced else "false",
+        ).inc()
+    except Exception:  # a metric error must never break an effect call.
+        logger.debug("pep_decision_metric_emit_failed", exc_info=True)
+
+
 def record_llm_tier_resolution(*, task_kind: str, tier: str, resolution: str) -> None:
     """Record how ONE `task_kind` resolved to a model — `maezo_llm_tier_resolution_total` (AF-12).
 

@@ -297,7 +297,7 @@ It is the **single source of truth** for all metric names, label schemas, and ty
 | Domain | Metric prefix | Emitter service (future PR) |
 |---|---|---|
 | Agent runtime | `maezo_conversation_*`, `maezo_escalation_*`, `maezo_response_*`, `maezo_eval_*`, `maezo_hitl_*`, `maezo_llm_*` | each `agent-{name}` Deployment (port 8000) |
-| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | **NOT YET IMPLEMENTED** (RUNBOOK-PHANTOM-METRICS, 2026-09-03: 0 hits for any of the three prefixes under `src/maezo/gateway/`). Would be emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
+| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | `maezo_gateway_pep_decision_total` **IMPLEMENTED** (R-085, 2026-10-30 — `gateway.seams._base.gate`); `maezo_gateway_pseudonymizer_*` and `maezo_gateway_audit_*` **NOT YET IMPLEMENTED** (RUNBOOK-PHANTOM-METRICS, 2026-09-03). Would be emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
 | Engine / BPMN | `cibseven_process_*`, `cibseven_user_task_*` | `webhook` / engine worker (port 8002) |
 
 Scrape targets are configured in `config/prometheus.yml`.  All labels are bounded
@@ -399,13 +399,13 @@ cannot check.
 
 ### PEP deny spike
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoPEPDenySpike` rule exists in
-`deploy/observability/alert-rules.yml`, and no `maezo_gateway_pep_*` metric is emitted anywhere
-in `src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn
-MaezoPEPDenySpike deploy/observability/alert-rules.yml` and `grep -rn maezo_gateway_pep
-src/maezo/gateway/` both 0 hits). The steps below describe the intended response once the alert
-and its emitter exist (see `ALERTS-WITHOUT-METRICS-a`/`WP-OBSERVABILITY-WIRING-EXEC`) — this
-alert cannot fire today.  
+**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
+(grupo `maezo_governanca_agentes`), sobre `maezo_gateway_pep_decision_total{tenant,principal,
+decision,layer,reason,enforced}`, emitido por `gateway.seams._base.gate` (um incremento por decisao
+do PEP de efeitos). Le SO recusas `enforced="true"`: enquanto o manifesto de aprovacoes estiver
+DRAFT (toda classe nega em sombra), o alerta nao tem o que disparar — por desenho. Runbook
+dedicado: [`alerts/MaezoPEPDenySpike.md`](alerts/MaezoPEPDenySpike.md). O PEP e uma biblioteca
+in-process: `maezo_gateway_pep_*` e raspado do `/metrics` dos pods de runtime.  
 **Alert:** `MaezoPEPDenySpike`  
 **Meaning:** The Policy Enforcement Point is denying > 1 req/s — attack, misconfiguration, or policy regression.  
 **Steps:**
@@ -454,20 +454,18 @@ service is unreachable (crashed, crash-looping, network-partitioned, or never st
 
 ### Escalation rate
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoEscalationRateHigh` rule exists in
-`deploy/observability/alert-rules.yml`, and neither `maezo_escalation_total` nor
-`maezo_conversation_total` is defined in `src/maezo/runtime/metrics.py` today
-(RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn 'maezo_escalation_total\|maezo_conversation_total'
-src/maezo/` — 0 hits). The "Context" paragraph below describes the intended wiring — this alert
-cannot fire today.  
+**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
+(grupo `maezo_governanca_agentes`). Runbook dedicado:
+[`alerts/MaezoEscalationRateHigh.md`](alerts/MaezoEscalationRateHigh.md).  
 **Alert:** `MaezoEscalationRateHigh`  
 **Meaning:** An agent is escalating > 30% of its conversations to a human for a given
 tenant over a 1-hour window.  
-**Context (intended, not yet wired):** Relies on `maezo_escalation_total` (emitted by
-`CibSevenServer.start_process` on each NEW `SP-OP-ESCALATION-001` instance, label
-`escalation_reason` = the contract's `motivo_categoria`) / `maezo_conversation_total` (emitted
-by the inbound/resume drivers on each real turn) — neither exists in
-`src/maezo/runtime/metrics.py` yet.  
+**Context:** Built on `maezo_agent_desfecho_total` (CC-09; desfecho `escalado_humano` over every
+desfecho of the agent, `sum by (agent_id)` on both sides, `increase(...[1h])`). The
+`maezo_escalation_total` / `maezo_conversation_total` pair this section used to describe never
+existed and was NOT created: the CC-09 counter already carries the same fact. Applies to the
+agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). Tenant separation comes
+from the per-tenant namespace/scrape target, not a metric label.  
 **Steps:**
 1. Identify the agent and tenant from the alert labels
 2. Check recent eval scores for the agent — see [Eval score drop](#eval-score-drop)
@@ -546,6 +544,19 @@ worker/agent logs for delegation-chain depth per the steps below.
 - Add cost bounds to every A2A task definition in the autonomy policy
 - Log delegation chain depth and abort if depth exceeds safe threshold
 - Run periodic delegation graph validation in CI
+
+### A2A budget exhausted
+
+**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
+(grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
+3 de ADR-0003 (`a2a.delegation.Budget.charge`). Le
+`maezo_a2a_guard_refusal_total{target,guard="budget_exhausted"}`, emitido pelo ramo
+`DelegationError` de `a2a.dispatcher.DelegationDispatcher._finish_handler`. Qualquer recusa na
+janela dispara (`> 0`): o ADR nomeia o evento, nao uma taxa. Distinto do
+`MaezoA2ATaskBudgetExceeded` acima (gasto em USD), que continua PLANEJADO por falta de metrica
+de custo. Runbook dedicado: [`alerts/MaezoA2ABudgetExhausted.md`](alerts/MaezoA2ABudgetExhausted.md).  
+**Alert:** `MaezoA2ABudgetExhausted`  
+**Meaning:** A delegation chain ran out of its per-chain budget and a sub-delegation was rejected.  
 
 ### HITL approval drop
 
