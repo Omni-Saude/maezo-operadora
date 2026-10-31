@@ -694,8 +694,7 @@ def registrar_indeferimento(input_data: RecursoIndeferimentoInput) -> RecursoInd
         valor_glosado = _parse_valor_monetario(input_data.valor_glosado_brl)
         if valor_glosado is None:
             raise RecursoIndeferimentoNotHumanError(missing_fields=["valor_glosado_brl"], channel=channel)
-        # mypy: both are non-None here (guarded above).
-        if valor_deferido is None or valor_mantido is None:
+        if valor_deferido is None or valor_mantido is None:  # guarded above (narrowing p/ mypy)
             raise AssertionError("valor_deferido/valor_mantido checados acima")
         if _to_cents(valor_deferido) + _to_cents(valor_mantido) != _to_cents(valor_glosado):
             raise RecursoIndeferimentoNotHumanError(

@@ -1044,7 +1044,7 @@ def build_secao_op21(hoje: date) -> tuple[list[ShadowItem], list[AnchorVerdict]]
     flag_anchor = Anchor("src/maezo/portal/api/config.py", "collective_legitimacy_screen: bool = False", 110)
     queue_anchor = Anchor(QUEUE_DOC, "collective_legitimacy_screen", 33)
     guard_anchor = Anchor(
-        "src/maezo/gateway/commercial_legitimacy_guard.py", "def collective_legitimacy_shadow(", 494
+        "src/maezo/gateway/commercial_legitimacy_guard.py", "def collective_legitimacy_shadow(", 499
     )
     v_flag = verify_anchor(REPO_ROOT, flag_anchor)
     v_queue = verify_anchor(REPO_ROOT, queue_anchor)
