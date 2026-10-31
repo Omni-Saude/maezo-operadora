@@ -86,8 +86,6 @@ if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.dmn_transport import DmnTransport
 
-    from .graph import FhirReader
-
 # Task type delegated to Gustavo — MUST match `spec/agents/gustavo/agent.yaml`'s
 # `a2a.accepted_task_types` (fleet parity fence: `tests/unit/a2a/test_agent_card_handlers_parity.py`).
 TASK_TYPE_NIP_INSTRUCT = "nip.instruct"
@@ -298,7 +296,6 @@ def make_gustavo_handler(
     dmn: DmnTransport,
     cibseven: CibSevenTransport,
     audit_sink: AuditStartSink,
-    fhir: FhirReader | None = None,
     agent_version: str = "gustavo@v0",
 ) -> Callable[[DelegationEnvelope], Awaitable[HandlerOutput]]:
     """Build Gustavo's A2A handler (delegation target).
@@ -308,8 +305,9 @@ def make_gustavo_handler(
     package stops in front of.
 
     Compiles the REAL Gustavo graph via `gustavo.graph.build(config)` — the same fail-closed
-    contract every other caller goes through (`inference`/`dmn`/`cibseven`/`audit_sink` REQUIRED,
-    `fhir` optional) — and invokes it with the envelope-materialized state.
+    contract every other caller goes through (`inference`/`dmn`/`cibseven`/`audit_sink` REQUIRED;
+    no `fhir` — Gustavo is Zona Geral, ADR-0068 I-5) — and invokes it with the envelope-materialized
+    state.
 
     `output_ref` is SP-OP-NIP-001's business key reference (auditable, never PHI). `meta` carries
     ONLY bounded routing class tokens — the instruction dossier CONTENT stays in Gustavo's own
@@ -323,7 +321,6 @@ def make_gustavo_handler(
             "dmn": dmn,
             "cibseven": cibseven,
             "audit_sink": audit_sink,
-            "fhir": fhir,
             "agent_version": agent_version,
         }
     ).compile()

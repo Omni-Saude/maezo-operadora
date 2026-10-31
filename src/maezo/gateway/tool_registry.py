@@ -150,8 +150,10 @@ from maezo.gateway.credential_vault import (
     CredentialVault,
     HumanCredentialPartition,
 )
+from maezo.gateway.effect_classes import lookup_operation
 from maezo.gateway.effect_pep import (
     PHI_ZONE_GENERAL,
+    PHI_ZONE_PHI,
     PHI_ZONES,
     AgentCapabilities,
     DecisionContext,
@@ -173,7 +175,7 @@ from maezo.gateway.seams import (
 from maezo.gateway.seams.a2a import gate_a2a
 from maezo.gateway.seams.cibseven import gate_cibseven
 from maezo.gateway.seams.dmn import gate_dmn
-from maezo.gateway.seams.fhir import gate_fhir
+from maezo.gateway.seams.fhir import FHIR_OPERATIONS, gate_fhir
 from maezo.gateway.seams.inference import gate_inference
 from maezo.gateway.seams.population import gate_population
 from maezo.gateway.seams.whatsapp import gate_whatsapp
@@ -269,6 +271,40 @@ class CredentialSeparationError(RuntimeError):
     the roots already isolate seam-construction failures into a red readiness check, so the
     failure mode stays "replica not ready" rather than "replica ready and leaking a denial key".
     """
+
+
+class ZoneFenceError(RuntimeError):
+    """A composition that would BUILD a PHI-returning seam for a principal outside the PHI zone.
+
+    ADR-0068 I-5 (R-020 / DEC-11, owner decision 2026-10-31): the result-pseudonymizing
+    `PhiZoneGateway` ADR-0016 described never existed; what exists instead is this check, at the
+    one place seams are constructed. Same shape and same reason as :class:`CredentialSeparationError`:
+    raised at BUILD time, never caught here, so the root's readiness goes red (I-2) instead of a
+    general-zone graph holding a raw clinical reader. The message carries bounded tokens only
+    (principal, zone, operation names) — never configuration or call arguments.
+    """
+
+
+def _ensure_zone_admits(seam: SeamContext, operations: frozenset[str]) -> None:
+    """Refuse (raise :class:`ZoneFenceError`) when `seam`'s principal is not in the PHI zone and any of
+    `operations` returns PHI — or is not catalogued at all (fail-closed: an operation the catalogue
+    does not know cannot be shown to be PHI-free).
+
+    SUBTRACT-ONLY. It never builds anything and never widens a permission; the zone comes from the
+    already-frozen `SeamContext` (from `agent.yaml`'s `security_zone`), never from a call argument (A-8).
+    """
+    if seam.phi_zone == PHI_ZONE_PHI:
+        return
+    offending = sorted(
+        operation
+        for operation in operations
+        if (spec := lookup_operation(operation)) is None or spec.returns_phi
+    )
+    if offending:
+        raise ZoneFenceError(
+            f"ADR-0068 I-5: principal {seam.principal!r} (zona {seam.phi_zone!r}) nao recebe seam que "
+            f"devolve PHI: {offending}"
+        )
 
 
 def build_credential_vault(*, settings: Any, agent_id: str) -> CredentialVault:
@@ -1086,7 +1122,15 @@ def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_pa
     A leitura por baixo dos dois shims e TIPADA e fail-closed
     (`tools/mcp_fhir/typed_reads.py`): um `resourceType` diferente do pedido e RECUSADO, nunca
     encaminhado como se fosse o recurso pedido (VAL-02).
+
+    CERCA DE ZONA (ADR-0068 I-5): toda operacao do `GatedFhirReader` e `returns_phi` no catalogo,
+    entao um `seam` cujo principal nao e da Zona PHI e RECUSADO aqui, antes de construir qualquer
+    cliente — :class:`ZoneFenceError`.
+
+    Raises:
+        ZoneFenceError: `seam.phi_zone` nao e a Zona PHI (ver acima).
     """
+    _ensure_zone_admits(seam, FHIR_OPERATIONS)
     from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
 
     server = FhirServer(FhirSettings(base_url=base_url))
@@ -1157,10 +1201,13 @@ def build_population_seam(*, seam: SeamContext, inner: Any) -> GatedPopulationFe
 #: negar a leitura do PROPRIO agente com `TOOL_NAO_DECLARADA` (era o caso de carolina ate o WP
 #: FHIR-TOOL-SURFACE-PARITY — achado NEW-04). `tests/unit/gateway/test_fhir_tool_surface_parity.py`
 #: e a cerca que amarra este mapa ao `agent.yaml` e ao call site real do grafo.
+#: SO AGENTES DA ZONA PHI (ADR-0068 I-5): `build_fhir_seam` recusa construir para os demais, e
+#: `tests/unit/gateway/test_phi_zone_seam_fence.py` cruza este mapa com o `security_zone` de cada
+#: `agent.yaml`. O gustavo (Zona Geral) SAIU daqui por decisao do dono de 31/10/2026 (DEC-11 (i)):
+#: ele trabalha com os fatos do processo, sem leitor FHIR.
 _FHIR_ADAPTER_BY_AGENT: Final[dict[str, str]] = {
     "rafael": "read_patient",
     "carolina": "read_patient_summary",
-    "gustavo": "read_patient",
     "andre": "read_patient",
     "valentina": "read_patient_summary",
 }
@@ -1319,6 +1366,10 @@ def build_agent_fhir_seam(
     and the base-url default keep exactly ONE definition (no second, divergent construction
     path — the very C-A2 counterexample this module exists to prevent).
 
+    ZONE-FENCED (ADR-0068 I-5): the zone comes from `agent_id`'s own `agent.yaml` through
+    :func:`build_agent_seam_context`; a general-zone agent placed in `_FHIR_ADAPTER_BY_AGENT` makes
+    this raise :class:`ZoneFenceError` (via :func:`build_fhir_seam`) instead of building.
+
     PER-AGENT, NEVER SHARED. The wrapper closes over `SeamContext.principal`, and
     `leitura_phi_clinica` (C2) is decided PER PRINCIPAL: handing Carolina's instance to Andre
     would record and decide his PHI read under HER declared-capability record. `seam` is the
@@ -1406,6 +1457,7 @@ __all__ = [
     "WORKER_PRINCIPAL",
     "CredentialSeparationError",
     "SeamContext",
+    "ZoneFenceError",
     "agent_credential",
     "build_a2a_seam",
     "build_agent_credential_view",

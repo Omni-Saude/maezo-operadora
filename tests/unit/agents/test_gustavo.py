@@ -82,18 +82,6 @@ class _FailingInference:
         raise RuntimeError("LLM down")
 
 
-class _FakeFhirReader:
-    def __init__(self, *, fail: bool = False) -> None:
-        self._fail = fail
-        self.calls: list[str] = []
-
-    async def read_patient(self, patient_id: str) -> dict[str, Any]:
-        self.calls.append(patient_id)
-        if self._fail:
-            raise RuntimeError("HAPI FHIR unreachable")
-        return {"resourceType": "Patient", "id": patient_id}
-
-
 class _RecordingCibSeven(FakeCibSevenTransport):
     """Records the engine-bound variables of every start (the audit surface under probe)."""
 
@@ -156,14 +144,12 @@ def _graph(
     dmn: FakeDmnTransport | None = None,
     cibseven: FakeCibSevenTransport | None = None,
     audit_sink: Any | None = None,
-    fhir: Any | None = None,
 ) -> GustavoGraph:
     return GustavoGraph(
         inference=inference or _FakeInference(),
         dmn=dmn or FakeDmnTransport(),
         cibseven=cibseven or FakeCibSevenTransport(),
         audit_sink=audit_sink or FakeStartAuditSink(),
-        fhir=fhir,
     )
 
 
@@ -264,13 +250,39 @@ def test_gustavo_definition_loads() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build(config) — fail-closed contract; fhir is OPTIONAL
+# build(config) — fail-closed contract; fhir is REFUSED (ADR-0068 I-5, DEC-11 (i))
 # ---------------------------------------------------------------------------
 
 
 def test_build_requires_inference_dmn_cibseven() -> None:
     with pytest.raises(ValueError, match="missing required dependencies"):
         build({})
+
+
+def test_build_refuses_a_fhir_dependency() -> None:
+    """Gustavo e Zona Geral (ADR-0068 I-5; decisao do dono DEC-11 (i), 31/10/2026): uma raiz que
+    ainda lhe entregue um leitor FHIR e defeito de composicao — recusado alto, nunca ignorado."""
+
+    class _AnyReader:
+        async def read_patient(self, patient_id: str) -> dict[str, Any]:
+            raise AssertionError("nunca deve ser chamado")
+
+    with pytest.raises(ValueError, match="recusa `fhir`"):
+        build(
+            {
+                "inference": _FakeInference(),
+                "dmn": FakeDmnTransport(),
+                "cibseven": FakeCibSevenTransport(),
+                "audit_sink": FakeStartAuditSink(),
+                "fhir": _AnyReader(),
+            }
+        )
+
+
+def test_graph_constructor_has_no_fhir_parameter() -> None:
+    import inspect
+
+    assert "fhir" not in inspect.signature(GustavoGraph.__init__).parameters
 
 
 def test_build_without_fhir_still_compiles() -> None:
@@ -786,39 +798,38 @@ async def test_dossier_llm_failure_never_blocks_the_human_route() -> None:
 
 
 # ---------------------------------------------------------------------------
-# gather — best-effort J2 enrichment (never blocks routing)
+# gather — sem leitura externa (Gustavo e Zona Geral, ADR-0068 I-5); nunca bloqueia a rota
 # ---------------------------------------------------------------------------
 
 
 async def test_gather_ans_submit_is_a_noop_fetch() -> None:
-    fhir = _FakeFhirReader()
-    graph = _graph(fhir=fhir)
+    graph = _graph()
     result = await graph.gather(_ans_state())
     assert result["gathered"] is True
-    assert fhir.calls == []
+    assert result["nip_facts"] == {}
+    assert result["gather_notes"] == []
 
 
-async def test_gather_nip_without_fhir_reader_notes_the_gap() -> None:
-    graph = _graph(fhir=None)
-    result = await graph.gather(_nip_state())
-    assert result["gathered"] is True
-    assert result["gather_notes"]  # explicit gap note, not a silent empty
-
-
-async def test_gather_nip_fhir_failure_is_best_effort_never_raises() -> None:
-    fhir = _FakeFhirReader(fail=True)
-    graph = _graph(fhir=fhir)
+async def test_gather_nip_notes_the_fhir_gap_and_reads_nothing() -> None:
+    """DEC-11 (i): mesmo com `patient_ref` presente, o Gustavo nao le FHIR — registra a lacuna e o
+    dossie segue com os fatos pre-resolvidos do processo."""
+    graph = _graph()
     result = await graph.gather(_nip_state(patient_ref="pseudo-benef-1"))
     assert result["gathered"] is True
-    assert any("indisponivel" in note for note in result["gather_notes"])
+    assert result["nip_facts"] == {}
+    assert len(result["gather_notes"]) == 1
+    assert "ADR-0068" in result["gather_notes"][0]
+    assert "pseudo-benef-1" not in result["gather_notes"][0]
 
 
-async def test_gather_nip_with_fhir_reader_populates_facts() -> None:
-    fhir = _FakeFhirReader()
-    graph = _graph(fhir=fhir)
-    result = await graph.gather(_nip_state(patient_ref="pseudo-benef-1"))
-    assert result["nip_facts"] == {"resourceType": "Patient", "id": "pseudo-benef-1"}
-    assert fhir.calls == ["pseudo-benef-1"]
+async def test_nip_flow_still_routes_to_the_human_instruction_without_fhir() -> None:
+    """O grafo continua funcionando de ponta a ponta na J2 sem o leitor FHIR."""
+    dmn = FakeDmnTransport()
+    _register_all_nip(dmn)
+    compiled = _graph(dmn=dmn, cibseven=_RecordingCibSeven()).compile_graph().compile()
+    result = await compiled.ainvoke(_nip_state(patient_ref="pseudo-benef-1"))
+    assert result["route"] == "instruct_nip"
+    assert result["nip_facts"] == {}
 
 
 # ---------------------------------------------------------------------------
