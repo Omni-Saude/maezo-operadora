@@ -417,21 +417,26 @@ in-process: `maezo_gateway_pep_*` e raspado do `/metrics` dos pods de runtime.
 
 ### Audit lag
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoAuditLagHigh` rule exists in
-`deploy/observability/alert-rules.yml`, and no `maezo_gateway_audit_*` metric (including
-`maezo_gateway_audit_lag_seconds`, referenced in step 3 below) is emitted anywhere in
-`src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03, same method as above). The
-steps below describe the intended response once the alert and its emitter exist — this alert
-cannot fire today.  
+**Status:** PLANNED — NOT YET IMPLEMENTED, and there is no lag to measure in the current design
+(R-085/R-102 reconciliation, 2026-10-31). No `MaezoAuditLagHigh` rule exists in
+`deploy/observability/alert-rules.yml`, and no audit-lag metric is emitted anywhere in `src/`. The
+audit trail is not consumed asynchronously: `PostgresAuditSink` (`src/maezo/gateway/audit_postgres.py`)
+writes each record synchronously, inside the caller's path, and fails closed (ADR-0007,
+ADR-0027 Postgres-first). There is no Kafka audit consumer, so "consumer lag" has no source. Whether
+this planned alert should stay PLANNED or be marked REMOVED is an owner decision.  
 **Alert:** `MaezoAuditLagHigh`  
-**Meaning:** Audit event Kafka consumer lag has exceeded 120 seconds. The ADR-0007
-non-repudiation guarantee (every gateway PEP decision is durably audited) is at risk
-of a gap while lag is high.  
-**Steps:**
-1. Check the gateway's audit consumer health: `kubectl logs -n maezo-{tenant} deploy/gateway | grep -i audit`
-2. Check the `operadora.audit.*` Kafka topic's consumer-group lag directly against the broker
-3. If the consumer is stuck or crashed, restart it and confirm `maezo_gateway_audit_lag_seconds` trends back down
-4. If lag persists after restart: this is a compliance-relevant gap — open an incident and notify the compliance/audit team (ADR-0007)
+**Meaning (as originally planned):** the ADR-0007 non-repudiation guarantee (every gateway PEP
+decision is durably audited) is at risk. In the synchronous design that risk shows up as a failed
+write, not as lag.  
+**What operators check instead:**
+1. Audit write failures: `AuditPersistenceError` (`src/maezo/gateway/audit_postgres.py`) is raised to
+   the caller on any durability failure — grep the runtime pods' logs for it:
+   `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep AuditPersistenceError` (and
+   `deploy/worker-daemon`). The action that needed the audit row did not proceed (fail-closed).
+2. Chain integrity: `verify_chain` (`src/maezo/gateway/audit_postgres.py`, async, per `tenant_id`)
+   re-verifies the hash chain of the tenant's audit trail.
+3. Any persistent write failure or chain break is a compliance-relevant gap — open an incident and
+   notify the compliance/audit team (ADR-0007).
 
 ### Service down
 
@@ -464,10 +469,12 @@ tenant over a 1-hour window.
 desfecho of the agent, `sum by (agent_id)` on both sides, `increase(...[1h])`). The
 `maezo_escalation_total` / `maezo_conversation_total` pair this section used to describe never
 existed and was NOT created: the CC-09 counter already carries the same fact. Applies to the
-agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). Tenant separation comes
-from the per-tenant namespace/scrape target, not a metric label.  
+agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). **Limit (TODO-OWNER):**
+`sum by (agent_id)` sums every tenant scraped by the same Prometheus/AMP and the alert carries no
+tenant label; it measures turns (desfechos), not conversations, with no minimum volume and no
+`for:`.  
 **Steps:**
-1. Identify the agent and tenant from the alert labels
+1. Identify the agent from the alert's `agent_id` label (the alert carries no tenant label — see the Limit above; find the tenant from the Prometheus/AMP workspace the alert came from)
 2. Check recent eval scores for the agent — see [Eval score drop](#eval-score-drop)
 3. Check recent prompt/model/config changes: `git log --oneline -- src/maezo/agents/{agent}/`
 4. Sample a handful of the escalated conversations in the audit trail for a common failure pattern
@@ -547,8 +554,10 @@ worker/agent logs for delegation-chain depth per the steps below.
 
 ### A2A budget exhausted
 
-**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
-(grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
+**Status:** IMPLEMENTADO — REGRA E EMISSOR EXISTEM, EVENTO INALCANCAVEL HOJE (R-085, 2026-10-30) —
+nenhum handler de producao subdelega, entao a guarda nunca recusa dentro do dispatcher; o "budget
+A2A" de ADR-0010 em custo (USD) continua NAO IMPLEMENTADO. Regra em
+`deploy/observability/alert-rules.yml` (grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
 3 de ADR-0003 (`a2a.delegation.Budget.charge`). Le
 `maezo_a2a_guard_refusal_total{target,guard="budget_exhausted"}`, emitido pelo ramo
 `DelegationError` de `a2a.dispatcher.DelegationDispatcher._finish_handler`. Qualquer recusa na

@@ -472,6 +472,11 @@ groups:
       # ADR nao fixa taxa, entao qualquer recusa por orcamento na janela dispara (`> 0`). Nao e o
       # `MaezoA2ATaskBudgetExceeded` do runbook (gasto em USD/min) — esse continua PLANEJADO por
       # falta de metrica de custo.
+      # ESTRUTURALMENTE INALCANCAVEL HOJE: nenhum handler de producao subdelega (nenhuma chamada a
+      # DelegationEnvelope.extend em src/; todo .delegate() parte de um worker originador com
+      # Budget(tokens=64) novo e DelegationEnvelope.root). A serie fica em 0 ate existir
+      # subdelegacao real; recusas de guarda na construcao do root (no worker) NAO sao contadas.
+      # TODO-OWNER.
       - alert: MaezoA2ABudgetExhausted
         expr: |
           sum by (target) (
@@ -495,8 +500,11 @@ groups:
       # fechados de Helena e Lucas declaram — `runtime.turn_telemetry._DESFECHO_VOCAB`) em vez dos
       # `maezo_escalation_total`/`maezo_conversation_total` que o runbook imaginava e que nunca
       # existiram. O denominador inclui toda desfecho do agente (mesma regra das recording rules
-      # `maezo_agent_kpi_derived`). Sem `tenant`: cada tenant roda no seu namespace, e o rotulo de
-      # alvo da raspagem ja o separa.
+      # `maezo_agent_kpi_derived`). LIMITE (TODO-OWNER): `sum by (agent_id)` SOMA todos os tenants
+      # raspados pelo mesmo Prometheus/AMP e o alerta NAO carrega rotulo de tenant. Nao ha rotulo de
+      # tenant/namespace provado nestas series em todos os destinos (nenhuma regra deste arquivo nem
+      # o prometheus.yml de dev usa `namespace`), entao a agregacao por tenant fica para o dono.
+      # Mede TURNOS (desfechos), nao conversas; sem volume minimo e sem `for:` — tambem TODO-OWNER.
       - alert: MaezoEscalationRateHigh
         expr: |
           (
