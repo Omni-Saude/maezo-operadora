@@ -212,6 +212,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # do medico auditor; nunca de agente.
     auth_junta_rn424_guard: bool = Field(default=False, alias="MAEZO_AUTH_JUNTA_RN424_GUARD")
 
+    # R-005 (F-018; DEC-02 do juridico via dono, 2026-10-31). RN 623/2024 art. 12: prazo de
+    # resposta em DIAS UTEIS (calendario versionado de feriados nacional + UF,
+    # `maezo.platform.calendario`). Ligada, `operadora.auth.compute_response_deadline` converte os
+    # dias uteis da DMN `auth_sla` na duracao que `BT_SlaAnalise` le. DARK por padrao: desligada, o
+    # worker escreve nulos e o timer segue no ISO corrido da DMN (teto temporario da D-05). Ligar e'
+    # ato da implantacao (ROLL), depois da conferencia juridica do calendario; nunca de agente.
+    auth_prazo_dias_uteis: bool = Field(default=False, alias="MAEZO_AUTH_PRAZO_DIAS_UTEIS")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",
