@@ -1,6 +1,6 @@
 # ADR-0062: Roteamento de conversa por agente no número único
 
-**Status:** Proposto
+**Status:** Accepted — decisão do dono DEC-27 (issue #1084), 2026-10-31 (ver "Decisão de aceite" ao final)
 **Data:** 2026-10-01
 **Área:** Orquestração | Dados | Segurança
 
@@ -102,3 +102,37 @@ decidir qualquer coisa.
 ## Supersedes
 
 —
+
+## Decisão de aceite (DEC-27, 2026-10-31)
+
+> **Registro datado; histórico preservado.** Acima desta seção só a linha de Status mudou. O Status
+> anterior, vigente de 2026-10-01 até 2026-10-31, era: "Proposto".
+
+**O ato.** Decisão do dono **DEC-27**, opção (a), 2026-10-31, issue **#1084** (item R-079; achado
+F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisão está em
+`docs/compliance/human-windows/R-079-dec-adr-proposed.md`. O aceite não liga nada: o interruptor
+continua com default desligado.
+
+**Revisão independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a árvore e
+não é autor da ADR.
+
+Conforme:
+- Decisão 1 e 6: tabela `conversa_agente_ativo` com PK `(tenant, conversation_id)`, domínios fechados e
+  CHECK do prefixo do tenant (`src/maezo/platform/migrations/versions/0017_conversa_agente_ativo.py:68`).
+- Decisão 3: função pura `decidir_transicao` (`src/maezo/platform/webhooks/whatsapp/roteamento.py:288`).
+  `CONTINUA_LUCAS_ATENDIDO = False` (`:100`), como a seção de pendências diz.
+- Decisão 4: léxicos versionados em `status: DRAFT` (`spec/policies/roteamento/pre-roteamento.yaml:28`).
+- Decisão 7: `MAEZO_ROTEADOR_LUCAS` com default `False` e janela de 60 minutos
+  (`src/maezo/platform/webhooks/whatsapp/settings.py:270-281`). A cerca de CI existe
+  (`scripts/ci/check_roteador_lucas.py`). A recusa de handoff de outra mensagem existe
+  (`src/maezo/platform/webhooks/whatsapp/dispatch.py:1480-1490`).
+
+Divergências (follow-ups conhecidos; nenhuma bloqueia o aceite):
+1. O domínio de `transicao_motivo` na migração tem nove valores, incluindo `retorno_fora_do_canal` e
+   `lucas_encerrou`, que o texto da ADR não lista. É acréscimo de ondas posteriores.
+2. A nota do topo diz que o DL-0053 "segue aguardando assinatura". O DL-0053 está registrado em
+   `docs/decisions-log.md` (2026-10-01, decisão do Filipe, PR #596).
+3. O prazo de purga continua decisão do DPO, `PENDENTE`
+   (`spec/policies/retention/erasure-plan.template.yaml:629`).
+4. Os riscos aceitos da seção de pendências continuam abertos (frase de passagem duplicada entre
+   réplicas; `continua_lucas` sem produtor).

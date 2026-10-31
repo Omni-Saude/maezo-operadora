@@ -1,8 +1,8 @@
 # ADR-0048: `driver_idempotency` re-ancorada como registro de dedup por `wamid` do webhook WhatsApp — re-anchor de ADR-0024 e nota de obsolescencia sobre ADR-0041 §1(d)
 
-**Status:** **Proposto — DRAFT/verify. NADA AQUI ESTA RATIFICADO.** Redigido por AGENTE
-(unlock-executor R1, rodada 5 de fechamento de gaps); um agente nao ratifica ADR. Assinatura humana
-pendente — `/docs/adr/` e dono-gated (`.github/CODEOWNERS`). · **Data:** 2026-09-04 · **Area:**
+**Status:** **Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31** (ver "Decisao de aceite" ao
+final). Redigido por AGENTE (unlock-executor R1, rodada 5 de fechamento de gaps). `/docs/adr/` e
+dono-gated (`.github/CODEOWNERS`). · **Data:** 2026-09-04 · **Area:**
 Orquestracao / Runtime / Dados
 
 > **Por que uma ADR NOVA e nao um adendo dentro da ADR-0024.** A decisao aprovada do dono (R-073)
@@ -83,3 +83,34 @@ qual esse modo entra DESLIGADO por padrao (`docs/processes/webhook-whatsapp-ack-
 
 —. Esta ADR **re-ancora** a ADR-0024 (Decisao 3) e **marca como datada** a §1(d) da ADR-0041. Nao
 supersede nenhuma das duas, e nao edita os arquivos delas.
+
+## Decisao de aceite (DEC-27, 2026-10-31)
+
+> **Registro datado; historico preservado.** Acima desta secao so o paragrafo de Status mudou, com o
+> mesmo numero de linhas. O Status anterior, vigente de 2026-09-04 ate 2026-10-31, era: "Proposto —
+> DRAFT/verify. NADA AQUI ESTA RATIFICADO."
+
+**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084** (item R-079; achado
+F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
+`docs/compliance/human-windows/R-079-dec-adr-proposed.md`. A ADR-0041, cuja §1(d) esta ADR marca como
+datada, foi aceita no mesmo ato.
+
+**Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a arvore e
+nao e autor da ADR.
+
+Conforme:
+- Decisao 1: a migracao `0010` acrescenta `status` com CHECK e declara o novo uso no schema
+  (`src/maezo/platform/migrations/versions/0010_webhook_wamid_dedup.py:82-98`).
+- Decisao 2: o consumidor e `PostgresDriverIdempotencyRegistry` (`src/maezo/platform/driver_idempotency.py`).
+  `PostgresDedupeStore` continua sem existir.
+- Decisao 3: a chave e o HMAC keyed do `wamid` (`src/maezo/platform/webhooks/whatsapp/dedup.py:56` ->
+  `src/maezo/platform/webhooks/whatsapp/security.py:67`). O teste que prova o vazamento do telefone no
+  `wamid` cru existe (`tests/unit/platform/webhooks/whatsapp/test_dedup_keys.py:37`). A classificacao
+  `SEM_COLUNA_DE_TITULAR` se mantem (`src/maezo/platform/lifecycle/erasure_plan.py:444-452`).
+- O modo ack-then-queue tem o documento citado (`docs/processes/webhook-whatsapp-ack-then-queue.md`).
+
+Divergencia (follow-up conhecido; nao bloqueia o aceite):
+1. A Decisao 2 diz que o registro e "consumido pelo receptor do webhook e pelo cliente de saida". Hoje
+   ele tambem e construido pelo worker runtime e pelo tool registry
+   (`src/maezo/runtime/worker_runtime/service.py:1093`, `src/maezo/gateway/tool_registry.py:1222`). O
+   texto descreve menos consumidores do que existem.

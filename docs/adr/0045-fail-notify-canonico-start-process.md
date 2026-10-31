@@ -1,7 +1,7 @@
 # ADR-0045: Fail-notify canonico da falha de `start_process` — desfecho `erro_inicio_processo` como requisito do contrato canonico (ADR-P-007 / CC-01, RAF-02, LUC-05, marina)
 
-**Status:** **Proposed — DRAFT/verify. NADA AQUI ESTA RATIFICADO.** Redigido por AGENTE
-(`adr-drafter`, R1) no programa de remediacao do Agent Fleet Audit; um agente nao ratifica ADR.
+**Status:** **Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31** (ver "Decisao de aceite" ao
+final). Redigido por AGENTE (`adr-drafter`, R1) no programa de remediacao do Agent Fleet Audit.
 `/docs/adr/` e dono-gated (`.github/CODEOWNERS:61`). · **Data:** 2026-09-04
 · **Area:** Orquestracao / Fail-safe / Compliance
 
@@ -253,3 +253,39 @@ levantar do handler (o dispatcher ja tem caminho de rejeicao tipada) ou acrescen
 processo. Nao emenda nem supersede `ADR-0018`, `ADR-0030` ou `ADR-0001`. Complementar ao trabalho de
 proveniencia CC-13 (secao «Variaveis de proveniencia do agente» nos contratos, PR #314), que aplica a
 mesma distincao agente-vs-processo as variaveis aditivas.
+
+## Decisao de aceite (DEC-27, 2026-10-31)
+
+> **Registro datado; historico preservado.** Acima desta secao so o paragrafo de Status mudou, com o
+> mesmo numero de linhas. O Status anterior, vigente de 2026-09-04 ate 2026-10-31, era: "Proposed —
+> DRAFT/verify. NADA AQUI ESTA RATIFICADO."
+
+**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084** (item R-079; achado
+F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
+`docs/compliance/human-windows/R-079-dec-adr-proposed.md`.
+
+**O que fica aceito.** O item 1 de "O que e decisao do DONO": o fail-notify e requisito do contrato
+canonico. Os itens 2 a 5 ja foram construidos com uma escolha cada (lista abaixo). O aceite registra
+essas escolhas como a forma vigente. Mudar qualquer uma delas pede ADR nova.
+
+**Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a arvore e
+nao e autor da ADR.
+
+Conforme:
+- O padrao mora num modulo compartilhado: `src/maezo/runtime/start_outcome.py:73`
+  (`erro_inicio_processo`), `:100` (`StartProcessFailedError`), `:152` (`route_after_start`), `:165`
+  (`notify_start_failure`), `:222` (`record_agent_error`).
+- Os grafos que iniciam processo saem por aresta condicional. A cerca e um teste unitario:
+  `tests/unit/agents/test_start_failure_routing.py:319` (estrutural) e `:408` (comportamental).
+- Lado A2A (Parte 5): o handler do Rafael levanta excecao tipada em vez de devolver sucesso
+  (`src/maezo/agents/rafael/delegation.py:171-181`).
+- O desfecho esta declarado nos contratos `SP-OP-*` (`docs/processes/contracts/`, 11 arquivos citam
+  `erro_inicio_processo`).
+
+Divergencias (follow-ups conhecidos; nenhuma bloqueia o aceite):
+1. "nao mergeado" (`fleet/template-canonical-contract`, `fleet/cc01-start-fail-notify`) esta estale. O
+   padrao saiu do `_template` para `src/maezo/runtime/start_outcome.py`.
+2. A implementacao escolheu antes do aceite: Parte 3 = opcao A (`record_agent_error`; a metrica
+   dedicada da opcao C nao existe); Parte 4 = teste unitario em `tests/` (nao `scripts/ci/`); Parte 5 =
+   raise tipado. O limiar do alerta `MaezoAgentCrashLoop` (`deploy/observability/alert-rules.yml:132`)
+   nao foi revisto para este modo de falha. Essa pergunta da opcao A continua aberta.
