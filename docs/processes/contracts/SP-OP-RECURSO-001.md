@@ -311,3 +311,18 @@ inicia SP-OP-PAGTO-001 pelo chokepoint `start_process_idempotent`:
 | `data_vencimento` | Obrigatória em PAGTO e herdada do envelope de intake. **Recusada em branco**, nunca defaultada (**OQ-3**) |
 | **Invariante I-PAGTO-1** | O handoff **NUNCA** semeia `lastro_confirmado`, `dados_pagamento_validos`, `duplicidade_suspeita` nem `dentro_teto_l2`. Semeia, em lugar disso, `lastro_origem="recurso_deferimento_humano"` e `lastro_decisor_id` (`analista_id`\|`auditor_id`) como **evidência**. Consequência: `pagto_admissibility` lê o lastro ausente ⇒ `ANALISE_HUMANA` ⇒ `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`). Isso compra **segregação de funções**: quem julga o recurso não admite a ordem de pagamento |
 | Dedup | **STRICT** — SP-OP-PAGTO-001 é a única família STRICT; o chokepoint exige `DedupReportingAuditSink` + `HistoryQueryingTransport` e recusa (`StartDedupGateUnavailableError`) sem eles. Um deferimento nunca vira pagamento duplicado |
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-RECURSO-001` → `maezo-payer-recurso-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - guia+glosa: `{tenant_id}:recurso-001:hk1_<HMAC>` sobre `ref_claro` = `G-{numero_guia_tiss}-{glosa_id}`.
+- **Classificação (a confirmar pelo DPO):** pessoal pseudônimo e ID cru de fonte — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

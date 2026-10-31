@@ -393,3 +393,22 @@ estado que o censo do proprio ADR-0030 registra.
   L0 hard) e o handoff a SP-OP-FRAUDE-001 (Phase 3).
 - Anexos TISS obrigatorios por `tipo_lote`; mapa completo reason_code TISS → categoria
   (`glosa_reason_normalization`).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CONTAS-001` → `maezo-payer-contas-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - lote: `{tenant_id}:contas-001:hk1_<HMAC>` sobre `ref_claro` = `L-{numero_lote_tiss}`.
+  - guia+conta: `{tenant_id}:contas-001:hk1_<HMAC>` sobre `ref_claro` = `G-{numero_guia_tiss}-{numero_conta}`.
+- **Classificação (a confirmar pelo DPO):** forma `L`: ID cru de fonte, em geral não pessoal; forma `G`: pessoal (conta de um beneficiário) — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` no mapa; promoção escura a `EXCLUSIVE` inalterada (DL-0046).
+- **R-101 (decisão do dono, 2026-10-31):** as duas formas ganham etiquetas distintas (`L`/`G`), o que elimina a colisão entre `lote="X-Y"` e `(guia="X", conta="Y")`; e `numero_guia_tiss` contendo `-` é RECUSADO na composição (fail-closed, `BusinessKeyComponentError`), nas duas gramáticas durante a janela, o que elimina a colisão interna da forma `G` (`guia="A-B", conta="C"` × `guia="A", conta="B-C"`). O resíduo declarado no compositor `contas_business_key` deixa de existir.
+- **Guia/conta sem lote (decisão do dono, R-101):** o worker usa a business key da própria instância (`task.business_key`) em vez de recompor a partir das variáveis; a obrigatoriedade de `numero_lote_tiss` na tabela de entrada é revista na janela para a forma `G`.
+- O protocolo do demonstrativo, hoje derivado da chave, passa a derivar da forma de saída opaca (não da `ref_claro`).
