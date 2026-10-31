@@ -417,9 +417,11 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         inad_rn593_estrito: bool = False,
         pagto_fatos_estritos: bool = False,
         inad_fatos_estritos: bool = False,
+        lgpd_legal_hold_predicate: bool = False,
     ) -> None:
         captured["pagto_fatos_estritos"] = pagto_fatos_estritos
         captured["inad_fatos_estritos"] = inad_fatos_estritos
+        captured["lgpd_legal_hold_predicate"] = lgpd_legal_hold_predicate
         captured["publish_ledger"] = publish_ledger
         captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
         captured["inad_rn593_estrito"] = inad_rn593_estrito
@@ -466,6 +468,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
         assert captured["pagto_fatos_estritos"] is False
         assert captured["inad_fatos_estritos"] is False
+        # R-044 / F-062: the legal-hold predicate ships dark (MAEZO_LGPD_LEGAL_HOLD_PREDICATE).
+        assert settings.lgpd_legal_hold_predicate is False
+        assert captured["lgpd_legal_hold_predicate"] is False
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
@@ -581,6 +586,69 @@ async def test_bring_up_threads_inad_rn593_estrito_setting(
     try:
         await svc._bring_up_dependencies(state)
         assert captured["inad_rn593_estrito"] is flag
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+# ---------------------------------------------------------------------------------------------
+# R-044 — fiacao da flag dark `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` (F-062, ADR-0020 item 6):
+# (a) `register_default_workers` repassa a flag ao `ExecuteRequestWorker`; (b) o alias de env;
+# (c) `_bring_up_dependencies` repassa a setting ao bootstrap. Cada um falha sob mutacao da fiacao.
+# ---------------------------------------------------------------------------------------------
+
+_LGPD_EXECUTE_REQUEST = "operadora.lgpd.execute_request"
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_register_default_workers_threads_lgpd_legal_hold_flag(flag: bool) -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_default_workers(harness, lgpd_legal_hold_predicate=flag)
+
+    worker = harness.registry.get(_LGPD_EXECUTE_REQUEST)
+    assert worker is not None
+    assert worker._legal_hold_predicate is flag  # type: ignore[attr-defined]
+
+
+def test_settings_lgpd_legal_hold_predicate_env_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_LGPD_LEGAL_HOLD_PREDICATE", raising=False)
+    assert WorkerRuntimeSettings().lgpd_legal_hold_predicate is False
+    monkeypatch.setenv("MAEZO_LGPD_LEGAL_HOLD_PREDICATE", "true")
+    assert WorkerRuntimeSettings().lgpd_legal_hold_predicate is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_lgpd_legal_hold_predicate_setting(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_LGPD_LEGAL_HOLD_PREDICATE=flag
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["lgpd_legal_hold_predicate"] is flag
     finally:
         if state.harness_task is not None:
             state.harness_task.cancel()

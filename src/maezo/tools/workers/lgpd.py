@@ -57,12 +57,13 @@ by this collapse, and the DPO ratifies ENABLEMENT later (F-2 + AF-07), never the
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.platform.lifecycle.legal_hold import LegalHoldDecision, evaluate_legal_hold
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError, WorkerFailureError
 
@@ -213,6 +214,28 @@ _RECUSA_PREFIXO = (
 )
 
 
+#: R-044 (F-062, ADR-0020 item 6): codigo de guarda da eliminacao bloqueada por legal-hold. Familia
+#: `*_NOT_HUMAN`: sob colisao eliminacao x hold (ou duvida sobre o registro) o codigo NAO decide — a
+#: decisao e humana (juridico/DPO). Levantado como `PermissionError`, o harness grava a recusa na
+#: cadeia ADR-0007 (`decision=REFUSED`, `guard_code`) ANTES do incidente nao-retentado.
+ERR_DSR_LEGAL_HOLD_NOT_HUMAN = "ERR_DSR_LEGAL_HOLD_NOT_HUMAN"
+
+
+class LegalHoldErasureDeferredError(PermissionError):
+    """Eliminacao DIFERIDA: legal-hold ativo ou registro indeterminado (R-044, fail-closed)."""
+
+    def __init__(self, decision: LegalHoldDecision) -> None:
+        self.decision = decision
+        super().__init__(
+            f"{ERR_DSR_LEGAL_HOLD_NOT_HUMAN}: eliminacao DIFERIDA pelo predicado de legal-hold "
+            f"(desfecho={decision.outcome.value}, motivo={decision.motivo}, "
+            f"holds_ativos={len(decision.hold_ids)}, registro_sha256={decision.registro_sha256}). "
+            "ADR-0020 item 6: a colisao eliminacao x legal-hold e resolvida a favor do hold e a "
+            "eliminacao e reconciliada ao fim do hold; na duvida (registro indisponivel/invalido, "
+            "titular nao identificado) nada e eliminado. Decisao humana (juridico/DPO) — NAO retentar."
+        )
+
+
 class ExecuteRequestWorker(WorkerBase):
     """External task: operadora.lgpd.execute_request — `ST_ExecutarRequisicao`.
 
@@ -282,12 +305,23 @@ class ExecuteRequestWorker(WorkerBase):
     do corpus PHI (`CORPUS_DELTA_LOG`).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        legal_hold_predicate: bool = False,
+        legal_hold_evaluator: Callable[..., LegalHoldDecision] = evaluate_legal_hold,
+    ) -> None:
         # max_retries=1: toda recusa aqui e DETERMINISTICA (implementacao ausente / guard humano),
         # nunca um fault transitorio. O retry in-process do WorkerBase (que re-tenta TODA Exception
         # com time.sleep) nao deve mascarar nem atrasar o incidente — o engine e' dono do retry
         # duravel (T1.1 design §9). Espelha ValidateIdentityWorker e os tres workers aposentados.
         super().__init__(topic=_EXECUTE_REQUEST_TOPIC, max_retries=1)
+        # R-044 (F-062), DARK: com a bandeira `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` ligada, toda
+        # eliminacao aprovada consulta o registro de legal-hold ANTES de qualquer outro passo de
+        # execucao. Desligada (padrao) o comportamento e o de sempre — recusa por nao-implementacao.
+        # `is True`: lixo truthy nunca liga a bandeira.
+        self._legal_hold_predicate = legal_hold_predicate is True
+        self._legal_hold_evaluator = legal_hold_evaluator
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Recusa, fail-closed, executar qualquer direito do art. 18 — em TODO caminho.
@@ -402,6 +436,27 @@ class ExecuteRequestWorker(WorkerBase):
                 "passar por ST_ExecutarRequisicao.",
                 retries_left=0,
             )
+
+        # R-044 (F-062, ADR-0020 item 6), DARK: legal-hold antes de qualquer eliminacao. Hold ativo
+        # OU duvida (registro indisponivel/invalido, titular nao identificado) => eliminacao DIFERIDA
+        # com recusa auditada (PermissionError -> REFUSED na cadeia + incidente retries=0). Nunca
+        # apagamento silencioso. LIVRE so libera para o PROXIMO gate — que hoje recusa abaixo.
+        if self._legal_hold_predicate and direito == _DIREITO_ELIMINACAO:
+            decision = self._legal_hold_evaluator(
+                tenant_id=tenant_id,
+                titular_pseudo_id=process_vars.get("titular_pseudo_id"),
+            )
+            if decision.bloqueia_eliminacao:
+                self.logger.error(
+                    "lgpd_execute_request_eliminacao_diferida_legal_hold",
+                    tenant_id=tenant_id,
+                    guard_code=ERR_DSR_LEGAL_HOLD_NOT_HUMAN,
+                    outcome=decision.outcome.value,
+                    motivo=decision.motivo,
+                    hold_count=len(decision.hold_ids),
+                    registro_sha256=decision.registro_sha256,
+                )
+                raise LegalHoldErasureDeferredError(decision)
 
         self.logger.error(
             "lgpd_execute_request_recusado_execucao_nao_implementada",
@@ -750,20 +805,20 @@ def register_lgpd_workers(
 
     `kafka` is threaded into the THREE raw handlers with a Kafka dependency: `request_additional_
     proof` (#55 R-B), `send_response` (#55 R-F), `notify_sla_risk` (#55 R-G). The remaining
-    `WorkerBase` classes (`ValidateIdentityWorker`, `ExecuteRequestWorker`) take no constructor
-    args. No `dmn`/other seam is consumed by this module (#55 R-E: routing is the engine-side
-    `BRT_RotearDsr` DMN, not a worker).
+    `WorkerBase` classes take no constructor args, except the R-044 dark seam
+    `lgpd_legal_hold_predicate` forwarded to `ExecuteRequestWorker`. No `dmn` seam is consumed by
+    this module (#55 R-E: routing is the engine-side `BRT_RotearDsr` DMN, not a worker).
     """
-    del seams  # unused — no dmn/other seam is needed (#55 R-E: routing is engine-side DMN)
+    # R-044 (F-062), DARK: `lgpd_legal_hold_predicate` (= `MAEZO_LGPD_LEGAL_HOLD_PREDICATE`, default
+    # OFF; ausente == OFF; so o booleano True liga) faz a eliminacao consultar o registro de
+    # legal-hold antes de executar. Nenhum outro seam e consumido (#55 R-E: roteamento e DMN).
+    legal_hold_predicate = seams.get("lgpd_legal_hold_predicate") is True
     # R-181: `ExecuteRequestWorker` replaced the three orphan `Execute*Worker`s. Every
     # `WorkerBase` topic registered here is a `camunda:topic` the BPMN actually declares — the
     # drift row `LGPD-WORKER-DRIFT` is closed by construction, and pinned by
     # `test_lgpd_erasure.py::test_nenhum_topico_lgpd_registrado_falta_no_bpmn`.
-    for worker_cls in (
-        ValidateIdentityWorker,
-        ExecuteRequestWorker,
-    ):
-        harness.register_worker(worker_cls())
+    harness.register_worker(ValidateIdentityWorker())
+    harness.register_worker(ExecuteRequestWorker(legal_hold_predicate=legal_hold_predicate))
     # #55 R-B: request_additional_proof (raw handler — needs the async Kafka seam). Registered on
     # the BPMN topic so ST_PedirProvaAdicional completes and the challenge path reaches
     # GW_AguardarProva instead of hanging.
