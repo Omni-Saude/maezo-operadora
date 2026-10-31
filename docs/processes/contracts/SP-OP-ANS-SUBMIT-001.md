@@ -52,7 +52,7 @@ ANSSUB-{tenant_id}-{report_type}-{competencia}
 | `report_type` | string | sim | `RN_124_SIP` \| `RN_209_UTILIZACAO` \| `RN_388_QUALIDADE` \| `RN_424_TISS_MONITORAMENTO` \| `DIOPS_TRIMESTRAL` |
 | `competencia` | string | sim | Periodo de competencia (`YYYY-MM` ou `YYYY-Qn`) — compoe a business key |
 | `periodicidade` | string | sim | `mensal` \| `trimestral` \| `anual` (derivada do `report_type` por worker) |
-| `origem_envio` | string | sim | `calendario` \| `nip_filing` \| `retransmissao_manual` — distingue cron de filing originado por NIP (handoff SP-OP-NIP-001) |
+| `origem_envio` | string | sim | `calendario` \| `nip_filing` \| `retransmissao_manual` — distingue cron de filing originado por NIP (handoff SP-OP-NIP-001). `retransmissao_manual` e valor RESERVADO, sem starter: a retransmissao manual acontece DENTRO da instancia, via `UT_TratarNack` (`decisao_nack=retransmitir_manual`, R-066) — a business key por competencia impede uma 2a instancia enquanto a 1a esta ativa |
 | `nip_protocolo_origem` | string | nao* | Protocolo NIP de origem (*obrigatorio se `origem_envio==nip_filing`; correlaciona o handoff) |
 | `dataset_complete` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.assemble` retornou dataset integro) |
 | `schema_valid` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.validate` — XSD/TISS) |
@@ -77,7 +77,7 @@ carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
 | `data_envio` | string | Timestamp ISO 8601 do envio (nao-repudio) |
 | `nack_motivo` | string | Motivo do NACK retornado pela ANS (preenchido apenas em retransmissao) |
 | `retry_attempt` | integer | Contador de tentativa de retransmissao (subprocess SUB_RetryEnvio; INPUT da DMN ans_retry_policy) |
-| `decisao_nack` | string | `retransmitir_manual` \| `registrar_falha` (User Task humana `UT_TratarNack`; mesmos literais do formulario `ans_nack`). Consumida pelo engine em `GW_DecisaoNack` (R-066, F-138): `retransmitir_manual` → `UT_CorrigirPendenciaEnvio` (corrige e volta a reavaliacao + revisao humana; nenhum novo envio sem nova assinatura); `registrar_falha` → `anssubmit.completed` com `desfecho=falha_retransmissao` (`status_envio==nack`) ou `enviado_pendente_ack` (`status_envio` ∈ {`enviado`, `retransmitido`}: o envio saiu e o ACK nao veio); ausente/invalida → a mesma User Task reabre |
+| `decisao_nack` | string | `retransmitir_manual` \| `registrar_falha` (User Task humana `UT_TratarNack`; mesmos literais do formulario `ans_nack`). Consumida pelo engine em `GW_DecisaoNack` (R-066, F-138): `retransmitir_manual` → `UT_CorrigirPendenciaEnvio` (corrige e volta a reavaliacao + revisao humana; o engine zera `decisao_envio`/`revisor_id`/`retry_attempt` no fluxo, entao nenhum novo envio sai sem nova assinatura — ADR-0007); `registrar_falha` → `anssubmit.completed` com `desfecho=falha_retransmissao` (`status_envio==nack`) ou `enviado_pendente_ack` (`status_envio` ∈ {`enviado`, `retransmitido`}: o envio saiu e o ACK nao veio); ausente/invalida → a mesma User Task reabre |
 
 ## Variaveis de proveniencia do agente (Gustavo — ADR-0007/ADR-0015)
 
@@ -198,7 +198,7 @@ catch-all (>3) → `""`/`continue_retry=false` (esgotado → `End_RetryEsgotado`
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `regulatorio-ans` | Nucleo regulatorio ANS (sign-off vinculante do envio) | `UT_RevisarEnvio` (assina o envio oficial — unica origem de `decisao_envio==APROVAR_ENVIO`); `UT_CorrigirPendenciaEnvio` (dataset/schema pendente); `UT_TratarNack` (NACK da ANS) |
+| `regulatorio-ans` | Nucleo regulatorio ANS (sign-off vinculante do envio) | `UT_RevisarEnvio` (assina o envio oficial — unica origem de `decisao_envio==APROVAR_ENVIO`); `UT_CorrigirPendenciaEnvio` (dataset/schema pendente); `UT_TratarNack` (NACK definitivo apos retry esgotado OU ACK nao recebido no prazo de `ICE_AguardarAck` — R-066; `retransmitir_manual` zera `decisao_envio`/`revisor_id`/`retry_attempt`, exigindo nova assinatura em `UT_RevisarEnvio`) |
 | `juridico-regulatorio` | Juridico/regulatorio (revisao de envios sensiveis / NIP filing) | `UT_RevisarEnvio` quando `origem_envio==nip_filing` (filing de resposta NIP — texto legal sempre humano) |
 | `coordenacao-regulatorio` | Coordenacao regulatoria (assume no estouro de prazo) | `UT_CoordenacaoEnvioAssume` (deadline-risk persistente / SLA de calendario estourado) |
 

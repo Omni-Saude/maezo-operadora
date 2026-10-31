@@ -1098,6 +1098,26 @@ async def test_tratar_nack_retransmitir_manual_volta_a_correcao(
     assert await engine.history_state(iid) != "COMPLETED"
     assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
 
+    # Revisao B1 (ADR-0007): a aprovacao da 1a assinatura NAO sobrevive ao loop. Corrigido o
+    # dataset, a revisao reabre com decisao_envio zerada; uma conclusao VAZIA nao re-aprova (o
+    # default de GW_DecisaoEnvio vai a coordenacao) e nenhum 2o envio sai em nome do 1o revisor.
+    novo_dataset = _write_tiss_dataset(tmp_path, "dataset-retrans-manual-2.xml", _TISS_VALID_XML)
+    await engine.complete_task_as_human(
+        ut_corrigir.id, {"dataset_complete": True, "dataset_ref": novo_dataset}
+    )
+    await ans_probe_tiss_pinned.drain()
+    ut_revisar = await engine.await_user_task(iid, _UT_REVISAR)
+    assert await engine.get_variable(iid, "decisao_envio") == ""
+    assert await engine.get_variable(iid, "revisor_id") == ""
+    assert await engine.get_variable(iid, "retry_attempt") == 0
+    await engine.complete_task_as_human(ut_revisar.id, {})
+    await ans_probe_tiss_pinned.drain()
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-regulatorio" in ut_coord.candidate_groups
+    assert await engine.activity_instance_count(iid, _ST_SUBMETER) == 1, "so o 1o envio (assinado)"
+    assert not ans_probe_tiss_pinned.events_on(_ANS_COMPLETED)
+
 
 async def test_tratar_nack_decisao_invalida_reabre(
     engine: EngineRest,

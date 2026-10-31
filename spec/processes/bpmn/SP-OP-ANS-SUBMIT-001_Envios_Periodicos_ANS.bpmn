@@ -600,7 +600,7 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_TratarNack" name="Tratar NACK da ANS (humano)"
                    camunda:candidateGroups="regulatorio-ans">
-      <bpmn:documentation>Chega por dois caminhos: retry esgotado (status_envio=nack, apos anssubmit.failed) ou ACK nao recebido no prazo de ICE_AguardarAck (status_envio=enviado|retransmitido). O humano do grupo regulatorio-ans trata o caso. Saida: decisao_nack in {retransmitir_manual, registrar_falha}, CONSUMIDA pelo engine em GW_DecisaoNack (R-066, F-138): retransmitir_manual -> UT_CorrigirPendenciaEnvio (corrige e volta ao ciclo de reavaliacao + revisao humana; nenhum novo envio sem nova assinatura); registrar_falha -> anssubmit.completed (falha_retransmissao se status_envio=nack; enviado_pendente_ack se o envio saiu e o ACK nao veio) -> fim; decisao ausente/invalida -> a mesma User Task reabre. Alerta de prazo nao-interruptivo BT_DeadlineRiskNack (sla.sla_alerta, DMN ans_sla). Nunca encerra silenciosamente.</bpmn:documentation>
+      <bpmn:documentation>Chega por dois caminhos: retry esgotado (status_envio=nack, apos anssubmit.failed) ou ACK nao recebido no prazo de ICE_AguardarAck (status_envio=enviado|retransmitido). O humano do grupo regulatorio-ans trata o caso. Saida: decisao_nack in {retransmitir_manual, registrar_falha}, CONSUMIDA pelo engine em GW_DecisaoNack (R-066, F-138): retransmitir_manual -> UT_CorrigirPendenciaEnvio (corrige e volta ao ciclo de reavaliacao + revisao humana; o fluxo zera decisao_envio/revisor_id/retry_attempt, entao nenhum novo envio sai sem nova assinatura); registrar_falha -> anssubmit.completed (falha_retransmissao se status_envio=nack; enviado_pendente_ack se o envio saiu e o ACK nao veio) -> fim; decisao ausente/invalida -> a mesma User Task reabre. Alerta de prazo nao-interruptivo BT_DeadlineRiskNack (sla.sla_alerta, DMN ans_sla). Nunca encerra silenciosamente.</bpmn:documentation>
       <bpmn:incoming>Flow_PubFailed_UTNack</bpmn:incoming>
       <bpmn:incoming>Flow_AckTimer_UTNack</bpmn:incoming>
       <bpmn:incoming>Flow_GWNack_Invalida</bpmn:incoming>
@@ -723,7 +723,18 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_PubFailed_UTNack" sourceRef="ST_PublishFailed" targetRef="UT_TratarNack"/>
     <bpmn:sequenceFlow id="Flow_UTNack_GW" sourceRef="UT_TratarNack" targetRef="GW_DecisaoNack"/>
     <bpmn:sequenceFlow id="Flow_DeadlineNack_Notify" sourceRef="BT_DeadlineRiskNack" targetRef="ST_NotificarDeadlineRisk"/>
+    <!-- R-066 (revisao B1, ADR-0007): o retransmitir_manual ZERA a aprovacao anterior. Sem isto,
+         decisao_envio=APROVAR_ENVIO + revisor_id da 1a assinatura sobreviviam ao loop e uma conclusao
+         vazia de UT_RevisarEnvio re-aprovava: o 2o envio sairia assinado pelo 1o revisor. Com '' a
+         decisao cai no default de GW_DecisaoEnvio (coordenacao) e o guard ERR_ANS_SUBMIT_NOT_HUMAN
+         recusa revisor_id em branco. retry_attempt volta a 0 (contrato: "absent/0 on entry") para
+         que o novo envio tenha a politica de retry completa da DMN ans_retry_policy. -->
     <bpmn:sequenceFlow id="Flow_GWNack_Retransmitir" name="retransmitir_manual (corrige e re-assina)" sourceRef="GW_DecisaoNack" targetRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:extensionElements>
+        <camunda:executionListener event="take" expression="${execution.setVariable('decisao_envio', '')}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('revisor_id', '')}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('retry_attempt', 0)}"/>
+      </bpmn:extensionElements>
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('decisao_nack') == 'retransmitir_manual'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWNack_PendenteAck" name="registrar_falha (envio saiu, ACK nao veio)" sourceRef="GW_DecisaoNack" targetRef="ST_PublishCompletedPendente">

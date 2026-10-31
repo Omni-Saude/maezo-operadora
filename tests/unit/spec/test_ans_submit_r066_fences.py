@@ -205,3 +205,19 @@ def test_nenhum_gateway_faz_fork_e_join() -> None:
     assert gateways
     ruins = [g for g in gateways if len(m.entrada[g]) > 1 and len(m.saida[g]) > 1]
     assert not ruins, ruins
+
+
+def test_retransmitir_manual_zera_aprovacao_anterior() -> None:
+    """Revisao B1 (ADR-0007, nao-repudio): ao tomar `retransmitir_manual`, o engine zera
+    `decisao_envio`/`revisor_id` da 1a assinatura (senao uma conclusao vazia da revisao re-aprovava
+    e o 2o envio saia assinado pelo 1o revisor) e `retry_attempt` (politica de retry completa)."""
+    m = _Modelo()
+    (fid,) = [f for f in m.saida["GW_DecisaoNack"] if "'retransmitir_manual'" in m.condicao(f)]
+    listeners = [
+        (el.get("event"), el.get("expression")) for el in m.fluxos[fid].iter(f"{_C}executionListener")
+    ]
+    assert listeners == [
+        ("take", "${execution.setVariable('decisao_envio', '')}"),
+        ("take", "${execution.setVariable('revisor_id', '')}"),
+        ("take", "${execution.setVariable('retry_attempt', 0)}"),
+    ], listeners

@@ -177,7 +177,7 @@
       },
       "AnsNackInputs": {
         "additionalProperties": false,
-        "description": "UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.\n\nThe current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is\nnot consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The\nruntime binding remains unavailable until this contract/consumer gap is reconciled.",
+        "description": "UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).\n\nGW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to\nUT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new\nhuman sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other\nvalue reopens the task. Recording retransmitir_manual does not itself retransmit.",
         "properties": {
           "decisao_nack": {
             "enum": [
