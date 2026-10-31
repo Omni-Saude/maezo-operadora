@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import yaml
 from structlog.testing import capture_logs
 
 from maezo.platform.lifecycle import legal_hold as lh
@@ -22,6 +23,7 @@ from maezo.platform.lifecycle.legal_hold import (
     REASON_INVALID_YAML,
     REASON_PATH_NOT_SET,
     REASON_UNRATIFIED_TEMPLATE,
+    REASON_UNREADABLE,
     REGISTRY_PATH_ENV,
     LegalHoldDecision,
     LegalHoldOutcome,
@@ -301,3 +303,133 @@ def test_pseudonimo_nunca_vai_para_log_nem_para_o_registro(tmp_path: Path) -> No
 def test_repr_do_hold_nao_exibe_o_pseudonimo(tmp_path: Path) -> None:
     registry = load_legal_hold_registry(_write(tmp_path, _REGISTRO))
     assert _PSEUDO not in repr(registry)
+
+
+# ---------------------------------------------------------------------------------------------
+# 4. Revisao independente do #1122 (B1-B5): endurecimento do carregador
+# ---------------------------------------------------------------------------------------------
+
+_HOLD_VALIDO = (
+    "  - hold_id: LH-1\n    tenant_id: tenant-a\n"
+    f"    titular_pseudo_id: {_PSEUDO}\n    colocado_em: 2026-01-01\n"
+)
+
+
+def _assert_recusa(tmp_path: Path, texto: str, reason: str) -> None:
+    path = _write(tmp_path, texto)
+    with pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+        load_legal_hold_registry(path)
+    assert exc.value.reason == reason
+    decision = evaluate_legal_hold(tenant_id="tenant-a", titular_pseudo_id=_PSEUDO, loader=_loader(path))
+    assert decision.outcome is LegalHoldOutcome.INDETERMINADO
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # B1: `holds` duplicado — o segundo (vazio) apagaria o hold em silencio.
+        f"schema_version: 1\nholds:\n{_HOLD_VALIDO}holds: []\n",
+        # B1: `titular_pseudo_id` duplicado dentro do hold.
+        f"schema_version: 1\nholds:\n{_HOLD_VALIDO}    titular_pseudo_id: outro\n",
+        # B1: ancora + alias.
+        "schema_version: 1\nholds:\n  - &a {hold_id: LH-1, tenant_id: tenant-a, "
+        f"titular_pseudo_id: {_PSEUDO}, colocado_em: 2026-01-01}}\n  - *a\n",
+        # B1: tag python arbitraria nunca e construida.
+        "schema_version: 1\nholds: !!python/object/apply:os.system ['true']\n",
+    ],
+    ids=["holds_duplicado", "titular_duplicado", "alias", "tag_python"],
+)
+def test_yaml_estrito_recusa_duplicata_alias_e_tag(tmp_path: Path, texto: str) -> None:
+    if "!!python" not in texto:
+        # YAML bem-formado: o `safe_load` padrao aceitaria — quem recusa e o carregador estrito.
+        yaml.safe_load(texto)
+    _assert_recusa(tmp_path, texto, REASON_INVALID_YAML)
+
+
+def test_ancora_sem_alias_tambem_e_recusada(tmp_path: Path) -> None:
+    _assert_recusa(tmp_path, "schema_version: &v 1\nholds: []\n", REASON_INVALID_YAML)
+
+
+@pytest.mark.parametrize("valor", ["'true'", "1", "null", "sim"])
+def test_unratified_com_qualquer_valor_que_nao_false_recusa(tmp_path: Path, valor: str) -> None:
+    """B2: so o booleano `false` explicito nao marca o registro como nao-ratificado."""
+    _assert_recusa(
+        tmp_path, f"unratified: {valor}\nschema_version: 1\nholds: []\n", REASON_UNRATIFIED_TEMPLATE
+    )
+
+
+def test_unratified_false_explicito_e_aceito(tmp_path: Path) -> None:
+    registry = load_legal_hold_registry(_write(tmp_path, "unratified: false\nschema_version: 1\nholds: []\n"))
+    assert registry.holds == ()
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        f"schema_version: 1\n{_PSEUDO}: x\nholds: []\n",
+        f"schema_version: 1\nholds:\n{_HOLD_VALIDO}    {_PSEUDO}: x\n",
+    ],
+    ids=["topo", "dentro_do_hold"],
+)
+def test_chave_desconhecida_nao_vaza_o_nome(tmp_path: Path, texto: str) -> None:
+    """B3: a mensagem cita a CONTAGEM de chaves desconhecidas, nunca os nomes (podem ser PHI)."""
+    path = _write(tmp_path, texto)
+    with capture_logs() as logs, pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+        load_legal_hold_registry(path)
+    assert exc.value.reason == REASON_INVALID_SCHEMA
+    assert _PSEUDO not in str(exc.value)
+    assert _PSEUDO not in repr(logs)
+
+
+def test_symlink_para_registro_valido_e_recusado(tmp_path: Path) -> None:
+    """B4: O_NOFOLLOW — um symlink nunca e seguido, mesmo para um registro valido."""
+    alvo = _write(tmp_path, "schema_version: 1\nholds: []\n")
+    link = tmp_path / "link.yaml"
+    link.symlink_to(alvo)
+    with pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+        load_legal_hold_registry(link)
+    assert exc.value.reason == REASON_UNREADABLE
+    decision = evaluate_legal_hold(tenant_id="tenant-a", titular_pseudo_id=_PSEUDO, loader=_loader(link))
+    assert decision.outcome is LegalHoldOutcome.INDETERMINADO
+
+
+def test_diretorio_nao_e_arquivo_regular(tmp_path: Path) -> None:
+    with pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+        load_legal_hold_registry(tmp_path)
+    assert exc.value.reason == REASON_FILE_NOT_FOUND
+
+
+def test_registro_acima_do_limite_tecnico_e_recusado(tmp_path: Path) -> None:
+    """B4: leitura limitada — um byte alem de `_MAX_REGISTRY_BYTES` recusa."""
+    path = tmp_path / "grande.yaml"
+    cabecalho = b"schema_version: 1\nholds: []\n"
+    path.write_bytes(cabecalho + b"#" * (lh._MAX_REGISTRY_BYTES + 1 - len(cabecalho)))
+    assert path.stat().st_size == lh._MAX_REGISTRY_BYTES + 1
+    with pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+        load_legal_hold_registry(path)
+    assert exc.value.reason == REASON_UNREADABLE
+    decision = evaluate_legal_hold(tenant_id="tenant-a", titular_pseudo_id=_PSEUDO, loader=_loader(path))
+    assert decision.outcome is LegalHoldOutcome.INDETERMINADO
+
+
+def test_registro_exatamente_no_limite_e_aceito(tmp_path: Path) -> None:
+    path = tmp_path / "limite.yaml"
+    cabecalho = b"schema_version: 1\nholds: []\n"
+    path.write_bytes(cabecalho + b"#" * (lh._MAX_REGISTRY_BYTES - len(cabecalho)))
+    assert load_legal_hold_registry(path).holds == ()
+
+
+@pytest.mark.parametrize(
+    ("tenant", "titular"),
+    [("tenant-a", f"{_PSEUDO} "), ("tenant-a", f" {_PSEUDO}"), ("tenant-a ", _PSEUDO)],
+)
+def test_entrada_com_espaco_nas_bordas_e_indeterminada(tmp_path: Path, tenant: str, titular: str) -> None:
+    """B5: `'<pseudo> '` nao pode escapar do hold de `'<pseudo>'` por correspondencia exata."""
+    decision = evaluate_legal_hold(
+        tenant_id=tenant,
+        titular_pseudo_id=titular,
+        loader=_loader(_write(tmp_path, _REGISTRO)),
+        today=_HOJE,
+    )
+    assert decision.outcome is LegalHoldOutcome.INDETERMINADO
+    assert decision.motivo == "titular_nao_identificado"

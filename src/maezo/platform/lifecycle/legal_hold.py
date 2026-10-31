@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -70,6 +71,9 @@ _HOLD_KEYS = frozenset({*_HOLD_REQUIRED_KEYS, "levantado_em"})
 
 #: Identificador de hold: token limitado, sem espacos (referencia de caso do juridico, nunca PHI).
 _HOLD_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+
+#: Limite TECNICO de tamanho do arquivo do registro (defesa contra leitura ilimitada), nao um prazo.
+_MAX_REGISTRY_BYTES = 1024 * 1024
 
 REASON_PATH_NOT_SET = "path_not_set"
 REASON_FILE_NOT_FOUND = "file_not_found"
@@ -164,6 +168,32 @@ class LegalHoldDecision:
         }
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """`SafeLoader` estrito: recusa chave duplicada em qualquer mapeamento e qualquer ancora/alias.
+
+    Chave duplicada faria o ultimo valor vencer em silencio (um hold "sumiria"); alias/ancora
+    permite expansao e reuso opacos. Ambos caem no ramo ``REASON_INVALID_YAML``.
+    """
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise yaml.composer.ComposerError(None, None, "alias not allowed", event.start_mark)
+        event = self.peek_event()
+        if getattr(event, "anchor", None) is not None:
+            raise yaml.composer.ComposerError(None, None, "anchor not allowed", event.start_mark)
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+        seen: set[Any] = set()
+        for key_node, _value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(None, None, "duplicate key", key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 def _fail(reason: str, detail: str) -> LegalHoldRegistryUnavailableError:
     logger.error("legal_hold_registry_unavailable", reason=reason, detail=detail)
     return LegalHoldRegistryUnavailableError(reason, detail)
@@ -192,10 +222,10 @@ def _parse_hold(raw: object, index: int, origin: Path) -> LegalHold:
     where = f"{origin}: holds[{index}]"
     if not isinstance(raw, dict):
         raise _fail(REASON_INVALID_SCHEMA, f"{where} is not a mapping")
-    unknown = sorted(str(key) for key in raw if key not in _HOLD_KEYS)
+    unknown = [key for key in raw if key not in _HOLD_KEYS]
     if unknown:
         # Escopo nao ratificado nunca e ignorado em silencio: registro invalido => bloqueia tudo.
-        raise _fail(REASON_INVALID_SCHEMA, f"{where} has unknown field(s): {unknown}")
+        raise _fail(REASON_INVALID_SCHEMA, f"{where} has {len(unknown)} unknown field(s)")
     missing = [key for key in _HOLD_REQUIRED_KEYS if key not in raw]
     if missing:
         raise _fail(REASON_INVALID_SCHEMA, f"{where} missing required field(s): {missing}")
@@ -227,28 +257,54 @@ def load_legal_hold_registry(path: str | Path | None = None) -> LegalHoldRegistr
     if not raw_path:
         raise _fail(REASON_PATH_NOT_SET, f"{REGISTRY_PATH_ENV} is not set and no explicit path was provided")
     registry_path = Path(raw_path)
-    if not registry_path.is_file():
-        raise _fail(REASON_FILE_NOT_FOUND, f"not a regular file: {registry_path}")
+    # O_NOFOLLOW: symlink recusado (ELOOP) — um mount de ConfigMap k8s precisa de `subPath`.
     try:
-        raw_bytes = registry_path.read_bytes()
+        fd = os.open(registry_path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        if isinstance(exc, FileNotFoundError):
+            raise _fail(REASON_FILE_NOT_FOUND, f"path does not exist: {registry_path}") from exc
+        raise _fail(REASON_UNREADABLE, f"could not open {registry_path}: {type(exc).__name__}") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise _fail(REASON_FILE_NOT_FOUND, f"not a regular file: {registry_path}")
+        chunks: list[bytes] = []
+        remaining = _MAX_REGISTRY_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw_bytes = b"".join(chunks)
     except OSError as exc:
         raise _fail(REASON_UNREADABLE, f"could not read {registry_path}: {type(exc).__name__}") from exc
+    finally:
+        os.close(fd)
+    if len(raw_bytes) > _MAX_REGISTRY_BYTES:
+        raise _fail(REASON_UNREADABLE, f"{registry_path} exceeds {_MAX_REGISTRY_BYTES} bytes")
     try:
         raw_text = raw_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise _fail(REASON_INVALID_ENCODING, f"{registry_path} is not valid UTF-8") from exc
     try:
-        data = yaml.safe_load(raw_text)
+        strict = _StrictLoader(raw_text)
+        try:
+            data = strict.get_single_data()
+        finally:
+            strict.dispose()
     except yaml.YAMLError as exc:
         # Sem a mensagem do parser: ela pode citar o trecho do arquivo (pseudonimos).
         raise _fail(REASON_INVALID_YAML, f"malformed YAML in {registry_path}") from exc
     if not isinstance(data, dict):
         raise _fail(REASON_INVALID_SCHEMA, f"{registry_path}: root must be a mapping")
-    if data.get("unratified") is True:
-        raise _fail(REASON_UNRATIFIED_TEMPLATE, f"{registry_path} is marked 'unratified: true'")
-    unknown = sorted(str(key) for key in data if key not in _TOP_LEVEL_KEYS)
+    # Qualquer valor que nao seja exatamente `false` (inclui 'true', 1, null, 'sim') e nao-ratificado.
+    if "unratified" in data and data["unratified"] is not False:
+        raise _fail(REASON_UNRATIFIED_TEMPLATE, f"{registry_path} is marked 'unratified'")
+    # Sem interpolar os NOMES das chaves: uma chave desconhecida pode ser um pseudonimo colado errado.
+    unknown = [key for key in data if key not in _TOP_LEVEL_KEYS]
     if unknown:
-        raise _fail(REASON_INVALID_SCHEMA, f"{registry_path}: unknown top-level field(s): {unknown}")
+        raise _fail(REASON_INVALID_SCHEMA, f"{registry_path}: {len(unknown)} unknown top-level field(s)")
     version = data.get("schema_version")
     if type(version) is not int or version != SCHEMA_VERSION:
         raise _fail(REASON_INVALID_SCHEMA, f"{registry_path}: schema_version must be {SCHEMA_VERSION}")
@@ -288,6 +344,8 @@ def evaluate_legal_hold(
         or not tenant_id.strip()
         or not isinstance(titular_pseudo_id, str)
         or not titular_pseudo_id.strip()
+        or tenant_id != tenant_id.strip()
+        or titular_pseudo_id != titular_pseudo_id.strip()
     ):
         decision = LegalHoldDecision(LegalHoldOutcome.INDETERMINADO, MOTIVO_TITULAR_NAO_IDENTIFICADO)
         return _logged(decision, tenant_id)
