@@ -15,7 +15,7 @@ ISOLAMENTO (nunca toca a stack compartilhada de ``docker compose``):
 - sobe UMA rede, UM postgres e UM cibseven proprios, todos com o prefixo ``r086chaos<hex>``,
   porta do engine efemera e presa a 127.0.0.1 (nada na 8080 compartilhada);
 - reinicia SO' o proprio container de engine; nunca ``docker compose``, nunca ``down -v``;
-- remove SO' os proprios containers/rede no ``finally``.
+- remove SO' os proprios containers (com os volumes anonimos, ``rm -f -v``) e a rede no ``finally``.
 
 Roteiro: implanta BPMN+DMNs do AUTH (tenant descartavel) -> start sintetico (rota NAO_REQUER) ->
 worker A trava ST_PublishReceived com lock longo -> ``docker restart`` do engine -> confere que a
@@ -236,7 +236,8 @@ def main() -> int:
     except DrillFailureError as exc:
         report["falha"] = str(exc)
     finally:
-        _docker("rm", "-f", engine, pg, check=False)
+        # -v: postgres declara VOLUME; sem isso o volume anonimo vaza a cada execucao
+        _docker("rm", "-f", "-v", engine, pg, check=False)
         _docker("network", "rm", network, check=False)
     print("R086_CHAOS " + json.dumps(report, ensure_ascii=False))
     return 0 if report["ok"] else 1

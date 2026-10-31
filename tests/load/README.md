@@ -93,11 +93,13 @@ uv run --extra dev --with 'locust==2.46.3' locust -f tests/load/locustfile_auth.
 O locustfile recusa host não-local antes da primeira requisição, implanta os artefatos AUTH sob um
 tenant descartável no `test_start`, apaga a implantação (cascata) no `test_stop` e sai com código 1
 se o p95 de qualquer requisição `auth_*` ficar ≥ 200 ms ou houver falha. Não existe alvo no
-`Makefile` (arquivo CODEOWNERS); este é o comando canônico.
+`Makefile` (arquivo CODEOWNERS); este é o comando canônico. O código de saída do Locust é um
+portão do OPERADOR para a carga escolhida, não a asserção do M13 — esta vive em
+`tests/integration/perf/test_auth_p95.py` (C=1).
 
 **Failover de engine** (destrutivo, por isso **isolado**): sobe rede + postgres + cibseven próprios
 (prefixo `r086chaos<hex>`, porta efêmera fixa em 127.0.0.1), reinicia só o próprio engine e remove
-só os próprios containers no fim. Nunca toca a stack do `docker compose` nem faz `down -v`. Não
+só os próprios containers (e seus volumes anônimos, `docker rm -f -v`) e a rede no fim. Nunca toca a stack do `docker compose` nem faz `down -v`. Não
 precisa do mutex:
 
 ```bash

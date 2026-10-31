@@ -44,6 +44,7 @@ def test_alvo_local_aceito(url: str) -> None:
         "http://127.0.0.1@evil.example:8080/engine-rest",  # userinfo nao e' host
         "http://127.0.0.1.nip.io/engine-rest",
         "http://10.0.0.5:8080/engine-rest",
+        "http://0.0.0.0:8080/engine-rest",  # bind-all nao e' loopback
         "https://maezo-dev.example.com/engine-rest",
         "ftp://localhost/engine-rest",
         "file:///etc/hosts",
@@ -63,6 +64,7 @@ def test_percentil_nearest_rank() -> None:
     assert scn.nearest_rank_percentile(amostras, 100) == 100.0
     assert scn.nearest_rank_percentile(list(reversed(amostras)), 95) == 95.0
     assert scn.nearest_rank_percentile([7.0], 95) == 7.0
+    assert scn.nearest_rank_percentile([float(v) for v in range(1, 31)], 95) == 29.0
     # 200 amostras: p95 e' a 190a ordenada (o teste de integracao usa SAMPLES=200).
     assert scn.nearest_rank_percentile([float(v) for v in range(1, 201)], 95) == 190.0
 

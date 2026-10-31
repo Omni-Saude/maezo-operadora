@@ -27,6 +27,7 @@ from typing import Any
 import auth_scenarios as scn  # irmao; o locust poe o diretorio do locustfile no sys.path
 import requests
 from locust import HttpUser, between, events, task
+from locust.exception import StopUser
 
 _STATE: dict[str, str] = {}
 
@@ -86,6 +87,17 @@ def _assert_p95(environment: Any, **_kwargs: Any) -> None:
 
 class AuthUser(HttpUser):
     wait_time = between(0.05, 0.2)
+
+    def on_start(self) -> None:
+        # Defesa em profundidade: mesmo que o test_start nao rode (ex.: --host trocado na UI),
+        # nenhum usuario dispara requisicao contra host nao-local.
+        try:
+            scn.assert_local_url(self.host or "")
+        except ValueError as exc:
+            self.environment.process_exit_code = 2
+            if self.environment.runner is not None:
+                self.environment.runner.quit()
+            raise StopUser() from exc
 
     def _evaluate(self, key: str) -> None:
         tenant = _STATE["tenant"]
