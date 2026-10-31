@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 import yaml
@@ -176,10 +176,13 @@ class _StrictLoader(yaml.SafeLoader):
     """
 
     def compose_node(self, parent: Any, index: Any) -> Any:
-        if self.check_event(yaml.events.AliasEvent):
-            event = self.peek_event()
+        # PyYAML nao tipa os metodos do parser: cast para chamada tipada (mypy strict).
+        check_event = cast(Callable[..., bool], self.check_event)
+        peek_event: Callable[[], Any] = self.peek_event
+        if check_event(yaml.events.AliasEvent):
+            event = peek_event()
             raise yaml.composer.ComposerError(None, None, "alias not allowed", event.start_mark)
-        event = self.peek_event()
+        event = peek_event()
         if getattr(event, "anchor", None) is not None:
             raise yaml.composer.ComposerError(None, None, "anchor not allowed", event.start_mark)
         return super().compose_node(parent, index)
@@ -292,7 +295,7 @@ def load_legal_hold_registry(path: str | Path | None = None) -> LegalHoldRegistr
         try:
             data = strict.get_single_data()
         finally:
-            strict.dispose()
+            cast(Callable[[], None], strict.dispose)()
     except yaml.YAMLError as exc:
         # Sem a mensagem do parser: ela pode citar o trecho do arquivo (pseudonimos).
         raise _fail(REASON_INVALID_YAML, f"malformed YAML in {registry_path}") from exc

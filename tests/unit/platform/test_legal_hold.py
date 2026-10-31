@@ -433,3 +433,17 @@ def test_entrada_com_espaco_nas_bordas_e_indeterminada(tmp_path: Path, tenant: s
     )
     assert decision.outcome is LegalHoldOutcome.INDETERMINADO
     assert decision.motivo == "titular_nao_identificado"
+
+
+def test_alias_e_recusado_pela_propria_guarda_mesmo_sem_ancora() -> None:
+    """Defesa em profundidade: a guarda de alias dispara antes do erro de alias indefinido do PyYAML.
+
+    Num documento bem-formado a ancora ja e recusada antes; aqui o alias aparece sozinho, entao so a
+    guarda de alias explica a mensagem.
+    """
+    strict = lh._StrictLoader("holds: *a\n")
+    try:
+        with pytest.raises(yaml.YAMLError, match="alias not allowed"):
+            strict.get_single_data()
+    finally:
+        strict.dispose()
