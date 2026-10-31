@@ -1,4 +1,4 @@
-# ADR-0068: Emenda ao ADR-0023 — o ruleset 20775655 e o mecanismo real de protecao do `main`; strict desligado; bypass so por break-glass auditado
+# ADR-0069: Emenda ao ADR-0023 — o ruleset 20775655 e o mecanismo real de protecao do `main`; strict desligado; bypass so por break-glass auditado
 
 **Status:** Proposed — redigido por AGENTE a partir da decisao do dono DEC-19 (2026-10-31); ratificacao pela revisao independente por ADR (DEC-27) PENDENTE; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente
 **Data:** 2026-10-31

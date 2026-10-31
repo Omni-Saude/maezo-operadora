@@ -19,7 +19,7 @@
 | Spec | Escrita depois do código | Escrita antes do código |
 | Cobertura funcional | ~30-40% dos contratos | Alvo: 100% dos contratos |
 | Código inicial | 55K LOC Python portado | Zero — tudo reconstruído |
-| ADRs | 14/24 "Proposed" | 68 numerados (0001–0068): 49 "Accepted", 19 "Proposed"/"Proposto" (status no cabeçalho de cada ADR) |
+| ADRs | 14/24 "Proposed" | 68 numerados (0001–0069): 49 "Accepted", 19 "Proposed"/"Proposto" (status no cabeçalho de cada ADR) |
 | Qualidade alvo | B+ (pré-produção) | A (alpha-dev, self-certified/unverified) |
 
 ## Regras duras para geração de código
