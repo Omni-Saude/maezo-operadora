@@ -1801,7 +1801,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="faixa_auto_desligada",
         name_delta=1,
         occurrence_delta=1,
@@ -1813,7 +1813,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="valor_nf_verificado",
         name_delta=1,
         occurrence_delta=1,
@@ -1825,7 +1825,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="limite_contratual_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1837,7 +1837,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="teto_l2_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1848,7 +1848,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="aprovacoes_auto_benef_30d",
         name_delta=1,
         occurrence_delta=1,
@@ -1860,7 +1860,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="limite_aprovacoes_auto_benef_30d",
         name_delta=1,
         occurrence_delta=1,
@@ -1871,7 +1871,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="valor_auto_benef_30d_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1883,7 +1883,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="limite_valor_auto_benef_30d_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1894,7 +1894,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="valor_auto_tenant_dia_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1905,7 +1905,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="orcamento_auto_tenant_dia_cents",
         name_delta=1,
         occurrence_delta=1,
@@ -1916,7 +1916,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="valor_aprovado_auto_cents",
         name_delta=1,
         occurrence_delta=2,
@@ -1929,7 +1929,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="auto_aprovacao",
         name_delta=0,
         occurrence_delta=1,
@@ -1941,7 +1941,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="calculo",
         name_delta=0,
         occurrence_delta=-1,
@@ -1953,7 +1953,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="tipo_reembolso",
         name_delta=0,
         occurrence_delta=1,
@@ -1965,7 +1965,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="categoria_procedimento",
         name_delta=0,
         occurrence_delta=1,
@@ -1977,7 +1977,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PRNUM",
+        pr="#1149",
         name="valor_solicitado_cents",
         name_delta=0,
         occurrence_delta=1,
@@ -2002,7 +2002,7 @@ class TestBuckets:
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
-        # R-076/R-070 B (#PRNUM): +11 (fatos da faixa automatica do REEMBOLSO)
+        # R-076/R-070 B (#1149): +11 (fatos da faixa automatica do REEMBOLSO)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -2181,7 +2181,7 @@ class TestBuckets:
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
         # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
-        # R-076/R-070 B (#PRNUM): +11 (fatos da faixa automatica do REEMBOLSO).
+        # R-076/R-070 B (#1149): +11 (fatos da faixa automatica do REEMBOLSO).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
