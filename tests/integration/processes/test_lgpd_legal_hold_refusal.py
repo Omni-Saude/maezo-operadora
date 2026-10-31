@@ -121,9 +121,11 @@ async def test_eliminacao_sob_legal_hold_vira_incidente_auditado_sem_avancar(
             assert len(incidents) == 1
             assert incidents[0]["incidentType"] == "failedExternalTask"
             assert incidents[0]["activityId"] == "ST_ExecutarRequisicao"
-            assert incidents[0]["incidentMessage"].startswith(f"{ERR_DSR_LEGAL_HOLD_NOT_HUMAN}: ")
-            esperado = "RETIDO" if registro == "hold_ativo" else "INDETERMINADO"
-            assert f"desfecho={esperado}" in incidents[0]["incidentMessage"]
+            # O harness prefixa o nome da classe e trunca o meio da mensagem: o codigo de guarda e
+            # o inicio da recusa sao o que o engine preserva.
+            assert incidents[0]["incidentMessage"].startswith(
+                f"LegalHoldErasureDeferredError: {ERR_DSR_LEGAL_HOLD_NOT_HUMAN}: eliminacao DIFERIDA"
+            )
             assert _PSEUDO not in json.dumps(incidents)
             tasks = await client.get("/external-task", params={"processInstanceId": instance_id})
             tasks.raise_for_status()
