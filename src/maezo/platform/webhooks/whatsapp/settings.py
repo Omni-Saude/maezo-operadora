@@ -280,20 +280,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
     # POLITICA DE ATRASO do Lucas (decisao do dono, sessao de 14/10/2026): so' o atraso CRITICO de pagador PF
-    # abre caso humano — `meses_min` competencias sem pagamento OU mais de `dias_min` dias de atraso. Abaixo
-    # disso o Lucas responde os fatos e oferece uma pessoa. Padrao: 2 meses e 30 dias.
-    lucas_atraso_meses_min: int = Field(
-        default=2,
-        ge=1,
-        le=24,
-        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_MESES_MIN", "lucas_atraso_meses_min"),
-    )
-    lucas_atraso_dias_min: int = Field(
-        default=30,
-        ge=1,
-        le=365,
-        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_DIAS_MIN", "lucas_atraso_dias_min"),
-    )
+    # abre caso humano — 2 ou mais meses sem pagamento OU mais de 30 dias de atraso. Abaixo disso o Lucas
+    # responde os fatos e oferece uma pessoa.
+    #
+    # R-047/F-031 (decisao do dono de 29/10/2026, reconfirmada em 31/10 na #1084): o LIMIAR saiu deste
+    # arquivo e mora na DMN `lucas_billing_admissibility` (regras `lba_r_atraso_critico`, `>= 2` meses, e
+    # `lba_r_atraso_critico_dias`, `> 30` dias, ambas com `pagador_empresa=false`). O grafo do Lucas so'
+    # CONTA os fatos (`meses_vencidos`, `dias_atraso_max`) e a tabela decide.
+    #
+    # Os campos `lucas_atraso_meses_min`/`lucas_atraso_dias_min` (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`)
+    # deixaram de existir: mudar o limiar e' mudar a tabela — versionada, sob a cerca
+    # `spec/aprovacoes-de-regras.yaml` e com o sign-off financeiro/PO pendente —, nunca uma variavel de
+    # ambiente. Com `extra="ignore"` (acima), uma dessas variaveis ainda definida e' simplesmente ignorada.
+    # (Este bloco ocupa as mesmas 15 linhas dos dois campos removidos: as ancoras de linha do painel W7
+    # — `scripts/w7/shadow_deviation_dashboard.py` — apontam para campos abaixo e nao se movem.)
     # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
     # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
     # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer

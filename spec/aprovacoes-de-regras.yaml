@@ -198,7 +198,7 @@ pendentes:
   - artefato: spec/processes/dmn/lucas_billing_admissibility.dmn
     responsavel: a definir
     marca_no_arquivo: "lucas_billing_admissibility v0.2.0 — status: DRAFT — requires human review (financeiro/PO)"
-    nota: "Pendencia 27 do diretor: a regra de atraso critico (2 meses / 30 dias) entra por aqui como booleano; os NUMEROS vivem em MAEZO_LUCAS_ATRASO_MESES_MIN/_DIAS_MIN (settings.py), fora desta cerca."
+    nota: "Pendencia 27 do diretor: desde R-047/F-031 (decisao do dono 29/10/2026) o limiar do atraso critico (>= 2 meses / > 30 dias) mora NESTA tabela (regras lba_r_atraso_critico e lba_r_atraso_critico_dias) e passa por esta cerca; MAEZO_LUCAS_ATRASO_MESES_MIN/_DIAS_MIN deixaram de existir."
   - artefato: spec/processes/dmn/lucas_escalation_routing.dmn
     responsavel: a definir
     marca_no_arquivo: "lucas_escalation_routing v0.1.0 — status: DRAFT — requires human review (financeiro/PO)"

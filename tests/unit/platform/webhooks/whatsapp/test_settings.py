@@ -157,18 +157,12 @@ def test_settings_never_render_the_credentials(monkeypatch: pytest.MonkeyPatch) 
     assert "bare-tenant" in renderings["repr"]
 
 
-def test_limiares_de_atraso_do_lucas_padrao_e_configuraveis() -> None:
-    """Rodada 12 (decisao do dono, 14/10/2026): padrao 2 meses e 30 dias; faixa validada."""
-    padrao = WhatsAppWebhookSettings(WHATSAPP_APP_SECRET="s", WHATSAPP_VERIFY_TOKEN="v")
-    assert (padrao.lucas_atraso_meses_min, padrao.lucas_atraso_dias_min) == (2, 30)
+def test_limiar_de_atraso_do_lucas_nao_e_mais_configuracao() -> None:
+    """R-047/F-031 (decisao do dono, 29/10/2026): o limiar (2 meses / 30 dias) mora na DMN
+    `lucas_billing_admissibility`; nenhum campo do receptor o carrega nem o ajusta."""
+    campos = set(WhatsAppWebhookSettings.model_fields)
+    assert not {c for c in campos if "atraso" in c}
     ajustado = WhatsAppWebhookSettings(
-        WHATSAPP_APP_SECRET="s",
-        WHATSAPP_VERIFY_TOKEN="v",
-        MAEZO_LUCAS_ATRASO_MESES_MIN=3,
-        MAEZO_LUCAS_ATRASO_DIAS_MIN=45,
+        WHATSAPP_APP_SECRET="s", WHATSAPP_VERIFY_TOKEN="v", MAEZO_LUCAS_ATRASO_MESES_MIN=1
     )
-    assert (ajustado.lucas_atraso_meses_min, ajustado.lucas_atraso_dias_min) == (3, 45)
-    with pytest.raises(ValidationError):
-        WhatsAppWebhookSettings(
-            WHATSAPP_APP_SECRET="s", WHATSAPP_VERIFY_TOKEN="v", MAEZO_LUCAS_ATRASO_MESES_MIN=0
-        )
+    assert not hasattr(ajustado, "lucas_atraso_meses_min")
