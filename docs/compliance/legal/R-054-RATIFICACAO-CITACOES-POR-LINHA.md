@@ -24,7 +24,7 @@
 |---|---|---|---|---|---|
 | L1 | NIP | RN 388/2016 | RN 483/2022, art. 10, I, II, § 1º e § 2º (RN 388/2015 revogada pela RN 483, art. 59, I) | VERIFICADO | |
 | L2 | Cancelamento a pedido | "RN 593 consolida/substitui RN 412"; "RN 593: efeito imediato" | RN 561/2022, art. 15, II (efeito imediato), art. 18 (comprovante em 10 d.u.), art. 25 (revoga RN 412); RN 593/2023 só no ramo de inadimplência | VERIFICADO | |
-| L3 | Descredenciamento / substituição | RN 567 para hospital; "RN 567/2018"; P15D | Não hospitalar: RN 567/2022, arts. 3º e 10. Hospitalar: RN 585/2023, art. 6º, com comunicação à ANS + Lei 9.656, art. 17, § 1º | VERIFICADO (residual na vigência da RN 585) | |
+| L3 | Descredenciamento / substituição | RN 567 para hospital; "RN 567/2018"; P15D | Não hospitalar: RN 567/2022, arts. 3º e 10. Hospitalar: RN 585/2023, art. 6º, com comunicação à ANS + Lei 9.656, art. 17, § 1º | VERIFICADO | |
 | L4 | Glosa | Lei 9.656, art. 18; "RN 305/2016" | Fora do art. 18. Prazos contratuais: RN 503/2022, art. 14, II e parágrafo único + Lei 9.656, art. 17-A, § 2º, II. Padrão: RN 501/2022, art. 3º, I | VERIFICADO (a âncora é escolha do jurídico) | |
 | L5 | Lei 9.656, arts. 12/13/35-C | art. 12 (inciso VIII no plano), art. 13, art. 35-C "(imediato)" | art. 12, VI (não existe inciso VIII); art. 13, parágrafo único, II; art. 35-C (cobertura, sem prazo). O "imediato" vem da RN 623/2024, art. 12, I | VERIFICADO | |
 | L6 | RN 566 (adequação de rede) | "RN 259 tempos e distâncias" | RN 566/2022, art. 1º, § 1º, e arts. 3º a 5º; não há critério de distância na norma | VERIFICADO | |
@@ -102,7 +102,7 @@ A RN 388 é de **2015** (o repo grafa 2016) e foi revogada pela RN 483, art. 59,
 >
 > Art. 18. A partir do fornecimento do comprovante de recebimento da solicitação de cancelamento ou exclusão, a operadora ou a administradora de benefícios deverá encaminhar, no prazo de dez dias úteis, o comprovante do efetivo cancelamento do contrato ou desligamento do beneficiário, por qualquer meio que assegure sua ciência.
 >
-> §3º A exclusão tem efeito imediato a partir da data de ciência pela operadora.
+> Art. 7º, § 3º: "§3º A exclusão tem efeito imediato a partir da data de ciência pela operadora."
 >
 > Art. 25. Fica revogada a Resolução Normativa n˚ 412, de 10 de novembro de 2016. Art. 26. Esta Resolução Normativa entra em vigor em 01 de fevereiro de 2023.
 >
@@ -180,9 +180,9 @@ Acesso em 2026-10-31.
 
 Nenhuma das duas toca o art. 6º.
 
-**Residual:** a redação original do art. 29 da RN 585 fixa a vigência em "01 de março de 2024". Fontes **secundárias** (LegisWeb, legismap) dizem que as RN 598/2024 e 609/2024 adiaram a vigência até 31/12/2024. O texto primário dessas duas não foi obtido nesta sessão: bvsms deu 404 e o DOU não foi localizado. A vigência em 31/12/2024 está corroborada pela RN 620, art. 5º, mas a cadeia 598/609 é **NÃO VERIFICÁVEL** em fonte primária hoje.
+**Vigência da RN 585:** a redação original do art. 29 fixava "01 de março de 2024". A RN 598/2024, art. 1º, deu nova redação: "entrará em vigor 01 de setembro de 2024" (https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0598_15_02_2024.html). A RN 609/2024, art. 1º, deu nova redação: "entrará em vigor 31 de dezembro de 2024 e será revisitada em 24 meses de sua vigência" (https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0609_24_06_2024.html). Acesso em 2026-10-31. A RN 620, art. 5º, fixa a vigência da própria RN 620 na mesma data e não é fonte da vigência da RN 585.
 
-**Status:** VERIFICADO, com o residual acima.
+**Status:** VERIFICADO.
 
 | Ratificação do jurídico (L3) | |
 |---|---|
@@ -373,7 +373,7 @@ Acesso em 2026-10-31.
 
 Acesso em 2026-10-31.
 
-**Status:** VERIFICADO. Os residuais da RN 585 estão em L3.
+**Status:** VERIFICADO. A vigência da RN 585 está em L3.
 
 | Ratificação do jurídico (L8) | |
 |---|---|
@@ -458,6 +458,8 @@ Ambas com acesso em 2026-10-31. Mais os textos-base RN 566, RN 623 e RN 424, tod
 | RN 567/2022 (Saúde Legis) | https://bvsms.saude.gov.br/bvs/saudelegis/ans/2022/res0567_30_12_2022.html | `6b809bc2f8d8c0cfdc6d176527ff7c328ffcb7dca7212a8d5f9972284c600334` | 18975 |
 | RN 585/2023 (Saúde Legis) | https://bvsms.saude.gov.br/bvs/saudelegis/ans/2023/res0585_24_08_2023.html | `fadbf0ed213d687692f85bb84aa46ba8d2716be1f64ad4683949bd7850ad4038` | 34670 |
 | RN 620/2024 (DOU) | https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-620-de-25-de-novembro-de-2024-598247020 | `0c5d96f601134e8e05c949a3ed59d9a795498ce4b09242bfc5bc3e211a287afc` | 117430 |
+| RN 598/2024 (Saúde Legis) | https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0598_15_02_2024.html | `1db5af5eddcf652f49ed8288396e4d2f26248fa8b8ec17fab6ad998e24895972` | 2486 |
+| RN 609/2024 (Saúde Legis) | https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0609_24_06_2024.html | `72b272d292dc1ab8f8bfb3b2fb51f2020b8fb75307106ccbdf728076cbd4529c` | 2546 |
 | RN 677/2026 (DOU) | https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-677-de-20-de-julho-de-2026-720521002 | `aa84508df9b3802803b9f97391a4497396f1a28776e0a92696c6527dc6f9c7b7` | 89153 |
 | Lei 9.656/1998 compilada (Planalto) | https://www.planalto.gov.br/ccivil_03/leis/L9656compilado.htm | `cab78614a7f5e68950f376c43754ac0a3bf13668a3e0098424a9b8df81feca11` | 173591 |
 | RN 503/2022 (Saúde Legis) | https://bvsms.saude.gov.br/bvs/saudelegis/ans/2022/res0503_04_04_2022.html | `2e71d6e45066f5c4c42dae8ef05795403d97a630ebf68d2bbc4250a32033adc9` | 30107 |

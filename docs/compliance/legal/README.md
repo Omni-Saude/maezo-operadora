@@ -25,5 +25,5 @@
 
 - Histórico de emendas posteriores a 2026-10-23: não varrido (controle: re-verificação antes de binding).
 - RN 623/2024: a URL raw da ANS usada no sweep de 2026-10-22 está degradada (ver `404-LOG.md` §3.2); re-pin em DOU recomendado como item próprio, fora do escopo desta missão.
-- Wave 1a (2026-10-31): os documentos R-054 e R-006/R-007 também informam e não decidem. Nenhuma célula de ratificação ou assinatura foi preenchida. Os residuais NÃO VERIFICÁVEIS estão declarados linha a linha (vigência da RN 585 pela cadeia RN 598/609).
+- Wave 1a (2026-10-31): os documentos R-054 e R-006/R-007 também informam e não decidem. Nenhuma célula de ratificação ou assinatura foi preenchida. Todas as linhas estão verificadas em fonte primária; os limites de cada linha estão declarados nela.
 - Esta árvore não edita BPMNs, contratos, DMNs, PLANS.md, COORDINATION.md nem qualquer artefato de autor.

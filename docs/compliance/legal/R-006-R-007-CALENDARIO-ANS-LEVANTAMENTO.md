@@ -32,7 +32,7 @@
 |---|---|---|---|---|---|---|
 | `RN_209_UTILIZACAO` | Nenhuma norma de "utilização". A cadeia da RN 209 leva ao capital regulatório: RN 209 → RN 451/2020 → RN 526/2022 → **RN 569/2022** | Manter PLA ≥ capital regulatório "a qualquer tempo". Os dados de capital seguem **nas datas do DIOPS** | contínua; sem envio próprio | a do DIOPS (ver DIOPS) | alta (cadeia); média (não haver envio autônomo) | |
 | `RN_388_QUALIDADE` | RN 388/2015 revogada pela RN 483/2022 (era fiscalização, não qualidade). Programa de qualidade vigente: **RN 505/2022** (PQO/IDSS) | A ANS calcula o IDSS com dados dos sistemas oficiais. Dever ativo da operadora: **divulgar o IDSS no sítio em até 30 dias** da divulgação pela ANS | anual (competência), por evento (divulgação) | até 30 dias após a divulgação do resultado pela ANS (art. 22) | média | |
-| `RN_424_TISS_MONITORAMENTO` | RN 424/2017 é junta médica. O TISS é regido pela **RN 501/2022** (arts. 23, 25 e 27) + Componente Organizacional do Padrão TISS. A RN 639/2025 **não** trata do TISS | Envio mensal dos dados do Padrão TISS à ANS (monitoramento) | mensal | **até o dia 25 do segundo mês subsequente à competência** (Componente Organizacional set/2026, item 242) | alta | |
+| `RN_424_TISS_MONITORAMENTO` | RN 424/2017 é junta médica. O TISS é regido pela **RN 501/2022** (arts. 23, 25 e 27) + Componente Organizacional do Padrão TISS. A RN 639/2025 **não** trata do TISS | Envio mensal dos dados do Padrão TISS à ANS (monitoramento) | mensal | **até o dia 25 do segundo mês subsequente à competência** (Componente Organizacional set/2026, item 242) | alta (obrigação e periodicidade: RN 501, art. 25); média (regra de data: Componente Organizacional, item 242, documento infranormativo por delegação do art. 25) | |
 | `DIOPS_TRIMESTRAL` | **RN 527/2022**, art. 8º, na redação da **RN 594/2023** | DIOPS/ANS XML trimestral; mensal simplificado para S1/S2 (art. 8º-A); dispensa para S4 ≤ 20 mil (art. 9º) | trimestral (+ mensal, conforme segmento) | 1T 15/05; 2T 15/08; 3T 15/11; 4T **28/02** do exercício seguinte | alta | |
 | SIP (backlog até o 4T/2025) | **RN 551/2022**, art. 7º, para as competências até o 4T/2025. **RN 639/2025** revoga a 551 e desobriga após o 4T/2025, com vigência em 02/03/2026 | Envio trimestral do SIP; o último devido é o do 4T/2025 | trimestral | último dia útil de maio / agosto / novembro / fevereiro do ano seguinte | alta | |
 
@@ -44,7 +44,7 @@
 
 **Achado:**
 - A RN 209/2009 tratava de recursos próprios mínimos e provisões, e não de "utilização".
-- A cadeia de revogação conferida em fonte primária é: RN 209 → revogada pela RN 451/2020 (art. 23) → RN 451 revogada pela RN 526/2022 (art. 21, I) → RN 526 revogada pela **RN 569/2022** (art. 1º), em vigor desde 01/01/2023 (art. 15).
+- A cadeia de revogação conferida em fonte primária é: RN 209 → revogada pela RN 451/2020 (art. 23) → RN 451 revogada pela RN 526/2022 (art. 21, I) → RN 526 revogada pela **RN 569/2022** (art. 14, II; o art. 1º anuncia o objeto), em vigor desde 01/01/2023 (art. 15).
 - A obrigação vigente é **manter, a qualquer tempo**, Patrimônio Líquido Ajustado igual ou superior ao capital regulatório (art. 8º). É obrigação contínua, não envio periódico.
 - Os dados de cálculo do capital seguem "nas mesmas datas de envio do DIOPS" ou em quadro auxiliar do DIOPS (Anexo IV, item 11; Anexo V, item 13.1). Na prática, isso se resolve no gatilho DIOPS.
 - Nenhuma norma ANS vigente com obrigação periódica de "utilização de serviços" foi localizada. Os fluxos de dado de utilização assistencial que existem são o SIP (extinto; ver G5) e o Monitoramento TISS (G3).
@@ -58,6 +58,8 @@
 > Art. 21. Revogam-se: I - a Resolução Normativa nº 451, de 06 de março de 2020;
 >
 > Art. 1º Esta Resolução Normativa dispõe sobre os critérios para definição do capital regulatório das operadoras de planos de assistência à saúde, altera a Resolução Normativa ANS nº 515, de 29 de abril de 2022 e revoga a Resolução Normativa ANS nº 526, de 29 de abril de 2022 e a Resolução Normativa ANS n° 514, de 29 de abril de 2022.
+>
+> Art. 14. Revogam-se: I - a Resolução Normativa nº 514, de 29 de abril de 2022; II - a Resolução Normativa nº 526, de 29 de abril de 2022;
 >
 > Art. 8º As operadoras deverão manter, a qualquer tempo, PLA equivalente ou superior ao capital regulatório.
 >
@@ -174,7 +176,7 @@ Acesso em 2026-10-31.
 
 A página oficial "Monitora TISS" (https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/monitora-tiss, atualizada em 21/11/2025) também refere a "data limite mensal de envio - dia 25 do mês", sem dizer o mês relativo. O item 242 do Componente é o texto que fixa o "segundo mês subsequente".
 
-**Confiança:** alta.
+**Confiança:** alta (obrigação e periodicidade: RN 501, art. 25); média (regra de data: Componente Organizacional, item 242, documento infranormativo por delegação do art. 25).
 
 | Assinatura do jurídico (G3) | |
 |---|---|
