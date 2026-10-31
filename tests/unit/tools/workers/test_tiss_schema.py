@@ -80,7 +80,10 @@ def test_no_version_pinned_fails_closed(tmp_path: Path) -> None:
 
 
 def test_version_env_override_is_honored(tmp_path: Path) -> None:
-    """`MAEZO_TISS_SCHEMA_VERSION` env is honored when no explicit `version=` override is given."""
+    """`MAEZO_TISS_SCHEMA_VERSION` env is honored when no explicit `version=` override is given —
+    since R-068 only INSIDE the pinned edition: an env value outside the pin (this fixture
+    version) is surfaced on the result but fails closed even with an XSD on disk. The pinned
+    values are covered in `test_tiss_schema_version_pin.py`."""
     _vendor_xsd(tmp_path)
     os.environ[TISS_SCHEMA_VERSION_ENV] = _VERSION
     os.environ[TISS_SCHEMA_ROOT_ENV] = str(tmp_path)
@@ -89,8 +92,9 @@ def test_version_env_override_is_honored(tmp_path: Path) -> None:
         result = validator.validate(
             report_type=_REPORT_TYPE, dataset_ref=_write_xml(tmp_path, "d.xml", _VALID_XML)
         )
-        assert result.schema_valid is True
+        assert result.schema_valid is False
         assert result.tiss_schema_version == _VERSION
+        assert any("fora do pin" in e for e in result.errors)
     finally:
         del os.environ[TISS_SCHEMA_VERSION_ENV]
         del os.environ[TISS_SCHEMA_ROOT_ENV]

@@ -1641,6 +1641,91 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-30",
+        pr="#1120",
+        name="decisao_envio",
+        name_delta=-1,
+        occurrence_delta=-2,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): as 2 condicoes que liam `decisao_envio` como "
+            "identificador nu em GW_DecisaoEnvio passam a `execution.getVariable('decisao_envio')` (variavel"
+            " ausente cai no default humano em vez de lancar ENGINE-16004, idioma de SP-OP-CANCEL-001); o "
+            "sweep nao le nomes dentro de getVariable, entao o nome sai do corpus. Segue sendo variavel de "
+            "processo (decisao humana de envio, enum APROVAR/CORRIGIR/ADIAR). Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="trim",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): artefato do parser: `.trim()` em "
+            "`execution.getVariable('justificativa_adiamento').trim() != ''` (guard no engine da "
+            "justificativa de adiamento) e lido como identificador. E metodo de String do JUEL, nao variavel"
+            " de processo. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): novo ST_PublishCompletedFalha publica "
+            "agents.events.anssubmit.completed (desfecho falha_retransmissao) antes de "
+            "End_FalhaRetransmissao. +1 inputParameter LITERAL (nome de topico). Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): novo ST_PublishCompletedFalha: +1 "
+            "inputParameter LITERAL `falha_retransmissao` (enum de desfecho do contrato). Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): novo ST_PublishCompletedFalha: +1 "
+            "inputParameter LITERAL com a lista de NOMES tenant_id,report_type,competencia,nack_motivo "
+            "(mesma lista de ST_PublishFailed). Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="sla",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): novo boundary nao-interruptivo "
+            "BT_DeadlineRiskNack em UT_TratarNack com `${sla.sla_alerta}` (duracao ISO da DMN ans_sla). Sem "
+            "dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
+        pr="#1120",
+        name="sla_alerta",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-066 (F-071/F-137/F-138, SP-OP-ANS-SUBMIT-001): mesmo BT_DeadlineRiskNack "
+            "(`${sla.sla_alerta}`): duracao ISO 8601. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-30",
         pr="#1121",
         name="junta_admissibilidade",
         name_delta=1,
@@ -1742,7 +1827,11 @@ class TestBuckets:
         # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
         # R-027 (timer do 50o dia de SP-OP-INADIMPLENCIA-001): +4 (purga, prazo_notificacao_previa)
         # R-007 (definicao do SIP removida do SP-OP-ANS-CRON-001, #1110): -5
-        assert len(live_sweep.refs) == expected_refs == 1746
+        # R-066 (SP-OP-ANS-SUBMIT-001, #1120): +4 (completed falha_retransmissao +3, alerta NACK +2,
+        #   decisao_envio via getVariable -2, `trim` do guard da justificativa +1); nomes: +1 -1 = 0
+        # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
+        #   nomes: +1 (junta_admissibilidade)
+        assert len(live_sweep.refs) == expected_refs == 1750
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep

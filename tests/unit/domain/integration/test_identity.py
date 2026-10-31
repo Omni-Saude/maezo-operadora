@@ -1186,6 +1186,9 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "conversa/competencia.py",
         "conversa/normalizacao.py",
         "conversa/terceiro_no_texto.py",
+        # R-101 / F-139: primitivos de business key + compositor UNICO de SP-OP-CONTAS-001,
+        # aqui (SDK de agente, ADR-0067) para Marina e o worker CONTAS chamarem o MESMO codigo.
+        "chave_de_negocio.py",
     }
 )
 
@@ -1360,7 +1363,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 16
+    assert len(modules) == 17
 
 
 def test_import_extraction_is_not_vacuous() -> None:

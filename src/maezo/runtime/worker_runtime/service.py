@@ -278,6 +278,7 @@ def register_default_workers(
     inad_rn593_estrito: bool = False,
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
+    lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
@@ -376,6 +377,8 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
+        **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
         junta_rn424_guard=junta_rn424_guard,
     )
@@ -1080,6 +1083,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
                 inad_rn593_estrito=settings.inad_rn593_estrito,
+                lgpd_legal_hold_predicate=settings.lgpd_legal_hold_predicate,
                 # R-064 (RN 424/2017 art. 3 I), DARK: a guarda da junta so' roteia quando ligada.
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
                 publish_ledger=(
