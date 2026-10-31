@@ -289,7 +289,7 @@ análise de minimização.
 > | Criterio | Fonte da regra | Estado |
 > |---|---|---|
 > | `criterio_tecnico_ok` | DMN `dut_rol_coverage` + a `dut_criteria_*` do procedimento | tabelas SINTETICAS, **nao ratificadas** |
-> | `criterio_financeiro_ok` | `CeilingResolver.within_l2_ceiling` (`authorization_approval.max_value_brl`) | fonte REAL e ratificada; **valor = 0 (D-07 em aberto)** |
+> | `criterio_financeiro_ok` | `CeilingResolver.within_l2_ceiling` (`authorization_approval.max_value_brl`) | fonte REAL e ratificada; **valor = R$ 500 para o tenant `amh`** (`spec/policies/autonomy/tenants-amh.yaml`, D-07 FECHADA em 25/08/2026; L0-core segue 0 para os demais tenants) |
 > | `criterio_regulatorio_ok` | DMN `carencia_check` | tabela SINTETICA, **nao ratificada**; inputs sem fonte (AMH/MZO-050b) |
 > | `criterio_contratual_ok` | DMN `auth_criteria_contratual` | costura VAZIA (catch-all `SEM_REGRA_RATIFICADA`), **nao ratificada** |
 >
@@ -317,7 +317,9 @@ análise de minimização.
 > **O QUE PERMANECE ABERTO (agora e' DADO e ESCOPO, nao estrutura) — portao Medico/ANS + financeiro:**
 > 1. **Ratificacao** das 5 tabelas DUT/carencia e populacao da tabela contratual (medico auditor,
 >    juridico/regulatorio, financas). Nenhuma regra clinica, regulatoria ou contratual foi inventada.
-> 2. **D-07**: `authorization_approval.max_value_brl` continua 0 (diretoria).
+> 2. **D-07 (FECHADA em 25/08/2026)**: `authorization_approval.max_value_brl` = R$ 500 no overlay `tenants-amh.yaml`
+>    (L0-core = 0 para tenant sem overlay). O teto sozinho nao abre nada: os outros tres criterios seguem
+>    false por falta de fonte ratificada (item 1).
 > 3. **`rede_credenciada` nao e coberto por nenhum criterio.** Nao existe fonte de rede credenciada
 >    no repo; inventar uma seria fabricar um fato. Enquanto isso ele simplesmente nao participa da
 >    decisao automatica (o que e' fail-closed: menos caminhos para auto-aprovar, nunca mais).

@@ -160,6 +160,7 @@ FINDINGS (module docstring; see PR body / evidence-ledger for full detail):
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import itertools
 import uuid
 import xml.etree.ElementTree as ET
@@ -172,6 +173,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.tools.workers import reembolso as reembolso_module
+from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     FakeKafkaPublisher,
@@ -181,6 +184,7 @@ from maezo.tools.workers.reembolso import (
     REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
     REEMBOLSO_BPMN_ERROR_ALLOWLIST,
     VAR_REEMBOLSO_AUTO_LIBERADO,
+    FatosFaixaAuto,
     ReembolsoDenialNotHumanError,
     register_reembolso_workers,
     send_reembolso_denial_entry,
@@ -343,7 +347,11 @@ _REEMBOLSO_CEILING_D07_REASON = (
     "D-07 for resolvido: cai quando a atuaria (+ regulatorio verifica) assinar o sign-off e a "
     "formula escolhida (A min(solicitado, tabela) vs B) entrar junto com a abertura do "
     "interruptor. Ver test_bloqueio_r058_impede_o_caminho_automatico_de_pagar, que prova o "
-    "bloqueio LIVE."
+    "bloqueio LIVE. "
+    "RETIRED (R-076, R-070 opcao B do dono 2026-10-31): register_reembolso_workers ganhou os seams "
+    "reembolso_ceiling_resolver/reembolso_fonte_faixa_auto; o teste positivo abre a faixa SO' no "
+    "probe (teto e fonte injetados + interruptor R-058 via monkeypatch) e prova End_ReembolsoAprovado"
+    "Automatico com o valor SOLICITADO pago; zero xfail call sites referenciam esta constante."
 )
 
 # SP-OP-REEMBOLSO-001.md:100's "produz" obligation for agents.events.reembolso.pended RESOLVED by
@@ -851,31 +859,240 @@ async def test_bloqueio_r058_impede_o_caminho_automatico_de_pagar(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_CEILING_D07_REASON, strict=True)
+# ---------------------------------------------------------------------------
+# R-076 / R-070 opcao B (dono, 2026-10-31, #1084) — faixa automatica ABERTA SO' NO PROBE
+# ---------------------------------------------------------------------------
+#
+# Producao segue escura (teto 0 na politica, kill-switch de politica fechado, interruptor R-058
+# False, nenhuma fonte de limite contratual/NF/contadores). Aqui cada um dos quatro e' aberto
+# APENAS no probe — teto/kill-switch/exposicao por uma matriz sintetica (seam
+# `reembolso_ceiling_resolver`), os fatos por uma fonte fixa (seam `reembolso_fonte_faixa_auto`) e
+# o interruptor por monkeypatch — para provar, contra o motor real, que a DMN
+# `reembolso_auto_approval` aprova SO' o caso integral e manda a humano cada violacao da opcao B.
+
+_HARD_BLOCK_LANE = """\
+  clinical_decision:      { level: L0, hard: true }
+  authorization_denial:   { level: L0, hard: true }
+  nip_manter_negativa:    { level: L0, hard: true }
+  fraud_accusation:       { level: L0, hard: true }
+  contract_termination:   { level: L0, hard: true }
+"""
+
+_LANE_POLITICA: dict[str, Any] = {
+    "max_value_brl": 300,
+    "faixa_auto_desligada": "false",
+    "exposicao_max_aprovacoes_beneficiario_30d": 2,
+    "exposicao_max_valor_beneficiario_30d_brl": 600,
+    "orcamento_diario_tenant_brl": 3000,
+}
+
+_LANE_FATOS = FatosFaixaAuto(
+    limite_contratual_cents=20000,
+    valor_nf_verificado=True,
+    aprovacoes_auto_benef_30d=0,
+    valor_auto_benef_30d_cents=0,
+    valor_auto_tenant_dia_cents=0,
+)
+
+_lane_seq = itertools.count()
+
+
+@pytest_asyncio.fixture
+async def lane_probe(
+    engine: EngineRest,
+    audit_sink: Any,
+    audit_tenant: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[Callable[..., ReembolsoEngineProbe]]:
+    """Fabrica de probes com a faixa automatica configuravel (so' neste processo de teste)."""
+    transports: list[CibSevenWorkerTransport] = []
+
+    def _make(
+        *,
+        politica: dict[str, Any] | None = None,
+        fatos: FatosFaixaAuto = _LANE_FATOS,
+        liberado: bool = True,
+    ) -> ReembolsoEngineProbe:
+        monkeypatch.setattr(reembolso_module, "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO", liberado)
+        params = ", ".join(
+            f"{k}: {v}" for k, v in (politica if politica is not None else _LANE_POLITICA).items()
+        )
+        core_dir = tmp_path / f"lane-{next(_lane_seq)}"  # matriz e' lru_cache'd por caminho
+        core_dir.mkdir()
+        core = core_dir / "L0-core.yaml"
+        core.write_text(
+            f"version: 1\nactions:\n{_HARD_BLOCK_LANE}"
+            f"  reembolso_auto_approval: {{ level: L2, params: {{ {params} }} }}\n",
+            encoding="utf-8",
+        )
+        worker_id = f"qa-reembolso-lane-{uuid.uuid4().hex[:8]}"
+        transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
+        transports.append(transport)
+        harness = WorkerHarness(
+            transport,
+            worker_id=worker_id,
+            tenant=audit_tenant,
+            lock_duration_ms=10_000,
+            audit_sink=audit_sink,
+            bpmn_error_allowlist=REEMBOLSO_BPMN_ERROR_ALLOWLIST,
+        )
+        kafka = FakeKafkaPublisher()
+        register_reembolso_workers(
+            harness,
+            kafka,
+            reembolso_ceiling_resolver=CeilingResolver(core_path=core),
+            reembolso_fonte_faixa_auto=lambda _input: fatos,
+        )
+        from maezo.tools.workers.events import register_events_workers
+
+        register_events_workers(harness, kafka)
+        return ReembolsoEngineProbe(
+            engine=engine, harness=harness, transport=transport, kafka=kafka, worker_id=worker_id
+        )
+
+    try:
+        yield _make
+    finally:
+        for transport in transports:
+            await transport.close()
+
+
 async def test_happy_path_aprovacao_automatica_l2_com_teto_positivo(
     engine: EngineRest,
-    reembolso_probe: ReembolsoEngineProbe,
+    lane_probe: Callable[..., ReembolsoEngineProbe],
     start_reembolso: Callable[..., Any],
 ) -> None:
-    """Teto POSITIVO (D-07 resolvido) + tudo favoravel => AUTO_APROVAR integral.
+    """Faixa aberta no probe + tudo favoravel => AUTO_APROVAR integral, pagando o SOLICITADO.
 
-    Donor injects a resolver with a positive ceiling (`reembolso_probe_teto_positivo`); v2's
-    `register_reembolso_workers` has no seam for this (finding 3) — the REAL tenant ceiling (0,
-    D-07 open) always applies, so this path is unreachable via the standard probe.
+    R-076 resolve o antigo xfail strict (`_REEMBOLSO_CEILING_D07_REASON`): o caminho e' ALCANCAVEL
+    quando as quatro travas abrem. E prova o fim do sobrepagamento por construcao (F-028): o pedido
+    e' de 10000 contra tabela 12000 — o valor pago (`valor_cents`, que so' o worker de pagamento
+    escreve) e' 10000, nunca a tabela.
     """
-    inst = await start_reembolso()
+    probe = lane_probe()
+    inst = await start_reembolso(valor_solicitado_cents=10000)
     iid = inst["id"]
 
-    await reembolso_probe.drain()
+    await probe.drain()
     ended = await _await_end(engine, iid)
 
     assert _END_AUTO in ended, f"Deve atingir End_ReembolsoAprovadoAutomatico. ended={ended}"
+    assert _ST_ISSUE_PAYMENT_AUTO in ended
     assert not await engine.list_user_tasks(iid), "Auto-aprovacao L2 nao cria User Tasks"
-    assert reembolso_probe.has_event(_REEMBOLSO_RECEIVED)
-    assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="aprovado_automatico")
-    pagamentos = reembolso_probe.notifications_of_type("reembolso.issue_payment")
-    assert pagamentos, "issue_payment deve ser executado na auto-aprovacao"
-    assert not reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
+    assert probe.has_event(_REEMBOLSO_RECEIVED)
+    assert probe.has_event(_REEMBOLSO_COMPLETED, desfecho="aprovado_automatico")
+    assert await engine.get_history_variable(iid, "valor_cents") == 10000, (
+        "o caminho automatico tem de pagar o valor SOLICITADO (10000), nunca a tabela (12000)"
+    )
+    assert not (ended & _END_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+_FATOS = dataclasses.replace
+
+# (id, politica, fatos, liberado, start overrides) — cada caso viola UMA condicao da opcao B.
+_CASOS_HUMANOS: list[tuple[str, dict[str, Any], FatosFaixaAuto, bool, dict[str, Any]]] = [
+    ("interruptor_r058_fechado", _LANE_POLITICA, _LANE_FATOS, False, {}),
+    ("teto_zero", {**_LANE_POLITICA, "max_value_brl": 0}, _LANE_FATOS, True, {}),
+    (
+        "acima_do_teto_nunca_paga_ate_o_teto",
+        {**_LANE_POLITICA, "max_value_brl": 100},
+        _LANE_FATOS,
+        True,
+        {"valor_solicitado_cents": 11000},
+    ),
+    ("kill_switch_de_politica", {**_LANE_POLITICA, "faixa_auto_desligada": "true"}, _LANE_FATOS, True, {}),
+    (
+        "kill_switch_ausente",
+        {k: v for k, v in _LANE_POLITICA.items() if k != "faixa_auto_desligada"},
+        _LANE_FATOS,
+        True,
+        {},
+    ),
+    ("nf_nao_verificada", _LANE_POLITICA, _FATOS(_LANE_FATOS, valor_nf_verificado=False), True, {}),
+    ("sem_limite_contratual", _LANE_POLITICA, _FATOS(_LANE_FATOS, limite_contratual_cents=None), True, {}),
+    (
+        "acima_do_limite_contratual",
+        _LANE_POLITICA,
+        _FATOS(_LANE_FATOS, limite_contratual_cents=9000),
+        True,
+        {},
+    ),
+    ("valor_zero", _LANE_POLITICA, _LANE_FATOS, True, {"valor_solicitado_cents": 0}),
+    (
+        "contador_de_exposicao_ausente",
+        _LANE_POLITICA,
+        _FATOS(_LANE_FATOS, aprovacoes_auto_benef_30d=None),
+        True,
+        {},
+    ),
+    (
+        "exposicao_quantidade_esgotada",
+        _LANE_POLITICA,
+        _FATOS(_LANE_FATOS, aprovacoes_auto_benef_30d=2),
+        True,
+        {},
+    ),
+    (
+        "exposicao_valor_esgotada",
+        _LANE_POLITICA,
+        _FATOS(_LANE_FATOS, valor_auto_benef_30d_cents=55000),
+        True,
+        {},
+    ),
+    (
+        "orcamento_tenant_esgotado",
+        _LANE_POLITICA,
+        _FATOS(_LANE_FATOS, valor_auto_tenant_dia_cents=295000),
+        True,
+        {},
+    ),
+    ("tipo_fora_da_fase1", _LANE_POLITICA, _LANE_FATOS, True, {"tipo_reembolso": "urgencia_emergencia"}),
+    (
+        "categoria_fora_da_fase1",
+        _LANE_POLITICA,
+        _LANE_FATOS,
+        True,
+        {"categoria_procedimento": "exame_simples", "valor_solicitado_cents": 8000},
+    ),
+    ("item_art_10b_fora", _LANE_POLITICA, _LANE_FATOS, True, {"categoria_procedimento": "bolsa_colostomia"}),
+    ("merito_clinico", _LANE_POLITICA, _LANE_FATOS, True, {"requer_avaliacao_clinica": True}),
+]
+
+
+@pytest.mark.parametrize(
+    ("politica", "fatos", "liberado", "overrides"),
+    [pytest.param(p, f, lib, o, id=i) for i, p, f, lib, o in _CASOS_HUMANOS],
+)
+async def test_opcao_b_cada_violacao_vai_a_humano_e_nunca_paga_automatico(
+    engine: EngineRest,
+    lane_probe: Callable[..., ReembolsoEngineProbe],
+    start_reembolso: Callable[..., Any],
+    politica: dict[str, Any],
+    fatos: FatosFaixaAuto,
+    liberado: bool,
+    overrides: dict[str, Any],
+) -> None:
+    """Teste NEGATIVO da guarda de alcada da faixa automatica (R-070 opcao B, R-076).
+
+    Tudo aberto como no teste positivo, menos UMA condicao. Em todos os casos o pedido cai em
+    `UT_AnaliseReembolso` e `ST_IssuePaymentAuto` nao executa: nunca aprovacao parcial, nunca
+    pagamento "ate o teto", nunca pagamento sem NF verificada, limite contratual ou contador.
+    """
+    probe = lane_probe(politica=politica, fatos=fatos, liberado=liberado)
+    start = {"valor_solicitado_cents": 10000, **overrides}
+    inst = await start_reembolso(**start)
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, probe, iid)
+    assert "analise-reembolso" in ut.candidate_groups
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _ST_ISSUE_PAYMENT_AUTO not in ended, f"faixa automatica pagou com violacao da opcao B: {ended}"
+    assert _END_AUTO not in ended
+    assert not (ended & _END_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
 
 
 async def test_happy_path_aprovado_pelo_analista(

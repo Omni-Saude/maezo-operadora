@@ -21,11 +21,11 @@ actions:
   high_value_payment:           { level: L1, params: { threshold_brl: 100000 } }
   authorization_approval:       { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
     # max_value_brl=0 em L0-core: teto REAL e definido por tenant (ex.: tenants/amh.yaml) — D-07
-  reembolso_auto_approval:      { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
-    # Espelha authorization_approval para SP-OP-REEMBOLSO-001 (GAP-REEMBOLSO-3): teto de auto-aprovacao
-    # L2 do reembolso. max_value_brl=0 em L0-core: teto REAL por tenant (tenants-amh.yaml) — D-07.
-    # `operadora.reembolso.calculate_amount` compara valor_calculado_tabela_cents com este teto (via
-    # gateway.pep.load_matrix) e COMPUTA dentro_teto_l2 — nunca confia no booleano de entrada.
+  reembolso_auto_approval:      { level: L2, params: { requires: dmn_favorable, max_value_brl: 0, faixa_auto_desligada: true, exposicao_max_aprovacoes_beneficiario_30d: 2, exposicao_max_valor_beneficiario_30d_brl: 600, orcamento_diario_tenant_brl: 3000 } }
+    # R-070 opcao B (dono 2026-10-31, #1084): teto = min(limite contratual, P60 do lake AMH, R$ 300) — fica 0 ate o lake AMH existir (escuro por
+    # valor) e NUNCA > 500 sem novo ADR; so' roteia (acima -> humano, nunca "paga ate o teto"). DRAFT, recalibrar apos a sombra: faixa_auto_desligada
+    # = kill-switch de politica (true/ausente/invalido = fechada; o outro e' REEMBOLSO_AUTO_PAGAMENTO_LIBERADO), exposicao 2 aprov. e R$ 600 por
+    # beneficiario/30d, R$ 3.000/dia por tenant. `operadora.reembolso.calculate_amount` RELAIA; a DMN `reembolso_auto_approval` compara (ADR-0012).
   standard_glosa_processing:    { level: L2 }
   triage_and_routing:           { level: L3 }
   scheduling:                   { level: L3 }

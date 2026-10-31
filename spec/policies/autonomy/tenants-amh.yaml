@@ -19,4 +19,4 @@ overrides:
     # E o teto NAO abre a aprovacao automatica por si: o criterio financeiro e' UM de quatro, e
     # tecnico/regulatorio/contratual seguem falsos por falta de fonte ratificada.
   reembolso_auto_approval:
-    params: { max_value_brl: 0 }   # D-07 em aberto: definir teto de auto-aprovacao de reembolso (AMH)
+    params: { max_value_brl: 0 }   # R-070 opcao B (dono 2026-10-31, #1084): 0 ate o P60 do lake AMH existir; sobe so' no PR de ativacao, apos a assinatura do dono + atuaria

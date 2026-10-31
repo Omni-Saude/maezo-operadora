@@ -12,7 +12,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -30,10 +30,54 @@ logger = structlog.get_logger(__name__)
 
 # Governance ceiling for reembolso L2 auto-approval (design T1.9 §2.3). The teto VALUE
 # lives in the autonomy matrix (`reembolso_auto_approval.max_value_brl`, L0-core.yaml:24 +
-# tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses. With the D-07
-# placeholder `max_value_brl: 0`, every within-table request routes to ANALISE_HUMANA.
+# tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses. R-070 option B (owner,
+# 2026-10-31, #1084): `max_value_brl: 0` until the AMH lake history exists, so every
+# request routes to ANALISE_HUMANA ("dark by value").
 _CEILING_ACTION = "reembolso_auto_approval"
 _CEILING_PARAM = "max_value_brl"
+
+# R-070 option B — DRAFT policy parameters of the same action (L0-core.yaml:24). This module only
+# RELAYS them to the DMN `reembolso_auto_approval`, which owns every comparison (ADR-0012).
+#: Policy kill-switch of the automatic lane: `true`, absent or not a YAML bool => closed.
+_PARAM_FAIXA_DESLIGADA = "faixa_auto_desligada"
+_PARAM_EXPO_QTD_BENEF = "exposicao_max_aprovacoes_beneficiario_30d"
+_PARAM_EXPO_VALOR_BENEF_BRL = "exposicao_max_valor_beneficiario_30d_brl"
+_PARAM_ORCAMENTO_TENANT_BRL = "orcamento_diario_tenant_brl"
+
+
+@dataclass(frozen=True)
+class FatosFaixaAuto:
+    """Facts the R-070 option B lane needs that NO source in this repo produces yet.
+
+    Every default is the "unknown" shape, which the DMN routes to a human: no contractual limit
+    (the AMH contract link is under construction), NF value not verified (G2 guard of #1074), and
+    no exposure counters (R-070 §5 builds them). A source is injected through the
+    ``reembolso_fonte_faixa_auto`` seam of :func:`register_reembolso_workers`; production passes
+    none, so the lane stays closed even with a positive teto.
+    """
+
+    limite_contratual_cents: int | None = None
+    valor_nf_verificado: bool = False
+    aprovacoes_auto_benef_30d: int | None = None
+    valor_auto_benef_30d_cents: int | None = None
+    valor_auto_tenant_dia_cents: int | None = None
+
+
+#: Source of :class:`FatosFaixaAuto` for one request (seam; never a Python rule).
+FonteFatosFaixaAuto = Callable[["ReembolsoInput"], FatosFaixaAuto]
+
+
+def _sem_fonte_faixa_auto(input_data: ReembolsoInput) -> FatosFaixaAuto:
+    """Default source: nothing is known, so the DMN catch-all routes the request to a human."""
+    del input_data
+    return FatosFaixaAuto()
+
+
+def _contagem_ou_none(value: object) -> int | None:
+    """Relay an exact non-negative integer (centavos or a count); anything else becomes None."""
+    if is_exact_engine_integer(value) and isinstance(value, int) and value >= 0:
+        return value
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -188,10 +232,17 @@ class ReembolsoCalculoDmn:
 # ou B "rotear a humano so quando solicitado < tabela" — e' ato atuarial, NAO de engenharia
 # (R-059, gatekeeper 2: "NENHUM agente implementa min(solicitado, tabela)"). Ate a assinatura, a
 # unica postura que nao decide dinheiro no lugar da atuaria e' nao pagar nada automaticamente.
+# ATUALIZACAO R-070 (dono, 2026-10-31, #1084, opcao B): a formula FOI escolhida pelo dono — so'
+# aprovacao integral, pago = min(solicitado, limite contratual, teto), acima -> humano — e vive na
+# DMN `reembolso_auto_approval` (saida `valor_aprovado_auto_cents`, mapeada por
+# `ST_IssuePaymentAuto`). A constante abaixo SEGUE `False`: e' a metade "codigo" do kill-switch
+# duplo da opcao B (a outra e' o teto 0 da politica) e so' vira com a assinatura do dono + atuaria
+# no bloco §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md`.
 #
-# INDEPENDENTE DO TETO D-07 — de proposito. Hoje `reembolso_auto_approval.max_value_brl` e' 0
-# (`spec/policies/autonomy/tenants-amh.yaml`, D-07 em aberto) e `CeilingResolver.within_l2_ceiling`
-# e' fail-closed em teto 0, o que ja manda tudo a analise humana. Esse bloqueio e' um EFEITO
+# INDEPENDENTE DO TETO — de proposito. Hoje `reembolso_auto_approval.max_value_brl` e' 0
+# (`spec/policies/autonomy/tenants-amh.yaml`, R-070 opcao B ate o lake AMH) e
+# `CeilingResolver.within_l2_ceiling` e' fail-closed em teto 0, o que ja manda tudo a analise
+# humana. Esse bloqueio e' um EFEITO
 # COLATERAL de uma decisao de FINANCAS (R-157) que pode ser revertida numa sessao: no dia em que o
 # teto subir de zero, o sobrepagamento vira explorable. Por isso o bloqueio abaixo NAO le o teto,
 # NAO le politica de tenant e NAO le nenhuma variavel de processo: ele e' a constante nomeada
@@ -485,6 +536,20 @@ class ReembolsoCalculoResult:
     #: `Flow_GW_AutoAprovar`. Default `False` como todo default fail-safe desta classe: um
     #: `ReembolsoCalculoResult` construido sem passar por `calculate_value` nunca libera nada.
     reembolso_auto_liberado: bool = False
+    #: R-070 option B — facts RELAYED to the DMN `reembolso_auto_approval` (it compares, this
+    #: module never does). Policy side: teto and DRAFT exposure limits in centavos/counts
+    #: (0 = admits nothing) and the policy kill-switch (closed unless the YAML says `false`).
+    teto_l2_cents: int = 0
+    faixa_auto_desligada: bool = True
+    limite_aprovacoes_auto_benef_30d: int = 0
+    limite_valor_auto_benef_30d_cents: int = 0
+    orcamento_auto_tenant_dia_cents: int = 0
+    #: Source side (:class:`FatosFaixaAuto`): None/False = unknown = human.
+    limite_contratual_cents: int | None = None
+    valor_nf_verificado: bool = False
+    aprovacoes_auto_benef_30d: int | None = None
+    valor_auto_benef_30d_cents: int | None = None
+    valor_auto_tenant_dia_cents: int | None = None
 
 
 @dataclass
@@ -599,6 +664,7 @@ def calculate_value(
     calculo: ReembolsoCalculoDmn,
     *,
     resolver: CeilingResolver | None = None,
+    fonte_faixa_auto: FonteFatosFaixaAuto | None = None,
 ) -> ReembolsoCalculoResult:
     """Resolve the two comparison facts over the DMN's amount — never the amount itself.
 
@@ -661,6 +727,7 @@ def calculate_value(
         raise ReembolsoCalculoIndisponivelError("valor_solicitado_cents integer-centavos invalido")
     valor_calculado = _require_dmn_valor_cents(calculo.valor_calculado_tabela_cents)
     resolver = resolver if resolver is not None else CeilingResolver()
+    fonte = fonte_faixa_auto if fonte_faixa_auto is not None else _sem_fonte_faixa_auto
 
     logger.info(
         "reembolso.calculate_value.start",
@@ -697,6 +764,7 @@ def calculate_value(
         # R-058: RELAIA a constante, nao um calculo. Nenhum dado do pedido, do tenant ou do teto
         # entra aqui — e' exatamente o ponto do bloqueio generico.
         reembolso_auto_liberado=REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
+        **_fatos_faixa_auto(input_data, resolver, fonte),
     )
 
     logger.info(
@@ -710,6 +778,47 @@ def calculate_value(
         reembolso_auto_liberado=result.reembolso_auto_liberado,
     )
     return result
+
+
+def _fatos_faixa_auto(
+    input_data: ReembolsoInput, resolver: CeilingResolver, fonte: FonteFatosFaixaAuto
+) -> dict[str, Any]:
+    """R-070 option B: RELAY the lane facts for the DMN `reembolso_auto_approval` — no comparison.
+
+    Policy values come from the same matrix the PEP evaluates (BRL -> centavos is a unit change,
+    integer x 100, never rounding). Source values are sanitized to the "unknown" shape when they
+    are not exact non-negative integers / a real ``True`` — an untrusted fact never reads as a pass.
+    """
+    tenant = input_data.tenant_id
+    desligada = resolver.bool_param(tenant=tenant, action=_CEILING_ACTION, param=_PARAM_FAIXA_DESLIGADA)
+    try:
+        fatos = fonte(input_data)
+    except Exception as exc:  # fail-closed: a broken source is "nothing known" -> human
+        logger.warning("reembolso.faixa_auto.fonte_indisponivel", error_type=type(exc).__name__)
+        fatos = FatosFaixaAuto()
+    if not isinstance(fatos, FatosFaixaAuto):
+        fatos = FatosFaixaAuto()
+    return {
+        "teto_l2_cents": resolver.ceiling_brl(tenant=tenant, action=_CEILING_ACTION, param=_CEILING_PARAM)
+        * 100,
+        "faixa_auto_desligada": desligada is not False,
+        "limite_aprovacoes_auto_benef_30d": resolver.int_param(
+            tenant=tenant, action=_CEILING_ACTION, param=_PARAM_EXPO_QTD_BENEF
+        ),
+        "limite_valor_auto_benef_30d_cents": resolver.int_param(
+            tenant=tenant, action=_CEILING_ACTION, param=_PARAM_EXPO_VALOR_BENEF_BRL
+        )
+        * 100,
+        "orcamento_auto_tenant_dia_cents": resolver.int_param(
+            tenant=tenant, action=_CEILING_ACTION, param=_PARAM_ORCAMENTO_TENANT_BRL
+        )
+        * 100,
+        "limite_contratual_cents": _contagem_ou_none(fatos.limite_contratual_cents),
+        "valor_nf_verificado": fatos.valor_nf_verificado is True,
+        "aprovacoes_auto_benef_30d": _contagem_ou_none(fatos.aprovacoes_auto_benef_30d),
+        "valor_auto_benef_30d_cents": _contagem_ou_none(fatos.valor_auto_benef_30d_cents),
+        "valor_auto_tenant_dia_cents": _contagem_ou_none(fatos.valor_auto_tenant_dia_cents),
+    }
 
 
 def request_documents(
@@ -1365,7 +1474,11 @@ def check_prazo_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None
 
 
 def calculate_amount_entry(
-    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    resolver: CeilingResolver | None = None,
+    fonte_faixa_auto: FonteFatosFaixaAuto | None = None,
 ) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.reembolso.calculate_amount` -> `calculate_value`.
 
@@ -1384,7 +1497,7 @@ def calculate_amount_entry(
     del kafka  # unused — calculate_value emits no domain event
     input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
     calculo = _require_calculo_dmn(variables)
-    result = calculate_value(input_data, calculo)
+    result = calculate_value(input_data, calculo, resolver=resolver, fonte_faixa_auto=fonte_faixa_auto)
     return dataclasses.asdict(result)
 
 
@@ -1433,19 +1546,19 @@ def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | No
 
     AMOUNT RESOLUTION — the paid amount is ALWAYS `valor_reembolso_aprovado_cents`, defined by
     contract SP-OP-REEMBOLSO-001 §"Variaveis de saida" as "Valor efetivamente aprovado (humano em
-    APROVAR/APROVAR_PARCIAL; = `valor_calculado_tabela_cents` no caminho automatico)". ONE topic
-    serves the BPMN's THREE payment tasks, and all three resolve to that single variable:
+    APROVAR/APROVAR_PARCIAL; no caminho automatico = `auto_aprovacao.valor_aprovado_auto_cents` =
+    `valor_solicitado_cents`)". ONE topic serves the BPMN's THREE payment tasks, and all three
+    resolve to that single variable:
 
-    - `ST_IssuePaymentAuto` (AUTO_APROVAR, L2 — integral): **BLOQUEADO (R-058)**. A task ainda
-      deriva o valor via `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`,
-      mas `require_pagamento_autorizado` (abaixo, chamada ANTES da resolucao do valor) recusa esta
-      origem enquanto :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` for `False`, e a condicao de
-      `Flow_GW_AutoAprovar` ja impede o token de chegar aqui. CORRIGIDA de passagem a afirmacao
-      FALSA que esta docstring carregava — "`= valor_solicitado_cents` by construction of the
-      `dentro_tabela` gate": o gate compara com `<=`, nunca com `==` (`calculate_value`), entao
-      `solicitado < tabela` o satisfaz e o valor da TABELA (o MAIOR) seria pago — o sobrepagamento
-      por construcao do GAP REEMBOLSO-AUTO-OVERPAY-a. Qual formula corrige isso (A
-      `min(solicitado, tabela)` ou B) e' ato atuarial, nao de engenharia (R-059).
+    - `ST_IssuePaymentAuto` (AUTO_APROVAR, L2 — integral): **BLOQUEADO (R-058)**. R-070 opcao B
+      (dono, 2026-10-31): a task deriva o valor via `valor_reembolso_aprovado_cents =
+      ${auto_aprovacao.valor_aprovado_auto_cents}` — a DMN `reembolso_auto_approval` so' o emite na
+      regra `r_auto` e ele e' o proprio `valor_solicitado_cents` (aprovacao integral, nunca o valor
+      da TABELA), o que fecha o sobrepagamento por construcao do GAP REEMBOLSO-AUTO-OVERPAY-a (o
+      gate `dentro_tabela` compara com `<=`). `require_pagamento_autorizado` (abaixo, chamada ANTES
+      da resolucao do valor) segue recusando esta origem enquanto
+      :data:`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` for `False` (assinatura do dono + atuaria no R-070
+      §6), e a condicao de `Flow_GW_AutoAprovar` ja impede o token de chegar aqui.
     - `ST_IssuePaymentAnalista` (human APROVAR): the value the human set in `UT_AnaliseReembolso`
       / `UT_RevisaoAuditorMedico` / `UT_CoordenacaoReembolso` — already in process scope.
     - `ST_IssuePaymentParcial` (human APROVAR_PARCIAL): the human's REDUCED value, re-validated
@@ -1454,9 +1567,9 @@ def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | No
       this task — so a parcial payment can only ever be reached with a valid reduced amount.
 
     PRECEDENCE: the approved value OVERRIDES the calculated one, and `valor_calculado_tabela_cents`
-    is NEVER read here — not even as a fallback. On the automatic path the override is already
-    applied by the model (approved := calculated). On the two human paths, substituting the
-    machine-calculated value for a missing human one would pay an amount NO human approved:
+    is NEVER read here — not even as a fallback. On the automatic path the model already maps
+    the DMN's approved amount (approved := requested, R-070 option B). On the two human paths,
+    substituting the machine-calculated value for a missing human one would pay an amount NO human approved:
     silently less (a reduction) or more (an overpayment) than the human decision — the L0-hard
     violation this process exists to prevent (contract §"Invariante L0 hard": "reducao = adverso =
     humano"; ADR-0018). `valor_cents` — the variable this entry read before this fix — is produced
@@ -1524,7 +1637,11 @@ def register_reembolso_workers(
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
     docstring for the same documented sync/async-boundary rationale.
     """
-    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    # R-070 option B seams (namespaced: `register_all_workers` fans `**seams` out to every module).
+    # Production passes neither: the real matrix resolves the teto (0) and no lane-fact source
+    # exists, so the DMN routes every request to a human. Tests inject both to prove the lane.
+    resolver: CeilingResolver | None = seams.get("reembolso_ceiling_resolver")
+    fonte_faixa_auto: FonteFatosFaixaAuto | None = seams.get("reembolso_fonte_faixa_auto")
     harness.register_worker(
         FunctionWorker(
             "operadora.reembolso.check_coverage", functools.partial(check_coverage_entry, kafka=kafka)
@@ -1535,7 +1652,10 @@ def register_reembolso_workers(
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.reembolso.calculate_amount", functools.partial(calculate_amount_entry, kafka=kafka)
+            "operadora.reembolso.calculate_amount",
+            functools.partial(
+                calculate_amount_entry, kafka=kafka, resolver=resolver, fonte_faixa_auto=fonte_faixa_auto
+            ),
         )
     )
     harness.register_worker(
