@@ -276,6 +276,7 @@ def register_default_workers(
     publish_ledger: PublishLedger | None = None,
     pagto_valor_invalido_pendente_dados: bool = False,
     inad_rn593_estrito: bool = False,
+    junta_rn424_guard: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -370,6 +371,8 @@ def register_default_workers(
         pagto_valor_invalido_pendente_dados=pagto_valor_invalido_pendente_dados,
         # R-027: guard/timer RN 593 estritos de SP-OP-INADIMPLENCIA-001 (dark; see settings).
         **({"inad_rn593_estrito": True} if inad_rn593_estrito else {}),
+        # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
+        junta_rn424_guard=junta_rn424_guard,
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1072,6 +1075,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
                 inad_rn593_estrito=settings.inad_rn593_estrito,
+                # R-064 (RN 424/2017 art. 3 I), DARK: a guarda da junta so' roteia quando ligada.
+                junta_rn424_guard=settings.auth_junta_rn424_guard,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url

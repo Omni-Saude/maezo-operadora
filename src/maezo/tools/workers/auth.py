@@ -1824,6 +1824,10 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # ConveneJuntaWorker
 # ---------------------------------------------------------------------------
 
+#: R-064: variavel de processo lida por `GW_JuntaAdmissivel` (SP-OP-AUTH-001) para saber se a
+#: vedacao da RN 424 art. 3 I roteia. Fonte UNICA: a implantacao (`MAEZO_AUTH_JUNTA_RN424_GUARD`).
+_JUNTA_RN424_GUARD_VAR = "junta_guarda_rn424_ativa"
+
 
 class ConveneJuntaWorker(WorkerBase):
     """External task: operadora.auth.convene_junta
@@ -1842,10 +1846,22 @@ class ConveneJuntaWorker(WorkerBase):
     explicito do guard da negativa a jusante (uma junta-NEGAR sem auditor_id passaria pelo flag
     stale). Proveniencia e' derivada onde consumida, jamais fabricada por worker em ramo
     nao-terminal.
+
+    R-064 (F-017; decisao do dono DEC-15, issue #1083 -> R-034): RN 424/2017 art. 3 I veda a junta
+    em urgencia/emergencia. A REGRA mora na DMN `auth_junta_admissibility`, avaliada pelo engine em
+    `BRT_JuntaAdmissibilidade` logo depois desta task; este worker NAO le `carater_atendimento`
+    (nenhuma regra de negocio em Python, AGENTS.md regra 5). O que ele escreve e' so' a posicao da
+    IMPLANTACAO: `junta_guarda_rn424_ativa` (bool), `True` apenas com `rn424_guard is True`
+    (`MAEZO_AUTH_JUNTA_RN424_GUARD`, DARK por padrao). Escrito em TODO caminho, inclusive no
+    bloqueio do guard: uma semente de start com o mesmo nome e' sempre sobrescrita. Com a guarda
+    ligada o status vira `junta_solicitada` — a junta so' e' de fato convocada se a DMN a admitir;
+    vedada, o caso volta a coordenacao de auditoria medica (humana). Nada aqui aprova nem nega.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, rn424_guard: bool = False) -> None:
         super().__init__(topic="operadora.auth.convene_junta")
+        # `is True`, nunca truthiness: um valor-lixo ("true", 1) jamais liga a guarda (dark).
+        self._rn424_guard = rn424_guard is True
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Convokes a medical board.
@@ -1879,6 +1895,7 @@ class ConveneJuntaWorker(WorkerBase):
                 "status": "blocked_by_guard",
                 "error_code": ERR_DENIAL_NOT_HUMAN,
                 "mensagem": "Convocacao de junta medica requer aprovacao humana (L0 hard)",
+                _JUNTA_RN424_GUARD_VAR: self._rn424_guard,
             }
 
         self.logger.info(
@@ -1886,13 +1903,16 @@ class ConveneJuntaWorker(WorkerBase):
             tenant_id=tenant_id,
             guia=guia,
             decisao=decisao,
+            rn424_guard=self._rn424_guard,
         )
 
         return {
-            "status": "junta_convened",
+            # Guarda ligada: a admissibilidade (RN 424 art. 3 I) ainda vai ser decidida pela DMN.
+            "status": "junta_solicitada" if self._rn424_guard else "junta_convened",
             "junta_group": "junta-medica",
             "fundamentacao": "RN 424/2017",
             "event": "agents.events.auth.completed",
+            _JUNTA_RN424_GUARD_VAR: self._rn424_guard,
         }
 
 
@@ -1927,6 +1947,10 @@ def register_auth_workers(
     default False — `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`) is threaded into that one owner and
     only switches on the honest manual-delivery state of the RN 623 art. 14 written notice.
 
+    `junta_rn424_guard` (bool, default False — `MAEZO_AUTH_JUNTA_RN424_GUARD`, R-064) is threaded
+    into `ConveneJuntaWorker`, which only publishes whether `GW_JuntaAdmissivel` applies the
+    RN 424/2017 art. 3 I veto computed by the DMN `auth_junta_admissibility`.
+
     WP-J1-09: `operadora.auth.notify_sla_risk` is now a RAW `harness.register()` handler instead
     of a `register_worker(NotifySlaRiskWorker())` entry, because publishing the alert needs the
     async Kafka seam a `WorkerBase.execute` boundary cannot reach — the same conversion lgpd's
@@ -1950,7 +1974,6 @@ def register_auth_workers(
     workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
         IssueAuthorizationWorker,
-        ConveneJuntaWorker,
     ]
     # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
     # consumidores possiveis e EXATAMENTE UM pode estar registrado:
@@ -1973,6 +1996,9 @@ def register_auth_workers(
     # saiu por decisao do dono (DEC-01, issue #1081); o seam que o instalava e' recusado acima.
     for worker_cls in workers:
         harness.register_worker(worker_cls())
+    # R-064 (RN 424/2017 art. 3 I), DARK: `junta_rn424_guard` vem de `MAEZO_AUTH_JUNTA_RN424_GUARD`.
+    # `is True`, nao truthiness: um valor-lixo ("true", 1) nunca liga a guarda.
+    harness.register_worker(ConveneJuntaWorker(rn424_guard=seams.get("junta_rn424_guard") is True))
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
     # POR ULTIMO (18/09/2026, bateria adversarial): um selo de topico pre-existente que recuse

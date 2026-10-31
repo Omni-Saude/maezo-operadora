@@ -166,6 +166,7 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
 _DMN_ADMISS = _REPO / "spec/processes/dmn/auth_admissibility.dmn"
 _DMN_AUTO = _REPO / "spec/processes/dmn/auth_auto_approval.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/auth_sla.dmn"
+_DMN_JUNTA = _REPO / "spec/processes/dmn/auth_junta_admissibility.dmn"  # R-064 (RN 424 art. 3 I)
 
 # External task topics do contrato SP-OP-AUTH-001.
 _PUBLISH_TOPIC = "operadora.events.publish"
@@ -449,7 +450,7 @@ class AuthEngineProbe:
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
     """Deploya BPMN + 3 DMN de autorizacao da arvore no engine real."""
-    return await engine.deploy(_BPMN, _DMN_ADMISS, _DMN_AUTO, _DMN_SLA, name="SP-OP-AUTH-001-qa")
+    return await engine.deploy(_BPMN, _DMN_ADMISS, _DMN_AUTO, _DMN_SLA, _DMN_JUNTA, name="SP-OP-AUTH-001-qa")
 
 
 def _build_auth_probe(
@@ -511,6 +512,18 @@ async def auth_probe_written_notice(
 ) -> AsyncIterator[AuthEngineProbe]:
     """R-004: o mesmo probe, com `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` ligada no unico dono."""
     probe = _build_auth_probe(engine, audit_sink, audit_tenant, denial_written_notice=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_junta_rn424(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-064: o mesmo probe, com `MAEZO_AUTH_JUNTA_RN424_GUARD` ligada em `convene_junta`."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, junta_rn424_guard=True)
     try:
         yield probe
     finally:
@@ -1492,6 +1505,92 @@ async def test_junta_medica_parecer_nega(
     assert _END_NEGADA in ended
     await _assert_no_denial_without_human_task(engine, iid)
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="negada_auditor")
+
+
+# ===========================================================================
+# R-064 — RN 424/2017 art. 3 I: junta vedada em urgencia/emergencia (dark)
+# ===========================================================================
+
+_BRT_JUNTA = "BRT_JuntaAdmissibilidade"
+
+
+async def _auditor_pede_junta(
+    engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any], carater: str
+) -> str:
+    inst = await start_auth(dut_atendida=False, carater_atendimento=carater)
+    iid = inst["id"]
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    ut = await engine.await_user_task(iid, _UT_AUDITOR)
+    await engine.complete_task_as_human(ut.id, {"decisao_auditor": "JUNTA_MEDICA"})
+    await probe.drain()
+    return str(iid)
+
+
+async def test_junta_rn424_guarda_desligada_urgencia_segue_para_a_junta_como_antes(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """DARK: sem a flag, a DMN e' avaliada (sombra) e o caso urgente vai a junta como hoje."""
+    iid = await _auditor_pede_junta(engine, auth_probe, start_auth, "urgencia")
+
+    ut_junta = await engine.await_user_task(iid, _UT_JUNTA)
+    ended = await engine.activity_instances_ended(iid)
+    assert {_ST_CONVOCAR_JUNTA, _BRT_JUNTA} <= ended, ended
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is False
+
+    await engine.complete_task_as_human(ut_junta.id, {"decisao_auditor": "APROVAR"})
+    await auth_probe.drain()
+    assert _END_AUDITOR in await _await_end(engine, iid)
+
+
+async def test_junta_rn424_guarda_ligada_urgencia_vedada_volta_a_coordenacao_humana(
+    engine: EngineRest,
+    auth_probe_junta_rn424: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Flag ON + urgencia: a junta NAO e' aberta; a coordenacao (humana) decide. Nada automatico."""
+    probe = auth_probe_junta_rn424
+    iid = await _auditor_pede_junta(engine, probe, start_auth, "urgencia")
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-auditoria-medica" in ut_coord.candidate_groups
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_JUNTA not in open_keys
+    ended = await engine.activity_instances_ended(iid)
+    assert _BRT_JUNTA in ended and _UT_JUNTA not in ended, ended
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is True
+    # nao e' um estouro de SLA: o ramo da junta vedada nao publica auth.sla_breached
+    assert not probe.has_event(_AUTH_SLA_BREACHED)
+
+    await engine.complete_task_as_human(
+        ut_coord.id, {"decisao_auditor": "APROVAR", "auditor_id": "coord-sint-01"}
+    )
+    await probe.drain()
+    ended = await _await_end(engine, iid)
+    assert _END_AUDITOR in ended
+    assert _UT_JUNTA not in ended
+    await _assert_no_denial_without_human_task(engine, iid)
+
+
+async def test_junta_rn424_guarda_ligada_eletivo_admite_a_junta(
+    engine: EngineRest,
+    auth_probe_junta_rn424: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Flag ON + eletivo: DMN ADMITIDA => UT_RegistrarParecerJunta, parecer humano decide."""
+    probe = auth_probe_junta_rn424
+    iid = await _auditor_pede_junta(engine, probe, start_auth, "eletivo")
+
+    ut_junta = await engine.await_user_task(iid, _UT_JUNTA)
+    assert "junta-medica" in ut_junta.candidate_groups
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is True
+
+    await engine.complete_task_as_human(ut_junta.id, {"decisao_auditor": "APROVAR"})
+    await probe.drain()
+    assert _END_AUDITOR in await _await_end(engine, iid)
 
 
 # ===========================================================================

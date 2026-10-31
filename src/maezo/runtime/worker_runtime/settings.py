@@ -171,6 +171,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # termo (motivo, clausula/dispositivo, canais da Ouvidoria, formato imprimivel/baixavel).
     auth_denial_written_notice: bool = Field(default=False, alias="MAEZO_AUTH_DENIAL_WRITTEN_NOTICE")
 
+    # R-064 (F-017; decisao do dono DEC-15, issue #1083 -> R-034). RN 424/2017 art. 3 I: junta
+    # medica vedada em urgencia/emergencia. A regra mora na DMN `auth_junta_admissibility`,
+    # avaliada pelo engine em SP-OP-AUTH-001; esta bandeira so' decide se o resultado ROTEIA
+    # (`GW_JuntaAdmissivel`): ligada, junta vedada ou carater indeterminado volta a coordenacao
+    # de auditoria medica (humana). DARK por padrao: desligada, o caso vai a junta como antes e o
+    # resultado da DMN fica em sombra. Ligar e' ato da implantacao (ROLL), depois da ratificacao
+    # do medico auditor; nunca de agente.
+    auth_junta_rn424_guard: bool = Field(default=False, alias="MAEZO_AUTH_JUNTA_RN424_GUARD")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",
