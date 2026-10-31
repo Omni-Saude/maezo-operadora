@@ -82,10 +82,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.platform.observability import record_agent_error
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.runtime.start_outcome import StartProcessFailedError
-from maezo.tools.process_business_keys import BusinessKeyComponentError, contas_business_key
 
 from .graph import (
     Flow,

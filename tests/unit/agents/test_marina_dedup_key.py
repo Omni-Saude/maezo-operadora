@@ -33,6 +33,7 @@ from maezo.agents.marina.delegation import (
     state_from_envelope,
 )
 from maezo.agents.marina.graph import MarinaGraph, MarinaState, _business_key, build
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.tools.mcp_cibseven import transport as transport_mod
 from maezo.tools.mcp_cibseven.transport import (
     FakeCibSevenTransport,
@@ -40,7 +41,6 @@ from maezo.tools.mcp_cibseven.transport import (
     StartDedupPosture,
     start_dedup_posture,
 )
-from maezo.tools.process_business_keys import BusinessKeyComponentError, contas_business_key
 from maezo.tools.workers.contas import DemonstrativoInput, _mint_protocolo_demonstrativo, emitir_demonstrativo
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -275,7 +275,7 @@ def test_marina_dedup_no_contas_fstring_outside_the_composer() -> None:
     """Fence: no f-string starting with `CONTAS-` anywhere in `src/maezo` except the composer."""
     offenders: list[str] = []
     for path in _SRC.rglob("*.py"):
-        if path.name == "process_business_keys.py":
+        if path.relative_to(_SRC).as_posix() == "domain/chave_de_negocio.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

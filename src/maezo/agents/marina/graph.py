@@ -152,6 +152,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -174,7 +175,6 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenTransport,
     start_process_idempotent,
 )
-from maezo.tools.process_business_keys import BusinessKeyComponentError, contas_business_key
 from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
     DmnNoResultError,

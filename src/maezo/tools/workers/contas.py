@@ -34,7 +34,6 @@ import structlog
 
 from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.process_business_keys import contas_business_key
 from maezo.tools.workers.base import (
     FunctionWorker,
     non_blank,
@@ -898,6 +897,9 @@ def emitir_demonstrativo(
             f"(esperado um de {sorted(COMUNICACAO_TIPOS)}) — recusado; nunca defaulta para o "
             "tipo mais comum"
         )
+
+    # Local import keeps this module's line anchors (cited by docs/sme-dispatch) stable.
+    from maezo.domain.chave_de_negocio import contas_business_key
 
     # R-101 / F-139: the SINGLE composer — an empty lote used to mint `CONTAS-{tenant}-`, one
     # protocol shared by every lote-less conta of the tenant; it now refuses (ValueError).
