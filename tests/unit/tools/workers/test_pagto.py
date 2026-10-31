@@ -6,7 +6,9 @@ TDD London School: tests verify value-driven tier routing and payment release gu
 import asyncio
 import inspect
 import math
+import re
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 import structlog.testing
@@ -26,6 +28,7 @@ from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
     ERR_PAYMENT_REFUSAL_NOT_HUMAN,
     ERR_PAYMENT_RELEASE_NOT_HUMAN,
+    INSTRUMENTOS_PAGAMENTO,
     PAGTO_BPMN_ERROR_ALLOWLIST,
     PagtoError,
     assess_admissibility,
@@ -63,15 +66,131 @@ def _pagto_alcada_fake(*, faixa_valor: str, grupo_aprovador: str, tier_minimo: i
 
 
 def test_validate_pagto_valid() -> None:
+    """Caminho LEGADO (o do worker registrado com `MAEZO_PAGTO_FATOS_ESTRITOS` desligada): ecoa."""
     result = validate_pagto(
         {
             "ordem_pagamento_id": "OP-001",
             "lastro_confirmado": True,
             "duplicidade_suspeita": False,
-        }
+        },
+        fatos_estritos=False,
     )
     assert result["dados_pagamento_validos"] is True
     assert result["lastro_confirmado"] is True
+
+
+# ---------------------------------------------------------------
+# R-063 / F-029 — fatos pre-resolvidos nao ecoam a entrada (estrito)
+# ---------------------------------------------------------------
+
+_ORDEM_CONSISTENTE = {
+    "ordem_pagamento_id": "OP-R063",
+    "prestador_id": "prov:teste-0001",
+    "instrumento_pagamento": "ted",
+}
+
+
+def test_estrito_nao_ecoa_lastro_semeado() -> None:
+    """ADR-0040 I-PAGTO-1: semente `lastro_confirmado=true` nunca vira fato (=> humano)."""
+    out = validate_pagto({**_ORDEM_CONSISTENTE, "lastro_confirmado": True, "dados_pagamento_validos": True})
+    assert out["lastro_confirmado"] is False
+    assert out["dados_pagamento_validos"] is True
+
+
+def test_estrito_e_o_default_da_funcao() -> None:
+    """O repro F-029: so `ordem_pagamento_id` presente nao basta para dados validos."""
+    out = validate_pagto({"ordem_pagamento_id": "id-inexistente-qualquer"})
+    assert out["dados_pagamento_validos"] is False
+    assert out["lastro_confirmado"] is False
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"prestador_id": ""},
+        {"prestador_id": "   "},
+        {"prestador_id": None},
+        {"instrumento_pagamento": "boleto"},
+        {"instrumento_pagamento": "TED"},
+        {"instrumento_pagamento": " ted"},
+        {"instrumento_pagamento": None},
+        {"instrumento_pagamento": ["ted"]},
+    ],
+)
+def test_estrito_dados_invalidos_quando_credor_ou_instrumento_inconsistentes(override: dict) -> None:
+    out = validate_pagto({**_ORDEM_CONSISTENTE, **override, "dados_pagamento_validos": True})
+    assert out["dados_pagamento_validos"] is False
+
+
+@pytest.mark.parametrize("ausente", ["prestador_id", "instrumento_pagamento"])
+def test_estrito_dados_invalidos_quando_campo_ausente(ausente: str) -> None:
+    variables = {k: v for k, v in _ORDEM_CONSISTENTE.items() if k != ausente}
+    assert validate_pagto(variables)["dados_pagamento_validos"] is False
+
+
+@pytest.mark.parametrize("instrumento", sorted(INSTRUMENTOS_PAGAMENTO))
+def test_estrito_cada_instrumento_do_contrato_e_valido(instrumento: str) -> None:
+    out = validate_pagto({**_ORDEM_CONSISTENTE, "instrumento_pagamento": instrumento})
+    assert out["dados_pagamento_validos"] is True
+
+
+def test_estrito_ordem_so_espacos_e_ordem_invalida() -> None:
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        validate_pagto({**_ORDEM_CONSISTENTE, "ordem_pagamento_id": "   "})
+    assert excinfo.value.error_code == ERR_PAGTO_ORDEM_INVALIDA
+
+
+@pytest.mark.parametrize(("semente", "esperado"), [(True, True), (False, False), ("x", True), (None, False)])
+def test_estrito_duplicidade_e_sinal_semeado_booleano(semente: object, esperado: bool) -> None:
+    variables = {**_ORDEM_CONSISTENTE}
+    if semente is not None:
+        variables["duplicidade_suspeita"] = semente
+    assert validate_pagto(variables)["duplicidade_suspeita"] is esperado
+
+
+def test_instrumentos_pagamento_espelham_o_contrato() -> None:
+    """Cerca: o dominio fechado vem do contrato SP-OP-PAGTO-001, nao de Python."""
+    contrato = Path(__file__).resolve().parents[4] / "docs/processes/contracts/SP-OP-PAGTO-001.md"
+    linha = next(
+        ln
+        for ln in contrato.read_text(encoding="utf-8").splitlines()
+        if ln.startswith("| `instrumento_pagamento` |")
+    )
+    # A coluna de descricao usa `\|` entre os valores; o 1o literal da linha e o nome da variavel.
+    nome, *dominio = re.findall(r"`([a-z_]+)`", linha)
+    assert nome == "instrumento_pagamento"
+    assert frozenset(dominio) == INSTRUMENTOS_PAGAMENTO
+
+
+def _validate_registrado(**seams: object) -> FunctionWorker:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="r063-wiring")
+    register_pagto_workers(harness, None, **seams)
+    worker = harness.registry.get("operadora.pagto.validate_payment_data")
+    assert isinstance(worker, FunctionWorker)
+    return worker
+
+
+def test_registro_sem_seam_mantem_legado_dark() -> None:
+    """Flag ausente => o worker REGISTRADO ecoa como hoje (dark), apesar do default estrito."""
+    out = _validate_registrado().execute({"ordem_pagamento_id": "OP-1", "lastro_confirmado": True})
+    assert out["lastro_confirmado"] is True
+    assert out["dados_pagamento_validos"] is True
+
+
+@pytest.mark.parametrize("valor", [False, "true", 1])
+def test_registro_seam_nao_booleano_true_mantem_legado(valor: object) -> None:
+    out = _validate_registrado(pagto_fatos_estritos=valor).execute(
+        {"ordem_pagamento_id": "OP-1", "lastro_confirmado": True}
+    )
+    assert out["lastro_confirmado"] is True
+
+
+def test_registro_com_seam_ligado_resolve_fatos() -> None:
+    out = _validate_registrado(pagto_fatos_estritos=True).execute(
+        {**_ORDEM_CONSISTENTE, "lastro_confirmado": True, "instrumento_pagamento": "boleto"}
+    )
+    assert out["lastro_confirmado"] is False
+    assert out["dados_pagamento_validos"] is False
 
 
 def test_validate_pagto_ordem_invalida() -> None:
