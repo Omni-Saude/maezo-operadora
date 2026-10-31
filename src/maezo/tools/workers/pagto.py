@@ -140,15 +140,50 @@ _TIER_COMITE_FAIL_CLOSED = 4
 # ---------------------------------------------------------------
 
 
-def validate_pagto(variables: dict[str, Any]) -> dict[str, Any]:
+#: Dominio FECHADO de `instrumento_pagamento` declarado pelo contrato SP-OP-PAGTO-001 (tabela de
+#: variaveis de entrada: `cnab` | `pix` | `ted` | `compensacao`). Nao e regra de negocio inventada:
+#: e o vocabulario que o contrato ja fixa, preso a ele por teste de cerca
+#: (`test_instrumentos_pagamento_espelham_o_contrato`). Usado SO sob `fatos_estritos` (R-063).
+INSTRUMENTOS_PAGAMENTO: frozenset[str] = frozenset({"cnab", "pix", "ted", "compensacao"})
+
+
+def validate_pagto(variables: dict[str, Any], *, fatos_estritos: bool = True) -> dict[str, Any]:
     """Validate payment order data — FACT only, NEVER releases.
 
     Checks: credor/instrumento/lastro/duplicidade.
+
+    R-063 / F-029 (`fatos_estritos`): o contrato declara `dados_pagamento_validos` e
+    `lastro_confirmado` PRE-RESOLVIDOS por este worker. O caminho legado (`fatos_estritos=False`,
+    o que o worker REGISTRADO usa enquanto `MAEZO_PAGTO_FATOS_ESTRITOS` estiver desligada) apenas
+    ecoa a entrada: `dados_pagamento_validos = bool(ordem_pagamento_id)` e `lastro_confirmado` copiado
+    da semente do start — um starter que semeie `lastro_confirmado=true` abre a faixa clerical
+    `DENTRO_TETO_L2` sem User Task, contra a ADR-0040 D6-bis (I-PAGTO-1: "um processo de origem
+    NUNCA semeia este booleano").
+
+    Estrito (default DESTA FUNCAO; fail-closed — caminho financeiro):
+
+    - `dados_pagamento_validos` e RESOLVIDO a partir do que o contrato chama de "credor/instrumento
+      consistentes": `prestador_id` presente (nao-branco) E `instrumento_pagamento` dentro do
+      dominio fechado do contrato (`INSTRUMENTOS_PAGAMENTO`). Falha => `False` => a DMN
+      `pagto_admissibility` roteia `PENDENTE_DADOS` (humano corrige; nunca libera).
+    - `lastro_confirmado` NUNCA e ecoado da entrada: nao existe fonte autoritativa do lastro
+      acessivel a este worker (o processo de origem fornece so a EVIDENCIA `lastro_origem`/
+      `lastro_decisor_id`), entao o fato fica `False` e a DMN roteia `ANALISE_HUMANA` ->
+      `UT_AnaliseAdmissibilidade`, onde o humano o resolve (contrato: "Resolvido dentro de PAGTO ...
+      ou por humano em `UT_AnaliseAdmissibilidade`"). Consequencia declarada: sob a flag nenhuma
+      ordem auto-libera pela faixa clerical sem passar por um humano.
+    - `duplicidade_suspeita` continua um SINAL SEMEADO (informativo; nao ha detector neste
+      worker): normalizado para booleano — so pode acrescentar um desvio a humano, nunca liberar.
     """
     ordem_id = variables.get("ordem_pagamento_id", "")
-    dados_validos = bool(ordem_id)
-    lastro = variables.get("lastro_confirmado", False)
-    duplicidade = variables.get("duplicidade_suspeita", False)
+    if not fatos_estritos:
+        dados_validos = bool(ordem_id)
+        lastro = variables.get("lastro_confirmado", False)
+        duplicidade = variables.get("duplicidade_suspeita", False)
+    else:
+        dados_validos = non_blank(ordem_id)
+        lastro = False
+        duplicidade = bool(variables.get("duplicidade_suspeita", False))
 
     if not dados_validos:
         logger.error("pagto_ordem_invalida", ordem_id=ordem_id)
@@ -160,12 +195,19 @@ def validate_pagto(variables: dict[str, Any]) -> dict[str, Any]:
         # precedent).
         raise WorkerBpmnError(ERR_PAGTO_ORDEM_INVALIDA, "ordem_pagamento_id ausente/invalido")
 
+    if fatos_estritos:
+        instrumento = variables.get("instrumento_pagamento")
+        dados_validos = non_blank(variables.get("prestador_id")) and (
+            isinstance(instrumento, str) and instrumento in INSTRUMENTOS_PAGAMENTO
+        )
+
     logger.info(
         "pagto_validate",
         ordem_id=ordem_id,
         dados_validos=dados_validos,
         lastro=lastro,
         duplicidade=duplicidade,
+        fatos_estritos=fatos_estritos,
     )
 
     return {
@@ -1128,7 +1170,16 @@ def register_pagto_workers(
     del kafka  # unused — no pagto.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
-    harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
+    # R-063 / F-029 dark seam (settings `MAEZO_PAGTO_FATOS_ESTRITOS`, default off; ABSENT == OFF).
+    # Passado SEMPRE explicito: o default de `validate_pagto` e o estrito, entao omitir o kwarg aqui
+    # mudaria o caminho vivo com a flag desligada (pinado por teste de fiacao).
+    pagto_fatos_estritos = seams.get("pagto_fatos_estritos") is True
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.pagto.validate_payment_data",
+            functools.partial(validate_pagto, fatos_estritos=pagto_fatos_estritos),
+        )
+    )
     harness.register_worker(
         FunctionWorker(
             "operadora.pagto.assess_admissibility", functools.partial(assess_admissibility, dmn=dmn)

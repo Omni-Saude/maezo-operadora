@@ -276,6 +276,8 @@ def register_default_workers(
     publish_ledger: PublishLedger | None = None,
     pagto_valor_invalido_pendente_dados: bool = False,
     inad_rn593_estrito: bool = False,
+    pagto_fatos_estritos: bool = False,
+    inad_fatos_estritos: bool = False,
     junta_rn424_guard: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
@@ -371,6 +373,9 @@ def register_default_workers(
         pagto_valor_invalido_pendente_dados=pagto_valor_invalido_pendente_dados,
         # R-027: guard/timer RN 593 estritos de SP-OP-INADIMPLENCIA-001 (dark; see settings).
         **({"inad_rn593_estrito": True} if inad_rn593_estrito else {}),
+        # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
+        **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
+        **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
         junta_rn424_guard=junta_rn424_guard,
     )
@@ -1086,6 +1091,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # installed, the generic harness must not also serve its topic.
                 document_request_host_installed=settings.document_request_host_installed,
                 pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
+                pagto_fatos_estritos=settings.pagto_fatos_estritos,
+                inad_fatos_estritos=settings.inad_fatos_estritos,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)

@@ -1,0 +1,666 @@
+# Registro R-115 (F-146 / F-DL-09) — evidencia de teste das linhas de DL que a auditoria forense de 2026-10
+# deixou `parcial` (RTM docs/audits/FORENSIC-COMPLETENESS-2026-10/raw/rtm-dl.csv, tag f57f0821: 60 linhas,
+# "codigo existe mas DL nao cita teste"). NAO altera o texto do docs/decisions-log.md (o formato do log
+# depende de decisoes do dono ainda abertas, R-048/R-094); so' liga cada linha a um teste que existe.
+#
+# `id` e `regra`: identificador e normalizacao da auditoria (raw/req-dl.csv), copiados sem reinterpretar.
+# `estado`:
+#   teste-localizado   — `runtime_evidence` lista testes (caminho::nome) que EXISTEM, nao estao marcados
+#                        skip/xfail e contem a `ancora` no proprio corpo; `lacuna` (opcional) declara a
+#                        parte da regra que esses testes NAO cobrem — nunca se finge cobertura total.
+#   sem-teste-pendente — nenhum teste localizado; `motivo` explicito obrigatorio.
+# Guarda: tests/unit/docs/test_dl_runtime_evidence.py (o universo das 60 linhas esta congelado la').
+versao: 1
+achado: F-146
+roadmap: R-115
+regras:
+- id: DL-0047/regra/1
+  regra: ERR_CONTAS_LOTE_INVALIDO e ERR_CONTAS_GLOSA_NOT_HUMAN permanecem declarados-e-nao-capturados por desenho
+    em SP-OP-CONTAS-001; catalogo bpmn:error nao e editado e check_bpmn_error_allowlist.py nao muda
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/spec/test_sp_op_contas_001_artefatos.py::test_catalogo_de_erros_e_declarado_e_nao_capturado
+    ancora: ERR_CONTAS_GLOSA_NOT_HUMAN
+  - teste: tests/unit/tools/workers/test_contas.py::test_contas_glosa_not_human_is_permission_error
+    ancora: PermissionError
+- id: DL-0048/regra/1
+  regra: 'Portal humano proprio e comandos atomicos (ADR-0049): gateway humano separado comando assinado+receipt
+    na TX do engine audit intent/outbox na TX tenant e reconciliacao; 43 tarefas/15 familias; docs-only DRAFT/verify
+    com implementacao e ratificacoes pendentes'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/gateway/human/test_durable_relay.py::test_result_audit_failure_keeps_reconciliation_pending
+    ancora: reconcil
+  - teste: tests/unit/gateway/human/test_durable_relay.py::test_unbound_receipt_never_finished
+    ancora: receipt
+  lacuna: So' as clausulas de receipt e reconciliacao do gateway humano tem teste localizado; '43 tarefas/15 familias'
+    e as ratificacoes pendentes do ADR-0049 sao registro de programa (docs), sem obrigacao executavel isolada.
+- id: DL-0055/regra/1
+  regra: 'lucas_billing_admissibility tem saida categoria: so inadimplencia vira inadimplencia_detectada; coluna
+    ausente ou valor desconhecido vira ambiguidade (nunca se acusa sem indicio)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_lucas.py::test_escalar_humano_so_vira_inadimplencia_quando_a_tabela_diz_categoria_inadimplencia
+    ancora: lucas_billing_admissibility
+- id: DL-0057/regra/1
+  regra: LucasRetomada usa RETOMADA_RECUSADA_TEXTO neutro (nao cita boleto nem promete retorno; canal central de
+    atendimento do plano) e portal avisa o que o sistema nao envia
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/platform/webhooks/whatsapp/test_lucas_retomada.py::test_a_nota_entraremos_em_contato_cai_no_texto_neutro_e_nao_no_de_boleto
+    ancora: RETOMADA_RECUSADA_TEXTO
+  - teste: tests/unit/platform/webhooks/whatsapp/test_lucas_retomada.py::test_o_texto_neutro_passa_nas_cercas_do_lucas_e_nas_da_retomada
+    ancora: RETOMADA_RECUSADA_TEXTO
+  lacuna: O aviso do portal sobre o que o sistema nao envia nao tem teste localizado neste rastro.
+- id: DL-0072/regra/1
+  regra: 'Alerta clinico grave nunca e suprimido por caso aberto de outra classe: abre caso clinico PARALELO P1
+    com chave ESC-{tenant}-{conversa}-clin; com clinico ja aberto nao abre outro; cobranca nunca abre caso clinico'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_caso_clinico_paralelo.py::test_alerta_clinico_grave_com_caso_de_outra_classe_abre_caso_clinico_proprio
+    ancora: clin
+  - teste: tests/unit/agents/test_helena_caso_clinico_paralelo.py::test_com_caso_clinico_ja_aberto_nao_abre_outro
+    ancora: motivo_clinico
+  - teste: tests/unit/agents/test_helena_caso_clinico_paralelo.py::test_motivo_nao_clinico_nunca_abre_caso_clinico
+    ancora: clinico
+- id: DL-0085/regra/1
+  regra: 'Camada conversa_acesso_beneficiario do plano de eliminacao: base legal consentimento explicito (LGPD art
+    7 I e 11 I) e retencao de 90 dias sem atividade apagada pelo varredor'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/platform/webhooks/whatsapp/test_acesso_telefone_novo.py::test_retencao_apaga_inativo_ha_mais_de_90_dias_menos_revogacao_pendente
+    ancora: RETENCAO_ESTADO
+  - teste: tests/unit/platform/webhooks/whatsapp/test_acesso_telefone_novo.py::test_plano_de_eliminacao_registra_90_dias_e_a_base_legal_do_consentimento
+    ancora: 90 dias
+- id: DL-0088/regra/2
+  regra: Todo texto de red flag/risco/caso aberto termina com Se for uma emergencia ligue agora para o 192 (SAMU)
+    ou va ao pronto-socorro mais proximo; falha tecnica usa texto neutro nossa equipe de atendimento (equipe de
+    saude so com motivo clinico); response-v12 proibe a negativa generica nao consigo ver seus dados
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_teste_real_12_10.py::test_msg1_falha_tecnica_de_verdade_usa_o_texto_neutro_sem_equipe_de_saude
+    ancora: RESPOSTA_HANDOFF_RECUSADA
+  - teste: tests/unit/agents/test_helena_teste_real_12_10.py::test_msg2_dor_no_peito_escala_com_o_192
+    ancora: '192'
+  - teste: tests/unit/agents/test_helena_teste_real_12_10.py::test_msg4_a_helena_nao_diz_que_nao_ve_dado_nenhum
+    ancora: consigo ver
+- id: DL-0089/regra/1
+  regra: Com caso clinico aberto mensagem com sinal de saude recebe 192 na primeira frase e o alerta fica no log
+    helena_alerta_com_caso_aberto; encaminhamento administrativo nao cita 192/SAMU; nenhuma conduta clinica (frequencia/dose)
+    em duvida de saude sem sintoma
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_2_simulador.py::test_piora_com_caso_clinico_aberto_recebe_emergencia_primeiro
+    ancora: Ligue agora para o 192
+  - teste: tests/unit/agents/test_helena_rodada_2_simulador.py::test_encaminhamento_administrativo_nao_fala_em_samu
+    ancora: SAMU
+  - teste: tests/unit/agents/test_helena_rodada_2_simulador.py::test_conduta_clinica_do_modelo_e_trocada_pelo_texto_fixo
+    ancora: conduta
+  lacuna: O registro do alerta no log `helena_alerta_com_caso_aberto` nao tem teste localizado por nome.
+- id: DL-0090/regra/1
+  regra: Cobertura de procedimento especifico nunca e prometida (segmentacao + onde confirmar); pedido do telefone
+    da central nao escala; negacao de emergencia nao acende lexico; fallback com caso aberto diz que o caso continua
+    com a equipe (response-v14)
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_3_simulador.py::test_cobertura_de_procedimento_nunca_e_prometida
+    ancora: RESPOSTA_COBERTURA_ESPECIFICA
+  - teste: tests/unit/agents/test_helena_rodada_3_simulador.py::test_numero_da_central_nao_escala_e_nao_inventa_numero
+    ancora: RESPOSTA_TELEFONE_DA_CENTRAL
+  - teste: tests/unit/agents/test_helena_rodada_3_simulador.py::test_nao_e_emergencia_nao_acende_alerta_e_recebe_navegacao
+    ancora: emergência
+  - teste: tests/unit/agents/test_helena_rodada_3_simulador.py::test_rascunho_barrado_com_caso_aberto_diz_que_o_caso_continua
+    ancora: caso
+- id: DL-0091/regra/1
+  regra: Despedida sem pergunta nova nao vira pedido de pessoa nem consulta; Helena nao fala de pagamento nem cobranca
+    no texto do plano; cobertura de procedimento especifico recebe onde confirmar sem reenviar dados; 192 na frente
+    so com sinal de saude
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_4_simulador.py::test_despedida_com_espera_de_atendente_nao_vira_aviso_de_caso_aberto
+    ancora: despedida
+  - teste: tests/unit/agents/test_helena_rodada_4_simulador.py::test_texto_do_plano_nao_fala_de_pagamento
+    ancora: pagamento
+  - teste: tests/unit/agents/test_helena_rodada_4_simulador.py::test_insistencia_na_cobertura_nao_reenvia_os_dados_do_plano
+    ancora: cobertura
+  - teste: tests/unit/agents/test_helena_rodada_4_simulador.py::test_com_sinal_de_saude_o_192_vai_na_frente
+    ancora: '192'
+- id: DL-0092/regra/1
+  regra: Mensagem com cobranca vai ao Lucas mesmo com caso aberto ou pedido de pessoa; consulta_subtipo invalido
+    e normalizado (nao falha_tecnica); cobranca + pedido EXPLICITO de pessoa honra o pedido no mesmo turno por solicitacao_humano
+    apos o Lucas com start idempotente
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_5_simulador.py::test_cobranca_com_caso_aberto_vai_ao_lucas_e_nao_recebe_aviso_de_caso
+    ancora: RESPONSE_KIND_HANDOFF
+  - teste: tests/unit/agents/test_helena_rodada_5_simulador.py::test_consulta_subtipo_e_normalizado_no_validador
+    ancora: consulta_subtipo
+  - teste: tests/unit/platform/webhooks/whatsapp/test_dispatch_cobranca.py::test_cobranca_com_pedido_de_pessoa_no_lexico_vai_ao_lucas
+    ancora: solicitacao_humano
+- id: DL-0093/regra/1
+  regra: Primeira falha do classificador SEM sinal de saude pede reenvio e nao escala; segunda falha seguida escala
+    falha_tecnica; com sinal de saude escala como sempre com 192
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_6_simulador.py::test_primeira_falha_do_classificador_pede_reenvio_e_nao_escala
+    ancora: RESPOSTA_PECA_REENVIO
+  - teste: tests/unit/agents/test_helena_rodada_6_simulador.py::test_segunda_falha_seguida_escala_falha_tecnica
+    ancora: falha_tecnica
+  - teste: tests/unit/agents/test_helena_rodada_6_simulador.py::test_falha_com_sinal_de_saude_escala_como_sempre_com_192
+    ancora: '192'
+- id: DL-0094/regra/1
+  regra: Formas ampliadas de pedido explicito de pessoa (passa/encaminha/chama/transfere + equipe/alguem/atendente;
+    contato da equipe) abrem solicitacao_humano sem inventar telefone ou e-mail; recusa e espera nao sao pedido
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_7_pedido_explicito.py::test_sem_caso_aberto_o_pedido_abre_solicitacao_humano
+    ancora: solicitacao_humano
+  - teste: tests/unit/agents/test_helena_rodada_7_pedido_explicito.py::test_contato_da_equipe_nao_inventa_telefone_nem_email
+    ancora: contato
+  - teste: tests/unit/agents/test_helena_rodada_7_pedido_explicito.py::test_recusa_e_espera_nao_sao_pedido
+    ancora: eh_pedido_explicito_de_pessoa
+- id: DL-0095/regra/1
+  regra: not_found em carencias significa nenhuma carencia no cadastro (depois de confirmar o sujeito pela elegibilidade)
+    e diz No seu cadastro nao consta nenhuma carencia (atualizado em ...); so falha real vira nao consegui consultar
+    agora; cobertura diz segmentacao e onde confirmar sem promessa
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_8_teste_real.py::test_not_found_em_carencias_com_elegibilidade_confirmada_e_nenhuma_carencia
+    ancora: not_found
+  - teste: tests/unit/agents/test_helena_rodada_8_teste_real.py::test_not_found_sem_o_sujeito_confirmado_nao_vira_nenhuma_carencia
+    ancora: not_found
+  - teste: tests/unit/agents/test_helena_rodada_8_teste_real.py::test_falha_de_verdade_em_carencias_continua_falha
+    ancora: falha
+- id: DL-0096/regra/1
+  regra: Com cobertura no texto o subtipo da consulta do plano e elegibilidade (segmentacao + onde confirmar) qualquer
+    que seja o do modelo; so cede se a mensagem pede carencia autorizacao ou carteirinha
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_9_cobertura_sem_carencia.py::test_cobre_parto_depois_da_carencia_responde_so_a_cobertura
+    ancora: parto
+  - teste: tests/unit/agents/test_helena_rodada_9_cobertura_sem_carencia.py::test_quando_a_mensagem_pede_a_carencia_junto_da_cobertura_a_carencia_continua
+    ancora: carência
+- id: DL-0097/regra/1
+  regra: Recem-nascido com sinal de sofrimento escala NA HORA red_flag_clinico grave P1 com 192 (regra deterministica
+    do grafo); conteudo clinico sem pedido explicito de pessoa nunca vira solicitacao_humano e abre caso na chave
+    -clin para QUALQUER severidade clinica
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_10_bebe_e_caso_aberto.py::test_recem_nascido_chorando_muito_escala_na_hora_com_o_192
+    ancora: red_flag_clinico
+  - teste: tests/unit/agents/test_helena_rodada_10_bebe_e_caso_aberto.py::test_conteudo_clinico_lido_como_pedido_de_pessoa_nao_abre_solicitacao_humano
+    ancora: solicitacao_humano
+- id: DL-0099/regra/1
+  regra: 'Lucas: tipo_contratacao==coletivo_adesao liga os textos da administradora; pagador PF ouve parte e total
+    do boleto da familia; dependente ouve que o boleto e do titular sem valor; empresa/adesao/desconhecido nunca
+    veem outro total'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_lucas_adesao_e_boleto_da_familia.py::test_coletivo_adesao_liga_a_administradora_sem_consultar_a_tina
+    ancora: coletivo_adesao
+  - teste: tests/unit/agents/test_lucas_adesao_e_boleto_da_familia.py::test_pagador_pf_ouve_o_total_do_boleto_primeiro_e_depois_a_parte
+    ancora: total
+  - teste: tests/unit/agents/test_lucas_adesao_e_boleto_da_familia.py::test_dependente_ouve_de_quem_e_o_boleto_sem_valor
+    ancora: TEXTO_BOLETO_DO_TITULAR
+  - teste: tests/unit/agents/test_lucas_adesao_e_boleto_da_familia.py::test_nenhum_outro_caso_mostra_o_total_do_boleto
+    ancora: total
+- id: DL-0100/regra/1
+  regra: 'Dependentes pela consulta TINA get_dependentes: resposta deterministica so contagem e relacao (nunca nome
+    CPF nascimento); falha da consulta diz nao consigo consultar agora nunca nao consta; seguimento curto com o
+    Lucas ativo vai ao Lucas antes do modelo'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_11_dependentes_e_esclarecimento.py::test_dependentes_resposta_deterministica_por_caso
+    ancora: dependentes
+  - teste: tests/unit/agents/test_helena_rodada_11_dependentes_e_esclarecimento.py::test_falha_da_consulta_de_dependentes_nunca_diz_que_nao_consta
+    ancora: consta
+  - teste: tests/unit/agents/test_helena_rodada_11_dependentes_e_esclarecimento.py::test_os_fatos_de_dependentes_nao_carregam_nada_identificavel
+    ancora: total_ativos
+  - teste: tests/unit/agents/test_helena_rodada_11_dependentes_e_esclarecimento.py::test_seguimento_com_o_lucas_ativo_vai_ao_lucas_qualquer_que_seja_a_intencao
+    ancora: lucas
+- id: DL-0105/regra/1
+  regra: 'Nova triagem v2 (so com MAEZO_HELENA_TRIAGEM_V2): bebe com menos de 3 meses SEM alarme recebe a oferta
+    explicita da equipe de saude (sem caso automatico) e nao o prazo de 7 dias uteis (decisao clinica pendente do
+    medico-auditor)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_triagem_v2.py::test_bebe_com_menos_de_3_meses_sem_alarme_recebe_a_oferta_da_equipe_e_nao_o_prazo
+    ancora: RESPOSTA_TRIAGEM_BEBE_PEQUENO
+- id: DL-0106/regra/1
+  regra: 'Lucas: consequencia do atraso e link suspeito recebem texto FIXO que nao informa o que acontece nem prazo
+    (suspender/cancelar e de humano L0 hard contract_termination) e nao confirma link; mes sem ano com pista de
+    futuro resolve para o ano seguinte'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_lucas_red_team_l02_l04.py::test_consequencia_do_atraso_nao_vira_lembrete_nem_informa_prazo
+    ancora: consequencia_do_atraso
+  - teste: tests/unit/agents/test_lucas_red_team_l02_l04.py::test_link_suspeito_nao_diz_que_esta_tudo_em_dia
+    ancora: link
+  - teste: tests/unit/agents/test_helena_competencia_ano.py::test_mes_sem_ano_com_marca_de_futuro_e_o_deste_ano
+    ancora: resolver_ano_da_competencia
+- id: DL-0108/regra/1
+  regra: 'Resposta com dados do cadastro quando a mensagem traz CPF valido ou nomeia outra pessoa abre com a frase
+    fixa So mostro os dados do seu cadastro nao os de outra pessoa; resumo ao atendente sai sob o rotulo Relato
+    do beneficiario (nao verificado):'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_d01_aviso_de_terceiro.py::test_carencia_de_terceiro_abre_com_o_aviso_e_traz_os_dados_do_proprio_cadastro
+    ancora: AVISO
+  - teste: tests/unit/agents/test_helena_d01_aviso_de_terceiro.py::test_texto_comum_e_telefone_nao_disparam
+    ancora: telefone
+  - teste: tests/unit/agents/test_helena_resumo_ao_atendente_b02.py::test_o_resumo_do_modelo_sai_sob_o_rotulo_de_relato_nao_verificado
+    ancora: PREFIXO_RELATO_NAO_VERIFICADO
+- id: DL-0113/regra/1
+  regra: Material staff/human gerado e assinado numa task Fargate avulsa staff-material com raiz Ed25519 de dev
+    nascida DENTRO da task, estado em S3 versionado SSE-KMS sem DELETE; inerte ate ligar staff_material (default
+    null); producao exige aprovador humano
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: deploy/aws-ecs/envs/dev-sa-east-1/tests/staff-material.tftest.hcl::null_by_default_is_a_no_op
+    ancora: DL-0113
+  - teste: tests/unit/tools/test_staff_ops_material.py::test_s3_nunca_sobrescreve_e_grava_com_a_cmk_de_estado
+    ancora: kms
+  lacuna: '''Producao exige aprovador humano'' nao tem teste localizado neste rastro (o pacote e'' so'' dev).'
+- id: DL-0114/regra/1
+  regra: 'Lucas v4 atras de MAEZO_LUCAS_V4 (default false) e do segundo sinal fonte_detalhamento_habilitada: so
+    o PAGADOR recebe valores vencimento situacao e 2a via; nunca nome de outro beneficiario ou do pagador; nao pagador
+    ouve que so o titular pode solicitar'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_lucas_v4.py::test_desligada_e_byte_a_byte_a_de_antes_mesmo_com_os_fatos_novos_no_estado
+    ancora: byte
+  - teste: tests/unit/agents/test_lucas_v4.py::test_a_fabrica_so_liga_com_true_literal
+    ancora: 'True'
+  - teste: tests/unit/agents/test_lucas_v4.py::test_nao_pagador_ouve_o_responsavel_financeiro_sem_valor_nem_nome
+    ancora: pagador
+  - teste: tests/unit/agents/test_lucas_v4.py::test_sem_o_sinal_do_pagador_nao_ha_valor_nem_boleto_e_nao_abre_caso
+    ancora: sinal
+  - teste: tests/unit/agents/test_lucas_v4.py::test_so_o_pagador_recebe_o_marcador
+    ancora: pagador
+- id: DL-0115/regra/1
+  regra: 'Helena v4 atras de MAEZO_HELENA_V4 (default false; desligada identica byte a byte): especialista nao pesquisa
+    nem agenda e responde onde marcar mais prazo ANS sem prometer cobertura; carteirinha mostra codigo MASCARADO;
+    v4 substitui a v2'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_v4.py::test_chave_desligada_e_byte_a_byte_o_grafo_sem_a_chave
+    ancora: helena_v4
+  - teste: tests/unit/agents/test_helena_v4.py::test_especialista_recebe_onde_marcar_prazo_e_oferta_sem_caso
+    ancora: especialista
+  - teste: tests/unit/agents/test_helena_v4.py::test_a_carteirinha_mostra_plano_segmentacao_vigencia_e_ans_com_o_codigo_mascarado
+    ancora: mascar
+  - teste: tests/unit/agents/test_helena_v4.py::test_a_chave_nasce_desligada_no_grafo_na_fabrica_e_nas_settings
+    ancora: helena_v4
+- id: DL-0115/regra/2
+  regra: 'Sintoma leve na v4: 1 ou 2 perguntas fechadas de alerta; sim duvida ou agravamento -> alerta clinico P1
+    com 192; resposta ininteligivel -> pergunta de novo uma vez e depois abre o caso por precaucao (conteudo clinico
+    DRAFT sem medico-auditor)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_v4.py::test_cada_grupo_tem_uma_ou_duas_perguntas_fechadas_de_alerta
+    ancora: <= 2
+  - teste: tests/unit/agents/test_helena_v4.py::test_resposta_sim_a_pergunta_de_alerta_escala_com_o_192
+    ancora: '192'
+  - teste: tests/unit/agents/test_helena_v4.py::test_resposta_que_nao_se_entende_pergunta_de_novo_uma_vez_e_depois_abre_o_caso_por_precaucao
+    ancora: escalation
+- id: DL-0117/regra/1
+  regra: Excecao regional GLM-5 us-east-1 so dev e so com rotulo literal excecao_us_east_1_autorizada_dpo_2026-10-21
+    em MAEZO_PHI_EXCECAO_REGIONAL; sem o rotulo tudo sa-east-1 e us-east-1 recusado; regiao em cada inferencia_chamada
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/runtime/test_inferencia_excecao_regional.py::test_desligada_por_padrao
+    ancora: fora_da_excecao
+  - teste: tests/unit/runtime/test_inferencia_excecao_regional.py::test_so_o_rotulo_literal_liga
+    ancora: excecao_ativa
+  - teste: tests/unit/runtime/test_inferencia_excecao_regional.py::test_ligada_fala_com_us_east_1_e_atesta_a_regiao_verdadeira
+    ancora: us-east-1
+- id: DL-0117/regra/4
+  regra: 'Zona PHI do dev usa zai.glm-5 mudando UMA variavel (phi_model_id em dev-vivo.auto.tfvars) sem relaxar
+    seguranca: ARN foundation-model direto em sa-east-1 endpoint resolvido e referencia do instrumento; default
+    de variables.tf e producao nao mudam'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/runtime/test_bedrock_br_pre_egress.py::test_direct_model_is_bound_to_regional_foundation_arn
+    ancora: foundation
+  - teste: tests/unit/runtime/test_bedrock_br_pre_egress.py::test_resolved_region_must_be_admitted_before_dispatch
+    ancora: region
+  lacuna: A troca de UMA variavel (phi_model_id em dev-vivo.auto.tfvars) e a imutabilidade do default de variables.tf/producao
+    nao tem teste localizado; so' a cerca do transporte (ARN foundation-model regional, regiao resolvida) tem.
+- id: DL-0119/regra/1
+  regra: Saude gerativa (Haiku 5.5) so por rota propria experimento_global_autorizado_dpo_2026-10-17 so em dev e
+    so na allowlist; fora dela Helena identica byte a byte; falha/prazo do modelo = resposta segura; 1 reescrita
+    -> resposta segura padrao
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_saude_gerativa.py::test_a_allowlist_so_aceita_id_keyed
+    ancora: allowlist
+  - teste: tests/unit/agents/test_helena_saude_gerativa.py::test_fora_da_allowlist_o_grafo_e_o_de_antes_texto_a_texto
+    ancora: allowlist
+  - teste: tests/unit/agents/test_helena_saude_gerativa.py::test_falha_do_modelo_vira_resposta_segura_sem_quebrar_o_turno
+    ancora: segura
+  - teste: tests/unit/agents/test_helena_saude_gerativa.py::test_reprovou_duas_vezes_vira_a_resposta_segura_padrao
+    ancora: segura
+  lacuna: '''So'' em dev'' e'' escopo de implantacao (terraform), sem teste localizado neste rastro.'
+- id: DL-0121/regra/1
+  regra: Recusa pura (nao quero falar com ninguem) e decidida no codigo ANTES do classificador para todos; com caso
+    grave o texto do caso grave (192) nunca a oferta de encerrar
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_fases_18_10.py::test_recusa_pura_nunca_vira_risco_psicossocial
+    ancora: o classificador nao foi chamado
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_recusa.py::test_recusa_com_p1_aberto_nunca_vira_seu_pedido_ja_esta_com_a_equipe
+    ancora: RESPOSTA_CASO_GRAVE_NAO_ENCERRA
+- id: DL-0121/regra/2
+  regra: 'Lucas: valor de competencia e o do BOLETO (valor_boleto_pagador valor_titulo) com a composicao quando
+    o detalhamento fecha'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_lucas_v4.py::test_detalhamento_com_total_diferente_do_boleto_vira_a_frase_do_boleto
+    ancora: boleto
+  - teste: tests/unit/agents/test_lucas_v4.py::test_pagador_ouve_o_total_e_o_detalhe_por_beneficiario_sem_nome
+    ancora: total
+  - teste: tests/unit/agents/test_fonte_cobranca_contratacao.py::test_pagador_pf_traz_tipo_flag_e_o_total_do_boleto
+    ancora: valor_boleto_pagador
+- id: DL-0123/regra/2
+  regra: 'Risco psicossocial: texto fixo traz CVV 188 (gratuita 24h) mais 192 e termo de autolesao no texto e risco
+    mesmo que o classificador nao marque; 192 imperativo nos casos de alarme'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_dossie_seguranca.py::test_risco_pelo_texto_vence_o_classificador_e_traz_o_188
+    ancora: '188'
+  - teste: tests/unit/agents/test_helena_dossie_seguranca.py::test_os_textos_de_alarme_e_de_risco
+    ancora: '192'
+- id: DL-0124/regra/1
+  regra: Duvida educativa com palavras de sintoma sem marcador de quadro atual vai a redacao sem perguntas de alerta
+    caso ou 192, mas a tabela de alarme roda SEMPRE e escala com sinal grave
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_fases_18_10.py::test_duvida_educativa_vai_a_redacao_sem_caso_e_sem_alerta
+    ancora: duvida educativa nunca abre caso
+  - teste: tests/unit/agents/test_helena_fases_18_10.py::test_contraprova_quadro_atual_continua_escalando
+    ancora: '192'
+- id: DL-0124/regra/2
+  regra: 'Consentimento LGPD: valem como aceite SO as variacoes inequivocas da mensagem inteira (aceito concordo
+    de acordo pode etc); sim ok pode ser sozinhos NAO valem'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/platform/webhooks/whatsapp/test_acesso.py::test_aceito_variantes
+    ancora: Concordo
+  - teste: tests/unit/platform/webhooks/whatsapp/test_acesso.py::test_nao_e_aceito
+    ancora: '"sim"'
+- id: DL-0125/regra/1
+  regra: 'Jornadas do plano acrescentam no maximo UMA jornada como texto fixo no fim da resposta, sem nome de medico/clinica/laboratorio
+    e sem prometer cobertura; texto de alarme P1 contem Nao dirija: peca para alguem te levar ou chame o SAMU'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_tina_melhorias.py::test_as_jornadas_passam_nas_cercas_e_nao_citam_prestador_nem_agenda
+    ancora: jornada
+  - teste: tests/unit/agents/test_helena_tina_melhorias.py::test_a_jornada_entra_no_fim_da_resposta_redigida
+    ancora: jornada
+  - teste: tests/unit/agents/test_helena_tina_melhorias.py::test_emergencia_mais_forte_e_neutra
+    ancora: dirija
+- id: DL-0131/regra/1
+  regra: Recusa depois da oferta ou abertura de caso encerra o caso P2/P3 e caso grave (P1 192) nunca e encerrado
+    por esse caminho
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_recusa_encerra_caso.py::test_recusa_depois_do_caso_aberto_encerra_o_caso
+    ancora: encerra
+  - teste: tests/unit/agents/test_helena_recusa_encerra_caso.py::test_caso_grave_nao_e_encerrado_pela_recusa
+    ancora: grave
+- id: DL-0132/regra/1
+  regra: Sinal de alarme de sintoma citado antes na conversa vale nos turnos seguintes (alarme_dos_citados_antes)
+    e negacao so vale colada ao termo (max 3 palavras de ligacao)
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_seguranca_r4.py::test_sinal_da_batida_depois_da_pergunta_respondida_vai_ao_192
+    ancora: '192'
+  - teste: tests/unit/agents/test_helena_seguranca_r4.py::test_sinal_negado_nao_e_alarme
+    ancora: nao
+  - teste: tests/unit/agents/test_helena_seguranca_r4.py::test_alarme_da_batida_com_nao_que_nao_nega_o_sinal
+    ancora: nao
+- id: DL-0135/regra/1
+  regra: Roteador em SOMBRA roda em paralelo ao classify e so registra helena_roteador_sombra (vocabulario fechado
+    sem texto); resposta estado caso e envio nao mudam; chave MAEZO_HELENA_ROTEADOR default desligado
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_roteador_sombra.py::test_sombra_nao_muda_a_resposta_e_registra_a_decisao
+    ancora: helena_roteador_sombra
+  - teste: tests/unit/agents/test_helena_roteador_sombra.py::test_campos_do_log_so_vocabulario_fechado
+    ancora: vocabul
+  - teste: tests/unit/agents/test_helena_roteador_contrato.py::test_chave_nasce_desligada
+    ancora: desligad
+- id: DL-0136/regra/1
+  regra: 'Roteador ativo: pedido de especialista (inclusive cobertura da consulta) e saude (contrato roteador-v6),
+    saude so admite informacao e habilidade nao clinica nao herda sintoma do historico'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_r4_roteador_saude.py::test_pedido_de_especialista_na_habilidade_saude_recebe_o_texto_do_especialista
+    ancora: _decisao("saude")
+  - teste: tests/unit/agents/test_helena_r4_roteador_saude.py::test_pedido_de_pessoa_depois_do_sintoma_nunca_vira_emergencia
+    ancora: helena_habilidade_sem_sintoma_do_historico
+  - teste: tests/unit/agents/test_helena_habilidades_fechadas.py::test_saude_sem_sintoma_nunca_abre_caso_de_enfermagem
+    ancora: saude
+- id: DL-0136/regra/3
+  regra: 'Roteador ativo: reclamacao sobre a resposta anterior fica com a dona da pergunta pendente e a habilidade
+    escolhida vai no estado do turno (habilidade_roteador, zera a cada turno)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_sintoma.py::test_nao_com_reclamacao_da_repeticao_recebe_desculpa_e_caminho
+    ancora: desculpa
+  lacuna: A gravacao de `habilidade_roteador` no estado do turno (zerada a cada turno) nao tem teste localizado
+    por nome.
+- id: DL-0136/regra/4
+  regra: Roteador ativo apenas na allowlist MAEZO_HELENA_ROTEADOR_CONVERSAS (telefones 790..799); fora dela sombra;
+    pendente so vale quando a mensagem responde a ela
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_roteador_ativo.py::test_fora_da_allowlist_do_roteador_e_sombra
+    ancora: sombra
+  - teste: tests/unit/agents/test_helena_roteador_ativo.py::test_pendencia_que_nao_e_respondida_e_descartada_e_nao_sequestra
+    ancora: pend
+- id: DL-0137/regra/1
+  regra: Roteador tem provedor PROPRIO na zona PHI com prazo 3 s (MAEZO_HELENA_ROTEADOR_PRAZO_S) teto 256 tokens
+    sem retentativa pool proprio e concorrencia 4; cheio = turno segue sem roteador (falha=ocupado)
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_roteador_sombra.py::test_roteador_usa_o_provedor_proprio_quando_ha
+    ancora: provedor
+  - teste: tests/unit/agents/test_helena_roteador_sombra.py::test_limite_de_concorrencia_cheio_segue_sem_o_roteador
+    ancora: concorrencia
+  - teste: tests/unit/platform/webhooks/whatsapp/test_settings_roteador.py::test_dl_0137_roteador_nasce_com_prazo_3s_teto_256_e_concorrencia_4
+    ancora: MAEZO_HELENA_ROTEADOR_PRAZO_S
+  lacuna: Os valores 3 s/256 tokens sao os DEFAULTS das settings; o pacote da Helena (spec/agents/helena/pacote/configuracao.yaml)
+    hoje os sobrepoe (prazo_s 8.0, max_tokens 400) por medicao posterior — divergencia registrada, nao decidida
+    aqui.
+- id: DL-0138/regra/1
+  regra: 'Trava de saida caso_so_com_sim: solicitacao_humano so abre com pedido explicito sim a oferta escolha de
+    opcao ou ameaca a orgao regulador; fora disso barrada (helena_trava_caso_sem_pedido)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_trava_caso_sem_pedido.py::test_cortesia_depois_da_oferta_nao_abre_caso
+    ancora: caso
+  - teste: tests/unit/agents/test_helena_trava_caso_sem_pedido.py::test_pedido_explicito_continua_abrindo_o_caso
+    ancora: quero falar com um atendente
+  - teste: tests/unit/agents/test_helena_trava_caso_sem_pedido.py::test_modelo_que_le_pedido_de_pessoa_em_cortesia_nao_abre_caso
+    ancora: human_request
+- id: DL-0139/regra/1
+  regra: Toda chamada a zona PHI tem prazo real de leitura 20 s teto de saida 1024 tokens pool proprio de 16 threads
+    contador inferencia_chamada e alarme CloudWatch por modelo para falha+prazo >= 5 em 5 min
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/runtime/test_inferencia_contador.py::test_falha_e_prazo_contam_no_alarme_do_modelo
+    ancora: prazo
+  - teste: tests/unit/runtime/test_inferencia_contador.py::test_prazo_total_e_respeitado_mesmo_com_o_cliente_pendurado
+    ancora: prazo
+  - teste: tests/unit/runtime/test_inference_orcamento_curto.py::test_transporte_com_pool_proprio_roda_no_pool_proprio
+    ancora: pool
+  - teste: tests/unit/runtime/test_inference_orcamento_curto.py::test_teto_de_saida_vai_no_pedido
+    ancora: max_tokens
+  lacuna: Os valores 20 s/1024/16 e o alarme CloudWatch (falha+prazo >= 5 em 5 min, deploy/aws-ecs/envs/dev-sa-east-1/inferencia-alarmes.tf)
+    nao tem teste localizado; o mecanismo (prazo real, pool proprio, teto, contador) tem.
+- id: DL-0140/regra/1
+  regra: Cumprimento sozinho recebe o cumprimento curto nunca a despedida; polegar sozinho e cortesia e com pergunta
+    sim/nao pendente vale sim
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_conversa_r4.py::test_cumprimento_recebe_cumprimento_nunca_despedida
+    ancora: despedida
+  - teste: tests/unit/agents/test_helena_conversa_r4.py::test_polegar_sozinho_e_cortesia_sem_caso
+    ancora: TEXTO_COMBINADO
+  lacuna: A leitura do polegar como 'sim' quando ha' pergunta sim/nao pendente nao tem teste localizado neste rastro.
+- id: DL-0141/regra/1
+  regra: Nota de resolucao do portal e redigida INTEIRA e recusada acima de MAX_NOTES=2000 (HTTP 422 notes_too_long,
+    antes do elo intent); devolvido_agente e pre-checado com a cerca de saida da Helena (422 resumption_refused
+    + refusal_group)
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/gateway/human/test_completion_notes_limit.py::test_the_route_answers_422_notes_too_long
+    ancora: notes_too_long
+  - teste: tests/unit/gateway/human/test_completion_notes_limit.py::test_the_gateway_refuses_before_the_intent_link_and_the_engine
+    ancora: intent
+  - teste: tests/unit/gateway/human/test_retomada_precheck.py::test_the_route_answers_422_with_the_group_never_the_pattern_nor_the_text
+    ancora: resumption_refused
+  - teste: tests/unit/gateway/human/test_retomada_precheck.py::test_only_devolvido_agente_is_checked
+    ancora: devolvido_agente
+- id: DL-0148/regra/1
+  regra: Todo publicavel spec/processes/bpmn|dmn consta em spec/aprovacoes-de-regras.yaml em EXATAMENTE uma lista
+    (aprovados com sha256 ou pendentes) e a cerca make check-aprovacao-de-regras reprova hash alterado orfao ou
+    duplicado; a cerca nunca aprova
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/ci/test_check_aprovacao_de_regras.py::test_hash_alterado_de_regra_aprovada_reprova
+    ancora: NOVA aprovacao
+  - teste: tests/unit/ci/test_check_aprovacao_de_regras.py::test_entrada_orfa_e_duplicada_reprovam
+    ancora: duplic
+  - teste: tests/unit/ci/test_check_aprovacao_de_regras.py::test_publicaveis_sao_exatamente_o_que_o_deploy_publica
+    ancora: publica
+- id: DL-0154/regra/3
+  regra: A pergunta de alerta do sintoma e feita uma vez por queixa; continuacao com caso clinico aberto recebe
+    mantive o seu caso e sem eco literal da fala da pessoa
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_sintoma.py::test_mesma_queixa_depois_do_nao_nao_repete_a_pergunta
+    ancora: pergunta
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_sintoma.py::test_depois_do_192_a_continuacao_mantem_o_caso
+    ancora: caso
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_sintoma.py::test_os_textos_do_sintoma_nao_repetem_a_frase_da_pessoa
+    ancora: frase
+- id: DL-0154/regra/5
+  regra: Com trava de entrada (alarme risco dados pessoais) o roteador nao e chamado e no alarme grave o resumo
+    do atendente e fixo sem modelo antes do 192
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_roteador_ativo.py::test_trava_de_alarme_vence_o_roteador
+    ancora: roteador
+  - teste: tests/unit/agents/test_helena_correcoes_da_rodada.py::test_alarme_da_tabela_nao_espera_o_roteador_nem_o_classificador
+    ancora: '192'
+  lacuna: O resumo FIXO ao atendente no alarme grave (sem modelo antes do 192) nao tem teste localizado por nome.
+- id: DL-0154/regra/6
+  regra: Espera de juntar mensagens juntar_mensagens.espera_s no pacote vale 2,5 s e consultas do plano (TINA) esperam
+    ate 10 s
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_juntar.py::test_dl_0154_espera_de_juntar_e_2_5_s_e_consulta_do_plano_ate_10_s
+    ancora: espera_s
+- id: DL-0154/regra/7
+  regra: Piora depois do 192 (piorou nao consigo respirar esta roxo sem ar) e sinal NOVO e escala red_flag_clinico
+    grave de novo com 192
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_correcoes_da_rodada.py::test_piora_depois_do_192_da_192_de_novo
+    ancora: '192'
+- id: DL-0154/regra/10
+  regra: Audio foto e figurinha recebem o aviso de que so mensagens de texto sao lidas com oferta de falar com uma
+    pessoa
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_falhas_avulsas.py::test_aviso_de_audio_foto_e_figurinha
+    ancora: pessoa
+- id: DL-0154/regra/11
+  regra: Lista de assuntos abertos fica no codigo (assuntos_abertos) e a Helena pergunta no maximo UMA vez por assunto
+    se ficou alguma duvida, nunca do assunto mais recente
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_assuntos_abertos.py::test_nunca_retoma_o_assunto_mais_recente_nem_o_ja_retomado
+    ancora: assunt
+  - teste: tests/unit/agents/test_helena_assuntos_abertos.py::test_cortesia_depois_de_outro_assunto_retoma_o_que_ficou_uma_vez
+    ancora: assunt
+  - teste: tests/unit/agents/test_helena_assuntos_abertos.py::test_a_lista_do_estado_e_validada
+    ancora: validos
+- id: DL-0154/regra/12
+  regra: 'Mensagens picotadas recebem UMA resposta: espera_s 4 s (0,5 a 15) nas conversas da lista; sinal de emergencia
+    ou risco dispensa a espera'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_juntar.py::test_tres_mensagens_seguidas_recebem_uma_resposta_com_todas
+    ancora: enviad
+  - teste: tests/unit/agents/test_helena_juntar.py::test_sinal_claro_de_emergencia_nao_espera
+    ancora: espera
+  - teste: tests/unit/agents/test_helena_juntar.py::test_o_pacote_valida_o_juntar_mensagens
+    ancora: espera_s
+- id: DL-0154/regra/13
+  regra: 'Roteador ativo: sim ou pedido de pessoa lido pelo modelo abre o caso da equipe e a recusa nunca abre'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_plano_e_equipe.py::test_sim_lido_pelo_modelo_abre_o_caso_da_equipe
+    ancora: caso
+  - teste: tests/unit/agents/test_helena_plano_e_equipe.py::test_cortesia_com_o_modelo_lendo_pedido_de_pessoa_nao_abre_caso_se_recusa
+    ancora: caso
+- id: DL-0154/regra/14
+  regra: Roteador v7 devolve JSON de vocabulario fechado em todo campo; campo fora do vocabulario gera UMA re-pergunta
+    e depois o caminho de sempre
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_roteador_v7.py::test_campo_fora_do_vocabulario_nunca_e_adivinhado
+    ancora: vocabul
+  - teste: tests/unit/agents/test_helena_roteador_v7.py::test_uma_re_pergunta_com_o_aviso_dos_campos
+    ancora: campo
+- id: DL-0154/regra/16
+  regra: 'Resposta ambigua na pergunta de alerta e SEM CLAREZA: pergunta de novo UMA vez, depois oferece a equipe
+    de saude sem 192 (aval do medico responsavel antes de producao)'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_saude_seguranca.py::test_resposta_sem_clareza_pergunta_de_novo_com_outras_palavras
+    ancora: pergunta
+  - teste: tests/unit/agents/test_helena_saude_seguranca.py::test_continuou_sem_clareza_oferece_a_equipe_sem_192_e_sem_caso
+    ancora: '192'
+  lacuna: 'O aval do medico responsavel antes de producao e'' gate humano (hard: decisao clinica), fora de teste.'
+- id: DL-0154/regra/17
+  regra: 'Trava sem segundo 192: com 192/CVV ja dito e caso clinico aberto, sem sinal NOVO a resposta e Entendi.
+    Mantive o seu caso; risco psicossocial nunca e travado'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_sinal_claro_primeiro.py::test_controle_caso_aberto_sem_sinal_novo_mantem_o_caso
+    ancora: caso
+  - teste: tests/unit/agents/test_helena_saude_seguranca.py::test_sem_sinal_novo_o_192_nao_sai_de_novo
+    ancora: '192'
+  lacuna: '''Risco psicossocial nunca e'' travado'' nao tem teste localizado por nome neste rastro.'
+- id: DL-0154/regra/18
+  regra: Pergunta de cobertura recebe so o aviso de que cobertura nao e tratada por aqui (app Austa Clinicas portal
+    central), sem consulta ao cadastro nem oferta da equipe
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_rodada_8_teste_real.py::test_cobre_parto_recebe_so_o_aviso_da_cobertura_sem_consulta
+    ancora: cobertura
+  - teste: tests/unit/agents/test_helena_roteador_ativo.py::test_cobertura_pelo_roteador_e_o_aviso_sem_consulta_e_sem_o_classificador
+    ancora: cobertura
+- id: DL-0154/regra/19
+  regra: 'Sintoma da propria pessoa: pergunta de alerta da tabela, a Helena nunca explica causa nem orienta o sintoma
+    e seguimento recebe Quem pode avaliar a causa e o medico'
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_protocolos.py::test_seguimento_da_mesma_queixa_recebe_quem_avalia_e_o_especialista
+    ancora: avalia
+  - teste: tests/unit/agents/test_helena_teste_dono_25_10_sintoma.py::test_avaliar_causa_continua_no_vocabulario
+    ancora: avaliar_causa
+- id: DL-0154/regra/20
+  regra: Caso so abre com pedido explicito ou sim; recusa encerra P2/P3 e P1 nunca fecha por recusa
+  estado: teste-localizado
+  runtime_evidence:
+  - teste: tests/unit/agents/test_helena_trava_caso_sem_pedido.py::test_pedido_explicito_continua_abrindo_o_caso
+    ancora: quero falar com um atendente
+  - teste: tests/unit/agents/test_helena_recusa_encerra_caso.py::test_recusa_depois_do_caso_aberto_encerra_o_caso
+    ancora: encerra
+  - teste: tests/unit/agents/test_helena_recusa_encerra_caso.py::test_caso_grave_nao_e_encerrado_pela_recusa
+    ancora: grave
