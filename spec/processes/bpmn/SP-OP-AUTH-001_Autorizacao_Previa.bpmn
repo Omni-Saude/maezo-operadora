@@ -317,7 +317,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
                       camunda:type="external" camunda:topic="operadora.auth.analyze_request">
       <bpmn:documentation>Convoca Rafael (ADR-0005): recomendacao estruturada + evidencias + regras DMN avaliadas. O dossie OTIMIZA a decisao humana, nunca a substitui.</bpmn:documentation>
       <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
-      <bpmn:outgoing>Flow_Dossie_UTAuditor</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Dossie_PrazoUtil</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <bpmn:userTask id="UT_AnaliseMedicoAuditor" name="Analise do medico auditor"
@@ -390,7 +390,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
           </camunda:formField>
         </camunda:formData>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Dossie_UTAuditor</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoUtil_UTAuditor</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAuditor_GW</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -415,7 +415,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 259 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseMedicoAuditor">
       <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_SlaAnalise">
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${execution.getVariable('prazo_resposta_duracao_util') != null ? execution.getVariable('prazo_resposta_duracao_util') : sla.sla_analise}</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: auth.sla_breached"
@@ -661,6 +661,22 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       <bpmn:outgoing>Flow_DecisaoMerge_GW</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
+    <!-- R-005 (F-018; DEC-02 do juridico via dono, 2026-10-31) — DARK atras de
+         MAEZO_AUTH_PRAZO_DIAS_UTEIS. RN 623/2024 art. 12 conta o prazo de resposta em dias uteis.
+         Esta task roda IMEDIATAMENTE antes de UT_AnaliseMedicoAuditor para que a duracao calculada
+         valha a partir do instante em que o timer BT_SlaAnalise e criado. -->
+    <bpmn:serviceTask id="ST_CalcularPrazoRespostaUtil" name="Calcular prazo de resposta em dias uteis (RN 623/2024 art. 12)"
+                      camunda:type="external" camunda:topic="operadora.auth.compute_response_deadline">
+      <bpmn:documentation>R-005 / F-018 (DEC-02): aritmetica de calendario apenas. QUANTOS dias uteis vem da DMN auth_sla (coluna prazo_resposta_dias_uteis, copiada pelo inputParameter abaixo para uma variavel LOCAL desta task, que sombreia qualquer homonima semeada no start); o worker conta os dias uteis com o calendario versionado de feriados nacionais + os da UF do beneficiario (maezo.platform.calendario) a partir da data da solicitacao (ausente: o instante desta task, a mesma ancora do timer ISO de hoje) e escreve a duracao ISO que BT_SlaAnalise le, mais o vencimento e a versao do calendario para auditoria. Desligado (padrao) ou sem dias uteis na DMN (urgencia: resposta imediata), escreve nulos e o timer segue no ISO corrido da DMN — o teto temporario mais rigido da D-05. Nada aqui aprova, nega ou decide cobertura.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="prazo_resposta_dias_uteis">${sla.prazo_resposta_dias_uteis}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Dossie_PrazoUtil</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoUtil_UTAuditor</bpmn:outgoing>
+    </bpmn:serviceTask>
+
     <!-- FLOWS -->
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoRecebida" targetRef="ST_PublishReceived"/>
     <bpmn:sequenceFlow id="Flow_IntakePortal_PubReceived" sourceRef="Start_IntakePortal" targetRef="ST_PublishReceived"/>
@@ -701,7 +717,8 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default)" sourceRef="GW_AutoAprovacao" targetRef="ST_PrepararDossie"/>
     <bpmn:sequenceFlow id="Flow_EmitirAuto_Pub" sourceRef="ST_EmitirAutorizacaoAuto" targetRef="ST_PublishAprovadaAuto"/>
     <bpmn:sequenceFlow id="Flow_PubAuto_End" sourceRef="ST_PublishAprovadaAuto" targetRef="End_AprovadaAutomatica"/>
-    <bpmn:sequenceFlow id="Flow_Dossie_UTAuditor" sourceRef="ST_PrepararDossie" targetRef="UT_AnaliseMedicoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_PrazoUtil" sourceRef="ST_PrepararDossie" targetRef="ST_CalcularPrazoRespostaUtil"/>
+    <bpmn:sequenceFlow id="Flow_PrazoUtil_UTAuditor" sourceRef="ST_CalcularPrazoRespostaUtil" targetRef="UT_AnaliseMedicoAuditor"/>
     <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
     <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
@@ -765,38 +782,39 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       <bpmndi:BPMNShape id="Shape_UT_DecidirPendenciaExpirada" bpmnElement="UT_DecidirPendenciaExpirada"><dc:Bounds x="1530" y="580" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_PendenciaExpirada" bpmnElement="GW_PendenciaExpirada" isMarkerVisible="true"><dc:Bounds x="1745" y="595" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1722" y="561" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishCancelada" bpmnElement="ST_PublishCancelada"><dc:Bounds x="1720" y="710" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia"><dc:Bounds x="1942" y="732" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1912" y="774" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia"><dc:Bounds x="2082" y="732" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2052" y="774" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise"><dc:Bounds x="960" y="190" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_ValidateAutoApprovalCriteria" bpmnElement="ST_ValidateAutoApprovalCriteria"><dc:Bounds x="1150" y="190" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval"><dc:Bounds x="1340" y="190" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true"><dc:Bounds x="1555" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1532" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuto" bpmnElement="ST_EmitirAutorizacaoAuto"><dc:Bounds x="1720" y="60" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto"><dc:Bounds x="1910" y="60" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica"><dc:Bounds x="2132" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2102" y="124" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto"><dc:Bounds x="2050" y="60" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica"><dc:Bounds x="2272" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="124" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie"><dc:Bounds x="1720" y="190" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor"><dc:Bounds x="1910" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalcularPrazoRespostaUtil" bpmnElement="ST_CalcularPrazoRespostaUtil"><dc:Bounds x="1910" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor"><dc:Bounds x="2050" y="190" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla"><dc:Bounds x="1530" y="320" width="100" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado"><dc:Bounds x="1562" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1532" y="514" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach"><dc:Bounds x="1910" y="580" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAssume" bpmnElement="UT_CoordenacaoAssume"><dc:Bounds x="2100" y="450" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true"><dc:Bounds x="2315" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2292" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor"><dc:Bounds x="2480" y="190" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor"><dc:Bounds x="2670" y="190" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor"><dc:Bounds x="2892" y="212" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2862" y="254" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal"><dc:Bounds x="2480" y="320" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada"><dc:Bounds x="2512" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2482" y="514" width="96" height="112" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada"><dc:Bounds x="2670" y="320" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor"><dc:Bounds x="2892" y="342" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2862" y="384" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta"><dc:Bounds x="2480" y="710" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta"><dc:Bounds x="3050" y="710" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida"><dc:Bounds x="2512" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2482" y="124" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_JuntaAdmissibilidade" bpmnElement="BRT_JuntaAdmissibilidade"><dc:Bounds x="2670" y="710" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_JuntaAdmissivel" bpmnElement="GW_JuntaAdmissivel" isMarkerVisible="true"><dc:Bounds x="2885" y="725" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2862" y="663" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_CoordenacaoMerge" bpmnElement="GW_CoordenacaoMerge" isMarkerVisible="true"><dc:Bounds x="2125" y="595" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2102" y="533" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_DecisaoMerge" bpmnElement="GW_DecisaoMerge" isMarkerVisible="true"><dc:Bounds x="2125" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2102" y="157" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla"><dc:Bounds x="1916" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1832" y="290" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise"><dc:Bounds x="1968" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1998" y="290" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta"><dc:Bounds x="2512" y="382" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2428" y="420" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach"><dc:Bounds x="2050" y="580" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAssume" bpmnElement="UT_CoordenacaoAssume"><dc:Bounds x="2240" y="450" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true"><dc:Bounds x="2455" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2432" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor"><dc:Bounds x="2620" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor"><dc:Bounds x="2810" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor"><dc:Bounds x="3032" y="212" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="254" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal"><dc:Bounds x="2620" y="320" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada"><dc:Bounds x="2652" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2622" y="514" width="96" height="112" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada"><dc:Bounds x="2810" y="320" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor"><dc:Bounds x="3032" y="342" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="384" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta"><dc:Bounds x="2620" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta"><dc:Bounds x="3190" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida"><dc:Bounds x="2652" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2622" y="124" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_JuntaAdmissibilidade" bpmnElement="BRT_JuntaAdmissibilidade"><dc:Bounds x="2810" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_JuntaAdmissivel" bpmnElement="GW_JuntaAdmissivel" isMarkerVisible="true"><dc:Bounds x="3025" y="725" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="663" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_CoordenacaoMerge" bpmnElement="GW_CoordenacaoMerge" isMarkerVisible="true"><dc:Bounds x="2265" y="595" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="533" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoMerge" bpmnElement="GW_DecisaoMerge" isMarkerVisible="true"><dc:Bounds x="2265" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="157" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla"><dc:Bounds x="2056" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1972" y="290" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise"><dc:Bounds x="2108" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2138" y="290" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta"><dc:Bounds x="2652" y="382" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2568" y="420" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived"><di:waypoint x="268" y="230" /><di:waypoint x="390" y="230" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_IntakePortal_PubReceived" bpmnElement="Flow_IntakePortal_PubReceived"><di:waypoint x="268" y="360" /><di:waypoint x="345" y="360" /><di:waypoint x="345" y="230" /><di:waypoint x="390" y="230" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss"><di:waypoint x="490" y="230" /><di:waypoint x="580" y="230" /></bpmndi:BPMNEdge>
@@ -815,38 +833,39 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       <bpmndi:BPMNEdge id="Edge_Flow_GWPend_Cancelar" bpmnElement="Flow_GWPend_Cancelar"><di:waypoint x="1770" y="645" /><di:waypoint x="1770" y="710" /><bpmndi:BPMNLabel><dc:Bounds x="1778" y="670" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra"><di:waypoint x="1770" y="595" /><di:waypoint x="1770" y="425" /><di:waypoint x="1010" y="425" /><di:waypoint x="1010" y="270" /><bpmndi:BPMNLabel><dc:Bounds x="1340" y="385" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise"><di:waypoint x="1770" y="595" /><di:waypoint x="1770" y="399" /><di:waypoint x="1010" y="399" /><di:waypoint x="1010" y="270" /><bpmndi:BPMNLabel><dc:Bounds x="1340" y="345" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End"><di:waypoint x="1820" y="750" /><di:waypoint x="1942" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End"><di:waypoint x="1820" y="750" /><di:waypoint x="2082" y="750" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Sla_ValidateCriteria" bpmnElement="Flow_Sla_ValidateCriteria"><di:waypoint x="1060" y="230" /><di:waypoint x="1150" y="230" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_ValidateCriteria_AutoApproval" bpmnElement="Flow_ValidateCriteria_AutoApproval"><di:waypoint x="1250" y="230" /><di:waypoint x="1340" y="230" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW"><di:waypoint x="1440" y="230" /><di:waypoint x="1555" y="230" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar"><di:waypoint x="1580" y="205" /><di:waypoint x="1580" y="100" /><di:waypoint x="1720" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="1600" y="60" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana"><di:waypoint x="1605" y="230" /><di:waypoint x="1720" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="1612" y="176" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub"><di:waypoint x="1820" y="100" /><di:waypoint x="1910" y="100" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End"><di:waypoint x="2010" y="100" /><di:waypoint x="2132" y="100" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAuditor" bpmnElement="Flow_Dossie_UTAuditor"><di:waypoint x="1820" y="230" /><di:waypoint x="1910" y="230" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify"><di:waypoint x="1934" y="288" /><di:waypoint x="1934" y="360" /><di:waypoint x="1630" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub"><di:waypoint x="1820" y="100" /><di:waypoint x="2050" y="100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End"><di:waypoint x="2150" y="100" /><di:waypoint x="2272" y="100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_PrazoUtil" bpmnElement="Flow_Dossie_PrazoUtil"><di:waypoint x="1820" y="230" /><di:waypoint x="1910" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoUtil_UTAuditor" bpmnElement="Flow_PrazoUtil_UTAuditor"><di:waypoint x="2010" y="230" /><di:waypoint x="2050" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify"><di:waypoint x="2074" y="288" /><di:waypoint x="2074" y="360" /><di:waypoint x="1630" y="360" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta"><di:waypoint x="1580" y="400" /><di:waypoint x="1580" y="472" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub"><di:waypoint x="1986" y="288" /><di:waypoint x="1986" y="580" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord"><di:waypoint x="2010" y="620" /><di:waypoint x="2125" y="620" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW"><di:waypoint x="2010" y="230" /><di:waypoint x="2125" y="230" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW"><di:waypoint x="2150" y="450" /><di:waypoint x="2150" y="255" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar"><di:waypoint x="2365" y="230" /><di:waypoint x="2480" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2372" y="204" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar"><di:waypoint x="2340" y="255" /><di:waypoint x="2340" y="360" /><di:waypoint x="2480" y="360" /><bpmndi:BPMNLabel><dc:Bounds x="2360" y="306" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo"><di:waypoint x="2340" y="255" /><di:waypoint x="2340" y="945" /><di:waypoint x="820" y="945" /><di:waypoint x="820" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="1530" y="905" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta"><di:waypoint x="2340" y="255" /><di:waypoint x="2340" y="750" /><di:waypoint x="2480" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="2360" y="724" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub"><di:waypoint x="2580" y="230" /><di:waypoint x="2670" y="230" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End"><di:waypoint x="2770" y="230" /><di:waypoint x="2892" y="230" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub"><di:waypoint x="2580" y="360" /><di:waypoint x="2670" y="360" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End"><di:waypoint x="2530" y="418" /><di:waypoint x="2530" y="472" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End"><di:waypoint x="2770" y="360" /><di:waypoint x="2892" y="360" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Convocar_BrtJunta" bpmnElement="Flow_Convocar_BrtJunta"><di:waypoint x="2580" y="750" /><di:waypoint x="2670" y="750" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_BrtJunta_GW" bpmnElement="Flow_BrtJunta_GW"><di:waypoint x="2770" y="750" /><di:waypoint x="2885" y="750" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_UTJunta" bpmnElement="Flow_GWJunta_UTJunta"><di:waypoint x="2935" y="750" /><di:waypoint x="3050" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="2942" y="696" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_Vedada" bpmnElement="Flow_GWJunta_Vedada"><di:waypoint x="2910" y="775" /><di:waypoint x="2910" y="880" /><di:waypoint x="2150" y="880" /><di:waypoint x="2150" y="645" /><bpmndi:BPMNLabel><dc:Bounds x="2480" y="826" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_CoordMerge_UTCoord" bpmnElement="Flow_CoordMerge_UTCoord"><di:waypoint x="2150" y="595" /><di:waypoint x="2150" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="2158" y="548" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec"><di:waypoint x="3100" y="710" /><di:waypoint x="3100" y="165" /><di:waypoint x="2150" y="165" /><di:waypoint x="2150" y="205" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_DecisaoMerge_GW" bpmnElement="Flow_DecisaoMerge_GW"><di:waypoint x="2175" y="230" /><di:waypoint x="2315" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2195" y="190" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida"><di:waypoint x="2340" y="205" /><di:waypoint x="2340" y="100" /><di:waypoint x="2512" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="2376" y="32" width="100" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub"><di:waypoint x="2126" y="288" /><di:waypoint x="2126" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord"><di:waypoint x="2150" y="620" /><di:waypoint x="2265" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW"><di:waypoint x="2150" y="230" /><di:waypoint x="2265" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW"><di:waypoint x="2290" y="450" /><di:waypoint x="2290" y="255" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar"><di:waypoint x="2505" y="230" /><di:waypoint x="2620" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2512" y="204" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="360" /><di:waypoint x="2620" y="360" /><bpmndi:BPMNLabel><dc:Bounds x="2500" y="306" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="945" /><di:waypoint x="820" y="945" /><di:waypoint x="820" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="1530" y="905" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="750" /><di:waypoint x="2620" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="2500" y="724" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub"><di:waypoint x="2720" y="230" /><di:waypoint x="2810" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End"><di:waypoint x="2910" y="230" /><di:waypoint x="3032" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub"><di:waypoint x="2720" y="360" /><di:waypoint x="2810" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End"><di:waypoint x="2670" y="418" /><di:waypoint x="2670" y="472" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End"><di:waypoint x="2910" y="360" /><di:waypoint x="3032" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Convocar_BrtJunta" bpmnElement="Flow_Convocar_BrtJunta"><di:waypoint x="2720" y="750" /><di:waypoint x="2810" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtJunta_GW" bpmnElement="Flow_BrtJunta_GW"><di:waypoint x="2910" y="750" /><di:waypoint x="3025" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_UTJunta" bpmnElement="Flow_GWJunta_UTJunta"><di:waypoint x="3075" y="750" /><di:waypoint x="3190" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="3082" y="696" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_Vedada" bpmnElement="Flow_GWJunta_Vedada"><di:waypoint x="3050" y="775" /><di:waypoint x="3050" y="880" /><di:waypoint x="2290" y="880" /><di:waypoint x="2290" y="645" /><bpmndi:BPMNLabel><dc:Bounds x="2620" y="826" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CoordMerge_UTCoord" bpmnElement="Flow_CoordMerge_UTCoord"><di:waypoint x="2290" y="595" /><di:waypoint x="2290" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="2298" y="548" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec"><di:waypoint x="3240" y="710" /><di:waypoint x="3240" y="165" /><di:waypoint x="2290" y="165" /><di:waypoint x="2290" y="205" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DecisaoMerge_GW" bpmnElement="Flow_DecisaoMerge_GW"><di:waypoint x="2315" y="230" /><di:waypoint x="2455" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2335" y="190" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida"><di:waypoint x="2480" y="205" /><di:waypoint x="2480" y="100" /><di:waypoint x="2652" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="2516" y="32" width="100" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>
