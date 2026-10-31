@@ -19,6 +19,7 @@ from pydantic import Field
 from sqlalchemy import text
 
 from maezo.gateway.communications.models import alive
+from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
 from maezo.gateway.human.auth_profile import DocumentPolicy, InputPublication, PublicationReceipt
 from maezo.gateway.human.auth_publisher import AuthInputPublisher, AuthPublicationSnapshot
@@ -415,8 +416,8 @@ class DocumentRequestProducer:
     ) -> ProducerResult:
         require(snapshot.publication.kind == "document_policy" and snapshot.publication.state == "active")
         policy = snapshot.publication.payload
-        require(isinstance(policy, DocumentPolicy) and policy.submitted_response_digest is None)
-        assert isinstance(policy, DocumentPolicy)
+        if not (isinstance(policy, DocumentPolicy) and policy.submitted_response_digest is None):
+            raise ExternalCaseError("denied")
         await self.journal.seal(outer, "policy", {"publication": wire(snapshot.publication)})
         receipt = await self.policy_publisher.publish(snapshot)
         await self.journal.seal(outer, "policy-receipt", {"receipt": wire(receipt)})
@@ -475,8 +476,8 @@ class DocumentRequestProducer:
         observed.current()
         lifetime = AdmissionLifetime()
         stored = await self.journal.read(predecessor_command_id, "delivery")
-        require(stored is not None and stored.state != "sealed", "uncertain")
-        assert stored is not None
+        if stored is None or stored.state == "sealed":
+            raise ExternalCaseError("uncertain")
         predecessor = parse_model(RequestDeliveryCommand, stored.payload["command"])
         require(
             predecessor.command_id == predecessor_command_id
@@ -521,8 +522,8 @@ class DocumentRequestProducer:
         """Receipt-only restart of an already sealed successor, without acquisition."""
         require(isinstance(invocation_ref, str) and 16 <= len(invocation_ref) <= 128)
         seed = await self.journal.read(request_ref, "successor-" + digest({"invocation_ref": invocation_ref}))
-        require(seed is not None, "uncertain")
-        assert seed is not None
+        if seed is None:
+            raise ExternalCaseError("uncertain")
         self._original_producer(seed.payload["producer"])
         require(seed.payload["request"]["request_ref"] == request_ref, "conflict")
         return await self._resume(seed.payload["outer_command_id"], seed.payload, None, AdmissionLifetime())
@@ -595,8 +596,8 @@ class DocumentRequestProducer:
             await self.journal.seal(outer, "body-" + recipient_id, {"command": wire(body)})
             selected = selector(body)
             entry = await self.journal.read(outer, "body-" + recipient_id)
-            require(entry is not None)
-            assert entry is not None
+            if entry is None:
+                raise ExternalCaseError("denied")
             operation = "preserve_request_body" if entry.state == "sealed" else "read_request_body_receipt"
             access = self._access(
                 operation, body.command_id, digest(body), payload["context_query_digest"], body.request, pins
@@ -731,8 +732,8 @@ class DocumentRequestProducer:
     async def _recover(self, request_ref: str, acquired: ProducerAcquisition | None) -> ProducerResult:
         lifetime = AdmissionLifetime()
         seed = await self.journal.read(request_ref, "occurrence")
-        require(seed is not None, "uncertain")
-        assert seed is not None
+        if seed is None:
+            raise ExternalCaseError("uncertain")
         self._original_producer(seed.payload["producer"])
         outer = seed.payload["outer_command_id"]
         return await self._resume(outer, seed.payload, acquired, lifetime)
@@ -747,8 +748,8 @@ class DocumentRequestProducer:
         stored = await self.journal.read(outer, "delivery")
         if stored is None or stored.state == "sealed":
             plan = await self.journal.read(outer, "plan")
-            require(plan is not None, "uncertain")
-            assert plan is not None
+            if plan is None:
+                raise ExternalCaseError("uncertain")
             return await self._deliver(outer, plan.payload, acquired, lifetime)
         command = parse_model(RequestDeliveryCommand, stored.payload["command"])
         require(

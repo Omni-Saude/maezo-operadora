@@ -126,7 +126,8 @@ class EngineReadBundle:
         self.guard()
         c = ct.claims
         admission, signing = self.client.partition.admission, self.client.partition.signing
-        assert admission is not None and signing is not None
+        if admission is None or signing is None:
+            raise AssertionError("particao sem admission/signing apos guard()")
         a, b = admission.record, c.binding
         if (
             c.stage != stage

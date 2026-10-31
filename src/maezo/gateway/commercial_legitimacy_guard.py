@@ -58,6 +58,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from typing import Any, Final, Literal, Protocol, Self, final
 
+import structlog
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from maezo.gateway.commercial import CommercialGateway
@@ -95,6 +96,8 @@ __all__ = [
     "LegitimacyScreenShadow",
     "collective_legitimacy_shadow",
 ]
+
+logger = structlog.get_logger(__name__)
 
 # ----------------------------------------------------------------------------------
 # O bound set FECHADO (desenho §2 DECISÃO 1: o arco PJ-contratante→proposta→aceite→
@@ -297,11 +300,13 @@ class LegitimacyScreenGateway(CommercialGateway):
                 # A base NÃO é composable: posture ausente é defeito de composição LOUD
                 # (fail-closed), nunca passagem silenciosa sem triagem.
                 raise
-            except Exception:
+            except Exception as exc:
                 # Defeito NÃO declarado da postura: nunca altera o caminho por acidente.
                 # O enforcing é fail-closed traduzindo os próprios defeitos em recusa
                 # declarada DENTRO de `_posture`; aqui nada é engolido duas vezes.
-                pass
+                # B110 triado: não é mais silencioso — só o TIPO do erro vai ao log (ADR-0006:
+                # nunca payload, comando ou identificador).
+                logger.warning("commercial_legitimacy_posture_defect", error_type=type(exc).__name__)
         return await super().execute(command, scope)
 
     async def _posture(self, command: CommercialCommand, scope: CommercialScope) -> None:

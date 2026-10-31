@@ -280,16 +280,16 @@ class VendorSubmissionMachine:
             await self._emit(tenant, command, decision="DENY", reason="PHI_IN_COMMERCIAL_INPUT")
             raise VendorSubmissionError(VendorSubmissionRefusal.PHI_IN_COMMERCIAL_INPUT)
         # Channel eligibility from the ONLY accredited source; absent = unknown, never zero.
-        require(self.channels is not None, VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
-        assert self.channels is not None
+        if self.channels is None:
+            raise VendorSubmissionError(VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
         channel = await self.channels.channel(tenant, command.channel_ref)
-        require(channel is not None, VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
-        assert channel is not None
+        if channel is None:
+            raise VendorSubmissionError(VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
         require(channel.tenant == tenant, VendorSubmissionRefusal.CONTRACT_MISMATCH)
         require(channel.status == "active", VendorSubmissionRefusal.CHANNEL_STATUS_INELIGIBLE)
         # Idempotency over the named business key — NO-DUPLICATE-INSTANCE.
-        require(self.store is not None, VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
-        assert self.store is not None
+        if self.store is None:
+            raise VendorSubmissionError(VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
         digest_value = command_business_digest(command)
         stored = await self.store.find(tenant, command.submission_ref)
         for instance in stored:
@@ -342,8 +342,8 @@ class VendorSubmissionMachine:
             record.tenant == tenant and channel_ref is not None,
             VendorSubmissionRefusal.AUTHORITY_UNPROVEN,
         )
-        require(self.store is not None, VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
-        assert self.store is not None
+        if self.store is None:
+            raise VendorSubmissionError(VendorSubmissionRefusal.SOURCE_UNAVAILABLE)
         stored = await self.store.find(tenant, submission_ref)
         own = [instance for instance in stored if instance.channel_ref == channel_ref]
         if not own:
@@ -375,8 +375,8 @@ class VendorSubmissionMachine:
     async def _emit(
         self, tenant: str, command: ChannelSubmissionCommand, *, decision: str, reason: str
     ) -> None:
-        require(self.audit is not None, VendorSubmissionRefusal.AUDIT_UNAVAILABLE)
-        assert self.audit is not None
+        if self.audit is None:
+            raise VendorSubmissionError(VendorSubmissionRefusal.AUDIT_UNAVAILABLE)
         try:
             await self.audit.emit(
                 _audit_record(tenant=tenant, command=command, decision=decision, reason=reason)

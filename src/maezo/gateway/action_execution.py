@@ -356,7 +356,9 @@ def parse_deviation(slot: str, raw: Any) -> tuple[DeviationRecord | None, tuple[
     if defects:
         return None, tuple(defects)
     # Every branch above filled its slot or appended a defect, so these are total.
-    assert deadline_field is not None and deadline is not None  # narrowing, not a check
+    # narrowing, not a check
+    if deadline_field is None or deadline is None:
+        raise AssertionError("deadline_field/deadline devem estar preenchidos sem defeitos")
     return (
         DeviationRecord(
             slot=slot,

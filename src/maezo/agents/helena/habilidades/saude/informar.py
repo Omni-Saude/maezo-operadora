@@ -445,7 +445,8 @@ async def _gerativa_informar(
 ) -> dict[str, Any] | None:
     """Pergunta informativa / resultado pessoal: o modelo redige (com o apoio da base quando o assunto
     casa de verdade). `None` = a rota recusou a mensagem (risco): o turno segue o caminho da base."""
-    assert self._gerativa is not None
+    if self._gerativa is None:
+        raise AssertionError("rota gerativa exige _gerativa ligada")
     texto = str(state.get("message_body") or "")
     plano = _plano(texto)
     anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state))
@@ -513,7 +514,8 @@ async def _gerativa_no_alerta(
     (no lugar de repetir a pergunta). "Sim", duvida, agravamento, alarme, pedido de pessoa ou outro
     assunto
     -> `None` (a v4 de sempre decide). O fecho com as opcoes 1/2 e' FIXO e a escolha seguinte, da v4."""
-    assert self._gerativa is not None
+    if self._gerativa is None:
+        raise AssertionError("rota gerativa exige _gerativa ligada")
     if not _GERATIVA_NO_ALERTA:
         # Avaliacao r4 de 22/10/2026: o SINTOMA relatado segue o fluxo do sintoma (pergunta de alarme e o
         # texto fixo da v4); a redacao fica so' para a PERGUNTA informativa. A redacao no alerta citava o

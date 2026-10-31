@@ -2318,7 +2318,9 @@ def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
     primeiro) e a data da fonte. Com menos meses do que o pedido, o cabecalho diz quantos achou; sem
     nenhum, diz que nao achou e responde o mes mais recente, como a pergunta de um mes."""
     lista = lista_do_handoff(facts.get("lista"))
-    assert lista is not None  # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    if lista is None:
+        raise AssertionError("lista do handoff ausente (so existe com pedido valido)")
     foco = str(facts["foco"]) if foco_valido(facts.get("foco")) else FOCO_GERAL
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
     # Contagem ausente ou fora da forma vale "nenhum mes listado" (a resposta de um mes so', honesta).

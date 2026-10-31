@@ -280,7 +280,8 @@ class PortalProductionSettings(BaseSettings):
             return self
         if any(v is None for v in values):
             raise PortalStaffBootstrapError()
-        assert self.staff_scope is not None and self.staff_native_origin is not None
+        if self.staff_scope is None or self.staff_native_origin is None:
+            raise AssertionError("staff_scope/staff_native_origin checados acima")
         if (
             self.staff_scope.tenant != self.tenant
             or len({self.staff_root_key_sha256, self.staff_read_key_sha256, self.staff_witness_key_sha256})

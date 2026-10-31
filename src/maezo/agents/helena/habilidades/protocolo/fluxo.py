@@ -252,7 +252,9 @@ def _executar(
         return _texto(
             self, state, _n.texto_do_destino_com_especialista(destino, protocolo, textos, especialista)
         )
-    assert textos is not None  # o catalogo so' existe com os textos validos (`catalogo_do_ambiente`)
+    # o catalogo so' existe com os textos validos (`catalogo_do_ambiente`)
+    if textos is None:
+        raise AssertionError("catalogo de protocolos sem textos validos")
     return _texto(self, state, _n.texto_sem_sinal(protocolo, textos, especialista=especialista))
 
 
@@ -303,7 +305,8 @@ async def _especialista_da_queixa(
     perguntas do protocolo vieram antes e a resposta final leva o especialista do MAPA da queixa (o do
     protocolo quando o mapa nao acha a queixa ou o modelo falha)."""
     catalogo = self._protocolos
-    assert catalogo is not None and catalogo.textos is not None
+    if catalogo is None or catalogo.textos is None:
+        raise AssertionError("catalogo de protocolos ausente ou sem textos")
     conversa, mensagem = _blocos(self, state)
     # Rodada de 26/10/2026: com "poxa, eu ja' respondi nao para todas" como mensagem nova, o modelo
     # escolheu "dor nas costas" para uma queixa de articulacoes. A queixa e' a fala que abriu as perguntas.
@@ -433,7 +436,8 @@ async def _especialista_pelo_mapa(
     ultimo: _p.Protocolo | None = None,
 ) -> dict[str, Any]:
     catalogo = self._protocolos
-    assert catalogo is not None and catalogo.textos is not None
+    if catalogo is None or catalogo.textos is None:
+        raise AssertionError("catalogo de protocolos ausente ou sem textos")
     conversa, mensagem = _blocos(self, state)
     lido = await _chamar(
         self,
@@ -468,7 +472,8 @@ async def _sugestao_de_especialista(
     conversa; sem o modelo, a do ultimo protocolo), o clinico como primeira avaliacao, e a sugestao aceita
     so' quando o mapa a admite."""
     catalogo = self._protocolos
-    assert catalogo is not None and catalogo.textos is not None
+    if catalogo is None or catalogo.textos is None:
+        raise AssertionError("catalogo de protocolos ausente ou sem textos")
     textos = catalogo.textos
     conversa, mensagem = _blocos(self, state)
     # Rodada de 26/10/2026: "o certo nao seria ortopedista?" depois de "torci o tornozelo" recebeu "boa
@@ -849,7 +854,8 @@ async def resposta_direta(
     from maezo.agents.helena import graph as _g
 
     catalogo = self._protocolos
-    assert catalogo is not None and catalogo.textos is not None
+    if catalogo is None or catalogo.textos is None:
+        raise AssertionError("catalogo de protocolos ausente ou sem textos")
     textos = catalogo.textos
     texto = fala if fala is not None else str(state.get("message_body") or "")
     mensagem = render_untrusted_block("message_body", texto)

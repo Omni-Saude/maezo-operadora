@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from maezo.gateway.communications.models import CommunicationScope, alive
+from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
 from maezo.gateway.human.read_profile import digest
 
@@ -53,8 +54,8 @@ def current(row: Any, access: SystemAccess) -> tuple[SystemGrant, datetime]:
         "unavailable",
     )
     grant = publication.grant
-    require(grant is not None)
-    assert grant is not None
+    if grant is None:
+        raise ExternalCaseError("denied")
     require(
         grant.access == access
         and publication.source_receipt_ref == grant.source.receipt_ref
@@ -81,13 +82,14 @@ class AdmissionLifetime:
         return alive(self._ceiling)
 
     def current(self) -> None:
-        require(self._ceiling is not None, "unavailable")
-        assert self._ceiling is not None
+        if self._ceiling is None:
+            raise ExternalCaseError("unavailable")
         alive(self._ceiling)
 
     def deadline(self) -> datetime:
         self.current()
-        assert self._ceiling is not None
+        if self._ceiling is None:
+            raise AssertionError("teto ausente apos current()")
         return self._ceiling
 
 

@@ -460,7 +460,8 @@ class DelegationDispatcher:
 
     async def _delegate_atomic(self, envelope: DelegationEnvelope) -> DelegationResult:
         transactions = self._transactions
-        assert transactions is not None
+        if transactions is None:
+            raise AssertionError("_delegate_atomic exige transactions (roteado por delegate)")
         validation = self._validate(envelope)
         async with transactions.transaction(envelope.tenant) as session:
             fresh, row = await session.claim(envelope.task_id)
@@ -478,7 +479,8 @@ class DelegationDispatcher:
                     await writer._emit(envelope, DelegationFactKind.REQUESTED)
                 await session.mark_requested(envelope.task_id)
             elif done is None:
-                assert validation is not None
+                if validation is None:
+                    raise AssertionError("validacao ausente no ramo de rejeicao")
                 await writer._audit_delegation(
                     envelope, decision=_DECISION_DENY, basis=f"A2A:reject:{validation.rejection_reason}"
                 )

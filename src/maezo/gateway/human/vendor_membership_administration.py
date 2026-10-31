@@ -229,14 +229,11 @@ class VendorMembershipAdministration:
             )
             # The authorized source must EXIST and know this channel: absent store or absent row
             # is unknown, never an empty set to act over.
-            require(
-                self.channels is not None and self.store is not None,
-                VendorAdministrationReason.SOURCE_UNAVAILABLE,
-            )
-            assert self.channels is not None and self.store is not None  # narrowed, fail-closed source check
+            if self.channels is None or self.store is None:  # fail-closed source check
+                raise VendorAdministrationError(VendorAdministrationReason.SOURCE_UNAVAILABLE)
             channel = await self.channels.channel(self.binding.tenant, command.channel_ref)
-            require(channel is not None, VendorAdministrationReason.SOURCE_UNAVAILABLE)
-            assert channel is not None
+            if channel is None:
+                raise VendorAdministrationError(VendorAdministrationReason.SOURCE_UNAVAILABLE)
             require(
                 (channel.tenant, channel.status) == (self.binding.tenant, "active")
                 and channel.revision == command.expected_revision,

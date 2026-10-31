@@ -462,7 +462,8 @@ class NativeAssignmentClient(
             target_ref,
             target_membership_revision,
         )
-        assert result[2] is not None
+        if result[2] is None:
+            raise AssertionError("recibo de atribuicao ausente")
         return result[2]
 
     async def list_candidates(

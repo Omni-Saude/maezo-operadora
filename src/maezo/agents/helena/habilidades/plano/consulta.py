@@ -262,7 +262,8 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
     else:
         # RODADA 4: sem frase de pagamento (papel do Lucas) nem "nao consta" sobre cobertura.
         texto = _frases_curtas(_sem_frases_fora_do_papel(texto))
-    assert isinstance(texto, str)
+    if not isinstance(texto, str):
+        raise AssertionError("texto da consulta deve ser str apos os ramos acima")
     # D-01 (red team): "este e' o CPF de outra pessoa... qual a carencia dele?" recebia a carencia do
     # PROPRIO titular, sem aviso. A consulta nunca usa um CPF do texto; o aviso diz isso a quem le'.
     texto = com_aviso_se_for_de_outra_pessoa(state.get("message_body"), texto)
@@ -403,7 +404,8 @@ def _texto_do_envio(self: HelenaGraph, state: Mapping[str, Any], texto: str) -> 
 async def _ler_consulta(self: HelenaGraph, ref: str, subtipo: str) -> Any:
     """UMA leitura da fonte do plano, com o prazo do turno. Falha de rede/servico/prazo = `None`; bug
     (`PROGRAMMING_ERRORS`) sobe. So' chamada com a fonte ligada."""
-    assert self._consultas is not None
+    if self._consultas is None:
+        raise AssertionError("_ler_consulta so roda com a fonte do plano ligada")
     try:
         async with asyncio.timeout(CONSULTA_PRAZO_S):
             return await self._consultas.consultar(ref, subtipo)
