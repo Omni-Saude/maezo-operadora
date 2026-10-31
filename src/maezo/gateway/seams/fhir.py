@@ -41,7 +41,7 @@ _OP_READ_COVERAGE = "fhir.read_coverage"
 _OP_SEARCH_COVERAGE = "fhir.search_coverage"
 
 #: Every operation a `GatedFhirReader` can decide on. The construction-time zone fence
-#: (`gateway/tool_registry.py::build_fhir_seam`, ADR-0068 I-5) reads THIS set against
+#: (`gateway/tool_registry.py::build_fhir_seam`, ADR-0071 I-5) reads THIS set against
 #: `OperationSpec.returns_phi`: the wrapper exposes all four methods whatever adapter sits below,
 #: so the fence asks about the whole surface, never only the adapter's own method.
 FHIR_OPERATIONS: Final[frozenset[str]] = frozenset(

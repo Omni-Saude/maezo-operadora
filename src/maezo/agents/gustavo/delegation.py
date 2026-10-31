@@ -306,7 +306,7 @@ def make_gustavo_handler(
 
     Compiles the REAL Gustavo graph via `gustavo.graph.build(config)` — the same fail-closed
     contract every other caller goes through (`inference`/`dmn`/`cibseven`/`audit_sink` REQUIRED;
-    no `fhir` — Gustavo is Zona Geral, ADR-0068 I-5) — and invokes it with the envelope-materialized
+    no `fhir` — Gustavo is Zona Geral, ADR-0071 I-5) — and invokes it with the envelope-materialized
     state.
 
     `output_ref` is SP-OP-NIP-001's business key reference (auditable, never PHI). `meta` carries

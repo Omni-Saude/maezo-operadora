@@ -276,7 +276,7 @@ class CredentialSeparationError(RuntimeError):
 class ZoneFenceError(RuntimeError):
     """A composition that would BUILD a PHI-returning seam for a principal outside the PHI zone.
 
-    ADR-0068 I-5 (R-020 / DEC-11, owner decision 2026-10-31): the result-pseudonymizing
+    ADR-0071 I-5 (R-020 / DEC-11, owner decision 2026-10-31): the result-pseudonymizing
     `PhiZoneGateway` ADR-0016 described never existed; what exists instead is this check, at the
     one place seams are constructed. Same shape and same reason as :class:`CredentialSeparationError`:
     raised at BUILD time, never caught here, so the root's readiness goes red (I-2) instead of a
@@ -302,7 +302,7 @@ def _ensure_zone_admits(seam: SeamContext, operations: frozenset[str]) -> None:
     )
     if offending:
         raise ZoneFenceError(
-            f"ADR-0068 I-5: principal {seam.principal!r} (zona {seam.phi_zone!r}) nao recebe seam que "
+            f"ADR-0071 I-5: principal {seam.principal!r} (zona {seam.phi_zone!r}) nao recebe seam que "
             f"devolve PHI: {offending}"
         )
 
@@ -1123,7 +1123,7 @@ def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_pa
     (`tools/mcp_fhir/typed_reads.py`): um `resourceType` diferente do pedido e RECUSADO, nunca
     encaminhado como se fosse o recurso pedido (VAL-02).
 
-    CERCA DE ZONA (ADR-0068 I-5): toda operacao do `GatedFhirReader` e `returns_phi` no catalogo,
+    CERCA DE ZONA (ADR-0071 I-5): toda operacao do `GatedFhirReader` e `returns_phi` no catalogo,
     entao um `seam` cujo principal nao e da Zona PHI e RECUSADO aqui, antes de construir qualquer
     cliente — :class:`ZoneFenceError`.
 
@@ -1201,7 +1201,7 @@ def build_population_seam(*, seam: SeamContext, inner: Any) -> GatedPopulationFe
 #: negar a leitura do PROPRIO agente com `TOOL_NAO_DECLARADA` (era o caso de carolina ate o WP
 #: FHIR-TOOL-SURFACE-PARITY — achado NEW-04). `tests/unit/gateway/test_fhir_tool_surface_parity.py`
 #: e a cerca que amarra este mapa ao `agent.yaml` e ao call site real do grafo.
-#: SO AGENTES DA ZONA PHI (ADR-0068 I-5): `build_fhir_seam` recusa construir para os demais, e
+#: SO AGENTES DA ZONA PHI (ADR-0071 I-5): `build_fhir_seam` recusa construir para os demais, e
 #: `tests/unit/gateway/test_phi_zone_seam_fence.py` cruza este mapa com o `security_zone` de cada
 #: `agent.yaml`. O gustavo (Zona Geral) SAIU daqui por decisao do dono de 31/10/2026 (DEC-11 (i)):
 #: ele trabalha com os fatos do processo, sem leitor FHIR.
@@ -1366,7 +1366,7 @@ def build_agent_fhir_seam(
     and the base-url default keep exactly ONE definition (no second, divergent construction
     path — the very C-A2 counterexample this module exists to prevent).
 
-    ZONE-FENCED (ADR-0068 I-5): the zone comes from `agent_id`'s own `agent.yaml` through
+    ZONE-FENCED (ADR-0071 I-5): the zone comes from `agent_id`'s own `agent.yaml` through
     :func:`build_agent_seam_context`; a general-zone agent placed in `_FHIR_ADAPTER_BY_AGENT` makes
     this raise :class:`ZoneFenceError` (via :func:`build_fhir_seam`) instead of building.
 

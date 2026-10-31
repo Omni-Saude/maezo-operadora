@@ -1,4 +1,4 @@
-"""Todo item `hard` tem guarda `ERR_*_NOT_HUMAN` no worker E no BPMN (ADR-0068 I-4; R-020 / DEC-11).
+"""Todo item `hard` tem guarda `ERR_*_NOT_HUMAN` no worker E no BPMN (ADR-0071 I-4; R-020 / DEC-11).
 
 AGENTS.md regra 7: os itens `hard` da matriz de autonomia (negativa, decisao clinica, acusacao de
 fraude, ...) sao intocaveis. O PEP pode estar em `shadow`; quem garante "so humano" na pratica sao
@@ -129,7 +129,7 @@ def test_every_hard_item_has_a_declared_guard_and_no_stale_mapping() -> None:
     hard = set(_hard_actions())
     assert hard - set(_HARD_ITEM_GUARDS) == set(), (
         f"item hard sem guarda mapeada: {sorted(hard - set(_HARD_ITEM_GUARDS))} — declare a guarda "
-        "ERR_*_NOT_HUMAN do worker e do BPMN (ADR-0068 I-4) antes de congelar o item"
+        "ERR_*_NOT_HUMAN do worker e do BPMN (ADR-0071 I-4) antes de congelar o item"
     )
     assert set(_HARD_ITEM_GUARDS) - hard == set(), (
         f"mapeamento para item que nao e mais hard: {sorted(set(_HARD_ITEM_GUARDS) - hard)}"

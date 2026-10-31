@@ -1,6 +1,6 @@
 """MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
 channel for PHI; the gated seam built by `gateway/tool_registry.py` — PEP via `effect_pep` — enforces
-that at the gateway, not here; ADR-0068). Credential
+that at the gateway, not here; ADR-0071). Credential
 handling (auditoria 09, achados 9.3/9.4) is specified per method.
 
 WHATSAPP-ENV-PREFIX-b / R-061 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA):
@@ -144,7 +144,7 @@ class WhatsAppServer:
     """MCP server for WhatsApp Business API — in-process (ADR-0022).
 
     Wraps the WhatsApp Cloud API with async httpx calls.
-    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0068): the
+    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0071): the
     single construction authority is `gateway/tool_registry.py`, which wraps this server in a gated
     seam.
 
@@ -179,7 +179,7 @@ class WhatsAppServer:
         logger.info("whatsapp_server_initialized")
 
     def list_tools(self) -> list[dict[str, str]]:
-        """Return this server's tool definitions (descriptive inventory; ADR-0068).
+        """Return this server's tool definitions (descriptive inventory; ADR-0071).
 
         Nothing registers them: there is no `ToolRegistry`. Agents reach the transport through the
         gated seams built by `gateway/tool_registry.py`, and tool identity lives in the closed

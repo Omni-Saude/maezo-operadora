@@ -293,7 +293,7 @@ class OperationSpec:
             the approvers and the reason `inference.generate` is split in two (design §6.1 C2);
             the decision core does not gate on it — ADR-0006 zone routing is INDEPENDENT (I-6).
         returns_phi: the operation's RESULT carries raw PHI (clinical record content). Read by the
-            construction-time zone fence (ADR-0068 I-5, `gateway/tool_registry.py::build_fhir_seam`):
+            construction-time zone fence (ADR-0071 I-5, `gateway/tool_registry.py::build_fhir_seam`):
             a seam that can gate a `returns_phi` operation is never BUILT for a principal outside
             the PHI zone. Subtract-only — the decision core does not read it, and the default
             `False` never widens permission. Pseudonymized Zona Geral reads (the AMH billing/TINA
@@ -320,7 +320,7 @@ def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
 OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # -- FHIR reads (C2). Leaves `tools/mcp_fhir/server.py:88` (read_resource) and `:118`
     # (search_resources); agents reach them through per-agent adapter Protocols. All four return
-    # raw clinical record content: `returns_phi=True` (ADR-0068 I-5 zone fence).
+    # raw clinical record content: `returns_phi=True` (ADR-0071 I-5 zone fence).
     OperationSpec(
         operation="fhir.read_patient",
         action_class="leitura_phi_clinica",

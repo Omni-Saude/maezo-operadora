@@ -219,7 +219,7 @@ def test_every_seam_factory_returns_a_gated_instance() -> None:
     """The table in (1) names operations; this proves the objects behind them are actually gated."""
     from maezo.gateway import tool_registry
 
-    # Zona PHI: desde a ADR-0068 I-5 `build_fhir_seam` recusa construir para principal fora dela.
+    # Zona PHI: desde a ADR-0071 I-5 `build_fhir_seam` recusa construir para principal fora dela.
     seam = SeamContext(tenant="amh", principal="rafael", phi_zone=PHI_ZONE_PHI, decision=DecisionContext())
     inner = object()
     built = [

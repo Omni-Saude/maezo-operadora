@@ -1,4 +1,4 @@
-# ADR-0068: Desenho real da barreira de efeitos (fábrica de seams + effect_pep) e cerca de zona na construção
+# ADR-0071: Desenho real da barreira de efeitos (fábrica de seams + effect_pep) e cerca de zona na construção
 
 **Status:** Proposed — decisão do dono **C1** tomada em 31/10/2026 (R-020 / DEC-11; sub-decisão (i): "Remove FHIR
 access" do Gustavo). Ratificação formal pendente: artefato `docs/compliance/human-windows/R-020-dec-adr0016-22.md`,
@@ -137,7 +137,7 @@ mais `mcp-fhir.read_patient` nem `read_phi_data`, e o `build(config)` do grafo r
 | I-5 | `tests/unit/gateway/test_phi_zone_seam_fence.py` (nova: cruza mapa × `security_zone` × `returns_phi`) |
 | I-6 (parcial) | `scripts/ci/check_phi_scrub_prereqs.py` |
 | I-7 | `scripts/ci/check_fronteira_agentes.py` |
-| Símbolos fantasmas e citações desta ADR | `tests/unit/docs/test_adr0068_barreira_real.py` (nova; reusa o gate R-089) |
+| Símbolos fantasmas e citações desta ADR | `tests/unit/docs/test_adr0071_barreira_real.py` (nova; reusa o gate R-089) |
 
 ## Consequências
 

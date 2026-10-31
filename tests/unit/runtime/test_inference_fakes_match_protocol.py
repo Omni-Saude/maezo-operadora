@@ -1631,7 +1631,7 @@ def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
     teste torna a lista fechada tambem uma asserção viva, nao so' um comentario. §Delta-F7:
     17 entradas module-scoped (nao mais 10 agrupadas) -- `WhatsAppSender`/`FhirSummaryReader`/
     `AuditEmitter` viraram 3/5/2 entradas por (modulo, classe), uma por agente/modulo dono. 16 desde
-    a ADR-0068 (31/10/2026): `FhirSummaryReader:gustavo` saiu com o acesso FHIR do gustavo."""
+    a ADR-0071 (31/10/2026): `FhirSummaryReader:gustavo` saiu com o acesso FHIR do gustavo."""
     esperado = {
         "DmnTransport",
         "WhatsAppSender:helena",
@@ -1696,7 +1696,7 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
     # paisagem REAL da uniao, nao relaxada: as 4 entradas que declaram `read_patient` continuam
     # obrigadas a concordar entre si, e as 2 que declaram `read_patient_summary` (a generica e a de
     # carolina) ganharam a MESMA obrigacao, que antes ninguem checava.
-    # ADR-0068 I-5 (DEC-11 (i), 31/10/2026): `FhirSummaryReader:gustavo` SAIU — o Protocol
+    # ADR-0071 I-5 (DEC-11 (i), 31/10/2026): `FhirSummaryReader:gustavo` SAIU — o Protocol
     # `FhirReader` do gustavo foi removido junto com o acesso FHIR dele; restam 3 em `read_patient`.
     com_read_patient = (
         "FhirSummaryReader",

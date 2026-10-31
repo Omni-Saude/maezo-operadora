@@ -9,7 +9,7 @@ PEP-gates each of these seam kinds (`build_dmn_seam`/`build_cibseven_seam`/`buil
 each wrapped as `Gated*`), wired into both live composition roots
 (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`).
 
-NO FHIR READER (ADR-0068 I-5; owner decision 2026-10-31, DEC-11 (i) "Remove FHIR access"). Gustavo
+NO FHIR READER (ADR-0071 I-5; owner decision 2026-10-31, DEC-11 (i) "Remove FHIR access"). Gustavo
 is `security_zone: general`; until this decision `_FHIR_ADAPTER_BY_AGENT` handed him the RAW
 `read_patient` reader for an optional J2 dossier enrichment. He now works from the PROCESS FACTS
 only (the worker-pre-resolved variables of SP-OP-NIP-001 / SP-OP-ANS-SUBMIT-001), the graph accepts
@@ -126,7 +126,7 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   `tenant_id`/`thread_id` (both `text NOT NULL`), GAP-DU-01-a. The semantic column beside it was
   dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED pending a consumer (ADR-0047, DRAFT).
   Same labeled boundary as helena/rafael/carolina. `finalize` is a terminal no-op.
-- `gather` does NOT enrich the J2 dossier with a FHIR read any more (ADR-0068 I-5, DEC-11 (i)):
+- `gather` does NOT enrich the J2 dossier with a FHIR read any more (ADR-0071 I-5, DEC-11 (i)):
   it records a disclosed gap note and the dossier proceeds on the pre-resolved process facts.
   `nip_facts` stays in the state shape, always `{}`.
 
@@ -255,9 +255,9 @@ _NIP_ROUTING_TO_MOTIVO: dict[RoteamentoNip, MotivoHumano] = {
 }
 
 
-#: Gap note `gather` records on every J2 turn (ADR-0068 I-5, DEC-11 (i)): bounded, no PHI.
+#: Gap note `gather` records on every J2 turn (ADR-0071 I-5, DEC-11 (i)): bounded, no PHI.
 _NOTA_SEM_FHIR: Final[str] = (
-    "sem leitura FHIR (Gustavo e Zona Geral, ADR-0068 I-5); dossie prossegue so com os fatos "
+    "sem leitura FHIR (Gustavo e Zona Geral, ADR-0071 I-5); dossie prossegue so com os fatos "
     "pre-resolvidos do processo."
 )
 
@@ -299,7 +299,7 @@ class GustavoState(TypedDict, total=False):
     contesta_negativa: bool
     documentacao_suficiente: bool
     origem_a2a: bool
-    patient_ref: str  # pseudonymized reference; accepted and forwarded, NEVER read here (ADR-0068 I-5)
+    patient_ref: str  # pseudonymized reference; accepted and forwarded, NEVER read here (ADR-0071 I-5)
 
     # Filled by `gather` (best-effort enrichment; never decides routing).
     gathered: bool
@@ -549,7 +549,7 @@ class GustavoGraph:
 
         J1 works off the aggregated dataset pointer (`dataset_ref`) — nothing to fetch here.
         J2 USED to enrich the dossier with a raw FHIR read; Gustavo is Zona Geral and that access was
-        removed (ADR-0068 I-5, owner decision DEC-11 (i), 2026-10-31). The J2 dossier proceeds on the
+        removed (ADR-0071 I-5, owner decision DEC-11 (i), 2026-10-31). The J2 dossier proceeds on the
         worker-pre-resolved process facts, with a disclosed gap note.
         """
         if state.get("error"):
@@ -1074,7 +1074,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[GustavoState]:
     """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
 
     `config` MUST contain `inference` (ADR-0009), `dmn` (ADR-0028/T1.5), `cibseven`
-    (ADR-0001/T1.11). A `fhir` dependency is REFUSED (ADR-0068 I-5, DEC-11 (i)): Gustavo is Zona
+    (ADR-0001/T1.11). A `fhir` dependency is REFUSED (ADR-0071 I-5, DEC-11 (i)): Gustavo is Zona
     Geral and works from the process facts; a root that still hands him a FHIR reader is a
     composition defect, surfaced loudly here rather than silently ignored.
 
@@ -1085,7 +1085,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[GustavoState]:
     if cfg.get("fhir") is not None:
         raise ValueError(
             "Gustavo build(config) recusa `fhir`: Gustavo e Zona Geral e nao le FHIR "
-            "(ADR-0068 I-5; decisao do dono DEC-11, 31/10/2026)"
+            "(ADR-0071 I-5; decisao do dono DEC-11, 31/10/2026)"
         )
     inference = cfg.get("inference")
     dmn = cfg.get("dmn")

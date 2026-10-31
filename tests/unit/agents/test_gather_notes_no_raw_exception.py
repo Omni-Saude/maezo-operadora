@@ -387,7 +387,7 @@ def test_behavioural_coverage_matches_the_ast_walk() -> None:
 
     Agentes deliberadamente FORA, porque a nota deles nao interpola excecao nenhuma (constante
     literal): `andre` e `beatriz`. Sem sink de nota no `gather`: `_template`, `fernando`,
-    `helena`, `lucas`. `gustavo` SAIU da parametrizacao em 31/10/2026 (ADR-0068 I-5, decisao do dono
+    `helena`, `lucas`. `gustavo` SAIU da parametrizacao em 31/10/2026 (ADR-0071 I-5, decisao do dono
     DEC-11 (i)): o `gather` dele nao le mais FHIR, entao nao ha `except` nem nota alimentada por
     excecao — a nota dele e uma constante.
     """

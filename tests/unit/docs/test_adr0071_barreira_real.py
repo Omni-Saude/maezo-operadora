@@ -1,17 +1,17 @@
-"""ADR-0068: os simbolos fantasmas nao voltam e a ADR nova so cita o que existe (R-020 / DEC-11).
+"""ADR-0071: os simbolos fantasmas nao voltam e a ADR nova so cita o que existe (R-020 / DEC-11).
 
 ADR-0016 e ADR-0022 descreviam um `ToolRegistry` "unico caminho de saida", um `PhiZoneGateway` que
 pseudonimizava resultados e um `register_tools(registry)` "load-bearing" — nenhum dos tres existia
-como descrito (os `register_tools` dos servers MCP existiam sem nenhum chamador). A ADR-0068 documenta
+como descrito (os `register_tools` dos servers MCP existiam sem nenhum chamador). A ADR-0071 documenta
 o desenho real; esta cerca impede que:
 
   (1) alguem reintroduza, em `src/`, uma classe/funcao/metodo/chamada com esses nomes — uma segunda
-      "autoridade" ao lado de `gateway/tool_registry.py` e o risco D-02 que a ADR-0068 fecha. A
+      "autoridade" ao lado de `gateway/tool_registry.py` e o risco D-02 que a ADR-0071 fecha. A
       cerca olha a AST: docstring e comentario podem continuar contando a historia;
-  (2) a ADR-0068 cite um simbolo/arquivo que nao resolve — reusa o gate R-089
+  (2) a ADR-0071 cite um simbolo/arquivo que nao resolve — reusa o gate R-089
       (`scripts/ci/check_doc_symbol_citations.py::run_gate`) sobre um diretorio com SO a ADR nova,
       sem nenhuma entrada de rot divulgado aplicavel;
-  (3) as ADRs parcialmente superadas percam o adendo datado que aponta para a ADR-0068.
+  (3) as ADRs parcialmente superadas percam o adendo datado que aponta para a ADR-0071.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from scripts.ci import check_doc_symbol_citations as citation_gate
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _SRC: Final[Path] = _REPO_ROOT / "src" / "maezo"
 _ADR_DIR: Final[Path] = _REPO_ROOT / "docs" / "adr"
-_ADR_0068: Final[str] = "0068-desenho-real-da-barreira-de-efeitos-e-cerca-de-zona.md"
+_ADR_0071: Final[str] = "0071-desenho-real-da-barreira-de-efeitos-e-cerca-de-zona.md"
 _PHANTOMS: Final[frozenset[str]] = frozenset({"ToolRegistry", "PhiZoneGateway", "register_tools"})
 
 
@@ -55,7 +55,7 @@ def test_phantom_symbols_are_not_reintroduced_in_src() -> None:
     for path in files:
         hits.extend(_phantom_hits(path.read_text(encoding="utf-8"), str(path.relative_to(_REPO_ROOT))))
     assert hits == [], (
-        "simbolo fantasma reintroduzido (ADR-0068: a autoridade unica e gateway/tool_registry.py; "
+        "simbolo fantasma reintroduzido (ADR-0071: a autoridade unica e gateway/tool_registry.py; "
         f"nao ha ToolRegistry/PhiZoneGateway/register_tools): {hits}"
     )
 
@@ -82,14 +82,14 @@ def test_phantom_scanner_ignores_docstrings_and_comments() -> None:
     assert _phantom_hits(source, "f.py") == []
 
 
-def test_adr_0068_cites_only_resolvable_symbols(tmp_path: Path) -> None:
-    adr = _ADR_DIR / _ADR_0068
-    assert adr.is_file(), f"{_ADR_0068} ausente"
+def test_adr_0071_cites_only_resolvable_symbols(tmp_path: Path) -> None:
+    adr = _ADR_DIR / _ADR_0071
+    assert adr.is_file(), f"{_ADR_0071} ausente"
     isolated = tmp_path / "adr"
     isolated.mkdir()
-    shutil.copy2(adr, isolated / _ADR_0068)
-    assert not any(entry.doc == _ADR_0068 for entry in citation_gate._DISCLOSED_ROT), (
-        "a ADR-0068 nao pode depender de rot divulgado"
+    shutil.copy2(adr, isolated / _ADR_0071)
+    assert not any(entry.doc == _ADR_0071 for entry in citation_gate._DISCLOSED_ROT), (
+        "a ADR-0071 nao pode depender de rot divulgado"
     )
     result = citation_gate.run_gate(_REPO_ROOT, isolated)
     assert result.ok, result.render()
@@ -100,10 +100,10 @@ def test_adr_0068_cites_only_resolvable_symbols(tmp_path: Path) -> None:
     )
 
 
-def test_adr_0068_names_every_invariant() -> None:
-    text = (_ADR_DIR / _ADR_0068).read_text(encoding="utf-8")
+def test_adr_0071_names_every_invariant() -> None:
+    text = (_ADR_DIR / _ADR_0071).read_text(encoding="utf-8")
     for invariant in ("I-1", "I-2", "I-3", "I-4", "I-5", "I-6", "I-7"):
-        assert f"**{invariant}" in text, f"ADR-0068 nao declara {invariant}"
+        assert f"**{invariant}" in text, f"ADR-0071 nao declara {invariant}"
 
 
 @pytest.mark.parametrize(
@@ -115,9 +115,9 @@ def test_superseded_adrs_carry_the_dated_addendum(adr: str) -> None:
     assert path.is_file(), adr
     text = path.read_text(encoding="utf-8")
     assert "ADENDO DE STATUS 2026-10-31" in text, f"{adr} sem o adendo datado"
-    assert "ADR-0068" in text, f"{adr} nao aponta para a ADR-0068"
+    assert "ADR-0071" in text, f"{adr} nao aponta para a ADR-0071"
 
 
-def test_readme_index_lists_adr_0068() -> None:
+def test_readme_index_lists_adr_0071() -> None:
     readme = (_ADR_DIR / "README.md").read_text(encoding="utf-8")
-    assert "| 0068 |" in readme
+    assert "| 0071 |" in readme

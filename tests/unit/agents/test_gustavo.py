@@ -250,7 +250,7 @@ def test_gustavo_definition_loads() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build(config) — fail-closed contract; fhir is REFUSED (ADR-0068 I-5, DEC-11 (i))
+# build(config) — fail-closed contract; fhir is REFUSED (ADR-0071 I-5, DEC-11 (i))
 # ---------------------------------------------------------------------------
 
 
@@ -260,7 +260,7 @@ def test_build_requires_inference_dmn_cibseven() -> None:
 
 
 def test_build_refuses_a_fhir_dependency() -> None:
-    """Gustavo e Zona Geral (ADR-0068 I-5; decisao do dono DEC-11 (i), 31/10/2026): uma raiz que
+    """Gustavo e Zona Geral (ADR-0071 I-5; decisao do dono DEC-11 (i), 31/10/2026): uma raiz que
     ainda lhe entregue um leitor FHIR e defeito de composicao — recusado alto, nunca ignorado."""
 
     class _AnyReader:
@@ -798,7 +798,7 @@ async def test_dossier_llm_failure_never_blocks_the_human_route() -> None:
 
 
 # ---------------------------------------------------------------------------
-# gather — sem leitura externa (Gustavo e Zona Geral, ADR-0068 I-5); nunca bloqueia a rota
+# gather — sem leitura externa (Gustavo e Zona Geral, ADR-0071 I-5); nunca bloqueia a rota
 # ---------------------------------------------------------------------------
 
 
@@ -818,7 +818,7 @@ async def test_gather_nip_notes_the_fhir_gap_and_reads_nothing() -> None:
     assert result["gathered"] is True
     assert result["nip_facts"] == {}
     assert len(result["gather_notes"]) == 1
-    assert "ADR-0068" in result["gather_notes"][0]
+    assert "ADR-0071" in result["gather_notes"][0]
     assert "pseudo-benef-1" not in result["gather_notes"][0]
 
 

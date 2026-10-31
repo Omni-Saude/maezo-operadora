@@ -5,7 +5,7 @@ Uses httpx.AsyncClient for async HTTP calls to the HAPI FHIR server.
 
 Per ADR-0006, FHIR resources containing PHI must only be read through the gated seam built by
 `gateway/tool_registry.py::build_fhir_seam` (PEP + audit), which refuses to build for a principal
-outside the PHI zone (ADR-0068 I-5). There is no result-pseudonymizing `ToolRegistry`.
+outside the PHI zone (ADR-0071 I-5). There is no result-pseudonymizing `ToolRegistry`.
 
 Tools:
 - read_resource(resource_type, id) -> resource_dict
@@ -221,7 +221,7 @@ class FhirServer:
     """MCP server for FHIR R4 — in-process (ADR-0022).
 
     Wraps the HAPI FHIR REST API with async httpx calls.
-    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0068): the
+    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0071): the
     single construction authority is `gateway/tool_registry.py`, which wraps this server in a gated
     seam.
 
@@ -246,7 +246,7 @@ class FhirServer:
         )
 
     def list_tools(self) -> list[dict[str, str]]:
-        """Return this server's tool definitions (descriptive inventory; ADR-0068).
+        """Return this server's tool definitions (descriptive inventory; ADR-0071).
 
         Nothing registers them: there is no `ToolRegistry`. Agents reach the transport through the
         gated seams built by `gateway/tool_registry.py`, and tool identity lives in the closed

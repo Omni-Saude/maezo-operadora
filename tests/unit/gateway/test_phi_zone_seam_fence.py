@@ -1,7 +1,7 @@
-"""Cerca de zona na CONSTRUCAO do seam FHIR (ADR-0068 I-5; R-020 / DEC-11, decisao do dono 31/10/2026).
+"""Cerca de zona na CONSTRUCAO do seam FHIR (ADR-0071 I-5; R-020 / DEC-11, decisao do dono 31/10/2026).
 
 O que a ADR-0016 prometia (um `PhiZoneGateway` pseudonimizando o resultado para a Zona Geral) nunca
-existiu; a ADR-0068 troca a promessa por uma checagem que existe: o UNICO construtor sancionado
+existiu; a ADR-0071 troca a promessa por uma checagem que existe: o UNICO construtor sancionado
 (`gateway/tool_registry.py::build_fhir_seam` / `build_agent_fhir_seam`) RECUSA construir um seam
 cujas operacoes devolvem PHI (`OperationSpec.returns_phi`) para um principal que nao e da Zona PHI.
 
@@ -99,7 +99,7 @@ def test_no_general_zone_agent_gets_a_phi_returning_fhir_adapter(agent_id: str) 
     zone = _security_zone(agent_id)
     assert not (returns_phi and zone != PHI_ZONE_PHI), (
         f"{agent_id} (security_zone={zone!r}) recebe o adaptador FHIR "
-        f"{_FHIR_ADAPTER_BY_AGENT[agent_id]!r}, que devolve PHI — ADR-0068 I-5"
+        f"{_FHIR_ADAPTER_BY_AGENT[agent_id]!r}, que devolve PHI — ADR-0071 I-5"
     )
 
 
