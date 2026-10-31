@@ -1,18 +1,17 @@
 # ADR-0070: Convenção de boundary para códigos de guarda — do `*_NOT_HUMAN` à tarefa humana nomeada, predicado T-E e regras de allowlist
 
-**Status:** Proposed — redigido por AGENTE por ordem do dono (2026-10-31, R-098 / WP-ADR-0030-COMPLETION); **ratificação
+**Status:** Proposed — redigido por AGENTE por ordem do dono (2026-10-31, `OWNER-DECISIONS-REGISTER` R-098 / WP-ADR-0030-COMPLETION); **ratificação
 humana PENDENTE** (CODEOWNERS de `/docs/adr/`). Nenhum BPMN, worker ou allowlist muda por esta ADR.
 **Data:** 2026-10-31
 **Área:** Orquestração (runtime spine) | Auditoria (ADR-0007) | HITL (ADR-0005/0008/0018)
-**Emenda (não substitui):** ADR-0030 §5 — só para boundaries de guarda **novos** (forma H abaixo). Os boundaries de guarda
-já modelados sob a ADR-0030 (forma N) ficam como estão.
+**Emenda (não substitui):** ADR-0030 §5 — só para boundaries de guarda **novos** (forma H abaixo) — e ADR-0030 §4 — acrescenta ao co-requisito de T-E um conjunto nomeado e fechado de códigos de custódia (§3(c)), além do padrão `*_NOT_HUMAN` e do bloqueio de negativa. Os boundaries de guarda já modelados sob a ADR-0030 (forma N) ficam como estão.
 **Apoia-se em:** ADR-0030 §2 (gate de prova de boundary, cláusula (b)), §4 (T-E como co-requisito), §5 (guarda sem
-boundary modelado = incidente) e Tier 3 do plano de migração; DL-0047 (R-097/R-098: endurecimento é decisão de programa
+boundary modelado = incidente) e Tier 3 do plano de migração; DL-0047 (`OWNER-DECISIONS-REGISTER` R-097/R-098: endurecimento é decisão de programa
 única, por convenção ratificada antes de qualquer correção); habilitação AUTH de 2026-08-25 (commit `b2493914f`).
 
 ## Contexto
 
-**O que a ordem do dono pede.** Em 2026-09-04 o dono registrou (R-098, ver `docs/decisions-log.md` DL-0047) que
+**O que a ordem do dono pede.** Em 2026-09-04 o dono registrou (`OWNER-DECISIONS-REGISTER` R-098, ver `docs/decisions-log.md` DL-0047) que
 qualquer endurecimento do tratamento de códigos de guarda seria **uma** decisão de programa — uma ADR de convenção
 ratificada antes das correções, nunca correções avulsas. Em 2026-10-31, ao responder aos issues de papel, o dono
 mandou abrir essa ADR para os dois códigos de guarda que hoje não têm boundary (FRAUDE e ADEQUACAO) e para os códigos de
@@ -49,15 +48,17 @@ custódia, seguindo a decisão em fases sobre falha de custódia (registro em
 
 - **FRAUDE e ADEQUACAO não têm boundary algum** nas tarefas de efeito adverso
   (`spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::ST_RegisterFraudAccusation`,
-  `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::ST_SealCustodyBundle`,
-  `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn::ST_RegisterFallbackCommitment`). Pela ADR-0030 §5, um
+  `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn::ST_RegisterFallbackCommitment`) nem na tarefa de selagem
+  (`spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::ST_SealCustodyBundle`, que não é de efeito adverso). Hoje a selagem só lança `ERR_PHI_IN_CUSTODY`;
+  `ERR_CUSTODY_NOT_SEALED` vem de `ST_RegisterFraudAccusation` e do fim de erro
+  `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::End_CustodiaNaoSelada` — lançá-lo na selagem depende da fase 0. Pela ADR-0030 §5, um
   código de guarda sem boundary modelado é **incidente** — e é o que acontece hoje com
   `ERR_FRAUD_ACCUSATION_NOT_HUMAN`, `ERR_FALLBACK_COMMITMENT_NOT_HUMAN`, `ERR_CUSTODY_NOT_SEALED` e
   `ERR_PHI_IN_CUSTODY`. O incidente é visível e seguro, mas não tem dono, prazo nem caminho de reparo auditado: o único
   conserto disponível no cockpit é editar variável à mão, que é justamente a mudança não auditada que a custódia existe
   para impedir.
 - Os dois códigos de custódia **não** terminam em `_NOT_HUMAN`, então hoje nenhum dos dois predicados os enxerga. Se um
-  deles ganhasse boundary sem ajuste do predicado, a recusa sairia da allowlist sem linha `REFUSED`.
+  deles ganhasse boundary sem ajuste do predicado, a recusa seria roteada pela allowlist sem linha `REFUSED`.
 
 ## Decisao
 
@@ -96,6 +97,7 @@ custódia, seguindo a decisão em fases sobre falha de custódia (registro em
   FRAUDE precisa separar).
 - As declarações-raiz sem boundary (ex.: `ERR_CONTAS_GLOSA_NOT_HUMAN`, DL-0047) **não mudam**. Esta ADR não endurece a
   cláusula (c) do gate para declarações-raiz.
+- **Validação de origem não é forma H.** `ERR_ADEQUACAO_CELULA_INVALIDA` (ADEQUACAO) fica incidente agora; depois, devolução à origem com fim neutro — **nunca** loop de correção dentro da instância (decisão do dono 2026-10-31). O mesmo vale para `ERR_FRAUDE_CASO_INVALIDO`. Nenhum código de validação de origem recebe a saída *reparar* da forma H.
 
 ### 3. Predicado T-E (recusa auditada)
 
@@ -104,13 +106,9 @@ depois — quando cumpre **qualquer** destas:
 
 - (a) termina em `_NOT_HUMAN`;
 - (b) está no conjunto fechado de bloqueio de negativa (hoje só `ERR_AUTH_DENIAL_INCOMPLETE`);
-- (c) **(novo)** é código de recusa de custódia com boundary modelado — entram, na fase 1, `ERR_CUSTODY_NOT_SEALED` e
-  `ERR_PHI_IN_CUSTODY`. A forma H termina em fim neutro no limite, e esse fim tem o mesmo problema de visibilidade que a
-  ADR-0030 §4 descreve para os guardas.
+- (c) **(novo)** é código de recusa de custódia — `ERR_CUSTODY_NOT_SEALED` e `ERR_PHI_IN_CUSTODY`. Entram no conjunto nomeado **antes de, ou no mesmo PR em que,** ganham boundary (fase 1), nunca depois. A forma H termina em fim neutro no limite, e esse fim tem o mesmo problema de visibilidade que a ADR-0030 §4 descreve para os guardas.
 
-O item (c) entra como **conjunto nomeado e fechado**, declarado nos dois lugares que já carregam o (b) — o detector do
-harness e o gate — e preso por teste de igualdade entre as duas listas. Nunca por padrão de nome amplo. A relação entre
-"gated" e "auditado" continua sendo contenção (`test_detector_contem_o_gate`).
+O item (c) entra como **conjunto nomeado e fechado**, declarado nos **três** lugares que já carregam o (b) — `src/maezo/tools/workers/harness.py::_DENIAL_BLOCK_CODES` (detector de auditoria), `scripts/ci/check_bpmn_error_allowlist.py::_DENIAL_BLOCK_CODES` (gate) e `src/maezo/runtime/worker_runtime/service.py::_is_te_gated` (filtro de produção, hoje com o (b) como literal em linha) — e preso por teste de igualdade entre as três listas. Nunca por padrão de nome amplo. A relação entre "gated" e "auditado" continua sendo contenção (`test_detector_contem_o_gate`).
 
 ### 4. Regras de allowlist
 
@@ -125,19 +123,19 @@ harness e o gate — e preso por teste de igualdade entre as duas listas. Nunca 
    nomeada com o grupo certo na forma H); existe linha de auditoria `REFUSED` ligada na cadeia; e a varredura de PHI da
    linha dá zero. Os testes negativos da guarda (sem decisão humana, campo faltando) vêm no mesmo pacote.
 4. **Habilitar é reversível.** Tirar o código das duas listas devolve o caminho a incidente.
-5. **Lote por decisão, não por código.** Habilitações saem em lote atado a uma decisão registrada do dono (ex.: R-075,
+5. **Lote por decisão, não por código.** Habilitações saem em lote atado a uma decisão registrada do dono (ex.: `OWNER-DECISIONS-REGISTER` R-075,
    lote único CANCEL + CRED + INADIMPLENCIA). Nunca código avulso sem linha nesta ADR ou na decisão.
 
 ### 5. Códigos cobertos por esta convenção
 
 | Código | Tarefa | Forma | Destino | Quando |
 |---|---|---|---|---|
-| `ERR_FRAUD_ACCUSATION_NOT_HUMAN` | `ST_RegisterFraudAccusation` (FRAUDE) | H | volta a `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::UT_DecisaoInvestigador` (`investigacao-fraude`), que é a única tarefa que decide a acusação, para recompor decisão e fundamentação; fim neutro no limite | onda de BPMN posterior |
-| `ERR_FALLBACK_COMMITMENT_NOT_HUMAN` | `ST_RegisterFallbackCommitment` (ADEQUACAO) | H | volta a `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn::UT_DecisaoFallback` (grupos conforme DEC-21) para recompor o compromisso; fim neutro no limite | onda de BPMN posterior |
+| `ERR_FRAUD_ACCUSATION_NOT_HUMAN` | `ST_RegisterFraudAccusation` (FRAUDE) | H | nova `userTask` nomeada "Recompor decisão de acusação" (`investigacao-fraude`); saída *reparar* volta a `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::UT_DecisaoInvestigador`, que é a única tarefa que decide a acusação; saída *encerrar* e limite → fim neutro próprio | onda de BPMN posterior |
+| `ERR_FALLBACK_COMMITMENT_NOT_HUMAN` | `ST_RegisterFallbackCommitment` (ADEQUACAO) | H | nova `userTask` nomeada "Recompor compromisso de fallback" (grupos conforme DEC-21); saída *reparar* volta a `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn::UT_DecisaoFallback`; saída *encerrar* e limite → fim neutro próprio | onda de BPMN posterior |
 | `ERR_CUSTODY_NOT_SEALED` na selagem | `ST_SealCustodyBundle` (FRAUDE) | H | nova tarefa "Reconstruir e re-selar a custódia" (grupo a confirmar em DEC-21); reparo volta a `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::ST_AssembleDossier` e re-sela; no limite, novo fim neutro "custódia não constituída" — nunca coordenação, nunca `ARQUIVAR` | fase 1 da decisão de custódia |
-| `ERR_PHI_IN_CUSTODY` | `ST_SealCustodyBundle` (FRAUDE) | H | nova tarefa de triagem do DPO (grupo de privacidade a criar em DEC-21); saídas: falso positivo com exceção auditada por ref, troca por ponteiro pseudonimizado e re-selagem, ou incidente de privacidade; fim neutro no limite | fase 1 da decisão de custódia |
+| `ERR_PHI_IN_CUSTODY` | `ST_SealCustodyBundle` (FRAUDE) | H | nova tarefa de triagem do DPO (grupo de privacidade a criar em DEC-21), com as duas saídas da regra 2: *reparar* (volta a `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::ST_AssembleDossier` e re-sela) ou *encerrar* (fim neutro); qualquer exceção por ref ou abertura de incidente de privacidade é definida pelo DPO na ratificação, não por esta ADR; fim neutro no limite | fase 1 da decisão de custódia |
 | `ERR_CUSTODY_NOT_SEALED` após a decisão | `ST_RegisterFraudAccusation` (FRAUDE) | — | **incidente permanente** + runbook (§2) | já é assim; fica |
-| `ERR_CANCEL_MANTER_NOT_HUMAN`, `ERR_DECRED_NOT_HUMAN`, `ERR_CRED_DENIAL_NOT_HUMAN`, `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` | ver tabela do Contexto | N | o fim neutro já modelado (ADR-0030 Tier 3) | lote T-E R-075 |
+| `ERR_CANCEL_MANTER_NOT_HUMAN`, `ERR_DECRED_NOT_HUMAN`, `ERR_CRED_DENIAL_NOT_HUMAN`, `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` | ver tabela do Contexto | N | o fim neutro já modelado (ADR-0030 Tier 3) | lote T-E `OWNER-DECISIONS-REGISTER` R-075 |
 
 A fase 0 da decisão de custódia (recusar bundle vazio, selar refs + indicadores, raiz na cadeia de auditoria, re-selar no
 retorno da diligência, corrigir o fim silencioso de `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn::GW_CustodiaSelada`)
@@ -145,7 +143,7 @@ não depende desta ADR e não é decidida aqui. Ela só não pode regredir a vis
 
 ### 6. Questões que a ratificação precisa responder
 
-- **Q1 — forma N basta para o lote R-075?** Esta ADR mantém a forma N para CANCEL/CRED/INADIMPLENCIA, como a ADR-0030
+- **Q1 — forma N basta para o lote `OWNER-DECISIONS-REGISTER` R-075?** Esta ADR mantém a forma N para CANCEL/CRED/INADIMPLENCIA, como a ADR-0030
   Tier 3 prescreve. Se o dono quiser que esses quatro também caiam numa tarefa humana (forma H), é mudança de BPMN em
   quatro processos e emenda explícita à ADR-0030 Tier 3, fora desta ADR.
 - **Q2 — grupos.** Os grupos da tarefa de custódia e da triagem do DPO ainda não existem na taxonomia; entram pela
@@ -157,7 +155,7 @@ não depende desta ADR e não é decidida aqui. Ela só não pode regredir a vis
 
 **Positivas:**
 - Uma regra única para todo código de guarda. Ou ele tem boundary modelado numa das duas formas e é auditado como recusa,
-  ou é incidente. Fecha o R-098 como decisão de programa, como o DL-0047 exigiu.
+  ou é incidente. Fecha o `OWNER-DECISIONS-REGISTER` R-098 como decisão de programa, como o DL-0047 exigiu.
 - Os códigos de FRAUDE e ADEQUACAO ganham destino e dono definidos antes de qualquer BPMN, sem correções avulsas.
 - Os códigos de custódia passam a contar para o T-E antes de ganharem boundary. Fecha o buraco "fora dos dois
   predicados".
@@ -172,6 +170,5 @@ não depende desta ADR e não é decidida aqui. Ela só não pode regredir a vis
 
 ## Supersedes
 
-— Emenda a **ADR-0030 §5** só para boundaries de guarda **novos** (forma H); mantém a ADR-0030 §4, §5 e Tier 3 para os
-boundaries que já existem. Complementa a **ADR-0007** (linha `REFUSED`), a **ADR-0018** (nenhum caminho executa o efeito
+— Emenda a **ADR-0030 §5** só para boundaries de guarda **novos** (forma H) e a **ADR-0030 §4** só para acrescentar o conjunto nomeado de custódia ao co-requisito de T-E (§3(c)); mantém a ADR-0030 §4 (padrão `*_NOT_HUMAN` + bloqueio de negativa), §5 e Tier 3 para os boundaries que já existem. Complementa a **ADR-0007** (linha `REFUSED`), a **ADR-0018** (nenhum caminho executa o efeito
 adverso) e a **ADR-0020** (custódia selada antes da decisão).
