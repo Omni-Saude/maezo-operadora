@@ -77,7 +77,8 @@ class AeadQueueCursorCustody(CursorCustody):
             raw = b64decode(cursor, url=True)
             if len(raw) < 46 or raw[0] != 1:
                 raise ProfileError("cursor version")
-            assert self._keys is not None
+            if self._keys is None:
+                raise AssertionError("chaves do cursor ausentes")
             matches = [key for key in self._keys.accepted if key.key_tag == raw[1:17]]
             if len(matches) != 1:
                 raise ReadRefusalError("refresh_required")
@@ -95,7 +96,8 @@ class AeadQueueCursorCustody(CursorCustody):
             until = instant(value["valid_until"])
             if value["binding_digest"] != self._binding(binding) or until <= now:
                 raise ReadRefusalError("refresh_required")
-            assert self._partition.admission is not None
+            if self._partition.admission is None:
+                raise AssertionError("particao sem admission")
             if until > min(key.not_after, self._partition.admission.record.valid_until):
                 raise ProfileError("cursor ceiling")
             result = CursorGrant(
@@ -108,11 +110,8 @@ class AeadQueueCursorCustody(CursorCustody):
 
     def provisional(self, *, binding: QueueBinding, after_task_id: str, valid_until: datetime) -> CursorGrant:
         now = self._guard()
-        assert (
-            self._keys is not None
-            and self._partition.admission is not None
-            and self._partition.signing is not None
-        )
+        if self._keys is None or self._partition.admission is None or self._partition.signing is None:
+            raise AssertionError("chaves/admission/signing ausentes")
         key = self._keys.current
         until = min(
             valid_until,

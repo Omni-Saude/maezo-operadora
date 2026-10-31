@@ -162,7 +162,8 @@ class CompiledAdministrativeConsumer:
         if self.__pseudonymizer is None:
             raise AdministrativeInputError("administrative_checkpoint_unavailable")
         config = self.__config(require_reference(journey_ref))
-        assert config is not None
+        if config is None:
+            raise AssertionError("config do checkpoint administrativo ausente")
         return await _in_administrative_context(lambda: self.__compiled.aget_state(config))
 
 

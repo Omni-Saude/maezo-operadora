@@ -1096,7 +1096,9 @@ def free_text_form_field_offsets(source: str) -> frozenset[int]:
         if pending is not None and (opening_field or "formField" not in event.parents):
             flush()
         if opening_field:
-            assert isinstance(event, _Start)  # narrowed by `opening_field`
+            # narrowed by `opening_field`
+            if not isinstance(event, _Start):
+                raise AssertionError("opening_field exige evento _Start")
             attrs = {a.local: a for a in event.attrs}
             field_id = attrs.get("id")
             if field_id is not None:

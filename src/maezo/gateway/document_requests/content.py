@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from maezo.gateway.communications.content import PhiContentKeys
 from maezo.gateway.communications.models import alive
+from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.human.read_profile import digest, parse_model, wire
 from maezo.gateway.intake.native_store import PostgresAuthDispatchStore
 from maezo.portal.engine.profile import canonicalize
@@ -342,6 +343,6 @@ class PhiRequestContent:
         lifetime = lifetime if lifetime is not None else AdmissionLifetime()
         result = await self.read_receipt(grant, selected, deadline, lifetime=lifetime)
         lifetime.intersect(deadline, grant.ceiling(), self.keys.valid_until)
-        require(isinstance(result, BodyFound), "uncertain")
-        assert isinstance(result, BodyFound)
+        if not isinstance(result, BodyFound):
+            raise ExternalCaseError("uncertain")
         return AuthenticatedBodyReceipt(result.receipt, _mint=_COMMITTED)

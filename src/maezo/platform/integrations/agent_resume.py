@@ -767,7 +767,8 @@ class ResumeHandler:
             # Canonical models contain only supported leaves; no raw recopy after this guard.
             if reason is not None:
                 return reason
-            assert outcome is not None
+            if outcome is None:
+                raise AssertionError("desfecho ausente sem motivo de recusa")
             return outcome
         except Exception:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN

@@ -336,7 +336,8 @@ class PostgresCommunicationPublisher:
             self._busy = False
 
     async def _submit(self) -> PublicationReceipt:
-        assert self._pending is not None
+        if self._pending is None:
+            raise AssertionError("_submit sem publicacao pendente")
         publication, frozen = self._pending
         raw = packed(publication)
         request_digest = digest(publication)

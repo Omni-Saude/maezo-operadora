@@ -2201,7 +2201,8 @@ _MEMORIA_CLINICA_CAMPOS: tuple[str, ...] = (
 #: para que lembrar seja pior que perguntar de novo.
 MEMORIA_CLINICA_JANELA_HORAS: float = 6.0
 # DL-0080: o historico curto expira junto com a memoria clinica — uma janela so'.
-assert HISTORICO_JANELA_HORAS == MEMORIA_CLINICA_JANELA_HORAS
+if HISTORICO_JANELA_HORAS != MEMORIA_CLINICA_JANELA_HORAS:
+    raise AssertionError("DL-0080: HISTORICO_JANELA_HORAS deve ser igual a MEMORIA_CLINICA_JANELA_HORAS")
 
 #: O carimbo de quando a memoria foi gravada. Chave separada dos campos clinicos de proposito: a
 #: validacao rejeita a memoria inteira quando ele falta ou nao parseia, e uma memoria sem relogio
@@ -2731,7 +2732,8 @@ def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
     return f"entendi que voce esta falando sobre {quem}, certo?"
 
 
-assert frozenset(_HELENA_NEUTRAL_OUTPUTS) >= _HELENA_MEMORIA_DE_CONVERSA
+if not (frozenset(_HELENA_NEUTRAL_OUTPUTS) >= _HELENA_MEMORIA_DE_CONVERSA):
+    raise AssertionError("_HELENA_MEMORIA_DE_CONVERSA fora de _HELENA_NEUTRAL_OUTPUTS")
 if frozenset(HelenaState.__annotations__) != _HELENA_ALL_FIELDS:
     _missing = frozenset(HelenaState.__annotations__) - _HELENA_ALL_FIELDS
     _extra = _HELENA_ALL_FIELDS - frozenset(HelenaState.__annotations__)

@@ -710,7 +710,8 @@ class HelenaDispatcher:
             # Canonical models contain only supported leaves; no raw recopy after this guard.
             if reason is not None:
                 return reason
-            assert outcome is not None
+            if outcome is None:
+                raise AssertionError("desfecho ausente sem motivo de recusa")
             return outcome
         except Exception:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
@@ -1058,7 +1059,8 @@ class HelenaDispatcher:
         `persistir`. Se o envio ou o escalonamento caem, o estado nao mudou e a reentrega recalcula; as chaves
         de saida sao as mesmas, entao nada e' enviado em dobro.
         """
-        assert self.acesso is not None
+        if self.acesso is None:
+            raise AssertionError("controle de acesso desligado")
         acesso = self.acesso
         async with acesso.trava(conversation_id):
             decisao = await acesso.avaliar(
@@ -1099,7 +1101,8 @@ class HelenaDispatcher:
         sender: WhatsAppSender,
     ) -> dict[str, Any]:
         """Escalona (3a falha), envia as respostas fixas e so' entao grava o estado. Nenhum agente roda."""
-        assert self.acesso is not None
+        if self.acesso is None:
+            raise AssertionError("controle de acesso desligado")
         if decisao.esquecer_memoria:
             # Revisao do #700 (P2): a pessoa verificada mudou (ou revogou). ANTES de enviar e de gravar o
             # estado: se apagar falha, o turno falha e a reentrega tenta de novo, sem estado novo gravado.
@@ -1202,11 +1205,13 @@ class HelenaDispatcher:
         idade
         exata nunca entram. `None` = nao e' pergunta de cadastro: o fluxo de sempre.
         """
-        assert self.acesso is not None
+        if self.acesso is None:
+            raise AssertionError("controle de acesso desligado")
         identidade = self.identidade
 
         async def _identidade_do_perfil() -> dict[str, Any] | None:
-            assert identidade is not None
+            if identidade is None:
+                raise AssertionError("identidade desligada")
             resolvida = await identidade.resolver_com_desfecho(
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
@@ -1680,7 +1685,8 @@ class HelenaDispatcher:
         """Quem esta' com a conversa ANTES deste turno, lido da tabela do roteador. Uma falha de
         leitura vale `helena`: o pior caso e' a frase de passagem sair de novo — nunca o Lucas
         atendendo sem a Helena ter passado a conversa."""
-        assert self.roteador is not None
+        if self.roteador is None:
+            raise AssertionError("roteador desligado")
         try:
             return await self.roteador.agente_ativo(conversation_id)
         except Exception as exc:
@@ -1768,7 +1774,8 @@ class HelenaDispatcher:
         from .lucas_turno import ConversaDoTurno, competencia_a_lembrar, memoria_do_turno
         from .roteamento import PedidoDeHandoff
 
-        assert self.lucas_turno is not None
+        if self.lucas_turno is None:
+            raise AssertionError("turno do Lucas desligado")
         # O handoff E' o da Helena neste request (cerca do item 7); o esclarecimento so' reaproveita
         # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
         handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
@@ -1958,7 +1965,8 @@ class HelenaDispatcher:
         """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como
         booleanos e contagens — nunca o termo casado nem o texto. Uma falha aqui nao derruba o
         turno da Helena: o pior caso e' a linha gravada sem os sinais lexicos."""
-        assert self.roteador is not None
+        if self.roteador is None:
+            raise AssertionError("roteador desligado")
         try:
             sinais = self.roteador.pre_rotear(texto)
         except Exception as exc:
@@ -1996,7 +2004,8 @@ class HelenaDispatcher:
         """UMA escrita CAS por mensagem, DEPOIS dos dois turnos (§2.2). A resposta ja' saiu; uma
         falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu — a proxima
         mensagem recalcula a partir da linha que ficou. Sem Lucas (onda c) e' a sombra: so' grava."""
-        assert self.roteador is not None
+        if self.roteador is None:
+            raise AssertionError("roteador desligado")
         try:
             decisao = await self.roteador.registrar_turno(
                 conversation_id=conversation_id,

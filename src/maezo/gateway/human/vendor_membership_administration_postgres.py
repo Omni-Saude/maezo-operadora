@@ -113,8 +113,8 @@ class PostgresVendorMembershipAdministration:
             .mappings()
             .one_or_none()
         )
-        require(flags is not None, VendorAdministrationReason.SOURCE_UNAVAILABLE)
-        assert flags is not None
+        if flags is None:
+            raise VendorAdministrationError(VendorAdministrationReason.SOURCE_UNAVAILABLE)
         require(
             not any(
                 flags[k]

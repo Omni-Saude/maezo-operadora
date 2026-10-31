@@ -14,6 +14,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from maezo.gateway.engine_lifetime import CallerSelection, LocalLifetimeOwner, ProfileSelectionKey
+from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.human.read_profile import parse_model
 from maezo.gateway.native_fetch.adapter import AcquiredInputs
 from maezo.gateway.native_fetch.models import (
@@ -110,8 +111,8 @@ class NativeChannel:
                 )
                 stream = response.extensions.get("network_stream")
                 ssl = stream.get_extra_info("ssl_object") if stream is not None else None
-                require(ssl is not None)
-                assert ssl is not None
+                if ssl is None:
+                    raise ExternalCaseError("denied")
                 peer = x509.load_der_x509_certificate(ssl.getpeercert(binary_form=True))
                 peer_until = peer.not_valid_after_utc
                 require(

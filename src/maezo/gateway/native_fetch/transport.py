@@ -301,8 +301,8 @@ class NativeFetchClient:
                 )
                 stream = response.extensions.get("network_stream")
                 ssl_object = stream.get_extra_info("ssl_object") if stream is not None else None
-                require(ssl_object is not None)
-                assert ssl_object is not None
+                if ssl_object is None:
+                    raise FetchUnavailableError()
                 peer = x509.load_der_x509_certificate(ssl_object.getpeercert(binary_form=True))
                 peer_until = peer.not_valid_after_utc
                 require(peer.not_valid_before_utc <= self._clock() < peer_until)
@@ -401,8 +401,8 @@ class NativeFetchClient:
         """
         key = decode(expected.binding)["command_id"]
         found = self._results.get(key)
-        require(found is not None)
-        assert found is not None
+        if found is None:
+            raise FetchUnavailableError()
         parsed, lease = found
         require(parsed is initial and initial.status == "executed")
         self._guard(lease, expected, "fetch")

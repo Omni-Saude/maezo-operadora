@@ -482,7 +482,8 @@ class BuscaDeProcedimentos:
     async def _montar_indice(self) -> None:
         import numpy as np
 
-        assert self.transporte is not None
+        if self.transporte is None:
+            raise AssertionError("indice do catalogo exige transporte")
         versao = self._versao
         itens = self._itens
         inicio = self.relogio()
@@ -519,7 +520,8 @@ class BuscaDeProcedimentos:
     async def _lote_com_tentativas(self, lote: list[str]) -> list[list[float]]:
         """Um lote do indice com ate' 4 tentativas e espera crescente: dois processos montando o indice ao
         mesmo tempo estouram a cota por minuto do modelo, e isso nao pode derrubar o indice inteiro."""
-        assert self.transporte is not None
+        if self.transporte is None:
+            raise AssertionError("indice do catalogo exige transporte")
         ultima = len(_ESPERAS_DO_LOTE_S) - 1
         for tentativa, espera in enumerate(_ESPERAS_DO_LOTE_S):
             try:

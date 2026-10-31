@@ -114,7 +114,8 @@ def bind_receipt(request: PublicationRequest, receipt: PublicationReceipt) -> No
         if getattr(ingress, field) != getattr(receipt, field):
             raise ExternalCaseError("conflict")
     if isinstance(receipt, CheckpointPublicationReceipt):
-        assert isinstance(request.packet, CheckpointPacket)
+        if not isinstance(request.packet, CheckpointPacket):
+            raise ExternalCaseError("conflict")
         if (
             request.packet.statement.heads_count != receipt.heads_count
             or request.packet.statement.heads_digest != receipt.heads_digest

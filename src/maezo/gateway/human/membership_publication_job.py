@@ -744,7 +744,8 @@ class MembershipPublicationJob:
     def _skipped(self, reason: publication_events.SkipReason, task: LiveTask) -> None:
         """Say WHY a live task is not published (ids only), never skip it in silence."""
         t = self._tasks
-        assert t is not None
+        if t is None:
+            raise AssertionError("publicacao de tarefas desligada")
         self._events(
             publication_events.task_skipped(
                 reason=reason,
@@ -760,7 +761,8 @@ class MembershipPublicationJob:
     async def _publish_tasks(self) -> tuple[int, int, int, int]:
         """H2: evidence (when absent/changed/half-expired) then resource for every admitted live task."""
         t = self._tasks
-        assert t is not None
+        if t is None:
+            raise AssertionError("publicacao de tarefas desligada")
         ledger, tenant = self._ledger, self._store.tenant
         published = unchanged = evidences = skipped = 0
         keys = {key for _, key in t.admission.entries}
@@ -1124,7 +1126,8 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
         tasks: TaskPublication | None = None
         resource: ResourcePolicyPublicationSource = RefusingResourceSource()
         if config.tasks is not None:
-            assert native is not None
+            if native is None:
+                raise AssertionError("config.tasks exige o cliente nativo")
             admission_raw = _public_file(config.tasks.admission_record_file)
             task_admission = TaskAdmission.from_record(admission_raw)
             source = TaskResourceSource(clock=_now)

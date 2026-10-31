@@ -207,8 +207,14 @@ class WorkerBase(ABC):
                         topic=self._topic,
                         duration_seconds=duration,
                     )
-                except Exception:
-                    pass  # Metrics are best-effort; never break worker execution
+                except Exception as metric_error:
+                    # Metrics are best-effort; never break worker execution (B110 triado: so' o
+                    # tipo do erro, nunca variaveis de processo — ADR-0006).
+                    self.logger.debug(
+                        "worker_metric_record_failed",
+                        topic=self._topic,
+                        error_type=type(metric_error).__name__,
+                    )
 
                 return result
             except Exception as e:
@@ -230,8 +236,13 @@ class WorkerBase(ABC):
                         topic=self._topic,
                         error_type=type(e).__name__,
                     )
-                except Exception:
-                    pass  # Metrics are best-effort
+                except Exception as metric_error:
+                    # Metrics are best-effort (B110 triado: so' o tipo do erro).
+                    self.logger.debug(
+                        "worker_metric_record_failed",
+                        topic=self._topic,
+                        error_type=type(metric_error).__name__,
+                    )
 
                 if attempt < self.max_retries:
                     time.sleep(self.retry_backoff * attempt)

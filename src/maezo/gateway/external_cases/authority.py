@@ -217,7 +217,8 @@ class InstalledAuthority:
             raise ExternalCaseError("denied")
         try:
             key = serialization.load_der_public_key(unbase64(signer.public_key_spki_base64))
-            assert isinstance(key, Ed25519PublicKey)
+            if not isinstance(key, Ed25519PublicKey):
+                raise ExternalCaseError("denied")
             key.verify(unbase64(proof.signature), proof.signed_bytes())
         except Exception:
             raise ExternalCaseError("denied") from None

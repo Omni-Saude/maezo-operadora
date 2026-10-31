@@ -351,7 +351,8 @@ class DurableCapabilityExecutor:
         result = JournalCallResult[CommandSnapshot].model_validate(value)
         if result.technical_status in _ACKNOWLEDGED:
             snapshot = result.snapshot
-            assert snapshot is not None
+            if snapshot is None:
+                raise AssertionError("resultado reconhecido do journal sem snapshot")
             if (
                 snapshot.handle.binding != self.binding
                 or (handle is not None and snapshot.handle != handle)
@@ -413,7 +414,8 @@ class DurableCapabilityExecutor:
             raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
 
     async def _uncertain(self, token: DispatchToken) -> None:
-        assert self.journal is not None
+        if self.journal is None:
+            raise AssertionError("journal ausente")
         # DISPATCH_FENCED remains a durable recovery candidate if this update fails.
         with contextlib.suppress(Exception):
             await self.journal.mark_uncertain(
@@ -486,7 +488,8 @@ class DurableCapabilityExecutor:
                 type(ref) is not str or not ref.strip() for ref in predecessor_command_refs
             ):
                 raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
-            assert self.journal is not None and self.custody is not None
+            if self.journal is None or self.custody is None:
+                raise AssertionError("journal/custody ausentes")
             async with asyncio.timeout(timeout_seconds):
                 descriptor = self._descriptor(
                     await self.custody.prepare_command(
@@ -511,7 +514,8 @@ class DurableCapabilityExecutor:
                 if recorded.technical_status not in _ACKNOWLEDGED:
                     return recorded
                 snapshot = recorded.snapshot
-                assert snapshot is not None
+                if snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 if snapshot.technical_state != CommandTechnicalState.RECORDED:
                     # Previously fenced/result/refused commands never re-enter execute.
                     if snapshot.technical_state == CommandTechnicalState.RESPONSE_RECORDED:
@@ -541,7 +545,8 @@ class DurableCapabilityExecutor:
                 if fenced.technical_status != JournalCallTechnicalStatus.RECORDED:
                     return CapabilityRefusalReason.SOURCE_UNAVAILABLE
                 candidate = fenced.snapshot
-                assert candidate is not None
+                if candidate is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 if (
                     candidate.handle != snapshot.handle
                     or candidate.journal_revision <= snapshot.journal_revision
@@ -628,7 +633,8 @@ class DurableCapabilityExecutor:
                 )
                 if stored.technical_status not in _ACKNOWLEDGED:
                     return stored
-                assert stored.snapshot is not None
+                if stored.snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 self._recorded_result(stored.snapshot, commit)
                 persisted = True
                 # Preserve a genuine recorded fact on later refusal; never replace its pins.
@@ -668,7 +674,8 @@ class DurableCapabilityExecutor:
                 # Bound, awaited local cleanup only. No fence reset, source retry or new key.
                 await self._preserve_uncertain(token, timeout_seconds)
             elif failure is not None and snapshot is not None and not fence_attempted:
-                assert self.custody is not None and self.journal is not None
+                if self.custody is None or self.journal is None:
+                    raise AssertionError("custody/journal ausentes")
                 # Only an authenticated local pre-fence observation; never a source receipt.
                 with contextlib.suppress(Exception):
                     async with asyncio.timeout(timeout_seconds):
@@ -689,7 +696,8 @@ class DurableCapabilityExecutor:
         memberships: DeclaredMemberships,
     ) -> RestoredCommand:
         self._available()
-        assert self.custody is not None
+        if self.custody is None:
+            raise AssertionError("custody ausente")
         restored = await self.custody.restore_command(self.binding, command_ref)
         if type(restored) is not RestoredCommand:
             raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
@@ -719,12 +727,14 @@ class DurableCapabilityExecutor:
     ) -> DurableOutcome:
         try:
             command = await self._restore(command_ref, admissions, memberships)
-            assert self.journal is not None
+            if self.journal is None:
+                raise AssertionError("journal ausente")
             observed = self._snapshot(
                 await self.journal.observe_command(self.binding, command.handle), handle=command.handle
             )
             if observed.technical_status in _ACKNOWLEDGED:
-                assert observed.snapshot is not None
+                if observed.snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 if observed.snapshot.technical_state == CommandTechnicalState.RESPONSE_RECORDED:
                     admission = admissions[command.descriptor.envelope.operation_name].binding
                     await self._current_stored_head(command.descriptor, observed.snapshot, admission)
@@ -817,14 +827,16 @@ class DurableCapabilityExecutor:
                 command = await self._restore(command_ref, admissions, memberships)
                 if self.reads is None:
                     raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
-                assert self.journal is not None
+                if self.journal is None:
+                    raise AssertionError("journal ausente")
                 observed = self._snapshot(
                     await self.journal.observe_command(self.binding, command.handle), handle=command.handle
                 )
                 if observed.technical_status not in _ACKNOWLEDGED:
                     return observed
                 snapshot = observed.snapshot
-                assert snapshot is not None
+                if snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 if snapshot.dispatch_ref is None:
                     return observed
                 lookup = await self.reads.lookup(
@@ -861,7 +873,8 @@ class DurableCapabilityExecutor:
                 )
                 if stored.technical_status not in _ACKNOWLEDGED:
                     return stored
-                assert stored.snapshot is not None
+                if stored.snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 self._recorded_result(stored.snapshot, commit)
                 await self._current_read(command.descriptor, source, admission)
                 return stored
@@ -924,7 +937,8 @@ class DurableCapabilityExecutor:
                 admission = admissions[operation].binding
                 self._result_scope(result, admission)
                 await self._current_read(command.descriptor, source, admission)
-                assert self.journal is not None
+                if self.journal is None:
+                    raise AssertionError("journal ausente")
                 stored = self._snapshot(
                     await self.journal.ingest_verified_observation(
                         self.binding,
@@ -940,7 +954,8 @@ class DurableCapabilityExecutor:
                     return stored
                 # An old exact event duplicate may correctly leave a newer head in place.
                 # Fresh disclosure must authorize THAT head, not reuse old-event read authority.
-                assert stored.snapshot is not None
+                if stored.snapshot is None:
+                    raise AssertionError("resultado reconhecido do journal sem snapshot")
                 if (
                     stored.snapshot.result_sha256 != source.result_sha256
                     or stored.snapshot.source_receipt_ref != source.source_receipt_ref
