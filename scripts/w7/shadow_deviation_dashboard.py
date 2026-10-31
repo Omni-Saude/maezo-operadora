@@ -511,7 +511,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "default `False`; cercado por `scripts/ci/check_portal_direct_completion.py` (7 cercas)",
         Anchor("src/maezo/portal/api/config.py", "direct_completion: bool = False", 37),
         Anchor(FLAGS_DOC, "MAEZO_PORTAL_DIRECT_COMPLETION", 46),
-        "DL-0049 (relay #427)",
+        "DL-0049 (relay #1145)",
         "end-state = REMOÇÃO com o relay, não flip",
     ),
     FlagRow(
