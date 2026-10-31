@@ -4,7 +4,7 @@
 
 **Origem:** decisão do dono do repositório em sessão de 2026-10-31: **Filipe Carmo (GitHub `@filipecarmo81`, CODEOWNER) é o encarregado/DPO.** Registro: DL-0158 em `docs/decisions-log.md`. Pendência de origem: DEC-07 / PEND-075 (issue #1082).
 
-**Fonte normativa:** Resolução CD/ANPD nº 18, de 16/07/2024 (DOU 17/07/2024). A minuta transcreve literalmente os arts. 3º, 4º, 6º, 8º, 9º e 12. Os arts. 15 e 18 a 21 aparecem abaixo **em paráfrase**: a minuta não os transcreveu. Quem assina deve conferir esses artigos no texto oficial antes de assinar.
+**Fonte normativa:** Resolução CD/ANPD nº 18, de 16/07/2024 (DOU 17/07/2024). A minuta transcreve literalmente os arts. 3º e 4º e trechos dos arts. 6º e 9º; os arts. 8º, 12, 15 e 18 a 21 aparecem em paráfrase, conferida contra o texto do DOU de 17/07/2024. Quem assina deve conferir esses artigos no texto oficial antes de assinar.
 
 ---
 
@@ -12,8 +12,8 @@
 
 Este ato **não decide** quem é o controlador. A pergunta (§0 da minuta) continua com o jurídico (COUNSEL), que precisa confirmá-la antes da assinatura.
 
-- **Hipótese de trabalho da minuta (não vinculante):** a **operadora de saúde (AUSTA, tenant)** é a **controladora** dos dados dos beneficiários e assina este ato. A **Omni/Maezo** atua como **operadora no sentido da LGPD**. Para quem é operador, a indicação de encarregado é facultativa (art. 6º).
-- **Consequência, se a hipótese se confirmar:** o representante legal da AUSTA assina o bloco abaixo.
+- **Hipótese de trabalho da minuta (não vinculante):** a **operadora de saúde (tenant, ex.: AMH)** é a **controladora** dos dados dos beneficiários e assina este ato. A **Omni/Maezo** atua como **operadora no sentido da LGPD**. Para quem é operador, a indicação de encarregado é facultativa (art. 6º).
+- **Consequência, se a hipótese se confirmar:** o representante legal da operadora de saúde (tenant) assina o bloco abaixo.
 - **Se a Omni/Maezo também for controladora de dados próprios** (por exemplo, as identidades do portal, `portal_*`): ela precisa de um **ato próprio**, nos mesmos moldes, assinado pelo representante legal dela. Este documento não cobre esse caso.
 
 ---
@@ -36,14 +36,14 @@ Este ato **não decide** quem é o controlador. A pergunta (§0 da minuta) conti
 > 3. orientar funcionários e contratados sobre as práticas de proteção de dados pessoais;
 > 4. executar as demais atribuições que o controlador determinar ou que normas complementares estabelecerem.
 >
-> **Atribuições no âmbito da plataforma Maezo** (vindas da minuta, sem itens novos de política):
-> 5. decidir e contra-assinar, para cada relação, o triplo `decisao_dpo` / `base_legal` / `retencao` do plano de eliminação (`spec/policies/retention/erasure-plan.template.yaml`) e o fecho `ratificado` / `dpo_review` / `dpo_reviewer` / `dpo_review_date` do mesmo arquivo. Esses campos ainda estão `PENDENTE` (linhas 97–102);
+> **Atribuições no âmbito da plataforma Maezo** (itens 5, 7 e 9 vêm da minuta; itens 6 e 8 são acréscimos deste ato, a confirmar pelo controlador):
+> 5. decidir e contra-assinar, para cada relação, o triplo `decisao_dpo` / `base_legal` / `retencao` do plano de eliminação (`spec/policies/retention/erasure-plan.template.yaml`) e o fecho `ratificado` / `dpo_review` / `dpo_reviewer` / `dpo_review_date` do mesmo arquivo. Esses campos ainda não estão preenchidos (`ratificado: false`, linha 97; `dpo_review`/`dpo_reviewer`/`dpo_review_date` com placeholders `PENDENTE*`, linhas 98, 101 e 102);
 > 6. definir os valores de retenção (matriz de retenção; insumos em `docs/sme-dispatch/dpo/RETENTION-MATRIX-CANDIDATE.md`);
 > 7. revisar as pontes de identidade do erasure (D-26) e os insumos GP11/M2/VW4;
-> 8. conduzir ou aprovar o RIPD/DPIA da plataforma;
+> 8. prestar assistência e orientação na elaboração do RIPD/DPIA da plataforma (art. 16, III);
 > 9. responder aos itens DPO da issue #1082 e opinar sobre aceitação de risco e prazos de DSR (LGPD arts. 18 e 19) registrados nas issues da auditoria.
 >
-> **Autonomia (arts. 18 a 21, em paráfrase):** o encarregado atua com autonomia técnica, ética e integridade. O controlador lhe garante os meios necessários e não interfere no mérito de suas manifestações. O encarregado declarou o seguinte sobre conflito de interesse:
+> **Autonomia e conflito de interesse (arts. 10, I e III, e 18 a 21, em paráfrase):** o encarregado atua com ética, integridade e autonomia técnica (art. 18). O controlador lhe provê os meios necessários (art. 10, I) e garante a autonomia técnica necessária, livre de interferências indevidas (art. 10, III). O encarregado declarou o seguinte sobre conflito de interesse:
 > [não possuir / possuir, com as medidas: __ — a preencher pelo encarregado; ver a declaração do Anexo A]
 >
 > **Divulgação (arts. 8º e 9º):** identidade e contato publicados em [URL DO SÍTIO DO CONTROLADOR — a preencher por humano] e mantidos atualizados. Canal de contato: [E-MAIL / FORMULÁRIO — a preencher por humano].
@@ -64,7 +64,7 @@ Este ato **não decide** quem é o controlador. A pergunta (§0 da minuta) conti
 
 - Filipe Carmo também é revisor de código (CODEOWNER) de `/deploy/`, como Diretor de Tecnologia e dono da organização (`.github/CODEOWNERS:324-327`).
 - Antes deste ato, ele já autorizou decisões de tratamento de dados registradas como "Dono (CTO/DPO)" ou "dono e DPO". Exemplos: DL-0078, DL-0085, DL-0086, DL-0116, DL-0117, DL-0117 (adendo 3), DL-0119, DL-0120, DL-0126, DL-0127, DL-0130 e DL-0155 em `docs/decisions-log.md`.
-- Em paráfrase da Res. 18: o encarregado deve evitar conflito de interesse; pode acumular funções desde que não haja conflito; deve declarar ao agente de tratamento qualquer situação que possa configurar conflito, respondendo pela veracidade da declaração (art. 20); e o conflito pode surgir quando o encarregado também toma decisões estratégicas sobre o tratamento (art. 21).
+- Em paráfrase da Res. 18 (texto conferido no DOU de 17/07/2024): o encarregado deve atuar com ética, integridade e autonomia técnica, evitando conflito de interesse (art. 18); pode acumular funções desde que atenda plenamente às atribuições e inexista conflito (art. 19, caput); o conflito pode se configurar com o acúmulo da atividade de encarregado com outras que envolvam a tomada de decisões estratégicas sobre o tratamento de dados pessoais pelo controlador (art. 19, § 1º, II); o encarregado deve declarar ao agente de tratamento qualquer situação que possa configurar conflito, respondendo pela veracidade da declaração (art. 20); e, constatada a possibilidade de conflito, o agente de tratamento deve não indicar a pessoa, implementar medidas para afastar o risco ou substituí-la (art. 21, parágrafo único, I a III).
 
 **Regra operacional proposta para a Maezo (a confirmar na declaração; o agente não decide):** Filipe Carmo **não aprova como DPO** matéria que ele mesmo decidiu ou implementou como engenheiro, CTO ou dono. Nesses casos, quem aprova é o substituto do art. 4º. O tratamento das autorizações anteriores ao ato (as DLs listadas acima) é decisão do encarregado com o jurídico: ciência, ratificação pelo substituto ou revisão. Este documento não as valida nem as invalida.
 
