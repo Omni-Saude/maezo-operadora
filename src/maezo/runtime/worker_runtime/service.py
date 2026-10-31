@@ -1162,6 +1162,18 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
 # --- run() — orchestrates STEP A..E -------------------------------------------------------------
 
 
+async def _stop_engine_metrics_poller(state: WorkerState) -> None:
+    """Cancel the R-085 engine-history poller task BEFORE the transport it reads is closed.
+
+    The poller loops forever by design; awaiting it without cancelling would hang the drain.
+    No-op when the poller is dark (task `None`) or already finished."""
+    task = state.engine_metrics_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+
 async def run(settings: WorkerRuntimeSettings) -> None:
     """Run the worker-runtime until SIGTERM/SIGINT. See the module docstring for STEP 0/A..E."""
     state = WorkerState(settings=settings)
@@ -1242,10 +1254,7 @@ async def run(settings: WorkerRuntimeSettings) -> None:
     if state.harness is not None:
         with contextlib.suppress(Exception):
             await state.harness.drain(settings.drain_deadline_s)
-    if state.engine_metrics_task is not None and not state.engine_metrics_task.done():
-        state.engine_metrics_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await state.engine_metrics_task
+    await _stop_engine_metrics_poller(state)
     if state.transport is not None:
         with contextlib.suppress(Exception):
             await state.transport.close()

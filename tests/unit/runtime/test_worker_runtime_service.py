@@ -1099,6 +1099,50 @@ async def test_bring_up_does_not_build_the_l1_poller_by_default(monkeypatch: Any
         await _teardown(state)
 
 
+async def test_bring_up_skips_the_l1_poller_when_the_engine_transport_failed(monkeypatch: Any) -> None:
+    """Flag ON but the engine transport did not build: no poller is built on `None` (it would
+    crash every round and report `erro` forever instead of leaving `engine_reachable` to speak)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("transport build failed")
+
+    built: list[Any] = []
+
+    class _SpyPoller:
+        def __init__(self, reader: Any, *, tenant: str, interval_s: float) -> None:
+            built.append(reader)
+
+        async def run(self) -> None:
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "CibSevenWorkerTransport", _boom)
+    monkeypatch.setattr(svc, "EngineMetricsPoller", _SpyPoller)
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_L1_DECISION_POLLER=True
+    )
+    state = await _bring_up_with(monkeypatch, settings)
+    try:
+        assert state.transport is None
+        assert built == []
+        assert state.engine_metrics_poller is None
+        assert state.engine_metrics_task is None
+    finally:
+        await _teardown(state)
+
+
+async def test_drain_cancels_the_running_l1_poller_task() -> None:
+    """The poller loops forever: the drain must CANCEL it, not just await it (that would hang)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    state = WorkerState(settings=WorkerRuntimeSettings())
+    state.engine_metrics_task = asyncio.create_task(asyncio.sleep(3600))
+    await asyncio.wait_for(svc._stop_engine_metrics_poller(state), timeout=2.0)
+    assert state.engine_metrics_task.cancelled()
+    # dark (no task) is a no-op
+    await svc._stop_engine_metrics_poller(WorkerState(settings=WorkerRuntimeSettings()))
+
+
 async def test_bring_up_runs_the_l1_poller_on_the_engine_transport_when_turned_on(monkeypatch: Any) -> None:
     """Mutation guard for the wiring: a hard-coded `False`, a dropped `create_task`, or a poller
     built on anything other than the daemon's own engine transport fails here."""
