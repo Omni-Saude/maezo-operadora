@@ -103,6 +103,16 @@ ERR_PAYMENT_RELEASE_NOT_HUMAN = "ERR_PAYMENT_RELEASE_NOT_HUMAN"
 #: precedent).
 ERR_PAGTO_ORDEM_INVALIDA = "ERR_PAGTO_ORDEM_INVALIDA"
 ERR_PAYMENT_REFUSAL_NOT_HUMAN = "ERR_PAYMENT_REFUSAL_NOT_HUMAN"
+#: Segregacao de funcoes (pacote PAGTO PR-A; analyses/PAGTO-balanced-classification.md §3 (a)/(b),
+#: aceito pelo dono em 2026-10-31, #1084): a liberacao recusa quando o aprovador de alcada coincide
+#: com o decisor do lastro na origem (`lastro_decisor_id`) ou com o analista de admissibilidade
+#: (`analista_admissibilidade_id`), e quando o analista de admissibilidade coincide com o decisor do
+#: lastro. A analise nomeava o codigo `ERR_PAYMENT_SOD_VIOLATION`; o sufixo `_NOT_HUMAN` e deliberado:
+#: `harness.is_guard_refusal_code` (pinado igual a `scripts/ci/check_bpmn_error_allowlist.py`)
+#: reconhece guardas por esse sufixo, entao a recusa de SoD entra na trilha de recusa AUDITADA T-E
+#: (ADR-0030 F4, "no silent guard-refusals") sem tocar em caminho CODEOWNERS. Sem boundary modelado:
+#: `PagtoError` -> incidente (fail-closed a um humano), como os dois codigos irmaos acima.
+ERR_PAYMENT_SOD_NOT_HUMAN = "ERR_PAYMENT_SOD_NOT_HUMAN"
 
 #: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`'s "simple rule"):
 #: `operadora.pagto.validate_payment_data` is consumed ONLY by SP-OP-PAGTO-001, which declares
@@ -111,6 +121,34 @@ ERR_PAYMENT_REFUSAL_NOT_HUMAN = "ERR_PAYMENT_REFUSAL_NOT_HUMAN"
 #: are DELIBERATELY excluded: neither has a modeled boundary catch anywhere in
 #: `SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn` (both stay coded `PagtoError` -> incident, unchanged).
 PAGTO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PAGTO_ORDEM_INVALIDA})
+
+#: I-PAGTO-1 (ADR-0040 D6-bis), FONTE UNICA: os fatos que SP-OP-PAGTO-001 resolve DENTRO de si e
+#: que NENHUM start pode semear — nem os handoffs worker-side (`contas.handoff_pagamento`,
+#: `recurso.handoff_pagamento`, que reexportam este conjunto como `HANDOFF_PAGTO_FORBIDDEN_KEYS`)
+#: nem o start de agente (`andre.graph._contract_variables`, ADR-0040 OQ-13 correcao D-m1). A
+#: origem fornece EVIDENCIA (`lastro_origem`/`lastro_decisor_id`), nunca o fato.
+#: - os quatro booleanos originais da admissibilidade/alcada;
+#: - os fatos que o pacote PAGTO introduz para `pagto_admissibility` v0.2 (analise §3 — computados
+#:   por worker, "None of these can be seeded"): `lastro_status`, `lastro_origem_tipo`,
+#:   `duplicidade_status`, `prestador_situacao`, `prestador_conhecido`;
+#: - `valor_maximo_aprovavel_cents` (saida de `pagto_alcada`, lida pelo guard do teto do aprovado)
+#:   e `analista_admissibilidade_id` (identidade que a guarda de SoD compara) — semeados por uma
+#:   origem, deslocariam o que so PAGTO pode afirmar.
+PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
+    {
+        "lastro_confirmado",
+        "dados_pagamento_validos",
+        "duplicidade_suspeita",
+        "dentro_teto_l2",
+        "lastro_status",
+        "lastro_origem_tipo",
+        "duplicidade_status",
+        "prestador_situacao",
+        "prestador_conhecido",
+        "valor_maximo_aprovavel_cents",
+        "analista_admissibilidade_id",
+    }
+)
 
 # Decision values (UT_AprovacaoAlcada / UT_CoordenacaoAlcada — `decisao_pagamento`)
 DECISAO_APROVAR = "APROVAR"
@@ -402,17 +440,14 @@ def route_aprovacao(
     null/0/negative raw amount) plus the untouched, still-visible `valor_pagamento_cents` the
     approver at comite-financeiro reads. Closing this is deferred, not denied.
 
-    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the
-    deployed table's `DENTRO_TETO_L2` row ALSO requires `valor_pagamento_cents <= 10_000_000`
-    (hardcoded ~R$100k) in addition to `dentro_teto_l2=true` — the old Python trusted the
-    resolver's boolean alone. Today `high_value_payment.threshold_brl` in `L0-core.yaml` is
-    ALSO R$100,000 (unlike the D-07 `max_value_brl=0` gap on `authorization_approval`/
-    `reembolso_auto_approval`), so the two happen to agree — but they are NOT structurally
-    coupled: a future tenant overlay raising the resolver's ceiling above R$100k would silently
-    diverge from the DMN's independently-hardcoded gate. Live-verified
-    (`valor_pagamento_cents=15_000_000, dentro_teto_l2=True` -> DMN returns `ALCADA_L1`, not
-    `DENTRO_TETO_L2`) before this cutover; flagged for finance sign-off (the DMN's own
-    description already requires it).
+    CEILING SINGLE-SOURCED (pacote PAGTO PR-A, 2026-10-31 — closes the golden-parity divergence
+    T1.5 documented here): the deployed table's `DENTRO_TETO_L2` row used to ALSO require
+    `valor_pagamento_cents <= 10_000_000` (the policy's R$100k written a second time), so a tenant
+    overlay raising `high_value_payment.threshold_brl` would silently diverge from the DMN. The row
+    now reads `> 0` (a DOMAIN test — null/zero/negative never reach the clerical band) plus
+    `dentro_teto_l2=true`; the ceiling comes ONLY from the policy via this function's resolver.
+    The value stays R$100k (owner Q3, 2026-10-31), pinned in
+    `tests/unit/sec/test_pagto_valor_fence.py::test_teto_clerical_da_politica_continua_r_100k`.
 
     WRITE-BACK ASYMMETRY vs the modeled task (GK-w4 finding 6 — DISCLOSED, deliberate, not a
     regression): this function is bound to `operadora.pagto.calculate_facts`, and
@@ -542,6 +577,18 @@ def execute_pagto(variables: dict[str, Any]) -> dict[str, Any]:
         )
         return {"pagamento_executado": False}
 
+    # SoD (a), pacote PAGTO PR-A: uma ordem de baixo valor que chegou aqui por PROSSEGUIR em
+    # `UT_AnaliseAdmissibilidade` nao pode ter sido admitida pelo proprio decisor do lastro. Sem
+    # analise humana (caminho clerical direto) nao ha a quem comparar — comportamento inalterado.
+    violacoes_sod = _violacoes_sod(variables, aprovador_id="")
+    if violacoes_sod:
+        logger.error(
+            "pagto_release_guard_rejected",
+            errors=violacoes_sod,
+            ordem_id=variables.get("ordem_pagamento_id"),
+        )
+        raise PagtoError(ERR_PAYMENT_SOD_NOT_HUMAN, "; ".join(violacoes_sod))
+
     logger.info(
         "pagto_execute_auto",
         ordem_id=variables.get("ordem_pagamento_id"),
@@ -595,6 +642,38 @@ def _tier_minimo_or_comite(value: Any) -> int:
     return _TIER_COMITE_FAIL_CLOSED
 
 
+def _identidade(value: Any) -> str:
+    """Identidade opaca normalizada para comparacao de SoD (strip + casefold; nao-string -> "").
+
+    Casefold e deliberado: e mais estrito (duas grafias da mesma pessoa contam como a mesma) — o
+    erro possivel e uma recusa a mais, nunca uma liberacao a mais. Vazio = identidade ausente.
+    """
+    return _norm_str(value).casefold()
+
+
+def _violacoes_sod(variables: Mapping[str, Any], *, aprovador_id: str) -> list[str]:
+    """Segregacao de funcoes (analise §3 (a)/(b)) — so compara identidades PRESENTES.
+
+    (a) analista de admissibilidade != decisor do lastro na origem;
+    (b) aprovador de alcada != decisor do lastro e != analista de admissibilidade.
+    Ausente/vazio/nao-string nao e violacao: a perna automatica de CONTAS nao tem decisor
+    (`lastro_decisor_id` vazio, nunca inventado) e uma ordem que nao passou por
+    `UT_AnaliseAdmissibilidade` nao tem analista. Mensagens com tokens limitados — nenhuma
+    identidade vai para o texto do incidente.
+    """
+    decisor = _identidade(variables.get("lastro_decisor_id"))
+    analista = _identidade(variables.get("analista_admissibilidade_id"))
+    aprovador = _identidade(aprovador_id)
+    violacoes: list[str] = []
+    if analista and analista == decisor:
+        violacoes.append("segregacao: analista_admissibilidade_id == lastro_decisor_id")
+    if aprovador and aprovador == decisor:
+        violacoes.append("segregacao: aprovador_id == lastro_decisor_id")
+    if aprovador and aprovador == analista:
+        violacoes.append("segregacao: aprovador_id == analista_admissibilidade_id")
+    return violacoes
+
+
 def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     """Release high-value payment — GATED with tier-match.
 
@@ -604,6 +683,13 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
       - aprovador_id + justificativa + valor_aprovado_cents (integer centavos > 0, no default)
       - tier-match: aprovador_tier >= `tier_minimo` emitted by the DMN `pagto_alcada`
         (absent/malformed -> highest tier, fail-closed)
+      - approved-amount cap (pacote PAGTO PR-A, R-053 (a)): valor_aprovado_cents <=
+        `valor_maximo_aprovavel_cents` emitted by the DMN `pagto_alcada` (the order amount — the
+        rule lives in the DMN; this worker never re-reads the order amount). Absent/malformed ->
+        refusal, fail-closed. Code: ERR_PAYMENT_RELEASE_NOT_HUMAN.
+      - segregation of duties (`_violacoes_sod`): aprovador_id != lastro_decisor_id and !=
+        analista_admissibilidade_id; analista != lastro_decisor_id. Code: ERR_PAYMENT_SOD_NOT_HUMAN
+        (wins over the generic code when both apply — a SoD breach is never masked).
 
     NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
     #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
@@ -629,6 +715,11 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     # domain, not a ceiling/alcada (those stay with the owner, R-070).
     valor_aprovado, motivo_valor_aprovado = _valor_pagamento_cents_or_none(
         variables.get("valor_aprovado_cents")
+    )
+    # Pacote PAGTO PR-A (R-053 (a) / D10): the cap is the DMN's own fact, same integer-centavos
+    # domain as the amounts. Absent/malformed -> None -> refusal (never a permissive default).
+    valor_maximo, motivo_valor_maximo = _valor_pagamento_cents_or_none(
+        variables.get("valor_maximo_aprovavel_cents")
     )
     faixa = variables.get("faixa_valor", "")
     tier_requerido = _tier_minimo_or_comite(variables.get("tier_minimo"))
@@ -659,13 +750,24 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
             f"< requerido={tier_requerido} para faixa '{faixa}'"
         )
 
-    if errors:
+    # Guard 3: approved amount <= the DMN's cap (bounded tokens only — no amount in the text).
+    if valor_maximo is None:
+        errors.append(f"valor_maximo_aprovavel_cents invalido ({motivo_valor_maximo})")
+    elif valor_aprovado is not None and valor_aprovado > valor_maximo:
+        errors.append("valor_aprovado_cents acima de valor_maximo_aprovavel_cents (teto da DMN)")
+
+    # Guard 4: segregation of duties.
+    violacoes_sod = _violacoes_sod(variables, aprovador_id=aprovador_id)
+
+    if errors or violacoes_sod:
+        todos = violacoes_sod + errors
         logger.error(
             "pagto_release_guard_rejected",
-            errors=errors,
+            errors=todos,
             ordem_id=variables.get("ordem_pagamento_id"),
         )
-        raise PagtoError(ERR_PAYMENT_RELEASE_NOT_HUMAN, "; ".join(errors))
+        codigo = ERR_PAYMENT_SOD_NOT_HUMAN if violacoes_sod else ERR_PAYMENT_RELEASE_NOT_HUMAN
+        raise PagtoError(codigo, "; ".join(todos))
 
     logger.info(
         "pagto_high_value_released",
