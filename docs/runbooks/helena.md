@@ -107,25 +107,38 @@ If the conversation restarts (webhook retry, agent restart), the same `conversat
 
 ### Collecting metrics
 
-Metrics are collected by the runtime harness and exported to Prometheus:
+Metrics are defined in `src/maezo/runtime/metrics.py` and exported to Prometheus (there is no
+`maezo_conversation_total`, `maezo_escalation_total` or `maezo_first_response_latency_ms` — those
+names never existed):
 
-```python
-# src/maezo/runtime/harness.py emits:
-maezo_conversation_total{agent="helena", tenant="amh", outcome="resolved|escalated"}
-maezo_escalation_total{agent="helena", motivo_categoria="red_flag_clinico", tenant="amh"}
-maezo_first_response_latency_ms{agent="helena", tenant="amh"}
+```text
+# terminal turn outcome — emitted by runtime.turn_telemetry.emit_turn_desfecho from Helena's graph
+maezo_agent_desfecho_total{agent_id="helena", desfecho, route, motivo_categoria}
+#   desfecho in Helena's closed vocabulary (turn_telemetry._DESFECHO_VOCAB["helena"]), e.g.
+#   resolvido_automatico | escalado_humano | resposta_vazia_nao_enviada; motivo_categoria e.g.
+#   red_flag_clinico | risco_psicossocial | intencao_clinica (anything else becomes "outro")
+# first response — histogram observed by the WhatsApp dispatcher after Helena's turn returns
+maezo_agent_first_response_seconds{agent_id="helena"}
 ```
+
+Neither series carries a `tenant` label, and both count **turns** (terminal outcomes), not conversations.
 
 ### Dashboard
 
-**Location:** `/deploy/observability/dashboards/helena-employee.json`
+**Location:** there is no `helena-employee.json`; Helena's panels live in the shared agents
+dashboard `deploy/observability/dashboards/agentes.json` (built on `maezo_agent_desfecho_total`,
+`maezo_agent_first_response_seconds` and the `maezo_agent_kpi_derived` recording rules, e.g.
+`maezo_helena_escalation_rate`).
 
-**Panels:**
-- Conversations handled (last 24h)
-- Escalation rate (with breakdown by motivo_categoria)
-- First response P95 latency
-- Eval score (linked to CI/CD pipeline run)
-- Top escalation reasons (pie chart)
+**Panels relevant to Helena** (titles as checked in to `agentes.json`):
+- Helena first_response p95 (GAP 11.2, alvo <15s)
+- Terminal turn outcomes by agent / desfecho (CC-09) — break down escalations by
+  `motivo_categoria` with `sum by (motivo_categoria) (increase(maezo_agent_desfecho_total{agent_id="helena", desfecho="escalado_humano"}[1h]))`
+- Helena resolution_rate / Helena escalation_rate (agent.yaml)
+- Helena recusa da cerca de saida (Frente 5)
+
+There is no eval-score panel: the golden-dataset score lives in the CI run (section 4), not in
+Prometheus.
 
 **Access:** Grafana dashboards (staging/prod via SSO; local via localhost:3000)
 
@@ -204,12 +217,15 @@ The generator is **deterministic** (fixed seed); output is identical across runs
 
 ## 5. Troubleshooting escalation rate
 
-**Alert:** `MaezoEscalationRateHigh` — fires when
-`sum by (agent, tenant) (rate(maezo_escalation_total[1h])) / sum by (agent, tenant) (rate(maezo_conversation_total[1h])) > 0.30`
-holds for 15 minutes (`deploy/observability/alert-rules.yaml`). It is per-agent
-(the `agent` label identifies Helena), not Helena-specific, and **high-side
+**Alert:** `MaezoEscalationRateHigh` (`deploy/observability/alert-rules.yml`, group
+`maezo_governanca_agentes`) — fires when
+`sum by (agent_id) (increase(maezo_agent_desfecho_total{desfecho="escalado_humano"}[1h])) / sum by (agent_id) (increase(maezo_agent_desfecho_total[1h])) > 0.30`
+(the rule has no `for:` clause, so it fires on the first evaluation that crosses 30%; it measures
+turns, not conversations, and carries no `tenant` label). It is
+per-agent (the `agent_id` label identifies Helena), not Helena-specific, and **high-side
 only** — there is no low-side (<10%) alert today; the low-escalation scenario
-below is caught by manual review/eval trends, not an alert.
+below is caught by manual review/eval trends, not an alert. Per-alert runbook:
+[`alerts/MaezoEscalationRateHigh.md`](alerts/MaezoEscalationRateHigh.md).
 
 ### High escalation rate (>40%)
 
@@ -256,7 +272,7 @@ kubectl logs deploy/agent-helena -n maezo-amh | grep "escalation_motivo" | head 
 
 ## On-call checklist
 
-When `MaezoEscalationRateHigh` fires (with `agent="helena"`):
+When `MaezoEscalationRateHigh` fires (with `agent_id="helena"`):
 
 - [ ] Check golden dataset eval score (nightly job): OK?
 - [ ] Check recent commits: any autonomy policy, prompt, or DMN change?
