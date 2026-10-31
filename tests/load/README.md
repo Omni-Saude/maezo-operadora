@@ -37,6 +37,23 @@ tamanho de amostra são **parâmetros de medição**, não metas: os tiers C=1 e
 auditoria já mediu (`docs/audits/FORENSIC-COMPLETENESS-2026-10/PERFORMANCE.md`), e nenhum resultado
 aqui é afirmação de capacidade.
 
+**Onde a meta é asserida:** em C=1 (latência de uma requisição, sem fila) — a leitura que
+PLANS.md:923 sustenta sem acrescentar requisito. Em C=10 o teste **só mede e reporta** (falha por
+erro/resposta errada, nunca por latência): a spec não diz sob qual concorrência a meta vale, e
+asserir ali inventaria um requisito de carga (NEEDS-HUMAN 1). O locustfile aplica a meta na carga
+que o operador escolher (`-u`/`-r`); com `-u 10 -r 5` e o tempo de espera do `AuthUser` ela passou.
+
+Medido em 31/10/2026, engine compartilhado local, máquina com **load average 17–31 em 10 núcleos**
+(dezenas de agentes paralelos — números valem só como ordem de grandeza):
+
+| cenário | p95 C=1 (rodada 1 / 2) | p95 C=10 (rodada 1 / 2) | Locust `-u 10` p95 |
+|---|---|---|---|
+| `dmn:auth_admissibility` | 39,8 / 72,1 ms | 254,0 / 311,5 ms | 33 ms |
+| `dmn:auth_sla` | 37,6 / 66,2 ms | 148,1 / 205,5 ms | 29 ms |
+| `dmn:auth_auto_approval` | 40,6 / 69,7 ms | 162,9 / 222,3 ms | 29 ms |
+| `dmn:auth_criteria_contratual` | 47,8 / 73,6 ms | 237,2 / 267,7 ms | 31 ms |
+| `start` | 40,9 / 34,4 ms | 320,6 / 233,6 ms | 41 ms |
+
 A SLI de produção dos workers AUTH continua sendo `maezo_worker_task_duration_seconds`
 (SLO.md:99); este teste mede o trecho engine-side que ela não cobre.
 
@@ -106,7 +123,8 @@ existe; `.github/workflows` é CODEOWNERS). Partição de rede (C1-part) e failo
 
 1. **Escopo da meta de 200 ms.** PLANS.md:923 diz "Latência p95 < 200ms para AUTH" sem definir a
    superfície (start do processo? DMN? resposta ao prestador no portal?), a concorrência nem a
-   janela. Este pacote adota o trecho engine-side síncrono descrito acima. A meta precisa ser
-   ratificada pelo dono do serviço e registrada como SLI em `docs/observability/SLO.md`.
+   janela. Este pacote adota o trecho engine-side síncrono descrito acima e assere só em C=1. A
+   meta (superfície + concorrência + janela) precisa ser ratificada pelo dono do serviço e
+   registrada como SLI em `docs/observability/SLO.md`; com ela, o caso C=10 passa a asserir.
 2. **Job noturno W2** para rodar `chaos_engine_restart` (e o B1c completo) em CI: exige editar
    `.github/workflows/ci.yml` (CODEOWNERS security-team).
