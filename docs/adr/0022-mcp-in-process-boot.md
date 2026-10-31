@@ -2,6 +2,18 @@
 
 **Status:** Accepted · **Data:** 2026-06-14 · **Area:** Orquestracao / Runtime
 
+**ADENDO DE STATUS 2026-10-31 (R-020 / DEC-11, decisao do dono C1) — SUPERSEDE PARCIAL por ADR-0068:**
+o corpo abaixo NAO foi editado (`docs/adr/README.md:8`). A Decisao 1 (costura `register_tools` em
+`build_tool_invoker`) e a Decisao 4 (`register_tools` "load-bearing — intocavel") estao SUPERADAS:
+`runtime/tool_wiring.py`, `ToolRegistry` e `RegistryToolInvoker` nunca existiram nesta arvore, e os
+tres `register_tools` dos servers MCP (sem nenhum chamador) foram removidos. A autoridade unica de
+construcao e `src/maezo/gateway/tool_registry.py` (ver
+`docs/adr/0068-desenho-real-da-barreira-de-efeitos-e-cerca-de-zona.md`). As Decisoes 2, 3 e 5 (sem
+Deployments MCP out-of-process, DoD negativo de `deployment-mcp-*.yaml`, backends por cliente HTTP)
+CONTINUAM valendo. A citacao simbolica de `build_tool_invoker` no Contexto abaixo continua
+irresolvivel e segue divulgada no `_DISCLOSED_ROT` de `scripts/ci/check_doc_symbol_citations.py`
+enquanto o dono nao autorizar a correcao in-loco dessa linha. Este adendo nao ratifica a ADR-0068.
+
 ## Contexto
 
 A plataforma expoe cinco "MCP servers" como a superficie de tools que o grafo de cada agente dirige
