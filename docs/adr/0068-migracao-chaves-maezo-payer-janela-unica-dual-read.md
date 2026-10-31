@@ -248,7 +248,7 @@ dos protocolos de troca de esquema.
    - **Exclusão mútua entre fases (ordem obrigatória).** Em toda fase ≠ `legado`, o gate estrito
      PRIMEIRO insere o claim da própria forma (`emit_once_status`) e SÓ DEPOIS lê o claim da outra
      forma. Se qualquer um dos dois já existir, trata como acerto de dedup.
-     - Se os dois racers se virem mutuamente, ambos recusam fail-closed (`StrictDedupUnresolvable`).
+     - Se os dois racers se virem mutuamente, ambos recusam fail-closed (`StartClaimWithoutInstanceError`, `src/maezo/tools/mcp_cibseven/transport.py::StartClaimWithoutInstanceError`).
        Nunca os dois iniciam.
      - A ordem inversa (ler e depois inserir) é proibida.
      - O item 2 vale também para o probe de histórico: `find_active_instance` e `find_any_instance`
