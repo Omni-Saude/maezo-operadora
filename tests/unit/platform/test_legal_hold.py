@@ -7,7 +7,10 @@ para log, mensagem de erro ou registro de auditoria. Fixtures 100% sinteticas.
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextlib
 import hashlib
+import os
 from datetime import date
 from pathlib import Path
 
@@ -447,3 +450,32 @@ def test_alias_e_recusado_pela_propria_guarda_mesmo_sem_ancora() -> None:
             strict.get_single_data()
     finally:
         strict.dispose()
+
+
+def test_fifo_no_caminho_e_recusado_sem_bloquear(tmp_path: Path) -> None:
+    """R6: um FIFO no caminho do registro nao pode travar a abertura (O_NONBLOCK) — recusa e duvida.
+
+    Roda numa thread com timeout: uma regressao falha em 5 s em vez de pendurar a suite. Se a
+    abertura travar, o `finally` abre o FIFO para escrita e destrava a thread leitora.
+    """
+    fifo = tmp_path / "holds.yaml"
+    os.mkfifo(fifo)
+
+    def _carregar() -> tuple[str, LegalHoldOutcome]:
+        with pytest.raises(LegalHoldRegistryUnavailableError) as exc:
+            load_legal_hold_registry(fifo)
+        decision = evaluate_legal_hold(tenant_id="tenant-a", titular_pseudo_id=_PSEUDO, loader=_loader(fifo))
+        return exc.value.reason, decision.outcome
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(_carregar)
+    try:
+        reason, outcome = future.result(timeout=5)
+    finally:
+        while not future.done():
+            with contextlib.suppress(OSError):
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            concurrent.futures.wait([future], timeout=0.2)
+        executor.shutdown(wait=False)
+    assert reason == REASON_FILE_NOT_FOUND
+    assert outcome is LegalHoldOutcome.INDETERMINADO

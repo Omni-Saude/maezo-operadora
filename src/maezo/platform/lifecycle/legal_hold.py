@@ -262,7 +262,9 @@ def load_legal_hold_registry(path: str | Path | None = None) -> LegalHoldRegistr
     registry_path = Path(raw_path)
     # O_NOFOLLOW: symlink recusado (ELOOP) — um mount de ConfigMap k8s precisa de `subPath`.
     try:
-        fd = os.open(registry_path, os.O_RDONLY | os.O_NOFOLLOW)
+        # O_NONBLOCK: abrir um FIFO/dispositivo nao bloqueia (sem efeito na leitura de arquivo
+        # regular); o S_ISREG abaixo o recusa.
+        fd = os.open(registry_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
         if isinstance(exc, FileNotFoundError):
             raise _fail(REASON_FILE_NOT_FOUND, f"path does not exist: {registry_path}") from exc
