@@ -32,7 +32,7 @@ Quem é o **controlador** dos dados dos beneficiários tratados pela plataforma?
 
 ## 2. Checklist até a janela de 2026-11-10 (sessão "Lucas DPO — só contrassinaturas", pacote `W8-OWNER-SESSION-DPO-PACKAGE-v1`)
 1. [ ] Questão prévia §0 respondida por COUNSEL/DPO (controlador vs operador).
-2. [ ] Ato §1 assinado pelo representante legal do controlador, com substituto (art. 4º).
+2. [ ] Ato §1 assinado pelo representante legal do controlador, com substituto (art. 4º). **Estado (2026-10-31):** ato redigido, aguardando assinaturas. O titular (Filipe Carmo) foi nomeado pelo dono (DL-0158). O documento para assinatura está em `ATO-INDICACAO-ENCARREGADO-FILIPE-CARMO.md`. Substituto, controlador, data e assinaturas continuam em branco.
 3. [ ] Identidade e contato publicados no sítio do controlador (art. 9º); link registrado em `docs/evidence-ledger.md`.
 4. [ ] Contagem viva das relações a contra-assinar re-conferida no dia: hoje **43** (`src/maezo/platform/lifecycle/erasure_plan.py`, `spec/policies/retention/erasure-plan.template.yaml`, pins `tests/unit/platform/test_erasure_plan.py:831,833`; base `ae8c9f52`). **Atenção:** o PR #1074 (REEMBOLSO v2) adiciona a migração `0031_reembolso_coleta` e edita o plano de eliminação — se entrar antes da sessão, a contagem passa a 44.
 5. [ ] Sessão: o DPO decide por relação o triplo `decisao_dpo` / `base_legal` / `retencao` (vocabulário em `erasure-plan.template.yaml`); agentes não preenchem campos humanos.
