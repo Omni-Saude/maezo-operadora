@@ -85,6 +85,11 @@ _SHIPPED_ALERT_NAMES_FLOOR: Final[frozenset[str]] = frozenset(
         "MaezoDeadLetterBacklog",
         "MaezoDeadLetterGrowth",
         "MaezoLifecycleJobFailed",
+        # R-085 / F-090 (ADR-0010; limiares do proprio devops-stack.md §6): grupo
+        # `maezo_governanca_agentes`. As secoes de runbook correspondentes carregam IMPLEMENTADO.
+        "MaezoPEPDenySpike",
+        "MaezoA2ABudgetExhausted",
+        "MaezoEscalationRateHigh",
     }
 )
 

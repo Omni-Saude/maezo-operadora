@@ -420,3 +420,98 @@ groups:
             expected to succeed genuinely failed; either way this is a real
             signal, not noise.
           runbook_url: "docs/runbooks/alerts/MaezoLifecycleJobFailed.md"
+
+  # ---------------------------------------------------------------------------
+  # Governanca de agentes (R-085 / F-090 — ADR-0010 "Alertas: budget A2A estourado, queda de
+  # aprovacao humana, spike de custo"; docs/runbooks/devops-stack.md §6 "PEP deny spike" e
+  # "Escalation rate"). FONTE DE CADA LIMIAR, citada regra a regra abaixo — nenhum numero foi
+  # inventado aqui. O que ficou de FORA, e por que (cada um exige decisao/fonte do dono, nao um
+  # chute neste arquivo):
+  #   * queda de aprovacao humana L1 (`MaezoHITLApprovalRateDrop`) — nao existe emissor do
+  #     desfecho aprovado/rejeitado de proposta L1 em `src/` (a decisao humana mora numa User Task
+  #     do engine; o relay humano #427 ainda nao existe). Alerta sobre metrica sem emissor e o
+  #     defeito ALERTS-WITHOUT-METRICS que este arquivo ja pagou uma vez.
+  #   * spike de custo (`MaezoLLMCostSpike`/`MaezoA2ATaskBudgetExceeded` em USD) — so existem
+  #     contagens de token (`maezo_llm_tokens_total`); preco por token e decisao de financas.
+  #   * `MaezoAuditLagHigh` — nao ha consumidor Kafka de auditoria: a trilha ADR-0007 e gravada
+  #     de forma sincrona; "lag de consumidor de audit" nao tem fonte honesta hoje.
+  #   * `MaezoKafkaConsumerLagHigh` — a serie existe (kafka-exporter), mas nenhum documento fixa o
+  #     limiar. TODO-OWNER.
+  # JANELAS/`for`: onde a fonte nao fixa janela, seguem a convencao das regras `maezo_sla` acima
+  # (`[5m]`, `for: 5m`) — convencao deste arquivo, nao fonte de negocio. TODO-OWNER: confirmar.
+  # SEVERIDADE: `warning` em todas (nenhuma fonte manda paginar como critical). TODO-OWNER.
+  - name: maezo_governanca_agentes
+    rules:
+      # PEP deny spike — "The Policy Enforcement Point is denying > 1 req/s — attack,
+      # misconfiguration, or policy regression" (docs/runbooks/devops-stack.md §6 "PEP deny
+      # spike"). Le SO recusas que BLOQUEIAM (`enforced="true"`): com o manifesto de aprovacoes
+      # ainda DRAFT toda classe nega em SOMBRA (WOULD_DENY), e um alerta sobre recusas-sombra
+      # paginaria por todo trafego normal. Enquanto nada estiver em `enforcing` este alerta nao
+      # tem o que disparar — por desenho, nao por defeito.
+      - alert: MaezoPEPDenySpike
+        expr: |
+          sum by (tenant) (
+            rate(maezo_gateway_pep_decision_total{decision="deny", enforced="true"}[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: governanca
+          component: gateway
+        annotations:
+          summary: "PEP is enforcing more than 1 deny/s on tenant {{ $labels.tenant }}"
+          description: >
+            The effect PEP blocked {{ $value }} calls/s over the last 5 minutes on tenant
+            {{ $labels.tenant }} (enforced denies only; shadow WOULD_DENY is excluded).
+            Threshold 1 req/s from docs/runbooks/devops-stack.md "PEP deny spike".
+            Break down by principal/layer/reason in maezo_gateway_pep_decision_total.
+          runbook_url: "docs/runbooks/alerts/MaezoPEPDenySpike.md"
+
+      # Budget A2A estourado — ADR-0010 ("Alertas: budget A2A estourado") sobre a guarda 3 de
+      # ADR-0003 (orcamento por salto, `a2a.delegation.Budget.charge`). O EVENTO e o alerta: o
+      # ADR nao fixa taxa, entao qualquer recusa por orcamento na janela dispara (`> 0`). Nao e o
+      # `MaezoA2ATaskBudgetExceeded` do runbook (gasto em USD/min) — esse continua PLANEJADO por
+      # falta de metrica de custo.
+      - alert: MaezoA2ABudgetExhausted
+        expr: |
+          sum by (target) (
+            increase(maezo_a2a_guard_refusal_total{guard="budget_exhausted"}[5m])
+          ) > 0
+        labels:
+          severity: warning
+          category: governanca
+          component: a2a
+        annotations:
+          summary: "A2A delegation budget exhausted (target {{ $labels.target }})"
+          description: >
+            {{ $value }} A2A delegation(s) handled by {{ $labels.target }} were refused in the
+            last 5 minutes because the delegation budget was exhausted (ADR-0003 guard 3).
+            ADR-0010 requires this to alert. Check the delegation chain in the A2A audit trail.
+          runbook_url: "docs/runbooks/alerts/MaezoA2ABudgetExhausted.md"
+
+      # Escalation rate — "An agent is escalating > 30% of its conversations to a human ... over
+      # a 1-hour window" (docs/runbooks/devops-stack.md §6 "Escalation rate"). Le o contador CC-09
+      # `maezo_agent_desfecho_total` (desfecho `escalado_humano`, o token que os vocabularios
+      # fechados de Helena e Lucas declaram — `runtime.turn_telemetry._DESFECHO_VOCAB`) em vez dos
+      # `maezo_escalation_total`/`maezo_conversation_total` que o runbook imaginava e que nunca
+      # existiram. O denominador inclui toda desfecho do agente (mesma regra das recording rules
+      # `maezo_agent_kpi_derived`). Sem `tenant`: cada tenant roda no seu namespace, e o rotulo de
+      # alvo da raspagem ja o separa.
+      - alert: MaezoEscalationRateHigh
+        expr: |
+          (
+            sum by (agent_id) (increase(maezo_agent_desfecho_total{desfecho="escalado_humano"}[1h]))
+            /
+            sum by (agent_id) (increase(maezo_agent_desfecho_total[1h]))
+          ) > 0.30
+        labels:
+          severity: warning
+          category: governanca
+          component: agents
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} escalated more than 30% of turns in 1h"
+          description: >
+            Agent {{ $labels.agent_id }} ended {{ $value | humanizePercentage }} of its turns
+            with escalado_humano over the last hour. Threshold 30% / 1h from
+            docs/runbooks/devops-stack.md "Escalation rate".
+          runbook_url: "docs/runbooks/alerts/MaezoEscalationRateHigh.md"

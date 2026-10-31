@@ -163,3 +163,24 @@ def test_o_pacote_valida_o_juntar_mensagens() -> None:
     assert p._erros_do_juntar({"espera_s": 40, "conversas": [_CONVERSA]})
     assert p._erros_do_juntar({"espera_s": 4.0, "conversas": ["5511999999999"]})
     assert p._erros_do_juntar({"espera": 4.0})
+
+
+def test_dl_0154_espera_de_juntar_e_2_5_s_e_consulta_do_plano_ate_10_s() -> None:
+    """DL-0154 (adendo de 24/10/2026, latencia e alarme), itens 4 e 5: `juntar_mensagens.espera_s` cai de 4
+    para 2,5 s no pacote e as consultas do plano (TINA) esperam ate' 10 s (dependentes = duas consultas
+    Athena em sequencia). Mudar um destes valores e' mudar a decisao registrada: exige novo adendo na DL
+    (R-115)."""
+    from pathlib import Path
+
+    import yaml
+
+    from maezo.agents.helena import graph
+    from maezo.agents.helena.habilidades.plano import consulta
+
+    raiz = Path(__file__).parents[3]
+    dados = yaml.safe_load((raiz / "spec/agents/helena/pacote/configuracao.yaml").read_text(encoding="utf-8"))
+    juntar = dados["juntar_mensagens"]
+    assert juntar["espera_s"] == 2.5
+    assert p._erros_do_juntar(juntar) == []
+    assert graph.CONSULTA_PRAZO_S == 10.0
+    assert consulta.CONSULTA_PRAZO_S == 10.0, "o valor que a consulta do plano usa de fato"
