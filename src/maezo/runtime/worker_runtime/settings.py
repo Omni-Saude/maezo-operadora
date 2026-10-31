@@ -161,6 +161,23 @@ class WorkerRuntimeSettings(BaseSettings):
     # as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`, e o flip exige assinatura
     # juridica — ato humano (ROLL), nunca de agente.
     inad_rn593_estrito: bool = Field(default=False, alias="MAEZO_INAD_RN593_ESTRITO")
+    # Forensic audit F-029 (roadmap R-063): fatos "pre-resolvidos" deixam de ecoar a entrada.
+    # PAGTO: `validate_payment_data` resolve `dados_pagamento_validos` (credor + instrumento no
+    # dominio do contrato) e nunca ecoa `lastro_confirmado` semeado (ADR-0040 I-PAGTO-1 -> toda
+    # ordem passa por `UT_AnaliseAdmissibilidade`). INAD: `resolve_facts` nunca ecoa
+    # `dentro_janela_purga` (so o timer BPMN encerra a janela de purga). Ambos fail-closed/humanos.
+    # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
+    pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
+    inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+    # Decisao do dono de 30/10/2026 (criterios de reembolso por beneficiario; desenho em
+    # docs/design/condicoes-reembolso-contratuais.md): liga a LEITURA das condicoes contratuais de
+    # reembolso pelo contrato AMH PROPOSTO `tina-reembolso`
+    # (`maezo.adapters.amh.tina.compor_condicoes_reembolso`).
+    # So' leitura de fatos, nunca decisao. DARK by default; ligada, ainda nao monta nada enquanto o
+    # contrato nao for publicado e pinado. Ligar e' ato humano (ROLL), nunca de agente.
+    reembolso_condicoes_contratuais: bool = Field(
+        default=False, alias="MAEZO_REEMBOLSO_CONDICOES_CONTRATUAIS"
+    )
 
     # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
     # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de

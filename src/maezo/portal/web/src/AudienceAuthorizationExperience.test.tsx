@@ -96,7 +96,7 @@ it("leva beneficiário de solicitações a documentos, mensagens e recibos do ca
       onSessionUnavailable={vi.fn()}
     />,
   );
-  expect(await screen.findByRole("heading", { name: "Referência case_synthetic_auth_1" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Autorização · Em andamento" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Enviar nova solicitação" })).not.toBeInTheDocument();
 
   await userEvent.click(screen.getByRole("tab", { name: "Documentos" }));
@@ -272,7 +272,7 @@ it("não grava referências ou conteúdo da jornada em storage persistente", asy
       onSessionUnavailable={vi.fn()}
     />,
   );
-  expect(await screen.findByRole("heading", { name: "Referência case_synthetic_auth_1" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Autorização · Em andamento" })).toBeInTheDocument();
   expect(local).not.toHaveBeenCalled();
   expect(remove).not.toHaveBeenCalled();
 });
@@ -300,7 +300,7 @@ function deferred<T>() {
 }
 
 async function openDocuments() {
-  await screen.findByRole("heading", { name: "Referência case_synthetic_auth_1" });
+  await screen.findByRole("heading", { name: "Autorização · Em andamento" });
   await userEvent.click(screen.getByRole("tab", { name: "Documentos" }));
   await userEvent.click(screen.getByRole("button", { name: "Abrir solicitação" }));
   await screen.findByRole("button", { name: "Abrir documento" });
@@ -423,8 +423,7 @@ it("desmontar aborta a submissão corrente, não apenas a consulta inicial", asy
 it.each([["authorization", "Autorização"], ["reimbursement", "Reembolso"], ["account", "Conta"]] as const)("preserva kind W6 %s separado da audiência", async (kind, label) => {
   const api = service({ listCases: vi.fn().mockResolvedValue({ kind: "success", value: { ...casePageFixture, items: [{ ...casePageFixture.items[0], kind }] } }) });
   render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
-  await screen.findByRole("heading", { name: "Referência case_synthetic_auth_1" });
-  expect(screen.getAllByText(label)).not.toHaveLength(0);
+  await screen.findByRole("heading", { name: `${label} · Em andamento` });
   expect(screen.getByText("Área do prestador")).toBeInTheDocument();
   expect(screen.queryAllByText("Solicitação do beneficiário")).toHaveLength(0);
   expect(screen.queryAllByText("Solicitação do prestador")).toHaveLength(0);
@@ -531,4 +530,12 @@ it("revogação remove e libera diretamente o link de download já preparado", a
     view.unmount();
     expect(revoke).toHaveBeenCalledOnce();
   } finally { vi.unstubAllGlobals(); }
+});
+
+it("F-154: o caso é identificado pelo tipo e situação; a referência opaca fica como dado de suporte", async () => {
+  render(<AudienceAuthorizationExperience audience="beneficiary" service={service()} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
+  const heading = await screen.findByRole("heading", { level: 3, name: "Autorização · Em andamento" });
+  expect(heading).not.toHaveTextContent("case_synthetic_auth_1");
+  expect(screen.queryByRole("heading", { name: /Referência/ })).not.toBeInTheDocument();
+  expect(heading.closest("li")?.querySelector(".exact-value")).toHaveTextContent("case_synthetic_auth_1");
 });

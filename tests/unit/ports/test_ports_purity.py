@@ -513,8 +513,11 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     # CatalogoProcedimentosView).
     # +1 (20/10/2026, DL-0130): CPT vigente TINA v1.15 (CptVigenteView).
     # +15 (22/10/2026, C6): opaque commercial scope, proof and command value types.
-    assert len(value_types) == 62, (
-        f"expected 62 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +5 (30/10/2026): condicoes contratuais de reembolso, contrato AMH PROPOSTO `tina-reembolso`
+    # (CondicoesReembolsoView, CoparticipacaoReembolso, LimiteReembolso, RegraValorReembolso,
+    # VinculoReembolso).
+    assert len(value_types) == 67, (
+        f"expected 67 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -538,7 +541,8 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     type holds it."""
     protocols = _protocol_types()
     # +1 (20/10/2026, DL-0130): TinaCptPort.
-    assert len(protocols) == 17, f"expected exactly 17 port Protocols, found {sorted(protocols)}"
+    # +1 (30/10/2026): TinaReembolsoPort (contrato AMH PROPOSTO `tina-reembolso`).
+    assert len(protocols) == 18, f"expected exactly 18 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

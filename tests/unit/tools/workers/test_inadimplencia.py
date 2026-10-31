@@ -97,6 +97,43 @@ def test_resolve_facts_empty_competencias() -> None:
 
 
 # ---------------------------------------------------------------
+# R-063 / F-029 — `dentro_janela_purga` nao e ecoado (estrito)
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("semente", [False, True, None, "nao", 0])
+def test_estrito_dentro_janela_purga_nunca_ecoa_a_entrada(semente: object) -> None:
+    """So o timer BPMN `ICE_PrazoPurga` encerra a janela: o fato e sempre `True` (AGUARDA_PURGA)."""
+    variables: dict[str, Any] = {} if semente is None else {"dentro_janela_purga": semente}
+    assert resolve_facts(variables)["dentro_janela_purga"] is True
+
+
+def test_legado_dentro_janela_purga_ecoa_a_entrada() -> None:
+    """Caminho do worker registrado com `MAEZO_INAD_FATOS_ESTRITOS` desligada (dark)."""
+    assert resolve_facts({"dentro_janela_purga": False}, fatos_estritos=False)["dentro_janela_purga"] is False
+    assert resolve_facts({}, fatos_estritos=False)["dentro_janela_purga"] is True
+
+
+def _resolve_facts_registrado(**seams: Any) -> FunctionWorker:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="r063-inad-wiring")
+    register_inadimplencia_workers(harness, None, **seams)
+    worker = harness.registry.get("operadora.inadimplencia.resolve_facts")
+    assert isinstance(worker, FunctionWorker)
+    return worker
+
+
+@pytest.mark.parametrize("seams", [{}, {"inad_fatos_estritos": False}, {"inad_fatos_estritos": "true"}])
+def test_registro_sem_flag_mantem_eco_legado(seams: dict[str, Any]) -> None:
+    out = _resolve_facts_registrado(**seams).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is False
+
+
+def test_registro_com_flag_ligada_nao_ecoa() -> None:
+    out = _resolve_facts_registrado(inad_fatos_estritos=True).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is True
+
+
+# ---------------------------------------------------------------
 # assess_status
 # ---------------------------------------------------------------
 

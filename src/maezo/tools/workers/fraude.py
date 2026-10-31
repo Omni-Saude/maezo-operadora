@@ -16,9 +16,11 @@ spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn).
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import functools
 import math
 import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -1022,11 +1024,56 @@ def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
     return f"CRED-{tenant_id}-{prestador_id}"
 
 
+#: F-077 (R-077). Valores do seed do handoff FRAUDE->CRED, tirados dos contratos (nunca inventados):
+#: `SP-OP-FRAUDE-001.md` — o handoff "inicia SP-OP-CRED-001 (descredenciamento)"; `operadora` e' o
+#: valor do dominio fechado `origem_solicitacao` de `SP-OP-CRED-001.md` para a investigacao da
+#: propria operadora (o mesmo dos handoffs sistemicos `adequacao`/`inadimplencia`).
+CRED_DIRECAO_HANDOFF_FRAUDE = "descredenciamento"
+CRED_ORIGEM_HANDOFF_FRAUDE = "operadora"
+
+
+def _hoje_civil_brasil() -> dt.date:
+    """Data civil em America/Sao_Paulo (UTC-3 fixo se a imagem nao trouxer `tzdata`)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz: dt.tzinfo = ZoneInfo("America/Sao_Paulo")
+    except Exception:  # imagem slim sem banco de fusos: sem horario de verao desde 2019
+        tz = dt.timezone(dt.timedelta(hours=-3), "America/Sao_Paulo")
+    return dt.datetime.now(tz).date()
+
+
+def cred_start_seed_from_fraude(source: Mapping[str, Any], *, hoje: dt.date | None = None) -> dict[str, Any]:
+    """Variaveis OBRIGATORIAS de SP-OP-CRED-001 que o handoff da FRAUDE semeia no start (F-077).
+
+    Contrato `SP-OP-CRED-001.md` §Variaveis de entrada: `direcao`, `tipo_prestador`,
+    `origem_solicitacao`, `data_solicitacao_iso` e `documentos_refs` sao `sim`. Usado pelos DOIS
+    start sites do handoff — o worker in-flow `start_credenciamento` e a regra-espelho FRAUDE->CRED
+    do `notification_bridge` — que convergem na MESMA business key: quem chegar primeiro cria a
+    instancia, entao os dois precisam semear o mesmo conjunto. So' fatos pre-decisao: nunca
+    `decisao_cred` nem saida do CRED (a UT humana do CRED decide).
+
+    `tipo_prestador` e' ECOADO da origem; o FRAUDE nao o carrega hoje, entao vai `""` (nao
+    informado) — as DMN do CRED levam isso ao ramo conservador (`cred_prior_notice`/`cred_sla`
+    catch-all). `documentos_refs` vai vazio (o contrato admite): o bundle de custodia nao e'
+    documentacao de credenciamento e segue em `bundle_root`.
+    """
+    tipo = source.get("tipo_prestador")
+    return {
+        "direcao": CRED_DIRECAO_HANDOFF_FRAUDE,
+        "tipo_prestador": tipo.strip() if isinstance(tipo, str) else "",
+        "origem_solicitacao": CRED_ORIGEM_HANDOFF_FRAUDE,
+        "data_solicitacao_iso": (hoje or _hoje_civil_brasil()).isoformat(),
+        "documentos_refs": [],
+    }
+
+
 def start_credenciamento(
     variables: dict[str, Any],
     *,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    hoje: dt.date | None = None,
 ) -> dict[str, Any]:
     """Handoff: idempotently START SP-OP-CRED-001 for provider de-credentialing.
 
@@ -1036,7 +1083,9 @@ def start_credenciamento(
     fenced ``start_process_idempotent`` chokepoint (ADR-0007 emit-before-effect, T-C2). Was a stub
     returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
     blank/None ``tenant_id``/``prestador_id`` anchor (EB-4 R1: validated with the SHARED
-    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``)."""
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``).
+    F-077: also seeds CRED-001's contract-mandatory inputs via `cred_start_seed_from_fraude`
+    (``hoje`` injectable for tests; default = civil date in America/Sao_Paulo)."""
     # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
     if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
         logger.error(
@@ -1058,6 +1107,7 @@ def start_credenciamento(
         "numero_caso": str(variables.get("numero_caso", "")),
         "bundle_root": str(variables.get("bundle_root", "")),
         "origem_encaminhamento": "fraude",
+        **cred_start_seed_from_fraude(variables, hoje=hoje),
     }
     instance_id, already_existed = _fenced_start(
         process_key=CRED_PROCESS_KEY,
