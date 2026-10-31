@@ -204,7 +204,9 @@ Notas da tabela:
 
 - **Forma em claro com `-`.** Quando uma `ref_claro` em claro tem `-` entre componentes de tamanho
   variável (linhas 10, 12, 13 e 15), a injetividade é garantida porque a forma em claro só é usada
-  quando todo componente não final está livre de `-`. Isso é verificado na composição. Se falhar, a
+  quando TODO componente, inclusive o final, está livre de `-`. Assim a aridade é fixada pela contagem
+  de `-`, e a forma opcional `[-{ciclo}]` de ADEQ não colide com uma `especialidade` contendo `-`.
+  Isso é verificado na composição. Se falhar, a
   chave cai na forma opaca: nunca recusa por isso, nunca colide.
 - **O que não muda.** As linhas 17–20 seguem fora do allowlist de start por agente, porque são
   disparadas por timer. É a mesma postura de hoje, e o achado colateral do ADR-0038
@@ -242,8 +244,18 @@ dos protocolos de troca de esquema.
 2. **Histórico (`find_any_instance`).** O filtro de `processDefinitionKey` no cliente passa a aceitar o
    PAR `{SP-OP-X, maezo-payer-x}` da família. Sem isso, o gate `PERMANENT` de PAGTO leria "nunca
    iniciado" para um pagamento legado já concluído e liberaria um pagamento duplicado.
-3. **Reivindicações duráveis (`audit_emit_dedup`).** O gate estrito consulta as duas `dedup_key`
-   (process key e business key alvo, e as legadas).
+3. **Reivindicações duráveis (`audit_emit_dedup`).**
+   - **Exclusão mútua entre fases (ordem obrigatória).** Em toda fase ≠ `legado`, o gate estrito
+     PRIMEIRO insere o claim da própria forma (`emit_once_status`) e SÓ DEPOIS lê o claim da outra
+     forma. Se qualquer um dos dois já existir, trata como acerto de dedup.
+     - Se os dois racers se virem mutuamente, ambos recusam fail-closed (`StrictDedupUnresolvable`).
+       Nunca os dois iniciam.
+     - A ordem inversa (ler e depois inserir) é proibida.
+     - O item 2 vale também para o probe de histórico: `find_active_instance` e `find_any_instance`
+       rodam para a business key alvo E para a legada do par, cada uma aceitando o par de process
+       keys.
+     - Teste de integração obrigatório: dois starts concorrentes de PAGTO, um em `leitura_dupla` e
+       outro em `escrita_alvo`, terminam com no máximo uma instância.
    - **Alias legado explícito, sem reescrita:** um job da janela INSERE uma linha de alias com a
      `dedup_key` alvo para cada claim `PERMANENT` ou `EXCLUSIVE` vivo. A linha legada nunca é apagada
      nem alterada.
@@ -266,8 +278,9 @@ dos protocolos de troca de esquema.
    - A âncora do cancelamento passa a aceitar `CANCEL-{t}-` OU `{t}:cancel-001:`.
    - A conferência do ESC passa a recompor as duas formas (a de `chave_e_da_conversa` e a opaca).
    - A comparação com o histórico do motor (`src/maezo/platform/integrations/agent_resume.py:387`)
-     compara formas equivalentes. Sob a Q1-c, chave do motor e chave da saída coincidem; sob a Q1-a,
-     compara `saida(chave_do_motor)`.
+     compara formas equivalentes. Sob a Q1-c, chave do motor e chave da saída só coincidem nas
+     famílias opacas. Nas famílias em claro (ANSSUB `R`, ADEQ, LGPD-DSR, PROGRAMA, SUPP) e sob a Q1-a,
+     a comparação é contra `saida(chave_do_motor)`.
 8. **Varredura por prefixo.** `src/maezo/gateway/staff_cases/case_issuer_sources.py:377` (`ESC-{t}-sla-auth-`)
    e o simulador de QA (`src/maezo/qa/simulador/composicao.py:213`) procuram por PREFIXO de chave.
    Com referência opaca isso não funciona. Esses sítios passam a consultar por variável de processo
@@ -279,6 +292,28 @@ dos protocolos de troca de esquema.
      `src/maezo/portal/contracts/models.py`, `src/maezo/portal/web/src/taskReadBindings.ts`) aceitam
      as duas.
    - Uma tarefa humana de instância legada continua concluível pelo portal até o fim da janela.
+   - **Cercas por process key (falham abertas se esquecidas).** `ClassifiedConsumerFence.java:62`,
+     `ConsumerLineage.java` (o mapa de fontes e `classified`) e `ClassifiedDecision.java` passam a
+     reconhecer o PAR `{SP-OP-X, maezo-payer-x}` de AUTH, PAGTO e ESCALATION durante toda a janela.
+     - O par é resolvido pelo mesmo mapa único do módulo de domínio.
+     - Uma execução `maezo-payer-*` NUNCA pode cair fora da classificação.
+     - Teste negativo obrigatório: correlação e conclusão de external task classificada numa instância
+       `maezo-payer-pagto-001` são recusadas exatamente como em `SP-OP-PAGTO-001`.
+10. **Chave do motor recebida (engine key first).** `src/maezo/agents/andre/keys.py::pagto_business_key`
+    (e, por ele, `src/maezo/agents/andre/graph.py::_business_key` e
+    `src/maezo/agents/andre/delegation.py::pagto_task_id`) honra a `business_key` recebida VERBATIM
+    quando ela pertence a este tenant em QUALQUER das duas formas da janela: prefixo legado
+    `PAGTO-{tenant}-` OU prefixo alvo `{tenant}:pagto-001:`.
+    - Nunca re-deriva a partir de campos quando existe uma chave recebida válida.
+    - Sem isso, um pagamento da forma `L` com ordem no escopo deriva `H(O,ordem)`, erra a própria
+      instância, e o gate `PERMANENT` libera um segundo pagamento.
+    - Teste negativo obrigatório: instância alvo `H(L,…)` concluída + reentrega com
+      `ordem_pagamento_id` no escopo → `ALREADY_COMPLETED`, sem start.
+
+**Resíduo declarado da janela.** Na leitura dupla, a chave LEGADA mantém as colisões de hoje (por
+exemplo, PAGTO `ordem="L-P"` contra `lote=L, prestador=P`; CRED, CANCEL e o ESC `-clin`). O efeito
+possível é um falso `ALREADY_*`: uma recusa adversa, não uma duplicata, igual ao comportamento atual.
+Só a forma alvo é injetiva. O resíduo some em `so_alvo`.
 
 **Kafka: drenagem das partições.** A chave de mensagem muda para TODA família na fase `escrita_alvo`.
 O hash continua determinístico, mas a partição muda, e mensagens em voo antes e depois da virada
@@ -332,9 +367,13 @@ podem ficar em partições diferentes.
 **Reversão:**
 - `escrita_alvo` → `leitura_dupla` é SEMPRE segura: instâncias novas continuam visíveis pela leitura
   dupla, e os inícios voltam a ser legados.
-- `leitura_dupla` → `legado` só é segura com ZERO instâncias ativas na forma alvo (consulta de
-  reconciliação). Do contrário, o modo `legado` não as vê e duplica. Por isso a reversão a partir de
-  `escrita_alvo` para em `leitura_dupla`.
+- `leitura_dupla` → `legado` só é segura com:
+  - ZERO instâncias na forma alvo, ativas OU no histórico; e
+  - ZERO claims `audit_emit_dedup` com segmento `maezo-payer-*`.
+  As duas contagens vêm da consulta de reconciliação e vão no PR da reversão. Se já houve qualquer
+  start na forma alvo, a reversão para em `leitura_dupla` para sempre, até a remoção da janela. O modo
+  `legado` não enxerga instância, histórico nem claim alvo, e um pagamento alvo concluído seria
+  liberado de novo.
 - `so_alvo` → `escrita_alvo` é segura.
 - A reversão de Kafka repete a drenagem.
 - Nenhuma reversão apaga linha de alias nem reescreve chave.
@@ -363,6 +402,8 @@ passa a importar desse módulo, e nenhum outro sítio monta chave.
   - `src/maezo/platform/notification_bridge.py`;
   - `src/maezo/domain/conversa/caso_clinico.py`;
   - `src/maezo/agents/andre/keys.py`;
+  - `src/maezo/agents/andre/graph.py` (`PROCESS_KEY_PAGTO`, único sítio de start de PAGTO) e
+    `src/maezo/agents/andre/delegation.py` (`pagto_task_id`, chave de idempotência A2A);
   - os grafos e delegações de `rafael`, `marina`, `beatriz`, `carolina`, `gustavo`, `helena`,
     `lucas`, `fernando` e `valentina`, sob `src/maezo/agents/`;
   - `src/maezo/runtime/agent_runtime/ingress.py`;
@@ -386,6 +427,17 @@ passa a importar desse módulo, e nenhum outro sítio monta chave.
   - `src/maezo/portal/engine/decision.py`, `src/maezo/portal/contracts/models.py`;
   - Java: `AuthBusinessKeys.java`, `NativeAdmissionV2.java`, `StaffEscalation.java`,
     `NativeCaseIdentityReader.java` e os vetores de paridade;
+  - Java, cercas e bindings por process key: `PortalReadCommand.java`, `ClassifiedConsumerFence.java`,
+    `ConsumerLineage.java`, `ClassifiedDecision.java`, `AuthRuntime.java`,
+    `AuthDocumentProducerContext.java`, `RuntimeDefinitionObservation.java`, e os JSON
+    `engine-schemas-v1.json` e `provider-native-observation-schema-v1.json`;
+  - Python, recusas por process key ou prefixo de chave: `src/maezo/gateway/human/escalation_context.py`,
+    `src/maezo/gateway/human/auth_profile.py`, `src/maezo/gateway/denial_notices/producer.py`,
+    `src/maezo/gateway/document_requests/completion.py`, `src/maezo/runtime/worker_runtime/document_requests.py`
+    e `src/maezo/runtime/intake_dispatch/service.py` (`_business_key_anomaly`, que marcaria a chave alvo
+    como `foreign_business_key`);
+  - diagnóstico: `src/maezo/platform/engine_bootstrap/bootstrap.py:442-445` (`startswith("SP-OP")`)
+    listaria as definições novas como "NÃO-SP-OP";
   - web: `taskReadBindings.ts`, `taskLabels.ts`, `openapi.json` e `src/maezo/portal/web/src/generated/api.ts`.
 - **Artefatos:**
   - os 20 `process id` em `spec/processes/bpmn/*.bpmn` (os comentários de chave, como o de CONTAS,
@@ -429,6 +481,9 @@ passa a importar desse módulo, e nenhum outro sítio monta chave.
   5. a ausência da `PHI_HMAC_KEY` com fase ≠ `legado` falha fechado (sem fallback para claro);
   6. o PERMANENT de PAGTO recusa a forma alvo quando só existe o pagamento legado concluído;
   7. agent-resume recusa uma âncora de CANCEL fora das duas formas.
+  8. dois starts concorrentes de PAGTO em fases diferentes (`leitura_dupla` × `escrita_alvo`) terminam com no máximo uma instância (ordem insere-depois-lê, item 3 da §3);
+  9. correlação e conclusão classificadas em `maezo-payer-pagto-001` são recusadas como em `SP-OP-PAGTO-001` (cercas Java, item 9 da §3);
+  10. uma reentrega de PAGTO com chave alvo recebida e `ordem_pagamento_id` no escopo devolve `ALREADY_COMPLETED` (engine key first, item 10 da §3).
   - Essas guardas não mexem em alçada, CADE, RN 659 ou RN 518. Nenhum item `hard` da matriz de
     autonomia é tocado.
 
