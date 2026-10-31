@@ -417,9 +417,11 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         inad_rn593_estrito: bool = False,
         pagto_fatos_estritos: bool = False,
         inad_fatos_estritos: bool = False,
+        contas_sla_risk_entrega: bool = False,
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
     ) -> None:
+        captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
         captured["pagto_fatos_estritos"] = pagto_fatos_estritos
         captured["inad_fatos_estritos"] = inad_fatos_estritos
         captured["lgpd_legal_hold_predicate"] = lgpd_legal_hold_predicate
@@ -470,6 +472,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
         assert captured["pagto_fatos_estritos"] is False
         assert captured["inad_fatos_estritos"] is False
+        # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
+        assert settings.contas_sla_risk_entrega is False
+        assert captured["contas_sla_risk_entrega"] is False
         # R-044 / F-062: the legal-hold predicate ships dark (MAEZO_LGPD_LEGAL_HOLD_PREDICATE).
         assert settings.lgpd_legal_hold_predicate is False
         assert captured["lgpd_legal_hold_predicate"] is False
@@ -807,6 +812,49 @@ async def test_bring_up_threads_pagto_flag_from_env_when_on(monkeypatch: Any) ->
         await svc._bring_up_dependencies(state)
 
         assert captured["pagto_valor_invalido_pendente_dados"] is True
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def test_contas_sla_risk_entrega_setting_alias_e_default_off(monkeypatch: Any) -> None:
+    """R-107 / F-135 fiacao (a): alias `MAEZO_CONTAS_SLA_RISK_ENTREGA`, default OFF (dark)."""
+    monkeypatch.delenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", raising=False)
+    assert WorkerRuntimeSettings().contas_sla_risk_entrega is False
+    assert (
+        WorkerRuntimeSettings.model_fields["contas_sla_risk_entrega"].alias == "MAEZO_CONTAS_SLA_RISK_ENTREGA"
+    )
+    monkeypatch.setenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", "true")
+    assert WorkerRuntimeSettings().contas_sla_risk_entrega is True
+
+
+async def test_bring_up_threads_contas_sla_risk_entrega_from_env_when_on(monkeypatch: Any) -> None:
+    """R-107 / F-135 fiacao (b): a bandeira ligada chega ao `register_default_workers` pela raiz
+    de composicao — sem isso a entrega ligada seria inerte."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", "true")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["contas_sla_risk_entrega"] is True
     finally:
         if state.transport is not None:
             await state.transport.close()

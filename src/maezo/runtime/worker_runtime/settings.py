@@ -188,6 +188,13 @@ class WorkerRuntimeSettings(BaseSettings):
     # termo (motivo, clausula/dispositivo, canais da Ouvidoria, formato imprimivel/baixavel).
     auth_denial_written_notice: bool = Field(default=False, alias="MAEZO_AUTH_DENIAL_WRITTEN_NOTICE")
 
+    # R-107 (F-135, GAP-CONTAS-7): entrega REAL do alerta de risco de SLA de SP-OP-CONTAS-001 ao
+    # canal interno que o contrato nomeia (`operadora.notifications.internal`, o mesmo de
+    # auth/recurso/programa/lgpd), com `type=contas.notify_sla_risk` e falha de broker propagada
+    # (ADR-0030). DARK por padrao: desligada, o worker historico (so log, `{}`) segue byte-a-byte.
+    # O bridge ainda NAO roteia esse `type` a SP-OP-ESCALATION-001 (nova origem = decisao do dono);
+    # ate la a mensagem e contada/avisada como `unrecognised_shape`. Ligar e' ato humano (ROLL).
+    contas_sla_risk_entrega: bool = Field(default=False, alias="MAEZO_CONTAS_SLA_RISK_ENTREGA")
     # R-044 (F-062; ADR-0020 item 6; posicao do dono na issue #1081, R-131/DEC-12 -> R-030).
     # Ligada, a eliminacao aprovada em `operadora.lgpd.execute_request` consulta o registro de
     # legal-hold (`maezo.platform.lifecycle.legal_hold`, YAML em MAEZO_LEGAL_HOLD_REGISTRY_PATH)
