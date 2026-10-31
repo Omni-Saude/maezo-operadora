@@ -1758,3 +1758,119 @@ async def test_solicitar_info_credenciamento_aguarda_e_retoma_ut(
     ended2 = await _await_end(engine, iid)
     assert _END_CREDENCIADO in ended2
     assert not (ended2 & _ENDS_ADVERSOS)
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou os timers e a mensagem de informacao da analise de CREDENCIAMENTO sem nenhuma execucao: a
+# suite so' disparava os irmaos do ramo de descredenciamento (BT_*Descred). Os testes abaixo usam o
+# mesmo caso de credenciamento que chega a UT_AnaliseCredenciamento (licenca irregular -> humano).
+
+_CRED_ANALISE_HUMANA: dict[str, Any] = {
+    "direcao": "credenciamento",
+    "tipo_prestador": "clinica",
+    "documentacao_completa": True,
+    "licenca_valida": False,
+    "dentro_criterios_rede": True,
+}
+
+
+async def _correlacionar_info_cred(business_key: str) -> None:
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.cred.info_received", "businessKey": business_key}
+        )
+        assert resp.status_code in (200, 204), (
+            f"msg.cred.info_received [{resp.status_code}]: {resp.text[:200]}"
+        )
+
+
+async def test_r119_alerta_sla_credenciamento_nao_interrompe_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BT_AlertaSlaCred (nao-interruptivo): notify_sla_risk executa e a analise segue aberta."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    await _drive_to_cred(engine, cred_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_AlertaSlaCred")
+    await engine.execute_job(job.id)
+    await cred_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_AlertaSlaCred", "ST_NotifySlaRisk"} <= ended, ended
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_CRED in open_keys, "Timer nao-interruptivo nao deve cancelar a analise de credenciamento"
+    assert not (ended & _ENDS_ADVERSOS)
+
+
+async def test_r119_sla_credenciamento_estourado_coordenacao_assume(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BT_SlaCred (interruptivo): cred.sla_breached; a coordenacao assume; nada e' negado por prazo."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    await _drive_to_cred(engine, cred_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_SlaCred")
+    await engine.execute_job(job.id)
+    await cred_probe.drain()
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORD_CRED)
+    assert "coordenacao-rede" in ut_coord.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_SlaCred", "ST_PublishSlaBreachCred"} <= ended, ended
+    assert cred_probe.has_event(_CRED_SLA_BREACHED)
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_CRED not in open_keys, "UT_AnaliseCredenciamento deve ser cancelada (interruptivo)"
+    assert not (ended & _ENDS_ADVERSOS), "Estouro de SLA nunca auto-nega credenciamento (L1)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_r119_info_recebida_com_analise_de_credenciamento_aberta_reabre_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BME_InfoCred: a informacao chega com a analise aberta; a UT e' recriada para gestao-rede."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    ut = await _drive_to_cred(engine, cred_probe, iid)
+
+    await _correlacionar_info_cred(inst["businessKey"])
+    ut2 = await engine.await_user_task(iid, _UT_CRED)
+
+    assert ut2.id != ut.id
+    assert "gestao-rede" in ut2.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoCred" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_CRED) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+
+
+async def test_r119_info_recebida_com_analise_de_descredenciamento_aberta_reabre_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BME_InfoDescred: idem no ramo de descredenciamento; nunca descredencia sozinho."""
+    inst = await start_cred(direcao="descredenciamento", tem_beneficiarios_vinculados=False)
+    iid = inst["id"]
+    ut = await _drive_to_descred(engine, cred_probe, iid)
+
+    await _correlacionar_info_cred(inst["businessKey"])
+    ut2 = await engine.await_user_task(iid, _UT_DESCRED)
+
+    assert ut2.id != ut.id
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoDescred" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_DESCRED) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
