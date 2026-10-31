@@ -1498,3 +1498,65 @@ def test_gw_decisao_coordenacao_roteia_tres_disposicoes() -> None:
     }
     assert "Flow_UTCoord_GW" not in gw_remediacao_incoming
     assert "Flow_GWCoord_Assumir" in gw_remediacao_incoming
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou DOIS boundaries de UT_DecisaoFallback sem nenhuma execucao: o alerta de risco de SLA
+# (nao-interruptivo) e a mensagem de rede atualizada (interruptiva, volta a medir a cobertura).
+
+
+async def test_r119_alerta_sla_adequacao_nao_interrompe_a_decisao(
+    engine: EngineRest,
+    adequacao_probe: AdequacaoEngineProbe,
+    start_adequacao: Callable[..., Any],
+) -> None:
+    """BT_AlertaSlaAdequacao: notify_sla_risk executa; UT_DecisaoFallback segue aberta; nada e' firmado."""
+    inst = await start_adequacao(prestadores_disponiveis=0, dados_geo_completos=True)
+    iid = inst["id"]
+    await _drive_to_decisao(engine, adequacao_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_AlertaSlaAdequacao")
+    await engine.execute_job(job.id)
+    await adequacao_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_AlertaSlaAdequacao", "ST_NotificarRiscoSla", "End_RiscoSlaNotificado"} <= ended, ended
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_DECISAO in open_keys, "Timer nao-interruptivo nao deve cancelar UT_DecisaoFallback"
+    assert _END_ADVERSO not in ended
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_r119_rede_atualizada_com_decisao_aberta_remede_a_cobertura(
+    engine: EngineRest,
+    adequacao_probe: AdequacaoEngineProbe,
+    start_adequacao: Callable[..., Any],
+) -> None:
+    """BME_RedeAtualizada: a mensagem chega com a decisao aberta; a UT e' interrompida, a cobertura e'
+    medida de novo (ST_MeasureCoverage roda 2x) e o gap critico volta para a decisao humana."""
+    import httpx
+
+    inst = await start_adequacao(prestadores_disponiveis=0, dados_geo_completos=True)
+    iid = inst["id"]
+    ut = await _drive_to_decisao(engine, adequacao_probe, iid)
+    assert await engine.activity_instance_count(iid, "ST_MeasureCoverage") == 1
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={"messageName": "msg.adequacao.rede_atualizada", "businessKey": inst["businessKey"]},
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    await adequacao_probe.drain()
+    ut2 = await engine.await_user_task(iid, _UT_DECISAO)
+
+    assert ut2.id != ut.id
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_RedeAtualizada" in ended, ended
+    assert await engine.activity_instance_count(iid, "ST_MeasureCoverage") == 2
+    assert _END_ADVERSO not in ended
+    await _assert_no_adverse_without_human_task(engine, iid)

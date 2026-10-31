@@ -1839,3 +1839,32 @@ async def test_competencia_diferente_cria_nova_instancia(
     assert (await engine.find_active_instances(bk_a))[0]["id"] == first["id"]
     assert (await engine.find_active_instances(bk_b))[0]["id"] == second["id"]
     assert first["id"] != second["id"]
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): no critico nunca executado no motor
+# ===========================================================================
+
+
+async def test_r119_montagem_do_dataset_que_falha_na_origem_vai_para_correcao_humana(
+    engine: EngineRest,
+    ans_probe: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+) -> None:
+    """BE_AssembleDatasetIncompleto: a origem nao produz o dataset (`dataset_assembly_failed`); o
+    worker de montagem levanta ERR_ANS_DATASET_INCOMPLETO e o motor entrega o caso a
+    UT_CorrigirPendenciaEnvio — nada e' validado, enviado ou rejeitado automaticamente.
+
+    O teste unitario `test_assemble_dataset_incompleto_roteia_a_humano` prova so' o raise; este
+    prova a fronteira no motor."""
+    inst = await start_ans(dataset_assembly_failed=True)
+    iid = inst["id"]
+    await ans_probe.drain()
+
+    ut = await engine.await_user_task(iid, _UT_CORRIGIR)
+    assert ut.candidate_groups, "a correcao e' de um grupo humano"
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_AssembleDatasetIncompleto" in ended, ended
+    assert _ST_SUBMETER not in ended and not (ended & _ENDS_ENVIO), "nada e' enviado sem dataset"
+    assert not await engine.incidents(iid)
+    await _assert_no_filing_without_human_task(engine, iid)

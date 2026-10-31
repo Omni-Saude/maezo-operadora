@@ -2085,3 +2085,75 @@ def test_dmn_typeref_allowlist() -> None:
                     f"{dmn_path.name}: typeRef invalido '{type_ref}' (allowlist={sorted(allowed)})"
                 )
                 assert type_ref != "number", f"{dmn_path.name}: 'number' e proibido (use double/integer)"
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou DOIS timers deste processo sem nenhuma execucao: o prazo ANS estourado DURANTE a elaboracao
+# (a suite so' estourava o da revisao) e o prazo da espera por informacao adicional.
+
+
+async def test_r119_prazo_nip_estourado_na_elaboracao_coordenacao_assume(
+    engine: EngineRest,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+) -> None:
+    """BT_PrazoNipEstourado (interruptivo, timeDate absoluto): cancela UT_ElaborarRespostaNip, publica
+    nip.breached e entrega a UT_CoordenacaoNip — nunca responde sozinho por prazo."""
+    inst = await start_nip(
+        classificacao_nip="nao_assistencial",
+        tema_nip="cobranca",
+        contesta_negativa=False,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+    await _drive_to_elaborar(engine, nip_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_PrazoNipEstourado")
+    await engine.execute_job(job.id)
+    await nip_probe.drain()
+
+    await engine.await_user_task(iid, _UT_COORDENACAO)
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_PrazoNipEstourado", "ST_PublishBreach"} <= ended, ended
+    assert nip_probe.has_event(_NIP_BREACHED)
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ELABORAR not in open_keys, "UT_ElaborarRespostaNip deve ser cancelada (interruptivo)"
+    assert not (ended & {_END_NEGATIVA_MANTIDA, _END_RESOLVIDA_FAVORAVEL, _END_NAO_ASSISTENCIAL})
+    await _assert_no_manter_without_human_task(engine, iid)
+
+
+async def test_r119_prazo_da_informacao_expira_e_volta_a_revisao_juridica(
+    engine: EngineRest,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+) -> None:
+    """ICE_PrazoInfo: SOLICITAR_INFO e a informacao nao chega; o timer da espera devolve o caso a
+    UT_RevisaoJuridicaNip (humano) — nunca mantem a negativa por falta de resposta."""
+    inst = await start_nip(
+        classificacao_nip="assistencial",
+        tema_nip="negativa_cobertura",
+        contesta_negativa=True,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+    ut = await _drive_to_revisao(engine, nip_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id, {"decisao_nip": "SOLICITAR_INFO", "revisor_id": "revisor-sintetico-r119"}
+    )
+    await nip_probe.drain()
+
+    job = await engine.await_timer_job(iid, "ICE_PrazoInfo")
+    await engine.execute_job(job.id)
+    await nip_probe.drain()
+
+    ut2 = await engine.await_user_task(iid, _UT_REVISAO)
+    assert ut2.id != ut.id
+    ended = await engine.activity_instances_ended(iid)
+    assert "ICE_PrazoInfo" in ended, ended
+    assert "ICE_InfoRecebida" not in ended, "o ramo de mensagem do event gateway nao pode ter disparado"
+    assert _END_NEGATIVA_MANTIDA not in ended, "Prazo de info expirado nunca mantem negativa (L0)"
+    await _assert_no_manter_without_human_task(engine, iid)

@@ -1387,3 +1387,36 @@ async def test_rn593_notificacao_confirmada_abre_prazo_de_10_dias(
     assert "ICE_PrazoNotificacao50" not in pending
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS)
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): no critico nunca executado no motor
+# ===========================================================================
+
+
+async def test_r119_info_recebida_com_analise_aberta_reabre_a_analise(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """BME_InfoRecebida: a informacao chega com UT_AnaliseInadimplencia ainda aberta (sem SOLICITAR_INFO
+    previo); a UT e' interrompida e recriada para o mesmo grupo — nenhum desfecho, nenhuma suspensao."""
+    inst = await start_inad()
+    iid = inst["id"]
+    ut = await _drive_to_analise(engine, inad_probe, iid)
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={"messageName": "msg.inadimplencia.info_received", "businessKey": inst["businessKey"]},
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    ut2 = await engine.await_user_task(iid, _UT_ANALISE)
+
+    assert ut2.id != ut.id
+    assert ut2.candidate_groups == ut.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoRecebida" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_ANALISE) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
