@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -1728,6 +1729,72 @@ def notify_sla_risk_entry(
     return notify_sla_risk(tenant_id, numero_lote_tiss, sla_remaining, grupo)
 
 
+# ---------------------------------------------------------------------------
+# notify_sla_risk — entrega REAL ao canal interno (R-107 / F-135 / GAP-CONTAS-7), DARK
+# ---------------------------------------------------------------------------
+
+#: Canal que o contrato SP-OP-CONTAS-001 nomeia para este alerta ("como `recurso`/`lgpd` fazem").
+#: MESMO topico de `auth`/`recurso`/`programa`/`lgpd` — nenhum canal novo, nenhum destinatario novo.
+_NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
+
+#: `type` na convencao fechada `<dominio>.notify_sla_risk` (`notification_bridge.SLA_ALERT_TYPE_SUFFIX`).
+_NOTIFY_SLA_RISK_NOTIFICATION_TYPE = "contas.notify_sla_risk"
+
+#: Topico de external task de `ST_NotificarRiscoSla` (BPMN SP-OP-CONTAS-001) — inalterado.
+_NOTIFY_SLA_RISK_TOPIC = "operadora.contas.notify_sla_risk"
+
+#: Chave do seam (`**seams`) da bandeira escura `MAEZO_CONTAS_SLA_RISK_ENTREGA`.
+CONTAS_SLA_RISK_ENTREGA_SEAM = "contas_sla_risk_entrega"
+
+
+def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Handler cru de `operadora.contas.notify_sla_risk` com entrega real (R-107, bandeira escura).
+
+    So e registrado quando `MAEZO_CONTAS_SLA_RISK_ENTREGA` esta ligada; desligada, o topico segue
+    servido pelo `FunctionWorker(notify_sla_risk_entry)` historico, byte-a-byte.
+
+    A etapa pura `notify_sla_risk` roda primeiro (trilha `contas.notify_sla_risk` com
+    `notified_asserted=False` intacta) e o retorno continua `{}`: publicar e um PEDIDO de alerta,
+    nunca prova de que a coordenacao foi avisada (FAB-NOTIFIED-TRIO).
+
+    PAYLOAD FECHADO, SEM PHI (ADR-0006): `type`, `tenant_id` e `numero_lote_tiss` — a chave de
+    negocio do proprio processo. `grupo` NAO viaja (quem escolhe a fila e a DMN
+    `escalation_routing`, nunca este worker) e `sla_remaining` NAO viaja (leitura de relogio).
+
+    FALHA DE ENTREGA (ADR-0030): `best_effort=False`, entao uma falha de broker PROPAGA crua para a
+    escada retry/incidente da harness — e falha TECNICA transitoria, nao desfecho de negocio, e
+    `ST_NotificarRiscoSla` nao declara boundary de erro, logo nenhum `bpmnError` e inventado.
+    Contencao: a etapa e alimentada so pelo timer NAO-interruptivo `BT_AlertaSlaContas`;
+    `UT_AnalistaContas` e o teto interruptivo `BT_SlaAnaliseContas` seguem intactos. Mesma postura
+    de `recurso`/`lgpd`/`auth.make_notify_sla_risk_handler`.
+
+    SEM PRODUTOR (`kafka is None`): loga alto com `notified_asserted=False` e completa com `{}` — o
+    ramo do alerta precisa alcancar `End_RiscoSlaNotificado` (mesma postura dos gemeos).
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        variables = task.variables
+        notify_sla_risk_entry(dict(variables))  # etapa pura: so registra, retorna {}
+        if kafka is None:
+            logger.warning(
+                "contas_notify_sla_risk_no_producer",
+                business_key=task.business_key,
+                notified_asserted=False,
+            )
+            return {}
+        notification = {
+            "type": _NOTIFY_SLA_RISK_NOTIFICATION_TYPE,
+            "tenant_id": str(variables.get("tenant_id", "")),
+            "numero_lote_tiss": str(variables.get("numero_lote_tiss", "")),
+        }
+        # GAP-SC-04-a: chave pela cadeia compartilhada, derivada ANTES do publish.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
+        return {}
+
+    return handler
+
+
 def start_fraude_entry(
     variables: dict[str, Any],
     *,
@@ -1982,12 +2049,20 @@ def register_contas_workers(
         ),
         variables=_CONTAS_FETCH_SCOPES["operadora.contas.devolver_conta"],
     )
-    harness.register_worker(
-        FunctionWorker(
-            "operadora.contas.notify_sla_risk", functools.partial(notify_sla_risk_entry, kafka=kafka)
-        ),
-        variables=_CONTAS_FETCH_SCOPES["operadora.contas.notify_sla_risk"],
-    )
+    if bool(seams.get(CONTAS_SLA_RISK_ENTREGA_SEAM, False)):
+        # R-107 (dark, `MAEZO_CONTAS_SLA_RISK_ENTREGA`): entrega real ao canal interno.
+        harness.register(
+            _NOTIFY_SLA_RISK_TOPIC,
+            make_notify_sla_risk_handler(kafka),
+            variables=_CONTAS_FETCH_SCOPES[_NOTIFY_SLA_RISK_TOPIC],
+        )
+    else:
+        harness.register_worker(
+            FunctionWorker(
+                "operadora.contas.notify_sla_risk", functools.partial(notify_sla_risk_entry, kafka=kafka)
+            ),
+            variables=_CONTAS_FETCH_SCOPES["operadora.contas.notify_sla_risk"],
+        )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.handoff_pagamento",

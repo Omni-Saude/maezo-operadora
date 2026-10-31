@@ -165,6 +165,7 @@ import itertools
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -515,11 +516,16 @@ async def deploy_artifacts(engine: EngineRest) -> str:
     return deployment_id
 
 
-@pytest_asyncio.fixture
-async def contas_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+@asynccontextmanager
+async def _contas_probe_ctx(
+    engine: EngineRest,
+    audit_sink: Any,
+    audit_tenant: str,
+    audit_pg: tuple[str, str],
+    **flags: bool,
 ) -> AsyncIterator[ContasEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de contas."""
+    """Corpo do `contas_probe`; `flags` sao as bandeiras escuras repassadas ao bootstrap REAL
+    (`register_contas_workers(**seams)`), ex. `contas_sla_risk_entrega=True` (R-107)."""
     worker_id = f"qa-contas-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # Nenhum WorkerBpmnError e lancado por contas.py (FINDING 3: os guards sao PermissionError/
@@ -545,7 +551,9 @@ async def contas_probe(
     deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-PAGTO-001", "SP-OP-FRAUDE-001")
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
-    register_contas_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
+    register_contas_workers(
+        harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink, **flags
+    )
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's — verbatim style): todo topico contas.* registrado no harness
@@ -563,6 +571,27 @@ async def contas_probe(
     finally:
         await transport.close()
         await dmn.close()
+
+
+@pytest_asyncio.fixture
+async def contas_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe que serve as external tasks com os workers reais de contas."""
+    async with _contas_probe_ctx(engine, audit_sink, audit_tenant, audit_pg) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def contas_probe_entrega(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe com `MAEZO_CONTAS_SLA_RISK_ENTREGA` ligada (R-107 / F-135): o alerta de SLA de CONTAS
+    e publicado no canal interno `operadora.notifications.internal`."""
+    async with _contas_probe_ctx(
+        engine, audit_sink, audit_tenant, audit_pg, contas_sla_risk_entrega=True
+    ) as probe:
+        yield probe
 
 
 #: Topicos que `register_pagto_workers` REALMENTE registra (espelha `_PAGTO_WORKER_TOPICS` de
@@ -1741,6 +1770,37 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert "ST_NotificarRiscoSla" in ended_after_alerta, (
         "Worker notify_sla_risk (ST_NotificarRiscoSla) deve aparecer na historia apos o alerta de SLA"
     )
+
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
+
+
+async def test_timer_alerta_sla_entrega_ao_canal_interno_com_a_bandeira_ligada(
+    engine: EngineRest,
+    contas_probe_entrega: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """R-107 / F-135 (bandeira `MAEZO_CONTAS_SLA_RISK_ENTREGA` ligada): o timer nao-interruptivo
+    `BT_AlertaSlaContas` dispara, `ST_NotificarRiscoSla` completa no motor e o alerta e REALMENTE
+    publicado no canal interno, com payload fechado (sem PHI); a UT humana segue aberta."""
+    inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True)
+    iid = inst["id"]
+
+    await _drive_to_analista(engine, contas_probe_entrega, iid)
+    assert contas_probe_entrega.notifications_of_type("contas.notify_sla_risk") == []
+
+    job = await engine.await_timer_job(iid, "BT_AlertaSlaContas")
+    await engine.execute_job(job.id)
+    await contas_probe_entrega.drain()
+
+    assert "ST_NotificarRiscoSla" in await engine.activity_instances_ended(iid)
+    alertas = contas_probe_entrega.notifications_of_type("contas.notify_sla_risk")
+    assert len(alertas) == 1
+    assert set(alertas[0]) == {"type", "tenant_id", "numero_lote_tiss"}
+    assert alertas[0]["tenant_id"] == "amh"
+    assert alertas[0]["numero_lote_tiss"]
+    canais = [t for (t, v, _k) in contas_probe_entrega.kafka.published if v is alertas[0]]
+    assert canais == [_NOTIFICATIONS_TOPIC]
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"

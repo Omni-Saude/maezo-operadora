@@ -278,6 +278,7 @@ def register_default_workers(
     inad_rn593_estrito: bool = False,
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
+    contas_sla_risk_entrega: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -375,6 +376,8 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
+        **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1088,6 +1091,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
                 pagto_fatos_estritos=settings.pagto_fatos_estritos,
                 inad_fatos_estritos=settings.inad_fatos_estritos,
+                contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)
