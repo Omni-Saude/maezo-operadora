@@ -1,6 +1,6 @@
 # ADR-0069: Emenda ao ADR-0023 — o ruleset 20775655 e o mecanismo real de protecao do `main`; strict desligado; bypass so por break-glass auditado
 
-**Status:** Proposed — redigido por AGENTE a partir da decisao do dono DEC-19 (2026-10-31); ratificacao pela revisao independente por ADR (DEC-27) PENDENTE; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente
+**Status:** Proposed — redigido por AGENTE a partir das decisoes do dono DEC-19 (2026-10-29, emendar o ADR-0023 a realidade) e R-039 (2026-10-31, manter strict=false e restringir o bypass a break-glass auditado), ambas no issue #1085; ratificacao pela revisao independente por ADR (DEC-27) PENDENTE; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente
 **Data:** 2026-10-31
 **Area:** DevOps / CI / Governanca de merge
 
@@ -25,13 +25,13 @@ Dois fatos do Contexto do ADR-0023 tambem mudaram: (i) o repositorio hoje e PUBL
 
 ## Decisao
 
-Decisao do dono em 2026-10-31 (DEC-19, resposta ao issue de papel #1085 do security-team: "manter strict=false; restringir o bypass a break-glass auditado"), mais a emenda do texto a realidade:
+Decisoes do dono no issue de papel #1085 do security-team: DEC-19 (2026-10-29: "emendar o ADR a realidade (6 checks reais + flip-path-review-gate)") e R-039 (2026-10-31: "(b) manter strict=false; restringir bypass a break-glass auditado"):
 
 1. **O mecanismo e o ruleset `20775655`, nao a protecao classica.** Substitui as decisoes 1 e 11 do ADR-0023. E o que esta ativo e o unico formato que o `branch-protection-check` aceita.
 
 2. **Os contextos requeridos sao os 6 que o ruleset exige hoje:** `lint / type / unit`, `gitleaks / secrets`, `validate-artifacts`, `release-capability-floor (audit §5)`, `ai-attribution-gate` e `flip-path-review-gate`. Substitui a lista da decisao 2. `content-signoff-gate`, `terraform validate`, `helm lint + egress NetworkPolicy CI` e `integration tests (real engine)` passam a constar como SINAL, nao gate (somam-se aos excluidos da decisao 3). Requerer de novo qualquer um deles exige nova emenda.
 
-3. **`strict` fica DESLIGADO** (`strict_required_status_checks_policy: false`) por orcamento de minutos de CI (decisao do dono): com strict ligado, cada merge invalidaria todos os PRs abertos e re-rodaria a suite completa de cada um. Substitui a decisao 4. **Consequencia que esta emenda declara em vez de esconder:** a classe "pairwise-green != union-green" do ADR-0023 NAO fica morta por construcao. A clausula de revalidacao manual do DL-0023, que o ADR-0023 dava por SUPERSEDED, VOLTA A VALER como regra operacional: quando `main` mudou nos mesmos arquivos depois do ultimo CI verde de um PR, atualizar a branch (`git merge origin/main`, sem rebase nem force-push) e esperar o CI verde de novo antes do merge. O alarme de main-vermelho (decisao 8, `.github/workflows/red-main-alarm.yml`) segue como rede de deteccao.
+3. **`strict` fica DESLIGADO** (`strict_required_status_checks_policy: false`) por decisao do dono (R-039, opcao (b), sem motivo declarado). Efeito registrado na pergunta respondida: o merge sequencial segue sem update de branch, como hoje; com strict ligado, cada merge invalidaria o up-to-date dos PRs abertos e re-rodaria o CI de cada um. Substitui a decisao 4. **Consequencia que esta emenda declara em vez de esconder:** a classe "pairwise-green != union-green" do ADR-0023 NAO fica morta por construcao. A clausula de revalidacao manual do DL-0023, que o ADR-0023 dava por SUPERSEDED, VOLTA A VALER como regra operacional: quando `main` mudou nos mesmos arquivos depois do ultimo CI verde de um PR, atualizar a branch (`git merge origin/main`, sem rebase nem force-push) e esperar o CI verde de novo antes do merge. O alarme de main-vermelho (decisao 8, `.github/workflows/red-main-alarm.yml`) segue como rede de deteccao.
 
 4. **Sem bypass permanente; bypass so por break-glass auditado.** Substitui as decisoes 5 e 9 (o equivalente de `enforce_admins` num ruleset e a lista `bypass_actors`). Configuracao-alvo: `bypass_actors: []`. Procedimento de break-glass, sempre nesta ordem:
    1. registrar ANTES o motivo (issue ou linha DL) — main vermelho bloqueando todos os merges, incidente de seguranca, ou outro motivo nomeado;
@@ -81,7 +81,7 @@ O DoD do R-039 (`length` dos contextos requeridos entre 6 e 9) ja passa hoje com
 - O custo de minutos de CI fica limitado: um merge nao re-dispara a suite completa de todos os PRs abertos.
 
 **Negativas (aceitas):**
-- **Union-green nao e garantido pelo servidor.** Com strict desligado, dois PRs verdes isoladamente podem quebrar o `main` juntos. Mitigacao: a regra manual do DL-0023 (item 3) e o alarme de main-vermelho. Risco aceito pelo dono por orcamento de CI.
+- **Union-green nao e garantido pelo servidor.** Com strict desligado, dois PRs verdes isoladamente podem quebrar o `main` juntos. Mitigacao: a regra manual do DL-0023 (item 3) e o alarme de main-vermelho. Risco aceito pelo dono ao escolher a opcao (b) do R-039.
 - **A lane de engine real nao e gate de merge.** `integration tests (real engine)` nao e requerido; um defeito que so aparece contra o engine pode chegar ao `main` e ser pego pelo alarme ou pelo CI do proximo push. Mitigacao: prova em engine local antes do push, conforme o protocolo de implementacao.
 - **`content-signoff-gate`, `terraform validate` e `helm lint` nao bloqueiam merge.** Viram sinal; um vermelho neles precisa de leitura humana.
 - **Break-glass custa minutos de admin** (duas chamadas + registro) em vez de um push direto. Aceito: e o preco do rastro auditavel.
