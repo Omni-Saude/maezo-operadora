@@ -77,6 +77,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
+from maezo.tools.workers.cancel import CANCEL_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST, PublishLedger
@@ -86,6 +87,7 @@ from maezo.tools.workers.harness import (
     TopicSubscription,
     WorkerHarness,
 )
+from maezo.tools.workers.inadimplencia import INADIMPLENCIA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.nip import NIP_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST
@@ -163,9 +165,24 @@ _DOSSIER_FHIR_AGENT_IDS: tuple[str, ...] = ("carolina", "andre")
 #: 24/07 e o desfecho roteado continua emitindo linha de auditoria. Antes disso a negativa sem
 #: fundamentacao parava como incident — nada transmitido, mas sem volta a mesa do auditor.
 #:
+#: Lote T-E unico (decisao do dono 2026-10-31, registro R-075; roadmap R-050 / R-059 CRED / R-119):
+#: os quatro `*_NOT_HUMAN` — `ERR_CANCEL_MANTER_NOT_HUMAN`, `ERR_DECRED_NOT_HUMAN`,
+#: `ERR_CRED_DENIAL_NOT_HUMAN`, `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` — entram juntos, roteando aos
+#: boundaries ja' modelados para os terminais neutros. O worker continua RECUSANDO o efeito adverso;
+#: muda so' o desfecho da recusa (terminal neutro auditado em vez de incident).
+#:
 #: NAO CONFUNDA com "nao precisa ser auditado": `harness.is_guard_refusal_code` continua
-#: reconhecendo este codigo e continua auditando a recusa. Ver o docstring de `_is_te_gated`.
-_TE_ENABLED_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
+#: reconhecendo estes codigos e continua auditando a recusa. Ver o docstring de `_is_te_gated`.
+#: Identidade com o gate travada por `tests/unit/runtime/test_te_lote_not_human_habilitado.py`.
+_TE_ENABLED_CODES: frozenset[str] = frozenset(
+    {
+        "ERR_AUTH_DENIAL_INCOMPLETE",
+        "ERR_CANCEL_MANTER_NOT_HUMAN",
+        "ERR_DECRED_NOT_HUMAN",
+        "ERR_CRED_DENIAL_NOT_HUMAN",
+        "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    }
+)
 
 
 def _is_te_gated(code: str) -> bool:
@@ -206,10 +223,11 @@ def _is_te_gated(code: str) -> bool:
 #: directly. `CRED_BPMN_ERROR_ALLOWLIST` contributes `ERR_CRED_INVALID_PRESTADOR` (item-9
 #: bucket-3 Class-C, Tier-2) — cred's NON-adverse G2-val origin guard (blank/non-string
 #: `prestador_id` -> End_CredPrestadorInvalido, a neutral "fail-safe, nao adverso" terminal),
-#: NOT `*_NOT_HUMAN`, lands directly; the constant deliberately EXCLUDES cred's two adverse
-#: `*_NOT_HUMAN` guard codes, which stay T-E-deferred. `ERR_CANCEL_MANTER_NOT_HUMAN` is
-#: gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
-#: until T-E), so there is nothing to import. `ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` contributes
+#: NOT `*_NOT_HUMAN`, lands directly; the constant ALSO carries cred's two adverse `*_NOT_HUMAN`
+#: guard codes, and `CANCEL_BPMN_ERROR_ALLOWLIST` / `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` carry
+#: `ERR_CANCEL_MANTER_NOT_HUMAN` / `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` — the lote T-E unico
+#: (2026-10-31): the four pass the T-E filter below ONLY because they are in `_TE_ENABLED_CODES`,
+#: and their refusals stay audited. `ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` contributes
 #: `ERR_ANS_PROTOCOLO_NACK` and `ERR_ANS_DATASET_INCOMPLETO` (t2-ans-submit, the ANS family's
 #: ADR-0030 migration) — both NON-adverse and routed to human remediation rather than to any
 #: adverse terminal: a NACK enters `SUB_RetryEnvio` (bounded retry) and, if exhausted, reaches
@@ -233,9 +251,11 @@ def _is_te_gated(code: str) -> bool:
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
     | AUTH_BPMN_ERROR_ALLOWLIST
+    | CANCEL_BPMN_ERROR_ALLOWLIST  # lote T-E unico (2026-10-31) — R-050
     | CRED_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
+    | INADIMPLENCIA_BPMN_ERROR_ALLOWLIST  # lote T-E unico (2026-10-31)
     | LGPD_BPMN_ERROR_ALLOWLIST
     | NIP_BPMN_ERROR_ALLOWLIST
     | PAGTO_BPMN_ERROR_ALLOWLIST
@@ -250,11 +270,14 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
 #: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR, ERR_ANS_PROTOCOLO_NACK,
 #: ERR_ANS_DATASET_INCOMPLETO, ERR_AUTH_DENIAL_INCOMPLETE, ERR_PAGTO_ORDEM_INVALIDA,
-#: ERR_REEMBOLSO_INVALID_PROTOCOLO, ERR_SUPP_SUBJECT_UNRESOLVED, ERR_SUPP_ROUTING_UNAVAILABLE}`
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO, ERR_SUPP_SUBJECT_UNRESOLVED, ERR_SUPP_ROUTING_UNAVAILABLE,
+#: ERR_CANCEL_MANTER_NOT_HUMAN, ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN,
+#: ERR_CONTRACT_SUSPENSION_NOT_HUMAN}`
 #: today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
 #: t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val origin/consent
 #: guards + t2-ans-submit's two + the T-E-enabled denial-block code +
-#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards).
+#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards + the lote T-E unico's
+#: four `*_NOT_HUMAN` guards, Tier-3).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
