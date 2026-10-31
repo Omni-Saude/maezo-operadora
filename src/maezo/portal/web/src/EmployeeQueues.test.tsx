@@ -110,9 +110,11 @@ it("abre Meu trabalho em tabela semântica e mostra freshness textual", async ()
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
   expect(await screen.findByRole("table", { name: "Tarefas elegíveis da fila selecionada" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "Responsabilidade" })).toBeInTheDocument();
-  expect(screen.getByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).toBeInTheDocument();
+  expect(screen.getByRole("rowheader", { name: "Analise do medico auditor" })).toBeInTheDocument();
   expect(screen.getByText("Minha responsabilidade")).toBeInTheDocument();
-  expect(screen.getByText(huge)).toBeInTheDocument();
+  // F-099: a revisao (chave tecnica opaca) nao e mais coluna da fila.
+  expect(screen.queryByText(huge)).not.toBeInTheDocument();
+  expect(screen.queryByRole("columnheader", { name: "Revisão" })).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("Atualizada em");
   expect(screen.getByText(/Fonte observada em/)).toBeInTheDocument();
 });
@@ -127,7 +129,7 @@ it("navega para Filas da equipe e ignora a resposta antiga de Meu trabalho", asy
   expect(await screen.findByRole("rowheader", { name: "UT_ResolverEscalation" })).toBeInTheDocument();
   mine.resolve(jsonResponse(queuePage()));
   await act(async () => Promise.resolve());
-  expect(screen.queryByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("rowheader", { name: "Analise do medico auditor" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Filas da equipe" })).toHaveAttribute("aria-current", "page");
 });
 
@@ -179,12 +181,12 @@ it("limpa a página vencida em 409 e reinicia sem reutilizar cursor", async () =
     )
     .mockResolvedValueOnce(jsonResponse(queuePage("mine", "task-3", "UT_CoordenacaoAssume")));
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
-  await screen.findByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" });
+  await screen.findByRole("rowheader", { name: "Analise do medico auditor" });
   await userEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("A fila mudou");
-  expect(screen.queryByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("rowheader", { name: "Analise do medico auditor" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Atualizar fila" }));
-  expect(await screen.findByRole("rowheader", { name: "UT_CoordenacaoAssume" })).toBeInTheDocument();
+  expect(await screen.findByRole("rowheader", { name: "Coordenacao de auditoria medica assume" })).toBeInTheDocument();
   expect(String(vi.mocked(fetch).mock.calls[2][0])).toBe("/api/v1/portal/tasks?queue=mine&limit=25");
 });
 
@@ -193,10 +195,14 @@ it("abre apenas o snapshot público e preserva valores exatos sem ações de mut
     .mockResolvedValueOnce(jsonResponse(queuePage()))
     .mockResolvedValueOnce(jsonResponse(taskResponse()));
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }));
-  expect(await screen.findByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
-  const detail = screen.getByRole("region", { name: "UT_AnaliseAdmissibilidade" });
-  expect(within(detail).getAllByText(huge)).toHaveLength(5);
+  await userEvent.click(await screen.findByRole("button", { name: "Ver detalhes: Analise do medico auditor" }));
+  expect(await screen.findByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).toBeInTheDocument();
+  const detail = screen.getByRole("region", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" });
+  // Versoes e revisoes seguem exatas; o valor em centavos vira reais sem perder digito (F-099).
+  expect(within(detail).getAllByText(huge)).toHaveLength(4);
+  expect(within(detail).getByText("R$ 9.007.199.254.740.993.123.456.789.012.345.678,90")).toBeInTheDocument();
+  expect(within(detail).getByText("UT_AnaliseAdmissibilidade")).toBeInTheDocument();
+  expect(within(detail).getByText("Pagamentos de Alcada")).toBeInTheDocument();
   expect(screen.getByText(/não confirma obrigação nem autoriza pagamento/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /claim|assumir|liberar|decidir/i })).not.toBeInTheDocument();
   expect(screen.getByText(/Esta consulta é somente leitura/)).toBeInTheDocument();
@@ -211,14 +217,14 @@ it("não remove o detalhe aberto durante a atualização periódica da fila", as
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
   await act(async () => Promise.resolve());
   await act(async () => {
-    screen.getByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }).click();
+    screen.getByRole("button", { name: "Ver detalhes: Analise do medico auditor" }).click();
     await Promise.resolve();
   });
-  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
   expect(fetch).toHaveBeenCalledTimes(3);
   expect(screen.getByRole("rowheader", { name: "UT_Atualizada" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).toBeInTheDocument();
 });
 
 it("remove conteúdo da fila quando a sessão expira no endpoint de leitura", async () => {
@@ -229,10 +235,10 @@ it("remove conteúdo da fila quando a sessão expira no endpoint de leitura", as
       jsonResponse({ schema: "portal-read-error.v1", code: "session_unavailable" }, 401),
     );
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={onSessionUnavailable} />);
-  await screen.findByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" });
+  await screen.findByRole("rowheader", { name: "Analise do medico auditor" });
   await userEvent.click(screen.getByRole("button", { name: "Atualizar agora" }));
   await waitFor(() => expect(onSessionUnavailable).toHaveBeenCalledOnce());
-  expect(screen.queryByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("rowheader", { name: "Analise do medico auditor" })).not.toBeInTheDocument();
 });
 
 it("remove fila e detalhe quando o servidor revoga o acesso de colaborador", async () => {
@@ -243,11 +249,11 @@ it("remove fila e detalhe quando o servidor revoga o acesso de colaborador", asy
       jsonResponse({ schema: "portal-read-error.v1", code: "employee_access_required" }, 403),
     );
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }));
-  expect(await screen.findByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+  await userEvent.click(await screen.findByRole("button", { name: "Ver detalhes: Analise do medico auditor" }));
+  expect(await screen.findByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Atualizar agora" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("não autoriza esta fila");
-  expect(screen.queryByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).not.toBeInTheDocument();
 });
 
 it("cancela a leitura pendente ao desmontar o workspace", () => {
@@ -271,10 +277,10 @@ it("cancela e ignora a resposta ligada à sessão anterior", async () => {
   const firstSignal = vi.mocked(fetch).mock.calls[0][1]?.signal;
   view.rerender(<EmployeeQueues sessionBinding="session-b" onSessionUnavailable={vi.fn()} />);
   expect(firstSignal?.aborted).toBe(true);
-  expect(await screen.findByRole("rowheader", { name: "UT_CoordenacaoAssume" })).toBeInTheDocument();
+  expect(await screen.findByRole("rowheader", { name: "Coordenacao de auditoria medica assume" })).toBeInTheDocument();
   oldSession.resolve(jsonResponse(queuePage()));
   await act(async () => Promise.resolve());
-  expect(screen.queryByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("rowheader", { name: "Analise do medico auditor" })).not.toBeInTheDocument();
 });
 
 function queueOwnershipAssignmentcontext() {
@@ -364,7 +370,7 @@ it.each(["pending", "committed"] as const)("atualiza fila a10s e mantém comando
   render(<EmployeeQueues sessionBinding="session-a" csrfToken="csrf-secret" onSessionUnavailable={vi.fn()} />);
   await act(async () => { await Promise.resolve(); });
   const click = async (name: string) => { await act(async () => { screen.getByRole("button", { name }).click(); }); };
-  await click("Abrir detalhes de UT_AnaliseMedicoAuditor");
+  await click("Ver detalhes: Analise do medico auditor");
   await click("Consultar responsabilidade");
   await click("Assumir responsabilidade");
   if (status === "committed") {
@@ -373,7 +379,7 @@ it.each(["pending", "committed"] as const)("atualiza fila a10s e mantém comando
   }
   vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(queuePage("mine", "task-2", "UT_Atualizada")));
   await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
-  expect(screen.queryByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })).not.toBeInTheDocument();
   expect(screen.queryByText("decisor-opaque")).not.toBeInTheDocument();
   expect(screen.getByText(`Protocolo: ${queueCommandId}`)).toBeInTheDocument();
   await act(async () => { await vi.advanceTimersByTimeAsync(3999); });
@@ -403,7 +409,7 @@ it("mostra o bloco de conclusão uma única vez na tarefa aberta", async () => {
     />,
   );
 
-  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ver detalhes/ }));
 
   expect(await screen.findByRole("heading", { name: "Concluir a tarefa" })).toBeInTheDocument();
   expect(screen.getAllByRole("heading", { name: "Concluir a tarefa" })).toHaveLength(1);
@@ -430,7 +436,7 @@ it("mantém o formulário de conclusão e o texto já digitado quando o detalhe 
   );
   await act(async () => Promise.resolve());
   await act(async () => {
-    screen.getByRole("button", { name: "Abrir detalhes de UT_SupervisorAssume" }).click();
+    screen.getByRole("button", { name: "Ver detalhes: Supervisor assume e resolve (ultima linha)" }).click();
   });
 
   const notes = screen.getByLabelText(/Instrução \/ notas de resolução/);
@@ -507,7 +513,7 @@ it("mostra o contexto do caso, uma única vez, ao abrir uma tarefa de escaloname
   serve(escalationTask());
   render(queues());
 
-  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ver detalhes/ }));
 
   expect(await screen.findByRole("heading", { name: "Contexto do caso" })).toBeInTheDocument();
   expect(screen.getAllByRole("heading", { name: "Contexto do caso" })).toHaveLength(1);
@@ -524,7 +530,7 @@ it("não pede nem mostra contexto numa tarefa que não é de escalonamento", asy
   serve(taskResponse());
   render(queues());
 
-  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ver detalhes/ }));
   await screen.findByRole("heading", { name: "Concluir a tarefa" });
 
   expect(screen.queryByRole("heading", { name: "Contexto do caso" })).not.toBeInTheDocument();
@@ -539,7 +545,7 @@ it("mantém o contexto na tela quando o snapshot do detalhe vence, junto do form
   render(queues());
   await act(async () => Promise.resolve());
   await act(async () => {
-    screen.getByRole("button", { name: "Abrir detalhes de UT_TratarEscalonamento" }).click();
+    screen.getByRole("button", { name: "Ver detalhes: Assumir e tratar escalonamento" }).click();
   });
   await act(async () => Promise.resolve());
   expect(screen.getByRole("heading", { name: "Contexto do caso" })).toBeInTheDocument();
@@ -556,7 +562,7 @@ it("mantém o contexto na tela quando o snapshot do detalhe vence, junto do form
 it("descarta o contexto de uma tarefa ao trocar de sessão", async () => {
   serve(escalationTask());
   const { rerender } = render(queues());
-  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ver detalhes/ }));
   await screen.findByText("Idoso com dor no peito.");
 
   rerender(

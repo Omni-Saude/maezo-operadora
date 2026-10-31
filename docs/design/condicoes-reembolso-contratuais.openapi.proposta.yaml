@@ -1,0 +1,452 @@
+# condicoes-reembolso-contratuais.openapi.proposta.yaml — PROPOSTA do lado Maezo para uma rota ADITIVA da TINA:
+# as CONDIÇÕES CONTRATUAIS DE REEMBOLSO do vínculo do próprio sujeito (artefato novo; nome de trabalho `tina-reembolso`).
+# STATUS: PROPOSTA — NÃO PUBLICADA, NÃO VENDORIZADA, NÃO PINADA. Não existe manifest da AMH para ela.
+# O artefato de verdade, se a AMH aceitar, nasce e é editado SOMENTE em Omni-Saude/amh-data-platform (ADR-0037 XRD-04);
+# este arquivo é o pedido do consumidor, não o contrato. Ele NÃO vai para `config/integrations/amh/openapi/` antes de a
+# AMH publicar e o pin XRG-3 conferir os bytes publicados (que podem diferir destes).
+# Desenho e perguntas abertas: docs/design/condicoes-reembolso-contratuais.md.
+# PARA QUE SERVE. Os critérios de reembolso variam muito por contrato/produto (Lei 9.656 art. 12 VI: reembolso "nos
+# limites das obrigações contratuais"). O Maezo precisa LER esses critérios, como FATOS do cadastro, para (a) mostrá-los
+# ao analista humano do SP-OP-REEMBOLSO-001 e (b) no futuro alimentar uma faixa L2 estreita (só aprovação integral),
+# decidida em DMN. O CONTRATO ENTREGA FATOS, NÃO DECISÃO: nada aqui aprova, nega, reduz nem calcula o valor devido.
+# CAMPO AUSENTE É ESTADO VÁLIDO (`null` + `qualidade.campos_ausentes`). O consumidor nunca completa um fato ausente.
+# MINIMIZAÇÃO: chave = `portable_subject_ref`; nada de nome, CPF, carteirinha nem número de contrato em claro (só refs
+# opacas); nenhum dado de saúde (a rota fala do CONTRATO, não do atendimento).
+# Exemplos 100% sintéticos. NENHUM valor deste arquivo é valor real de contrato.
+openapi: 3.0.3
+info:
+  title: AMH TINA condições contratuais de reembolso do próprio sujeito (TinaReembolsoPort) — PROPOSTA
+  version: 0.0.1-proposta
+  description: |
+    Condições contratuais de reembolso (livre escolha) do vínculo do beneficiário, por `portable_subject_ref`, vigentes na
+    `data_atendimento` pedida. Fonte: contratos/produtos do Tasy via lago da AMH (ADR-0013, ADR-0019) — tabelas e colunas
+    A CONFIRMAR COM A AMH (o consumidor não conhece nem lê o Tasy).
+    READ-ONLY por contrato (somente GET).
+    BASE LEGAL proposta: execução de contrato (LGPD art. 7º, V) — a confirmar pelo DPO.
+    FINALIDADE proposta: única, `analise_reembolso` (nova no vocabulário; a confirmar com AMH e DPO).
+    FRESCOR: foto do lago; `fonte.atualizada_em` informa a idade.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-reembolso
+    description: Condições contratuais de reembolso do próprio sujeito (fatos do contrato; nunca decisão).
+paths:
+  /subjects/{portable_subject_ref}/condicoes-reembolso:
+    get:
+      tags: [tina-reembolso]
+      operationId: getCondicoesReembolso
+      summary: Condições contratuais de reembolso do vínculo do próprio sujeito, vigentes na data do atendimento
+      description: |
+        Pré-condições propostas: escopo `interop/tina.reembolso` (a confirmar); `purpose_of_use=analise_reembolso`;
+        cabeçalho `X-Amh-Request-Ref` (id OPACO da solicitação de reembolso, para a trilha de auditoria); rota LIGADA no
+        serviço (padrão desligada: 404); sujeito com vínculo conhecido na data (senão 404). Limite por sujeito (429).
+        Auditoria estruturada por leitura, ANTES da resposta e sem o conteúdo (sem auditoria, 500).
+        A resposta traz `Cache-Control: no-store`.
+        `livre_escolha = false` diz SÓ que o cadastro do produto não prevê livre escolha; não decide o pedido (urgência e
+        emergência fora da rede e indisponibilidade de rede seguem a lei e a análise humana).
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/DataAtendimento'
+        - $ref: '#/components/parameters/RequestRef'
+      responses:
+        '200':
+          description: Condições contratuais de reembolso do vínculo vigente na data (campos podem ser nulos).
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CondicoesReembolso'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo próprio `interop/tina.reembolso` (proposto) — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05). A resposta fala SÓ deste sujeito.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota (proposto). Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [analise_reembolso]
+      example: analise_reembolso
+    DataAtendimento:
+      name: data_atendimento
+      in: query
+      required: true
+      description: >-
+        Data do atendimento/despesa (AAAA-MM-DD). As condições devolvidas são as do vínculo e do contrato VIGENTES nesta
+        data (o reembolso segue o contrato da data do evento, não o de hoje).
+      schema:
+        type: string
+        format: date
+      example: '2026-10-01'
+    RequestRef:
+      name: X-Amh-Request-Ref
+      in: header
+      required: true
+      description: Id OPACO da solicitação de reembolso no Maezo (sem PHI), para a trilha de auditoria das duas pontas.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._:-]{8,64}$'
+      example: 'reemb-req-0001-sintetico'
+  schemas:
+    CondicoesReembolso:
+      type: object
+      required:
+        - portable_subject_ref
+        - data_atendimento
+        - vinculo
+        - livre_escolha
+        - regra_valor
+        - limites
+        - limites_truncados
+        - coparticipacao
+        - prazos
+        - documentos_exigidos
+        - natureza
+        - avisos
+        - qualidade
+        - fonte
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        data_atendimento:
+          type: string
+          format: date
+          description: Eco da data pedida (as condições são as vigentes nela).
+        vinculo:
+          $ref: '#/components/schemas/Vinculo'
+        livre_escolha:
+          type: boolean
+          nullable: true
+          description: >-
+            O produto/contrato prevê reembolso por livre escolha de prestador. `null` = a fonte não informa (nunca
+            "não prevê").
+        regra_valor:
+          $ref: '#/components/schemas/RegraValor'
+        limites:
+          type: array
+          maxItems: 50
+          description: >-
+            Limites contratuais por categoria de despesa, como cadastrados. Lista vazia = nenhum limite cadastrado (o que
+            NÃO diz "sem limite": ver `qualidade.campos_ausentes`).
+          items:
+            $ref: '#/components/schemas/LimiteCategoria'
+        limites_truncados:
+          type: boolean
+          description: '`true` quando havia mais de 50 linhas de limite; o consumidor mostra o aviso e manda para humano.'
+        coparticipacao:
+          $ref: '#/components/schemas/Coparticipacao'
+        prazos:
+          $ref: '#/components/schemas/Prazos'
+        documentos_exigidos:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          description: Documentos que o contrato exige para o pedido, em códigos fechados.
+          items:
+            type: string
+            enum:
+              - nota_fiscal
+              - recibo
+              - comprovante_pagamento
+              - pedido_medico
+              - relatorio_medico
+              - laudo_exame
+              - outro
+        natureza:
+          type: string
+          enum: [informacao_contratual_nao_e_decisao]
+          description: Constante. A resposta é fato do contrato, nunca aprovação, negativa nem valor devido.
+        avisos:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          description: Códigos fechados que o consumidor traduz no seu texto.
+          items:
+            type: string
+            enum:
+              - contrato_pode_ter_aditivo_nao_refletido
+              - regra_valor_sem_tabela_vinculada
+              - vinculo_com_mais_de_um_produto
+        qualidade:
+          type: object
+          required: [campos_ausentes]
+          additionalProperties: false
+          properties:
+            campos_ausentes:
+              type: array
+              maxItems: 30
+              uniqueItems: true
+              items:
+                type: string
+                maxLength: 64
+              description: Nomes dos campos que a fonte não informou (devolvidos como `null`/lista vazia).
+        fonte:
+          $ref: '#/components/schemas/Fonte'
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        data_atendimento: '2026-10-01'
+        vinculo:
+          produto_ref: 'amh:produto:sintetico-001'
+          contrato_ref: 'amh:contrato:sintetico-001'
+          registro_ans_plano: '000000000'
+          tipo_contratacao: coletivo_empresarial
+          vigencia_inicio: '2025-01-01'
+          vigencia_fim: null
+        livre_escolha: true
+        regra_valor:
+          tipo: multiplo_tabela_referencia
+          tabela_referencia: 'TABELA-SINTETICA'
+          multiplo: 1.0
+        limites:
+          - categoria: consulta
+            tipo_limite: valor_por_evento
+            valor_cents: 10000
+            quantidade: null
+            periodo: evento
+        limites_truncados: false
+        coparticipacao:
+          aplica: false
+          regras: []
+        prazos:
+          pagamento_dias: 30
+          pagamento_contagem: corridos
+          solicitacao_dias: 365
+        documentos_exigidos: [nota_fiscal, pedido_medico]
+        natureza: informacao_contratual_nao_e_decisao
+        avisos: []
+        qualidade:
+          campos_ausentes: []
+        fonte:
+          origem: tasy_via_lake
+          atualizada_em: '2026-10-30T06:00:00Z'
+    Vinculo:
+      type: object
+      required: [produto_ref, contrato_ref, registro_ans_plano, tipo_contratacao, vigencia_inicio, vigencia_fim]
+      additionalProperties: false
+      properties:
+        produto_ref:
+          type: string
+          maxLength: 64
+          nullable: true
+          description: Ref OPACA do produto (plano) mintada pela AMH — nunca o código cru do Tasy.
+        contrato_ref:
+          type: string
+          maxLength: 64
+          nullable: true
+          description: Ref OPACA do contrato mintada pela AMH — nunca o número do contrato.
+        registro_ans_plano:
+          type: string
+          maxLength: 20
+          nullable: true
+        tipo_contratacao:
+          type: string
+          nullable: true
+          enum: [individual_familiar, coletivo_empresarial, coletivo_por_adesao, null]
+        vigencia_inicio:
+          type: string
+          format: date
+          nullable: true
+        vigencia_fim:
+          type: string
+          format: date
+          nullable: true
+          description: '`null` = vigente sem data de fim.'
+    RegraValor:
+      type: object
+      required: [tipo, tabela_referencia, multiplo]
+      additionalProperties: false
+      description: >-
+        COMO o contrato define o valor de reembolso. É a regra cadastrada, não o valor devido de um pedido: aplicar a
+        regra (e o mínimo com a despesa efetuada, RN 529 art. 5º I n) é DMN do Maezo.
+      properties:
+        tipo:
+          type: string
+          nullable: true
+          enum: [tabela_propria, multiplo_tabela_referencia, valor_rede, sem_regra_cadastrada, null]
+        tabela_referencia:
+          type: string
+          maxLength: 64
+          nullable: true
+          description: Identificador da tabela de referência do contrato (a confirmar com a AMH como é exposto).
+        multiplo:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Múltiplo da tabela de referência, quando `tipo = multiplo_tabela_referencia`.
+    LimiteCategoria:
+      type: object
+      required: [categoria, tipo_limite, valor_cents, quantidade, periodo]
+      additionalProperties: false
+      properties:
+        categoria:
+          type: string
+          description: >-
+            Categoria de despesa (vocabulário fechado proposto; os quatro primeiros são o vocabulário de
+            `categoria_procedimento` da DMN `reembolso_calculo`).
+          enum: [consulta, exame_simples, exame_especial, terapia, honorario_medico, internacao, outro]
+        tipo_limite:
+          type: string
+          enum: [valor_por_evento, valor_por_periodo, quantidade_por_periodo]
+        valor_cents:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Teto em centavos de BRL (quando o limite é de valor).
+        quantidade:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Quantidade de eventos (quando o limite é de quantidade).
+        periodo:
+          type: string
+          nullable: true
+          enum: [evento, mes, ano, vigencia_contratual, null]
+    Coparticipacao:
+      type: object
+      required: [aplica, regras]
+      additionalProperties: false
+      properties:
+        aplica:
+          type: boolean
+          nullable: true
+          description: '`null` = a fonte não informa.'
+        regras:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [categoria, percentual, valor_fixo_cents, teto_cents]
+            additionalProperties: false
+            properties:
+              categoria:
+                type: string
+                enum: [consulta, exame_simples, exame_especial, terapia, honorario_medico, internacao, outro]
+              percentual:
+                type: number
+                minimum: 0
+                maximum: 100
+                nullable: true
+              valor_fixo_cents:
+                type: integer
+                minimum: 0
+                nullable: true
+              teto_cents:
+                type: integer
+                minimum: 0
+                nullable: true
+    Prazos:
+      type: object
+      required: [pagamento_dias, pagamento_contagem, solicitacao_dias]
+      additionalProperties: false
+      description: >-
+        Prazos CONTRATUAIS cadastrados. O prazo legal (RN 566 art. 10 §1º) é do Maezo e prevalece; o contratual só pode
+        ser igual ou menor — divergência vai para humano, nunca é "corrigida".
+      properties:
+        pagamento_dias:
+          type: integer
+          minimum: 0
+          maximum: 365
+          nullable: true
+          description: Prazo contratual para a operadora pagar o reembolso, contado da solicitação completa.
+        pagamento_contagem:
+          type: string
+          nullable: true
+          enum: [corridos, uteis, null]
+        solicitacao_dias:
+          type: integer
+          minimum: 0
+          maximum: 3650
+          nullable: true
+          description: Prazo contratual para o beneficiário pedir o reembolso, contado da data da despesa.
+    Fonte:
+      type: object
+      required: [origem, atualizada_em]
+      additionalProperties: false
+      properties:
+        origem:
+          type: string
+          enum: [tasy_via_lake]
+          description: Proveniência da projeção (o Maezo nunca lê o Tasy; ADR-0037).
+        atualizada_em:
+          type: string
+          format: date-time
+          nullable: true
+          description: Quando a projeção do lago foi construída pela última vez. `null` se a fonte não informa.
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade inválida, ref fora do padrão, data inválida).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: >-
+        FAIL-CLOSED — escopo, finalidade ou consentimento não permitidos (`reason`: `consent_denied`,
+        `purpose_not_permitted`, `scope_not_supported`); nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada, sujeito desconhecido ou sem vínculo na data (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de consultas por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou falha da auditoria (sem detalhe no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
