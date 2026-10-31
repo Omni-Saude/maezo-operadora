@@ -193,3 +193,10 @@ it.each(["communications", "history"] as const)(
     expect(section.queryByText(ref("body"))).not.toBeInTheDocument();
   },
 );
+
+it("F-154: cada comunicação tem título próprio pela data, não o genérico 'Comunicação do portal'", async () => {
+  render(<CaseCommunicationsPanel caseRef={ref("case")} client={service()} onSessionUnavailable={vi.fn()} />);
+  const when = new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(observed));
+  expect(await screen.findByRole("heading", { level: 3, name: `Comunicação de ${when}` })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Comunicação do portal" })).not.toBeInTheDocument();
+});

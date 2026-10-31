@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 1 (modelado uma fase a frente) · **BPMN:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
-**Gatilho regulatorio:** RN 259/2011 (garantia de atendimento — consolidacoes posteriores ANS: **DRAFT/verify**), RN 395/2016 (resposta/negativa por escrito: **DRAFT/verify**), RN 424/2017 (junta medica: **DRAFT/verify**), Lei 9.656/1998 art. 35-C.
+**Gatilho regulatorio:** RN 623/2024 (prazo de resposta art. 12; negativa reduzida a termo art. 14; reanalise pela Ouvidoria art. 16 — revogou a RN 395/2016 no art. 28; texto-base `docs/compliance/legal/textos-base/RN-623-2024.md`: **DRAFT/verify**), RN 566/2022 (garantia de atendimento = prazo de REALIZACAO, nao de resposta — revogou a RN 259/2011 no art. 16: **DRAFT/verify**), RN 424/2017 (junta medica: **DRAFT/verify**), Lei 9.656/1998 art. 35-C.
 
 ## Invariante L0 hard (nao negociavel)
 
@@ -136,7 +136,9 @@ entrega uma inbox. E04 deve persistir pedido/destinatários e entregar conteúdo
 com recuperação por ocorrência para não duplicar pendências em retry. `ST_PublishAuthPended`
 continua dono do evento de domínio. `send_denial_notice` compõe o registro, não comprova
 envio; E04 deve ligar sua evidência humana e conteúdo protegido à comunicação durável.
-Não converter `auth.completed` em "negativa entregue" sem evidência de entrega. Reusar
+Não converter `auth.completed` em "negativa entregue" sem evidência de entrega. A entrega
+por escrito da negativa (RN 623/2024 art. 14) segue a seção "Negativa por escrito — entrega
+(R-004)" abaixo: manual pelo médico auditor até existir canal com comprovante. Reusar
 publicador/bridge e gateway existentes; nenhum MCP novo ou credencial de agente é
 necessário para dar autoridade a um humano. Falha de canal/autoridade é estado técnico
 visível e recuperável, nunca decisão clínica adversa (ADR-0030/0049).
@@ -389,7 +391,7 @@ emitia sem declaracao no contrato).
 | External task | `operadora.auth.analyze_request` | consome | convoca Rafael: dossie de analise (ja registrado) |
 | External task | `operadora.auth.request_documents` | consome | pendencia documental — **um unico consumidor por implantacao**, ver "Pedido de documentos — ponte PHI" |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
-| External task | `operadora.auth.send_denial_notice` | consome (worker) | worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`): **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
+| External task | `operadora.auth.send_denial_notice` | consome (worker) | **dono UNICO** (R-004/F-032): worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`) — o segundo dono `NativeDenialNoticeWorker` (WP-J1-06, flag `MAEZO_DENIAL_NOTICE_OWNER`) foi REMOVIDO por decisao do dono (DEC-01, issue #1081); a flag antiga e' lapide (ligada, o daemon recusa registrar os workers) e `assert_single_owner` recusa dois donos ou nenhum. O worker **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
 | External task | `operadora.auth.notify_sla_risk` | consome (worker) + **publica** `auth.notify_sla_risk` | handler cru `make_notify_sla_risk_handler` (WP-J1-09, decisao do dono #17): executa a etapa pura `NotifySlaRiskWorker` — que segue retornando `{}` e **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** (FAB-SLA-RISK-NOTIFIED-SLICE4; aquele evento e de `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise`) — e ENTAO publica a notificacao `{type: auth.notify_sla_risk, tenant_id, numero_guia_tiss, beneficiario_pseudo_id}` em `operadora.notifications.internal`, com `best_effort=False`. Ate WP-J1-09 o worker era sincrono e **sem seam de Kafka**: a etapa rodava e ninguem era avisado. O publish e um PEDIDO de alerta, nunca prova de que um humano foi avisado — a prova e a linha de inbox do consumidor. Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
@@ -541,13 +543,63 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Timer | Valor | Tipo | Fonte |
 |---|---|---|---|
 | Analise (urgencia) | PT2H | interruptivo -> coordenacao assume | Lei 9.656 art. 35-C ("imediato") — **DRAFT/verify** |
-| Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 259 (21 dias uteis garantia) — **DRAFT/verify** |
-| Analise (eletivo padrao) | P5D | idem | RN 395/2016 (5 dias uteis) — **DRAFT/verify** |
+| Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 623/2024 art. 12, II, b (PAC/internacao eletiva: resposta em ate 10 dias uteis); os 21 dias uteis da RN 566/2022 sao prazo de REALIZACAO (RN 623 art. 12 §4) — **DRAFT/verify** |
+| Analise (eletivo padrao) | P5D | idem | RN 623/2024 art. 12, II, a (resposta em ate 5 dias uteis) — **DRAFT/verify** |
 | Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk -> escalonamento humano `ESC-{tenant_id}-sla-auth-{numero_guia_tiss}` (WP-J1-09, decisao do dono #17; emenda em `SP-OP-ESCALATION-001.md` + ADR-0051). NAO interrompe a analise e NAO move a titularidade: a retomada continua sendo `BT_SlaAnalise` -> `UT_CoordenacaoAssume`, dentro deste processo | politica interna |
 | Pendencia de documentacao | P5D | event gateway -> `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
-| Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; a TRANSMISSAO em si nao tem canal implementado (Fase 1) | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
+| Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; entrega ao beneficiario MANUAL pelo medico auditor ate existir canal com comprovante — ver "Negativa por escrito — entrega (R-004)" | dentro do prazo de resposta do art. 12 (mesmas linhas acima) | RN 623/2024 art. 14 (independe de solicitacao; §2 imprimivel/download) + art. 16 §§1-3 (Ouvidoria) — **DRAFT/verify** |
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
+
+## Negativa por escrito — entrega (R-004, RN 623/2024 art. 14) — DARK
+
+Achados F-016/F-032 (auditoria forense 2026-10); decisao do dono DEC-01 (issue #1081):
+**canal unico com comprovante**, pelo worker deste contrato; **sem canal fabricado**. A
+assinatura do juridico continua necessaria antes de ligar qualquer coisa (ADR-0007).
+
+**O que a norma exige** (texto-base `docs/compliance/legal/textos-base/RN-623-2024.md`):
+
+- art. 14, caput — havendo negativa, reduzi-la a termo e informar ao beneficiario, em
+  linguagem clara, **dentro do prazo de resposta do art. 12, independentemente de
+  solicitacao**, o **motivo** e a **clausula contratual ou o dispositivo legal** que a
+  justifique; §1 — dar ciencia ao beneficiario da disponibilizacao do termo no prazo do
+  art. 12; §2 — termo em formato que permita **impressao ou download**;
+- art. 16 §§1-3 — o termo traz, em destaque, a faculdade de reanalise pela **Ouvidoria**,
+  **cada canal** da Ouvidoria e o prazo ordinario de resposta da reanalise, **nao superior a
+  sete dias uteis**.
+
+**Quem decide x quem entrega.** A DECISAO de negar e' SEMPRE do medico auditor humano
+(item `hard`; Invariante L0 acima). Esta secao trata so' da ENTREGA do termo de uma
+negativa ja decidida e ja aprovada pelos dois guards do worker.
+
+**Dono unico.** `operadora.auth.send_denial_notice` e' servido so' por
+`SendDenialNoticeWorker`. O segundo dono (`NativeDenialNoticeWorker`) saiu;
+`MAEZO_DENIAL_NOTICE_OWNER` virou lapide (ligada = o daemon nao registra os workers).
+
+**Enquanto nao houver canal** (estado deste build): a entrega e' **MANUAL, pelo medico
+auditor**, fora do engine. Com a bandeira de implantacao `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`
+(default **OFF**) ligada, o worker registra o fato honesto no registro da negativa:
+
+| Variavel | Tipo | Valor | Significado |
+|---|---|---|---|
+| `entrega_negativa_status` | string | `entrega_manual_pendente` (unico valor neste build) | o termo AINDA NAO foi entregue por canal nenhum do sistema; a entrega cabe ao auditor |
+| `entrega_negativa_responsavel` | string | `medico_auditor` | papel responsavel pela entrega manual |
+
+Nenhum worker escreve "entregue", `registered=True`, `delivered`, `notice_sent` nem
+`status` de transmissao: entrega e' fato que so' um comprovante de canal real (ou o
+registro do proprio auditor) prova. Negativa barrada por um guard (`ERR_AUTH_DENIAL_INCOMPLETE`
+ou `ERR_DENIAL_NOT_HUMAN`) **nao** ganha estado de entrega. Desligada a bandeira, a saida do
+worker e' a de antes deste pacote. O texto clinico continua redigido (ADR-0006).
+
+**Mapeamento a confirmar pelo juridico (COUNSEL):** motivo = `justificativa_clinica`;
+clausula/dispositivo = `fundamentacao_dut` (o guard de completude ja exige os dois). Canais
+da Ouvidoria e prazo de reanalise NAO existem como configuracao do tenant neste build — o
+auditor os inclui no termo manual.
+
+**Fora deste pacote (declarado):** o canal real com comprovante (e o seu estado
+`entregue_com_recibo`), uma User Task de confirmacao da entrega manual (exige contrato de
+formulario do portal) e a citacao residual "RN 395 art. 10" na `bpmn:documentation` de
+`ST_EnviarNegativaFormal` (o BPMN nao muda aqui).
 
 ## REG-1.11 — Âncora RN 566/2022 na autorização prévia (DARK — documentation only)
 
@@ -557,7 +609,10 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores co
 > acima) permanece na fila R5 — `docs/compliance/rn-currency-review.md` §3.4 (`:150-158`:
 > "em r2 trocar \"RN 259 garantia 21 dias uteis…\" → \"RN 566/2022…\"; em r3 trocar
 > \"RN 395/2016 — resposta em ate 5 dias uteis\" → \"RN 623/2024 …\". [verify SME: figuras
-> exatas]") — NÃO decidida nem aplicada neste bloco.
+> exatas]") — NÃO decidida nem aplicada neste bloco. **Nota R-004 (achado F-016):** as citacoes
+> da RN 395/2016 e da RN 259/2011 no gatilho, na tabela de SLAs e em `auth_sla.dmn` foram
+> trocadas pela RN 623/2024 art. 12 (prazos de RESPOSTA) — somente a citacao; nenhum valor de
+> prazo mudou e tudo segue **DRAFT/verify** para o SME juridico.
 
 **Fonte primária (verbatim banked):** `docs/compliance/legal/textos-base/RN-566-2022.md` — DOU
 02/01/2023, Seção 1, p. 94 — https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-566-de-29-de-dezembro-de-2022-455439257
@@ -626,7 +681,7 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 | Codigo | Onde | Tratamento |
 |---|---|---|
 | `ERR_AUTH_INVALID_GUIA` | declarado (`Error_AuthGuiaInvalida`) para uso dos workers | worker lanca BPMN error se guia inconsistente na origem; tratamento a detalhar na promocao a FINAL |
-| `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 395 art. 10). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
+| `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 623/2024 art. 14: motivo + clausula/dispositivo). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
 | `ERR_DENIAL_NOT_HUMAN` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem proveniencia humana: o sinal explicito `human_approved` **ou** um `auditor_id` nao-vazio setado pela User Task humana. Materializa a invariante L0: nenhuma negativa sem User Task humana na trilha (ADR-0007). NAO ha boundary modelado para este codigo — o worker retorna registro `blocked_by_guard`, nao lanca |
 | `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED` | guard do worker `operadora.auth.issue_authorization`, **canal AUTOMATICO apenas** (`ST_EmitirAutorizacaoAuto`) | recusa EMITIR quando o teto de autonomia do tenant (`authorization_approval.max_value_brl`, resolvido por `CeilingResolver.within_l2_ceiling`) nao autoriza o `valor_estimado_brl`. Fail-closed em todos os vetores (tenant ausente/branco/nao-string; valor ausente/nao-numerico/bool/negativo/nao-finito; resolver indisponivel). Distinto de `ERR_DENIAL_NOT_HUMAN` de proposito: aquele significa "sem sancao modelada", este significa "sancionado pela DMN, mas o teto nao autoriza emissao AUTOMATICA". **O canal HUMANO nunca e' gateado por este codigo** (`decisao_auditor == 'APROVAR'` e a rota da junta emitem independentemente do teto). NAO ha boundary modelado em `ST_EmitirAutorizacaoAuto` (o unico boundary do arquivo e' `BE_NegativaIncompleta`), entao o worker RETORNA registro `blocked_by_guard` com `dentro_teto_l2=false` + `motivo_bloqueio_teto` como evidencia engine-visivel — nunca lanca (um `bpmnError` nao modelado encerra silenciosamente o escopo, ADR-0030) |
 

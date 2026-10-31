@@ -27,8 +27,8 @@ function response(value: unknown, status = 200) { return new Response(JSON.strin
 function pending() { let resolve!: (response: Response) => void; const promise = new Promise<Response>((done) => { resolve = done; }); return { promise, resolve }; }
 async function settle() { await act(async () => { for (let n = 0; n < 8; n += 1) await Promise.resolve(); }); }
 const rows = () => screen.queryAllByRole("rowheader");
-const shownDetail = () => screen.queryByRole("heading", { name: "UT_AnaliseAdmissibilidade" });
-function open() { fireEvent.click(screen.getAllByRole("button", { name: "Abrir detalhes de UT_AnaliseAdmissibilidade" })[0]); }
+const shownDetail = () => screen.queryByRole("heading", { name: "Analisar admissibilidade da ordem (dados/lastro/duplicidade)" });
+function open() { fireEvent.click(screen.getAllByRole("button", { name: "Ver detalhes: Analisar admissibilidade da ordem (dados/lastro/duplicidade)" })[0]); }
 const unavailable = vi.fn();
 async function start() { render(<EmployeeQueues sessionBinding="original" onSessionUnavailable={unavailable} />); await settle(); }
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-09T15:00:02Z")); vi.stubGlobal("fetch", vi.fn()); unavailable.mockReset(); });
@@ -79,7 +79,8 @@ it("a new selected-task revision fences pending old detail and can be explicitly
   expect(signal?.aborted).toBe(true);
   task.resolve(response(detail())); await settle(); expect(shownDetail()).not.toBeInTheDocument();
   vi.mocked(fetch).mockResolvedValueOnce(response(detail("59", "2"))); open(); await settle();
-  expect(shownDetail()).toBeInTheDocument(); expect(screen.getAllByText("2")).toHaveLength(2);
+  // A revisao da tarefa so aparece no detalhe (R-090: a fila nao exibe a chave tecnica).
+  expect(shownDetail()).toBeInTheDocument(); expect(screen.getAllByText("2")).toHaveLength(1);
 });
 
 it("an earlier second-page microsecond ceiling expires every retained row and pending detail", async () => {

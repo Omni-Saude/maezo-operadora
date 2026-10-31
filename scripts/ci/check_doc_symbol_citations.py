@@ -874,6 +874,15 @@ _HISTORICAL_LINE_EXCLUSIONS: tuple[DisclosedRot, ...] = (
             "current source binding; recovery qualifier keeps historical and current claims apart"
         ),
     ),
+    DisclosedRot(
+        doc="0028-dmn-evaluation-engine-side.md",
+        citation_repr="mcp_dmn/server.py",
+        reason=(
+            "historical T1.9 note in accepted ADR-0028 §Fate about the deprecated in-process "
+            "DmnServer module, removed after its deprecation cycle (R-097 / F-115); this repair "
+            "may not rewrite that accepted record"
+        ),
+    ),
 )
 
 

@@ -167,13 +167,15 @@ def _graph(
     )
 
 
-def _register_calendar(dmn: FakeDmnTransport) -> None:
+def _register_calendar(dmn: FakeDmnTransport, due_date: str = "", sla_alerta: str = "") -> None:
+    # Espelha ans_calendar v0.2.0 (R-007): "" quando nao ha data verificada em norma primaria;
+    # data ISO 8601 (YYYY-MM-DD) so quando verificada.
     dmn.register(
         DMN_ANS_CALENDAR,
         [
             {
-                "due_date": "DRAFT_DUE_DATE",
-                "sla_alerta": "DRAFT_ALERTA",
+                "due_date": due_date,
+                "sla_alerta": sla_alerta,
                 "periodicidade": "trimestral",
                 "fonte_regulatoria": "DIOPS — trimestral: DRAFT/verify",
             }
@@ -387,11 +389,15 @@ def test_output_field_partition_is_complete() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_assess_ans_submit_segue_envio_still_routes_human_review() -> None:
+@pytest.mark.parametrize("due_date", ["", "2026-05-30"])
+async def test_assess_ans_submit_segue_envio_still_routes_human_review(due_date: str) -> None:
     """L0 GUARD (charter): even the PERFECT input (SEGUE_ENVIO — dataset complete, schema valid,
-    anonymized) only ENABLES the human review — Gustavo NEVER transmits; there is no auto path."""
+    anonymized) only ENABLES the human review — Gustavo NEVER transmits; there is no auto path.
+
+    `""` = saida de ans_calendar v0.2.0 sem data verificada (R-007); a data ISO prova que o
+    `due_date` vem da linha do DMN (o estado inicial tambem e `""`)."""
     dmn = FakeDmnTransport()
-    _register_calendar(dmn)
+    _register_calendar(dmn, due_date=due_date)
     _register_admissibility(dmn, "SEGUE_ENVIO")
     graph = _graph(dmn=dmn)
 
@@ -400,7 +406,7 @@ async def test_assess_ans_submit_segue_envio_still_routes_human_review() -> None
     assert result["route"] == "review_submission"
     assert result["motivo_humano"] == "revisao_envio"
     assert result["admissibilidade_envio"] == "SEGUE_ENVIO"
-    assert result["due_date"] == "DRAFT_DUE_DATE"
+    assert result["due_date"] == due_date
     called = {table for table, _ in dmn.calls}
     assert called == {DMN_ANS_CALENDAR, DMN_ANS_ADMISSIBILITY}
 

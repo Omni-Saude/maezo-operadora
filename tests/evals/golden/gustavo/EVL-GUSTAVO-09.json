@@ -26,8 +26,8 @@
   ],
   "dmn_fixture": {
     "ans_calendar": {
-      "due_date": "DRAFT_DUE_DATE",
-      "sla_alerta": "DRAFT_ALERTA",
+      "due_date": "",
+      "sla_alerta": "",
       "periodicidade": "trimestral",
       "fonte_regulatoria": "DIOPS - trimestral: DRAFT/verify"
     },

@@ -1,13 +1,14 @@
 """DMN evaluation transport — engine-side, via CIB Seven REST (ADR-0028, T1.5).
 
-The local in-process XML evaluator (`maezo.tools.mcp_dmn.server.DmnServer`) is DEAD at runtime
-(zero production consumers) and fails OPEN on no-match (`return {}`) — the exact defect (B5)
-this seam fixes. Every DMN table is now evaluated by the REAL, already-deployed engine
-(ADR-0011: CIB Seven `2.1.0`, `docker-compose.yml`), which supports the full FEEL comparison/
-range/list grammar the local parser cannot (`>=`,`<=`,`>`,`<`, ranges, lists, `not(...)`).
+The former local in-process XML evaluator (`DmnServer`) was DEAD at runtime (zero production
+consumers) and failed OPEN on no-match (`return {}`) — the exact defect (B5) this seam fixes; it
+was removed from this tree after its deprecation cycle (R-097 / F-115). Every DMN table is now
+evaluated by the REAL, already-deployed engine (ADR-0011: CIB Seven `2.1.0`,
+`docker-compose.yml`), which supports the full FEEL comparison/range/list grammar the local
+parser could not (`>=`,`<=`,`>`,`<`, ranges, lists, `not(...)`).
 
 Mirrors T1.1's `WorkerTransport` triple shape (Protocol + real + Fake) exactly, ported from the
-v1 donor (`Maezo-Healthcare-Plan src/maezo/tools/mcp_dmn/server.py:43-161`, READ-ONLY reference)
+v1 donor (`Maezo-Healthcare-Plan`'s DMN MCP server module, `server.py:43-161`, READ-ONLY reference)
 with two fixes the ADR mandates over the donor:
 
 1. **Authoritative version provenance.** The donor read `X-Decision-Definition-Id` off the
@@ -197,7 +198,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     """Type DMN inputs for the engine wire format — `Long` for ints outside int32 (ADR-0028 §2),
     and for every name declared int64 unconditionally (R-173).
 
-    Ported verbatim from the v1 donor (`mcp_dmn/server.py:88-107`, READ-ONLY reference) — same
+    Ported verbatim from the v1 donor (its DMN MCP `server.py:88-107`, READ-ONLY reference) — same
     rule as `harness.py::_to_camunda_var` (T1.1 §5), now sharing that rule through the
     `engine_var_types` leaf declaration instead of a third copy of it. **Load-bearing**: `pagto_alcada`'s
     `valor_pagamento_cents` is unbounded on its top band — a payment above int32-max cents

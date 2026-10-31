@@ -35,7 +35,7 @@ Fontes rastreadas (as ÚNICAS; cada linha do artefato cita arquivo:linha)
 4. `docs/plans/maezo-completion-program.md` — os prazos de verdade externa (§0 :17), o D-10
    (:135), o GOV-0.2 (:36) e o W8 (:120). As DATAS são EXTRAÍDAS da linha viva por regex, não
    congeladas no script — uma renovação futura é refletida na regeneração.
-5. `deploy/helm/maezo-tenant/values.yaml` — `lifecycle.expectedFailUntil` (:898), lido VIVO.
+5. `deploy/helm/maezo-tenant/values.yaml` — `lifecycle.expectedFailUntil` (:924), lido VIVO.
 6. `docs/Tarefas_Pendentes.md:1140` — R-131 (legal-hold), prazo monitorável fora do escopo
    shadow, registrado na seção de prazos com essa qualificação explícita.
 7. `docs/design/wave1-effect-chokepoint.md:874/:892` — anotações históricas (ADD-only,
@@ -539,7 +539,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "B-C1",
         "C",
         "`denial_notice_owner` (`MAEZO_DENIAL_NOTICE_OWNER`)",
-        "default `False`; liga o dono nativo de `operadora.auth.send_denial_notice`",
+        "default `False`; LAPIDE (R-004): o dono nativo saiu — ligada, o daemon recusa registrar",
         Anchor(
             "src/maezo/runtime/worker_runtime/settings.py",
             'Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")',
@@ -547,7 +547,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         ),
         Anchor(FLAGS_DOC, "MAEZO_DENIAL_NOTICE_OWNER", 56),
         "WP-J1-06",
-        "fail-closed quando on; flip é a ativação inteira",
+        "fail-closed quando on (recusa de registro); nada a ativar",
     ),
     FlagRow(
         "B-C2",
@@ -1197,7 +1197,7 @@ GOVERNANCE_ROWS: Final[tuple[GovernanceRow, ...]] = (
         "E-lifecycle",
         "lifecycle `expectedFailUntil` (tolerância de falha esperada dos 3 CronJobs LGPD; "
         "teto, não dispensa — R-040)",
-        Anchor(VALUES_YAML, "expectedFailUntil", 898),
+        Anchor(VALUES_YAML, "expectedFailUntil", 924),
         r'expectedFailUntil:\s*"(\d{4}-\d{2}-\d{2})"',
         "iso",
         "shadow",

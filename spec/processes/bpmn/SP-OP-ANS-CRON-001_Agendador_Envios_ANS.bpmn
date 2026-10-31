@@ -8,13 +8,25 @@
                   id="Definitions_SP_OP_ANS_CRON_001"
                   targetNamespace="http://maezo.health/operadora/anscron"
                   exporter="Maezo W1-ANS"
-                  exporterVersion="0.3.0-draft">
+                  exporterVersion="0.4.0-draft">
 
   <!-- =====================================================================================
        SP-OP-ANS-CRON-001 — Agendador per-report_type dos Envios Periodicos ANS (GAP-ANS-1).
        Status: DRAFT — todas as periodicidades (timeCycle) sao DRAFT/verify regulatorio.
 
-       POR QUE um arquivo com CINCO process definitions: o CIB Seven 2.1.0 rejeita no deploy
+       CALENDARIO AUTOMATICO DESLIGADO (R-007, F-002; decisao do dono DEC-03, issue #1081):
+       - o timer do SIP SAIU (definition e DI removidas): a RN 639/2025 revoga a RN 551/2022, desobriga o SIP apos
+         o 4o trimestre/2025 e vigora desde 2026-03-02 (DL-0029). O backlog ate o 4o tri/2025 segue
+         pelo caminho MANUAL (start humano de SP-OP-ANS-SUBMIT-001; ans_calendar marca a competencia
+         como backlog ou extinta).
+       - os 4 timers restantes estao isExecutable="false": nenhum tem norma primaria verificada
+         (RN 209/2009 revogada pela RN 451/2020; RN 388/2015 revogada pela RN 483/2022; RN 424/2017
+         trata de junta medica; DIOPS sem norma localizada). O engine ignora definition
+         nao-executavel: nao cria process definition nem job de timer. O desenho fica aqui para ser
+         religado POR GATILHO, so com parecer COUNSEL (R-006) que traga a norma e a cadencia, e
+         ratificacao juridica. Ate la o envio periodico e manual.
+
+       POR QUE um arquivo com VARIAS process definitions (uma por report_type): o CIB Seven 2.1.0 rejeita no deploy
        (a) multiplos none/timer start events num MESMO process definition ("multiple none start
        events or timer start events not supported") e (b) camunda:inputOutput em startEvent
        ("camunda:inputOutput mapping unsupported for element type 'startEvent'") — verificado
@@ -65,49 +77,9 @@
        de envio (SP-OP-ANS-SUBMIT-001) e nao e contornavel por aqui (guard no worker submit).
        ===================================================================================== -->
 
-  <bpmn:process id="SP-OP-ANS-CRON-001-RN124SIP" name="Cron ANS RN 124 SIP (mensal)"
-                isExecutable="true" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Dispara a cada R/P1M (DRAFT/verify) o ciclo do envio periodico RN 124 SIP (SIP — sistema de informacoes de produtos): resolve a competencia do periodo fechado anterior (report_type=RN_124_SIP, periodicidade=mensal) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
-    <bpmn:startEvent id="Start_CronRn124Sip" name="Cron mensal RN_124_SIP (R/P1M — DRAFT/verify)">
-      <bpmn:outgoing>Flow_Rn124Sip_Resolver</bpmn:outgoing>
-      <bpmn:timerEventDefinition id="TD_CronRn124Sip">
-        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P1M</bpmn:timeCycle>
-      </bpmn:timerEventDefinition>
-    </bpmn:startEvent>
-    <bpmn:serviceTask id="ST_ResolverCompetenciaRn124Sip" name="Resolver competencia (RN_124_SIP)"
-                      camunda:type="external" camunda:topic="operadora.ans_cron.trigger_submissions">
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="ans_cron_report_type">RN_124_SIP</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Rn124Sip_Resolver</bpmn:incoming>
-      <bpmn:outgoing>Flow_Rn124Sip_Publicar</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:serviceTask id="ST_PublishCronDueRn124Sip" name="Publicar fato: ans.cron_due (RN_124_SIP)"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
-          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia,competencia_referencia_iso</camunda:inputParameter>
-          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Rn124Sip_Publicar</bpmn:incoming>
-      <bpmn:outgoing>Flow_Rn124Sip_End</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:endEvent id="End_CronRn124Sip" name="Ciclo RN_124_SIP concluido">
-      <bpmn:incoming>Flow_Rn124Sip_End</bpmn:incoming>
-    </bpmn:endEvent>
-    <bpmn:sequenceFlow id="Flow_Rn124Sip_Resolver" sourceRef="Start_CronRn124Sip" targetRef="ST_ResolverCompetenciaRn124Sip"/>
-    <bpmn:sequenceFlow id="Flow_Rn124Sip_Publicar" sourceRef="ST_ResolverCompetenciaRn124Sip" targetRef="ST_PublishCronDueRn124Sip"/>
-    <bpmn:sequenceFlow id="Flow_Rn124Sip_End" sourceRef="ST_PublishCronDueRn124Sip" targetRef="End_CronRn124Sip"/>
-  </bpmn:process>
-
   <bpmn:process id="SP-OP-ANS-CRON-001-RN209" name="Cron ANS RN 209 Utilizacao (mensal)"
-                isExecutable="true" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Dispara a cada R/P1M (DRAFT/verify) o ciclo do envio periodico RN 209 (utilizacao de servicos): resolve a competencia do periodo fechado anterior (report_type=RN_209_UTILIZACAO, periodicidade=mensal) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
+                isExecutable="false" camunda:historyTimeToLive="180">
+    <bpmn:documentation>DESLIGADO (isExecutable=false; R-007/DEC-03): sem norma primaria verificada (RN 209/2009 revogada pela RN 451/2020); o engine nao agenda este timer e o envio e manual ate parecer COUNSEL (R-006). Quando religado: Dispara a cada R/P1M (DRAFT/verify) o ciclo do envio periodico RN 209 (utilizacao de servicos): resolve a competencia do periodo fechado anterior (report_type=RN_209_UTILIZACAO, periodicidade=mensal) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
     <bpmn:startEvent id="Start_CronRn209" name="Cron mensal RN_209_UTILIZACAO (R/P1M — DRAFT/verify)">
       <bpmn:outgoing>Flow_Rn209_Resolver</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_CronRn209">
@@ -146,8 +118,8 @@
   </bpmn:process>
 
   <bpmn:process id="SP-OP-ANS-CRON-001-RN388" name="Cron ANS RN 388 Qualidade (anual)"
-                isExecutable="true" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Dispara a cada R/P1Y (DRAFT/verify) o ciclo do envio periodico RN 388 (indicadores de qualidade/transparencia): resolve a competencia do periodo fechado anterior (report_type=RN_388_QUALIDADE, periodicidade=anual) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
+                isExecutable="false" camunda:historyTimeToLive="180">
+    <bpmn:documentation>DESLIGADO (isExecutable=false; R-007/DEC-03): sem norma primaria verificada (RN 388/2015 revogada pela RN 483/2022); o engine nao agenda este timer e o envio e manual ate parecer COUNSEL (R-006). Quando religado: Dispara a cada R/P1Y (DRAFT/verify) o ciclo do envio periodico RN 388 (indicadores de qualidade/transparencia): resolve a competencia do periodo fechado anterior (report_type=RN_388_QUALIDADE, periodicidade=anual) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
     <bpmn:startEvent id="Start_CronRn388" name="Cron anual RN_388_QUALIDADE (R/P1Y — DRAFT/verify)">
       <bpmn:outgoing>Flow_Rn388_Resolver</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_CronRn388">
@@ -186,8 +158,8 @@
   </bpmn:process>
 
   <bpmn:process id="SP-OP-ANS-CRON-001-RN424TISS" name="Cron ANS RN 424 TISS Monitoramento (mensal)"
-                isExecutable="true" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Dispara a cada R/P1M (DRAFT/verify) o ciclo do envio periodico RN 424 (padrao TISS / monitoramento): resolve a competencia do periodo fechado anterior (report_type=RN_424_TISS_MONITORAMENTO, periodicidade=mensal) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
+                isExecutable="false" camunda:historyTimeToLive="180">
+    <bpmn:documentation>DESLIGADO (isExecutable=false; R-007/DEC-03): sem norma primaria verificada (RN 424/2017 trata de junta medica, nao de TISS); o engine nao agenda este timer e o envio e manual ate parecer COUNSEL (R-006). Quando religado: Dispara a cada R/P1M (DRAFT/verify) o ciclo do envio periodico RN 424 (padrao TISS / monitoramento): resolve a competencia do periodo fechado anterior (report_type=RN_424_TISS_MONITORAMENTO, periodicidade=mensal) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
     <bpmn:startEvent id="Start_CronRn424Tiss" name="Cron mensal RN_424_TISS_MONITORAMENTO (R/P1M — DRAFT/verify)">
       <bpmn:outgoing>Flow_Rn424Tiss_Resolver</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_CronRn424Tiss">
@@ -226,8 +198,8 @@
   </bpmn:process>
 
   <bpmn:process id="SP-OP-ANS-CRON-001-DIOPS" name="Cron ANS DIOPS (trimestral)"
-                isExecutable="true" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Dispara a cada R/P3M (DRAFT/verify) o ciclo do envio periodico DIOPS (informacoes economico-financeiras): resolve a competencia do periodo fechado anterior (report_type=DIOPS_TRIMESTRAL, periodicidade=trimestral) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
+                isExecutable="false" camunda:historyTimeToLive="180">
+    <bpmn:documentation>DESLIGADO (isExecutable=false; R-007/DEC-03): sem norma primaria verificada (nenhuma norma primaria localizada para o DIOPS); o engine nao agenda este timer e o envio e manual ate parecer COUNSEL (R-006). Quando religado: Dispara a cada R/P3M (DRAFT/verify) o ciclo do envio periodico DIOPS (informacoes economico-financeiras): resolve a competencia do periodo fechado anterior (report_type=DIOPS_TRIMESTRAL, periodicidade=trimestral) e publica o fato ans.cron_due em operadora.notifications.internal; o notification_bridge inicia SP-OP-ANS-SUBMIT-001 com business key deterministica.</bpmn:documentation>
     <bpmn:startEvent id="Start_CronDiops" name="Cron trimestral DIOPS_TRIMESTRAL (R/P3M — DRAFT/verify)">
       <bpmn:outgoing>Flow_Diops_Resolver</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_CronDiops">
@@ -265,34 +237,6 @@
     <bpmn:sequenceFlow id="Flow_Diops_End" sourceRef="ST_PublishCronDueDiops" targetRef="End_CronDiops"/>
   </bpmn:process>
 
-  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN124SIP">
-    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN124SIP" bpmnElement="SP-OP-ANS-CRON-001-RN124SIP">
-      <bpmndi:BPMNShape id="Shape_Start_CronRn124Sip" bpmnElement="Start_CronRn124Sip">
-        <dc:Bounds x="40" y="62" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ResolverCompetenciaRn124Sip" bpmnElement="ST_ResolverCompetenciaRn124Sip">
-        <dc:Bounds x="156" y="40" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueRn124Sip" bpmnElement="ST_PublishCronDueRn124Sip">
-        <dc:Bounds x="316" y="40" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_CronRn124Sip" bpmnElement="End_CronRn124Sip">
-        <dc:Bounds x="496" y="62" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Edge_Flow_Rn124Sip_Resolver" bpmnElement="Flow_Rn124Sip_Resolver">
-        <di:waypoint x="76" y="80"/>
-        <di:waypoint x="156" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Rn124Sip_Publicar" bpmnElement="Flow_Rn124Sip_Publicar">
-        <di:waypoint x="256" y="80"/>
-        <di:waypoint x="316" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Rn124Sip_End" bpmnElement="Flow_Rn124Sip_End">
-        <di:waypoint x="416" y="80"/>
-        <di:waypoint x="496" y="80"/>
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN209">
     <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN209" bpmnElement="SP-OP-ANS-CRON-001-RN209">
       <bpmndi:BPMNShape id="Shape_Start_CronRn209" bpmnElement="Start_CronRn209">
