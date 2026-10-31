@@ -15,7 +15,6 @@ import textwrap
 from typing import Any
 
 import pytest
-import structlog
 
 from maezo.gateway.capabilities.models import CapabilityContractError, CapabilityEnvelope, _parse
 from maezo.gateway.external_cases.models import ExternalCaseError, Scope, parse
@@ -114,25 +113,38 @@ def test_parse_de_capacidade_recusa_sem_contexto_do_fornecedor() -> None:
     assert caught.value.__cause__ is None
 
 
-def test_defeito_nao_declarado_da_postura_vai_ao_log_so_com_o_tipo() -> None:
-    from maezo.gateway.commercial_legitimacy_guard import LegitimacyScreenGateway
+class _Gravador:
+    """Logger de teste: grava as chamadas sem tocar a configuracao GLOBAL do structlog.
+
+    `capture_logs` troca a cadeia global e, com `cache_logger_on_first_use`, deixaria proxies de
+    outros modulos presos a ela (ver `tests/conftest.py`); aqui so' o `logger` do modulo e' trocado.
+    """
+
+    def __init__(self) -> None:
+        self.chamadas: list[tuple[str, str, dict[str, Any]]] = []
+
+    def __getattr__(self, nivel: str) -> Any:
+        def _gravar(evento: str, **campos: Any) -> None:
+            self.chamadas.append((nivel, evento, campos))
+
+        return _gravar
+
+
+def test_defeito_nao_declarado_da_postura_vai_ao_log_so_com_o_tipo(monkeypatch: pytest.MonkeyPatch) -> None:
+    import maezo.gateway.commercial_legitimacy_guard as guarda
     from tests.unit.gateway.test_commercial_legitimacy_guard import _execute, _flag_off, _gateway, _Store
 
-    class _DefeitoMudo(LegitimacyScreenGateway):
+    class _DefeitoMudo(guarda.LegitimacyScreenGateway):
         async def _posture(self, command: Any, scope: Any) -> None:
             raise RuntimeError("segredo-que-nao-pode-ir-ao-log")
 
+    gravador = _Gravador()
+    monkeypatch.setattr(guarda, "logger", gravador)
     bugado, _, _ = _gateway(_DefeitoMudo, _Store())  # type: ignore[arg-type]
     off, _, _ = _flag_off()
-    with structlog.testing.capture_logs() as logs:
-        resultado = asyncio.run(_execute(bugado))
+    resultado = asyncio.run(_execute(bugado))
     assert resultado.wire_bytes == asyncio.run(_execute(off)).wire_bytes
-    defeitos = [e for e in logs if e.get("event") == "commercial_legitimacy_posture_defect"]
-    assert defeitos == [
-        {
-            "event": "commercial_legitimacy_posture_defect",
-            "error_type": "RuntimeError",
-            "log_level": "warning",
-        }
+    assert gravador.chamadas == [
+        ("warning", "commercial_legitimacy_posture_defect", {"error_type": "RuntimeError"})
     ]
-    assert "segredo" not in repr(logs)
+    assert "segredo" not in repr(gravador.chamadas)
