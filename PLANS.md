@@ -70,7 +70,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | M10 Multi-Tenancy & Infra | **◔** | Helm/Terraform passam `lint`/`validate`, mas **NÃO provisionados** — Phase 4 = 0%, external-blocked (AWS/creds/secrets). IaC-only. |
 | M11 Observability | **◔** | Configs podem existir; **sem verificação zero-trust**; não é um gate fechado. |
 | M12 PHI & LGPD Hardening | **◑** | PHI egress NetworkPolicy existe; **o fail-open de identidade provava que não estava completo** (#113). Erasure/retention não totalmente verificados; DPO+RIPD external-blocked. |
-| M13 Production Hardening | **✗→◑** | **Chaos/seam-fault + cross-process suites LANDARAM (T3.3, #147/#155/#157, 2026-07-27).** **Recontado 2026-10-31 (R-012/F-120):** carga AUTH existe (`tests/load/locustfile_auth.py`, `tests/integration/perf/test_auth_p95.py`); carga de webhook/A2A, runbook de DR/failover e go-live checklist **NÃO existem** no repo versionado — DR real e go-live = P4-externo. |
+| M13 Production Hardening | **✗→◑** | **Chaos/seam-fault + cross-process suites LANDARAM (T3.3, #147/#155/#157, 2026-07-27).** **Recontado 2026-10-31 (R-012/F-120):** carga AUTH existe (`tests/load/locustfile_auth.py`, `tests/integration/perf/test_auth_p95.py`); carga de webhook/A2A, runbook de DR da plataforma (failover sa-east-1) e go-live checklist **NÃO existem** no repo versionado (existe só o restore do banco de auditoria: `docs/runbooks/audit-recovery.md` §4 e `docs/runbooks/drills/recovery-drill.md`, stack local) — DR real e go-live = P4-externo. |
 | M14 Docs & Handoff | **◔** | Docs existem; handoff operacional formal não feito. |
 
 ### 0.4 Sprints ainda pendentes (resumo — detalhe técnico no prompt de execução em `docs/prompts/`)
@@ -723,9 +723,9 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 **Objetivo:** Implementar Phase 0-1: ESCALATION, AUTH, LGPD-DSR + agentes Helena e Rafael.
 
 **Artefatos:**
-- Workers para SP-OP-ESCALATION-001 (3 tópicos de external task no BPMN — recontado 2026-10-31; o envelope dizia ~8)
-- Workers para SP-OP-AUTH-001 (8 tópicos de external task no BPMN — recontado 2026-10-31; o envelope dizia ~7)
-- Workers para SP-OP-LGPD-DSR-001 (7 tópicos de external task no BPMN — recontado 2026-10-31; o envelope dizia ~6)
+- Workers para SP-OP-ESCALATION-001 (3 tópicos distintos / 9 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~8 external tasks)
+- Workers para SP-OP-AUTH-001 (8 tópicos distintos / 16 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~7 external tasks)
+- Workers para SP-OP-LGPD-DSR-001 (7 tópicos distintos / 12 service tasks externas no BPMN — recontado 2026-10-31; o envelope dizia ~6 external tasks)
 - `src/maezo/agents/helena/graph.py` + prompts (AGJ-HELENA-TRIAGE)
 - `src/maezo/agents/rafael/graph.py` + prompts
 - Testes de integração contra spec (15 test-specs, começando por AUTH)
@@ -894,9 +894,9 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 
 **Verificação:**
 - PHI não vaza para zona geral
-- Erasure remove dados das 3 camadas (working, episódica, semântica) — hoje só a de trabalho existe: episódica recusa fail-closed (`MemoryServer`, ADR-0043 Proposed) e a semântica foi removida (`0009_drop_pgvector`, decisão do dono R-005/R-006, ADR-0047 Proposto)
+- Erasure remove dados das 3 camadas (working, episódica, semântica) — hoje só a de trabalho opera: a tabela episódica `agent_memory` existe, mas o `MemoryServer` recusa fail-closed a escrita episódica e a leitura semântica (ADR-0043 Proposed), e a coluna semântica foi removida (`0009_drop_pgvector`, decisão do dono R-005/R-006, ADR-0047 Proposto)
 - Auditoria retida por 5 anos, expurgada após
-- `make test-security` verde — **alvo NÃO existe no `Makefile`** (R-012/F-116); a suíte de segurança roda hoje dentro de `make test`; criar o alvo é mudança em `/Makefile` (CODEOWNERS security-team)
+- `make test-security` verde — **alvo NÃO existe no `Makefile`** (R-012/F-116); não há suíte de segurança dedicada (penetração/fuzzing/boundary escape); os testes de segurança existentes (ex.: `tests/unit/gateway/`, `tests/unit/platform/webhooks/whatsapp/test_security.py`) rodam dentro de `make test`; criar o alvo é mudança em `/Makefile` (CODEOWNERS security-team)
 
 **Gatekeepers:** `security-manager` (OBRIGATÓRIO), `ops-compliance-gate`
 
@@ -915,7 +915,7 @@ Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15
 **Artefatos:**
 - Chaos tests (pod kill, network partition, DB failover)
 - Load tests (locust para webhook e A2A) — **só a carga AUTH existe** (`tests/load/`); webhook e A2A ausentes
-- DR runbook (restore de backup, failover sa-east-1) — **AUSENTE** em `docs/runbooks/`
+- DR runbook (restore de backup, failover sa-east-1) — **PARCIAL**: restore do banco de auditoria existe (`docs/runbooks/audit-recovery.md` §4, `docs/runbooks/drills/recovery-drill.md`, stack local); runbook de DR da plataforma e failover sa-east-1 **AUSENTES**
 - Go-live checklist — **AUSENTE** no repo versionado
 
 **Verificação:**
