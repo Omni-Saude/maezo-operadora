@@ -1135,12 +1135,30 @@ async def test_drain_cancels_the_running_l1_poller_task() -> None:
     """The poller loops forever: the drain must CANCEL it, not just await it (that would hang)."""
     import maezo.runtime.worker_runtime.service as svc
 
+    loop = asyncio.get_running_loop()
     state = WorkerState(settings=WorkerRuntimeSettings())
     state.engine_metrics_task = asyncio.create_task(asyncio.sleep(3600))
+    started = loop.time()
+    # Without `cancel()` the await only returns when `wait_for` cancels it at the 2 s timeout,
+    # and the helper's `suppress` then hides that timeout: elapsed time is the real witness.
     await asyncio.wait_for(svc._stop_engine_metrics_poller(state), timeout=2.0)
+    assert loop.time() - started < 1.0
     assert state.engine_metrics_task.cancelled()
     # dark (no task) is a no-op
     await svc._stop_engine_metrics_poller(WorkerState(settings=WorkerRuntimeSettings()))
+
+
+def test_run_drain_stops_the_l1_poller_before_closing_the_engine_transport() -> None:
+    """Structural fence: `run()` drains the poller BEFORE closing the transport it reads (the
+    daemon's `run()` binds signals and a health server, so it is fenced by source order here)."""
+    import inspect
+
+    import maezo.runtime.worker_runtime.service as svc
+
+    body = inspect.getsource(svc.run)
+    stop = body.find("await _stop_engine_metrics_poller(state)")
+    close = body.find("await state.transport.close()")
+    assert stop != -1 and close != -1 and stop < close
 
 
 async def test_bring_up_runs_the_l1_poller_on_the_engine_transport_when_turned_on(monkeypatch: Any) -> None:
