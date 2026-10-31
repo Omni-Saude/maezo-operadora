@@ -133,8 +133,9 @@ class RetentionManager:
         """Generate a SQL DELETE query for expired records.
 
         WARNING — BLOCKED / DO NOT CALL IN PRODUCTION [T2.8]. This builds an
-        UNCONDITIONAL ``DELETE FROM audit_chain WHERE ts < cutoff`` with (a) NO
-        legal-hold predicate (deleting held evidence is a spoliation risk;
+        UNCONDITIONAL ``DELETE FROM audit_chain WHERE ts < cutoff`` with (a) no
+        consultation of the legal-hold predicate (``platform/lifecycle/legal_hold.py``,
+        R-044 — dark and unratified; deleting held evidence is a spoliation risk;
         ADR-0020 item 6) and (b) NO chain re-anchoring (a prune severs
         ``verify_chain()``'s genesis contiguity, so both verifiers report the
         surviving chain as corrupted — ``gateway/audit.py:310-344`` fails at

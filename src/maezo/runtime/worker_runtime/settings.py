@@ -195,6 +195,13 @@ class WorkerRuntimeSettings(BaseSettings):
     # O bridge ainda NAO roteia esse `type` a SP-OP-ESCALATION-001 (nova origem = decisao do dono);
     # ate la a mensagem e contada/avisada como `unrecognised_shape`. Ligar e' ato humano (ROLL).
     contas_sla_risk_entrega: bool = Field(default=False, alias="MAEZO_CONTAS_SLA_RISK_ENTREGA")
+    # R-044 (F-062; ADR-0020 item 6; posicao do dono na issue #1081, R-131/DEC-12 -> R-030).
+    # Ligada, a eliminacao aprovada em `operadora.lgpd.execute_request` consulta o registro de
+    # legal-hold (`maezo.platform.lifecycle.legal_hold`, YAML em MAEZO_LEGAL_HOLD_REGISTRY_PATH)
+    # antes de executar: hold ativo OU registro indisponivel => eliminacao DIFERIDA com recusa
+    # auditada, nunca apagamento silencioso. DARK por padrao: desligada, nada muda. Ligar e' ato
+    # da implantacao (ROLL), depois da assinatura do juridico/DPO sobre o registro (R-030).
+    lgpd_legal_hold_predicate: bool = Field(default=False, alias="MAEZO_LGPD_LEGAL_HOLD_PREDICATE")
 
     @field_validator(
         "lock_duration_ms",

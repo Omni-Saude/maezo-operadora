@@ -93,6 +93,19 @@ Re-pedido do mesmo tipo no mesmo dia retorna a instancia ativa.
 > habilitada. A habilitacao continua **ato do DPO** (F-2 + matriz AF-07) e este contrato segue
 > `DRAFT (v0.1.0)` — nenhum campo de signoff foi tocado por essa mudanca.
 
+> **Legal-hold antes da eliminacao (R-044 / F-062, 2026-10-30) — DARK, nenhuma ratificacao
+> implicada.** ADR-0020 item 6: eliminacao que colide com legal-hold ativo e resolvida a favor do
+> hold e reconciliada ao fim dele; sob colisao a decisao e humana. Com a bandeira
+> `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` ligada (padrao: desligada), `ST_ExecutarRequisicao` com
+> `tipo_requisicao=eliminacao` consulta o registro de legal-hold
+> (`src/maezo/platform/lifecycle/legal_hold.py`, YAML em `MAEZO_LEGAL_HOLD_REGISTRY_PATH`, chave
+> `tenant_id` + `titular_pseudo_id`) depois das guardas humanas e antes de qualquer execucao. Hold
+> ativo **ou** duvida (registro ausente/invalido, titular nao identificado) => recusa
+> `ERR_DSR_LEGAL_HOLD_NOT_HUMAN` gravada na cadeia ADR-0007 (`REFUSED`) e incidente nao-retentado
+> — eliminacao **diferida**, nunca silenciosa. Sem hold ativo a recusa por nao-implementacao acima
+> continua valendo. Nenhum prazo de retencao e decidido no codigo. Ligar a bandeira exige a
+> assinatura do juridico/DPO sobre o registro e sua governanca (R-030: quem coloca/levanta, escopo).
+
 ## DMN referenciada
 
 ### `lgpd_dsr_routing` (FIRST — DRAFT)

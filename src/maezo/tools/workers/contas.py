@@ -899,7 +899,14 @@ def emitir_demonstrativo(
             "tipo mais comum"
         )
 
-    key = business_key or f"CONTAS-{input_data.tenant_id}-{input_data.numero_lote_tiss}"
+    # Local import keeps this module's line anchors (cited by docs/sme-dispatch) stable.
+    from maezo.domain.chave_de_negocio import contas_business_key
+
+    # R-101 / F-139: the SINGLE composer — an empty lote used to mint `CONTAS-{tenant}-`, one
+    # protocol shared by every lote-less conta of the tenant; it now refuses (ValueError).
+    key = business_key or contas_business_key(
+        tenant_id=input_data.tenant_id, numero_lote_tiss=input_data.numero_lote_tiss
+    )
     protocolo = _mint_protocolo_demonstrativo(key, tipo)
 
     # The automatic legs have no human author. `analista_id` is echoed ONLY when the process

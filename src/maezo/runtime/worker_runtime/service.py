@@ -279,6 +279,7 @@ def register_default_workers(
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
     contas_sla_risk_entrega: bool = False,
+    lgpd_legal_hold_predicate: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -378,6 +379,8 @@ def register_default_workers(
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
         **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
+        # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
+        **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1080,6 +1083,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
                 inad_rn593_estrito=settings.inad_rn593_estrito,
+                lgpd_legal_hold_predicate=settings.lgpd_legal_hold_predicate,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url
