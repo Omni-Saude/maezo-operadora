@@ -58,7 +58,7 @@ def test_pascoa_gregoriana(ano: int, esperado: dt.date) -> None:
 
 def test_dias_moveis_de_2026() -> None:
     feriados = feriados_do_ano(2026)
-    assert dt.date(2026, 4, 3) in feriados  # Sexta-feira da Paixao (Pascoa - 2)
+    assert dt.date(2026, 4, 3) not in feriados  # Sexta-feira da Paixao: municipal (Lei 9.093/1995 art. 2o)
     # Carnaval (16 e 17/2) e Corpus Christi (4/6) sao ponto facultativo: nao entram.
     assert {dt.date(2026, 2, 16), dt.date(2026, 2, 17), dt.date(2026, 6, 4)}.isdisjoint(feriados)
 
@@ -81,8 +81,8 @@ def test_feriado_nacional_nao_conta() -> None:
     assert vencimento_em_dias_uteis(_brt(2026, 12, 24), 1) == _fim(2026, 12, 28)
 
 
-def test_sexta_feira_da_paixao_nao_conta() -> None:
-    assert vencimento_em_dias_uteis(_brt(2026, 4, 2), 1) == _fim(2026, 4, 6)
+def test_sexta_feira_da_paixao_conta_como_util() -> None:
+    assert vencimento_em_dias_uteis(_brt(2026, 4, 2), 1) == _fim(2026, 4, 3)
 
 
 def test_ponto_facultativo_conta_como_util() -> None:
@@ -180,7 +180,7 @@ def test_toda_regra_tem_fonte_e_url_oficial() -> None:
     for regra in regras:
         assert regra.fonte.strip(), regra
         assert re.fullmatch(r"https://www\.(planalto\.gov\.br|al\.sp\.gov\.br)/\S+", regra.url), regra
-        assert regra.tipo in {"feriado", "ponto_facultativo"}
+        assert regra.tipo in {"feriado", "feriado_municipal", "ponto_facultativo"}
 
 
 def test_escopo_estadual_e_so_uf_valida_e_sem_municipal() -> None:

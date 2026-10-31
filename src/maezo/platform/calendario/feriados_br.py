@@ -7,8 +7,8 @@ QUANTOS dias uteis cada prazo tem continua na DMN/contrato (AGENTS.md regra 5).
 
 Escopo e o que NAO entra:
 - Nacional: os feriados civis de lei federal (Lei 662/1949 com a redacao da Lei 10.607/2002,
-  Lei 6.802/1980, Lei 14.759/2023) e a Sexta-feira da Paixao, que a Lei 9.093/1995 art. 2o inclui
-  entre os dias de guarda e que a portaria federal anual de feriados lista como feriado nacional.
+  Lei 6.802/1980, Lei 14.759/2023). A Sexta-feira da Paixao (Lei 9.093/1995 art. 2o) e feriado
+  religioso MUNICIPAL: fica fora, como os demais municipais.
 - Estadual: SO a regra com fonte primaria conferida. Hoje: SP (Lei estadual 9.497/1997, 9 de
   julho, data magna — Lei 9.093/1995 art. 1o, II). As outras 26 UFs estao em
   `UFS_PENDENTES_DE_FONTE`: sem regra estadual, a conversao usa so o calendario nacional, o que
@@ -29,9 +29,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 #: Versao do conjunto de regras abaixo. Subir a cada mudanca de dado.
-CALENDARIO_VERSAO = "feriados-br-2026.10.31-1"
+CALENDARIO_VERSAO = "feriados-br-2026.10.31-2"
 
-TipoDia = Literal["feriado", "ponto_facultativo"]
+TipoDia = Literal["feriado", "feriado_municipal", "ponto_facultativo"]
 
 _LEI_662 = "https://www.planalto.gov.br/ccivil_03/leis/l0662.htm"
 _LEI_6802 = "https://www.planalto.gov.br/ccivil_03/leis/l6802.htm"
@@ -97,8 +97,10 @@ NACIONAIS: tuple[Regra, ...] = (
     RegraPascoa(
         -2,
         "Sexta-feira da Paixao",
-        "feriado",
-        "Lei 9.093/1995 art. 2o (dia de guarda; listado como feriado nacional na portaria federal anual)",
+        "feriado_municipal",
+        "Lei 9.093/1995 art. 2o: feriado RELIGIOSO declarado em lei MUNICIPAL (nao federal); "
+        "calendario municipal fora do escopo — conta como dia util (vencimento nunca posterior "
+        "ao legal) ate decisao do juridico",
         _LEI_9093,
     ),
     RegraPascoa(-48, "Carnaval (segunda-feira)", "ponto_facultativo", _NAO_FERIADO, _LEI_9093),

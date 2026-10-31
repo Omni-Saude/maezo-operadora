@@ -577,8 +577,7 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores co
   o calendario e dado versionado com fonte por regra (`maezo.platform.calendario.feriados_br`);
   o worker `compute_response_deadline` so faz a aritmetica (dia da solicitacao nao conta; vence
   no fim — 23:59:59 America/Sao_Paulo — do N-esimo dia util; duracao arredondada para baixo).
-- **Calendario hoje:** feriados de lei federal + Sexta-feira da Paixao; Carnaval e Corpus Christi
-  calculados pela Pascoa como ponto facultativo (contam como util); estadual so SP (Lei 9.497/1997,
+- **Calendario hoje:** feriados de lei federal; Sexta-feira da Paixao (feriado religioso municipal, Lei 9.093/1995 art. 2o), Carnaval e Corpus Christi (ponto facultativo) calculados pela Pascoa e contados como util; estadual so SP (Lei 9.497/1997,
   conferida); as outras 26 UFs aguardam fonte primaria (so nacional). Nenhum feriado municipal.
 - **Dark:** `MAEZO_AUTH_PRAZO_DIAS_UTEIS` (default `false`). Ligar e ato da implantacao (ROLL),
   depois da conferencia juridica do calendario e das UFs; nunca de agente.
