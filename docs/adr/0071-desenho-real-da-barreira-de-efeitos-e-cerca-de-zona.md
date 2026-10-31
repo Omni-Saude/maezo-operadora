@@ -52,8 +52,10 @@ O que existe, medido na `main` de 31/10/2026:
    `src/maezo/platform/privacy/key_scrubber.py::egress_message_key`. A inferência PHI sem provedor da Zona PHI
    levanta `src/maezo/runtime/inference/errors.py::PhiZoneRoutingError`.
 
-**A lacuna real.** O `SeamContext.phi_zone` não bloqueava nada. Nenhuma checagem estrutural impedia que um agente
-da Zona Geral recebesse um leitor que devolve PHI. Era o caso concreto do Gustavo (`security_zone: general`): o mapa
+**A lacuna real.** O `SeamContext.phi_zone` só bloqueava em pontos isolados: a leitura clínica AMH recusa, a cada
+chamada, principal fora da Zona PHI (`src/maezo/gateway/amh.py::AmhSubjectContextExecutor`, `SCOPE_NOT_SUPPORTED`).
+O seam FHIR não tinha checagem nenhuma: nada impedia que um agente da Zona Geral recebesse um leitor FHIR que
+devolve PHI. Era o caso concreto do Gustavo (`security_zone: general`): o mapa
 `src/maezo/gateway/tool_registry.py::_FHIR_ADAPTER_BY_AGENT` lhe dava o leitor cru `read_patient`.
 
 **Alternativas consideradas.**
@@ -99,7 +101,9 @@ tool vive no catálogo de operações e na lista `tools:` de cada `agent.yaml`, 
   referenciada em código pelo worker e ancorada no BPMN do processo. Duas formas de âncora são aceitas: um
   `bpmn:error errorCode` ou, para guarda que devolve registro `blocked_by_guard`, a propriedade `enforcedBy`. A
   guarda vale com o PEP em `shadow` ou em `enforce`.
-- **I-5 (zona):** nenhum seam que devolve PHI é construído para um principal fora da Zona PHI. Toda operação
+- **I-5 (zona):** nenhum seam FHIR (todas as operações `fhir.*` devolvem PHI) é construído para um principal fora
+  da Zona PHI. A leitura clínica AMH (`clinical_context`) continua recusada na EXECUÇÃO, não na construção, por
+  `src/maezo/gateway/amh.py::AmhSubjectContextExecutor` (ver Resíduos). Toda operação
   `fhir.*` declara `returns_phi=True`. `build_fhir_seam`, e por ele `build_agent_fhir_seam` e `build_agent_seams`,
   recusa com `ZoneFenceError` quando `SeamContext.phi_zone` não é `phi`. A zona vem do `security_zone` do
   `agent.yaml`, nunca do chamador. Uma operação fora do catálogo também é recusada. Inferência PHI sem provedor da
@@ -152,9 +156,10 @@ mais `mcp-fhir.read_patient` nem `read_phi_data`, e o `build(config)` do grafo r
   construção do seam FHIR desse agente agora FALHA (readiness vermelho). Antes, o seam era construído e negado no
   L-1. Isso é fail-closed e foi aceito.
 - **Resíduos declarados, fora deste ato:**
-  - a cerca cobre os construtores FHIR. `build_amh_context` (seam `clinical_context`, sem chamador em produção
-    hoje) e `population` (agregados k-anônimos, não PHI) não são cercados. As leituras clínicas `amh.*` não estão
-    marcadas `returns_phi`;
+  - a cerca de construção cobre os construtores FHIR. `build_amh_context` (seam `clinical_context`, sem chamador em
+    produção hoje) não é cercado na construção, mas o executor recusa principal fora da Zona PHI em toda chamada
+    (`src/maezo/gateway/amh.py::AmhSubjectContextExecutor`). `population` (agregados k-anônimos, não PHI) não é
+    cercado. As leituras clínicas `amh.*` não estão marcadas `returns_phi`;
   - o Gustavo ainda chama `generate(phi=True)` na inferência. O roteamento de zona da inferência (segunda metade
     de I-5) continua sendo o mecanismo independente;
   - I-6 só fica completo com a decisão do item A (rota única de documento PHI);
