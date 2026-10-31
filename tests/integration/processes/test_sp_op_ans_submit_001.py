@@ -1870,7 +1870,10 @@ async def test_r119_montagem_do_dataset_que_falha_na_origem_vai_para_correcao_hu
 
     O teste unitario `test_assemble_dataset_incompleto_roteia_a_humano` prova so' o raise; este
     prova a fronteira no motor."""
-    inst = await start_ans(dataset_assembly_failed=True)
+    # Competencia unica por execucao, na forma YYYY-MM que a ans_calendar aceita: ano >= 3000
+    # cai na MESMA row do SIP (competencia >= 2026-01) que o default 2026-01 usaria.
+    competencia = f"{3000 + uuid.uuid4().int % 7000}-{1 + uuid.uuid4().int % 12:02d}"
+    inst = await start_ans(competencia=competencia, dataset_assembly_failed=True)
     iid = inst["id"]
     await ans_probe.drain()
 

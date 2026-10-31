@@ -1733,8 +1733,9 @@ async def cancel_probe_aviso_falho(
     engine: EngineRest, audit_sink: Any, audit_tenant: str
 ) -> AsyncIterator[CancelEngineProbe]:
     """Probe igual ao `cancel_probe`, com duas diferencas: o publicador falha em process_completed e
-    o allowlist do harness inclui `ERR_EVENT_PUBLISH_FAILED` — o codigo que a producao ja habilita
-    (`EVENTS_BPMN_ERROR_ALLOWLIST` em `PRODUCTION_BPMN_ERROR_ALLOWLIST`)."""
+    o allowlist do harness e' SO' `EVENTS_BPMN_ERROR_ALLOWLIST` (`ERR_EVENT_PUBLISH_FAILED`) — o
+    codigo que a producao ja habilita em `PRODUCTION_BPMN_ERROR_ALLOWLIST`; nenhum codigo
+    T-E-deferred entra."""
     from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
 
     worker_id = f"qa-cancel-aviso-falho-{uuid.uuid4().hex[:8]}"
@@ -1744,7 +1745,7 @@ async def cancel_probe_aviso_falho(
         worker_id=worker_id,
         tenant=audit_tenant,
         lock_duration_ms=10_000,
-        bpmn_error_allowlist=frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"}) | EVENTS_BPMN_ERROR_ALLOWLIST,
+        bpmn_error_allowlist=EVENTS_BPMN_ERROR_ALLOWLIST,
         audit_sink=audit_sink,
     )
     kafka = _PublishFalhoPorTopico({_PROCESS_COMPLETED})
