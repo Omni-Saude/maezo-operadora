@@ -235,8 +235,8 @@ PHI) e a `ADR-0017` (enforcement de rede do egresso).
 > mesmo numero de linhas. O Status anterior, vigente de 2026-09-04 ate 2026-10-31, era: "Proposed —
 > DRAFT/verify. NADA AQUI ESTA RATIFICADO."
 
-**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084** (item R-079; achado
-F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
+**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084**, comentario de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079; achado F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
 `docs/compliance/human-windows/R-079-dec-adr-proposed.md`.
 
 **O que fica aceito, e o que NAO.** Fica aceita a decisao desta ADR: o k-anonimato do egresso de
@@ -247,7 +247,8 @@ ou C da Parte 1, nao fixa o valor de `k` e nao fixa o conteudo da allowlist.** O
 exige. Ate la, o piso efetivo continua 1 (`src/maezo/agents/andre/graph.py:345`).
 
 **Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a arvore e
-nao e autor da ADR.
+nao e autor da ADR. A revisao independente por ADR exigida pela DEC-27 e o gate cego publicado no PR #1137
+(https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
 
 Conforme:
 - Mecanismo do piso: `src/maezo/agents/andre/graph.py:345` (default 1), `:348` (parse fail-closed no

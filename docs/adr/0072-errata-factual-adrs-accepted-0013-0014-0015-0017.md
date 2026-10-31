@@ -1,4 +1,4 @@
-# ADR-0068: Errata factual de ADRs Accepted fora do alcance da ADR-0041 (0013, 0014, 0015, 0017) — achado F-114, item R-072
+# ADR-0072: Errata factual de ADRs Accepted fora do alcance da ADR-0041 (0013, 0014, 0015, 0017) — achado F-114, item R-072
 
 **Status:** **Proposed — DRAFT/verify.** Redigido por AGENTE no item R-072 do roadmap forense; um agente nao aceita ADR. `/docs/adr/` e dono-gated (`.github/CODEOWNERS`). · **Data:** 2026-10-31 · **Area:** Governanca de ADR / Documentacao
 
@@ -13,7 +13,7 @@ O achado F-114 da auditoria forense (2026-10, baseline `f57f0821`) mostrou ADRs 
 arquivos e simbolos que nao existem, sem marcador. O item R-072 pede a errata "pelo mecanismo
 ratificado". Esse mecanismo existe: `docs/adr/README.md` (regra 2: "ADR aceito so muda por novo ADR
 com `Supersedes`"), a `## Convencao seguida` da ADR-0032 e a da ADR-0041. A ADR-0041 foi aceita pelo
-dono em 2026-10-31 (DEC-27, issue #1084). Pela convencao, a correcao de uma ADR Accepted e uma ADR
+dono em 2026-10-31 (DEC-27, issue #1084, comentario de 2026-10-31: https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766). Pela convencao, a correcao de uma ADR Accepted e uma ADR
 nova. Nenhum arquivo Accepted e editado.
 
 Inventario completo das erratas do F-114 e do F-052, com quem cobre cada uma:

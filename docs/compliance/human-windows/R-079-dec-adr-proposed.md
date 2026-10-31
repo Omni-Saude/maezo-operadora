@@ -4,7 +4,7 @@
 
 **Origem:**
 - Item R-079 do roadmap da auditoria forense @f57f0821 (decisão humana; dono: owner). Achados F-034 e F-052; pendência PEND-205.
-- **DEC-27** na issue #1084. Resposta do dono em 2026-10-31: **opção (a)**, "ratificar o lote com revisão independente por ADR" e promover a Accepted.
+- **DEC-27** na issue #1084. Resposta do dono no comentário de 2026-10-31 (https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766): **opção (a)**, "ratificar o lote com revisão independente por ADR" e promover a Accepted.
 - Item dependente: R-072 (errata em ADRs Accepted), preparado no mesmo PR (§4).
 
 ## 1. O que foi feito
@@ -22,11 +22,11 @@
 - O índice `docs/adr/README.md` foi atualizado.
 - A cerca `tests/unit/docs/test_adr_amendments.py` (direção 1) agora exige que o Status da ADR-0041 cite DEC-27, #1084 e a data. As oito ADRs reconciliadas continuam byte-idênticas (direção 2 intacta).
 
-**ADR-0041 entrou no aceite.** A DEC-27 nomeia 0040/0042/0045/0048/0062. A pergunta da DEC-27 cita também "correções de Accepted só no ADR-0041 (Proposed)", e o R-079 pede ratificar ou emendar esse ponto. Por isso a ADR-0041 entrou no mesmo aceite, com a mesma revisão. **Se o dono não quiser a ADR-0041 neste ato, basta reverter os dois arquivos dela no PR** (a ADR e a cerca).
+**ADR-0041 entrou no aceite.** A DEC-27 nomeia 0040/0042/0045/0048/0062. A pergunta da DEC-27 cita também "correções de Accepted só no ADR-0041 (Proposed)", e o R-079 pede ratificar ou emendar esse ponto. Por isso a ADR-0041 entrou no mesmo aceite, com a mesma revisão. O dono confirmou a inclusão no mesmo comentário de 2026-10-31 da #1084 (https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766): "a ADR-0041 entra no mesmo aceite (sim)".
 
 ## 2. Revisão independente, por ADR (resumo; detalhe com `arquivo:linha` em cada ADR)
 
-O revisor leu o texto de cada ADR contra `main` = `2be4515f`. Ele não é autor de nenhuma delas.
+O revisor leu o texto de cada ADR contra `main` = `2be4515f`. Ele não é autor de nenhuma delas. A revisão independente por ADR exigida pela DEC-27 é o gate cego publicado no PR #1137 (https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
 
 | ADR | O código faz o que a ADR diz? | Divergências (follow-ups) | Em aberto |
 |---|---|---|---|
@@ -39,7 +39,7 @@ O revisor leu o texto de cada ADR contra `main` = `2be4515f`. Ele não é autor 
 
 ### Nota sobre a ADR-0040 e a classificação de pagamentos
 
-D6-bis diz: "Toda ordem originada em CONTAS ou RECURSO atravessa uma User Task humana". O dono aprovou depois uma classificação balanceada para SP-OP-PAGTO-001: lastro conferido dentro de PAGTO contra o histórico da origem, e a ordem de baixo valor com checagens objetivas verdes sai sem toque humano. Isso muda aquela consequência. A ADR-0040 foi aceita **como está**, com nota datada de que **uma ADR de emenda virá**. A emenda não foi escrita neste PR. Até ela, o código segue D6-bis (`spec/processes/dmn/pagto_admissibility.dmn:54-60`).
+D6-bis diz: "Toda ordem originada em CONTAS ou RECURSO atravessa uma User Task humana". O dono aprovou depois (2026-10-31, #1084, comentário de 2026-10-31) uma classificação balanceada para SP-OP-PAGTO-001: lastro conferido dentro de PAGTO contra o histórico da origem, e a ordem de baixo valor com checagens objetivas verdes sai sem toque humano. Isso muda aquela consequência. A ADR-0040 foi aceita **como está**, com nota datada de que **uma ADR de emenda virá**. A emenda não foi escrita neste PR. Até ela, o código segue D6-bis (`spec/processes/dmn/pagto_admissibility.dmn:54-60`).
 
 ## 3. O que este aceite NÃO faz
 
@@ -51,16 +51,16 @@ D6-bis diz: "Toda ordem originada em CONTAS ou RECURSO atravessa uma User Task h
 
 ## 4. R-072 — erratas em ADRs Accepted
 
-**Mecanismo.** A regra 2 de `docs/adr/README.md`, a `## Convencao seguida` da ADR-0032 e a da ADR-0041 (agora Accepted) dizem que uma ADR Accepted só muda por ADR nova. A cerca da ADR-0041 trava os bytes de oito delas. Por isso **nenhum adendo foi escrito dentro de ADR Accepted**. As erratas factuais ainda sem dono foram reunidas na **ADR-0068 (`Proposed`)**, que precisa de aceite do dono.
+**Mecanismo.** A regra 2 de `docs/adr/README.md`, a `## Convencao seguida` da ADR-0032 e a da ADR-0041 (agora Accepted) dizem que uma ADR Accepted só muda por ADR nova. A cerca da ADR-0041 trava os bytes de oito delas. Por isso **nenhum adendo foi escrito dentro de ADR Accepted**. As erratas factuais ainda sem dono foram reunidas na **ADR-0072 (`Proposed`)**, que precisa de aceite do dono.
 
 | ADR | Errata | Onde está |
 |---|---|---|
 | 0005, 0006, 0008, 0012, 0015 (`topic_registry`), 0024, 0025, 0032 | já corrigidas | ADR-0041 (aceita neste ato); 0024 também pela ADR-0048 |
 | 0013 cláusula 3 | simulador Tasy | ADR-0037 (supersede parcial) |
-| 0013 cláusula 5 | tópicos `agents.events.whatsapp.*` nunca declarados | ADR-0068 §1 |
-| 0014 | caminhos reais em `deploy/observability/` | ADR-0068 §2 |
-| 0015 | `A2ARegistry`, não `AgentCardRegistry` | ADR-0068 §3 |
-| 0017 | `provision_tenant.py` e o teste negativo citado não existem | ADR-0068 §4 |
+| 0013 cláusula 5 | tópicos `agents.events.whatsapp.*` nunca declarados | ADR-0072 §1 |
+| 0014 | caminhos reais em `deploy/observability/` | ADR-0072 §2 |
+| 0015 | `A2ARegistry`, não `AgentCardRegistry` | ADR-0072 §3 |
+| 0017 | `provision_tenant.py` e o teste negativo citado não existem | ADR-0072 §4 |
 
 **Status pt/en (F-052).** As linhas do índice das seis ADRs aceitas agora dizem "Accepted", como o cabeçalho de cada uma. As ADR-0047 e 0061 continuam "Proposto" no índice e no arquivo, sem divergência.
 
@@ -70,6 +70,6 @@ D6-bis diz: "Toda ordem originada em CONTAS ou RECURSO atravessa uma User Task h
 
 - **Confirmo o aceite registrado acima (DEC-27):** [  ]
 - **ADR-0041 incluída no aceite:** [ sim / não ]
-- **ADR-0068 (errata factual):** [ aceitar / pedir mudança ]
+- **ADR-0072 (errata factual):** [ aceitar / pedir mudança ]
 - **Ponteiro in-loco nas ADRs Accepted corrigidas (Consequências da ADR-0041):** [ não / sim, por ADR nova ]
 - **Decisor (dono):** [nome]   **Data:** [  ]   **Assinatura:** [  ]

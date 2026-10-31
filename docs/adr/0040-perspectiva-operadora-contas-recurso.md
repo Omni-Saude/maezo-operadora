@@ -700,15 +700,16 @@ numero de linha, que muda — achado F3/VER-SMALL-DECISIONS).
 > **Registro datado; historico preservado.** Acima desta secao so a linha de Status mudou. O Status
 > anterior, vigente de 2026-09-02 ate 2026-10-31, era: "Proposed".
 
-**O ato.** Decisao do dono **DEC-27**, opcao (a): "ratificar o lote (ADR-0040/0042/0045/0048/0062)
-com revisao independente por ADR e promover a Accepted". Tomada em 2026-10-31, na resposta do dono
-ao issue de papel **#1084** (item R-079 do roadmap forense; achados F-034 e F-052). Um agente
+**O ato.** Decisao do dono **DEC-27**, opcao (a): "ratificar o lote (revisao independente por ADR) e
+promover a Accepted", sobre o lote ADR-0040/0042/0045/0048/0062. Tomada em 2026-10-31, na resposta do
+dono ao issue de papel **#1084**, comentario de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079 do roadmap forense; achados F-034 e F-052). Um agente
 registra o ato. Nenhum bloco de assinatura foi preenchido (ADR-0007). O aceite e do dono e fica
 identificado pela data e pelo issue. O pacote de revisao esta em
 `docs/compliance/human-windows/R-079-dec-adr-proposed.md`.
 
-**Aceito como esta, com emenda anunciada.** O dono aprovou depois uma classificacao balanceada de
-pagamentos para SP-OP-PAGTO-001. Ela confere o lastro dentro de PAGTO contra o historico do processo
+**Aceito como esta, com emenda anunciada.** O dono aprovou depois (2026-10-31, #1084, comentario de
+2026-10-31) uma classificacao balanceada de pagamentos para SP-OP-PAGTO-001. Ela confere o lastro dentro de PAGTO contra o historico do processo
 de origem, e deixa a ordem de baixo valor com checagens objetivas verdes sair sem toque humano. Isso
 muda a consequencia escrita em D6-bis ("Toda ordem originada em CONTAS ou RECURSO atravessa uma User
 Task humana"). **Uma ADR de emenda vira** para essa classificacao. Ela nao e escrita aqui. Ate ela
@@ -717,7 +718,8 @@ ausente para `ANALISE_HUMANA` (`spec/processes/dmn/pagto_admissibility.dmn:54-60
 que a emenda preserva: a origem fornece a evidencia; so PAGTO resolve o fato.
 
 **Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto da ADR contra a
-arvore. Ele nao e autor da ADR.
+arvore. Ele nao e autor da ADR. A revisao independente por ADR exigida pela DEC-27 e o gate cego publicado no PR #1137
+(https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
 
 Conforme:
 - D1 — as 15 chaves de `KNOWN_PROCESS_KEYS` seguem inalteradas (`src/maezo/tools/process_allowlist.py:21-41`).
@@ -733,8 +735,9 @@ Conforme:
   proibida do gate). Os handoffs existem: `src/maezo/tools/workers/contas.py:1040` e
   `src/maezo/tools/workers/recurso.py:1308`.
 - D6-bis — os conjuntos de chaves proibidas estao fixados (`src/maezo/tools/workers/contas.py:971`,
-  `src/maezo/tools/workers/recurso.py:1251`). O teste no engine real procura `UT_AnaliseAdmissibilidade`
-  na history (`tests/integration/processes/test_sp_op_contas_001.py:613`).
+  `src/maezo/tools/workers/recurso.py:1251`). O teste no engine real espera a ordem parar na User Task
+  `UT_AnaliseAdmissibilidade` (`tests/integration/processes/test_sp_op_contas_001.py:1223`, `:1307`;
+  a constante esta em `:613`).
 - D6-ter — `emitir_demonstrativo` com `tipo_comunicacao` fechado (`src/maezo/tools/workers/contas.py:869`).
 - D7 — o gate roda dentro de `validate_artifacts` (`src/maezo/platform/validation/cli.py:40`, `:134-153`).
   Os pinos das duas cadeias estao em zero (`tests/unit/platform/test_validation_perspective.py:1332-1333`).

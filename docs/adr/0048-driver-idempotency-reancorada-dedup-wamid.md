@@ -90,13 +90,14 @@ supersede nenhuma das duas, e nao edita os arquivos delas.
 > mesmo numero de linhas. O Status anterior, vigente de 2026-09-04 ate 2026-10-31, era: "Proposto —
 > DRAFT/verify. NADA AQUI ESTA RATIFICADO."
 
-**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084** (item R-079; achado
-F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
+**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084**, comentario de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079; achado F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
 `docs/compliance/human-windows/R-079-dec-adr-proposed.md`. A ADR-0041, cuja §1(d) esta ADR marca como
 datada, foi aceita no mesmo ato.
 
 **Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a arvore e
-nao e autor da ADR.
+nao e autor da ADR. A revisao independente por ADR exigida pela DEC-27 e o gate cego publicado no PR #1137
+(https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
 
 Conforme:
 - Decisao 1: a migracao `0010` acrescenta `status` com CHECK e declara o novo uso no schema
@@ -106,7 +107,7 @@ Conforme:
 - Decisao 3: a chave e o HMAC keyed do `wamid` (`src/maezo/platform/webhooks/whatsapp/dedup.py:56` ->
   `src/maezo/platform/webhooks/whatsapp/security.py:67`). O teste que prova o vazamento do telefone no
   `wamid` cru existe (`tests/unit/platform/webhooks/whatsapp/test_dedup_keys.py:37`). A classificacao
-  `SEM_COLUNA_DE_TITULAR` se mantem (`src/maezo/platform/lifecycle/erasure_plan.py:444-452`).
+  `SEM_COLUNA_DE_TITULAR` se mantem (`src/maezo/platform/lifecycle/erasure_plan.py:442-462`, valor em `:462`).
 - O modo ack-then-queue tem o documento citado (`docs/processes/webhook-whatsapp-ack-then-queue.md`).
 
 Divergencia (follow-up conhecido; nao bloqueia o aceite):

@@ -108,13 +108,14 @@ decidir qualquer coisa.
 > **Registro datado; histórico preservado.** Acima desta seção só a linha de Status mudou. O Status
 > anterior, vigente de 2026-10-01 até 2026-10-31, era: "Proposto".
 
-**O ato.** Decisão do dono **DEC-27**, opção (a), 2026-10-31, issue **#1084** (item R-079; achado
-F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisão está em
+**O ato.** Decisão do dono **DEC-27**, opção (a), 2026-10-31, issue **#1084**, comentário de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079; achado F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisão está em
 `docs/compliance/human-windows/R-079-dec-adr-proposed.md`. O aceite não liga nada: o interruptor
 continua com default desligado.
 
 **Revisão independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a árvore e
-não é autor da ADR.
+não é autor da ADR. A revisão independente por ADR exigida pela DEC-27 é o gate cego publicado no
+PR #1137 (https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
 
 Conforme:
 - Decisão 1 e 6: tabela `conversa_agente_ativo` com PK `(tenant, conversation_id)`, domínios fechados e
