@@ -82,6 +82,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.platform.observability import record_agent_error
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.runtime.start_outcome import StartProcessFailedError
@@ -395,8 +396,13 @@ def _as_float(value: Any) -> float:
         return 0.0
 
 
-def _has_business_key_identity(flow: Flow, meta: dict[str, str]) -> bool:
+def _has_business_key_identity(flow: Flow, tenant: str, meta: dict[str, str]) -> bool:
     """The flow's minimum identity — the exact set of shapes `graph._business_key` can COMPOSE.
+
+    R-101 / F-139: on `contas` this is no longer a parallel predicate — it asks the SINGLE
+    composer (`tools/process_business_keys.contas_business_key`, which `graph._business_key`
+    also calls) whether the identity composes, so the seam and the graph cannot drift. The
+    composer now refuses the degenerate guia-without-conta key itself; the history below is why.
 
     STRICTER THAN `graph.receive`'s own `key_ok` ON `contas`, DELIBERATELY. `receive` accepts
     `lote OR guia`, but `_business_key` composes the guia form ONLY as
@@ -419,7 +425,16 @@ def _has_business_key_identity(flow: Flow, meta: dict[str, str]) -> bool:
         return bool(meta.get("numero_guia_tiss") and meta.get("glosa_id"))
     if flow == "reembolso":
         return bool(meta.get("protocolo_reembolso"))
-    return bool(meta.get("numero_lote_tiss") or (meta.get("numero_guia_tiss") and meta.get("numero_conta")))
+    try:
+        contas_business_key(
+            tenant_id=tenant,
+            numero_lote_tiss=meta.get("numero_lote_tiss", ""),
+            numero_guia_tiss=meta.get("numero_guia_tiss", ""),
+            numero_conta=meta.get("numero_conta", ""),
+        )
+    except BusinessKeyComponentError:
+        return False
+    return True
 
 
 def state_from_envelope(envelope: DelegationEnvelope) -> MarinaState:
@@ -443,7 +458,7 @@ def state_from_envelope(envelope: DelegationEnvelope) -> MarinaState:
     """
     flow = _flow_for_task_type(envelope.task_type)
     meta = dict(envelope.payload_meta)
-    if not _has_business_key_identity(flow, meta):
+    if not _has_business_key_identity(flow, envelope.tenant, meta):
         raise ValueError(
             f"{envelope.task_type} envelope has no {flow} business-key identity in payload_meta — "
             "the SP-OP-CONTAS/RECURSO/REEMBOLSO-001 business key cannot be derived (producer bug; "
@@ -477,6 +492,7 @@ def make_marina_handler(
     audit_sink: AuditStartSink,
     fhir: PatientSummaryReader | None = None,
     agent_version: str = "marina@v0",
+    contas_start_dedup_exclusive: bool = False,
 ) -> Callable[[DelegationEnvelope], Awaitable[HandlerOutput]]:
     """Build Marina's A2A handler (delegation target).
 
@@ -504,6 +520,8 @@ def make_marina_handler(
             "audit_sink": audit_sink,
             "fhir": fhir,
             "agent_version": agent_version,
+            # R-101 / F-139 dark flag (default off) — see `MarinaGraph.__init__`.
+            "contas_start_dedup_exclusive": contas_start_dedup_exclusive,
         }
     ).compile()
 

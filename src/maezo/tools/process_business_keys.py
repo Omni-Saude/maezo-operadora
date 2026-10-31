@@ -39,6 +39,30 @@ from __future__ import annotations
 
 from typing import Final
 
+# R-101 / F-139: os primitivos FOLHA (o erro tipado e a validacao de componente) e o compositor
+# CONTAS vivem em `maezo.domain.chave_de_negocio`, que e' SDK de agente (ADR-0067,
+# `maezo.contratos.sdk.MODULOS_DO_SDK`) — Marina compoe a chave CONTAS sem cruzar a fronteira
+# agente -> plataforma. Re-exportados aqui: `BusinessKeyComponentError` e' UM so' tipo para AUTH e
+# CONTAS, e os chamadores existentes continuam importando deste modulo.
+from maezo.domain.chave_de_negocio import (
+    CONTAS_BUSINESS_KEY_PREFIX,
+    BusinessKeyComponentError,
+    contas_business_key,
+)
+from maezo.domain.chave_de_negocio import componente as _component
+
+__all__ = [
+    "AUTH_BUSINESS_KEY_PREFIX",
+    "CONTAS_BUSINESS_KEY_PREFIX",
+    "LEGACY_AUTH_INTAKE_BUSINESS_KEY_PREFIX",
+    "BusinessKeyComponentError",
+    "LegacyAuthIntakeBusinessKeyError",
+    "auth_business_key",
+    "contas_business_key",
+    "is_legacy_auth_intake_business_key",
+    "refuse_legacy_auth_intake_business_key",
+]
+
 #: Prefixo contratual da familia AUTH (`AUTH-{tenant_id}-{numero_guia_tiss}`).
 AUTH_BUSINESS_KEY_PREFIX: Final[str] = "AUTH-"
 
@@ -50,16 +74,6 @@ AUTH_BUSINESS_KEY_PREFIX: Final[str] = "AUTH-"
 LEGACY_AUTH_INTAKE_BUSINESS_KEY_PREFIX: Final[str] = "AUTHI-"
 
 
-class BusinessKeyComponentError(ValueError):
-    """Um componente da business key esta' ausente, vazio ou contem espaco/controle.
-
-    `ValueError` de proposito: e' a mesma classe que o ladder do harness de worker e o
-    construtor de estado do ingresso ja' tratam como ENTRADA ma' (recusa fail-closed sem
-    `bpmnError` nao catalogado), entao nenhum chamador precisa aprender um tipo novo para
-    falhar direito.
-    """
-
-
 class LegacyAuthIntakeBusinessKeyError(ValueError):
     """Uma business key na forma legada `AUTHI-{guide_identity_ref}` chegou a um caminho vivo.
 
@@ -68,25 +82,6 @@ class LegacyAuthIntakeBusinessKeyError(ValueError):
     total de um para o outro, e inventar uma seria fabricar identidade clinica. A recusa e' a
     unica resposta honesta.
     """
-
-
-def _component(name: str, value: object) -> str:
-    if type(value) is not str:
-        raise BusinessKeyComponentError(
-            f"business key AUTH: componente {name!r} precisa ser `str`, veio {type(value).__name__}"
-        )
-    if not value:
-        raise BusinessKeyComponentError(
-            f"business key AUTH: componente {name!r} vazio — a chave colapsaria para uma chave "
-            "compartilhada entre solicitacoes distintas; recusado antes de qualquer efeito"
-        )
-    if value.strip() != value or any(ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
-        raise BusinessKeyComponentError(
-            f"business key AUTH: componente {name!r} contem espaco ou caractere de controle — "
-            "a chave e' comparada byte a byte contra `ACT_HI_PROCINST.BUSINESS_KEY_` e contra a "
-            "reivindicacao duravel de dedup; uma variante com espaco e' um segundo dominio"
-        )
-    return value
 
 
 def auth_business_key(*, tenant_id: object, numero_guia_tiss: object) -> str:

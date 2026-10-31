@@ -1213,11 +1213,12 @@ class AnsSubmissionCorrectionInputs(_FrozenContract):
 
 
 class AnsNackInputs(_FrozenContract):
-    """UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+    """UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).
 
-    The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
-    not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
-    runtime binding remains unavailable until this contract/consumer gap is reconciled.
+    GW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to
+    UT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new
+    human sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other
+    value reopens the task. Recording retransmitir_manual does not itself retransmit.
     """
 
     kind: Literal["ans_nack"]
