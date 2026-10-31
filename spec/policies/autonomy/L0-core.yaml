@@ -4,7 +4,7 @@
 version: 2
 actions:
   clinical_decision:            { level: L0, hard: true }   # diagnostico/conduta: NUNCA
-  authorization_denial:         { level: L0, hard: true }   # negativa: medico auditor (RN 259)
+  authorization_denial:         { level: L0, hard: true }   # negativa: medico auditor (ADR-0005; RN 259 revogada, errata ADR-0073 §B: Lei 12.842 art. 5 II, RN 424, RN 623 arts. 14/16, LGPD art. 20)
   # NIP MANTER_NEGATIVA embute a negativa de cobertura (authorization_denial-class): L0 HARD, em
   # PARIDADE com `authorization_denial` de AUTH (GAP-NIP-3/GAP-XHITL-3). Nao rebaixavel por overlay;
   # a manutencao da negativa nasce SO na User Task humana (UT_RevisaoJuridicaNip), nunca por agente.
@@ -17,7 +17,7 @@ actions:
   # `nip_manter_negativa` (L0 hard, acima) — coverage-denial nao pode ser rebaixavel-L1.
   nip_response:                 { level: L1 }
   provider_decredentialing:     { level: L1 }
-  adequacao_fallback_commitment: { level: L1 }   # compromisso financeiro de fallback (RN 259): humano gestao-rede confirma (SP-OP-ADEQUACAO-001)
+  adequacao_fallback_commitment: { level: L1 }   # compromisso financeiro de fallback (RN 566; RN 259 revogada — errata ADR-0073 §B): humano gestao-rede confirma (SP-OP-ADEQUACAO-001)
   high_value_payment:           { level: L1, params: { threshold_brl: 100000 } }
   authorization_approval:       { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
     # max_value_brl=0 em L0-core: teto REAL e definido por tenant (ex.: tenants/amh.yaml) — D-07
