@@ -10,7 +10,8 @@ O QUE ESTE MODULO FAZ, e so isto:
   2. interpreta a gramatica FECHADA de `target` (`parse_target`): `track`, `==N`, `>N`, `>=N`,
      `<N`, `<=N` (sufixo opcional `s` = segundos) ou uma REFERENCIA externa (ex.: `<RN259/395`,
      o prazo regulatorio que mora no DMN/timer BPMN — nao e resolvido aqui de proposito);
-  3. compara um valor medido a meta (`evaluate_kpi`) e devolve um veredito fechado;
+  3. compara um valor medido a meta (`evaluate_kpi`) e devolve um veredito fechado (recusa
+     medicao injetada para KPI `sem_fonte` em `evaluate_declared`);
   4. declara, para CADA (agente, KPI), a fonte de medicao (`MEASUREMENT_SOURCES`) — inclusive,
      honestamente, `sem_fonte` quando nenhum emissor existe. A cerca
      `tests/unit/runtime/test_kpi_evaluator.py` exige que a tabela cubra os `agent.yaml` EXATAMENTE:
@@ -142,7 +143,6 @@ def evaluate_kpi(target: KpiTarget, measured: float | None) -> KpiVerdict:
 class SourceKind(enum.StrEnum):
     RECORDING_RULE = "recording_rule"  # `record:` em deploy/observability/alert-rules.yml
     HISTOGRAM_P95 = "histogram_p95"  # histogram_quantile(0.95, ...) sobre um Histogram de metrics.py
-    CI_EVAL = "ci_eval"  # golden dataset da lane `make evals` (ADR-0009)
     SEM_FONTE = "sem_fonte"  # nenhum emissor existe — declarado, nunca omitido
 
 
@@ -154,9 +154,10 @@ class KpiSource:
 
 
 _EVAL = KpiSource(
-    SourceKind.CI_EVAL,
-    "make evals",
-    "golden dataset por agente (ADR-0009); tests/evals ainda sem dataset coletavel",
+    SourceKind.SEM_FONTE,
+    "",
+    "golden dataset por agente (ADR-0009, lane `make evals`): tests/evals ainda nao tem dataset "
+    "coletavel, entao nao ha medicao de eval_score",
 )
 _SEM_DOSSIE = KpiSource(
     SourceKind.SEM_FONTE,
@@ -326,11 +327,16 @@ def evaluate_declared(
     Raises:
         KeyError: um KPI declarado sem entrada em `MEASUREMENT_SOURCES` — fail-closed, a mesma
             lacuna que a cerca do teste pega em CI.
+        KpiTargetError: medicao injetada para um KPI declarado `sem_fonte` — se nao ha emissor,
+            o numero veio de lugar nenhum; aceita-lo transformaria uma lacuna (inclusive uma
+            invariante L0 imposta, nao medida) em `atingida`.
     """
     results: list[KpiEvaluation] = []
     for kpi in declared:
         source = MEASUREMENT_SOURCES[(kpi.agent_id, kpi.name)]
         measured = measurements.get((kpi.agent_id, kpi.name))
+        if source.kind is SourceKind.SEM_FONTE and measured is not None:
+            raise KpiTargetError(f"medicao injetada para KPI sem fonte declarada: {kpi.agent_id}/{kpi.name}")
         results.append(
             KpiEvaluation(
                 agent_id=kpi.agent_id,

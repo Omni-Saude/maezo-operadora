@@ -37,6 +37,12 @@ raised a structural `DelegationError` (`maezo.a2a.dispatcher.DelegationDispatche
 no rate threshold was invented. This is NOT the USD-based `MaezoA2ATaskBudgetExceeded` described
 in `docs/runbooks/devops-stack.md` — that one stays PLANNED (no cost metric exists).
 
+**Alcance atual — estruturalmente inalcancavel hoje.** Nenhum handler de producao subdelega:
+nao ha chamada a `DelegationEnvelope.extend` em `src/`, e todo `.delegate()` parte de um worker
+originador com `Budget(tokens=64)` novo e `DelegationEnvelope.root`. A serie fica em 0 ate existir
+subdelegacao real; recusas de guarda na construcao do root (no worker) NAO sao contadas. A regra e o
+emissor existem para quando a subdelegacao existir. TODO-OWNER.
+
 ## 2. What this means in business terms
 
 A delegation chain ran out of its per-chain budget and the sub-delegation was rejected

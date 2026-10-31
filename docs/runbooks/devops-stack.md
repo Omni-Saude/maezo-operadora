@@ -464,10 +464,12 @@ tenant over a 1-hour window.
 desfecho of the agent, `sum by (agent_id)` on both sides, `increase(...[1h])`). The
 `maezo_escalation_total` / `maezo_conversation_total` pair this section used to describe never
 existed and was NOT created: the CC-09 counter already carries the same fact. Applies to the
-agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). Tenant separation comes
-from the per-tenant namespace/scrape target, not a metric label.  
+agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). **Limit (TODO-OWNER):**
+`sum by (agent_id)` sums every tenant scraped by the same Prometheus/AMP and the alert carries no
+tenant label; it measures turns (desfechos), not conversations, with no minimum volume and no
+`for:`.  
 **Steps:**
-1. Identify the agent and tenant from the alert labels
+1. Identify the agent from the alert's `agent_id` label (the alert carries no tenant label — see the Limit above; find the tenant from the Prometheus/AMP workspace the alert came from)
 2. Check recent eval scores for the agent — see [Eval score drop](#eval-score-drop)
 3. Check recent prompt/model/config changes: `git log --oneline -- src/maezo/agents/{agent}/`
 4. Sample a handful of the escalated conversations in the audit trail for a common failure pattern
@@ -547,8 +549,10 @@ worker/agent logs for delegation-chain depth per the steps below.
 
 ### A2A budget exhausted
 
-**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
-(grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
+**Status:** IMPLEMENTADO — REGRA E EMISSOR EXISTEM, EVENTO INALCANCAVEL HOJE (R-085, 2026-10-30) —
+nenhum handler de producao subdelega, entao a guarda nunca recusa dentro do dispatcher; o "budget
+A2A" de ADR-0010 em custo (USD) continua NAO IMPLEMENTADO. Regra em
+`deploy/observability/alert-rules.yml` (grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
 3 de ADR-0003 (`a2a.delegation.Budget.charge`). Le
 `maezo_a2a_guard_refusal_total{target,guard="budget_exhausted"}`, emitido pelo ramo
 `DelegationError` de `a2a.dispatcher.DelegationDispatcher._finish_handler`. Qualquer recusa na

@@ -34,7 +34,9 @@
 `maezo_gateway_pep_decision_total{tenant,principal,decision,layer,reason,enforced}` is
 incremented once per effect-PEP decision by `maezo.gateway.seams._base.gate` (the single
 chokepoint every gated seam calls) through `maezo.platform.observability.record_pep_decision`.
-All labels are closed vocabularies (ADR-0006: no PHI, no call argument, no business identifier).
+`decision`/`layer`/`reason`/`enforced` are closed vocabularies (an unknown layer or reason becomes
+`outro`); `tenant`/`principal` are composition-bound bounded tokens validated at `SeamContext`
+construction, not closed sets. No PHI, no call argument, no business identifier (ADR-0006).
 
 **Only ENFORCED denies count.** While the action-approvals manifest
 (`spec/policies/autonomy/action-approvals.yaml`) is not ratified, every class denies in SHADOW
