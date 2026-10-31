@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 2 · **Wave:** WC.2 · **BPMN (a autorar em wave posterior):** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
-**Gatilho regulatorio:** RN 259/2011 (garantia de atendimento / prazos — consolidacoes posteriores ANS: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify** RN vigente com regulatorio/juridico). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`).**
+**Gatilho regulatorio:** RN 566/2022 (garantia de atendimento / prazos — **sucede a RN 259/2011, revogada pela RN 566, art. 16, I**; errata ADR-0073 §B: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify** RN vigente com regulatorio/juridico). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`)** — politica interna ADR-0005; base normativa da negativa pela errata ADR-0073 §B (Lei 12.842/2013 art. 5º, II + RN 424/2017 no merito clinico; RN 623/2024 arts. 14 e 16 + LGPD art. 20 na negativa administrativa).
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/agente de REEMBOLSO derivam dele. Toda mecanica no-denial de cinco partes esta materializada abaixo (invariante L0, rotas sem variante negar, DMN sem coluna de negativa, catch-all conservador para humano, worker-guard `ERR_*_NOT_HUMAN`, teste de invariante consultando o history do engine). **Clona o esqueleto provado SP-OP-AUTH-001.**
 
@@ -239,7 +239,7 @@ pendencia nunca auto-nega** (espelha AUTH-001 `UT_DecidirPendenciaExpirada`).
 
 - DI (diagrama) do BPMN; corpo `.bpmn`/`.dmn` (wave de autoria posterior, contra este contrato).
 - Confirmacao de **todos** os prazos com regulatorio/juridico (prazo de reembolso, urgencia, pendencia, pagamento) e a conversao dias-uteis→ISO.
-- Confirmacao das fontes RN/Lei (RN 259, Lei 9.656 art. 12, RN de reembolso vigente — podem ter sido consolidadas/substituidas).
+- Confirmacao das fontes RN/Lei (RN 566 — que revogou a RN 259 —, Lei 9.656 art. 12, RN de reembolso vigente — podem ter sido consolidadas/substituidas).
 - Tabela de referencia de reembolso (multiplo/limite por categoria/segmentacao) e o teto de auto-aprovacao L2 do tenant (tenants-amh.yaml) — sign-off de regulatorio + atuarial.
 - Confirmacao dos nomes de candidateGroups (`analise-reembolso`, `medico-auditor`, `coordenacao-reembolso`) contra a taxonomia organizacional do operador.
 - Politica de suspensao de prazo em pendencia; anexos/comprovantes obrigatorios por `tipo_reembolso`.
