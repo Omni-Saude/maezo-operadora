@@ -12,6 +12,7 @@
 | `ATO-INDICACAO-ENCARREGADO-MINUTA.md` | Minuta do ato formal de indicação do encarregado (Res. CD/ANPD 18/2024, arts. 3º–4º, 8º–9º) + checklist até a janela DPO de 2026-11-10 (DEC-07/PEND-075, issue #1082). Campos humanos em branco. |
 | `ATO-INDICACAO-ENCARREGADO-FILIPE-CARMO.md` | Ato formal de indicação do encarregado/DPO derivado da minuta, com o titular **Filipe Carmo** nomeado pelo dono em 2026-10-31 (DL-0158). Também traz o modelo de declaração de conflito de interesse (arts. 18–21) e o checklist de publicação e onboarding. Controlador, substituto (obrigatório pelo art. 4º), data, assinaturas e URL de divulgação ficam em branco para humanos. |
 | `R-070-dec-teto-d07.md` | Minuta de decisão do teto de auto-aprovação do REEMBOLSO (R-070 / DEC-26, issue #1084): estado medido, moldura regulatória, proposta rígida do orquestrador a pedido do dono (não vinculante), opções A/B/C e bloco de decisão em branco para dono + atuária. |
+| `R-079-dec-adr-proposed.md` | Registro do aceite do lote de ADRs Proposed (R-079 / DEC-27, issue #1084, comentário de 2026-10-31): ADR-0040/0041/0042/0045/0048/0062 promovidas a Accepted com revisão independente por ADR, nota de emenda anunciada a D6-bis da ADR-0040, erratas do R-072 (ADR-0072 `Proposed`) e bloco do dono em branco. |
 
 ## Consumo esperado
 
