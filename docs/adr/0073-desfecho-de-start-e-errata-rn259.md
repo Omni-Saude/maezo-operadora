@@ -60,8 +60,7 @@ O esperado, pelo ADR-0007, é que a auditoria distinga a **tentativa** do **efei
 trava, o direito exclusivo de tentar). Ela **nunca** prova o efeito. Quem audita, a partir desta ADR, lê assim. O literal
 `START_PROCESS` não muda (compatibilidade de leitura com a cadeia já gravada).
 
-**A.2 — O desfecho terminal vira uma segunda linha, append-only, ligada à tentativa.** Depois do passo de efeito, o
-chokepoint grava uma linha de desfecho na mesma trilha:
+**A.2 — O desfecho terminal vira uma segunda linha, append-only, ligada à tentativa.** Depois de cada saída do chokepoint posterior à linha de tentativa (passos 2, 3 e 4), o chokepoint grava uma linha de desfecho na mesma trilha:
 
 - `action = "start_process_outcome:<process_key>"`;
 - `decision` = um valor do vocabulário fechado de A.3;
@@ -102,6 +101,8 @@ audita: ele pede reconciliação.
 
 Na dúvida, a classificação é `EFFECT_UNKNOWN`. Classificar como `FAILED_BEFORE_EFFECT` um timeout que teve efeito
 seria uma afirmação falsa na trilha. Os nomes das subclasses ficam para o PR de implementação.
+
+A classificação usa também a POSIÇÃO no chokepoint, não só o tipo: (i) qualquer `CibSevenError` levantado nos passos 2 ou 3 (`find_active_instance`/`find_any_instance`, antes do POST) → `FAILED_BEFORE_EFFECT`; (ii) `CibSevenTenantError` levantado no passo 4 → `FAILED_BEFORE_EFFECT`; (iii) `StartClaimWithoutInstanceError` → `EFFECT_UNKNOWN` (indecidível por desenho; segue para decisão humana, nunca libera claim); (iv) qualquer exceção que não seja `CibSevenError` depois do POST ter devolvido 2xx → `EFFECT_UNKNOWN`; (v) resposta 408 ou 499 → `EFFECT_UNKNOWN` (um intermediário pode tê-la emitido depois de repassar o pedido). Para sinks que não implementam `emit_once_status`, `attempt_record_hash` é o hash devolvido por `emit_once`, e a linha de desfecho é gravada com `emit_once`.
 
 **A.5 — Reconciliação.** Uma tentativa sem desfecho terminal (processo morreu entre as duas linhas, ou a linha de
 desfecho falhou) ou com desfecho `EFFECT_UNKNOWN` é resolvida pelo histórico do motor
@@ -160,6 +161,7 @@ mostra ao beneficiário na falha é território do ADR-0045 e não muda aqui.
 9. Todo membro de `StartOutcome`, exceto `UNREPORTED`, aparece na tabela A.3 desta ADR (cerca já entregue neste PR em
    `tests/unit/docs/test_adr0073_desfecho_start_errata_rn259.py`).
 10. Integração no motor local (CIB Seven), duas vezes no mesmo motor, com o motor parado para o caso 2.
+11. Com a flag ligada e `find_active_instance` levantando `CibSevenError` no passo 3: uma linha de tentativa + uma linha `FAILED_BEFORE_EFFECT`; o `CibSevenError` chega ao chamador.
 
 ---
 
@@ -211,13 +213,16 @@ negativa continua decisão de médico auditor humano, e o mecanismo do ADR-0005 
 credenciais, recusa auditável) é o mesmo. A errata troca a fonte citada, não a regra.
 
 **B.4 — Onde a errata foi aplicada neste PR:** o comentário de `authorization_denial` e o de
-`adequacao_fallback_commitment` em `spec/policies/autonomy/L0-core.yaml`; as linhas que citam a RN 259 em
+`adequacao_fallback_commitment` em `spec/policies/autonomy/L0-core.yaml`; as linhas que citavam a RN 259 sozinha em
 `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, `docs/processes/contracts/SP-OP-AUTH-001.md` e
-`docs/processes/contracts/SP-OP-REEMBOLSO-001.md` (o `docs/processes/contracts/SP-OP-CRED-001.md` já co-cita a RN 566).
+`docs/processes/contracts/SP-OP-REEMBOLSO-001.md`. As linhas que já traziam a co-citação "RN 259/566" ficaram como
+estavam (em `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`, as linhas 109, 158, 217, 354 e 359; e
+`docs/processes/contracts/SP-OP-CRED-001.md:270`): a co-citação já nomeia a sucessora, e esta errata não reescreve essas
+linhas.
 Os números de linha não mudaram, para não quebrar as âncoras de `docs/sme-dispatch/regulatorio/rn-currency-matrix.yaml`,
 e o token "RN 259" ficou nas linhas ancoradas, agora com a menção à revogação.
 
-**B.5 — Citações de RN 259 que ficam para outro pacote** (fora da lista de caminhos deste):
+**B.5 — Citações de RN 259 que ficam para outro pacote** (lista NÃO exaustiva; o inventário completo é `git grep -nP "RN ?259(?!\d)" -- . ':!docs/audits'`). Entre elas, as que ainda dão a RN 259 como fundamento da negativa:
 `docs/processes/catalog.md`, `docs/adr/0001-cib-seven-governance-langgraph-runtime.md` (Accepted; a mesma regra de
 emenda por ADR nova vale), os comentários em `src/maezo/gateway/pep.py` e `src/maezo/gateway/credential_vault.py`, a
 documentação do BPMN `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, as DMNs e os manifestos de

@@ -61,8 +61,9 @@ def test_adr_tabela_a3_cobre_todo_start_outcome_produzido_pelo_chokepoint() -> N
 
 def test_adr_declara_os_desfechos_de_falha_e_o_par_com_o_adr_0045() -> None:
     tabela = _section(_adr_text(), "**A.3", "**A.4")
-    for literal in ("`FAILED_BEFORE_EFFECT`", "`EFFECT_UNKNOWN`", "`NOT_STARTED`", "`erro_inicio_processo`"):
-        assert literal in tabela, f"tabela A.3 sem {literal}"
+    for literal in ("`FAILED_BEFORE_EFFECT`", "`EFFECT_UNKNOWN`", "`NOT_STARTED`"):
+        assert f"\n| {literal} |" in tabela, f"tabela A.3 sem a linha de {literal}"
+    assert "`erro_inicio_processo`" in tabela, "tabela A.3 sem `erro_inicio_processo`"
 
 
 def test_adr_errata_traz_as_ancoras_aprovadas_pelo_dono() -> None:
