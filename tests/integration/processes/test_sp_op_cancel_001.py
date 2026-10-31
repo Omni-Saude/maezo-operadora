@@ -1689,3 +1689,179 @@ async def test_business_key_uma_instancia_por_contrato(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou QUATRO nos deste processo que nenhuma passada da suite executava: as tres fronteiras de
+# falha do aviso ao beneficiario (BE_Aviso*Falhou, v0.2.0/DL-0111) e a mensagem de informacao
+# recebida com a analise ainda aberta (BME_InfoRecebida).
+
+
+class _PublishFalhoPorTopico(FakeKafkaPublisher):
+    """Publicador que FALHA nos topicos armados e grava os demais (como o duble padrao).
+
+    `agents.events.process_completed` nao e' topico best-effort no produtor real
+    (`AioKafkaEventsProducer`): uma queda do broker PROPAGA ate o handler de
+    `operadora.events.publish`, que a converte em `ERR_EVENT_PUBLISH_FAILED` (events.py,
+    `_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS`). Levantar aqui e' exatamente o que esse handler ve.
+    """
+
+    def __init__(self, topicos_falhos: set[str]) -> None:
+        super().__init__()
+        self.topicos_falhos = topicos_falhos
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+        unordered: bool = False,
+    ) -> bool:
+        if topic in self.topicos_falhos:
+            raise RuntimeError(f"broker indisponivel (falha injetada): {topic}")
+        return await super().publish(topic, value, key=key, best_effort=best_effort, unordered=unordered)
+
+
+@pytest_asyncio.fixture
+async def cancel_probe_aviso_falho(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[CancelEngineProbe]:
+    """Probe igual ao `cancel_probe`, com duas diferencas: o publicador falha em process_completed e
+    o allowlist do harness e' SO' `EVENTS_BPMN_ERROR_ALLOWLIST` (`ERR_EVENT_PUBLISH_FAILED`) — o
+    codigo que a producao ja habilita em `PRODUCTION_BPMN_ERROR_ALLOWLIST`; nenhum codigo
+    T-E-deferred entra."""
+    from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
+
+    worker_id = f"qa-cancel-aviso-falho-{uuid.uuid4().hex[:8]}"
+    transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=EVENTS_BPMN_ERROR_ALLOWLIST,
+        audit_sink=audit_sink,
+    )
+    kafka = _PublishFalhoPorTopico({_PROCESS_COMPLETED})
+    register_cancel_workers(harness, kafka)
+    register_events_workers(harness, kafka)
+    probe = CancelEngineProbe(
+        engine=engine, harness=harness, transport=transport, kafka=kafka, worker_id=worker_id
+    )
+    try:
+        yield probe
+    finally:
+        await transport.close()
+
+
+async def test_r119_aviso_de_cancelado_que_falha_ainda_encerra_cancelado(
+    engine: EngineRest,
+    cancel_probe_aviso_falho: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """BE_AvisoCanceladoFalhou: o aviso EXECUTADO nao sai, mas o caso fecha em End_CanceladoBeneficiario."""
+    probe = cancel_probe_aviso_falho
+    inst = await start_cancel(**_PEDIDO_PF_TITULAR, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut_exec = await _drive_to_execucao(engine, probe, iid)
+    await engine.complete_task_as_human(ut_exec.id, {"execucao_cadastro": "EXECUTADO"})
+    await probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert "BE_AvisoCanceladoFalhou" in ended, ended
+    assert _END_CANCELADO_BENEFICIARIO in ended, ended
+    assert not _avisos(probe, "cancelamento_executado")
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_aviso_de_info_solicitada_que_falha_ainda_espera_a_informacao(
+    engine: EngineRest,
+    cancel_probe_aviso_falho: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """BE_AvisoInfoFalhou: o aviso de SOLICITAR_INFO nao sai; o caso segue em ICE_AguardarInfo e a
+    informacao recebida ainda reabre a analise humana."""
+    probe = cancel_probe_aviso_falho
+    inst = await start_cancel(**{**_PEDIDO_PF_TITULAR, "titularidade_confirmada": False}, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, probe, iid)
+    await engine.complete_task_as_human(ut.id, {"decisao_cancelamento": "SOLICITAR_INFO"})
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_AvisoInfoFalhou" in ended, ended
+    assert not _avisos(probe, "cancelamento_info_solicitada")
+    assert await engine.history_state(iid) == "ACTIVE"
+    assert not await engine.incidents(iid)
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.cancel.info_received", "businessKey": inst["businessKey"]}
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    await engine.await_user_task(iid, _UT_ANALISE)
+    assert "ICE_AguardarInfo" in await engine.activity_instances_ended(iid)
+
+
+async def test_r119_aviso_de_plano_mantido_que_falha_ainda_encerra_mantido(
+    engine: EngineRest,
+    cancel_probe_aviso_falho: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """BE_AvisoMantidoFalhou: o aviso MANTER nao sai; o caso fecha em End_PedidoCancelamentoNegado,
+    sempre depois da decisao humana."""
+    probe = cancel_probe_aviso_falho
+    inst = await start_cancel(**{**_PEDIDO_PF_TITULAR, "titularidade_confirmada": False}, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_cancelamento": "MANTER",
+            "fundamentacao_contratual": "Fundamentacao sintetica (teste R-119)",
+            "responsavel_id": "juridico-sintetico-001",
+        },
+    )
+    await probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert "BE_AvisoMantidoFalhou" in ended, ended
+    assert _END_PEDIDO_NEGADO in ended, ended
+    assert not _avisos(probe, "cancelamento_mantido")
+    await _assert_no_adverse_without_human_task(engine, iid)
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_info_recebida_com_analise_aberta_reabre_a_analise(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """BME_InfoRecebida: a informacao chega com UT_AnaliseRescisao ainda aberta; a UT e' recriada
+    (interruptivo) para o mesmo grupo humano, sem nenhum desfecho."""
+    inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.cancel.info_received", "businessKey": inst["businessKey"]}
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+
+    ut2 = await engine.await_user_task(iid, _UT_ANALISE)
+    assert ut2.id != ut.id
+    assert "juridico-contratos" in ut2.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoRecebida" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_ANALISE) == 2
+    assert not (ended & _ENDS_ADVERSOS)

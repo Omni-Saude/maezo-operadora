@@ -732,7 +732,7 @@ async def test_business_key_idempotente(
     `probe.drain()` progredir alem do primeiro publish — sobrevive ao gap acima (nao marcado
     xfail).
     """
-    conv = "conv-teste-idem-001"
+    conv = f"conv-teste-idem-{uuid.uuid4().hex[:8]}"
     business_key = f"ESC-amh-{conv}"
 
     first = await start_escalation(conversation_id=conv)
@@ -1068,3 +1068,148 @@ async def test_fallback_de_canal_continua_alertando_com_o_seam_de_leitura(
         await engine.await_user_task(iid, "UT_TratarEscalonamento")
     finally:
         await probe.transport.close()
+
+
+# --- R-119 (auditoria forense F-195): fronteiras de falha nunca executadas no motor --------------
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou SEIS boundaries de erro deste processo que nenhuma passada da suite executava: a falha de
+# publicacao de cada evento de dominio que tem fronteira propria (ack/resolucao/resolved/
+# process_completed/withdrawn) e a falha da notificacao do supervisor. Cada teste abaixo arma a
+# falha no produtor REAL (`_FaultInjectingPublisher`), dirige a instancia ate a tarefa que publica e
+# prova, no historico do motor, que a fronteira disparou e que o processo seguiu para o MESMO alvo
+# que o contrato declara (um glitch de canal nunca prende o HITL nem inventa desfecho).
+
+
+async def test_r119_falha_ao_publicar_breach_de_ciencia_ainda_notifica_o_supervisor(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_PubAckBreachFailed: o sla_breached(ack) nao sai, mas o supervisor e' notificado."""
+    probe.fault.fail_topics.add(_BREACHED)
+    inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+    iid = inst["id"]
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    job = await engine.await_timer_job(iid, "BT_SlaAck")
+    await engine.execute_job(job.id)
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_PubAckBreachFailed" in ended, ended
+    assert {"ST_NotificarSupervisor", "End_SupervisorAlertado"} <= ended, ended
+    assert not probe.has_event(_BREACHED, fase="ack")
+    assert [n for n in probe.notified_supervisors if n.get("business_key") == inst["businessKey"]]
+    abertas = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert "UT_TratarEscalonamento" in abertas  # ramo nao-interruptivo: a UT segue aberta
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_falha_ao_notificar_o_supervisor_encerra_o_ramo_sem_prender_a_ut(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_NotifSupervisorFailed: o canal do supervisor cai; o ramo de alerta termina e a UT segue."""
+    probe.fault.fail_notification_types.add("escalation.notify_supervisor")
+    inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+    iid = inst["id"]
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    job = await engine.await_timer_job(iid, "BT_SlaAck")
+    await engine.execute_job(job.id)
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_NotifSupervisorFailed" in ended, ended
+    assert "End_SupervisorAlertado" in ended, ended
+    assert probe.has_event(_BREACHED, fase="ack")
+    assert not [n for n in probe.notified_supervisors if n.get("business_key") == inst["businessKey"]]
+    abertas = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert "UT_TratarEscalonamento" in abertas
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_falha_ao_publicar_breach_de_resolucao_ainda_entrega_ao_supervisor(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_PubResolBreachFailed: o sla_breached(resolucao) nao sai, mas UT_SupervisorAssume e' criada."""
+    probe.fault.fail_topics.add(_BREACHED)
+    inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+    iid = inst["id"]
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    job = await engine.await_timer_job(iid, "BT_SlaResolucao")
+    await engine.execute_job(job.id)
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_PubResolBreachFailed" in ended, ended
+    assert not probe.has_event(_BREACHED, fase="resolucao")
+    sup = await engine.await_user_task(iid, "UT_SupervisorAssume")
+    assert sup.candidate_groups == frozenset({"supervisao-atendimento"})
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_falha_ao_publicar_resolved_ainda_chega_ao_desfecho_humano(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_PubResolvedFailed: escalation.resolved nao sai; GW_Resultado ainda roteia o desfecho humano."""
+    probe.fault.fail_topics.add(_RESOLVED)
+    inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+    iid = inst["id"]
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    await engine.complete_task_as_human(task.id, {"resultado": "resolvido_humano", "notas_resolucao": "ok"})
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_PubResolvedFailed" in ended, ended
+    assert {"GW_Resultado", "End_ResolvidoPorHumano"} <= ended, ended
+    assert not probe.has_event(_RESOLVED, resultado="resolvido_humano")
+    assert not await engine.instance_is_active(iid)
+
+
+async def test_r119_falha_ao_publicar_process_completed_ainda_devolve_ao_agente(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_PubProcessCompletedFailed: process_completed nao sai; o fim continua End_DevolvidoAoAgente."""
+    probe.fault.fail_topics.add(_PROCESS_COMPLETED)
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    await engine.complete_task_as_human(
+        task.id, {"resultado": "devolvido_agente", "notas_resolucao": "instrucoes do humano"}
+    )
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_PubProcessCompletedFailed" in ended, ended
+    assert "End_DevolvidoAoAgente" in ended, ended
+    assert probe.has_event(_RESOLVED, resultado="devolvido_agente")  # so' o process_completed falhou
+    assert not probe.events_on(_PROCESS_COMPLETED)
+    assert not await engine.instance_is_active(iid)
+
+
+async def test_r119_falha_ao_publicar_encerramento_a_pedido_ainda_encerra(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """BE_PubWithdrawnFailed: o resolved(encerrado_a_pedido) nao sai; a instancia encerra mesmo assim."""
+    probe.fault.fail_topics.add(_RESOLVED)
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    await _correlacionar_encerramento(business_key)
+    await probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_PubWithdrawnFailed" in ended, ended
+    assert "End_EncerradoAPedidoDoBeneficiario" in ended, ended
+    assert not probe.has_event(_RESOLVED, resultado="encerrado_a_pedido_beneficiario")
+    assert not await engine.instance_is_active(iid)
