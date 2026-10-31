@@ -276,6 +276,8 @@ análise de minimização.
 | `rede_credenciada` | boolean | nao | **NAO E MAIS LIDO por `auth_auto_approval`** (v0.2.0). Nenhum criterio o consome hoje: rede credenciada NAO esta coberta por nenhuma das quatro fontes de regra — ver o bloco GAP-AUTH-4 abaixo (residuo declarado) |
 | `tipo_procedimento` | string | nao | Input de `carencia_check` (`urgencia_emergencia` \| `parto` \| `eletivo` \| `alta_complexidade` \| `outros`). **Sem fonte hoje**: a derivacao a partir de `carater_atendimento`/`categoria_procedimento` e um mapeamento REGULATORIO pendente de SME (docs/review-queue.md) e nao foi inventada. Ausente => `criterio_regulatorio_ok=false` / `REGULATORIO_ENTRADA_AUSENTE` |
 | `dias_desde_adesao` | integer | nao | Input de `carencia_check`. **Sem fonte hoje**: exige dado cadastral da fronteira AMH (MZO-050b, bloqueado). Ausente/negativo/nao-inteiro => `REGULATORIO_ENTRADA_AUSENTE` |
+| `data_solicitacao_iso` | string (ISO 8601 com fuso, ou data `YYYY-MM-DD`) | nao | R-005: ancora do prazo de resposta da RN 623/2024 art. 12 ("a partir da data da solicitacao"). Lida SO por `operadora.auth.compute_response_deadline` com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada. Ausente = relogio do worker (a mesma ancora do timer ISO de hoje); instante sem fuso ou invalido = nao adivinhado (nulos, timer ISO); ancora no futuro e limitada a agora |
+| `uf_beneficiario` | string (UF) | nao | R-005: UF do beneficiario para os feriados estaduais do calendario versionado (`maezo.platform.calendario`). Ausente, invalida ou UF ainda sem fonte estadual conferida = so feriados nacionais (vencimento igual ou anterior ao legal, nunca posterior) |
 | `cpt_declarada` | boolean | nao | Input de `carencia_check` (Cobertura Parcial Temporaria). **Sem fonte hoje** (DPS — mesma fronteira). Ausente/nao-booleano => `REGULATORIO_ENTRADA_AUSENTE` |
 
 > **GAP-AUTH-4 — PORTAO DE CRITERIOS (fechamento ESTRUTURAL, 2026-08-06).** Os quatro fatos que a
@@ -360,6 +362,9 @@ análise de minimização.
 | `auto_criteria_shadow` | json | MODO SOMBRA: o que cada tabela DRAFT TERIA decidido — `{TECNICO,REGULATORIO,CONTRATUAL}_SOMBRA_{APROVARIA,REPROVARIA,INDETERMINADO}`. Evidencia de ratificacao para o revisor medico/ANS. **Nunca influencia o veredito** |
 | `junta_guarda_rn424_ativa` | boolean | R-064: escrito por `operadora.auth.convene_junta` em TODO caminho (sobrescreve semente de start), a partir SO da implantacao (`MAEZO_AUTH_JUNTA_RN424_GUARD`, default `false`). Lido por `GW_JuntaAdmissivel` com `execution.getVariable` — ausente (worker anterior ao R-064) equivale a desligada |
 | `junta_admissibilidade` | json | R-064: resultVariable de `BRT_JuntaAdmissibilidade` (DMN `auth_junta_admissibility`, singleResult): `resultado` (`ADMITIDA` \| `VEDADA_URGENCIA_EMERGENCIA` \| `CARATER_INDETERMINADO`) + `motivo`. Avaliada SEMPRE que a junta e' pedida; com a guarda desligada fica so em sombra. Nunca e' aprovacao nem negativa |
+| `prazo_resposta_duracao_util` | string (ISO `PTnS`) \| null | R-005: duracao ate o fim do N-esimo dia util, escrita por `compute_response_deadline` em TODO caminho; lida por `BT_SlaAnalise` via `execution.getVariable` — nula/ausente = vale o `sla.sla_analise` ISO da DMN (bandeira desligada, urgencia, ancora invalida) |
+| `prazo_resposta_vencimento_util_iso` | string (ISO 8601) \| null | R-005: instante do vencimento calculado (America/Sao_Paulo), para auditoria |
+| `prazo_resposta_calendario_versao` | string \| null | R-005: versao do calendario de feriados que produziu o vencimento (`CALENDARIO_VERSAO`) |
 | `motivo_bloqueio_criterios` | string | O PRIMEIRO token de `auto_criteria_falhas` na ordem tecnico->financeiro->regulatorio->contratual (`""` quando tudo passou). Token unico e limitado porque a cadeia ADR-0007 nao aceita listas — mesmo idioma de `motivo_bloqueio_teto` |
 
 ## Variaveis de proveniencia do agente (Rafael — ADR-0007/ADR-0015)
@@ -396,6 +401,7 @@ emitia sem declaracao no contrato).
 | External task | `operadora.auth.send_denial_notice` | consome (worker) | **dono UNICO** (R-004/F-032): worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`) — o segundo dono `NativeDenialNoticeWorker` (WP-J1-06, flag `MAEZO_DENIAL_NOTICE_OWNER`) foi REMOVIDO por decisao do dono (DEC-01, issue #1081); a flag antiga e' lapide (ligada, o daemon recusa registrar os workers) e `assert_single_owner` recusa dois donos ou nenhum. O worker **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
 | External task | `operadora.auth.notify_sla_risk` | consome (worker) + **publica** `auth.notify_sla_risk` | handler cru `make_notify_sla_risk_handler` (WP-J1-09, decisao do dono #17): executa a etapa pura `NotifySlaRiskWorker` — que segue retornando `{}` e **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** (FAB-SLA-RISK-NOTIFIED-SLICE4; aquele evento e de `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise`) — e ENTAO publica a notificacao `{type: auth.notify_sla_risk, tenant_id, numero_guia_tiss, beneficiario_pseudo_id}` em `operadora.notifications.internal`, com `best_effort=False`. Ate WP-J1-09 o worker era sincrono e **sem seam de Kafka**: a etapa rodava e ninguem era avisado. O publish e um PEDIDO de alerta, nunca prova de que um humano foi avisado — a prova e a linha de inbox do consumidor. Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT). Guard de proveniencia inalterado (so com o literal humano `JUNTA_MEDICA`). R-064: escreve `junta_guarda_rn424_ativa` (bool, da implantacao); com a guarda ligada o status e' `junta_solicitada` — a junta so e' aberta se `BRT_JuntaAdmissibilidade` a admitir. O worker NAO le `carater_atendimento`: a vedacao e' a DMN. Ver "Junta medica — RN 424/2017 (R-064)" |
+| External task | `operadora.auth.compute_response_deadline` | consome (worker) | R-005 (F-018; DEC-02), DARK atras de `MAEZO_AUTH_PRAZO_DIAS_UTEIS`: `ST_CalcularPrazoRespostaUtil`, imediatamente antes de `UT_AnaliseMedicoAuditor`. So aritmetica de calendario: converte `prazo_resposta_dias_uteis` (DMN `auth_sla`, copiado por inputParameter local) em `prazo_resposta_duracao_util`. Desligado, escreve nulos. Subscricao restrita a 5 variaveis (`tenant_id`, `numero_guia_tiss`, `prazo_resposta_dias_uteis`, `data_solicitacao_iso`, `uf_beneficiario`) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
 
 ## Pedido de documentos — ponte PHI
@@ -529,7 +535,7 @@ caso nao e' urgente). Sem saida de aprovacao nem de negativa. Avaliada pelo engi
 
 ### `auth_sla` (FIRST — DRAFT, todos os prazos DRAFT/verify)
 in: `carater_atendimento: string`, `categoria_procedimento: string`
-out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`
+out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`, `prazo_resposta_dias_uteis: integer` (R-005: 10 PAC/internacao eletiva — art. 12 II "b"; 5 eletivo e fail-safe — art. 12 II "a"; nulo na urgencia — art. 12 I, resposta imediata)
 
 ## Papeis humanos
 
@@ -560,6 +566,21 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; entrega ao beneficiario MANUAL pelo medico auditor ate existir canal com comprovante — ver "Negativa por escrito — entrega (R-004)" | dentro do prazo de resposta do art. 12 (mesmas linhas acima) | RN 623/2024 art. 14 (independe de solicitacao; §2 imprimivel/download) + art. 16 §§1-3 (Ouvidoria) — **DRAFT/verify** |
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
+
+### R-005 — prazo de resposta em dias uteis (RN 623/2024 art. 12) — DARK
+
+- **Decisao:** DEC-02 (juridico via dono, 2026-10-31): dias uteis com calendario versionado
+  (nacional + UF do beneficiario) onde a norma diz dias uteis; corridos onde diz corridos;
+  suspensao so onde a norma permite (nao modelada aqui). D-05 mantem o ISO corrido como teto
+  temporario mais rigido enquanto a bandeira estiver desligada.
+- **Onde mora cada coisa:** o NUMERO de dias uteis e a DMN `auth_sla` (`prazo_resposta_dias_uteis`);
+  o calendario e dado versionado com fonte por regra (`maezo.platform.calendario.feriados_br`);
+  o worker `compute_response_deadline` so faz a aritmetica (dia da solicitacao nao conta; vence
+  no fim — 23:59:59 America/Sao_Paulo — do N-esimo dia util; duracao arredondada para baixo).
+- **Calendario hoje:** feriados de lei federal; Sexta-feira da Paixao (feriado religioso municipal, Lei 9.093/1995 art. 2o), Carnaval e Corpus Christi (ponto facultativo) calculados pela Pascoa e contados como util; estadual so SP (Lei 9.497/1997,
+  conferida); as outras 26 UFs aguardam fonte primaria (so nacional). Nenhum feriado municipal.
+- **Dark:** `MAEZO_AUTH_PRAZO_DIAS_UTEIS` (default `false`). Ligar e ato da implantacao (ROLL),
+  depois da conferencia juridica do calendario e das UFs; nunca de agente.
 
 ## Junta medica — RN 424/2017 (R-064) — DARK
 

@@ -55,6 +55,8 @@ _TOPICOS_INCONDICIONAIS = frozenset(
         "operadora.auth.analyze_request",
         "operadora.auth.issue_authorization",
         "operadora.auth.convene_junta",
+        # R-005 (F-018): prazo de resposta em dias uteis — registrado sempre; a bandeira so' liga o calculo.
+        "operadora.auth.compute_response_deadline",
         _TOPICO_CRITERIOS,
         _NOTIFY_SLA_RISK_TOPIC,
         TOPICO_NEGATIVA,

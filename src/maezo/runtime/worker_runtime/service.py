@@ -304,6 +304,7 @@ def register_default_workers(
     contas_sla_risk_entrega: bool = False,
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
+    auth_prazo_dias_uteis: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -407,6 +408,8 @@ def register_default_workers(
         **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
         junta_rn424_guard=junta_rn424_guard,
+        # R-005 / F-018: prazo de resposta AUTH em dias uteis (dark; see settings).
+        auth_prazo_dias_uteis=auth_prazo_dias_uteis,
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1112,6 +1115,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 lgpd_legal_hold_predicate=settings.lgpd_legal_hold_predicate,
                 # R-064 (RN 424/2017 art. 3 I), DARK: a guarda da junta so' roteia quando ligada.
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
+                # R-005 (RN 623/2024 art. 12), DARK: prazo de resposta em dias uteis so' quando ligada.
+                auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url
