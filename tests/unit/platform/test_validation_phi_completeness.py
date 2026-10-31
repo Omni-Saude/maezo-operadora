@@ -1774,6 +1774,31 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "sem dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1141",
+        name="prazo_resposta_dias_uteis",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "R-005 (F-018, DEC-02): nova coluna de saida `prazo_resposta_dias_uteis` (integer) da DMN "
+            "auth_sla (+1) e o inputParameter de ST_CalcularPrazoRespostaUtil em SP-OP-AUTH-001 que a "
+            "copia para a task (+1 nome do parametro, +1 segmento JUEL). Contagem de dias uteis do art. "
+            "12 da RN 623/2024 (5/10/nulo), sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1141",
+        name="sla",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-005 (F-018, DEC-02): +1 leitura `sla.prazo_resposta_dias_uteis` no inputParameter de "
+            "ST_CalcularPrazoRespostaUtil (SP-OP-AUTH-001). O timer BT_SlaAnalise continua lendo "
+            "`sla.sla_analise` (mesma contagem). Nome ja no corpus, sem dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1785,9 +1810,10 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 349
+            expected_clean == 350
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
+        # R-005 (prazo_resposta_dias_uteis): +1
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1819,7 +1845,8 @@ class TestBuckets:
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
-        assert len(live_sweep.names) == expected_names == 365
+        # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
+        assert len(live_sweep.names) == expected_names == 366
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -1831,7 +1858,8 @@ class TestBuckets:
         #   decisao_envio via getVariable -2, `trim` do guard da justificativa +1); nomes: +1 -1 = 0
         # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
         #   nomes: +1 (junta_admissibilidade)
-        assert len(live_sweep.refs) == expected_refs == 1750
+        # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
+        assert len(live_sweep.refs) == expected_refs == 1754
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1959,10 +1987,11 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (349)" in rendered
+            f"## {CLEAN} (350)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
+        # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

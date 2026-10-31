@@ -129,6 +129,7 @@ FINDINGS (see PR body / evidence-ledger for full detail):
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -139,6 +140,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.platform.calendario import vencimento_em_dias_uteis
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
@@ -179,6 +181,9 @@ _JUNTA_TOPIC = "operadora.auth.convene_junta"
 # GAP-AUTH-4: o validador deterministico que roda ANTES de BRT_AutoApproval. Sem ele na lista
 # de drain a task nunca e servida e o token trava — nenhuma instancia alcanca UT/terminal.
 _VALIDATE_CRITERIA_TOPIC = "operadora.auth.validate_auto_criteria"
+# R-005 (F-018): prazo de resposta em dias uteis, imediatamente antes de UT_AnaliseMedicoAuditor.
+# Registrado SEMPRE (desligado escreve nulos); sem ele no drain o token trava antes da UT.
+_PRAZO_UTIL_TOPIC = "operadora.auth.compute_response_deadline"
 
 # Tópicos servidos pelos workers REAIS registrados no harness (drain genérico).
 # `_ANALYZE_TOPIC` é deliberadamente EXCLUÍDO: ver `_AnalyzeRequestStub` abaixo (donor fixture,
@@ -191,6 +196,7 @@ _AUTH_WORKER_TOPICS = [
     _NOTIFY_SLA_TOPIC,
     _JUNTA_TOPIC,
     _VALIDATE_CRITERIA_TOPIC,
+    _PRAZO_UTIL_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -524,6 +530,18 @@ async def auth_probe_junta_rn424(
 ) -> AsyncIterator[AuthEngineProbe]:
     """R-064: o mesmo probe, com `MAEZO_AUTH_JUNTA_RN424_GUARD` ligada em `convene_junta`."""
     probe = _build_auth_probe(engine, audit_sink, audit_tenant, junta_rn424_guard=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_prazo_util(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-005: o mesmo probe, com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada em `compute_response_deadline`."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, auth_prazo_dias_uteis=True)
     try:
         yield probe
     finally:
@@ -1713,3 +1731,93 @@ async def test_r004_entrega_por_escrito_desligada_nao_escreve_estado_de_entrega(
     for name in ("entrega_negativa_status", "entrega_negativa_responsavel"):
         with pytest.raises(EngineRestError):
             await engine.get_history_variable(iid, name)
+
+
+# ===========================================================================
+# R-005 (F-018; DEC-02) — prazo de resposta em dias uteis (RN 623/2024 art. 12), DARK
+# ===========================================================================
+
+
+def _due(job: Any) -> dt.datetime:
+    """`dueDate` do Job REST (`2026-11-16T23:59:59.000-0300`) -> datetime com fuso."""
+    return dt.datetime.strptime(str(job.due_date), "%Y-%m-%dT%H:%M:%S.%f%z")
+
+
+async def _ate_a_analise_humana(
+    engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any], **overrides: Any
+) -> str:
+    inst = await start_auth(dut_atendida=False, **overrides)
+    iid = str(inst["id"])
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    await engine.await_user_task(iid, _UT_AUDITOR)
+    return iid
+
+
+async def test_r005_prazo_util_desligado_timer_segue_no_iso_da_dmn(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira OFF (padrao): a task roda, escreve nulos, e BT_SlaAnalise vence em P5D corridos."""
+    antes = dt.datetime.now(dt.UTC)
+    iid = await _ate_a_analise_humana(engine, auth_probe, start_auth)
+    depois = dt.datetime.now(dt.UTC)
+    assert "ST_CalcularPrazoRespostaUtil" in await engine.activity_instances_ended(iid)
+    assert await engine.get_history_variable(iid, "prazo_resposta_duracao_util") is None
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    folga = dt.timedelta(seconds=5)
+    assert antes + dt.timedelta(days=5) - folga <= due <= depois + dt.timedelta(days=5) + folga
+
+
+async def test_r005_prazo_util_ligado_timer_vence_no_fim_do_quinto_dia_util(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira ON, eletivo padrao (DMN: 5 dias uteis), ancora ausente = relogio do worker."""
+    iid = await _ate_a_analise_humana(engine, auth_probe_prazo_util, start_auth, uf_beneficiario="SP")
+    esperado = vencimento_em_dias_uteis(dt.datetime.now(dt.UTC), 5, "SP")
+    vencimento = await engine.get_history_variable(iid, "prazo_resposta_vencimento_util_iso")
+    assert vencimento == esperado.isoformat()
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    # duracao arredondada para baixo + latencia worker->timer: nunca depois do vencimento + folga
+    assert esperado - dt.timedelta(seconds=60) <= due <= esperado + dt.timedelta(seconds=5)
+
+
+async def test_r005_prazo_util_ligado_pac_10_dias_uteis_com_ancora_da_solicitacao(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """PAC/internacao eletiva (DMN: 10 dias uteis) contado da data da solicitacao (passada)."""
+    ancora = dt.datetime.now(dt.UTC) - dt.timedelta(days=3)
+    iid = await _ate_a_analise_humana(
+        engine,
+        auth_probe_prazo_util,
+        start_auth,
+        categoria_procedimento="internacao",
+        data_solicitacao_iso=ancora.isoformat(),
+    )
+    esperado = vencimento_em_dias_uteis(ancora, 10)
+    vencimento = await engine.get_history_variable(iid, "prazo_resposta_vencimento_util_iso")
+    assert vencimento == esperado.isoformat()
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    assert esperado - dt.timedelta(seconds=60) <= due <= esperado + dt.timedelta(seconds=5)
+
+
+async def test_r005_prazo_util_ligado_urgencia_segue_imediata_da_dmn(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Urgencia: a DMN nao da dias uteis (resposta imediata) — o PT2H da DMN continua valendo."""
+    antes = dt.datetime.now(dt.UTC)
+    iid = await _ate_a_analise_humana(
+        engine, auth_probe_prazo_util, start_auth, carater_atendimento="urgencia"
+    )
+    assert await engine.get_history_variable(iid, "prazo_resposta_duracao_util") is None
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    depois = dt.datetime.now(dt.UTC)
+    assert antes + dt.timedelta(hours=2) - dt.timedelta(seconds=5) <= due <= depois + dt.timedelta(hours=2)

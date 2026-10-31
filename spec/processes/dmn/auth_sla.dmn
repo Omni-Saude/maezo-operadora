@@ -16,6 +16,11 @@
     NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores
     abaixo sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver
     calendario util no worker quando o validador W1 suportar.
+    R-005 (F-018; DEC-02, 2026-10-31): a coluna prazo_resposta_dias_uteis carrega o MESMO prazo
+    do art. 12 em dias uteis (null = urgencia, resposta imediata: sem conversao). O worker
+    operadora.auth.compute_response_deadline so faz a aritmetica de calendario (feriados
+    nacionais + UF, versionados) e so quando MAEZO_AUTH_PRAZO_DIAS_UTEIS esta ligada (dark);
+    desligada, o timer segue no ISO corrido de sla_analise (teto temporario da D-05).
     Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
   </description>
   <decision id="auth_sla" name="SLA de analise" camunda:historyTimeToLive="P180D">
@@ -29,6 +34,7 @@
       <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
       <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
       <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <output id="out_dias_uteis" label="prazo_resposta_dias_uteis" name="prazo_resposta_dias_uteis" typeRef="integer"/>
       <rule id="r1">
         <description>Urgencia/emergencia: atendimento imediato — exemplo sintetico: Paciente Teste 001 em PS</description>
         <inputEntry id="r1i1"><text>"urgencia"</text></inputEntry>
@@ -36,6 +42,7 @@
         <outputEntry id="r1o1"><text>"PT2H"</text></outputEntry>
         <outputEntry id="r1o2"><text>"PT1H"</text></outputEntry>
         <outputEntry id="r1o3"><text>"Lei 9.656/1998 art. 35-C (imediato) — operacionalizado em 2h: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r1o4"><text>null</text></outputEntry>
       </rule>
       <rule id="r2">
         <description>Eletivo de alta complexidade / OPME / internacao</description>
@@ -44,6 +51,7 @@
         <outputEntry id="r2o1"><text>"P10D"</text></outputEntry>
         <outputEntry id="r2o2"><text>"P7D"</text></outputEntry>
         <outputEntry id="r2o3"><text>"RN 623/2024 art. 12, II, b — PAC/internacao eletiva: resposta em ate 10 dias uteis: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r2o4"><text>10</text></outputEntry>
       </rule>
       <rule id="r3">
         <description>Eletivo padrao (exames, terapias, consultas com autorizacao)</description>
@@ -52,6 +60,7 @@
         <outputEntry id="r3o1"><text>"P5D"</text></outputEntry>
         <outputEntry id="r3o2"><text>"P3D"</text></outputEntry>
         <outputEntry id="r3o3"><text>"RN 623/2024 art. 12, II, a — resposta em ate 5 dias uteis: DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r3o4"><text>5</text></outputEntry>
       </rule>
       <rule id="r4">
         <description>Catch-all FAIL-SAFE: carater desconhecido tratado como prazo curto</description>
@@ -60,6 +69,7 @@
         <outputEntry id="r4o1"><text>"P5D"</text></outputEntry>
         <outputEntry id="r4o2"><text>"P3D"</text></outputEntry>
         <outputEntry id="r4o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r4o4"><text>5</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>
