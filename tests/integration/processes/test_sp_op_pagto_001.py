@@ -215,6 +215,7 @@ FINDINGS (see PR body / evidence-ledger for full detail):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -429,11 +430,12 @@ async def deploy_artifacts(engine: EngineRest) -> str:
     return await engine.deploy(_BPMN, _DMN_ADMISSIBILITY, _DMN_ALCADA, _DMN_SLA, name="SP-OP-PAGTO-001-qa")
 
 
-@pytest_asyncio.fixture
-async def pagto_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+@contextlib.asynccontextmanager
+async def _pagto_probe_ctx(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, **seams: Any
 ) -> AsyncIterator[PagtoEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de pagto."""
+    """Monta o probe com os workers reais de pagto; `seams` extras vao a `register_pagto_workers`
+    (ex.: a flag dark `pagto_fatos_estritos`, R-063) exatamente como a raiz de composicao repassa."""
     worker_id = f"qa-pagto-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
@@ -458,7 +460,7 @@ async def pagto_probe(
     # require a real dmn transport or every dispatch raises DmnEvaluationError. Mirrors
     # production wiring exactly (worker_runtime/service.py:278).
     dmn_transport = CibSevenDmnTransport(CIBSEVEN_BASE_URL)
-    register_pagto_workers(harness, kafka, dmn=dmn_transport)
+    register_pagto_workers(harness, kafka, dmn=dmn_transport, **seams)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
@@ -484,6 +486,25 @@ async def pagto_probe(
         yield probe
     finally:
         await transport.close()
+
+
+@pytest_asyncio.fixture
+async def pagto_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[PagtoEngineProbe]:
+    """Probe que serve as external tasks com os workers reais de pagto (flags dark desligadas)."""
+    async with _pagto_probe_ctx(engine, audit_sink, audit_tenant) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def pagto_probe_fatos_estritos(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[PagtoEngineProbe]:
+    """Probe com `MAEZO_PAGTO_FATOS_ESTRITOS` ligada (R-063 / F-029): `validate_payment_data`
+    resolve `dados_pagamento_validos` e nunca ecoa `lastro_confirmado` semeado."""
+    async with _pagto_probe_ctx(engine, audit_sink, audit_tenant, pagto_fatos_estritos=True) as probe:
+        yield probe
 
 
 def _unique_ordem(prefix: str = "ORDEM-TESTE") -> str:
@@ -804,6 +825,57 @@ async def test_lastro_nao_confirmado_nunca_auto_libera_clerical(
     assert "ST_ReleaseLowValue" not in ended, "release_low_value_payment NUNCA invocado sem lastro"
     assert not (ended & _ENDS_ADVERSOS)
     await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_fatos_estritos_lastro_semeado_nao_abre_faixa_clerical(
+    engine: EngineRest,
+    pagto_probe_fatos_estritos: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-063 / F-029 (flag `MAEZO_PAGTO_FATOS_ESTRITOS` ligada): a MESMA semente que hoje auto-libera
+    (`test_abaixo_do_teto_auto_libera_clerical`: abaixo do teto, `dentro_teto_l2=true`, mais
+    `lastro_confirmado=true`/`dados_pagamento_validos=true` semeados no start) NAO atinge a faixa
+    clerical: `validate_payment_data` nao ecoa o lastro semeado (ADR-0040 I-PAGTO-1), a DMN
+    `pagto_admissibility` roteia ANALISE_HUMANA e o humano resolve em UT_AnaliseAdmissibilidade."""
+    inst = await start_pagto(valor_pagamento_cents=85_000, dentro_teto_l2=True, lastro_confirmado=True)
+    iid = inst["id"]
+
+    await pagto_probe_fatos_estritos.drain()
+    ut = await engine.await_user_task(iid, _UT_ANALISE_ADMISS)
+    assert "coordenacao-financeira" in ut.candidate_groups
+
+    assert await engine.get_variable(iid, "lastro_confirmado") is False
+    assert await engine.get_variable(iid, "dados_pagamento_validos") is True  # credor + instrumento ok
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_AUTOMATICO not in ended, "lastro semeado NUNCA abre a faixa clerical (estrito)"
+    assert "ST_ReleaseLowValue" not in ended
+    assert _BRT_ALCADA not in ended
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_fatos_estritos_instrumento_fora_do_dominio_resolve_dados_invalidos(
+    engine: EngineRest,
+    pagto_probe_fatos_estritos: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-063 / F-029: `dados_pagamento_validos=true` semeado nao sobrevive a um instrumento fora do
+    dominio do contrato — o worker RESOLVE o fato como `false` (visivel ao humano). A rota e a
+    humana: sob a flag o lastro nunca vem confirmado, e a `pagto_admissibility` (FIRST) avalia
+    `r_sem_lastro` antes de `r_dados_invalidos` — ANALISE_HUMANA, nunca liberacao."""
+    inst = await start_pagto(
+        valor_pagamento_cents=85_000, dentro_teto_l2=True, instrumento_pagamento="boleto-qualquer"
+    )
+    iid = inst["id"]
+
+    await pagto_probe_fatos_estritos.drain()
+    await engine.await_user_task(iid, _UT_ANALISE_ADMISS)
+
+    assert await engine.get_variable(iid, "dados_pagamento_validos") is False
+    assert await engine.get_variable(iid, "admissibilidade_roteamento") == "ANALISE_HUMANA"
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_AUTOMATICO not in ended
+    assert not (ended & _ENDS_ADVERSOS)
 
 
 async def test_admissibilidade_devolver_registra_recusa_humana(
