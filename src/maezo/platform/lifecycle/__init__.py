@@ -20,17 +20,21 @@ Background (all grounded on `main`):
 - `maezo.platform.retention.RetentionManager.retention_query()`
   (`src/maezo/platform/retention.py:132-143`) builds an UNCONDITIONAL
   `DELETE FROM audit_chain WHERE ts < cutoff` with:
-    * NO legal-hold predicate (there is no legal-hold registry anywhere in the
-      tree) — deleting evidence under an active hold is a spoliation risk
-      (ADR-0020 item 6; `ADR-0020-amendment-draft` §1-§2).
+    * no consultation of the legal-hold predicate. The registry + predicate now exist
+      (`legal_hold.py`, R-044/F-062: `evaluate_legal_hold`, fail-closed, DARK behind
+      `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` and wired only into the LGPD erasure worker), but
+      the registry's governance is unratified (R-030, jurídico) and `retention_query()`
+      does not — and must not — call it: deleting evidence under an active hold is a
+      spoliation risk (ADR-0020 item 6; `ADR-0020-amendment-draft` §1-§2).
     * NO chain re-anchoring — deleting the genesis-anchored prefix severs
       `verify_chain()`'s contiguity, so BOTH verifiers report the surviving chain
       as corrupted (`src/maezo/gateway/audit.py:310-344` fails at index 0;
       `src/maezo/gateway/audit_postgres.py:380-406` reports every survivor
       "unreachable from genesis"). See `ADR-0020-amendment-draft` §3-bis and ADR-0029.
 
-Per the ADR-0020 amendment draft, NO prune may run without BOTH (1) a legal-hold
-registry and (2) a signed-checkpoint re-anchor mechanism (ADR-0029). Neither exists.
+Per the ADR-0020 amendment draft, NO prune may run without BOTH (1) a RATIFIED legal-hold
+registry and (2) a signed-checkpoint re-anchor mechanism (ADR-0029). The registry seam
+exists but is unratified and dark (R-044); the re-anchor does not exist at all.
 Therefore every invocation of this entrypoint REFUSES and exits non-zero. That is the
 deliverable: fail-closed by design, not by accident.
 

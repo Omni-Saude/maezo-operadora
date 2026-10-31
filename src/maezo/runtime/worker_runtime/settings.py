@@ -188,6 +188,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # termo (motivo, clausula/dispositivo, canais da Ouvidoria, formato imprimivel/baixavel).
     auth_denial_written_notice: bool = Field(default=False, alias="MAEZO_AUTH_DENIAL_WRITTEN_NOTICE")
 
+    # R-044 (F-062; ADR-0020 item 6; posicao do dono na issue #1081, R-131/DEC-12 -> R-030).
+    # Ligada, a eliminacao aprovada em `operadora.lgpd.execute_request` consulta o registro de
+    # legal-hold (`maezo.platform.lifecycle.legal_hold`, YAML em MAEZO_LEGAL_HOLD_REGISTRY_PATH)
+    # antes de executar: hold ativo OU registro indisponivel => eliminacao DIFERIDA com recusa
+    # auditada, nunca apagamento silencioso. DARK por padrao: desligada, nada muda. Ligar e' ato
+    # da implantacao (ROLL), depois da assinatura do juridico/DPO sobre o registro (R-030).
+    lgpd_legal_hold_predicate: bool = Field(default=False, alias="MAEZO_LGPD_LEGAL_HOLD_PREDICATE")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",
