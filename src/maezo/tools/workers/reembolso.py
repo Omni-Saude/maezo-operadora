@@ -31,53 +31,9 @@ logger = structlog.get_logger(__name__)
 # Governance ceiling for reembolso L2 auto-approval (design T1.9 §2.3). The teto VALUE
 # lives in the autonomy matrix (`reembolso_auto_approval.max_value_brl`, L0-core.yaml:24 +
 # tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses. R-070 option B (owner,
-# 2026-10-31, #1084): `max_value_brl: 0` until the AMH lake history exists, so every
-# request routes to ANALISE_HUMANA ("dark by value").
+# 2026-10-31, #1084): `max_value_brl: 0` until the AMH lake exists -> every request is human.
 _CEILING_ACTION = "reembolso_auto_approval"
 _CEILING_PARAM = "max_value_brl"
-
-# R-070 option B — DRAFT policy parameters of the same action (L0-core.yaml:24). This module only
-# RELAYS them to the DMN `reembolso_auto_approval`, which owns every comparison (ADR-0012).
-#: Policy kill-switch of the automatic lane: `true`, absent or not a YAML bool => closed.
-_PARAM_FAIXA_DESLIGADA = "faixa_auto_desligada"
-_PARAM_EXPO_QTD_BENEF = "exposicao_max_aprovacoes_beneficiario_30d"
-_PARAM_EXPO_VALOR_BENEF_BRL = "exposicao_max_valor_beneficiario_30d_brl"
-_PARAM_ORCAMENTO_TENANT_BRL = "orcamento_diario_tenant_brl"
-
-
-@dataclass(frozen=True)
-class FatosFaixaAuto:
-    """Facts the R-070 option B lane needs that NO source in this repo produces yet.
-
-    Every default is the "unknown" shape, which the DMN routes to a human: no contractual limit
-    (the AMH contract link is under construction), NF value not verified (G2 guard of #1074), and
-    no exposure counters (R-070 §5 builds them). A source is injected through the
-    ``reembolso_fonte_faixa_auto`` seam of :func:`register_reembolso_workers`; production passes
-    none, so the lane stays closed even with a positive teto.
-    """
-
-    limite_contratual_cents: int | None = None
-    valor_nf_verificado: bool = False
-    aprovacoes_auto_benef_30d: int | None = None
-    valor_auto_benef_30d_cents: int | None = None
-    valor_auto_tenant_dia_cents: int | None = None
-
-
-#: Source of :class:`FatosFaixaAuto` for one request (seam; never a Python rule).
-FonteFatosFaixaAuto = Callable[["ReembolsoInput"], FatosFaixaAuto]
-
-
-def _sem_fonte_faixa_auto(input_data: ReembolsoInput) -> FatosFaixaAuto:
-    """Default source: nothing is known, so the DMN catch-all routes the request to a human."""
-    del input_data
-    return FatosFaixaAuto()
-
-
-def _contagem_ou_none(value: object) -> int | None:
-    """Relay an exact non-negative integer (centavos or a count); anything else becomes None."""
-    if is_exact_engine_integer(value) and isinstance(value, int) and value >= 0:
-        return value
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -232,17 +188,10 @@ class ReembolsoCalculoDmn:
 # ou B "rotear a humano so quando solicitado < tabela" — e' ato atuarial, NAO de engenharia
 # (R-059, gatekeeper 2: "NENHUM agente implementa min(solicitado, tabela)"). Ate a assinatura, a
 # unica postura que nao decide dinheiro no lugar da atuaria e' nao pagar nada automaticamente.
-# ATUALIZACAO R-070 (dono, 2026-10-31, #1084, opcao B): a formula FOI escolhida pelo dono — so'
-# aprovacao integral, pago = min(solicitado, limite contratual, teto), acima -> humano — e vive na
-# DMN `reembolso_auto_approval` (saida `valor_aprovado_auto_cents`, mapeada por
-# `ST_IssuePaymentAuto`). A constante abaixo SEGUE `False`: e' a metade "codigo" do kill-switch
-# duplo da opcao B (a outra e' o teto 0 da politica) e so' vira com a assinatura do dono + atuaria
-# no bloco §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md`.
 #
 # INDEPENDENTE DO TETO — de proposito. Hoje `reembolso_auto_approval.max_value_brl` e' 0
 # (`spec/policies/autonomy/tenants-amh.yaml`, R-070 opcao B ate o lake AMH) e
-# `CeilingResolver.within_l2_ceiling` e' fail-closed em teto 0, o que ja manda tudo a analise
-# humana. Esse bloqueio e' um EFEITO
+# `CeilingResolver.within_l2_ceiling` fecha em teto 0 (tudo a humano). Esse bloqueio e' um EFEITO
 # COLATERAL de uma decisao de FINANCAS (R-157) que pode ser revertida numa sessao: no dia em que o
 # teto subir de zero, o sobrepagamento vira explorable. Por isso o bloqueio abaixo NAO le o teto,
 # NAO le politica de tenant e NAO le nenhuma variavel de processo: ele e' a constante nomeada
@@ -263,6 +212,57 @@ class ReembolsoCalculoDmn:
 #: NAO e' variavel de processo — e' constante de codigo, justamente para que abri-la seja uma
 #: mudanca revisavel e nomeada, e nao um efeito colateral de mexer no teto D-07.
 REEMBOLSO_AUTO_PAGAMENTO_LIBERADO: bool = False
+
+# ATUALIZACAO R-070 (dono, 2026-10-31, #1084, opcao B): a formula FOI escolhida pelo dono — so'
+# aprovacao integral, pago = min(solicitado, limite contratual, teto), acima -> humano — e vive na
+# DMN `reembolso_auto_approval` (saida `valor_aprovado_auto_cents`, mapeada por
+# `ST_IssuePaymentAuto`). A constante acima SEGUE `False`: e' a metade "codigo" do kill-switch
+# duplo da opcao B (a outra e' o teto 0 da politica) e so' vira com a assinatura do dono + atuaria
+# no bloco §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md`.
+#
+# R-070 option B — DRAFT policy parameters of the same action (L0-core.yaml:24). This module only
+# RELAYS them to the DMN `reembolso_auto_approval`, which owns every comparison (ADR-0012).
+#: Policy kill-switch of the automatic lane: `true`, absent or not a YAML bool => closed.
+_PARAM_FAIXA_DESLIGADA = "faixa_auto_desligada"
+_PARAM_EXPO_QTD_BENEF = "exposicao_max_aprovacoes_beneficiario_30d"
+_PARAM_EXPO_VALOR_BENEF_BRL = "exposicao_max_valor_beneficiario_30d_brl"
+_PARAM_ORCAMENTO_TENANT_BRL = "orcamento_diario_tenant_brl"
+
+
+@dataclass(frozen=True)
+class FatosFaixaAuto:
+    """Facts the R-070 option B lane needs that NO source in this repo produces yet.
+
+    Every default is the "unknown" shape, which the DMN routes to a human: no contractual limit
+    (the AMH contract link is under construction), NF value not verified (G2 guard of #1074), and
+    no exposure counters (R-070 §5 builds them). A source is injected through the
+    ``reembolso_fonte_faixa_auto`` seam of :func:`register_reembolso_workers`; production passes
+    none, so the lane stays closed even with a positive teto.
+    """
+
+    limite_contratual_cents: int | None = None
+    valor_nf_verificado: bool = False
+    aprovacoes_auto_benef_30d: int | None = None
+    valor_auto_benef_30d_cents: int | None = None
+    valor_auto_tenant_dia_cents: int | None = None
+
+
+#: Source of :class:`FatosFaixaAuto` for one request (seam; never a Python rule).
+FonteFatosFaixaAuto = Callable[["ReembolsoInput"], FatosFaixaAuto]
+
+
+def _sem_fonte_faixa_auto(input_data: ReembolsoInput) -> FatosFaixaAuto:
+    """Default source: nothing is known, so the DMN catch-all routes the request to a human."""
+    del input_data
+    return FatosFaixaAuto()
+
+
+def _contagem_ou_none(value: object) -> int | None:
+    """Relay an exact non-negative integer (centavos or a count); anything else becomes None."""
+    if is_exact_engine_integer(value) and isinstance(value, int) and value >= 0:
+        return value
+    return None
+
 
 #: Nome da variavel de processo que `calculate_amount_entry` escreve a partir da constante acima e
 #: que `Flow_GW_AutoAprovar` le na sua condicao. Pinado aqui para que o modelo e o codigo tenham

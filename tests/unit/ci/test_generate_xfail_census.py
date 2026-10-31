@@ -71,23 +71,22 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
     assert not stale, [v.render() for v in stale]
 
     census = build_census(records, DEFAULT_TESTS_DIR)
-    assert census["total"] == 6
+    # R-076 (#1149): o strict-xfail REEMBOLSO_D07 caiu com prova (faixa aberta so no probe) — 6 -> 5.
+    assert census["total"] == 5
     assert census["per_suite"] == {
         "adequacao": 1,
         "auth": 1,
         "lgpd_dsr": 3,
-        "reembolso": 1,
     }
     assert census["per_classification"] == {
         "ADEQUACAO_RN259": 1,
         "AUTH_D07": 1,
         "LGPD_DPO": 3,
-        "REEMBOLSO_D07": 1,
     }
 
 
 def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite() -> None:
-    """Ground-truth shape check: today, each of the 4 suites carrying strict-xfails cites exactly
+    """Ground-truth shape check: today, each of the 3 suites carrying strict-xfails cites exactly
     ONE `_*_REASON` constant (the ans_submit suite carries NONE anymore — its 14 TISS markers were
     flipped live by W8 W5-XFIX, and the cred suite carries NONE anymore — its 2 guard-shape markers
     were flipped live by the owner's Opção D-2, 2026-10-29; the retired `_NOTIFY_REGULATORIO_GAP_`
@@ -106,7 +105,6 @@ def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite()
         "adequacao": {"_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON"},
         "auth": {"_AUTH_CEILING_D07_REASON"},
         "lgpd_dsr": {"_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON"},
-        "reembolso": {"_REEMBOLSO_CEILING_D07_REASON"},
     }
 
 
@@ -115,7 +113,7 @@ def test_real_tree_no_non_strict_xfail_decorators_are_miscounted() -> None:
     under this directory — if one ever appears, it must be silently skipped (out of scope for this
     census), never crash the parser or get miscounted as a strict marker."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
-    assert len(scan.markers) == 6
+    assert len(scan.markers) == 5
 
 
 # ---------------------------------------------------------------------------
