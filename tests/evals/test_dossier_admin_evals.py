@@ -30,9 +30,10 @@ which injects `{"fhir": <leaky PatientSummaryReader>}` because the property unde
 upstream-controlled FHIR summary payload; read each `build(config)` signature before assuming
 otherwise:
   - `carolina.graph.build` / `gustavo.graph.build`: REQUIRE inference+dmn+cibseven+audit_sink
-    (raise `ValueError` if any is missing); `fhir` is OPTIONAL and never injected by this harness
-    (so `gather`'s FHIR-summary enrichment always degrades to its disclosed gap note -- never
-    exercised live here, and never needed for these golden scenarios).
+    (raise `ValueError` if any is missing); for carolina `fhir` is OPTIONAL and never injected by
+    this harness (so `gather`'s FHIR-summary enrichment always degrades to its disclosed gap note --
+    never exercised live here, and never needed for these golden scenarios); gustavo REFUSES a
+    `fhir` dependency since ADR-0071 I-5 (Zona Geral, decisao do dono DEC-11 (i), 31/10/2026).
   - `beatriz.graph.build`: REQUIRES ONLY `inference`; `fhir` is OPTIONAL and injected ONLY by
     EVL-BEATRIZ-04's own tests (every other beatriz golden runs with no reader, so `gather`
     degrades to its disclosed `fhir_reader_nao_configurado` gap note); it explicitly IGNORES

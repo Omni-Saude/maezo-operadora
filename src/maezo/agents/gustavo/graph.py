@@ -4,16 +4,18 @@ Two processes, one agent (mirrors the v1 donor's structure, READ-ONLY reference
 `Maezo-Healthcare-Plan src/maezo/agents/gustavo/graph.py`, adapted to v2's flatter seam set):
 this graph's nodes call the injected seams — `DmnTransport.evaluate` (ADR-0028/T1.5),
 `InferenceProvider.generate(phi=True)` (ADR-0009/T1.7), and `CibSevenTransport`/
-`start_process_idempotent` (ADR-0001, T1.11). CORRECTED (`grep -n '"gustavo"' gateway/
-tool_registry.py`, `_FHIR_ADAPTER_BY_AGENT`): earlier text here said "v2 has no `ToolRegistry`/
-PEP-gateway wiring for agent tool calls yet" — `gateway/tool_registry.py::build_agent_seams` now
-PEP-gates all four of these seam kinds (`build_dmn_seam`/`build_cibseven_seam`/
-`build_inference_seam`/`build_fhir_seam`, each wrapped as `Gated*`), wired into both live
-composition roots (`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/
-webhooks/service.py`). Gustavo's own FHIR seam (J2 only) is one of them (he is in
-`_FHIR_ADAPTER_BY_AGENT`, adapter `read_patient`). What is still undelivered for Gustavo is A2A
-delegation wiring (see LABELED BOUNDARIES below, GUS-01) — a separate gap from the PEP-gateway
-question:
+`start_process_idempotent` (ADR-0001, T1.11). `gateway/tool_registry.py::build_agent_seams`
+PEP-gates each of these seam kinds (`build_dmn_seam`/`build_cibseven_seam`/`build_inference_seam`,
+each wrapped as `Gated*`), wired into both live composition roots
+(`runtime/agent_runtime/service.py::_build_tool_deps`, `platform/webhooks/service.py`).
+
+NO FHIR READER (ADR-0071 I-5; owner decision 2026-10-31, DEC-11 (i) "Remove FHIR access"). Gustavo
+is `security_zone: general`; until this decision `_FHIR_ADAPTER_BY_AGENT` handed him the RAW
+`read_patient` reader for an optional J2 dossier enrichment. He now works from the PROCESS FACTS
+only (the worker-pre-resolved variables of SP-OP-NIP-001 / SP-OP-ANS-SUBMIT-001), the graph accepts
+no `fhir` dependency (`build` refuses one), and `build_fhir_seam` would refuse to build one for him
+anyway (`ZoneFenceError`). What is still undelivered for Gustavo is A2A delegation wiring (see
+LABELED BOUNDARIES below, GUS-01):
 
     receive -> gather -> assess -> {review_submission | instruct_nip} -> start_process -> finalize
 
@@ -124,9 +126,9 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
   `tenant_id`/`thread_id` (both `text NOT NULL`), GAP-DU-01-a. The semantic column beside it was
   dropped by `0009_drop_pgvector`, ADR-0002 §3 SUSPENDED pending a consumer (ADR-0047, DRAFT).
   Same labeled boundary as helena/rafael/carolina. `finalize` is a terminal no-op.
-- `gather`'s FHIR enrichment (J2 only) is best-effort and OPTIONAL — reuses rafael's
-  `FhirReader` seam shape; absence/failure never blocks routing, only degrades the dossier with
-  a disclosed gap note.
+- `gather` does NOT enrich the J2 dossier with a FHIR read any more (ADR-0071 I-5, DEC-11 (i)):
+  it records a disclosed gap note and the dossier proceeds on the pre-resolved process facts.
+  `nip_facts` stays in the state shape, always `{}`.
 
 DIVERGENCES FROM DONOR (disclosed — spec wins where they disagree):
 1. `nip_sla` input: the donor passed only `{classificacao}`; the DEPLOYED v2 table
@@ -152,7 +154,7 @@ DIVERGENCES FROM DONOR (disclosed — spec wins where they disagree):
 
 from __future__ import annotations
 
-from typing import Any, Final, Literal, Protocol, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
@@ -253,12 +255,11 @@ _NIP_ROUTING_TO_MOTIVO: dict[RoteamentoNip, MotivoHumano] = {
 }
 
 
-class FhirReader(Protocol):
-    """Best-effort FHIR read seam (`gather`, J2 only). See module docstring's labeled boundary —
-    structurally satisfied by `agents.rafael.adapters.FhirServerReader` when the runtime injects
-    it (deliberate duck-typed reuse; mypy checks the call site)."""
-
-    async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
+#: Gap note `gather` records on every J2 turn (ADR-0071 I-5, DEC-11 (i)): bounded, no PHI.
+_NOTA_SEM_FHIR: Final[str] = (
+    "sem leitura FHIR (Gustavo e Zona Geral, ADR-0071 I-5); dossie prossegue so com os fatos "
+    "pre-resolvidos do processo."
+)
 
 
 class GustavoState(TypedDict, total=False):
@@ -298,7 +299,7 @@ class GustavoState(TypedDict, total=False):
     contesta_negativa: bool
     documentacao_suficiente: bool
     origem_a2a: bool
-    patient_ref: str  # pseudonymized FHIR reference (J2 dossier enrichment; never raw PHI)
+    patient_ref: str  # pseudonymized reference; accepted and forwarded, NEVER read here (ADR-0071 I-5)
 
     # Filled by `gather` (best-effort enrichment; never decides routing).
     gathered: bool
@@ -506,7 +507,6 @@ class GustavoGraph:
         dmn: DmnTransport,
         cibseven: CibSevenTransport,
         audit_sink: AuditStartSink,
-        fhir: FhirReader | None = None,
         agent_version: str = "gustavo@v0",
     ) -> None:
         self._llm = inference
@@ -515,7 +515,6 @@ class GustavoGraph:
         # T-C2 fence: required durable ADR-0007 sink for the SP-OP-ANS-SUBMIT-001 / SP-OP-NIP-001 start.
         self._audit_sink = audit_sink
         self._model_id = getattr(inference, "model_id", None)
-        self._fhir = fhir
         self._agent_version = agent_version
 
     # -- Nodes ----------------------------------------------------------------------------
@@ -546,33 +545,18 @@ class GustavoGraph:
         }
 
     async def gather(self, state: GustavoState) -> dict[str, Any]:
-        """Best-effort enrichment (J2 only) — NEVER blocks routing.
+        """No external read — NEVER blocks routing.
 
         J1 works off the aggregated dataset pointer (`dataset_ref`) — nothing to fetch here.
-        J2 may enrich the dossier with a pseudonymized FHIR read; failure/absence degrades to a
-        disclosed gap note (classification/routing come from the worker-pre-resolved variables).
+        J2 USED to enrich the dossier with a raw FHIR read; Gustavo is Zona Geral and that access was
+        removed (ADR-0071 I-5, owner decision DEC-11 (i), 2026-10-31). The J2 dossier proceeds on the
+        worker-pre-resolved process facts, with a disclosed gap note.
         """
         if state.get("error"):
             return {}  # already routed by receive's fail-safe (single-entry guarantee)
         if state.get("fluxo") != "nip":
             return {"gathered": True, "nip_facts": {}, "gather_notes": []}
-
-        nip_facts: dict[str, Any] = {}
-        notes: list[str] = []
-        patient_ref = state.get("patient_ref")
-        if self._fhir is None:
-            notes.append(
-                "leitor FHIR nao configurado para este build (labeled boundary — ver docstring "
-                "do modulo graph.py); dossie prossegue so com as variaveis pre-resolvidas."
-            )
-        elif patient_ref:
-            try:
-                nip_facts = await self._fhir.read_patient(patient_ref)
-            except PROGRAMMING_ERRORS:
-                raise
-            except EXTERNAL_DEPENDENCY_FAILURES as exc:  # best-effort enrichment, never fatal.
-                notes.append(f"beneficiario FHIR indisponivel: {type(exc).__name__}")
-        return {"gathered": True, "nip_facts": nip_facts, "gather_notes": notes}
+        return {"gathered": True, "nip_facts": {}, "gather_notes": [_NOTA_SEM_FHIR]}
 
     async def assess(self, state: GustavoState) -> dict[str, Any]:
         """Evaluate the deterministic DMNs and resolve the (ALWAYS human) route.
@@ -1090,12 +1074,19 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[GustavoState]:
     """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
 
     `config` MUST contain `inference` (ADR-0009), `dmn` (ADR-0028/T1.5), `cibseven`
-    (ADR-0001/T1.11). `fhir` is OPTIONAL (module docstring's labeled boundary) — its absence
-    never fails the build, only degrades J2's `gather` to a disclosed gap note.
+    (ADR-0001/T1.11). A `fhir` dependency is REFUSED (ADR-0071 I-5, DEC-11 (i)): Gustavo is Zona
+    Geral and works from the process facts; a root that still hands him a FHIR reader is a
+    composition defect, surfaced loudly here rather than silently ignored.
 
-    Fail-closed: missing a REQUIRED dependency raises `ValueError` at build time.
+    Fail-closed: missing a REQUIRED dependency, or a `fhir` dependency, raises `ValueError` at build
+    time.
     """
     cfg = config or {}
+    if cfg.get("fhir") is not None:
+        raise ValueError(
+            "Gustavo build(config) recusa `fhir`: Gustavo e Zona Geral e nao le FHIR "
+            "(ADR-0071 I-5; decisao do dono DEC-11, 31/10/2026)"
+        )
     inference = cfg.get("inference")
     dmn = cfg.get("dmn")
     cibseven = cfg.get("cibseven")
@@ -1122,7 +1113,6 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[GustavoState]:
         dmn=cast(DmnTransport, dmn),
         cibseven=cast(CibSevenTransport, cibseven),
         audit_sink=cast(AuditStartSink, audit_sink),
-        fhir=cast("FhirReader | None", cfg.get("fhir")),
         agent_version=agent_version,
     ).compile_graph()
 

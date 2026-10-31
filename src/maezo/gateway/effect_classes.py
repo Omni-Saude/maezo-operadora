@@ -292,6 +292,12 @@ class OperationSpec:
         phi_egress: this operation can carry PHI OUT of the platform boundary. Documentation for
             the approvers and the reason `inference.generate` is split in two (design §6.1 C2);
             the decision core does not gate on it — ADR-0006 zone routing is INDEPENDENT (I-6).
+        returns_phi: the operation's RESULT carries raw PHI (clinical record content). Read by the
+            construction-time zone fence (ADR-0071 I-5, `gateway/tool_registry.py::build_fhir_seam`):
+            a seam that can gate a `returns_phi` operation is never BUILT for a principal outside
+            the PHI zone. Subtract-only — the decision core does not read it, and the default
+            `False` never widens permission. Pseudonymized Zona Geral reads (the AMH billing/TINA
+            facts) and k-anonymous aggregates are deliberately NOT marked.
     """
 
     operation: str
@@ -302,6 +308,7 @@ class OperationSpec:
     ceiling_action: str | None = None
     ceiling_param: str | None = None
     phi_egress: bool = False
+    returns_phi: bool = False
 
 
 def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
@@ -312,30 +319,35 @@ def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
 #: tree). Unknown operation => L-0 DENY `OPERACAO_DESCONHECIDA`.
 OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # -- FHIR reads (C2). Leaves `tools/mcp_fhir/server.py:88` (read_resource) and `:118`
-    # (search_resources); agents reach them through per-agent adapter Protocols.
+    # (search_resources); agents reach them through per-agent adapter Protocols. All four return
+    # raw clinical record content: `returns_phi=True` (ADR-0071 I-5 zone fence).
     OperationSpec(
         operation="fhir.read_patient",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_patient_summary",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient_summary",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_coverage",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.search_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.search_coverage",
+        returns_phi=True,
     ),
     # -- Canonical AMH subject-context reads (ADR-0037), distinct from FHIR tools.
     OperationSpec(
