@@ -807,3 +807,7 @@ def test_migrations_env_todo_text_e_literal_e_search_path_vai_ligado() -> None:
     assert all(len(c.args) == 1 and isinstance(c.args[0], ast.Constant) for c in chamadas)
     literais = [c.args[0].value for c in chamadas]
     assert "SELECT set_config('search_path', :search_path, false)" in literais
+
+
+def test_portal_admin_assignments_search_path_vem_de_schema_for_tenant() -> None:
+    _search_path_de_schema_for_tenant("portal/admin/assignments.py", "_qualified")

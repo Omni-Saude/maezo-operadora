@@ -70,6 +70,7 @@ NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/intake/native_source_lifecycle.py": 10,
     "gateway/intake/recovery_store.py": 2,
     "gateway/staff_cases/case_issuer_sources.py": 7,
+    "portal/admin/assignments.py": 1,
     "portal/api/commission_policies_postgres.py": 2,
 }
 
