@@ -42,7 +42,7 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "base_saude": ("helena_base_saude_enabled",),
     # Protocolos clinicos (dono, 25/10/2026): ausente = ligado pela composicao; `false` desliga sem deploy.
     "protocolos": ("helena_protocolos_enabled",),
-    # Triagem com juiz (DL-0161, 01/11/2026): ausente/`false` desliga; `true` liga SO' na allowlist.
+    # Triagem com juiz (DL-0159, 01/11/2026): ausente/`false` desliga; `true` liga SO' na allowlist.
     "triagem_juiz": ("helena_triagem_juiz_enabled",),
 }
 #: DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena. `cobertura_modo` continua ACEITO (e ignorado) so'

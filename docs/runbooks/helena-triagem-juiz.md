@@ -1,4 +1,4 @@
-# Runbook — Helena: triagem com juiz (experimento do dev, DL-0161)
+# Runbook — Helena: triagem com juiz (experimento do dev, DL-0159)
 
 ## O que é
 Na queixa de sintoma, nas conversas da allowlist do modelo (dono, Tania, time-1, time-2, simulador 790–799), a
@@ -16,7 +16,7 @@ Fora da allowlist, nada muda mesmo ligada.
 | Frase | O que fazer |
 |---|---|
 | "Volte para a tabela original" / "Desliga a triagem com juiz" | PR com `triagem_juiz: false` no `configuracao.yaml` + merge (o pacote é publicado sozinho). Sem deploy. O código fica. |
-| "Desfaz a triagem com juiz de vez" | Desligar como acima + `git revert` do PR da DL-0161 + build/deploy da imagem. |
+| "Desfaz a triagem com juiz de vez" | Desligar como acima + `git revert` do PR da DL-0159 + build/deploy da imagem. |
 | "Religa a triagem com juiz" | `triagem_juiz: true` + merge. |
 
 Ordem de implantação: a imagem com o código precisa estar no ar ANTES do pacote com `triagem_juiz` (chave desconhecida

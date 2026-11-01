@@ -770,13 +770,12 @@ def sinais_atencao(regra: str, saida: str) -> list[str]:
 
 # ------------------------------------------------------------------------------------------------ chamadas ao modelo
 async def extrair(chamar: Chamar, msgs: list[str], qa: list[dict[str, Any]]) -> dict[str, Any]:
-    ultimo: Exception | None = None
     for _ in range(2):
         try:
             return normalizar(_json(await chamar(PROMPT_EXTRATOR, transcricao(msgs, qa), 1500)))
-        except (ValueError, json.JSONDecodeError) as e:
-            ultimo = e
-    raise RuntimeError(f"extrator sem JSON valido: {type(ultimo).__name__}")
+        except (ValueError, json.JSONDecodeError):
+            continue
+    raise RuntimeError("extrator sem JSON valido")
 
 
 async def ler_resposta(chamar: Chamar, pergunta: str, resposta: str) -> str:

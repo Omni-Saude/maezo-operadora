@@ -1,4 +1,4 @@
-"""Triagem com juiz da Helena (experimento do dev, DL-0161): a TABELA e' o piso e o MODELO julga a conversa
+"""Triagem com juiz da Helena (experimento do dev, DL-0159): a TABELA e' o piso e o MODELO julga a conversa
 inteira e so' sobe a gravidade; no maximo 3 perguntas; 192 so' pela tabela. So' com a chave
 `triagem_juiz: true` no pacote e na allowlist do modelo.
 
