@@ -137,3 +137,39 @@ def test_durability_recover_entidades_sao_tupla_literal() -> None:
         ("v21_external_wait", "wait_ref"),
     ]
     assert all(SIMPLES.fullmatch(x) for _, t, c, _ in entidades for x in (t, c))
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/communications/admission.py e gateway/document_requests/admission.py (head + lock)
+# ---------------------------------------------------------------------------------------------
+
+
+class _ConexaoProibida:
+    async def execute(self, *_a: object, **_k: object) -> None:
+        raise AssertionError("SQL executado com modo de lock fora do mapa fechado")
+
+
+def test_communications_head_sql_e_mapa_literal_fechado() -> None:
+    from maezo.gateway.communications import admission
+
+    base = (
+        "SELECT revision,publication_ref,payload FROM portal_communication.authority_head "
+        "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access"
+    )
+    assert {
+        "": base,
+        " FOR SHARE": base + " FOR SHARE",
+        " FOR UPDATE": base + " FOR UPDATE",
+    } == admission._HEAD_SQL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lock", [" FOR SHARE; DROP TABLE t", "FOR UPDATE", " for update", " FOR NO KEY UPDATE"]
+)
+async def test_communications_head_recusa_lock_fora_do_mapa(lock: str) -> None:
+    from maezo.gateway.communications import admission
+    from maezo.gateway.external_cases.models import ExternalCaseError
+
+    with pytest.raises(ExternalCaseError):
+        await admission.head(_ConexaoProibida(), object(), lock=lock)  # type: ignore[arg-type]
