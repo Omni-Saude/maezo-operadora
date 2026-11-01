@@ -542,6 +542,34 @@ def test_stop_processing() -> None:
     )
     assert result["processamento_parado"] is True
     assert result["motivo"] == "revogacao_consentimento"
+    assert "consent_event_ref" not in result, "sem referencia na instancia, nada e inventado"
+
+
+def test_stop_processing_amarra_a_cessacao_ao_consent_event_ref() -> None:
+    """R-013 / F-008 (C5-10): a cessacao cita QUAL consentimento cessou (contrato, saida)."""
+    result = stop_processing({"beneficiario_pseudo_id": "b-001", "consent_event_ref": "ce-syn-001"})
+    assert result == {
+        "processamento_parado": True,
+        "motivo": "revogacao_consentimento",
+        "consent_event_ref": "ce-syn-001",
+    }
+
+
+@pytest.mark.parametrize("bad", ["", "   ", " ce-1", "ce-1 ", None, 123, ["ce-1"], {"ref": "ce-1"}])
+def test_stop_processing_nao_ecoa_referencia_invalida(bad: object) -> None:
+    result = stop_processing({"beneficiario_pseudo_id": "b-001", "consent_event_ref": bad})
+    assert "consent_event_ref" not in result
+    assert result["processamento_parado"] is True
+
+
+def test_stop_processing_nunca_loga_o_consent_event_ref() -> None:
+    from structlog.testing import capture_logs
+
+    sentinel = "ce-sentinel-must-not-be-logged-0013"
+    with capture_logs() as captured:
+        stop_processing({"beneficiario_pseudo_id": "b-001", "consent_event_ref": sentinel})
+    assert captured
+    assert all(sentinel not in str(event) for event in captured)
 
 
 # ---------------------------------------------------------------
