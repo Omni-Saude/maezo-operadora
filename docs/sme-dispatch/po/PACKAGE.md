@@ -78,7 +78,7 @@ not a generic "please review."
   for high-impact decredentialing (e.g. hospital with many linked beneficiaries), or single
   reviewer is acceptable.
 
-### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.0.0**)
+### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.1.0**)
 
 - **Contract:** `docs/processes/contracts/SP-OP-ESCALATION-001.md`
 - **Specific ask:** this contract is already FINAL and its candidate groups
