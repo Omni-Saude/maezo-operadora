@@ -14,7 +14,7 @@
 | `R-070-dec-teto-d07.md` | Minuta de decisão do teto de auto-aprovação do REEMBOLSO (R-070 / DEC-26, issue #1084): estado medido, moldura regulatória, proposta rígida do orquestrador a pedido do dono (não vinculante), opções A/B/C e bloco de decisão em branco para dono + atuária. |
 | `R-040-dec-bedrock.md` | Registro da decisão do dono DEC-20 (issue #1084, 2026-10-31): opção (a), mover a chamada de embeddings Bedrock (F-051) para `runtime.inference` (AGENTS.md regra 6). Descreve o que foi construído no PR do pacote. Bloco de ratificação em branco para o dono. |
 | `R-033-dec-glosa-m4.md` | Registro da decisão do dono DEC-14 (issue #1084, 2026-10-31): categoria de glosa desconhecida na `glosa_triage` (M-4 / OQ-10) vai a humano, opção (a). Traz a fonte verbatim, o estado medido antes, o que a opção significa no modelo (implementado no R-062) e o bloco de ratificação em branco. |
-| `R-041-dec-cand-groups.md` | Registro das escolhas do dono sobre candidate groups (R-041 / DEC-21, issue #1084): 5 tarefas adversas de decisor único, divisão de `coordenacao-financeira`, `ouvidoria`, 38 grupos no bootstrap e taxonomia; pacotes que ficam fora; bloco de assinatura em branco para o dono. |
+| `R-041-dec-cand-groups.md` | Registro das escolhas do dono sobre candidate groups (R-041 / DEC-21, issue #1084): tarefas adversas de decisor único (4 de 5 aplicadas; a 5ª, NIP `UT_RevisaoJuridicaNip`, fica para o pacote NIP), divisão de `coordenacao-financeira`, `ouvidoria`, 38 grupos no bootstrap e taxonomia; pacotes que ficam fora; bloco de assinatura em branco para o dono. |
 
 ## Consumo esperado
 

@@ -49,7 +49,7 @@ ST_HandoffPagamentoHumano, ST_HandoffPagamentoParcial) NUNCA semeiam lastro_conf
 dados_pagamento_validos, duplicidade_suspeita nem dentro_teto_l2 em SP-OP-PAGTO-001. Semeiam,
 em lugar disso, a EVIDENCIA do lastro (lastro_origem / lastro_decisor_id). Consequencia por
 construcao: pagto_admissibility le lastro_confirmado ausente -&gt; false -&gt; row r_sem_lastro -&gt;
-ANALISE_HUMANA -&gt; UT_AnaliseAdmissibilidade (coordenacao-financeira). Nenhuma ordem originada
+ANALISE_HUMANA -&gt; UT_AnaliseAdmissibilidade (analise-contas-pagar). Nenhuma ordem originada
 aqui alcanca End_PagamentoLiberadoAutomatico sem uma User Task humana. As duas pernas SEM User
 Task deste processo (has_glosas==false e glosa_triage==PAGAR) produzem um demonstrativo e uma
 ordem de pagamento admissivelmente-PENDENTE — nunca uma liberacao de caixa.

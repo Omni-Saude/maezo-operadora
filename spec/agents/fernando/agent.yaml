@@ -11,8 +11,8 @@ reports_to: "cobranca@amh"                  # gestor humano = gestao de cobranca
 security_zone: general                       # Zona Geral — PHI pseudonimizado pela gateway (ADR-0006)
 graph: graph.py:build
 prompt_versions:                             # versionados (ADR-0009) — gate de eval no golden
-  system: system-v1
-  message: message-v1
+  system: system-v2
+  message: message-v2
 model:
   task_default: { tier: fast }              # notificacao/lembrete/montagem do dossie de analise
   reasoning:    { tier: frontier }          # casos ambiguos / dossie de analise complexo
@@ -51,7 +51,7 @@ kpis:
 escalation:
   process: SP-OP-INADIMPLENCIA-001           # rota humana garantida: UT_AnaliseInadimplencia (suspensao SO aqui; rescisao via handoff)
   secondary_process: SP-OP-CANCEL-001        # rescisao por inadimplencia: handoff humano-gated (CANCEL detem o terminal — anti-dupla-rescisao)
-  human_manager: cobranca                     # quem coordena a cobranca; decisao adversa e do humano (juridico-contratos / gestao-cobranca)
+  human_manager: cobranca                     # quem coordena a cobranca; decisao adversa e do humano (juridico-contratos; coordenacao-cobranca no SLA)
   triggers:                                  # cada gatilho -> HUMANO (Fernando NUNCA decide o desfecho adverso)
     - dmn: inadimplencia_status=SEGUE_ANALISE     # periodo minimo + notificacao feita + purga decorrida -> humano decide
     - dmn: inadimplencia_status=ANALISE_HUMANA    # catch-all conservador (coletivo / ambiguo) -> humano

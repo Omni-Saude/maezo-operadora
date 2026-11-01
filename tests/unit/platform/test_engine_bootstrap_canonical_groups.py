@@ -169,3 +169,22 @@ def test_nip_adverse_task_stays_frozen_until_the_nip_package() -> None:
     for key, groups in NIP_DEFERRED_FROZEN.items():
         got = frozenset(g.strip() for g in tasks[key].split(","))
         assert got == groups, f"{key}: {sorted(got)} != {sorted(groups)} (pacote NIP, R-041 sec. 3)"
+
+
+#: Tarefas adversas de AUTH e FRAUDE que JA tinham decisor unico antes do R-041 (verdito #1151,
+#: N1): congeladas aqui para que um co-grupo nao-decisor (p.ex. auditoria-contas) ou a perda do
+#: decisor nao passe verde. Negativa e decisao clinica ficam com medico-auditor; a coordenacao de
+#: auditoria medica so assume a fila; a decisao de fraude e do investigador (itens hard).
+AUTH_FRAUDE_SOLE_DECIDER_FROZEN = {
+    ("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada"): frozenset({"medico-auditor"}),
+    ("SP-OP-AUTH-001", "UT_AnaliseMedicoAuditor"): frozenset({"medico-auditor"}),
+    ("SP-OP-AUTH-001", "UT_CoordenacaoAssume"): frozenset({"coordenacao-auditoria-medica"}),
+    ("SP-OP-FRAUDE-001", "UT_DecisaoInvestigador"): frozenset({"investigacao-fraude"}),
+}
+
+
+def test_auth_and_fraude_adverse_tasks_keep_exactly_their_decider_group() -> None:
+    tasks = _user_tasks()
+    for key, groups in AUTH_FRAUDE_SOLE_DECIDER_FROZEN.items():
+        got = frozenset(g.strip() for g in tasks[key].split(","))
+        assert got == groups, f"{key}: {sorted(got)} != {sorted(groups)} (R-041, verdito #1151 N1)"
