@@ -230,6 +230,18 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "antes; qualquer excecao do botocore vira FalhaDaRotaGlobalError (so' o nome da classe, nunca a "
         "mensagem, que pode ecoar o prompt) e quem chama devolve a resposta segura padrao",
     ),
+    "src/maezo/runtime/inference/embeddings.py::TransporteBedrockRegional::_invocar_com_tentativas": (
+        1,
+        "repeticao da chamada de embeddings (conexao derrubada pelo tempo ocioso do NAT): PROGRAMMING_ERRORS "
+        "re-levanta antes; a ultima falha sobe como veio. Movido de conhecimento/busca_semantica.py sem "
+        "redefinir (R-040, DEC-20, AGENTS.md regra 6)",
+    ),
+    "src/maezo/runtime/inference/embeddings.py::TransporteBedrockRegional::vetores": (
+        1,
+        "firewall de SDK dos embeddings: PROGRAMMING_ERRORS e FalhaDeEmbeddingsError re-levantam antes; "
+        "qualquer excecao do botocore vira FalhaDeEmbeddingsError (so' o nome da classe, nunca a mensagem, "
+        "que pode trazer o texto enviado) e quem chama cai no lexico (R-040, DEC-20)",
+    ),
     "src/maezo/runtime/inference/br_regional.py::BedrockBrRegionalTransport::send": (
         2,
         "firewall de SDK, nas DUAS pernas: (1) a excecao do botocore no envio vira "
