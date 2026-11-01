@@ -788,3 +788,22 @@ async def test_limpeza_apagar_recusa_tabela_fora_do_mapa_antes_do_pool(tabela: s
     falso = SimpleNamespace(_ensure_pool=_pool)
     with pytest.raises(ValueError, match="mapa fechado"):
         await m.Limpeza._apagar(falso, tabela, ["c"])  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------------------------
+# platform/migrations/env.py (search_path do tenant como valor ligado de set_config)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_migrations_env_todo_text_e_literal_e_search_path_vai_ligado() -> None:
+    """TENANT_ID (CLI/env, sem validacao no env.py) nunca entra no texto do SQL."""
+    tree = ast.parse((_SRC / "platform/migrations/env.py").read_bytes())
+    chamadas = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "text"
+    ]
+    assert chamadas, "env.py deixou de usar text(): a prova ficaria vazia"
+    assert all(len(c.args) == 1 and isinstance(c.args[0], ast.Constant) for c in chamadas)
+    literais = [c.args[0].value for c in chamadas]
+    assert "SELECT set_config('search_path', :search_path, false)" in literais
