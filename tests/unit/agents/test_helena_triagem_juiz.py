@@ -336,3 +336,28 @@ async def test_falha_do_modelo_com_palavra_de_alarme_e_o_192_de_sempre() -> None
     grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Quebrado())))
     r = await tj.conduzir(grafo, _estado("meu pai desmaiou agora"), _Decisao(), None, None)
     assert r is not None and r["next_kind"] == "escalate"
+
+
+async def test_outra_coisa_no_meio_do_caso_continua_o_mesmo_caso() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo())))
+    primeiro = await tj.conduzir(
+        grafo, _estado("estou com dor de garganta desde ontem"), _Decisao(), None, None
+    )
+    assert primeiro is not None
+    texto = "nao. outra coisa: estou com febre tambem"
+    seguinte = await tj.conduzir(
+        grafo, _depois(primeiro, texto), _Decisao(), primeiro["coleta_pendente"], None
+    )
+    assert seguinte is not None
+    ctx = json.loads(seguinte["coleta_contexto"] or "{}")
+    assert (
+        ctx.get("msgs", ["estou com dor de garganta desde ontem"])[0]
+        == "estou com dor de garganta desde ontem"
+    )
+    assert tj.troca_de_assunto(grafo, _depois(primeiro, "outra coisa"), primeiro["coleta_pendente"]) is None
+
+
+async def test_a_conclusao_avisa_como_trocar_de_assunto() -> None:
+    modelo = _Modelo(juiz="PS", motivo="colica renal", explica=_PORQUE, pergunta=None)
+    final = await _concluido(_ligado(_grafo(_Glm(), _HaikuPorPapel(modelo))), "dor forte perto do rim")
+    assert final["response_text"].endswith(tj.LINHA_OUTRO_ASSUNTO)

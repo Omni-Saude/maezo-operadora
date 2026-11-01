@@ -81,12 +81,13 @@ _REAVALIA: Final[str] = (
     "Se entendi algo errado, me conte de novo, numa mensagem só, como a pessoa está agora."
 )
 #: "Agora trago outro assunto", "mudei de assunto": encerra o caso anterior (2o teste do dono, 01/11).
+#: So' frases sem ambiguidade: "outra coisa: ele tambem tem febre" e' o MESMO caso e nao entra.
 _TROCA_DE_ASSUNTO: Final[re.Pattern[str]] = re.compile(
-    r"\b(outro|novo) assunto\b|\bmud(ar|ei|ando|ou|o) (de |o )?assunto\b|\bassunto diferente\b"
-    r"|\boutra (coisa|d[uú]vida|pergunta|quest[aã]o)\b"
-    r"|\bagora (eu )?(quero|vou|preciso) (falar|perguntar|contar)\b",
+    r"\b(outro|novo) assunto\b|\bmud(ar|ei|ando|ou|o) (de |o )?assunto\b|\bassunto diferente\b",
     re.I,
 )
+#: A conclusao avisa como trocar de assunto (dono, 01/11/2026).
+LINHA_OUTRO_ASSUNTO: Final[str] = "Se quiser falar de outra pessoa ou de outro assunto, é só mandar."
 #: Mensagem de troca de assunto SEM o caso novo ("ok, agora trago outro assunto:").
 _SO_A_TROCA_MAX: Final[int] = 60
 TEXTO_PODE_CONTAR: Final[str] = "Claro, pode contar."
@@ -372,7 +373,8 @@ def _explica(r: Mapping[str, Any]) -> str | None:
 def _concluir(
     self: HelenaGraph, state: Mapping[str, Any], ctx: Mapping[str, Any], r: Mapping[str, Any], texto: str
 ) -> dict[str, Any]:
-    """A conclusao, com o contexto guardado (sem pendencia) para o porque no turno seguinte."""
+    """A conclusao (com a linha de outro assunto), com o contexto guardado para o porque no turno seguinte."""
+    texto = f"{texto}\n\n{LINHA_OUTRO_ASSUNTO}"
     update = _pf._texto(self, state, _final(texto))
     final = {"saida": r["saida"], "explica": _explica(r), "texto": texto}
     update["coleta_contexto"] = json.dumps({**ctx, "pendente": None, "final": final}, ensure_ascii=False)
@@ -382,6 +384,7 @@ def _concluir(
 __all__ = [
     "CHAVE_DO_PACOTE",
     "PENDENTE",
+    "LINHA_OUTRO_ASSUNTO",
     "TEXTO_PODE_CONTAR",
     "assume",
     "conduzir",
