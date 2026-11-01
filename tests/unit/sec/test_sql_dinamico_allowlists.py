@@ -712,3 +712,15 @@ def test_amh_inbox_insert_so_interpola_colunas_literais() -> None:
         "ON CONFLICT (contract_manifest_digest, event_id) DO NOTHING "
         "RETURNING status, redelivery_count"
     ) == amh_inbox._INSERT_SQL
+
+
+def test_lembretes_sql_e_literal_e_usa_as_tabelas_declaradas() -> None:
+    from maezo.platform.lembretes import armazenamento as m
+
+    modulo = "platform/lembretes/armazenamento.py"
+    envio = ("_RESERVAR_SQL", "_LIBERAR_SQL", "_JA_SQL")
+    optout = ("_OPTOUT_INSERT_SQL", "_OPTOUT_DELETE_SQL", "_OPTOUT_TODOS_SQL")
+    for nome in envio + optout:
+        assert atribuicao_literal_de_modulo(modulo, nome) == getattr(m, nome)
+    assert all(m.TABELA_ENVIADO in getattr(m, n) and m.TABELA_OPTOUT not in getattr(m, n) for n in envio)
+    assert all(m.TABELA_OPTOUT in getattr(m, n) and m.TABELA_ENVIADO not in getattr(m, n) for n in optout)
