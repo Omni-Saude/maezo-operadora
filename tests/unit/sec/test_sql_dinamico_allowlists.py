@@ -392,3 +392,49 @@ def test_external_postgres_operation_e_um_de_tres_nomes_literais() -> None:
         "revoke_external_case_source",
         "accept_external_case_source",
     ]
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/human/decision_binding.py (`table()` em RELATIONS, `suffix`, `binding_columns`)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_decision_binding_relations_e_table_fechados() -> None:
+    from types import SimpleNamespace
+
+    from maezo.gateway.human import decision_binding as m
+
+    assert all(SIMPLES.fullmatch(r) for r in m.RELATIONS + m.NATIVE_COHORT_RELATIONS)
+    _campo_validado(m.BindingDatabase, "schema_name")
+    falso = SimpleNamespace(database=SimpleNamespace(schema_name="hb"), native_cohort_read=None)
+    assert m.BindingConnection.table(falso, "mzo_human_tenant") == '"hb"."mzo_human_tenant"'
+    for nome in ("mzo_human_consumer_head", 'mzo_human_tenant"; DROP TABLE t; --', "pg_authid", ""):
+        with pytest.raises(m.BindingUnavailableError):
+            m.BindingConnection.table(falso, nome)
+    # A coorte nativa so' amplia a allowlist com NATIVE_COHORT_RELATIONS, nunca com nome livre.
+    com_coorte = SimpleNamespace(database=falso.database, native_cohort_read=object())
+    assert (
+        m.BindingConnection.table(com_coorte, "mzo_human_consumer_head") == '"hb"."mzo_human_consumer_head"'
+    )
+    with pytest.raises(m.BindingUnavailableError):
+        m.BindingConnection.table(com_coorte, "pg_authid")
+
+
+def test_decision_binding_suffix_e_literal() -> None:
+    fn = _funcao("gateway/human/decision_binding.py", "revision")
+    (atrib,) = [
+        n.value
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "suffix" for t in n.targets)
+    ]
+    assert isinstance(atrib, ast.IfExp)
+    assert {ast.literal_eval(atrib.body), ast.literal_eval(atrib.orelse)} == {" FOR UPDATE", ""}
+
+
+def test_decision_binding_colunas_do_insert_sao_kwargs_literais() -> None:
+    fn = _funcao("gateway/human/decision_binding.py", "binding_columns")
+    (ret,) = [n.value for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    assert isinstance(ret, ast.Call) and isinstance(ret.func, ast.Name) and ret.func.id == "dict"
+    assert not ret.args and all(k.arg is not None for k in ret.keywords)
+    colunas = [k.arg for k in ret.keywords]
+    assert len(colunas) == 18 and all(SIMPLES.fullmatch(c or "") for c in colunas)

@@ -42,6 +42,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "gateway/document_requests/production.py": 2,
     "gateway/documents/authority.py": 1,
     "gateway/external_cases/publisher.py": 1,
+    "gateway/human/decision_binding.py": 22,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,

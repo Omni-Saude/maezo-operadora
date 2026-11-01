@@ -457,7 +457,7 @@ class BindingConnection:
             raise BindingUnavailableError()
         row = await c.fetchrow(
             "SELECT h.generation_,h.qualification_generation_,q.authority_rev_,"
-            "q.qualification_,q.envelope_,b.binding_ "
+            "q.qualification_,q.envelope_,b.binding_ "  # nosec B608 # fonte: RELATIONS
             f"FROM {self.table('mzo_human_consumer_head')} h "
             f"JOIN {self.table('mzo_human_consumer_qualification')} q ON q.tenant_=h.tenant_ "
             "AND q.generation_=h.qualification_generation_ "
@@ -517,12 +517,12 @@ class BindingConnection:
             raise BindingUnavailableError()
         trust = await c.fetchrow(
             f"SELECT designation_ FROM {self.table('mzo_human_consumer_trust')} "
-            "WHERE tenant_=$1 AND key_id_=$2",
+            "WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             envelope["key_id"],
         )
         revoked = await c.fetchrow(
-            f"SELECT key_id_ FROM {self.table('mzo_human_consumer_revoked')} WHERE tenant_=$1 AND key_id_=$2",
+            f"SELECT key_id_ FROM {self.table('mzo_human_consumer_revoked')} WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             envelope["key_id"],
         )
@@ -676,7 +676,7 @@ class BindingConnection:
     async def revision(self, c: Any, *, lock: bool = False) -> int:
         suffix = " FOR UPDATE" if lock else ""
         value = await c.fetchval(
-            f"SELECT rev_ FROM {self.table('mzo_human_tenant')} WHERE tenant_=$1{suffix}",
+            f"SELECT rev_ FROM {self.table('mzo_human_tenant')} WHERE tenant_=$1{suffix}",  # nosec B608 # fonte: RELATIONS + suffix literal
             self.database.scope.tenant,
         )
         if type(value) is not int or not 0 <= value < 2**63 - 1:
@@ -687,7 +687,8 @@ class BindingConnection:
         d = self.database
         r = await c.fetchrow(
             f"SELECT document_,digest_,generation_ FROM {self.table('mzo_human_decision_authority')} "
-            f"WHERE tenant_=$1 AND installation_=$2 ORDER BY generation_ DESC LIMIT 1",
+            "WHERE tenant_=$1 AND installation_=$2 "
+            "ORDER BY generation_ DESC LIMIT 1",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             d.installation_id,
         )
@@ -705,7 +706,7 @@ class BindingConnection:
             f"""SELECT p.id_,p.key_,p.version_,p.tenant_id_,b.bytes_
           FROM {self.table("act_re_procdef")} p JOIN {self.table("act_ge_bytearray")} b
           ON b.deployment_id_=p.deployment_id_ AND b.name_=p.resource_name_
-          WHERE p.id_=$1 AND octet_length(b.bytes_)<=1048576 LIMIT 2""",
+          WHERE p.id_=$1 AND octet_length(b.bytes_)<=1048576 LIMIT 2""",  # nosec B608 # fonte: RELATIONS
             e.process_definition_id,
         )
         if len(rows) != 1:
@@ -757,7 +758,7 @@ class BindingConnection:
                 f"""SELECT p.id_,p.key_,p.version_,p.tenant_id_,b.bytes_
               FROM {self.table("act_re_decision_def")} p JOIN {self.table("act_ge_bytearray")} b
               ON b.deployment_id_=p.deployment_id_ AND b.name_=p.resource_name_
-              WHERE p.id_=$1 AND octet_length(b.bytes_)<=1048576 LIMIT 2""",
+              WHERE p.id_=$1 AND octet_length(b.bytes_)<=1048576 LIMIT 2""",  # nosec B608 # fonte: RELATIONS
                 domain.dmn_definition_id,
             )
             if len(dmns) != 1:
@@ -840,7 +841,7 @@ class _BindingRecords:
         d = self._db.database
         r = await c.fetchrow(
             f"SELECT * FROM {self._db.table('mzo_human_decision_install_receipt')} "
-            f"WHERE tenant_=$1 AND installation_=$2 AND operation_=$3",
+            f"WHERE tenant_=$1 AND installation_=$2 AND operation_=$3",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             d.installation_id,
             operation,
@@ -853,7 +854,7 @@ class _BindingRecords:
         db, d = self._db, self._db.database
         values = binding_columns(q, d.scope)
         rows = await c.fetch(
-            f"SELECT * FROM {db.table('mzo_human_decision_binding')} "
+            f"SELECT * FROM {db.table('mzo_human_decision_binding')} "  # nosec B608 # fonte: RELATIONS
             f"WHERE tenant_=$1 AND environment_=$2 AND process_=$3 AND task_key_=$4 AND authority_rev_=$5",
             d.scope.tenant,
             d.scope.environment,
@@ -863,7 +864,8 @@ class _BindingRecords:
         )
         p = await c.fetchrow(
             f"SELECT packet_,digest_ FROM {db.table('mzo_human_decision_qualification')} "
-            f"WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 AND digest_=$4",
+            "WHERE tenant_=$1 AND installation_=$2 "
+            "AND authority_rev_=$3 AND digest_=$4",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             d.installation_id,
             values["authority_rev_"],
@@ -898,7 +900,7 @@ class DecisionBindingInstaller(_BindingRecords):
         db, d = self._db, self._db.database
         changed = await c.fetchval(
             f"UPDATE {db.table('mzo_human_tenant')} SET rev_=rev_+1 "
-            f"WHERE tenant_=$1 AND rev_=$2 RETURNING rev_",
+            f"WHERE tenant_=$1 AND rev_=$2 RETURNING rev_",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             revision,
         )
@@ -908,7 +910,7 @@ class DecisionBindingInstaller(_BindingRecords):
             f"INSERT INTO {db.table('mzo_human_decision_install_receipt')} "
             "(tenant_,installation_,operation_,kind_,request_digest_,"
             "expected_rev_,resulting_rev_,packet_digests_) "
-            f"VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+            f"VALUES($1,$2,$3,$4,$5,$6,$7,$8)",  # nosec B608 # fonte: RELATIONS
             d.scope.tenant,
             d.installation_id,
             operation,
@@ -948,7 +950,7 @@ class DecisionBindingInstaller(_BindingRecords):
             else:
                 generation = await c.fetchval(
                     f"SELECT max(generation_) FROM {db.table('mzo_human_decision_authority')} "
-                    f"WHERE tenant_=$1 AND installation_=$2",
+                    f"WHERE tenant_=$1 AND installation_=$2",  # nosec B608 # fonte: RELATIONS
                     d.scope.tenant,
                     d.installation_id,
                 )
@@ -960,7 +962,8 @@ class DecisionBindingInstaller(_BindingRecords):
                     raise BindingUnavailableError()
                 await c.execute(
                     f"INSERT INTO {db.table('mzo_human_decision_authority')} "
-                    f"(tenant_,installation_,generation_,document_,digest_) VALUES($1,$2,$3,$4,$5)",
+                    "(tenant_,installation_,generation_,document_,digest_) "
+                    "VALUES($1,$2,$3,$4,$5)",  # nosec B608 # fonte: RELATIONS
                     d.scope.tenant,
                     d.installation_id,
                     doc.generation,
@@ -1048,7 +1051,8 @@ class DecisionBindingInstaller(_BindingRecords):
                     raw = canonical(q.packet)
                     await c.execute(
                         f"INSERT INTO {db.table('mzo_human_decision_qualification')} "
-                        "(tenant_,installation_,authority_rev_,packet_,digest_) VALUES($1,$2,$3,$4,$5)",
+                        "(tenant_,installation_,authority_rev_,packet_,digest_) "
+                        "VALUES($1,$2,$3,$4,$5)",  # nosec B608 # fonte: RELATIONS
                         d.scope.tenant,
                         d.installation_id,
                         revision + 1,
@@ -1059,7 +1063,7 @@ class DecisionBindingInstaller(_BindingRecords):
                     names = ",".join(values)
                     slots = ",".join(f"${i}" for i in range(1, len(values) + 1))
                     await c.execute(
-                        f"INSERT INTO {db.table('mzo_human_decision_binding')} ({names}) VALUES({slots})",
+                        f"INSERT INTO {db.table('mzo_human_decision_binding')} ({names}) VALUES({slots})",  # nosec B608 # fonte: RELATIONS + binding_columns
                         *values.values(),
                     )
                 result = await self._cas_receipt(
@@ -1143,20 +1147,24 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             raise BindingUnavailableError()
         # One excess sentinel beyond this explicitly versioned finite cohort.
         limit = 44 if cohort is not None else 7
+        # R-110: o LIMIT e' valor e vai ligado ($4), nunca interpolado.
         packets = await c.fetch(
             f"SELECT packet_,digest_ FROM {db.table('mzo_human_decision_qualification')} "
-            f"WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 ORDER BY digest_ LIMIT {limit}",
+            "WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 "
+            "ORDER BY digest_ LIMIT $4",  # nosec B608 # fonte: RELATIONS
             self.scope.tenant,
             d.installation_id,
             revision,
+            limit,
         )
         bindings = await c.fetch(
             f"SELECT binding_digest_ FROM {db.table('mzo_human_decision_binding')} "
             "WHERE tenant_=$1 AND environment_=$2 AND authority_rev_=$3 "
-            f"ORDER BY binding_digest_ LIMIT {limit}",
+            "ORDER BY binding_digest_ LIMIT $4",  # nosec B608 # fonte: RELATIONS
             self.scope.tenant,
             self.scope.environment,
             revision,
+            limit,
         )
         if (
             tuple(p["digest_"] for p in packets) != receipt.packet_digests
@@ -1212,7 +1220,7 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
                     ON b.tenant_=q.tenant_ AND b.authority_rev_=q.authority_rev_ AND
           b.binding_digest_=q.digest_
                     WHERE q.tenant_=$1 AND q.installation_=$2 AND q.authority_rev_=$3
-                    AND b.environment_=$4 AND b.process_=$5 AND b.task_key_=$6""",
+                    AND b.environment_=$4 AND b.process_=$5 AND b.task_key_=$6""",  # nosec B608 # fonte: RELATIONS
                     self.scope.tenant,
                     d.installation_id,
                     revision,
@@ -1313,7 +1321,7 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
           FROM {db.table("act_ru_task")} t JOIN {db.table("mzo_human_principal")} p ON
           p.tenant_=t.tenant_id_ AND p.principal_=$2
           JOIN {db.table("mzo_human_evidence")} e ON e.tenant_=t.tenant_id_ AND e.task_=t.id_ WHERE
-          t.id_=$1""",
+          t.id_=$1""",  # nosec B608 # fonte: RELATIONS
             s.task_id,
             p.principal_ref,
         )
@@ -1349,7 +1357,7 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
         required = q.packet.material.required_group
         links = await c.fetch(
             f"SELECT group_id_ FROM {db.table('act_ru_identitylink')} "
-            f"WHERE task_id_=$1 AND tenant_id_=$2 AND type_=$3",
+            f"WHERE task_id_=$1 AND tenant_id_=$2 AND type_=$3",  # nosec B608 # fonte: RELATIONS
             s.task_id,
             self.scope.tenant,
             "candidate",
@@ -1374,7 +1382,7 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             AND r.incarnation_=$4 AND r.task_=$5 AND NOT EXISTS(
               SELECT 1 FROM {db.table("mzo_portal_read_revocation")} rv
               WHERE rv.tenant_=pr.tenant_ AND rv.environment_=pr.environment_ AND rv.engine_=pr.engine_
-              AND rv.incarnation_=pr.incarnation_ AND rv.fingerprint_=pr.key_fingerprint_)""",
+              AND rv.incarnation_=pr.incarnation_ AND rv.fingerprint_=pr.key_fingerprint_)""",  # nosec B608 # fonte: RELATIONS
             self.scope.tenant,
             self.scope.environment,
             d.engine_name,
