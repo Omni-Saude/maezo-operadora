@@ -31,14 +31,16 @@ trava antiga por palavra, antes da triagem; depois a conversa misturou triagem, 
   psicossocial e a de dados pessoais seguem como antes.
 - Sinais de emergência só contam como presentes se aconteceram hoje; o leitor entende "foi semana passada" como "não".
 - Pronto-socorro e "atendimento hoje" dizem o porquê (uma frase do juiz, sem 192/SAMU nem link).
-- Logo depois da conclusão: "o que eu te respondi?" / "por que o pronto-socorro?" recebe o porquê, sem nova triagem;
-  um fato novo do mesmo caso reavalia a conversa inteira.
+- Logo depois da conclusão: "o que eu te respondi?" / "por que o pronto-socorro?" recebe o porquê, sem nova triagem.
+- 2º teste (01/11, tarde): juntar a mensagem seguinte ao caso concluído misturou o caso do irmão com o do marido.
+  Agora a conclusão ENCERRA o caso: mensagem nova de sintoma = caso novo, só com ela; "outro assunto", "mudei de
+  assunto", "outra coisa" encerram o caso (sem o caso novo na mensagem: "Claro, pode contar.").
 - Falha do modelo: 192 se havia palavra de alarme; senão, a oferta da equipe (nunca a lista do protocolo antigo).
 - "O que você está sentindo?" só quando a pessoa ainda não contou.
 
 ## Logs (sem conteúdo da conversa)
 `helena_triagem_juiz_pergunta` (motivo, rodada), `helena_triagem_juiz_saida` (saida, regra, piso, juiz, perguntas,
-com_razao), `helena_triagem_juiz_explicou`, `helena_triagem_juiz_reavalia`, `helena_triagem_juiz_falhou` (falha,
+com_razao), `helena_triagem_juiz_explicou`, `helena_triagem_juiz_troca_de_assunto`, `helena_triagem_juiz_falhou` (falha,
 continua, palavra), `helena_triagem_juiz_contexto_invalido`.
 
 ## Limites conhecidos (teste de mesa, 01/11/2026)

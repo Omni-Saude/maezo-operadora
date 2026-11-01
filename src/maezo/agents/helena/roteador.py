@@ -567,6 +567,9 @@ async def _classify_ativo_decidido(
     if alarme == "claro" and not _triagem_juiz.assume(self, state):
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
     texto = str(state.get("message_body") or "")
+    if (troca := _triagem_juiz.troca_de_assunto(self, state, antes)) is not None:
+        # 2o teste do dono (01/11/2026): "agora trago outro assunto" encerra o caso anterior e pede o novo.
+        return {**troca, "habilidade_roteador": "conversa"}
     if (explicada := _triagem_juiz.explicar(self, state, antes)) is not None:
         # Teste do dono (01/11/2026): "o que eu te respondi?" depois da conclusao da triagem: o porque dela.
         return {**explicada, "habilidade_roteador": "sintoma"}

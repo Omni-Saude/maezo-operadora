@@ -13,8 +13,8 @@ Falha do modelo: o 192 de sempre se a palavra de alarme estiver no texto; senao,
 
 Teste do dono (01/11/2026): com a chave ligada, o alarme pela palavra ("desmaiou") nao responde antes da
 triagem (ela abre a triagem, e o motor pergunta "foi hoje?"); pronto-socorro e "hoje" dizem o porque; logo
-depois da conclusao, "o que eu te respondi?" recebe o porque e um fato novo do mesmo caso ("isso foi semana
-passada") reavalia a conversa inteira.
+depois da conclusao, "o que eu te respondi?" recebe o porque; mensagem nova de sintoma e' um caso NOVO e
+"outro assunto" encerra o caso anterior.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import structlog
 from maezo.agents.helena import modelo_allowlist as _ma
 from maezo.agents.helena.frase_afirmada import ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.habilidades.protocolo import especialista as _esp
 from maezo.agents.helena.habilidades.protocolo import evidencia as _ev
 from maezo.agents.helena.habilidades.protocolo import fluxo as _pf
@@ -77,8 +78,19 @@ _PERGUNTA_PELA_CONCLUSAO: Final[re.Pattern[str]] = re.compile(
 )
 _RAZAO_FIXA: Final[str] = "foi pelo conjunto do que você me contou na conversa."
 _REAVALIA: Final[str] = (
-    "Se entendi algo errado (por exemplo, se isso já passou ou foi em outro dia), me conte que eu reavalio."
+    "Se entendi algo errado, me conte de novo, numa mensagem só, como a pessoa está agora."
 )
+#: "Agora trago outro assunto", "mudei de assunto": encerra o caso anterior (2o teste do dono, 01/11).
+#: So' frases sem ambiguidade: "outra coisa: ele tambem tem febre" e' o MESMO caso e nao entra.
+_TROCA_DE_ASSUNTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(outro|novo) assunto\b|\bmud(ar|ei|ando|ou|o) (de |o )?assunto\b|\bassunto diferente\b",
+    re.I,
+)
+#: A conclusao avisa como trocar de assunto (dono, 01/11/2026).
+LINHA_OUTRO_ASSUNTO: Final[str] = "Se quiser falar de outra pessoa ou de outro assunto, é só mandar."
+#: Mensagem de troca de assunto SEM o caso novo ("ok, agora trago outro assunto:").
+_SO_A_TROCA_MAX: Final[int] = 60
+TEXTO_PODE_CONTAR: Final[str] = "Claro, pode contar."
 #: As respostas finais emitidas (a fala seguinte "ok, obrigado" nao recomeca a triagem).
 _FINAIS: OrderedDict[str, None] = OrderedDict()
 _MAX_FINAIS: Final[int] = 512
@@ -163,6 +175,30 @@ def _depois_da_conclusao(state: Mapping[str, Any], antes: str | None) -> dict[st
     return ctx
 
 
+def _em_caso(state: Mapping[str, Any], antes: str | None) -> bool:
+    """A conversa esta numa triagem com juiz (pergunta pendente, ou a ultima fala foi a conclusao)."""
+    from maezo.agents.helena import graph as _g
+
+    falas = _g._falas_da_helena(state)
+    return (
+        bool(antes and antes.startswith(PENDENTE))
+        or bool(falas and falas[-1] in _FINAIS)
+        or (_depois_da_conclusao(state, antes) is not None)
+    )
+
+
+def troca_de_assunto(self: HelenaGraph, state: Mapping[str, Any], antes: str | None) -> dict[str, Any] | None:
+    """ "Agora trago outro assunto" sem o caso novo, no meio ou depois da triagem: encerra o caso anterior
+    e pede o novo (com o caso novo na mesma mensagem, `conduzir` comeca uma triagem so' com ela)."""
+    texto = str(state.get("message_body") or "")
+    if not assume(self, state) or not _TROCA_DE_ASSUNTO.search(texto) or len(texto.strip()) > _SO_A_TROCA_MAX:
+        return None
+    if not _em_caso(state, antes):
+        return None
+    logger.info("helena_triagem_juiz_troca_de_assunto", com_caso_novo=False)
+    return _pf._texto(self, state, TEXTO_PODE_CONTAR)
+
+
 def explicar(self: HelenaGraph, state: Mapping[str, Any], antes: str | None) -> dict[str, Any] | None:
     """ "O que eu te respondi?" logo depois da conclusao: o porque dela, sem nova triagem."""
     if not assume(self, state) or not _PERGUNTA_PELA_CONCLUSAO.search(str(state.get("message_body") or "")):
@@ -172,7 +208,10 @@ def explicar(self: HelenaGraph, state: Mapping[str, Any], antes: str | None) -> 
         return None
     final = ctx["final"]
     razao = str(final.get("explica") or _RAZAO_FIXA)
-    texto = f"Eu indiquei isso por causa do que você me contou: {razao}\n\n{_REAVALIA}"
+    abertura = (
+        "" if razao.lower().startswith("pelo que") else "Eu indiquei isso por causa do que você me contou: "
+    )
+    texto = f"{abertura}{razao}\n\n{_REAVALIA}"
     logger.info(
         "helena_triagem_juiz_explicou", saida=final.get("saida"), com_razao=bool(final.get("explica"))
     )
@@ -194,6 +233,11 @@ async def conduzir(
     if not palavra and (_g._pedido_explicito_com_verbo(texto) or _g._pedido_explicito_de_pessoa(texto)):
         return None
     continua = bool(antes and antes.startswith(PENDENTE))
+    troca = bool(_TROCA_DE_ASSUNTO.search(texto))
+    if continua and troca:
+        # "Mudando de assunto, meu irmao ...": o caso novo comeca do zero, so' com esta mensagem.
+        logger.info("helena_triagem_juiz_troca_de_assunto", com_caso_novo=True)
+        continua, antes = False, None
     if antes and not continua and not palavra:
         return None  # outra pergunta pendente: a habilidade dona dela decide
     if palavra and alarme is None:
@@ -208,30 +252,19 @@ async def conduzir(
         habilidade = (
             decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
         )
-        anterior = _depois_da_conclusao(state, antes)
-        if not (
-            habilidade == "sintoma"
-            or alarme in ("incerto", "claro")
-            or (anterior is not None and habilidade == "saude")
-        ):
+        if not (habilidade == "sintoma" or alarme in ("incerto", "claro")):
             return None
-        falas = _g._falas_da_helena(state)
-        if anterior is None and falas and falas[-1] in _FINAIS and alarme is None:
-            return None  # a fala depois da resposta final: o caminho de sempre (agradecimento, seguimento)
+        if alarme is None and _em_caso(state, antes) and _lc.e_cortesia(texto):
+            return None  # "ok, obrigado" depois da conclusao: o caminho de sempre
         if alarme is None and (
             _pf.duvida_sem_queixa(texto, decisao.v7)
             or _jr.pergunta_de_agendamento(texto)
             or (_esp.pergunta_qual_especialista(texto) and not _esp.relata_queixa(texto))
         ):
             return None  # duvida, agendamento e "qual profissional" sem queixa: os protocolos de hoje
-        if anterior is not None:
-            # Fato novo do MESMO caso logo depois da conclusao ("isso foi semana passada"): reavalia
-            # a conversa inteira (mensagens e respostas) sem recomecar do zero.
-            logger.info("helena_triagem_juiz_reavalia", saida_anterior=anterior["final"].get("saida"))
-            ctx = {k: v for k, v in anterior.items() if k != "final"}
-            ctx.update(msgs=[*ctx["msgs"], texto], f=None, pre=None, pendente=None, juiz_perguntou=True)
-        else:
-            ctx = _m.contexto_novo([texto])
+        # Mensagem nova depois da conclusao = caso NOVO, so' com ela (2o teste do dono, 01/11/2026: juntar ao
+        # caso anterior misturou o caso do irmao com o do marido).
+        ctx = _m.contexto_novo([texto])
         resposta = None
     try:
         r = await asyncio.wait_for(_m.passo(_chamador(self), ctx, resposta), timeout=PRAZO_DO_TURNO_S)
@@ -340,11 +373,22 @@ def _explica(r: Mapping[str, Any]) -> str | None:
 def _concluir(
     self: HelenaGraph, state: Mapping[str, Any], ctx: Mapping[str, Any], r: Mapping[str, Any], texto: str
 ) -> dict[str, Any]:
-    """A conclusao, com o contexto guardado (sem pendencia) para o porque e a reavaliacao seguinte."""
+    """A conclusao (com a linha de outro assunto), com o contexto guardado para o porque no turno seguinte."""
+    texto = f"{texto}\n\n{LINHA_OUTRO_ASSUNTO}"
     update = _pf._texto(self, state, _final(texto))
     final = {"saida": r["saida"], "explica": _explica(r), "texto": texto}
     update["coleta_contexto"] = json.dumps({**ctx, "pendente": None, "final": final}, ensure_ascii=False)
     return update
 
 
-__all__ = ["CHAVE_DO_PACOTE", "PENDENTE", "assume", "conduzir", "explicar", "ligada"]
+__all__ = [
+    "CHAVE_DO_PACOTE",
+    "PENDENTE",
+    "LINHA_OUTRO_ASSUNTO",
+    "TEXTO_PODE_CONTAR",
+    "assume",
+    "conduzir",
+    "explicar",
+    "ligada",
+    "troca_de_assunto",
+]
