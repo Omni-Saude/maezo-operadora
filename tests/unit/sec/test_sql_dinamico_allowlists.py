@@ -527,3 +527,33 @@ def test_vendor_membership_apply_change_e_constante_qualificada() -> None:
         )
     ]
     assert len(atribs) == 1 and isinstance(atribs[0].value, ast.Constant)
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/intake/native_authority.py (`self.table()` sobre `binding.relations`)
+# ---------------------------------------------------------------------------------------------
+
+
+def _binding_auth(nomes: tuple[str, ...]) -> Any:
+    from types import SimpleNamespace
+
+    relacoes = tuple(SimpleNamespace(name=n, schema_name="auth", owner="dono") for n in nomes)
+    return SimpleNamespace(relations=relacoes, schema_name="auth", owner_role="dono", reader_role="leitor")
+
+
+def test_native_auth_reader_so_aceita_as_cinco_relacoes_mzo_auth() -> None:
+    from types import SimpleNamespace
+
+    from maezo.gateway.intake.native_authority import AuthUnavailableError, NativeAuthReader
+
+    motor = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    cinco = tuple(
+        "mzo_auth_" + n for n in ("installation", "trust", "revoked_key", "input_head", "input_version")
+    )
+    leitor = NativeAuthReader(motor, _binding_auth(cinco))  # type: ignore[arg-type]
+    assert leitor.table("mzo_auth_trust") == '"auth"."mzo_auth_trust"'
+    for intrusa in ('x"; DROP TABLE t; --', "pg_authid", "mzo_auth_extra"):
+        with pytest.raises(AuthUnavailableError):
+            NativeAuthReader(motor, _binding_auth((*cinco[:4], intrusa)))  # type: ignore[arg-type]
+        with pytest.raises(AuthUnavailableError):
+            NativeAuthReader(motor, _binding_auth((*cinco, intrusa)))  # type: ignore[arg-type]
