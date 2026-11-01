@@ -121,8 +121,9 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 `_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
 `dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
-`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents` e
-`analista_admissibilidade_id`. O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
+`analista_admissibilidade_id` e `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
+`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |

@@ -133,7 +133,10 @@ PAGTO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PAGTO_ORDEM_INVALIDA
 #:   `duplicidade_status`, `prestador_situacao`, `prestador_conhecido`;
 #: - `valor_maximo_aprovavel_cents` (saida de `pagto_alcada`, lida pelo guard do teto do aprovado)
 #:   e `analista_admissibilidade_id` (identidade que a guarda de SoD compara) — semeados por uma
-#:   origem, deslocariam o que so PAGTO pode afirmar.
+#:   origem, deslocariam o que so PAGTO pode afirmar;
+#: - `tier_minimo` (saida de `pagto_alcada` achatada por `BRT_AlcadaRouting`, lida pelo guard do
+#:   tier de `release_high_value_payment`) — semeada, chegaria ao escopo antes da DMN. NAO entram
+#:   `faixa_valor`/`grupo_aprovador`: Andre ainda os semeia (ecos da mesma DMN no dossie).
 PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
     {
         "lastro_confirmado",
@@ -147,6 +150,7 @@ PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
         "prestador_conhecido",
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
+        "tier_minimo",
     }
 )
 
