@@ -457,7 +457,7 @@ class BindingConnection:
             raise BindingUnavailableError()
         row = await c.fetchrow(
             "SELECT h.generation_,h.qualification_generation_,q.authority_rev_,"
-            "q.qualification_,q.envelope_,b.binding_ "  # nosec B608 # fonte: RELATIONS
+            "q.qualification_,q.envelope_,b.binding_ "  # nosec B608 # fonte: self.table() (NATIVE_COHORT_RELATIONS + schema_name ancorado)
             f"FROM {self.table('mzo_human_consumer_head')} h "
             f"JOIN {self.table('mzo_human_consumer_qualification')} q ON q.tenant_=h.tenant_ "
             "AND q.generation_=h.qualification_generation_ "
@@ -517,12 +517,12 @@ class BindingConnection:
             raise BindingUnavailableError()
         trust = await c.fetchrow(
             f"SELECT designation_ FROM {self.table('mzo_human_consumer_trust')} "
-            "WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: RELATIONS
+            "WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: self.table() (NATIVE_COHORT_RELATIONS + schema_name ancorado)
             d.scope.tenant,
             envelope["key_id"],
         )
         revoked = await c.fetchrow(
-            f"SELECT key_id_ FROM {self.table('mzo_human_consumer_revoked')} WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: RELATIONS
+            f"SELECT key_id_ FROM {self.table('mzo_human_consumer_revoked')} WHERE tenant_=$1 AND key_id_=$2",  # nosec B608 # fonte: self.table() (NATIVE_COHORT_RELATIONS + schema_name ancorado)
             d.scope.tenant,
             envelope["key_id"],
         )

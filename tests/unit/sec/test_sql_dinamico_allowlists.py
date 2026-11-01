@@ -655,6 +655,29 @@ def test_case_issuer_timeout_vai_ligado() -> None:
     from maezo.gateway.staff_cases import case_issuer_sources as m
 
     assert m._SET_TIMEOUT == "SELECT set_config('statement_timeout', :timeout, true)"
+    # O SQL de timeout precisa ser USADO: os tres pontos chamam `text(_SET_TIMEOUT)` com `:timeout` ligado
+    # e nenhum texto de SQL do modulo ainda interpola o timeout.
+    tree = ast.parse((_SRC / "gateway/staff_cases/case_issuer_sources.py").read_bytes())
+    usos = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "execute"
+        and n.args
+        and ast.unparse(n.args[0]) == "text(_SET_TIMEOUT)"
+    ]
+    assert len(usos) == 3
+    assert all(
+        len(u.args) == 2 and ast.unparse(u.args[1]) == "{'timeout': f'{int(self.seconds)}s'}" for u in usos
+    )
+    restos = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.JoinedStr)
+        and any(isinstance(v, ast.Constant) and "statement_timeout" in str(v.value) for v in n.values)
+    ]
+    assert restos == []
 
 
 # ---------------------------------------------------------------------------------------------

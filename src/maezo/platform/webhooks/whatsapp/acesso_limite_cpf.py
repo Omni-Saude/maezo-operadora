@@ -143,11 +143,11 @@ ON CONFLICT (tenant, chave) DO UPDATE SET
     END,
     ultima_em = $3
 RETURNING falhas, janela_anterior_bloqueada
-"""  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
-_LER_SQL: Final[str] = f"SELECT falhas, janela_inicio FROM {TABELA} WHERE tenant = $1 AND chave = $2"  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
+"""  # nosec B608 # fonte: TABELA (constante Final)
+_LER_SQL: Final[str] = f"SELECT falhas, janela_inicio FROM {TABELA} WHERE tenant = $1 AND chave = $2"  # nosec B608 # fonte: TABELA (constante Final)
 # Uma janela a mais: a seguinte precisa ler se esta bloqueou (o alarme de re-bloqueio).
 _EXPURGO_SQL: Final[str] = (
-    f"DELETE FROM {TABELA} WHERE tenant = $1 AND janela_inicio + 2 * $3::interval <= $2"  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
+    f"DELETE FROM {TABELA} WHERE tenant = $1 AND janela_inicio + 2 * $3::interval <= $2"  # nosec B608 # fonte: TABELA (constante Final)
 )
 
 
