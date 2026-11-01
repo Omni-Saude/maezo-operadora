@@ -249,3 +249,10 @@ f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 # então essa branch preservada deixa o Security de main vermelho desde 30/10. Removível quando a
 # branch for apagada pela rotina de manutenção do CONTRIBUTING.
 5a694e2193a36a6248e3db3bc91b5b22ad552a2b:tests/unit/tools/workers/test_events_ans_timer_identity.py:generic-api-key:71
+
+# Falso positivo (mesma classe das entradas acima): CNS SINTETICO num teste unitario de scrub de PHI.
+# A regra 'generic-api-key' casou o "key" de `"lookup.key", "cns=898001160123456"` + a entropia do
+# literal — numero ficticio do corpus de tests/unit/deploy/test_otel_collector_phi_scrub.py, nao
+# credencial. Escopo: um commit da branch feat/r061-otlp-zona-phi-scrub (PR #1159); o literal foi
+# reescrito para `cns 898001160123456` no commit seguinte. Removivel quando a branch for apagada.
+13989b3369c331a9d756b1e1ff5341f0aa66d316:tests/unit/deploy/test_otel_collector_phi_scrub.py:generic-api-key:337

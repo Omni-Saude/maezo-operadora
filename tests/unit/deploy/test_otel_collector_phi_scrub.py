@@ -334,7 +334,7 @@ _PHI_VALUE_PATTERNS: dict[str, tuple[str, str, str]] = {
     "telefone": ("error.detail", "destino +55 11 98888-7777 recusado", "98888-7777"),
     "wamid": ("messaging.message.id", "wamid.HBgNNTUxMTk4ODg4Nzc3NxUCABIYFjNFQjBDMEY=", "HBgNNTUxMTk4ODg4"),
     "fhir_ref": ("http.url", "https://hapi.svc/fhir/Patient/pat-0001-synth/_history/2", "pat-0001-synth"),
-    "cns_cru": ("lookup.key", "cns=898001160123456", "898001160123456"[:5]),
+    "cns_cru": ("lookup.key", "cns 898001160123456", "898001160123456"[:5]),
     "cpf_espacos": ("error.detail", "cpf 529 982 247 25", "529 982"),
     "cnpj_mascarado": ("error.detail", "cnpj 11.222.333/0001-81", "11.222.333"),
     "celular_sem_ddd": ("error.detail", "ligar 98888-7777", "98888"),
@@ -510,7 +510,7 @@ def test_every_canonical_phi_field_name_is_dropped_by_the_collector(collector_co
         ("ligar (11) 98888-7777 hoje", "log"),
         ("ligar +55 21 97777-6666 hoje", "log"),
         # B2: padroes que so' a rede de texto livre dos workers (phi_vars) pega.
-        ("cns=898001160123456", "phi_vars"),
+        ("cns 898001160123456", "phi_vars"),
         ("cpf 529 982 247 25", "phi_vars"),
         ("cnpj 11.222.333/0001-81", "phi_vars"),
         ("ligar 98888-7777", "phi_vars"),
