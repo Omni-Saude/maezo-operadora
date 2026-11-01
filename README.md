@@ -87,7 +87,7 @@ Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR
 
 ## Jornadas cobertas
 
-17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 66 arquivos DMN (`spec/processes/dmn/`):
+17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 68 arquivos DMN (`spec/processes/dmn/`):
 
 | Jornada | Processos SP-OP |
 |---------|-----------------|
@@ -130,7 +130,7 @@ O que separa esta base do go-live **não é código** — são ações que só h
 |---------|-------|
 | Agentes de IA nomeados | 10 (8 ativos + 2 em DRAFT) |
 | Processos BPMN SP-OP | 17 |
-| Arquivos de decisão DMN (`.dmn`) | 66 |
+| Arquivos de decisão DMN (`.dmn`) | 68 |
 | Servidores MCP | 5 (CIB Seven, DMN, FHIR, WhatsApp, Memory) |
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
