@@ -649,8 +649,9 @@ class PostgresAuthSourceLifecycle:
         row = (
             (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT expires_at,payload FROM "
+                        "SELECT expires_at,payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_sessions")
                         + " WHERE tenant=:tenant AND payload::jsonb->>'session_ref'=:session FOR SHARE"
                     ),
@@ -663,8 +664,9 @@ class PostgresAuthSourceLifecycle:
         session = SessionRecord.model_validate_json(row["payload"])
         payload = (
             await db.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                 text(
-                    "SELECT payload FROM "
+                    "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                     + self.table("portal_memberships")
                     + " WHERE tenant=:tenant AND issuer=:issuer AND subject=:subject FOR SHARE"
                 ),
@@ -1528,8 +1530,9 @@ class PostgresAuthSourceLifecycle:
                 if new is not None:
                     raw = (
                         await db.execute(
+                            # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                             text(
-                                "SELECT payload FROM "
+                                "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                                 + self.table("portal_memberships")
                                 + " WHERE tenant=:tenant AND issuer=:issuer AND subject=:subject"
                             ),
@@ -1894,8 +1897,9 @@ class PostgresAuthSourceLifecycle:
             await self.qualified(db, self.binding.control_role)
             raw = (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT payload FROM "
+                        "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_sessions")
                         + " WHERE tenant=:tenant AND secret_hash=:hash AND expires_at>:now"
                     ),
@@ -1917,8 +1921,9 @@ class PostgresAuthSourceLifecycle:
             await self.qualified(db, self.binding.control_role)
             raw = (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT payload FROM "
+                        "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_memberships")
                         + " WHERE tenant=:tenant AND issuer=:issuer AND subject=:subject"
                     ),
@@ -1997,8 +2002,9 @@ class PostgresAuthSourceLifecycle:
             if old_hash is not None:
                 raw = (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                         text(
-                            "SELECT payload FROM "
+                            "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                             + self.table("portal_sessions")
                             + " WHERE tenant=:tenant AND secret_hash=:hash"
                         ),
@@ -2009,8 +2015,9 @@ class PostgresAuthSourceLifecycle:
                     old = SessionRecord.model_validate_json(raw)
             member_raw = (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT payload FROM "
+                        "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_memberships")
                         + " WHERE tenant=:tenant AND issuer=:issuer AND subject=:subject"
                     ),
@@ -2042,8 +2049,9 @@ class PostgresAuthSourceLifecycle:
             await self.qualified(db, self.binding.reader_role)
             raw = (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT payload FROM "
+                        "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_sessions")
                         + " WHERE tenant=:tenant AND secret_hash=:hash"
                     ),
@@ -2064,8 +2072,9 @@ class PostgresAuthSourceLifecycle:
             rows = (
                 (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                         text(
-                            "SELECT secret_hash FROM "
+                            "SELECT secret_hash FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                             + self.table("portal_sessions")
                             + " WHERE tenant=:tenant AND expires_at<=:now ORDER BY secret_hash"
                         ),
@@ -2118,8 +2127,9 @@ class PostgresAuthSourceLifecycle:
             await self.qualified(db, self.binding.reader_role)
             raw = (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (2 nomes)
                     text(
-                        "SELECT payload FROM "
+                        "SELECT payload FROM "  # nosec B608 # fonte: self.table() (portal_sessions/portal_memberships)
                         + self.table("portal_memberships")
                         + " WHERE tenant=:tenant AND issuer=:issuer AND subject=:subject"
                     ),

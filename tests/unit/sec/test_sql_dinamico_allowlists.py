@@ -557,3 +557,25 @@ def test_native_auth_reader_so_aceita_as_cinco_relacoes_mzo_auth() -> None:
             NativeAuthReader(motor, _binding_auth((*cinco[:4], intrusa)))  # type: ignore[arg-type]
         with pytest.raises(AuthUnavailableError):
             NativeAuthReader(motor, _binding_auth((*cinco, intrusa)))  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/intake/native_source_lifecycle.py (`self.table()` em portal_sessions/portal_memberships)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_auth_source_lifecycle_table_so_admite_dois_nomes() -> None:
+    from types import SimpleNamespace
+
+    from maezo.gateway.intake import native_source_lifecycle as m
+
+    falso = SimpleNamespace(binding=SimpleNamespace(source_schema_name="portal_src"))
+    assert m.PostgresAuthSourceLifecycle.table(falso, "portal_sessions") == '"portal_src"."portal_sessions"'
+    assert (
+        m.PostgresAuthSourceLifecycle.table(falso, "portal_memberships")
+        == '"portal_src"."portal_memberships"'
+    )
+    for nome in ("portal_auth", 'portal_sessions"; DROP TABLE t; --', "PORTAL_SESSIONS", ""):
+        with pytest.raises(m.AuthUnavailableError):
+            m.PostgresAuthSourceLifecycle.table(falso, nome)
+    _campo_validado(m.IdentitySourceBinding, "source_schema_name")
