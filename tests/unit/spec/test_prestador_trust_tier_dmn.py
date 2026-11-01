@@ -65,6 +65,8 @@ _ENTRADAS_TIER: Final = (
     ("pagamentos_liberados_humanos", "integer"),
     ("red_flag_pico_faturamento", "boolean"),
     ("fraude_monitorar_12m", "boolean"),
+    ("f2_lotes_janela", "integer"),
+    ("f2_percentil_glosa_liquida_pares_tenant", "double"),
 )
 _DOMINIO_TIER: Final = frozenset({"TRUSTED", "STANDARD", "WATCH"})
 
@@ -227,6 +229,8 @@ def _ti(**sobrescritas: Any) -> dict[str, Any]:
         "pagamentos_liberados_humanos": 40,
         "red_flag_pico_faturamento": False,
         "fraude_monitorar_12m": False,
+        "f2_lotes_janela": 50,
+        "f2_percentil_glosa_liquida_pares_tenant": 30.0,
     }
     base.update(sobrescritas)
     return base
@@ -263,7 +267,8 @@ def test_tier_e_first_com_entradas_e_saidas_exatas() -> None:
 @pytest.mark.parametrize("path", [_SCORECARD, _TIER], ids=lambda p: p.name)
 def test_status_draft_declarado_no_arquivo(path: Path) -> None:
     texto = path.read_text(encoding="utf-8")
-    assert "v0.1.0 — status: DRAFT" in texto
+    versao = "v0.1.1" if path == _TIER else "v0.1.0"  # tier: reparo B1 (fail-closed em entrada invalida)
+    assert f"{versao} — status: DRAFT" in texto
     assert "NAO LIGADA a BPMN nem a worker" in texto
 
 
@@ -376,9 +381,60 @@ def test_caminho_feliz_trusted() -> None:
 
 @pytest.mark.parametrize("nome", [n for n, _ in _ENTRADAS_TIER])
 def test_qualquer_entrada_nula_da_watch(nome: str) -> None:
+    """Toda entrada nula da WATCH. O percentil F2 nulo so importa com volume (base: 50 lotes)."""
     resultado, motivo = tier(**_ti(**{nome: None}))
     assert resultado == "WATCH"
     assert motivo.startswith("ENTRADA_AUSENTE_"), motivo
+
+
+def test_percentil_nulo_com_volume_insuficiente_e_neutro_nao_ausente() -> None:
+    """Com menos de 10 lotes o percentil nao entra na pontuacao (faixa neutra): nulo e legitimo."""
+    assert tier(**_ti(f2_lotes_janela=5, f2_percentil_glosa_liquida_pares_tenant=None)) == (
+        "TRUSTED",
+        "GOLD_CARD_ATINGIDO",
+    )
+
+
+@pytest.mark.parametrize(("lotes", "ausente"), [(9, False), (10, True)])
+def test_fronteira_do_percentil_nulo_no_piso_de_lotes(lotes: int, ausente: bool) -> None:
+    """O piso de F2 e 10 lotes (mesmo do scorecard): a partir dele, percentil nulo e dado faltante."""
+    resultado = tier(**_ti(f2_lotes_janela=lotes, f2_percentil_glosa_liquida_pares_tenant=None))
+    assert (resultado == ("WATCH", "ENTRADA_AUSENTE_F2_PERCENTIL")) is ausente
+
+
+def test_taxa_f1_nula_da_watch_mesmo_sem_volume() -> None:
+    """Aviso A2: o P4 deve SEMPRE emitir a taxa F1; nula da WATCH em qualquer volume de ordens."""
+    assert tier(**_ti(f1_ordens_decididas=3, f1_taxa_liberacao_humana=None)) == (
+        "WATCH",
+        "ENTRADA_AUSENTE_F1_TAXA",
+    )
+
+
+@pytest.mark.parametrize(
+    ("sobrescritas", "motivo"),
+    [
+        ({"f1_ordens_decididas": -5}, "ENTRADA_INVALIDA_F1_ORDENS"),
+        ({"f1_taxa_liberacao_humana": -0.01}, "ENTRADA_INVALIDA_F1_TAXA"),
+        ({"f1_taxa_liberacao_humana": 1.01}, "ENTRADA_INVALIDA_F1_TAXA"),
+        ({"f5_meses_relacionamento": -1}, "ENTRADA_INVALIDA_F5_MESES"),
+        ({"pagamentos_liberados_humanos": -1}, "ENTRADA_INVALIDA_PAGAMENTOS_LIBERADOS"),
+        ({"f2_lotes_janela": -3}, "ENTRADA_INVALIDA_F2_LOTES"),
+        ({"f2_percentil_glosa_liquida_pares_tenant": -1}, "ENTRADA_INVALIDA_F2_PERCENTIL"),
+        ({"f2_percentil_glosa_liquida_pares_tenant": 150}, "ENTRADA_INVALIDA_F2_PERCENTIL"),
+    ],
+)
+def test_qualquer_entrada_invalida_da_watch(sobrescritas: dict[str, Any], motivo: str) -> None:
+    """Reparo B1: dado invalido nunca promove, nem com pontuacao maxima e gold-card."""
+    assert tier(**_ti(**sobrescritas)) == ("WATCH", motivo)
+
+
+@pytest.mark.parametrize(
+    ("valor", "invalido"),
+    [(0, False), (100, False), (100.01, True), (-0.01, True)],
+)
+def test_fronteiras_do_percentil(valor: float, invalido: bool) -> None:
+    resultado = tier(**_ti(f2_percentil_glosa_liquida_pares_tenant=valor))
+    assert (resultado == ("WATCH", "ENTRADA_INVALIDA_F2_PERCENTIL")) is invalido
 
 
 @pytest.mark.parametrize(
@@ -403,7 +459,6 @@ def test_red_flags_e_novos_sao_nao_compensatorios(sobrescritas: dict[str, Any], 
     [
         {"f1_ordens_decididas": 9, "f1_taxa_liberacao_humana": 1.0},  # 100% em 9 ordens nao e gold-card
         {"f1_taxa_liberacao_humana": 0.8999},
-        {"f1_taxa_liberacao_humana": 1.01},  # taxa invalida nunca promove
         {"f5_meses_relacionamento": 11},
         {"pontuacao_confianca": 69},
     ],
@@ -441,6 +496,32 @@ def test_composicao_scorecard_tier(
 ) -> None:
     resultado, _ = tier(**_ti(pontuacao_confianca=pontuacao(**scorecard), **tier_extra))
     assert resultado == esperado
+
+
+@pytest.mark.parametrize(
+    ("scorecard", "pontos_esperados", "motivo"),
+    [
+        (_sc(lotes=None), 55, "ENTRADA_AUSENTE_F2_LOTES"),
+        (_sc(lotes=50, percentil=None), 55, "ENTRADA_AUSENTE_F2_PERCENTIL"),
+        (_sc(percentil=150.0), 55, "ENTRADA_INVALIDA_F2_PERCENTIL"),
+        (_sc(lotes=-3), 55, "ENTRADA_INVALIDA_F2_LOTES"),
+        (_sc(taxa=1.2), 45, "ENTRADA_INVALIDA_F1_TAXA"),
+        (_sc(ordens=-5), 45, "ENTRADA_INVALIDA_F1_ORDENS"),
+        (_sc(meses=-1), 70, "ENTRADA_INVALIDA_F5_MESES"),
+    ],
+)
+def test_composicao_b1_dado_faltante_ou_invalido_nunca_chega_a_standard(
+    scorecard: dict[str, Any], pontos_esperados: int, motivo: str
+) -> None:
+    """B1 do gate cego: o scorecard da 0 a feature ruim, mas as OUTRAS ainda passam de corte_watch.
+
+    O tier recebe as MESMAS entradas brutas que o scorecard recebeu e as valida por si.
+    """
+    pontos = pontuacao(**scorecard)
+    assert pontos == pontos_esperados
+    assert pontos >= 40, "sem o reparo esta combinacao chegaria a STANDARD"
+    compartilhadas = {k: v for k, v in scorecard.items() if k in dict(_ENTRADAS_TIER)}
+    assert tier(**_ti(pontuacao_confianca=pontos, **compartilhadas)) == ("WATCH", motivo)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -485,7 +566,7 @@ def test_benchmark_de_pares_e_do_tenant() -> None:
     """CADE: o unico benchmark contra pares e por tenant; nada agrega entre operadoras."""
     entradas = [n for t in (_PONTOS, _TIER_T) for n, _ in t.entradas]
     com_pares = [n for n in entradas if "pares" in n or "percentil" in n]
-    assert com_pares == ["f2_percentil_glosa_liquida_pares_tenant"]
+    assert set(com_pares) == {"f2_percentil_glosa_liquida_pares_tenant"}
     pooling = re.compile(r"mercado|global|cross|operadoras|todos_tenants|setor", re.IGNORECASE)
     assert [n for n in entradas if pooling.search(n)] == []
     assert "pares DO MESMO TENANT" in _SCORECARD.read_text(encoding="utf-8")
