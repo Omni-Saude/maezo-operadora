@@ -338,6 +338,9 @@ _PHI_VALUE_PATTERNS: dict[str, tuple[str, str, str]] = {
     "cpf_espacos": ("error.detail", "cpf 529 982 247 25", "529 982"),
     "cnpj_mascarado": ("error.detail", "cnpj 11.222.333/0001-81", "11.222.333"),
     "celular_sem_ddd": ("error.detail", "ligar 98888-7777", "98888"),
+    # 12-13 digitos e a cauda do CNS cru: [0-9]{11,} roda antes do CNPJ (nada de prefixo/sufixo vazado)
+    "digitos_12": ("lookup.key", "mat 123456789012", "12345"),
+    "cns_cru_cauda": ("lookup.key", "cns 898001160123456", "]6"),
 }
 
 #: atributos operacionais que o scrub NAO pode apagar nem alterar (sem over-redaction cega).
