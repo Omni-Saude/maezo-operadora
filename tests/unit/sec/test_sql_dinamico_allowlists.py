@@ -300,3 +300,31 @@ def test_documents_authority_clausulas_sao_literais_de_codigo() -> None:
     ]
     assert len(atribuicoes) == 2
     assert all(_so_literais(a) for a in atribuicoes)
+
+
+# ---------------------------------------------------------------------------------------------
+# NativeAuthReader.table() — fonte de gateway/document_requests/production.py, documents/authority.py
+# e gateway/intake/native_authority.py
+# ---------------------------------------------------------------------------------------------
+
+
+def _leitor_falso(schema: str, nomes: tuple[str, ...]) -> Any:
+    from types import SimpleNamespace
+
+    relacoes = tuple(SimpleNamespace(name=n) for n in nomes)
+    return SimpleNamespace(binding=SimpleNamespace(schema_name=schema, relations=relacoes))
+
+
+def test_native_auth_reader_table_so_admite_relacoes_do_binding() -> None:
+    from maezo.gateway.intake.native_authority import (
+        AuthUnavailableError,
+        NativeAuthReader,
+        NativeDatabaseBinding,
+    )
+
+    leitor = _leitor_falso("auth_schema", ("mzo_auth_input_head", "mzo_auth_input_version"))
+    assert NativeAuthReader.table(leitor, "mzo_auth_input_head") == '"auth_schema"."mzo_auth_input_head"'
+    for nome in ("mzo_auth_trust", 'mzo_auth_input_head"; DROP TABLE t; --', "MZO_AUTH_INPUT_HEAD", ""):
+        with pytest.raises(AuthUnavailableError):
+            NativeAuthReader.table(leitor, nome)
+    _campo_validado(NativeDatabaseBinding, "schema_name")
