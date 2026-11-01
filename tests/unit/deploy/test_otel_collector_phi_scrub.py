@@ -7,8 +7,9 @@ prova, e avalia a configuracao REAL — nao uma copia dela:
 1. renderiza `templates/configmap-otel-collector.yaml` com o `helm template` real (overlays
    staging e amh, `observability.collector.enabled=true`) e carrega o `config.yaml` embutido;
 2. exige que TODO pipeline com receiver `otlp` (traces, logs E metricas) rode o processor
-   `transform/phi_safety_net`, e que ele cubra todos os contextos que carregam atributos
-   (resource, span, spanevent, log, datapoint) mais o nome do span e o corpo do log;
+   `transform/phi_safety_net`, e que ele cubra os contextos resource, span, spanevent, log e
+   datapoint (scope, status.message, nome de span event e span links NAO cobertos) mais o nome do
+   span e o corpo do log;
 3. EXECUTA as declaracoes OTTL desse processor sobre telemetria sintetica com PHI representativa
    (CPF, CNS, nome, ids/refs FHIR, wamid/wa_id, telefone, e-mail, texto livre) e afirma que
    nenhuma chave PHI sobrevive e que nenhum valor PHI aparece em lugar nenhum da saida.
@@ -26,16 +27,20 @@ a semantica documentada das funcoes OTTL usadas — e SO delas:
 
 FAIL-CLOSED: qualquer funcao fora dessa lista, qualquer clausula `where`, qualquer escape de
 string OTTL alem de `\\\\`/`\\"`, qualquer regex com construcao em que Go RE2 e Python divergem
-(lookaround, backreference, `\\d`/`\\s`/`\\w` — Unicode em Python, ASCII em RE2 —, ancoras
+(lookaround, backreference, `\\d`/`\\s`/`\\w` — Unicode em Python, ASCII em RE2 —, `$` escapado ou
+dentro de classe, ancoras
 de inicio/fim de texto, propriedades Unicode e quoting, classes POSIX `[[:`, comentario `(?#`
 e flags m/s/x/U) e qualquer
 replacement com `$`/`\\` (expansao de grupo difere) FAZEM O TESTE FALHAR em vez de serem
-ignorados. Assim, se alguem mudar o processor para algo que este interpretador nao reproduz
-fielmente, a prova quebra em vermelho — nunca passa em silencio.
+ignorados. Divergencias TRATADAS (nao recusadas): `\\b`/`\\B` (o interpretador compila com
+re.ASCII, igual ao RE2) e `$` (vira fim-de-texto, como no RE2 sem flag m — o `$` do Python tambem
+casaria antes de um newline final). Assim, se alguem mudar o processor para algo que este
+interpretador nao reproduz fielmente, a prova quebra em vermelho — nunca passa em silencio.
 
 Validacao cruzada local (fora do CI, registrada no PR): as mesmas declaracoes foram executadas no
 `transformprocessor` REAL do opentelemetry-collector-contrib (harness Go) sobre o mesmo corpus,
-com saida identica a deste interpretador.
+com saida identica a deste interpretador SOBRE O CORPUS DESTE ARQUIVO (evidencia fora do repo, no PR;
+nao e' prova de equivalencia geral).
 """
 
 from __future__ import annotations
@@ -159,9 +164,12 @@ def _tokenize_args(raw: str) -> list[str | tuple[str]]:
 
 
 def _checked_regex(pattern: str) -> re.Pattern[str]:
-    if _DIVERGENT_REGEX.search(pattern):
+    if _DIVERGENT_REGEX.search(pattern) or "\\$" in pattern or re.search(r"\[[^\]]*\$", pattern):
         raise UnsupportedOttlError(f"regex com construcao divergente Go RE2 x Python: {pattern!r}")
-    return re.compile(pattern)
+    # Go RE2 sem flag m: `$` casa SO no fim do texto (== Python `\Z`; Python `$` tambem casa antes
+    # de um `\n` final). `\b`/`\B`/`(?i)` em RE2 sao ASCII-ou-mais-largos: re.ASCII deixa o Python
+    # igual (\b) ou mais estreito ((?i)) que o Go — nunca mais largo.
+    return re.compile(pattern.replace("$", r"\Z"), re.ASCII)
 
 
 def _checked_replacement(repl: str) -> str:
@@ -264,6 +272,11 @@ def apply_scrub(config: dict[str, Any], telemetry: dict[str, Signal]) -> dict[st
 
 #: familia -> (chaves PHI, valores PHI que NAO podem aparecer na saida)
 _PHI_KEY_FAMILIES: dict[str, dict[str, str]] = {
+    "business_key": {
+        "business_key": "CANCEL-amh-0001234",
+        "_business_key": "INAD-amh-123456789",
+        "cancel_business_key": "CANCEL-amh-0001235",
+    },
     "cpf": {
         "cpf": "529.982.247-25",
         "beneficiario.cpf": "52998224725",
@@ -338,6 +351,11 @@ _PHI_VALUE_PATTERNS: dict[str, tuple[str, str, str]] = {
     "cpf_espacos": ("error.detail", "cpf 529 982 247 25", "529 982"),
     "cnpj_mascarado": ("error.detail", "cnpj 11.222.333/0001-81", "11.222.333"),
     "celular_sem_ddd": ("error.detail", "ligar 98888-7777", "98888"),
+    "cpf_pontos": ("error.detail", "cpf 529.982.247.25", "982.247"),
+    "cpf_misto": ("error.detail", "cpf 529-982-247.25", "982-247"),
+    "fixo_ddd_pontos": ("error.detail", "ligar 11.3333.4444", "3333"),
+    "email_dominio_sublinhado": ("error.detail", "a@my_host.com", "my_host"),
+    "email_percent": ("error.detail", "a%b@x.com", "a%"),
     # 12-13 digitos e a cauda do CNS cru: [0-9]{11,} roda antes do CNPJ (nada de prefixo/sufixo vazado)
     "digitos_12": ("lookup.key", "mat 123456789012", "12345"),
     "cns_cru_cauda": ("lookup.key", "cns 898001160123456", "]6"),
@@ -540,6 +558,14 @@ def test_collector_redacts_what_the_app_redactor_redacts(
 # ---------------------------------------------------------------------------
 # 4. O interpretador e' fail-closed (cerca contra prova vacua)
 # ---------------------------------------------------------------------------
+
+
+def test_interpreter_matches_re2_on_trailing_newline_and_unicode_boundary() -> None:
+    sig = {"attributes": {"laudo\n": "x", "k": "é52998224725é"}}
+    compile_statement('delete_matching_keys(attributes, "(^|[._-])laudo$")', "span")(sig)
+    compile_statement('replace_all_patterns(attributes, "value", "\\\\b[0-9]{11}\\\\b", "[X]")', "span")(sig)
+    assert "laudo\n" in sig["attributes"]  # Go RE2 NAO apaga (`$` == fim do texto)
+    assert sig["attributes"]["k"] == "é[X]é"  # Go RE2: `\b` ASCII
 
 
 @pytest.mark.parametrize(

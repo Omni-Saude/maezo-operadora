@@ -70,7 +70,7 @@ data:
       # pods, inclusive Zona PHI, COM prova de scrub no collector). Rede de seguranca, NAO
       # classificador: a primeira linha continua sendo o app nao emitir PHI (PhiLogRedactor,
       # ADR-0006). Aplicada aos TRES pipelines OTLP (traces, logs E metricas) e a todos os
-      # contextos que carregam atributos: resource, span, spanevent, log, datapoint.
+      # contextos resource, span, spanevent, log, datapoint (+ nome do span e corpo-string do log). NAO cobertos: atributos de scope, status.message do span, nome de span event, atributos de span link e corpo de log nao-string (mapa).
       #
       # DELETAR, NUNCA HASHEAR: o collector nao tem (e nao deve ter) a PHI_HMAC_KEY, e SHA-256
       # sem chave de CPF/telefone e' reversivel por enumeracao — exatamente a fraqueza que o
@@ -108,14 +108,15 @@ data:
               - delete_matching_keys(attributes, "(?i)(^|[._-])(justificativa[._-]?clinica|cid10[._-]?referencia|cid10|fundamentacao[._-]?dut|laudo|diagnostico|notas[._-]?resolucao|resumo[._-]?contexto|narrativa|lacunas|lacunas[._-]?enriquecimento|motivo[._-]?informado)$")
               - delete_matching_keys(attributes, "(?i)(^|[._-])matricula([._-]?beneficiario)?$")
               - delete_matching_keys(attributes, "(?i)(^|[._-])(cnpj|rg|endereco)([._-]|$)|^(maezo\\.)?name$")
+              - delete_matching_keys(attributes, "(?i)business[._-]?key")
               - replace_all_patterns(attributes, "value", "wamid\\.[A-Za-z0-9_=+/-]+", "[WAMID-REDACTED]")
               - replace_all_patterns(attributes, "value", "\\b(Patient|RelatedPerson|Person|Coverage|Encounter)/[A-Za-z0-9.-]+", "[FHIR-REF-REDACTED]")
-              - replace_all_patterns(attributes, "value", "[A-Za-z0-9_.+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+", "[EMAIL-REDACTED]")
+              - replace_all_patterns(attributes, "value", "[A-Za-z0-9_.%+-]+@[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+", "[EMAIL-REDACTED]")
               - replace_all_patterns(attributes, "value", "\\b[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}\\b", "[CPF-REDACTED]")
               - replace_all_patterns(attributes, "value", "[0-9]{11,}", "[DIGITS-REDACTED]")
-              - replace_all_patterns(attributes, "value", "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ /-][0-9]{2}", "[CPF-REDACTED]")
+              - replace_all_patterns(attributes, "value", "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{2}", "[CPF-REDACTED]")
               - replace_all_patterns(attributes, "value", "[0-9]{2}[ ./-]?[0-9]{3}[ ./-]?[0-9]{3}[ ./-]?[0-9]{4}[ ./-]?[0-9]{2}", "[CNPJ-REDACTED]")
-              - replace_all_patterns(attributes, "value", "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ -]?9?[0-9]{4}[ -]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
+              - replace_all_patterns(attributes, "value", "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ .-]?9?[0-9]{4}[ .-]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
               - replace_all_patterns(attributes, "value", "9[0-9]{4}[ .-][0-9]{4}", "[TELEFONE-REDACTED]")
           - context: span
             statements: *phi_attribute_statements
@@ -123,12 +124,12 @@ data:
             statements:
               - replace_pattern(name, "wamid\\.[A-Za-z0-9_=+/-]+", "[WAMID-REDACTED]")
               - replace_pattern(name, "\\b(Patient|RelatedPerson|Person|Coverage|Encounter)/[A-Za-z0-9.-]+", "[FHIR-REF-REDACTED]")
-              - replace_pattern(name, "[A-Za-z0-9_.+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+", "[EMAIL-REDACTED]")
+              - replace_pattern(name, "[A-Za-z0-9_.%+-]+@[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+", "[EMAIL-REDACTED]")
               - replace_pattern(name, "\\b[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}\\b", "[CPF-REDACTED]")
               - replace_pattern(name, "[0-9]{11,}", "[DIGITS-REDACTED]")
-              - replace_pattern(name, "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ /-][0-9]{2}", "[CPF-REDACTED]")
+              - replace_pattern(name, "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{2}", "[CPF-REDACTED]")
               - replace_pattern(name, "[0-9]{2}[ ./-]?[0-9]{3}[ ./-]?[0-9]{3}[ ./-]?[0-9]{4}[ ./-]?[0-9]{2}", "[CNPJ-REDACTED]")
-              - replace_pattern(name, "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ -]?9?[0-9]{4}[ -]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
+              - replace_pattern(name, "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ .-]?9?[0-9]{4}[ .-]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
               - replace_pattern(name, "9[0-9]{4}[ .-][0-9]{4}", "[TELEFONE-REDACTED]")
           - context: spanevent
             statements: *phi_attribute_statements
@@ -141,12 +142,12 @@ data:
             statements:
               - replace_pattern(body, "wamid\\.[A-Za-z0-9_=+/-]+", "[WAMID-REDACTED]")
               - replace_pattern(body, "\\b(Patient|RelatedPerson|Person|Coverage|Encounter)/[A-Za-z0-9.-]+", "[FHIR-REF-REDACTED]")
-              - replace_pattern(body, "[A-Za-z0-9_.+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+", "[EMAIL-REDACTED]")
+              - replace_pattern(body, "[A-Za-z0-9_.%+-]+@[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+", "[EMAIL-REDACTED]")
               - replace_pattern(body, "\\b[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}\\b", "[CPF-REDACTED]")
               - replace_pattern(body, "[0-9]{11,}", "[DIGITS-REDACTED]")
-              - replace_pattern(body, "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ /-][0-9]{2}", "[CPF-REDACTED]")
+              - replace_pattern(body, "[0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{3}[ ./-][0-9]{2}", "[CPF-REDACTED]")
               - replace_pattern(body, "[0-9]{2}[ ./-]?[0-9]{3}[ ./-]?[0-9]{3}[ ./-]?[0-9]{4}[ ./-]?[0-9]{2}", "[CNPJ-REDACTED]")
-              - replace_pattern(body, "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ -]?9?[0-9]{4}[ -]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
+              - replace_pattern(body, "(\\+?55 ?)?\\(?[0-9]{2}\\)?[ .-]?9?[0-9]{4}[ .-]?[0-9]{4}\\b", "[TELEFONE-REDACTED]")
               - replace_pattern(body, "9[0-9]{4}[ .-][0-9]{4}", "[TELEFONE-REDACTED]")
         metric_statements:
           - context: resource
