@@ -449,14 +449,14 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         # Falha do proprio turno (`receive`), conversa em seguimento com o Lucas, fechamento logo depois dele
         # ou a pergunta do protocolo do pedido (avaliacao r5b): o caminho de sempre, sem o modelo do roteador.
         return await self.classify(state)
-    # Teste do dono (01/11/2026): com a triagem com juiz, o alarme pela palavra ("desmaiou") nao responde
-    # antes dela: o motor tem os mesmos sinais claros e pergunta "foi hoje?" quando a palavra sozinha engana.
-    juiz = _triagem_juiz.assume(self, state)
-    if not juiz and (claro := self._sinal_claro_pelo_texto(state)) is not None:
+    # DL-0160 (dono, 01/11/2026): com a porta unica da saude, o alarme pela palavra nao responde antes dela:
+    # a TABELA DMN decide o alarme (ADR-0012).
+    porta = _saude_original.assume(self, state)
+    if not porta and (claro := self._sinal_claro_pelo_texto(state)) is not None:
         # Rodada de seguranca de 25/10/2026: sinal CLARO afirmado (desmaiou, parou de respirar,
         # convulsionando, roxo, nao acorda) da' 192 antes do roteador, da pendencia e dos protocolos.
         return {**claro, "habilidade_roteador": None}
-    antes, pendente, trava = self._roteador_entrada(state, sem_alarme=juiz)
+    antes, pendente, trava = self._roteador_entrada(state, sem_alarme=porta)
     falha: str | None
     if trava is not None:
         # Rodada de 24/10/2026: com trava (alarme, risco, dados pessoais) a TABELA responde primeiro: o turno
@@ -483,13 +483,18 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         logger.info(
             "helena_roteador_caminho_de_sempre", motivo="trava" if trava else (falha or "sem_decisao")
         )
-        if trava is None and (prot := await _protocolo.sem_roteador(self, state, antes)) is not None:
+        if porta and trava is None:
+            # DL-0160: roteador sem decisao — a porta unica le a mensagem; sem ser saude, o caminho de sempre.
+            if (saude := await _saude_original.atender(self, state, saude_pelo_roteador=False)) is not None:
+                return {**saude, "habilidade_roteador": "sintoma"}
+        elif trava is None and (prot := await _protocolo.sem_roteador(self, state, antes)) is not None:
             return {**prot, "habilidade_roteador": None}  # PROTOCOLOS: a resposta ao protocolo sem o roteador
         st_sempre: HelenaState = state
         if duvida_antes:
             st_sempre = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
         resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
-        resultado_sempre = await _protocolo.sem_alerta_geral(self, state, antes, resultado_sempre)
+        if not porta:
+            resultado_sempre = await _protocolo.sem_alerta_geral(self, state, antes, resultado_sempre)
         return {**resultado_sempre, "habilidade_roteador": None}
     # Contrato v7: a leitura do modelo vale no turno inteiro (as habilidades leem sim/nao, opcao e recusa
     # por ela, no lugar dos leitores de palavra). Teste do dono (25/10/2026, noite): a recusa que o modelo nao
@@ -559,20 +564,29 @@ async def _classify_ativo_decidido(
     v7 = cast("_rv7.DecisaoV7", decisao.v7)
     duvida_antes = bool(antes and antes.startswith(_rt.PREFIXO_DUVIDA))
     dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
-    if (protocolo := await _protocolo.responder_alerta(self, state, decisao, antes)) is not None:
+    alarme = _alarme_do_modelo(self, state, v7)
+    porta = _saude_original.assume(self, state)
+    if porta:
+        # DL-0160 (dono, 01/11/2026): a PORTA UNICA da saude. Saude pelo roteador, alarme dito pelo modelo ou
+        # palavra de alarme no texto: o turno inteiro e' dela (nenhum protocolo, pergunta de alerta ou
+        # triagem antiga). Nao sendo saude pela leitura dela, segue o caminho das outras habilidades.
+        provavel = decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "")
+        pelo_roteador = provavel in _saude_original.HABILIDADES_DE_SAUDE
+        por_alarme = alarme is not None or _saude_original.alarme_pela_palavra(self, state, antes)
+        if pelo_roteador or por_alarme:
+            saude = await _saude_original.atender(
+                self, state, saude_pelo_roteador=pelo_roteador, alarme=por_alarme
+            )
+            if saude is not None:
+                return {**saude, "habilidade_roteador": "sintoma"}
+        alarme = None
+    elif (protocolo := await _protocolo.responder_alerta(self, state, decisao, antes)) is not None:
         # PROTOCOLOS (dono, 25/10/2026): a resposta as perguntas de alerta do protocolo, lida pelo modelo
         # pergunta a pergunta e decidida pela regra (o sinal NOVO fora delas volta ao alarme abaixo).
         return {**protocolo, "habilidade_roteador": "sintoma"}
-    alarme = _alarme_do_modelo(self, state, v7)
-    if alarme == "claro" and not _triagem_juiz.assume(self, state):
+    if alarme == "claro":
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
     texto = str(state.get("message_body") or "")
-    if (troca := _triagem_juiz.troca_de_assunto(self, state, antes)) is not None:
-        # 2o teste do dono (01/11/2026): "agora trago outro assunto" encerra o caso anterior e pede o novo.
-        return {**troca, "habilidade_roteador": "conversa"}
-    if (explicada := _triagem_juiz.explicar(self, state, antes)) is not None:
-        # Teste do dono (01/11/2026): "o que eu te respondi?" depois da conclusao da triagem: o porque dela.
-        return {**explicada, "habilidade_roteador": "sintoma"}
     if (oferta := _oferta.responder(self, state)) is not None:
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
@@ -585,11 +599,10 @@ async def _classify_ativo_decidido(
         fixo = await _texto_fixo_de_conversa(self, state, texto)
         if fixo is not None:
             return fixo
-    if (juiz := await _triagem_juiz.conduzir(self, state, decisao, antes, alarme)) is not None:
-        # Experimento do dev (dono, 01/11/2026): tabela como piso e o modelo julgando a conversa, so' com a
-        # chave `triagem_juiz` do pacote e na allowlist; desligada, os protocolos abaixo como sempre.
-        return {**juiz, "habilidade_roteador": "sintoma"}
-    if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
+    if (
+        not porta
+        and (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None
+    ):
         # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.
         return {**protocolo, "habilidade_roteador": "sintoma"}
     opcoes = decisao.opcoes_da_duvida()
@@ -688,6 +701,20 @@ async def _classify_ativo_decidido(
     ):
         cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
         return {**cortesia, "habilidade_roteador": habilidade}
+    if porta and habilidade in _saude_original.HABILIDADES_DE_SAUDE:
+        # DL-0160: a porta unica leu que NAO e' saude: nunca o caminho antigo de saude.
+        habilidade = "conversa"
+    if porta and dona in _saude_original.HABILIDADES_DE_SAUDE:
+        # DL-0160: pergunta pendente de uma camada antiga de saude nao e' mantida (a porta nao pergunta).
+        mantem = False
+        st = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
+    if porta and habilidade == "conversa" and not mantem:
+        # DL-0160: fora da saude, `conversa` com texto FIXO (a redacao antiga do modelo nao fala por ela).
+        fixo_da_porta = _saude_original.texto_de_conversa(texto)
+        return {
+            **self._base_texto_fixo(self._update_sem_modelo(state), fixo_da_porta),
+            "habilidade_roteador": "conversa",
+        }
     marca = _HABILIDADE_DO_TURNO.set(habilidade)
     try:
         resultado = await self.classify(st)
@@ -824,6 +851,8 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
     if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
         # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
         return True
+    if texto in _saude_original.TEXTOS_FIXOS:
+        return True  # DL-0160: os textos fixos da porta unica da saude (sem modelo)
     if texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO):
         # Avaliacao r5b (25/10/2026): a resposta curta de cortesia e' texto fixo com ou sem o roteador ativo
         # (o fechamento logo depois do Lucas nao vira rascunho do modelo).
@@ -940,5 +969,5 @@ from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa
 from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from maezo.agents.helena.habilidades.conversa import falha_tecnica as _falha_tecnica  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
-from maezo.agents.helena.habilidades.triagem_juiz import fluxo as _triagem_juiz  # noqa: E402
+from maezo.agents.helena.habilidades.saude_original import fluxo as _saude_original  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402
