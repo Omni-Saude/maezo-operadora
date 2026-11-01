@@ -64,6 +64,8 @@ def _ti(**sobrescritas: Any) -> dict[str, Any]:
         "pagamentos_liberados_humanos": 40,
         "red_flag_pico_faturamento": False,
         "fraude_monitorar_12m": False,
+        "f2_lotes_janela": 50,
+        "f2_percentil_glosa_liquida_pares_tenant": 30.0,
     }
     base.update(sobrescritas)
     return base
@@ -114,6 +116,21 @@ async def test_motivos_uma_linha_por_feature_no_motor(dmn: CibSevenDmnTransport)
         (_ti(f1_ordens_decididas=9, f1_taxa_liberacao_humana=1.0), "STANDARD", "PONTUACAO_STANDARD"),
         (_ti(f1_taxa_liberacao_humana=0.8999), "STANDARD", "PONTUACAO_STANDARD"),
         (_ti(pontuacao_confianca=39), "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        # Reparo B1 (fail-closed em entrada ausente/invalida, inclusive F2):
+        (_ti(pontuacao_confianca=55, f2_lotes_janela=None), "WATCH", "ENTRADA_AUSENTE_F2_LOTES"),
+        (
+            _ti(pontuacao_confianca=55, f2_percentil_glosa_liquida_pares_tenant=None),
+            "WATCH",
+            "ENTRADA_AUSENTE_F2_PERCENTIL",
+        ),
+        (
+            _ti(f2_lotes_janela=5, f2_percentil_glosa_liquida_pares_tenant=None),
+            "TRUSTED",
+            "GOLD_CARD_ATINGIDO",
+        ),
+        (_ti(pontuacao_confianca=45, f1_taxa_liberacao_humana=1.2), "WATCH", "ENTRADA_INVALIDA_F1_TAXA"),
+        (_ti(f2_percentil_glosa_liquida_pares_tenant=150.0), "WATCH", "ENTRADA_INVALIDA_F2_PERCENTIL"),
+        (_ti(f5_meses_relacionamento=-1), "WATCH", "ENTRADA_INVALIDA_F5_MESES"),
     ],
 )
 async def test_tier_first_fail_closed_no_motor(
