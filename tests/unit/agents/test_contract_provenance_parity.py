@@ -271,7 +271,7 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
     (
         "gustavo",
         "GustavoGraph",
-        {"fhir": None},
+        {},
         "start_process",
         {
             "tenant_id": "amh",
@@ -304,7 +304,7 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
     (
         "gustavo",
         "GustavoGraph",
-        {"fhir": None},
+        {},
         "start_process",
         {
             "tenant_id": "amh",

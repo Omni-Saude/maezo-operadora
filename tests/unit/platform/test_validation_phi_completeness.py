@@ -2119,6 +2119,32 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=1,
         reason=("R-092: segmento de `${sla.sla_aprovacao}` em BT_SlaComite. Nome ja no corpus."),
     ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_lotes_janela",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (contagem de lotes CONTAS) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_percentil_glosa_liquida_pares_tenant",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (percentil 0..100 vs pares do MESMO tenant) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
 )
 
 
@@ -2193,7 +2219,8 @@ class TestBuckets:
         # R-092 (#1172): +25 (aprovador_id/aprovador_tier/valor_aprovado_cents/decisao_pagamento +3
         #   cada, quorum_comite +5, comite_ultimo_voto +1, pagto_alcada +2, grupo_aprovador +1, sla +2,
         #   sla_alerta +1, sla_aprovacao +1); nomes: +5
-        assert len(live_sweep.refs) == expected_refs == 1806
+        # MPTT P5 reparo B1 (#1174): +2 (f2_lotes_janela, f2_percentil_glosa_liquida_pares_tenant)
+        assert len(live_sweep.refs) == expected_refs == 1808
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
