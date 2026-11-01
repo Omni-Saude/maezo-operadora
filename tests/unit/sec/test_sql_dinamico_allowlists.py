@@ -328,3 +328,45 @@ def test_native_auth_reader_table_so_admite_relacoes_do_binding() -> None:
         with pytest.raises(AuthUnavailableError):
             NativeAuthReader.table(leitor, nome)
     _campo_validado(NativeDatabaseBinding, "schema_name")
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/external_cases/publisher.py (`+ kind`) e gateway/external_cases/postgres.py (`+ operation`)
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["case(); DROP TABLE t; --", "authorization", "CASE", ""])
+async def test_external_publisher_capture_recusa_kind_fora_de_kind(kind: str) -> None:
+    from types import SimpleNamespace
+
+    from maezo.gateway.external_cases.models import ExternalCaseError
+    from maezo.gateway.external_cases.publisher import PostgresExternalCasePublicationSource
+
+    class _Motor:
+        async def connect(self) -> None:
+            raise AssertionError("conectou com kind fora da allowlist")
+
+    fonte = SimpleNamespace(engine=_Motor(), seconds=1.0)
+    with pytest.raises(ExternalCaseError):
+        await PostgresExternalCasePublicationSource.capture(fonte, kind, "pub", "claimant")  # type: ignore[arg-type]
+
+
+def test_external_publisher_snapshot_so_nasce_em_capture_com_kind_literal() -> None:
+    """`self.snapshot.kind` (persist/transition) so' vem do `ExternalSourceSnapshot` montado em capture()."""
+    from typing import get_args
+
+    from maezo.gateway.external_cases import publisher
+
+    assert get_args(publisher.Kind) == ("case", "checkpoint")
+    tree = ast.parse((_SRC / "gateway/external_cases/publisher.py").read_bytes())
+    construcoes = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "ExternalSourceSnapshot"
+    ]
+    capture = _funcao("gateway/external_cases/publisher.py", "capture")
+    assert len(construcoes) == 1
+    assert capture.lineno <= construcoes[0].lineno <= (capture.end_lineno or 0)
+    primeiro = construcoes[0].args[0]
+    assert isinstance(primeiro, ast.Name) and primeiro.id == "kind"
