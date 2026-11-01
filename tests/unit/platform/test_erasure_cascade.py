@@ -378,11 +378,13 @@ def test_relacao_a_eliminar_sem_executor_e_not_implemented_sem_efeito() -> None:
 def test_surrogate_mpi_id_sem_store_e_not_implemented_sem_efeito() -> None:
     journal: list[str] = []
     plan, executors = _eliminar_episodica(journal)
-    with pytest.raises(er.ErasureNotImplementedError) as exc:
+    with capture_logs() as captured, pytest.raises(er.ErasureNotImplementedError) as exc:
         _manager(journal, plan=plan, executors=executors, surrogate=None).erase(
             _TENANT, _PATIENT, titular_pseudo_id=_PSEUDO
         )
     assert exc.value.reason == er.REASON_SURROGATE_UNBOUND
+    assert "ADR-0019" in exc.value.detail, "a recusa do PRE-VOO (nao a defesa tardia) nomeia a ADR"
+    assert any(e.get("reason") == er.REASON_SURROGATE_UNBOUND for e in captured)
     assert journal == []
 
 
