@@ -42,11 +42,13 @@ class _DmnReal:
     def __init__(self) -> None:
         self.chamadas: list[tuple[str, dict[str, Any]]] = []
 
-    async def evaluate(self, chave: str, entrada: dict[str, Any]) -> tuple[list[dict[str, Any]], DmnVersion]:
-        self.chamadas.append((chave, dict(entrada)))
-        tabela = dfh.read_live_table(_DMN / f"{chave}.dmn")
-        valores = {nome: entrada.get(nome) for nome in tabela.input_names}
-        versao = DmnVersion(key=chave, id=f"{chave}:1", version=1, deployment_id="teste")
+    async def evaluate(
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
+    ) -> tuple[list[dict[str, Any]], DmnVersion]:
+        self.chamadas.append((decision_key, dict(variables)))
+        tabela = dfh.read_live_table(_DMN / f"{decision_key}.dmn")
+        valores = {nome: variables.get(nome) for nome in tabela.input_names}
+        versao = DmnVersion(key=decision_key, id=f"{decision_key}:1", version=1, deployment_id="teste")
         return [dfh.evaluate(tabela, valores).saidas], versao
 
 
