@@ -199,6 +199,8 @@ grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (
            para o GUARD (3) TIER-MATCH de release_high_value_payment le-lo. Pacote PAGTO PR-A (R-053 (a)):
            `valor_maximo_aprovavel_cents` (o teto do aprovado = valor da ordem, regra na DMN) e achatado
            aqui para o guard do teto do aprovado (valor_aprovado_cents acima dele, ou ele ausente -> recusa).
+           R-092: `quorum_comite` (numero de membros do comite que precisam aprovar; DRAFT na DMN) e
+           achatado aqui para GW_TipoAprovacao, a cardinalidade de SP_AprovacaoComite e o guard colegiado.
            NAO existe saida adversa: so re-expoe a classificacao/roteamento ja produzido pela DMN. -->
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -206,6 +208,7 @@ grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (
           <camunda:outputParameter name="grupo_aprovador">${pagto_alcada.grupo_aprovador}</camunda:outputParameter>
           <camunda:outputParameter name="tier_minimo">${pagto_alcada.tier_minimo}</camunda:outputParameter>
           <camunda:outputParameter name="valor_maximo_aprovavel_cents">${pagto_alcada.valor_maximo_aprovavel_cents}</camunda:outputParameter>
+          <camunda:outputParameter name="quorum_comite">${pagto_alcada.quorum_comite}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWAdmiss_Segue</bpmn:incoming>
@@ -273,7 +276,7 @@ grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (
       <bpmn:documentation>Convoca Andre (A2A analytics.actuarial/analytics.population, ADR-0005): enriquece o dossie de aprovacao (narrativa/risco). INSTRUI a decisao humana, nunca a substitui — o aprovador humano de tier adequado decide na User Task. KPI de Andre false_pricing_decision_rate==0. Tambem reentrada pelo ramo seguir_analise de GW_DecisaoCoordenacao (GAP-PAGTO-5): o dossie e refeito antes de reabrir UT_AprovacaoAlcada apos a coordenacao decidir continuar a analise (mirror de ST_PrepareRemediationDossier/GAP-ADEQ-3).</bpmn:documentation>
       <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
       <bpmn:incoming>Flow_GWCoord_SeguirAnalise</bpmn:incoming>
-      <bpmn:outgoing>Flow_Dossie_UTAprovacao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Dossie_GWTipo</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- User Task value-driven: candidateGroups vem da saida da DMN pagto_alcada (binding dinamico) -->
@@ -294,8 +297,7 @@ ADR-0007). Tambem reentrada pelo ramo prorrogar_prazo de GW_DecisaoCoordenacao (
 coordenacao financeira estende o prazo em vez de decidir agora, reabrindo esta UT com os boundary
 timers (BT_AlertaSlaPagto/BT_SlaAprovacao) rearmados.
 ]]></bpmn:documentation>
-      <bpmn:incoming>Flow_Dossie_UTAprovacao</bpmn:incoming>
-      <bpmn:incoming>Flow_GWCoord_Prorrogar</bpmn:incoming>
+      <bpmn:incoming>Flow_GWTipo_Alcada</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAprovacao_GW</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -309,6 +311,7 @@ timers (BT_AlertaSlaPagto/BT_SlaAprovacao) rearmados.
     <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-financeira)"
                       camunda:type="external" camunda:topic="operadora.pagto.notify_sla_risk">
       <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_AlertaComite_Notify</bpmn:incoming>
       <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (aprovacao segue)">
@@ -341,6 +344,7 @@ continua livre para sobrescrever decisao_coordenacao.</bpmn:documentation>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_SlaComite_Pub</bpmn:incoming>
       <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_CoordenacaoAlcada" name="Coordenacao financeira assume a aprovacao (tier >= faixa)"
@@ -374,6 +378,108 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
       <bpmn:outgoing>Flow_GWCoord_SeguirAnalise</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
+    <!-- R-092 (F-081/F-042): tipo de aprovacao — singular (UT_AprovacaoAlcada) ou colegiada
+         (UT_AprovacaoComite). DARK: o ramo colegiado so e tomado com a flag da implantacao
+         MAEZO_PAGTO_COMITE_COLEGIADO ligada (fato `pagto_comite_colegiado_ativo`, escrito por
+         operadora.pagto.calculate_facts em TODO caminho) E com o quorum que a DMN pagto_alcada
+         emitiu (`quorum_comite`, achatado por BRT_AlcadaRouting) maior que 1. Default = o caminho
+         de sempre (UT_AprovacaoAlcada). execution.getVariable: variavel ausente cai no default,
+         nunca lanca (ENGINE-16004). -->
+    <bpmn:exclusiveGateway id="GW_TipoAprovacao" name="Aprovacao singular ou colegiada?" default="Flow_GWTipo_Alcada">
+      <bpmn:documentation>R-092: roteia para a aprovacao colegiada (SP_AprovacaoComite, quorum da DMN pagto_alcada) somente com a flag dark ligada e quorum_comite maior que 1; qualquer outro caso (flag desligada, quorum 1, fato ausente) segue o default — UT_AprovacaoAlcada, inalterado. Tambem reentrada pelo ramo prorrogar_prazo de GW_DecisaoCoordenacao: a aprovacao reaberta respeita o mesmo tipo (um comite prorrogado volta a votar inteiro; nunca vira aprovacao singular).</bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_GWTipo</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_Prorrogar</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWTipo_Alcada</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWTipo_Comite</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- R-092 (F-081): aprovacao colegiada do comite financeiro. Multi-instancia SEQUENCIAL com
+         cardinalidade = quorum_comite (DMN pagto_alcada — valor DRAFT, docs/review-queue.md). Cada
+         instancia: UT_AprovacaoComite (um membro de comite-financeiro vota com os MESMOS campos de
+         UT_AprovacaoAlcada) -> ST_RegistrarVotoComite (registra o voto no livro votos_comite; FATO,
+         nunca decide). Os campos de DECISAO (decisao_pagamento, aprovador_id, aprovador_tier,
+         valor_aprovado_cents) sao LOCAIS a cada instancia (inputParameter vazio): um membro que nao
+         preenche a propria decisao nunca herda o APROVAR do anterior. Ao fim de cada instancia os
+         outputParameter achatam o voto no escopo do processo. As justificativas (texto livre) NAO
+         sao mapeadas aqui: nomes de texto livre numa superficie BPMN exigem disposicao do DPO na
+         cerca de completude PHI (manifesto CODEOWNED) — ficam no escopo do processo como em
+         UT_AprovacaoAlcada (limite declarado no PR R-092). O comite encerra
+         cedo no primeiro voto que nao seja APROVAR (completionCondition sobre comite_ultimo_voto,
+         escrito pelo worker antes do fim da instancia) — RECUSAR/CANCELAR/SOLICITAR_INFO de QUALQUER
+         membro decide pelo caminho conservador em GW_DecisaoPagamento. APROVAR so sai do comite com
+         quorum_comite votos APROVAR; a liberacao continua materializada APENAS pelo worker gated
+         release_high_value_payment, que (com a flag) re-verifica o livro: quorum atingido, membros
+         DISTINTOS, nenhum membro igual ao decisor do lastro ou ao analista de admissibilidade
+         (ERR_PAYMENT_SOD_NOT_HUMAN), tier e valor aprovado de cada voto. -->
+    <bpmn:subProcess id="SP_AprovacaoComite" name="Aprovacao colegiada do comite financeiro (quorum da DMN pagto_alcada)">
+      <bpmn:documentation>HITL L1 hard (high_value_payment): aprovacao colegiada (contrato SP-OP-PAGTO-001 §Papeis: comite-financeiro, tier 4, UT_AprovacaoComite). Quorum = quorum_comite (DMN pagto_alcada; DRAFT/verify financas — composicao e quorum do comite NAO decididos pelo dono). Nenhuma decisao automatica: cada voto e humano; o worker do livro so registra. Sem auto-liberacao por timeout: os boundary timers levam a coordenacao humana (mesmo caminho de UT_AprovacaoAlcada).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="decisao_pagamento">${""}</camunda:inputParameter>
+          <camunda:inputParameter name="aprovador_id">${""}</camunda:inputParameter>
+          <camunda:inputParameter name="aprovador_tier"/>
+          <camunda:inputParameter name="valor_aprovado_cents"/>
+          <camunda:outputParameter name="decisao_pagamento">${decisao_pagamento}</camunda:outputParameter>
+          <camunda:outputParameter name="aprovador_id">${aprovador_id}</camunda:outputParameter>
+          <camunda:outputParameter name="aprovador_tier">${aprovador_tier}</camunda:outputParameter>
+          <camunda:outputParameter name="valor_aprovado_cents">${valor_aprovado_cents}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWTipo_Comite</bpmn:incoming>
+      <bpmn:outgoing>Flow_Comite_GWDecisao</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics isSequential="true">
+        <bpmn:loopCardinality xsi:type="bpmn:tFormalExpression">${quorum_comite}</bpmn:loopCardinality>
+        <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">${comite_ultimo_voto != 'APROVAR'}</bpmn:completionCondition>
+      </bpmn:multiInstanceLoopCharacteristics>
+      <bpmn:startEvent id="Start_VotoComite" name="Voto de um membro do comite">
+        <bpmn:outgoing>Flow_VotoComite_UT</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="UT_AprovacaoComite" name="Voto do comite financeiro (aprovacao colegiada)"
+                     camunda:candidateGroups="${pagto_alcada.grupo_aprovador}">
+        <bpmn:documentation><![CDATA[
+HITL L1 hard (high_value_payment): voto de UM membro do comite financeiro. candidateGroups e o MESMO
+binding value-driven de UT_AprovacaoAlcada (`pagto_alcada.grupo_aprovador`, conjunto fechado): o comite
+so abre quando a DMN emite quorum_comite maior que 1, o que hoje so o catch-all faz (comite-financeiro,
+tier 4). Mesmos campos de UT_AprovacaoAlcada: decisao_pagamento in {APROVAR, RECUSAR, SOLICITAR_INFO,
+CANCELAR}; APROVAR exige justificativa_aprovacao, valor_aprovado_cents, aprovador_id e aprovador_tier;
+RECUSAR e CANCELAR exigem justificativa_recusa. Os campos de decisao sao LOCAIS a esta instancia
+(inputParameter do subprocesso); as justificativas ficam no escopo do processo. Segregacao de funcoes: cada membro vota uma vez; membro repetido, membro igual ao
+decisor do lastro ou ao analista de admissibilidade -> a liberacao recusa (ERR_PAYMENT_SOD_NOT_HUMAN).
+Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/verify).
+]]></bpmn:documentation>
+        <bpmn:incoming>Flow_VotoComite_UT</bpmn:incoming>
+        <bpmn:outgoing>Flow_UTComite_Registrar</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="ST_RegistrarVotoComite" name="Registrar voto do comite (livro votos_comite; sem decidir)"
+                        camunda:type="external" camunda:topic="operadora.pagto.register_committee_vote">
+        <bpmn:documentation>Worker de FATO (nunca decide nem libera): acrescenta o voto deste membro (identidade, voto, tier, valor aprovado) ao livro votos_comite (zerado na primeira instancia, loopCounter == 0) e ecoa comite_ultimo_voto para a completionCondition do comite. Quem liberar le o livro (release_high_value_payment).</bpmn:documentation>
+        <bpmn:incoming>Flow_UTComite_Registrar</bpmn:incoming>
+        <bpmn:outgoing>Flow_Registrar_FimVoto</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="End_VotoComiteRegistrado" name="Voto registrado">
+        <bpmn:incoming>Flow_Registrar_FimVoto</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_VotoComite_UT" sourceRef="Start_VotoComite" targetRef="UT_AprovacaoComite"/>
+      <bpmn:sequenceFlow id="Flow_UTComite_Registrar" sourceRef="UT_AprovacaoComite" targetRef="ST_RegistrarVotoComite"/>
+      <bpmn:sequenceFlow id="Flow_Registrar_FimVoto" sourceRef="ST_RegistrarVotoComite" targetRef="End_VotoComiteRegistrado"/>
+    </bpmn:subProcess>
+
+    <!-- Timers do comite: mesmos prazos (DMN pagto_sla) e mesmo caminho humano de UT_AprovacaoAlcada.
+         Nao-interruptivo -> alerta de risco; interruptivo -> coordenacao financeira assume (NUNCA
+         auto-libera por timeout). -->
+    <bpmn:boundaryEvent id="BT_AlertaSlaComite" name="Alerta de risco de SLA (comite)" cancelActivity="false" attachedToRef="SP_AprovacaoComite">
+      <bpmn:outgoing>Flow_AlertaComite_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaComite">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="BT_SlaComite" name="SLA de aprovacao do comite (politica interna — DRAFT/verify financas)" cancelActivity="true" attachedToRef="SP_AprovacaoComite">
+      <bpmn:outgoing>Flow_SlaComite_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaComite">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_aprovacao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
     <!-- Ramo SOLICITAR_INFO: aguarda correcao de dados (msg) -> revalida dados (sem efeito adverso) -->
     <bpmn:intermediateCatchEvent id="ICE_AguardarDadosCorrigidos" name="Aguardar correcao de dados de pagamento">
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
@@ -384,6 +490,7 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
     <bpmn:exclusiveGateway id="GW_DecisaoPagamento" name="Decisao de pagamento" default="Flow_GWDec_Recusar">
       <bpmn:incoming>Flow_UTAprovacao_GW</bpmn:incoming>
       <bpmn:incoming>Flow_GWCoord_Assumir</bpmn:incoming>
+      <bpmn:incoming>Flow_Comite_GWDecisao</bpmn:incoming>
       <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Recusar</bpmn:outgoing>
@@ -484,7 +591,14 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
     <bpmn:sequenceFlow id="Flow_ReleaseLow_Pub" sourceRef="ST_ReleaseLowValue" targetRef="ST_PublishLiberadoAutomatico"/>
     <bpmn:sequenceFlow id="Flow_PubLiberadoAuto_End" sourceRef="ST_PublishLiberadoAutomatico" targetRef="End_PagamentoLiberadoAutomatico"/>
     <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_PagtoSla" targetRef="ST_PrepareApprovalDossier"/>
-    <bpmn:sequenceFlow id="Flow_Dossie_UTAprovacao" sourceRef="ST_PrepareApprovalDossier" targetRef="UT_AprovacaoAlcada"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_GWTipo" sourceRef="ST_PrepareApprovalDossier" targetRef="GW_TipoAprovacao"/>
+    <bpmn:sequenceFlow id="Flow_GWTipo_Alcada" name="aprovacao singular (default)" sourceRef="GW_TipoAprovacao" targetRef="UT_AprovacaoAlcada"/>
+    <bpmn:sequenceFlow id="Flow_GWTipo_Comite" name="comite colegiado (flag + quorum &gt; 1)" sourceRef="GW_TipoAprovacao" targetRef="SP_AprovacaoComite">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('pagto_comite_colegiado_ativo') == true and execution.getVariable('quorum_comite') != null and quorum_comite &gt; 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Comite_GWDecisao" sourceRef="SP_AprovacaoComite" targetRef="GW_DecisaoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_AlertaComite_Notify" sourceRef="BT_AlertaSlaComite" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_SlaComite_Pub" sourceRef="BT_SlaComite" targetRef="ST_PublishSlaBreach"/>
     <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaPagto" targetRef="ST_NotificarRiscoSla"/>
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
     <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAprovacao" targetRef="ST_PublishSlaBreach"/>
@@ -497,7 +611,7 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
     <bpmn:sequenceFlow id="Flow_GWCoord_Assumir" name="assumir_aprovacao" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_DecisaoPagamento">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'assumir_aprovacao'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWCoord_Prorrogar" name="prorrogar_prazo" sourceRef="GW_DecisaoCoordenacao" targetRef="UT_AprovacaoAlcada">
+    <bpmn:sequenceFlow id="Flow_GWCoord_Prorrogar" name="prorrogar_prazo" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_TipoAprovacao">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'prorrogar_prazo'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWCoord_SeguirAnalise" name="seguir_analise (default)" sourceRef="GW_DecisaoCoordenacao" targetRef="ST_PrepareApprovalDossier"/>
@@ -709,10 +823,6 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
         <di:waypoint x="2010" y="356"/>
         <di:waypoint x="2050" y="356"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAprovacao" bpmnElement="Flow_Dossie_UTAprovacao">
-        <di:waypoint x="2150" y="356"/>
-        <di:waypoint x="2230" y="356"/>
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
         <di:waypoint x="2263" y="414"/>
         <di:waypoint x="2263" y="474"/>
@@ -750,8 +860,9 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
       <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Prorrogar" bpmnElement="Flow_GWCoord_Prorrogar">
         <di:waypoint x="475" y="488"/>
         <di:waypoint x="1352" y="488"/>
-        <di:waypoint x="1352" y="356"/>
-        <di:waypoint x="2230" y="356"/>
+        <di:waypoint x="1352" y="300"/>
+        <di:waypoint x="2190" y="300"/>
+        <di:waypoint x="2190" y="331"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_SeguirAnalise" bpmnElement="Flow_GWCoord_SeguirAnalise">
         <di:waypoint x="475" y="488"/>
@@ -806,6 +917,75 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
       <bpmndi:BPMNEdge id="Edge_Flow_PubCancelado_End" bpmnElement="Flow_PubCancelado_End">
         <di:waypoint x="2640" y="608"/>
         <di:waypoint x="2752" y="608"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_TipoAprovacao" bpmnElement="GW_TipoAprovacao" isMarkerVisible="true">
+        <dc:Bounds x="2165" y="331" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SP_AprovacaoComite" bpmnElement="SP_AprovacaoComite" isExpanded="true">
+        <dc:Bounds x="2050" y="700" width="420" height="200"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_VotoComite" bpmnElement="Start_VotoComite">
+        <dc:Bounds x="2080" y="782" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AprovacaoComite" bpmnElement="UT_AprovacaoComite">
+        <dc:Bounds x="2150" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarVotoComite" bpmnElement="ST_RegistrarVotoComite">
+        <dc:Bounds x="2290" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_VotoComiteRegistrado" bpmnElement="End_VotoComiteRegistrado">
+        <dc:Bounds x="2420" y="782" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaComite" bpmnElement="BT_AlertaSlaComite">
+        <dc:Bounds x="2100" y="882" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaComite" bpmnElement="BT_SlaComite">
+        <dc:Bounds x="2200" y="882" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_GWTipo" bpmnElement="Flow_Dossie_GWTipo">
+        <di:waypoint x="2150" y="356"/>
+        <di:waypoint x="2165" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWTipo_Alcada" bpmnElement="Flow_GWTipo_Alcada">
+        <di:waypoint x="2215" y="356"/>
+        <di:waypoint x="2230" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWTipo_Comite" bpmnElement="Flow_GWTipo_Comite">
+        <di:waypoint x="2190" y="381"/>
+        <di:waypoint x="2190" y="700"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Comite_GWDecisao" bpmnElement="Flow_Comite_GWDecisao">
+        <di:waypoint x="2470" y="800"/>
+        <di:waypoint x="2485" y="800"/>
+        <di:waypoint x="2485" y="395"/>
+        <di:waypoint x="2435" y="395"/>
+        <di:waypoint x="2435" y="381"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_VotoComite_UT" bpmnElement="Flow_VotoComite_UT">
+        <di:waypoint x="2116" y="800"/>
+        <di:waypoint x="2150" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTComite_Registrar" bpmnElement="Flow_UTComite_Registrar">
+        <di:waypoint x="2250" y="800"/>
+        <di:waypoint x="2290" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Registrar_FimVoto" bpmnElement="Flow_Registrar_FimVoto">
+        <di:waypoint x="2390" y="800"/>
+        <di:waypoint x="2420" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaComite_Notify" bpmnElement="Flow_AlertaComite_Notify">
+        <di:waypoint x="2118" y="918"/>
+        <di:waypoint x="2118" y="940"/>
+        <di:waypoint x="20" y="940"/>
+        <di:waypoint x="20" y="356"/>
+        <di:waypoint x="40" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaComite_Pub" bpmnElement="Flow_SlaComite_Pub">
+        <di:waypoint x="2218" y="918"/>
+        <di:waypoint x="2218" y="960"/>
+        <di:waypoint x="10" y="960"/>
+        <di:waypoint x="10" y="488"/>
+        <di:waypoint x="40" y="488"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

@@ -418,12 +418,14 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         pagto_fatos_estritos: bool = False,
         inad_fatos_estritos: bool = False,
         inad_chave_exige_contrato: bool = False,
+        pagto_comite_colegiado: bool = False,
         contas_sla_risk_entrega: bool = False,
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
     ) -> None:
         captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
+        captured["pagto_comite_colegiado"] = pagto_comite_colegiado
         captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
         captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
         captured["pagto_fatos_estritos"] = pagto_fatos_estritos
@@ -478,6 +480,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         assert captured["inad_fatos_estritos"] is False
         # F-124: a chave INAD so' sobre o contrato ships dark (MAEZO_INAD_CHAVE_EXIGE_CONTRATO).
         assert captured["inad_chave_exige_contrato"] is False
+        # R-092 / F-081: a aprovacao colegiada do comite ships dark (MAEZO_PAGTO_COMITE_COLEGIADO).
+        assert settings.pagto_comite_colegiado is False
+        assert captured["pagto_comite_colegiado"] is False
         # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
         assert settings.contas_sla_risk_entrega is False
         assert captured["contas_sla_risk_entrega"] is False
@@ -1049,6 +1054,111 @@ def test_register_default_workers_inad_fatos_flag_on_nao_ecoa() -> None:
         "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, inad_fatos_estritos=True
     )
     assert out["dentro_janela_purga"] is True
+
+
+# ---------------------------------------------------------------------------------------------
+# R-092 / F-081 — fiacao da flag dark `MAEZO_PAGTO_COMITE_COLEGIADO`: (a) alias + default OFF;
+# (b) `_bring_up_dependencies` repassa a setting; (c) `register_default_workers` REAL repassa aos
+# DOIS consumidores — o fato do gateway (`calculate_facts`) e o guard colegiado
+# (`release_high_value_payment`) —, provado pela execucao dos handlers registrados.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_settings_pagto_comite_colegiado_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_PAGTO_COMITE_COLEGIADO", raising=False)
+    assert WorkerRuntimeSettings().pagto_comite_colegiado is False
+    monkeypatch.setenv("MAEZO_PAGTO_COMITE_COLEGIADO", "true")
+    assert WorkerRuntimeSettings().pagto_comite_colegiado is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_pagto_comite_colegiado(monkeypatch: pytest.MonkeyPatch, flag: bool) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_PAGTO_COMITE_COLEGIADO", "true" if flag else "false")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    state = WorkerState(
+        settings=WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["pagto_comite_colegiado"] is flag
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _comite_calculate_facts(**kwargs: Any) -> dict[str, Any]:
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r092-default-workers")
+    register_default_workers(harness, dmn=fake, **kwargs)  # type: ignore[arg-type]
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(
+        {"tenant_id": "amh", "ordem_pagamento_id": "OP-R092-WIRE", "valor_pagamento_cents": 5_000_000_000}
+    )
+    return result
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_comite_colegiado": False}])
+def test_register_default_workers_pagto_comite_off_fato_false(kwargs: dict[str, Any]) -> None:
+    assert _comite_calculate_facts(**kwargs)["pagto_comite_colegiado_ativo"] is False
+
+
+def test_register_default_workers_pagto_comite_on_fato_true() -> None:
+    assert _comite_calculate_facts(pagto_comite_colegiado=True)["pagto_comite_colegiado_ativo"] is True
+
+
+# Liberacao de comite com UM aprovador e SEM livro de votos: o guard historico libera; o colegiado
+# (flag ligada, quorum 2 da DMN) recusa. Prova que o kwarg chega ao handler REGISTRADO.
+_LIBERACAO_COMITE_SEM_LIVRO = {
+    "decisao_pagamento": "APROVAR",
+    "aprovador_id": "comite-membro-sintetico-001",
+    "aprovador_tier": 4,
+    "justificativa_aprovacao": "Fundamentacao sintetica",
+    "valor_aprovado_cents": 5_000_000_000,
+    "valor_maximo_aprovavel_cents": 5_000_000_000,
+    "faixa_valor": "ANALISE_HUMANA",
+    "tier_minimo": 4,
+    "quorum_comite": 2,
+}
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_comite_colegiado": False}])
+def test_register_default_workers_release_comite_off_guard_historico(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado(
+        "operadora.pagto.release_high_value_payment", dict(_LIBERACAO_COMITE_SEM_LIVRO), **kwargs
+    )
+    assert out["pagamento_liberado"] is True
+
+
+def test_register_default_workers_release_comite_on_exige_livro() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r092-release")
+    register_default_workers(harness, pagto_comite_colegiado=True)
+    worker = harness.registry.get("operadora.pagto.release_high_value_payment")
+    assert worker is not None
+    with pytest.raises(ValueError, match="votos_comite"):
+        worker.execute(dict(_LIBERACAO_COMITE_SEM_LIVRO))
 
 
 # ---------------------------------------------------------------------------

@@ -2484,3 +2484,13 @@ número de linha (618, 640–644) e uma inserção na tabela principal desalinha
 
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
 REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.
+
+## R-092 — aprovacao colegiada do comite em SP-OP-PAGTO-001 (2026-11-01)
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/dmn/pagto_alcada.dmn` v0.1.2 — saida `quorum_comite` (R-092 / F-081) | **Quorum e composicao do comite NAO decididos pelo dono.** A DMN emite `quorum_comite = 2` no catch-all (`comite-financeiro`) e `1` nas faixas L1..L3/clerical. O 2 espelha o controle dual aceito pelo dono para a tarefa de bloqueio ("prosseguir so com 2 aprovadores", Rodada 2, #1084) e a analise PAGTO §3 (c) ("Tier 4 ... two distinct approvers"); nao e quorum ratificado. Decidir: quantos membros, se ha quorum por faixa, se o comite exige unanimidade dos N (desenho atual: N votos APROVAR de membros DISTINTOS; qualquer voto que nao aprove encerra o comite pelo caminho conservador) e se a coordenacao financeira pode assumir sozinha um caso de comite apos estouro de SLA (hoje, com a flag, o guard RECUSA — aprovador fora do livro de votos) | financas (alcada/quorum) + dono | `DRAFT — requires human review before any deploy` |
+| `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn` — `GW_TipoAprovacao` + `SP_AprovacaoComite`/`UT_AprovacaoComite` (multi-instancia sequencial) + `ST_RegistrarVotoComite` | Fluxo colegiado DARK atras de `MAEZO_PAGTO_COMITE_COLEGIADO` (default off; ligar e ato humano/ROLL). Antes de ligar: (1) contrato de formulario do portal para `UT_AprovacaoComite` (nao existe — pacote PAGTO PR-F); (2) membros reais do grupo `comite-financeiro` no IdP (bootstrap so cria o grupo, sem membership); (3) decisao do quorum acima | PO + financas + seguranca (portal) | `DRAFT — requires human review before any deploy` |
+
+Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo das secoes
+acima — tokens deste arquivo sao ancorados por numero de linha.

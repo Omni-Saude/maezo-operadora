@@ -253,6 +253,8 @@ _RELEASE_HIGH_TOPIC = "operadora.pagto.release_high_value_payment"
 _NOTIFY_SLA_TOPIC = "operadora.pagto.notify_sla_risk"
 _REGISTER_REFUSAL_TOPIC = "operadora.pagto.register_payment_refusal"
 _PREPARE_DOSSIER_TOPIC = "operadora.pagto.prepare_approval_dossier"
+# R-092: livro de votos do comite (ST_RegistrarVotoComite, dentro de SP_AprovacaoComite).
+_REGISTER_COMMITTEE_VOTE_TOPIC = "operadora.pagto.register_committee_vote"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — construido a
 # partir do que `register_pagto_workers` REALMENTE registra, NAO do que o BPMN declara (module
@@ -289,6 +291,7 @@ _PAGTO_WORKER_TOPICS = [
     _NOTIFY_SLA_TOPIC,
     _REGISTER_REFUSAL_TOPIC,
     _PREPARE_DOSSIER_TOPIC,
+    _REGISTER_COMMITTEE_VOTE_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -324,7 +327,8 @@ _BT_ALERTA = "BT_AlertaSlaPagto"
 _BT_SLA_APROVACAO = "BT_SlaAprovacao"
 
 # User Tasks humanas que podem produzir o desfecho adverso (L1 hard guard).
-_UT_HUMANAS = frozenset({_UT_APROVACAO, _UT_COORDENACAO})
+_UT_COMITE = "UT_AprovacaoComite"  # R-092: voto de um membro do comite (multi-instancia)
+_UT_HUMANAS = frozenset({_UT_APROVACAO, _UT_COORDENACAO, _UT_COMITE})
 
 # O terminal ADVERSO (so via UT humana + tier-match — high_value_payment L1 hard).
 _ENDS_ADVERSOS = frozenset({_END_LIBERADO_HUMANO})
@@ -504,6 +508,16 @@ async def pagto_probe_fatos_estritos(
     """Probe com `MAEZO_PAGTO_FATOS_ESTRITOS` ligada (R-063 / F-029): `validate_payment_data`
     resolve `dados_pagamento_validos` e nunca ecoa `lastro_confirmado` semeado."""
     async with _pagto_probe_ctx(engine, audit_sink, audit_tenant, pagto_fatos_estritos=True) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def pagto_probe_comite(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[PagtoEngineProbe]:
+    """Probe com `MAEZO_PAGTO_COMITE_COLEGIADO` ligada (R-092 / F-081): `calculate_facts` escreve
+    `pagto_comite_colegiado_ativo=true` e o guard de liberacao exige o livro de votos do comite."""
+    async with _pagto_probe_ctx(engine, audit_sink, audit_tenant, pagto_comite_colegiado=True) as probe:
         yield probe
 
 
@@ -1388,3 +1402,210 @@ async def test_alerta_sla_nao_interruptivo_notifica(
     open_tasks = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_APROVACAO in open_tasks, "alerta nao-interruptivo nao cancela a UT de aprovacao"
     await _assert_no_adverse_without_human_task(engine, iid)
+
+
+# ===========================================================================
+# R-092 (F-081/F-042) — aprovacao colegiada do comite (UT_AprovacaoComite) e ramo CANCELAR
+# ===========================================================================
+
+#: R$ 50MM — acima do maior tier: catch-all `comite-financeiro`, `quorum_comite=2` (DRAFT na DMN).
+_VALOR_COMITE = 5_000_000_000
+_MEMBRO_A = "comite-membro-sintetico-001"
+_MEMBRO_B = "comite-membro-sintetico-002"
+
+
+def _voto_comite(membro: str, **extra: Any) -> dict[str, Any]:
+    """Voto APROVAR completo de um membro do comite (tier 4 — o `tier_minimo` do catch-all)."""
+    vars_: dict[str, Any] = {
+        "decisao_pagamento": _DECISAO_APROVAR,
+        "justificativa_aprovacao": "Fundamentacao sintetica do voto do comite (teste R-092)",
+        "valor_aprovado_cents": _VALOR_COMITE,
+        "aprovador_id": membro,
+        "aprovador_tier": 4,
+    }
+    vars_.update(extra)
+    return vars_
+
+
+async def _drive_to_comite(engine: EngineRest, probe: PagtoEngineProbe, iid: str) -> Any:
+    await probe.drain()
+    ut = await engine.await_user_task(iid, _UT_COMITE)
+    assert "comite-financeiro" in ut.candidate_groups
+    return ut
+
+
+async def _votar(engine: EngineRest, probe: PagtoEngineProbe, ut_id: str, voto: dict[str, Any]) -> None:
+    await engine.complete_task_as_human(ut_id, voto)
+    await probe.drain()
+
+
+async def test_comite_colegiado_dois_membros_distintos_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092: com a flag, o catch-all abre o comite; DOIS membros distintos votam APROVAR e so entao
+    o worker gated libera. O quorum veio da DMN (`quorum_comite=2`), nao do BPMN nem do worker."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    assert await engine.get_variable(iid, "quorum_comite") == 2
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    # Um voto nao basta: nada liberado, segunda instancia do comite aberta.
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    assert ut_b.id != ut_a.id
+    await _votar(engine, pagto_probe_comite, ut_b.id, _voto_comite(_MEMBRO_B))
+
+    ended = await _await_end(engine, iid)
+    assert _END_LIBERADO_HUMANO in ended, f"comite com quorum => liberacao humana. ended={ended}"
+    assert _UT_APROVACAO not in ended, "com a flag o catch-all nunca cai na aprovacao singular"
+    assert await engine.activity_instance_count(iid, _UT_COMITE) == 2
+    assert await engine.activity_instance_count(iid, "ST_RegistrarVotoComite") == 2
+    assert pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano", aprovador_id=_MEMBRO_B)
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_comite_mesmo_membro_duas_vezes_nao_libera_sod(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092, SoD: controle dual com UMA pessoa nao e controle dual — o guard recusa
+    `ERR_PAYMENT_SOD_NOT_HUMAN` (incidente, fail-closed a humano); nada e liberado."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    await _votar(engine, pagto_probe_comite, ut_b.id, _voto_comite(_MEMBRO_A))
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "membro repetido NAO pode liberar (SoD)"
+    assert not pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_SOD_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_comite_membro_igual_ao_decisor_do_lastro_nao_libera_sod(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092, SoD: quem adjudicou a conta na origem (`lastro_decisor_id`) nao vota no comite."""
+    inst = await start_pagto(
+        valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False, lastro_decisor_id=_MEMBRO_A
+    )
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    await _votar(engine, pagto_probe_comite, ut_b.id, _voto_comite(_MEMBRO_B))
+
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_SOD_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_comite_voto_omitido_nunca_herda_o_aprovar_do_membro_anterior(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092: os campos do voto sao LOCAIS a cada instancia. O 2o membro conclui SEM
+    `decisao_pagamento` -> o voto dele e vazio (nao o APROVAR do 1o) -> o comite encerra pelo caminho
+    conservador; `release_high_value_payment` nunca executa."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    await _votar(engine, pagto_probe_comite, ut_b.id, {"aprovador_id": _MEMBRO_B})
+
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_ReleaseHighValue" not in ended
+    assert _END_LIBERADO_HUMANO not in ended
+    assert await engine.get_variable(iid, "decisao_pagamento") == ""
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_comite_voto_cancelar_encerra_no_cancelado(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092 + ramo CANCELAR (F-042): o primeiro voto CANCELAR encerra o comite (sem pedir o 2o
+    voto) e a ordem termina em `End_PagamentoCancelado` — neutro, sem liberacao."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(
+        engine,
+        pagto_probe_comite,
+        ut_a.id,
+        {
+            "decisao_pagamento": "CANCELAR",
+            "justificativa_recusa": "Ordem duplicada (sintetico R-092)",
+            "aprovador_id": _MEMBRO_A,
+        },
+    )
+
+    ended = await _await_end(engine, iid)
+    assert "End_PagamentoCancelado" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_COMITE) == 1
+    assert "ST_ReleaseHighValue" not in ended
+    assert pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="cancelado", aprovador_id=_MEMBRO_A)
+
+
+async def test_comite_flag_desligada_mantem_aprovacao_singular(
+    engine: EngineRest,
+    pagto_probe: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """R-092 DARK: sem a flag o catch-all segue em `UT_AprovacaoAlcada` (comite-financeiro), como
+    sempre — mesmo com a DMN emitindo `quorum_comite=2`."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut = await _drive_to_aprovacao(engine, pagto_probe, iid)
+    assert "comite-financeiro" in ut.candidate_groups
+    assert await engine.get_variable(iid, "quorum_comite") == 2
+    assert await engine.get_variable(iid, "pagto_comite_colegiado_ativo") is False
+    assert not {t.task_definition_key for t in await engine.list_user_tasks(iid)} & {_UT_COMITE}
+
+
+async def test_cancelar_na_aprovacao_singular_termina_no_cancelado(
+    engine: EngineRest,
+    pagto_probe: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """F-042 (ramo CANCELAR sem prova de motor): `UT_AprovacaoAlcada` com CANCELAR ->
+    `End_PagamentoCancelado`, `pagto.completed` desfecho=cancelado; nunca libera nem recusa."""
+    inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut = await _drive_to_aprovacao(engine, pagto_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_pagamento": "CANCELAR",
+            "justificativa_recusa": "Ordem sem lastro (sintetico F-042)",
+            "aprovador_id": "aprovador-financeiro-sintetico-002",
+        },
+    )
+    await pagto_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert "End_PagamentoCancelado" in ended, ended
+    assert "ST_ReleaseHighValue" not in ended
+    assert "ST_RegisterPaymentRefusal" not in ended
+    assert pagto_probe.has_event(_PAGTO_COMPLETED, desfecho="cancelado")
