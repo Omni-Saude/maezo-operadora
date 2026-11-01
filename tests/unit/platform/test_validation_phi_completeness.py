@@ -1841,7 +1841,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="aprovador_id",
         name_delta=1,
         occurrence_delta=3,
@@ -1855,7 +1855,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="aprovador_tier",
         name_delta=1,
         occurrence_delta=3,
@@ -1868,7 +1868,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="valor_aprovado_cents",
         name_delta=1,
         occurrence_delta=3,
@@ -1882,7 +1882,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="decisao_pagamento",
         name_delta=0,
         occurrence_delta=3,
@@ -1896,7 +1896,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="quorum_comite",
         name_delta=1,
         occurrence_delta=5,
@@ -1909,7 +1909,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="comite_ultimo_voto",
         name_delta=1,
         occurrence_delta=1,
@@ -1920,7 +1920,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="pagto_alcada",
         name_delta=0,
         occurrence_delta=2,
@@ -1932,7 +1932,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="grupo_aprovador",
         name_delta=0,
         occurrence_delta=1,
@@ -1943,7 +1943,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="sla",
         name_delta=0,
         occurrence_delta=2,
@@ -1955,7 +1955,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="sla_alerta",
         name_delta=0,
         occurrence_delta=1,
@@ -1963,7 +1963,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
-        pr="#PRNUM",
+        pr="#1172",
         name="sla_aprovacao",
         name_delta=0,
         occurrence_delta=1,
@@ -1986,7 +1986,7 @@ class TestBuckets:
         # R-005 (prazo_resposta_dias_uteis): +1
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
-        # R-092 (#PRNUM): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
+        # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
@@ -2022,7 +2022,7 @@ class TestBuckets:
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        # R-092 (#PRNUM): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
+        # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
         assert len(live_sweep.names) == expected_names == 373
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
@@ -2039,7 +2039,7 @@ class TestBuckets:
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
         # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        # R-092 (#PRNUM): +25 (aprovador_id/aprovador_tier/valor_aprovado_cents/decisao_pagamento +3
+        # R-092 (#1172): +25 (aprovador_id/aprovador_tier/valor_aprovado_cents/decisao_pagamento +3
         #   cada, quorum_comite +5, comite_ultimo_voto +1, pagto_alcada +2, grupo_aprovador +1, sla +2,
         #   sla_alerta +1, sla_aprovacao +1); nomes: +5
         assert len(live_sweep.refs) == expected_refs == 1784
