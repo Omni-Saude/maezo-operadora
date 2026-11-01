@@ -19,7 +19,7 @@
 | Spec | Escrita depois do código | Escrita antes do código |
 | Cobertura funcional | ~30-40% dos contratos | Alvo: 100% dos contratos |
 | Código inicial | 55K LOC Python portado | Zero — tudo reconstruído |
-| ADRs | 14/24 "Proposed" | 71 numerados (0001–0071): 49 "Accepted", 22 "Proposed"/"Proposto" (status no cabeçalho de cada ADR) |
+| ADRs | 14/24 "Proposed" | 72 numerados (0001–0072): 55 "Accepted", 17 "Proposed"/"Proposto" (status no cabeçalho de cada ADR) |
 | Qualidade alvo | B+ (pré-produção) | A (alpha-dev, self-certified/unverified) |
 
 ## Regras duras para geração de código
@@ -54,7 +54,7 @@ Para cada milestone:
 
 ### Anti-padrões de contexto
 
-- ❌ Carregar todos os 71 ADRs de uma vez
+- ❌ Carregar todos os 72 ADRs de uma vez
 - ❌ Carregar todos os 17 contratos SP-OP de uma vez  
 - ❌ Ler arquivos sem search primeiro (`search_files` antes de `read_file`)
 - ❌ Repetir contexto que já está no PLANS.md ou RUNBOOK.md
