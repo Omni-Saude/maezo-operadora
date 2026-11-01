@@ -341,3 +341,51 @@ def test_livro_de_votos_registrado_com_escopo_de_leitura_explicito() -> None:
     escopo = harness._topic_variables["operadora.pagto.register_committee_vote"]
     assert escopo == COMITE_VOTO_VARIABLES
     assert {"loopCounter", "decisao_pagamento", "aprovador_id", VOTOS_COMITE_VAR} <= set(escopo)
+
+
+# ---------------------------------------------------------------------------------------------
+# 4. B1 do gate cego (#1172 @dd60b712): livro semeado no start nunca conta votos
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_calculate_facts_zera_o_livro_semeado(flag: bool) -> None:
+    """O livro nasce vazio a cada calculo de fatos — uma semente de start com dois APROVAR nunca
+    chega ao guard (com ou sem a flag)."""
+    out = route_aprovacao(
+        {
+            "tenant_id": "amh",
+            "valor_pagamento_cents": _VALOR,
+            VOTOS_COMITE_VAR: [_voto("x-fantasma"), _voto("coord-c")],
+        },
+        dmn=_dmn_comite(),
+        comite_colegiado=flag,
+    )
+    assert out[VOTOS_COMITE_VAR] == []
+
+
+def test_coordenacao_assumindo_comite_interrompido_antes_do_1o_voto_nao_libera() -> None:
+    """Estado apos calculate_facts + BRT_AlcadaRouting (livro vazio), SLA estourado antes de
+    qualquer voto, coordenacao assume com APROVAR: o guard colegiado recusa."""
+    variables = {
+        "quorum_comite": 2,
+        "tier_minimo": 4,
+        "faixa_valor": "ANALISE_HUMANA",
+        "valor_maximo_aprovavel_cents": _VALOR,
+        VOTOS_COMITE_VAR: [],
+        "decisao_coordenacao": "assumir_aprovacao",
+        "decisao_pagamento": "APROVAR",
+        "aprovador_id": "coord-fin-sintetico-009",
+        "aprovador_tier": 4,
+        "justificativa_aprovacao": "Fundamentacao sintetica da coordenacao",
+        "valor_aprovado_cents": _VALOR,
+    }
+    erro = _recusa(variables)
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "votos_comite ausente ou vazio" in erro.message
+
+
+def test_livro_esta_no_conjunto_proibido_na_semente() -> None:
+    from maezo.tools.workers.pagto import PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
+
+    assert VOTOS_COMITE_VAR in PAGTO_FATOS_PROIBIDOS_NA_SEMENTE

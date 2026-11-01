@@ -217,6 +217,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import json
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -1609,3 +1610,45 @@ async def test_cancelar_na_aprovacao_singular_termina_no_cancelado(
     assert "ST_ReleaseHighValue" not in ended
     assert "ST_RegisterPaymentRefusal" not in ended
     assert pagto_probe.has_event(_PAGTO_COMPLETED, desfecho="cancelado")
+
+
+async def test_comite_livro_semeado_e_sla_antes_do_1o_voto_coordenacao_nao_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """B1 do gate cego (#1172): um start que semeia `votos_comite` com dois APROVAR (um deles da
+    propria coordenacao) + o SLA do comite estourando antes do 1o voto + a coordenacao assumindo
+    com APROVAR NAO libera — `calculate_facts` zera o livro e o guard colegiado recusa."""
+    coord = "coord-c-sintetico"
+    semente = [
+        {"membro": "x-fantasma", "voto": "APROVAR", "tier": 4, "valor_aprovado_cents": _VALOR_COMITE},
+        {"membro": coord, "voto": "APROVAR", "tier": 4, "valor_aprovado_cents": _VALOR_COMITE},
+    ]
+    inst = await start_pagto(
+        valor_pagamento_cents=_VALOR_COMITE,
+        dentro_teto_l2=False,
+        votos_comite={"value": json.dumps(semente), "type": "Json"},
+    )
+    iid = inst["id"]
+
+    await _drive_to_comite(engine, pagto_probe_comite, iid)
+    job = await engine.await_timer_job(iid, "BT_SlaComite")
+    await engine.execute_job(job.id)
+    await pagto_probe_comite.drain()
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    await engine.complete_task_as_human(
+        ut_coord.id,
+        _voto_comite(coord, decisao_coordenacao="assumir_aprovacao"),
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "livro semeado nunca conta votos (B1)"
+    assert not pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    assert await engine.activity_instance_count(iid, "ST_RegistrarVotoComite") == 0
+    incidentes = await engine.incidents(iid)
+    # O texto do incidente pode ser redigido pela harness; o codigo do guard e estavel.
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )

@@ -147,6 +147,7 @@ PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
         "prestador_conhecido",
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
+        "votos_comite",
     }
 )
 
@@ -186,8 +187,9 @@ VOTOS_COMITE_VAR = "votos_comite"
 #: que nao aprova. Plumbing do voto humano, nunca decisao deste worker.
 COMITE_ULTIMO_VOTO_VAR = "comite_ultimo_voto"
 #: Escopo de leitura EXPLICITO de `operadora.pagto.register_committee_vote` (menor privilegio —
-#: nunca `variables=all`): os campos do voto (LOCAIS a instancia do subprocesso), o contador da
-#: multi-instancia e o livro corrente.
+#: nunca `variables=all`): os campos do voto (ja no escopo do processo — os outputParameter de
+#: `UT_AprovacaoComite` os achataram ao concluir a tarefa), o contador da multi-instancia e o livro
+#: corrente.
 COMITE_VOTO_VARIABLES: tuple[str, ...] = (
     "loopCounter",
     "decisao_pagamento",
@@ -584,6 +586,9 @@ def route_aprovacao(
         # caminho (`is True`: valor-lixo nunca liga). `GW_TipoAprovacao` le este fato; o quorum
         # vem da DMN (`quorum_comite`), nunca daqui.
         PAGTO_COMITE_COLEGIADO_VAR: comite_colegiado is True,
+        # R-092: o livro nasce vazio a cada calculo de fatos — semente de start/rodada anterior
+        # nunca conta votos (coordenacao assumindo um comite interrompido antes do 1o voto)
+        VOTOS_COMITE_VAR: [],
         **extra_facts,
     }
 
@@ -918,7 +923,7 @@ def register_committee_vote(variables: dict[str, Any]) -> dict[str, Any]:
     Serve `ST_RegistrarVotoComite` (topico `operadora.pagto.register_committee_vote`), dentro de
     `SP_AprovacaoComite` (multi-instancia sequencial, cardinalidade `quorum_comite` da DMN
     `pagto_alcada`; R-092 / F-081). Le os campos do voto que `UT_AprovacaoComite` acabou de gravar
-    (LOCAIS a instancia do subprocesso) e devolve:
+    (achatados no escopo do processo pelos outputParameter da tarefa) e devolve:
 
     - `votos_comite`: o livro com este voto acrescentado. Na PRIMEIRA instancia de uma rodada
       (`loopCounter == 0`, variavel nativa da multi-instancia) o livro recomeca vazio — uma rodada

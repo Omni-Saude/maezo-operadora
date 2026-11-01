@@ -109,7 +109,7 @@ pagamento**, risco financeiro direto).
 | `decisao_coordenacao` | string | `assumir_aprovacao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano de tier >= faixa assume) |
 | `quorum_comite` | integer | **R-092 (F-081).** Quantos membros DISTINTOS do grupo aprovador precisam votar `APROVAR` — saida da DMN `pagto_alcada` (v0.1.2), achatada por `BRT_AlcadaRouting`. `1` nas faixas L1..L3/clerical (aprovador singular); `2` no catch-all `comite-financeiro` — **valor DRAFT, NAO decidido pelo dono** (docs/review-queue.md, secao R-092). Fato de PAGTO, nunca decisao |
 | `pagto_comite_colegiado_ativo` | boolean | **R-092, DARK.** Posicao da implantacao (`MAEZO_PAGTO_COMITE_COLEGIADO`, default off), escrita por `operadora.pagto.calculate_facts` em TODO caminho (uma semente de start com o mesmo nome e sobrescrita). `GW_TipoAprovacao` so abre o comite com ela `true` E `quorum_comite > 1`; senao, `UT_AprovacaoAlcada` como sempre |
-| `votos_comite` | json (list) | **R-092.** Livro de votos do comite: uma entrada `{membro, voto, tier, valor_aprovado_cents}` por voto de `UT_AprovacaoComite`, escrita SO por `operadora.pagto.register_committee_vote` (zerada na primeira instancia de cada rodada, `loopCounter == 0`). Lido SO pelo guard colegiado de `release_high_value_payment` |
+| `votos_comite` | json (list) | **R-092.** Livro de votos do comite: uma entrada `{membro, voto, tier, valor_aprovado_cents}` por voto de `UT_AprovacaoComite`, escrita SO por `operadora.pagto.register_committee_vote`; zerado por operadora.pagto.calculate_facts em todo caminho e na primeira instancia de cada rodada (`loopCounter == 0`) — semente de start nunca conta votos; nunca semeado por origem (`PAGTO_FATOS_PROIBIDOS_NA_SEMENTE`). Lido SO pelo guard colegiado de `release_high_value_payment` |
 | `comite_ultimo_voto` | string | **R-092.** Eco do voto do membro que acabou de votar (plumbing do voto humano) — lido pela `completionCondition` de `SP_AprovacaoComite` para encerrar o comite no primeiro voto que nao seja `APROVAR` |
 
 ## Variaveis de proveniencia do agente (Andre — ADR-0007/ADR-0015)
@@ -125,8 +125,8 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 `_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
 `dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
-`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents` e
-`analista_admissibilidade_id`. O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
+`analista_admissibilidade_id` e o livro `votos_comite` (R-092). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
