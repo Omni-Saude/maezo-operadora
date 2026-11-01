@@ -149,8 +149,11 @@ def test_the_worker_error_rate_alert_is_the_named_fix_and_not_accidentally_rever
     split = _split_top_level_division(expr)
     assert split is not None, "MaezoSLAWorkerErrorRateHigh's expr is no longer a ratio"
     numerator, denominator = split
-    assert _aggregation_label_set(numerator) == frozenset({"worker", "topic"})
-    assert _aggregation_label_set(denominator) == frozenset({"worker", "topic"})
+    # R-085 (2026-10-31): the fix now reads the full-coverage dispatch counter
+    # `maezo_worker_task_total{tenant,topic,outcome}` (failures / all dispatches) — still a
+    # matched `sum by` on both sides, now by (tenant, topic).
+    assert _aggregation_label_set(numerator) == frozenset({"tenant", "topic"})
+    assert _aggregation_label_set(denominator) == frozenset({"tenant", "topic"})
 
 
 def test_the_worker_error_rate_annotation_does_not_reference_a_label_the_expr_drops() -> None:

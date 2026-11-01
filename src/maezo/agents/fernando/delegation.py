@@ -354,6 +354,7 @@ def make_fernando_handler(
     audit_sink: AuditStartSink,
     whatsapp: WhatsAppSender,
     agent_version: str = "fernando@v0",
+    inad_chave_exige_contrato: bool = False,
 ) -> Callable[[DelegationEnvelope], Awaitable[HandlerOutput]]:
     """Build Fernando's A2A handler (delegation target). The worker-runtime composition root
     registers it with the dispatcher (`handlers={..., "fernando": ...}`, since 2026-09-05 / owner
@@ -372,6 +373,10 @@ def make_fernando_handler(
     stays in Fernando's own engine variables (via his idempotent `start_process`) and is never
     forwarded over this seam — mirrors Carolina's own guardrail, and Fernando's own L0-hard
     invariant that he never decides/communicates an adverse outcome himself.
+
+    `inad_chave_exige_contrato` (F-124, dark — `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF)
+    is forwarded to `build(config)`: the INAD key is minted on `numero_contrato` only and a start
+    without it is refused at the chokepoint (decisao do DPO de 31/10/2026, #1082 opcao a).
     """
     compiled = build(
         {
@@ -381,6 +386,7 @@ def make_fernando_handler(
             "audit_sink": audit_sink,
             "whatsapp": whatsapp,
             "agent_version": agent_version,
+            "inad_chave_exige_contrato": inad_chave_exige_contrato,
         }
     ).compile()
 
@@ -397,7 +403,9 @@ def make_fernando_handler(
 
             record_agent_error(agent="fernando", error_type=classify_agent_error_type(exc))
             raise
-        business_key = result.get("business_key") or _business_key(state)
+        business_key = result.get("business_key") or _business_key(
+            state, exige_contrato=inad_chave_exige_contrato
+        )
         if result.get("start_failed") is True:
             # RAF-02: o grafo TENTOU abrir o processo e o engine recusou. Devolver
             # `HandlerOutput` aqui seria um sucesso para o dispatcher (`HandlerOutput` nao tem

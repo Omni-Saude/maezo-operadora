@@ -6,7 +6,7 @@ durable, deduplicated envelope dispatched by `HumanCommandRelay` over the outbox
 is declared NOT ESTABLISHED in `src/maezo/portal/engine/README.md`, so the portal today shows
 the queue and cannot close the case. This module is the *interim* path that closes it, behind
 a gate that is OFF by default and fenced to `dev-sa-east-1` by
-`scripts/ci/check_portal_direct_completion.py`. It is not the destination; issue #427's relay
+`scripts/ci/check_portal_direct_completion.py`. It is not the destination; issue #1145's relay
 is. Read DL-0049 before extending anything here.
 
 Nothing in this module is a capability: no key, no connection, no HTTP client and no audit
