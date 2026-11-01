@@ -434,16 +434,36 @@ def stop_processing(variables: dict[str, Any]) -> dict[str, Any]:
 
     This is NOT adverse — stopping PHI processing upon revocation is
     the safe/legal behavior. Terminal: End_ProcessamentoInterrompidoRevogacao.
+
+    R-013 / F-008 (achado C5-10): o contrato (SP-OP-PROGRAMA-001, "Topicos": `stop_processing`
+    "registra cessacao (LGPD)"; "Variaveis de saida": `consent_event_ref`, a referencia ao registro
+    de consentimento/revogacao que liga a SP-OP-LGPD-DSR-001) pede que a cessacao fique AMARRADA ao
+    evento de consentimento — antes o worker so logava e devolvia uma constante. Agora o retorno
+    re-ecoa `consent_event_ref` quando a instancia o carrega (string nao vazia, sem espacos nas
+    bordas): o `complete` da harness grava a variavel no escopo e no historico da task de cessacao,
+    e a cessacao passa a citar QUAL consentimento cessou. Ausente/forma invalida => a chave nao e
+    devolvida (nunca um valor inventado). O valor e uma referencia ja presente no escopo (campo
+    obrigatorio do start `valentina.programa.start.v1`), nao amplia a superficie de PHI, e NAO entra
+    em log. Purga de dados do titular NAO e efeito deste worker: eliminacao e direito separado
+    (art. 18, VI), pedido pelo DSR e executado pela cascata DARK de `platform.erasure`.
     """
     logger.warning(
         "programa_stop_processing_revogacao",
         beneficiario=variables.get("beneficiario_pseudo_id"),
     )
 
-    return {
+    result: dict[str, Any] = {
         "processamento_parado": True,
         "motivo": "revogacao_consentimento",
     }
+    consent_event_ref = variables.get("consent_event_ref")
+    if (
+        isinstance(consent_event_ref, str)
+        and consent_event_ref.strip()
+        and consent_event_ref == consent_event_ref.strip()
+    ):
+        result["consent_event_ref"] = consent_event_ref
+    return result
 
 
 # ---------------------------------------------------------------
