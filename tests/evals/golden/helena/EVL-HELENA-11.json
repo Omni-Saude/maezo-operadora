@@ -27,5 +27,8 @@
       "escalation_severidade": "moderada"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:tool_failure"
+  ]
 }
