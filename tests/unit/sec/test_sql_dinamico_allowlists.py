@@ -760,3 +760,31 @@ def test_commission_policies_colunas_literais() -> None:
     colunas = atribuicao_literal_de_modulo("portal/api/commission_policies_postgres.py", "_COLUMNS")
     nomes = [c.strip() for c in colunas.split(",")]
     assert len(nomes) == 17 and all(SIMPLES.fullmatch(c) for c in nomes)
+
+
+# ---------------------------------------------------------------------------------------------
+# qa/simulador/limpeza.py (`_apagar` escolhe DELETE literal no mapa fechado)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_limpeza_mapa_de_delete_fechado() -> None:
+    from maezo.qa.simulador import limpeza as m
+
+    assert set(m._DELETE_SQL) == {m.TABELA_ROTEADOR, m.TABELA_ACESSO}
+    for tabela, sql in m._DELETE_SQL.items():
+        assert sql == f"DELETE FROM {tabela} WHERE tenant = $1 AND conversation_id = ANY($2::text[])"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tabela", ["conversa_agente_ativo; DROP TABLE t", "audit_chain", ""])
+async def test_limpeza_apagar_recusa_tabela_fora_do_mapa_antes_do_pool(tabela: str) -> None:
+    from types import SimpleNamespace
+
+    from maezo.qa.simulador import limpeza as m
+
+    async def _pool() -> None:
+        raise AssertionError("abriu pool com tabela fora do mapa")
+
+    falso = SimpleNamespace(_ensure_pool=_pool)
+    with pytest.raises(ValueError, match="mapa fechado"):
+        await m.Limpeza._apagar(falso, tabela, ["c"])  # type: ignore[arg-type]
