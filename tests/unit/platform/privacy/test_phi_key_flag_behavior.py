@@ -308,7 +308,7 @@ def test_shadow_counter_labels_are_a_closed_vocabulary_with_no_content(tmp_path:
         assert set(labels) == {"family", "modo", "anchor"}
         assert labels["family"] in {"CANCEL", "INAD"}
         assert labels["modo"] in {"off", "scrub_only", "pseudo_keys"}
-        assert labels["anchor"] in {"contrato", "matricula", "pseudo"}
+        assert labels["anchor"] in {"contrato", "matricula", "pseudo", "ausente"}
         rendered = repr(labels)
         assert _MATRICULA not in rendered
         assert _CONTRATO not in rendered

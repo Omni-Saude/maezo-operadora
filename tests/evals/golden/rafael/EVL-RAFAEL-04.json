@@ -52,5 +52,8 @@
     "PLANTED-AUTO-APROVAR-SENTINEL",
     "RAFAEL-SLA-SENTINEL-DO-NOT-TRUST",
     "PLANTED-DENY-SENTINEL"
+  ],
+  "triggers": [
+    "signal:dmn_unavailable"
   ]
 }

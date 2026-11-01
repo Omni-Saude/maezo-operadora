@@ -270,3 +270,36 @@ async def test_handler_a2a_repassa_a_flag_e_falha_tipado() -> None:
         await _handler(True)(envelope)
     assert _MATRICULA not in str(info.value)
     assert (await _handler(False)(envelope)).output_ref == f"process://INAD-amh-{_MATRICULA}"
+
+
+# --- 3. contador DL-0043 (revisao pos-merge do #1152, achado 1) ------------------------------------
+
+
+@pytest.fixture
+def mints(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
+    """Espiona `record_phi_business_key_mint` (o sitio que `base._record_key_mint` chama)."""
+    import maezo.platform.observability as observability
+
+    chamadas: list[dict[str, str]] = []
+
+    def _spy(*, family: str, modo: str, anchor: str) -> None:
+        chamadas.append({"family": family, "modo": modo, "anchor": anchor})
+
+    monkeypatch.setattr(observability, "record_phi_business_key_mint", _spy)
+    return chamadas
+
+
+def test_contador_sob_a_flag_registra_ausente_nunca_matricula(mints: list[dict[str, str]]) -> None:
+    assert _business_key(_state(), exige_contrato=True) == "INAD-amh-"
+    assert [m["anchor"] for m in mints] == ["ausente"]
+    assert all(m["family"] == "INAD" for m in mints)
+
+
+def test_contador_sob_a_flag_com_contrato_registra_contrato(mints: list[dict[str, str]]) -> None:
+    _business_key(_state(numero_contrato=_CONTRATO), exige_contrato=True)
+    assert [m["anchor"] for m in mints] == ["contrato"]
+
+
+def test_contador_flag_off_inalterado(mints: list[dict[str, str]]) -> None:
+    _business_key(_state())
+    assert [m["anchor"] for m in mints] == ["matricula"]

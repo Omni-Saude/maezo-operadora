@@ -71,6 +71,8 @@ it("consulta o roster com um GET sem corpo e renderiza os fatos revisados", asyn
   expect(panel).not.toHaveTextContent("human-internal-2");
   const refs = within(panel).getAllByText("Referência do colaborador").map((term) => term.nextElementSibling);
   expect(refs[0]).toHaveTextContent(/^••••terminada em al-1$/);
+  // Revisao pos-merge do #1152: o "••••" e' decorativo — fica fora da arvore de acessibilidade.
+  expect(refs[0]?.querySelector('[aria-hidden="true"]')).toHaveTextContent("••••");
   expect(refs[1]).toHaveTextContent(/^••••terminada em al-2$/);
   expect(within(panel).getAllByText("Revogado").length).toBeGreaterThan(0);
   expect(within(panel).getByText(/resource-vendor-1/)).toBeInTheDocument();
