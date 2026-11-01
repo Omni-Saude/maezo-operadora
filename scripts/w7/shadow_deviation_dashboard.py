@@ -934,8 +934,8 @@ CANDIDATE_ROWS: Final[tuple[CandidateRow, ...]] = (
         "auditoria-contas + compliance",
         Anchor("spec/processes/dmn/glosa-triage-shadow-candidate.yaml", "regras_candidatas:"),
         Anchor(QUEUE_DOC, "glosa-triage-shadow-candidate.yaml", 640),
-        'conjunto negativo `not("tecnica","clinica")` admite `"desconhecida"` — sob FIRST '
-        "o fail-safe `r_catchall` fica inalcançável no subespaço favorável",
+        "aplicado na tabela viva por DEC-14 (2026-10-31, #1084; R-062): `r_pagar` na posição 4 "
+        "com conjunto positivo fechado — `desconhecida` desce ao `r_catchall` (humano)",
     ),
     CandidateRow(
         "C-M5",
