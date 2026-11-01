@@ -63,11 +63,11 @@ from prometheus_client import Counter
 
 from maezo.platform.driver_idempotency import DedupRegistryUnavailableError
 from maezo.platform.health import CheckResult, create_health_app
-from maezo.platform.observability import get_metrics_collector
+from maezo.platform.observability import get_metrics_collector, record_mensagem_sem_wamid
 
-from .dedup import WhatsAppDedupGuard
+from .dedup import FALLBACK_MAX_ENTREGAS, WhatsAppDedupGuard
 from .dispatch import HelenaDispatcher, InboundEvent, InboundMessage, extract_inbound_messages
-from .security import log_safe_message_id, verify_hub_signature
+from .security import hash_phone, log_safe_message_id, verify_hub_signature
 from .settings import WhatsAppWebhookSettings
 
 logger = structlog.get_logger(__name__)
@@ -116,7 +116,29 @@ def _spawn_background_turn(coro: Coroutine[Any, Any, None]) -> None:
     task.add_done_callback(_BACKGROUND_TURNS.discard)
 
 
-async def _seal_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *, tenant: str) -> None:
+def _claimed_key(
+    dedup: WhatsAppDedupGuard | None, message: InboundEvent, fallback_key: str | None
+) -> str | None:
+    """The registry key this delivery actually holds, or `None` when nothing was claimed.
+
+    A wamid-keyed claim (the R-071 path) or, for a message WITHOUT a wamid, the fallback-identity
+    slot it won (F-147 / R-060). Never a key derived from an empty id: that would be a shared,
+    bogus row that suppressed every other unkeyable message.
+    """
+    if dedup is None:
+        return None
+    if message.message_id:
+        return dedup.inbound_key(message.message_id)
+    return fallback_key
+
+
+async def _seal_claim(
+    dedup: WhatsAppDedupGuard | None,
+    message: InboundEvent,
+    *,
+    tenant: str,
+    fallback_key: str | None = None,
+) -> None:
     """Seal the claim of a delivery that really happened. Never raises.
 
     A registry failure HERE cannot fail the request: the beneficiary was already answered, and a
@@ -125,18 +147,17 @@ async def _seal_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *
     suppresses redelivery until its lease expires (`driver_idempotency.py`), which bounds the
     exposure to one lease instead of one TTL.
     """
-    if dedup is None or not message.message_id:
-        # No guard, or a message with no wamid to key on — nothing was ever claimed, so there is
-        # nothing to seal (and a key derived from an empty id would be a shared, bogus row that
-        # suppressed every other unkeyable message).
+    key = _claimed_key(dedup, message, fallback_key)
+    if dedup is None or key is None:
+        # No guard, or nothing was ever claimed (no wamid and no fallback slot) — nothing to seal.
         return
     try:
-        await dedup.mark_inbound_processed(message.message_id)
+        await dedup.seal_key(key)
     except DedupRegistryUnavailableError as exc:
         logger.error(
             "whatsapp_webhook_dedup_seal_failed",
             tenant=tenant,
-            dedup_key=dedup.inbound_key(message.message_id),
+            dedup_key=key,
             # The error processor keeps class/frames; never stringify an upstream payload.
             error=exc,
             detail="the message WAS processed; the claim could not be sealed — redelivery stays "
@@ -144,22 +165,30 @@ async def _seal_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *
         )
 
 
-async def _withdraw_claim(dedup: WhatsAppDedupGuard | None, message: InboundEvent, *, tenant: str) -> None:
+async def _withdraw_claim(
+    dedup: WhatsAppDedupGuard | None,
+    message: InboundEvent,
+    *,
+    tenant: str,
+    fallback_key: str | None = None,
+) -> None:
     """Withdraw the claim of a delivery whose handling FAILED. Never raises.
 
     Without this, the dedup would convert a transient failure into permanent silent loss: the key
     would stay claimed, and Meta's redelivery — the only second chance this message has — would be
-    suppressed as a duplicate of a turn that never answered anybody.
+    suppressed as a duplicate of a turn that never answered anybody. The same holds for a
+    fallback-identity slot (F-147 / R-060): a failed turn gives its slot back.
     """
-    if dedup is None or not message.message_id:
+    key = _claimed_key(dedup, message, fallback_key)
+    if dedup is None or key is None:
         return  # nothing was claimed — see `_seal_claim`.
     try:
-        await dedup.release_inbound(message.message_id)
+        await dedup.release_key(key)
     except DedupRegistryUnavailableError as exc:
         logger.error(
             "whatsapp_webhook_dedup_release_failed",
             tenant=tenant,
-            dedup_key=dedup.inbound_key(message.message_id),
+            dedup_key=key,
             error=exc,
             detail="handling failed AND the claim could not be withdrawn — redelivery is "
             "suppressed until the in-flight lease expires",
@@ -173,6 +202,7 @@ async def _run_one_message(
     dedup: WhatsAppDedupGuard | None,
     tenant: str,
     turno: dict[str, str] | None = None,
+    fallback_key: str | None = None,
 ) -> str:
     """Run ONE claimed message's effect and settle its claim. Returns the outcome name.
 
@@ -216,9 +246,9 @@ async def _run_one_message(
             ),
             exc_info=True,
         )
-        await _withdraw_claim(dedup, message, tenant=tenant)
+        await _withdraw_claim(dedup, message, tenant=tenant, fallback_key=fallback_key)
         return "failed"
-    await _seal_claim(dedup, message, tenant=tenant)
+    await _seal_claim(dedup, message, tenant=tenant, fallback_key=fallback_key)
     return outcome
 
 
@@ -228,6 +258,7 @@ async def _run_background_turn(
     dispatcher: HelenaDispatcher,
     dedup: WhatsAppDedupGuard | None,
     tenant: str,
+    fallback_key: str | None = None,
 ) -> None:
     """ack-then-queue (R-072): the work Meta was ALREADY told 200 about.
 
@@ -236,13 +267,104 @@ async def _run_background_turn(
     claim plus this line. That asymmetry is the reason the flag defaults OFF — see
     `docs/processes/webhook-whatsapp-ack-then-queue.md`.
     """
-    outcome = await _run_one_message(message, dispatcher=dispatcher, dedup=dedup, tenant=tenant)
+    outcome = await _run_one_message(
+        message, dispatcher=dispatcher, dedup=dedup, tenant=tenant, fallback_key=fallback_key
+    )
     logger.info(
         "whatsapp_webhook_queued_turn_finished",
         tenant=tenant,
         outcome=outcome,
-        dedup_key=dedup.inbound_key(message.message_id) if dedup is not None else None,
+        dedup_key=_claimed_key(dedup, message, fallback_key),
     )
+
+
+async def _admit_without_wamid(
+    message: InboundEvent,
+    *,
+    dedup: WhatsAppDedupGuard,
+    tenant: str,
+    fallback_enabled: bool,
+) -> tuple[bool, str | None]:
+    """Decide what happens to ONE message that arrived WITHOUT a `wamid` (F-147 / R-060).
+
+    Returns `(dispatch, fallback_key)`. Decisao do dono de 2026-10-31 (#1084, Rodada 2): a
+    mensagem continua sendo despachada, mas — com `WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK` ligada —
+    reivindica um slot de uma identidade de fallback KEYED no registro duravel; ate
+    `FALLBACK_MAX_ENTREGAS` entregas iguais passam e da seguinte em diante a entrega e' suprimida
+    EM SILENCIO (nenhum aviso ao beneficiario: o aviso seria, ele proprio, a mensagem duplicada).
+
+    * flag desligada  -> `(True, None)`: o comportamento de antes, byte a byte (despacha sem
+      protecao e anuncia), agora tambem contado (`nao_registrada`);
+    * slot ganho      -> `(True, key)`: despacha; o chamador sela ou devolve ESSA chave;
+    * slots esgotados -> `(False, None)`: suprimida (`suprimida`);
+    * registro fora   -> `(True, None)`: despacha mesmo assim ("manter despacho" — ao contrario do
+      caminho do `wamid`, que falha fechado), anunciado em nivel error (`registro_indisponivel`).
+
+    Nenhum log daqui carrega telefone, texto ou wamid: so' a `conversation_id` keyed
+    (`wa:{tenant}:hk1_...`, a mesma do turno) e a identidade de fallback keyed.
+    """
+    if not fallback_enabled:
+        # Meta always sends `id`; a message without one cannot be deduped by wamid. Dispatched
+        # anyway (dropping a real beneficiary message would be worse) and announced, because the
+        # duplicate-protection claim does NOT hold for it.
+        logger.error(
+            "whatsapp_webhook_message_without_wamid",
+            tenant=tenant,
+            detail="inbound message carries no wamid — dispatched WITHOUT duplicate "
+            "protection (gap WEBHOOK-WAMID-DEDUP cannot key this delivery)",
+        )
+        record_mensagem_sem_wamid(tenant=tenant, desfecho="nao_registrada")
+        return True, None
+
+    if not message.timestamp:
+        # Sem `timestamp` da Meta a identidade de fallback nao distingue uma reentrega de uma
+        # repeticao REAL do beneficiario ("sim" duas vezes no TTL): reivindicar slot aqui
+        # suprimiria em silencio uma mensagem legitima. Despacha sem protecao, anunciado e contado.
+        logger.error(
+            "whatsapp_webhook_message_without_wamid",
+            tenant=tenant,
+            conversation_id=f"wa:{tenant}:{hash_phone(message.from_number, tenant, dedup.pseudonymizer)}",
+            detail="inbound message carries neither wamid nor Meta timestamp — dispatched WITHOUT "
+            "duplicate protection (fallback identity would merge distinct repeats)",
+        )
+        record_mensagem_sem_wamid(tenant=tenant, desfecho="sem_timestamp")
+        return True, None
+
+    identity = dedup.fallback_identity(message)
+    conversation_id = f"wa:{tenant}:{hash_phone(message.from_number, tenant, dedup.pseudonymizer)}"
+    try:
+        key = await dedup.claim_without_wamid(identity)
+    except DedupRegistryUnavailableError as exc:
+        logger.error(
+            "whatsapp_webhook_sem_wamid_registro_indisponivel",
+            tenant=tenant,
+            conversation_id=conversation_id,
+            identidade_fallback=identity,
+            error=exc,
+            detail="mensagem sem wamid despachada SEM protecao: o registro duravel nao respondeu "
+            "(decisao do dono: manter despacho)",
+        )
+        record_mensagem_sem_wamid(tenant=tenant, desfecho="registro_indisponivel")
+        return True, None
+    if key is None:
+        logger.info(
+            "whatsapp_webhook_sem_wamid_suprimida",
+            tenant=tenant,
+            conversation_id=conversation_id,
+            identidade_fallback=identity,
+            limite=FALLBACK_MAX_ENTREGAS,
+        )
+        record_mensagem_sem_wamid(tenant=tenant, desfecho="suprimida")
+        return False, None
+    logger.warning(
+        "whatsapp_webhook_message_without_wamid",
+        tenant=tenant,
+        conversation_id=conversation_id,
+        dedup_key=key,
+        detail="inbound message carries no wamid — dispatched under a fallback-identity slot (F-147 / R-060)",
+    )
+    record_mensagem_sem_wamid(tenant=tenant, desfecho="registrada")
+    return True, key
 
 
 def create_app(
@@ -395,17 +517,18 @@ def create_app(
             )
 
         for message in messages:
+            fallback_key: str | None = None
             if dedup is not None:
                 if not message.message_id:
-                    # Meta always sends `id`; a message without one cannot be deduped at all.
-                    # Dispatched anyway (dropping a real beneficiary message would be worse) and
-                    # announced, because the duplicate-protection claim does NOT hold for it.
-                    logger.error(
-                        "whatsapp_webhook_message_without_wamid",
+                    admitted, fallback_key = await _admit_without_wamid(
+                        message,
+                        dedup=dedup,
                         tenant=settings.tenant_id,
-                        detail="inbound message carries no wamid — dispatched WITHOUT duplicate "
-                        "protection (gap WEBHOOK-WAMID-DEDUP cannot key this delivery)",
+                        fallback_enabled=settings.sem_wamid_identidade_fallback,
                     )
+                    if not admitted:
+                        duplicates += 1
+                        continue
                 else:
                     try:
                         first_delivery = await dedup.claim_inbound(message.message_id)
@@ -448,7 +571,11 @@ def create_app(
                 # ack window. Nothing is dispatched synchronously here.
                 _spawn_background_turn(
                     _run_background_turn(
-                        message, dispatcher=dispatcher, dedup=dedup, tenant=settings.tenant_id
+                        message,
+                        dispatcher=dispatcher,
+                        dedup=dedup,
+                        tenant=settings.tenant_id,
+                        fallback_key=fallback_key,
                     )
                 )
                 queued += 1
@@ -459,6 +586,7 @@ def create_app(
                 dispatcher=dispatcher,
                 dedup=dedup,
                 tenant=settings.tenant_id,
+                fallback_key=fallback_key,
                 # PRIMEIRO turno despachado do lote, e so' ele. A rota de teste do Canal manda uma
                 # mensagem por requisicao, entao "o primeiro" e "o unico" coincidem; num lote de
                 # varias, devolver o primeiro e' a escolha honesta — devolver o ultimo faria o

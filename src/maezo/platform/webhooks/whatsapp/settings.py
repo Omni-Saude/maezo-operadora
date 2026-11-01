@@ -800,6 +800,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         ),
     )
 
+    # MENSAGEM SEM `wamid` (F-147 / R-060; decisao do dono de 2026-10-31, #1084 Rodada 2), DESLIGADA
+    # por padrao. Ligada, a mensagem que chega sem o id da Meta continua sendo despachada, mas
+    # reivindica um slot de uma identidade de fallback KEYED no registro duravel
+    # (`driver_idempotency`, o mesmo do `wamid`): ate 2 entregas iguais passam, da 3a em diante a
+    # entrega e' suprimida em silencio (sem aviso ao beneficiario). Registro fora: despacha mesmo
+    # assim (manter despacho), anunciado e contado. Desligada = o comportamento de antes (despacha
+    # sem protecao), so' que agora medido em `maezo_webhook_mensagem_sem_wamid_total`. Ligar exige
+    # a confirmacao do DPO da classificacao do registro (nota em
+    # `spec/policies/retention/erasure-plan.template.yaml`, linha `driver_idempotency`).
+    sem_wamid_identidade_fallback: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK", "sem_wamid_identidade_fallback"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

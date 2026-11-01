@@ -996,6 +996,38 @@ def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
         logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
 
 
+#: O que o receptor fez com uma mensagem SEM `wamid` (F-147 / R-060). Fechado: um valor fora vira
+#: `desconhecido`, nunca uma serie nova.
+#:   * `nao_registrada`        — flag `WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK` desligada: despachada
+#:                               sem protecao contra duplicata (o comportamento de antes, agora medido);
+#:   * `registrada`            — flag ligada: identidade de fallback gravada no registro duravel
+#:                               (1a ou 2a entrega) e a mensagem despachada;
+#:   * `suprimida`             — flag ligada: 3a entrega em diante, suprimida em silencio;
+#:   * `registro_indisponivel` — flag ligada, registro fora: despachada mesmo assim (decisao do dono:
+#:                               manter despacho), sem protecao.
+#:   * `sem_timestamp`         — flag ligada, mas a mensagem nao traz o `timestamp` da Meta: despachada
+#:                               sem protecao (a identidade nao separaria repeticoes reais).
+MENSAGEM_SEM_WAMID_DESFECHOS: frozenset[str] = frozenset(
+    {"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "sem_timestamp", "desconhecido"}
+)
+
+
+def record_mensagem_sem_wamid(*, tenant: str, desfecho: str) -> None:
+    """Record ONE inbound message that arrived without a `wamid` (F-147 / R-060).
+
+    O QUE ISTO MEDE. Ate aqui a unica pegada desse caminho era uma linha de log so' com o tenant:
+    ninguem conseguia dizer se F-147 acontece em producao (os dois produtores internos sempre poem
+    `id`). Este contador e' a medida — com a flag desligada ele conta o risco, ligada ele conta a
+    supressao. Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    rotulo = desfecho if desfecho in MENSAGEM_SEM_WAMID_DESFECHOS else "desconhecido"
+    try:
+        collector = _get_metrics_collector()
+        collector.mensagem_sem_wamid.labels(tenant=tenant, desfecho=rotulo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("mensagem_sem_wamid_metric_failed", tenant=tenant, exc_info=True)
+
+
 #: Os tipos de falha do roteador do numero unico (ADR-0062). Fechado: um valor fora vira `outro`.
 ROTEAMENTO_FALHA_TIPOS: frozenset[str] = frozenset({"leitura", "registro", "pre_roteamento", "lucas_turno"})
 
