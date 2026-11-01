@@ -585,8 +585,8 @@ networkPolicy:
   #   - podLabels: opcional, estreita ao(s) pod(s) do collector (gerenciado fora deste chart —
   #     opentelemetry-operator — por isso nenhum label e inventado aqui).
   # Vale para TODOS os pods, inclusive Zona PHI: o collector e in-cluster e a ausencia de PHI na
-  # telemetria depende do scrub do PROPRIO collector (configmap-otel-collector.yaml) — revisao de
-  # seguranca/DPO ABERTA em docs/review-queue.md `R-061-OTEL-PHI-EGRESS`, nao assumida aqui.
+  # telemetria depende do scrub do PROPRIO collector (configmap-otel-collector.yaml) — DECIDIDO pelo
+  # dono 2026-10-31 (#1085, opcao a); prova: tests/unit/deploy/test_otel_collector_phi_scrub.py.
   otelEgress:
     enabled: true
     namespace: ""

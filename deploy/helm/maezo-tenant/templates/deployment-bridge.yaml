@@ -53,6 +53,17 @@ spec:
               value: {{ .Values.tenant.id | quote }}
             - name: CIBSEVEN_BASE_URL
               value: "http://cibseven:8080/engine-rest"
+            # R-061 (decisao do dono 2026-10-31, #1084): `build_bridge` recusa subir sem isto —
+            # o sink de auditoria duravel (PostgresAuditSink) e' pre-condicao de todo start de
+            # processo (fail-closed, ADR-0007). Mesmo ExternalSecret Aurora (ESO) e mesma chave
+            # dos demais consumidores (a2a-outbox-relay, worker-daemon, webhook-receiver) —
+            # nunca literal. O egress de rede ate' o Aurora segue dependente dos CIDRs de
+            # `networkPolicy.daemonEgress.endpoints` (dado de infra, TODO-OWNER em values-amh).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.aurora.secretName }}
+                  key: database-url
             - name: KAFKA_BOOTSTRAP_SERVERS
               valueFrom:
                 secretKeyRef:
