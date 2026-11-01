@@ -1,0 +1,700 @@
+# Tabela de decisão v2 — proposta v3 da Helena, ESCOPO OPÇÃO 2 (todas as queixas da seção 3). TESTE DE MESA, nada publicado.
+# Mudanças em relação à v1 (causas 1–6 do teste de 31/10):
+#  1 todas as queixas da seção 3 têm bloco próprio; o que está fora passa antes pelos sinais gerais do público;
+#  2 perguntas tiradas do bloco da queixa (camada 0) antes dos sinais gerais (camada 1); sinais do 192 só se perguntam na camada 0;
+#    "padrões" gerais da fonte (ex.: meningite) trazem a pergunta certa quando a combinação aparece;
+#  3 mensagem vaga = queixa "mal_estar": pergunta aberta + sinal geral mais grave;
+#  4 idade/público desconhecido e regra muda -> 1ª pergunta "Para quem é e qual a idade?";
+#  5 sinais do 192 com "não inclui" explícito; perguntas do 192 sempre diretas (nunca invertidas);
+#  6 extrator lê a resposta do jeito da pessoa (lista de expressões por sinal).
+# Rodada 3 (31/10): perguntas de alerta próprias da queixa (suor frio na dor de barriga do adulto; não consegue urinar; crise de tosse
+#   que deixa o bebê roxo), episódio que já passou não é 192, pressão alta sem sintoma = CONVERSA, mama empedrada com bloco próprio,
+#   leitura da resposta pergunta a pergunta (script); intensidade da dor é o 1º sinal geral do adulto; despedida = risco imediato. Decisões: bebê < 2 m leve sem sinal = EQUIPE; dúvida persistente = EQUIPE.
+# Rodada 4 (31/10): 1ª pergunta inclui doença de base / remédio contínuo (junto com a idade quando faltar); cada condição liga
+#   perguntas próprias (padrões cond_*); trauma + dor de barriga -> sinais de choque; vômito verde no bebê/criança; dor forte
+#   LOCAL (pele, ouvido, dente, ferimento, outra) vai no máximo a HOJE pelos sinais gerais; queixa de testículo própria.
+# Decisões do dono 31/10: "atendimento no dia" do Caderno 28 = HOJE só com sinal; queixa leve sem sinal = CONVERSA;
+#   hipoglicemia com sintomas = PS; violência com agressor em casa = 190 + PS.
+# Páginas = página impressa (Caderno 28: impressa = PDF - 1; AIDPI Quadros: impressa = PDF - 2).
+# "provisoria_lado_seguro": linha sem fonte direta; vale até a revisão médica.
+
+gravidade: {FORA: 0, CONVERSA: 1, EQUIPE: 2, HOJE: 3, PS: 4, "192": 5}
+
+fontes:
+  CAB28v1: "Caderno de Atenção Básica 28, vol. I (MS, 2013)"
+  CAB28v2: "Caderno de Atenção Básica 28, vol. II, Queixas mais comuns (MS, 2013)"
+  SAMU: "Página do SAMU 192 (gov.br): quando chamar / quando não chamar"
+  GUIA_IDOSA: "Guia de Cuidados para a Pessoa Idosa (MS/SAPS, 2023)"
+  CAD_IDOSA: "Caderneta Brasileira da Pessoa Idosa (MS/SAPS, 2026)"
+  CAD_CRIANCA: "Caderneta da Criança, menino, 6ª ed. (MS)"
+  AIDPI: "AIDPI Criança, Manual de Quadros (MS/OPAS, 2017)"
+  AIDPI_NEO: "AIDPI Neonatal (MS/OPAS, 2014)"
+  CAD_GEST: "Caderneta da Gestante (MS, 2022; plano cita a de 2026)"
+  ACCR_OBST: "Manual de Acolhimento e Classificação de Risco em Obstetrícia (MS, 2018)"
+  DENGUE: "Dengue: diagnóstico e manejo clínico, adulto e criança (MS, 2024)"
+
+# ---------------------------------------------------------------------------------------------
+# Lista curta do 192 — seção 4 do plano, exatamente como está lá. Fora dela, nunca 192.
+lista_192:
+  - {item: 1, sinal: nao_respira_ou_nao_acorda, texto: "Não respira, ou desmaiou e não acorda", fonte: "Caderno 28 vol. I, p. 35; vol. II, §2.27, p. 246; SAMU"}
+  - {item: 2, sinal: convulsao_agora, texto: "Convulsão agora", fonte: "Vol. I, p. 35; vol. II, §2.3, p. 47; SAMU; Caderneta da Criança, p. 23"}
+  - {item: 3, sinal: sinais_avc, texto: "Fala enrolada, perda de força de um lado, boca torta", fonte: "SAMU (suspeita de AVC); Guia da Pessoa Idosa 2023, p. 116"}
+  - {item: 4, sinal: dor_peito_com_sinal_grave, texto: "Dor no peito COM suor frio, falta de ar ou desmaio (sem esses sinais: pronto-socorro)", fonte: "Vol. II, §2.13, pp. 121–128; vol. I, p. 34; SAMU"}
+  - {item: 5, sinal: falta_ar_forte, texto: "Falta de ar forte (não consegue falar frases, lábios roxos)", fonte: "Vol. I, p. 35; vol. II, §2.6, pp. 73–74"}
+  - {item: 6, sinal: inchaco_boca_com_falta_ar, texto: "Inchaço de boca, língua, rosto ou garganta com falta de ar", fonte: "Vol. II, §2.1, pp. 26–28"}
+  - {item: 7, sinal: ingeriu_remedio_ou_produto, texto: "Engoliu remédio ou produto em quantidade, por engano ou de propósito", fonte: "SAMU; vol. II, §2.15, p. 136"}
+  - {item: 8, sinal: risco_suicidio_imediato, texto: "Tentativa de suicídio ou risco imediato (junto com o CVV 188)", fonte: "SAMU; vol. II, §2.23, pp. 229–231; Caderneta da Pessoa Idosa 2026, p. 117"}
+  - {item: 9, sinal: acidente_grave, texto: "Acidente grave, queimadura grave, afogamento, choque elétrico", fonte: "SAMU; vol. II, §2.17, p. 166"}
+  - {item: 10, sinal: sangramento_forte, texto: "Sangramento forte que não para, ou com pele fria, pulso fraco ou desmaio", fonte: "SAMU; Guia da Pessoa Idosa 2023, §3.6, pp. 117–118"}
+  - {item: 11, sinal: gestante_convulsao_ou_sangramento_intenso, texto: "Gestação: convulsão ou sangramento intenso", fonte: "Caderneta da Gestante 2026, §2.6, p. 28; SAMU"}
+  - {item: 12, sinal: idoso_desmaio_ou_engasgo, texto: "Idoso: desmaiou (mesmo que já tenha voltado) ou engasgado sem conseguir respirar", fonte: "Guia da Pessoa Idosa 2023, §3.6, pp. 113–114"}
+# Item 11 vale só se gestante; item 12 só se idoso (o script confere o público).
+
+# Antes do modelo: 5 sinais claros por expressão regular (seção 6 do plano).
+cinco_sinais_regex:
+  desmaiou: '\bdesmai(ou|ei|ando)\b'
+  parou_de_respirar: '\bpar(ou|ei) de respirar\b|\bn[aã]o (est[aá] |ta |tá )?respirando\b'
+  convulsao: '\b(t[aá]|est[aá]|esta) (tendo|com) (uma )?(convuls|crise convulsiva)|\bconvulsionando\b|\bconvuls[aã]o agora\b'
+  ficou_roxo: '\bficou roxo\b|\bficou roxa\b|\b(t[aá]|est[aá]) roxo\b|\b(t[aá]|est[aá]) roxa\b'
+  nao_acorda: '\bn[aã]o (consigo|consegue|conseguimos) acord(ar|[aá]-l[oa])\b|\bn[aã]o acorda\b'
+# Contexto que anula o regex: história do passado, ou "acorda mas..." (sonolento NÃO é "não acorda", causa 5).
+cinco_sinais_anula: 'anos atr[aá]s|ano passado|quando era|qdo era|era vivo|h[aá] anos|faz anos|j[aá] teve|d[aá] pra acordar|mas acorda|acorda e volta|n[aã]o acorda direito|quase desmai|n[aã]o desmai|sensa[cç][aã]o de desmai|agora voltou|j[aá] voltou|voltou a respirar|agora (t[aá]|est[aá]) respirando|mas voltou'
+# Os 5 sinais seguem o plano (seção 6). v2 só tira "não QUER acordar" (sonolento) e anula "quase desmaiei"/"não desmaiou"/"acorda mas volta a dormir".
+
+# ---------------------------------------------------------------------------------------------
+# Catálogo de sinais. desc = o que o extrator anota (com "não inclui" quando há confusão comum).
+# fala = jeitos comuns de a pessoa dizer (causa 6). pergunta = um único fato, sempre direta (sim = sinal presente).
+sinais:
+  # ----- lista do 192
+  nao_respira_ou_nao_acorda: {desc: "INCONSCIENTE AGORA: não respira, ou não acorda nem responde mesmo chamando/sacudindo. NÃO inclui: sonolento, molinho, caidinho, 'só quer dormir', 'acorda mas volta a dormir', 'não responde direito' (esses são sonolência)", pergunta: "Neste momento a pessoa está desacordada, sem responder nem quando chamam ou sacodem?"}
+  convulsao_agora: {desc: "convulsão/ataque ACONTECENDO AGORA, ou acabou de acontecer e a pessoa ainda não voltou ao normal. Convulsão que já passou e a pessoa voltou ao normal = convulsao_recente"}
+  sinais_avc: {desc: "de início súbito: fala enrolada ou não consegue falar, boca torta, perda de força ou dormência de UM lado do corpo", pergunta: "Está com fala enrolada, boca torta ou fraqueza de um lado do corpo?"}
+  dor_peito_com_sinal_grave: {desc: "(derivado pelo script)", derivado: true}
+  falta_ar_forte: {desc: "falta de ar FORTE: não consegue falar uma frase inteira, lábios ou dedos roxos, 'não entra ar', 'sufocando'. NÃO inclui 'muita falta de ar', 'cansaço', chiado sem esses sinais (isso é falta_de_ar), nem roxo/sem ar que JÁ PASSOU e agora respira (isso é episodio_roxo_passou)", pergunta: "Está com tanta falta de ar que não consegue falar uma frase inteira, ou com os lábios roxos?"}
+  inchaco_boca_com_falta_ar: {desc: "inchaço de boca, língua, rosto ou garganta JUNTO com falta de ar", pergunta: "Junto com o inchaço, está com falta de ar?"}
+  ingeriu_remedio_ou_produto: {desc: "engoliu REMÉDIO que não era dele ou acima da dose (vários comprimidos), ou PRODUTO TÓXICO (limpeza, veneno, raticida, querosene, soda, agrotóxico, planta tóxica), por engano ou de propósito. NÃO inclui objeto (moeda, pilha, brinquedo, osso, espinha) nem comida (isso é engoliu_objeto)"}
+  risco_suicidio_imediato: {desc: "tentativa de suicídio agora/recente, ou plano E intenção de se matar agora"}
+  acidente_grave: {desc: "acidente grave (atropelamento, batida de carro/moto com vítima, queda de altura), queimadura grande ou no rosto com falta de ar, afogamento, choque elétrico, arma de fogo/faca. NÃO inclui queda da própria altura, tombo de bicicleta, entorse, corte pequeno"}
+  sangramento_forte: {desc: "sangramento de ferimento/hemorragia visível que NÃO PARA mesmo apertando, ou qualquer sangramento com pele fria, pulso fraco ou desmaio. NÃO inclui sangue na urina, no cocô, no vômito, menstruação, nariz que já parou (esses têm sinais próprios)", pergunta: "O sangramento continua mesmo apertando o local por alguns minutos?"}
+  gestante_convulsao_ou_sangramento_intenso: {desc: "gestante com convulsão ou sangramento vaginal intenso (encharca absorvente, escorre)"}
+  idoso_desmaio_ou_engasgo: {desc: "pessoa idosa que DESMAIOU (perdeu os sentidos, mesmo que já tenha voltado) ou está engasgada sem conseguir respirar. NÃO inclui 'quase desmaiei', 'quase caí', tontura que passou", pergunta: "Ela(e) desmaiou ou perdeu os sentidos, mesmo que por pouco tempo?"}
+  # ----- gerais (adulto/idoso/gestante): primeira caixa dos fluxogramas do Caderno 28 vol. II (Fig. 8 p. 62; Fig. 38 p. 166) e vol. I p. 35
+  desmaio: {desc: "desmaiou ou perdeu os sentidos hoje (já voltou)", pergunta: "Chegou a desmaiar ou perder os sentidos?"}
+  confusao_ou_sonolencia: {desc: "confuso, desorientado, falando coisas sem sentido, muito sonolento ou difícil de acordar (mas acorda)", fala: "'meio grogue', 'não fala coisa com coisa', 'só quer dormir', 'aéreo'", pergunta: "Está confuso(a) ou muito sonolento(a), diferente do normal?"}
+  sinais_choque: {desc: "tontura forte ao levantar, quase desmaio, pele fria e pálida, suor frio com fraqueza", pergunta: "Sente tontura forte ao ficar em pé, ou está com a pele fria e pálida?"}
+  sangue_fezes_ou_vomito: {desc: "sangue no cocô, cocô preto (tipo borra de café/piche), ou vômito com sangue/borra de café", fala: "'cocô escuro', 'fezes pretas', 'vomitei sangue'", pergunta: "Notou cocô preto ou com sangue, ou vômito com sangue?"}
+  falta_de_ar: {desc: "falta de ar / dificuldade para respirar / cansaço para respirar (qualquer intensidade)", pergunta: "Está com falta de ar?"}
+  falta_ar_ao_deitar: {desc: "falta de ar que piora deitado, precisa dormir sentado/com travesseiros, ou acorda à noite sem ar", pergunta: "A falta de ar piora quando deita, ou acorda à noite sem ar?"}
+  intensidade: {desc: "intensidade da dor de 0 a 10 (campo intensidade_0_10)", pergunta: "De 0 a 10, quanto está a dor?", tipo: intensidade}
+  # ----- dor no peito / cabeça
+  suor_frio: {desc: "suor frio agora", pergunta: "Está com suor frio?"}
+  suor_frio_ou_cansaco: {desc: "junto com dor na barriga/estômago: suor frio, falta de ar ou cansaço forte de repente", pergunta: "Junto com essa dor, está com suor frio, falta de ar ou um cansaço forte que veio de repente?"}
+  dor_subita_fortissima: {desc: "dor que começou de repente, muito forte, a pior da vida", pergunta: "A dor começou de repente e muito forte, como a pior da vida?"}
+  rigidez_nuca: {desc: "pescoço/nuca dura, dói ou não consegue encostar o queixo no peito", fala: "'dói pra baixar a cabeça', 'pescoço duro'", pergunta: "O pescoço está duro ou dói para encostar o queixo no peito?"}
+  fotofobia: {desc: "a luz incomoda/machuca os olhos"}
+  cefaleia_mudou_padrao: {desc: "dor de cabeça diferente do habitual, piorando há semanas/meses, ou diária desde que começou", pergunta: "Essa dor de cabeça é diferente das que costuma ter, ou vem piorando há semanas?"}
+  cefaleia_nova_apos_50: {desc: "dor de cabeça que começou a aparecer depois dos 50 anos"}
+  # ----- barriga / diarreia
+  desidratacao: {desc: "não consegue beber/segurar líquidos, urina muito pouco ou escuro, boca muito seca", pergunta: "Está conseguindo beber líquidos sem vomitar?", pergunta_inverte: true}
+  vomitos_persistentes: {desc: "vomita TUDO o que come e bebe, ou vômitos que não param (muitas vezes seguidas). NÃO inclui 'está vomitando', 'vomitou 2 ou 3 vezes'"}
+  diarreia_intensa: {desc: "diarreia muito intensa (muitas vezes ao dia, líquida)"}
+  barriga_dura: {desc: "barriga dura/rígida, dói muito ao andar ou tossir"}
+  # ----- febre / infecção
+  febre: {desc: "febre agora (relatada ou medida), 'quente', 'queimando de febre'", pergunta: "Está com febre?"}
+  febre_alta: {desc: "febre alta (38,5 °C ou mais, ou 'febre alta')", pergunta: "Está com febre alta, de 38,5 ou mais?"}
+  febre_mais_5_dias: {desc: "febre todos os dias há mais de 5 dias"}
+  dor_lombar_com_febre: {desc: "dor nas costas/lombar (região dos rins) junto com febre ou calafrio", pergunta: "Junto com isso, tem febre ou dor nas costas, na altura dos rins?"}
+  sangue_na_urina: {desc: "sangue visível na urina"}
+  retencao_urinaria: {desc: "não consegue urinar (ou sai só um pouquinho) há horas, com a barriga embaixo do umbigo estufada, dura ou doendo", fala: "'não sai xixi', 'bexiga cheia e não sai', 'pé da barriga duro'", pergunta: "Está há horas sem conseguir urinar direito, com a parte de baixo da barriga estufada ou doendo?"}
+  urina_sangue_intenso: {desc: "muito sangue vivo ou coágulos na urina, ou não consegue urinar"}
+  disuria_grupo_risco: {desc: "a pessoa com ardor para urinar é homem, idosa, diabética, gestante ou criança (derivado do público/dos fatos)"}
+  inchaco_atras_orelha: {desc: "inchaço ou vermelhidão dolorosa atrás da orelha", pergunta: "Tem inchaço ou vermelhidão atrás da orelha?"}
+  secrecao_ouvido: {desc: "saindo pus, líquido ou sangue do ouvido", pergunta: "Está saindo pus, líquido ou sangue do ouvido?"}
+  nao_abre_boca_ou_engole_saliva: {desc: "não consegue abrir a boca ou engolir a própria saliva, baba, voz abafada", pergunta: "Consegue abrir a boca e engolir a saliva normalmente?", pergunta_inverte: true}
+  placas_pus_garganta_ou_ingua: {desc: "pontos/placas de pus na garganta, ou ínguas doloridas no pescoço", pergunta: "Tem pontos de pus na garganta ou ínguas doloridas no pescoço?"}
+  manchas_com_febre: {desc: "manchas vermelhas na pele junto com febre"}
+  sinal_alarme_dengue: {desc: "com febre/manchas: dor forte e contínua na barriga, vômitos que não param, sangramento de gengiva/nariz, muita sonolência ou tontura ao levantar", pergunta: "Tem dor forte e contínua na barriga, ou sangramento na gengiva ou no nariz?"}
+  diabetes_descompensado: {desc: "diabético com glicose muito alta (acima de 250, 'HI', não lê), sem insulina, ou respiração rápida e funda, muita sede e boca seca", pergunta: "Mediu a glicose? Está muito alta, ou está respirando rápido e fundo?"}
+  vomito_verde: {desc: "vômito verde (cor de bile) ou barriga estufada e dura junto com vômito", pergunta: "O vômito é verde, ou a barriga está estufada e dura?"}
+  dor_testiculo_subita: {desc: "dor no testículo/saco que começou de repente e forte, ou testículo mais alto, inchado ou com vômito junto", pergunta: "A dor começou de repente e forte, ou o testículo ficou mais alto ou inchado?"}
+  # ----- dor lombar
+  fraqueza_perna_ou_esfincter: {desc: "perna fraca ou dormente, perdeu o controle do xixi ou do cocô, dormência na região íntima", pergunta: "A perna ficou fraca ou dormente, ou perdeu o controle do xixi ou do cocô?"}
+  lombar_bandeira_vermelha: {desc: "dor nas costas com febre, perda de peso sem motivo, câncer prévio, trauma grande, dor que piora à noite", pergunta: "Tem febre, perdeu peso sem motivo ou já teve câncer?"}
+  # ----- alergia / pele
+  inchaco_boca_lingua: {desc: "inchaço de boca, lábios, língua, rosto ou garganta", pergunta: "Tem inchaço na boca, na língua ou no rosto?"}
+  tontura_apos_alergeno: {desc: "tontura forte, desmaio ou mal-estar intenso logo depois de picada, remédio ou comida que dá alergia"}
+  # ----- pressão
+  pressao_muito_alta: {desc: "pressão medida de 18 por 11 (180x110) ou mais", pergunta: "A pressão deu 18 por 11 ou mais?"}
+  pressao_alta_com_sintoma: {desc: "pressão alta medida junto com dor de cabeça forte, dor no peito, falta de ar ou alteração da visão", pergunta: "Junto com a pressão alta, tem dor de cabeça forte, dor no peito, falta de ar ou visão alterada?"}
+  # ----- convulsão
+  convulsao_recente: {desc: "teve convulsão (ataque, tremedeira com perda dos sentidos) que JÁ PASSOU, hoje ou nos últimos 3 dias", pergunta: "Teve convulsão (ataque) nesses últimos dias?"}
+  nao_voltou_ao_normal: {desc: "depois da convulsão, não voltou ao normal (confuso, sonolento há mais de 30 min)", pergunta: "Depois da crise, já voltou ao normal?", pergunta_inverte: true}
+  mais_de_uma_crise_hoje: {desc: "mais de uma convulsão no mesmo dia", pergunta: "Teve mais de uma crise hoje?"}
+  primeira_crise: {desc: "primeira convulsão da vida (não tem epilepsia)", pergunta: "É a primeira vez na vida que tem uma crise dessas?"}
+  # ----- glicose
+  glicose_baixa: {desc: "glicemia baixa medida (menor que 70) ou 'hipoglicemia'"}
+  glicose_alta: {desc: "glicemia alta medida (maior que 250) ou 'glicose alta'"}
+  sintoma_hipoglicemia: {desc: "com glicose baixa: tremor, suor, fraqueza, tontura, confusão, sonolência, fala enrolada, comportamento estranho, qualquer sintoma", pergunta: "Está sentindo alguma coisa agora, como tremor, suor, fraqueza ou confusão?"}
+  hiperglicemia_grave: {desc: "com glicose alta: vômitos, dor de barriga, respiração rápida/difícil, boca muito seca, sonolência ou confusão", pergunta: "Junto com a glicose alta, tem vômito, respiração rápida, sonolência ou confusão?"}
+  glicose_alta_persistente: {desc: "glicose acima de 400 há mais de 12 horas, ou não consegue tomar nem líquidos"}
+  # ----- intoxicação / mordida / queimadura / ferimento / objeto
+  produto_olho_ou_pele: {desc: "produto químico (cloro, soda, ácido, veneno) caiu no olho ou na pele, ou inalou fumaça/gás tóxico"}
+  ingestao_pequena_duvida: {desc: "engoliu pequena quantidade de remédio próprio a mais ou produto em gole mínimo, sem sintomas"}
+  animal_peconhento: {desc: "picada de cobra, escorpião, aranha ou lagarta (taturana)"}
+  queimadura_bolha: {desc: "queimadura que fez bolha, ou pele branca, escura ou sem sensibilidade", pergunta: "A queimadura fez bolha ou a pele ficou branca ou escura?"}
+  queimadura_local_especial: {desc: "queimadura no rosto, mãos, pés, região íntima ou em cima de dobras (joelho, cotovelo)", pergunta: "A queimadura pegou rosto, mãos, pés, região íntima ou alguma dobra (joelho, cotovelo)?"}
+  queimadura_eletrica_quimica: {desc: "queimadura por eletricidade, produto químico ou com fumaça inalada"}
+  queimadura_extensa: {desc: "queimadura grande (mais que a palma da mão várias vezes, braço/perna inteiros, tronco)"}
+  bateu_cabeca: {desc: "bateu a cabeça na queda/pancada", pergunta: "Bateu a cabeça?"}
+  sinal_apos_batida_cabeca: {desc: "depois de bater a cabeça: vomitou, ficou sonolento, confuso, desmaiou, convulsionou, dor de cabeça forte que piora", pergunta: "Depois da batida, vomitou, ficou sonolento ou confuso, ou desmaiou?"}
+  deformidade_ou_nao_mexe: {desc: "osso torto/deformado, osso aparecendo, ou não consegue mexer/apoiar o membro de jeito nenhum", pergunta: "O lugar ficou torto ou não consegue mexer nem apoiar de jeito nenhum?"}
+  ferimento_profundo_ou_sujo: {desc: "corte profundo/aberto, ou perfuração por objeto sujo ou enferrujado (prego, arame), ou ferimento com terra", pergunta: "O ferimento é fundo, ou foi com objeto sujo ou enferrujado?"}
+  engoliu_objeto: {desc: "engoliu objeto (moeda, pilha/bateria, ímã, brinquedo, osso, espinha)"}
+  objeto_perigoso: {desc: "o objeto engolido é pilha/bateria, ímã ou pontudo"}
+  baba_ou_nao_engole: {desc: "depois de engolir algo: baba, não consegue engolir, vomita, dor no peito ou na barriga", pergunta: "Está babando, sem conseguir engolir, ou vomitando?"}
+  # ----- inchaço
+  perna_inchada_um_lado: {desc: "uma perna só inchada, vermelha e dolorida"}
+  # ----- olho
+  olho_produto_ou_trauma: {desc: "produto químico no olho, pancada forte no olho ou algo que furou o olho", pergunta: "Caiu algum produto no olho, ou levou pancada ou furou o olho?"}
+  visao_piorou: {desc: "a visão piorou, ficou embaçada, escura ou dupla de repente, ou vê luzes/'moscas' novas", pergunta: "A visão piorou ou ficou embaçada desde que começou?"}
+  dor_olho_forte: {desc: "dor forte no olho (não só coceira/areia)", pergunta: "A dor no olho é forte?"}
+  cisco_que_nao_sai: {desc: "cisco/objeto no olho que não sai"}
+  # ----- dente
+  inchaco_face_febre_ou_engolir: {desc: "inchaço no rosto/pescoço por dente com febre, ou dificuldade de abrir a boca, engolir ou respirar", pergunta: "O rosto inchou e está com febre ou dificuldade para engolir?"}
+  inchaco_gengiva_pus: {desc: "inchaço na gengiva ou no rosto, ou pus no dente", pergunta: "Tem inchaço na gengiva ou no rosto, ou pus?"}
+  dente_arrancado_trauma: {desc: "dente permanente que saiu inteiro numa pancada"}
+  sangramento_boca_nao_para: {desc: "sangramento na boca (após extração ou espontâneo) que não para"}
+  # ----- sangramento genital
+  possivel_gravidez: {desc: "sangramento vaginal com atraso menstrual ou possibilidade de gravidez", pergunta: "Existe chance de gravidez, ou a menstruação estava atrasada?"}
+  sangramento_genital_intenso: {desc: "sangramento vaginal muito forte: encharca absorvente em 1 hora, coágulos grandes", pergunta: "Está encharcando um absorvente em uma hora ou menos?"}
+  # ----- tontura
+  tontura_sinal_neuro: {desc: "tontura de início súbito com visão dupla, não consegue andar/ficar em pé, ou dor de cabeça forte e nova", pergunta: "Junto com a tontura, tem visão dupla ou não consegue andar sem cair?"}
+  palpitacao_ou_dor_peito: {desc: "coração disparado, palpitação ou dor no peito"}
+  # ----- saúde mental / violência
+  risco_suicidio_medio: {desc: "pensa em se matar e tem plano, mas sem intenção de fazer agora"}
+  agitacao_ou_fora_realidade: {desc: "agitação intensa, agressividade, ameaça, vendo/ouvindo coisas, fora da realidade", pergunta: "Está muito agitado(a), agressivo(a) ou falando coisas fora da realidade?"}
+  ansiedade_intensa_agora: {desc: "crise de ansiedade/pânico intensa acontecendo agora"}
+  agressor_presente_ou_perigo: {desc: "quem agrediu está em casa/perto agora, ou a pessoa corre perigo agora", pergunta: "Quem agrediu está aí perto agora, ou você corre perigo neste momento?"}
+  violencia_sexual_recente: {desc: "violência sexual nos últimos 3 dias"}
+  # ----- idoso
+  queda: {desc: "pessoa idosa caiu hoje / recentemente"}
+  confusao_subita: {desc: "confusão mental ou mudança de comportamento de início súbito (horas/dias)", pergunta: "Ficou confusa(o) ou diferente de repente, nas últimas horas ou dias?"}
+  # ----- gestante e pós-parto
+  sangramento_vaginal: {desc: "gestante com sangramento pela vagina (qualquer quantidade)", pergunta: "Está com algum sangramento pela vagina?"}
+  perda_liquido: {desc: "gestante perdendo líquido (água) pela vagina", pergunta: "Está perdendo líquido (água) pela vagina?"}
+  cefaleia_com_visao: {desc: "gestante com dor de cabeça forte com visão embaralhada ou 'estrelinhas'", pergunta: "Junto com a dor de cabeça, está vendo pontinhos ou com a visão embaralhada?"}
+  pressao_alta_gestante: {desc: "gestante com pressão alta medida (14 por 9 ou mais)", pergunta: "Mediu a pressão? Está alta?"}
+  contracoes_fortes: {desc: "contrações fortes, dolorosas e frequentes", pergunta: "Está com contrações fortes e frequentes na barriga?"}
+  bebe_parou_mexer: {desc: "bebê na barriga parou de mexer ou está mexendo bem menos", pergunta: "O bebê parou de mexer ou está mexendo bem menos?"}
+  inchaco_intenso: {desc: "gestante com muito inchaço nos pés, pernas e rosto"}
+  ardor_urinar: {desc: "dor ou ardor ao urinar"}
+  febre_ou_manchas_gestante: {desc: "gestante com febre, dor no corpo, olhos vermelhos ou manchas vermelhas na pele"}
+  pos_parto_febre_ou_dor: {desc: "pós-parto com febre, dor forte na barriga, sangramento aumentando ou secreção com mau cheiro", pergunta: "Está com febre?"}
+  # ----- criança (2 meses a 12 anos) — AIDPI p. 6 e Caderneta da Criança p. 23
+  crianca_sonolenta: {desc: "criança muito sonolenta, molinha, caidinha, largadinha, difícil de acordar ou que acorda e volta a dormir, 'não reage', 'amuada' com moleza", fala: "'tá caidinho', 'dá pra acordar mas volta a dormir', 'só quer ficar deitado', 'molinho', 'largadinho', 'sem reação'", pergunta: "Está muito sonolento(a) ou molinho(a), difícil de manter acordado(a)?"}
+  crianca_nao_bebe: {desc: "criança não consegue mamar ou tomar líquidos, ou bebe muito mal", pergunta: "Está conseguindo mamar ou tomar líquidos?", pergunta_inverte: true}
+  crianca_vomita_tudo: {desc: "criança vomita TUDO o que come e bebe (nada para no estômago). NÃO inclui 'está vomitando', 'vomitou algumas vezes'", pergunta: "Vomita tudo o que come ou bebe?"}
+  crianca_tiragem_ou_estridor: {desc: "costelas ou barriga afundando ao respirar, ou ruído forte ao puxar o ar em repouso", pergunta: "A barriga ou as costelas afundam quando respira?"}
+  crianca_respiracao_rapida: {desc: "respiração rápida/ofegante, 'puxando o ar', chiado no peito", pergunta: "Está respirando rápido ou com chiado?"}
+  crianca_dificuldade_respirar: {desc: "criança com dificuldade para respirar (genérico; o script trata como respiração rápida)"}
+  crianca_manchas_roxas: {desc: "manchas avermelhadas ou arroxeadas na pele que não somem ao apertar, pontinhos roxos", pergunta: "Apareceram manchas roxas ou pontinhos vermelhos na pele?"}
+  crianca_pele_pouca_elasticidade: {desc: "pele com pouca elasticidade (beliscada demora para voltar)"}
+  crianca_olhos_fundos_sede: {desc: "olhos fundos, muita sede, irritada (desidratação)", pergunta: "Os olhos estão fundos ou está com muita sede?"}
+  sangue_fezes_crianca: {desc: "sangue no cocô da criança", pergunta: "Tem sangue no cocô?"}
+  diarreia_14_dias: {desc: "diarreia há 14 dias ou mais"}
+  # ----- bebê < 2 meses — Caderneta da Criança p. 23; AIDPI Neonatal
+  bebe_febre_ou_hipotermia: {desc: "bebê < 2 meses com febre (37,5 °C ou mais), 'quentinho', ou temperatura baixa (35,5 °C ou menos)", pergunta: "Está com febre (37,5 ou mais) ou muito frio ao toque?"}
+  bebe_ictericia_extensa: {desc: "bebê amarelo abaixo do umbigo, nas mãos ou nos pés", pergunta: "O amarelo passa do umbigo ou chega nas mãos e nos pés?"}
+  bebe_pus_ouvido_urina_escura_sangue_fezes: {desc: "bebê < 2 meses com pus no ouvido, urina escura ou fezes com sangue", pergunta: "O xixi está escuro ou tem sangue no cocô?"}
+  tosse_crise_roxo: {desc: "bebê/criança com crises de tosse seguidas que deixam roxo, sem ar, terminam em vômito ou num 'guincho' ao puxar o ar", fala: "'tosse que não para e fica roxinho', 'tosse até vomitar'", pergunta: "Nas crises de tosse ele(a) fica roxinho(a), perde o fôlego ou vomita no fim da crise?"}
+  episodio_roxo_passou: {desc: "bebê/criança que ficou roxo ou parou de respirar por alguns segundos e JÁ VOLTOU (agora respira)"}
+  mama_sinal_infeccao: {desc: "mama com área vermelha e quente, febre, calafrio ou pus", pergunta: "O peito está com alguma parte vermelha e quente, ou você está com febre?"}
+  bebe_pus_olho: {desc: "recém-nascido com pus/secreção amarelada no olho"}
+
+# ---------------------------------------------------------------------------------------------
+# Queixas (ids que o extrator usa). lista: "secao3" (Caderno 28 / público), "fora_aguda" (fora da lista, agudo: passa pelos
+# sinais gerais e, sem sinal, vira EQUIPE), "fora" (assunto não agudo: sinais gerais se ditos, senão FORA).
+queixas:
+  cefaleia: {lista: secao3, desc: "dor de cabeça"}
+  convulsao: {lista: secao3, desc: "convulsão/crise epiléptica que já passou, ou pessoa com epilepsia que teve crise"}
+  glicose: {lista: secao3, desc: "glicose (glicemia) alta ou baixa medida, hipoglicemia"}
+  diarreia_vomito: {lista: secao3, desc: "diarreia e/ou vômito, enjoo"}
+  falta_de_ar: {lista: secao3, desc: "falta de ar, chiado, crise de asma, cansaço para respirar"}
+  disuria: {lista: secao3, desc: "dor/ardor para urinar, sangue na urina, urinar muitas vezes"}
+  pele: {lista: secao3, dor_local: true, desc: "manchas, coceira, brotoeja, alergia de pele, picada de inseto comum, ferida de pele"}
+  dor_abdominal: {lista: secao3, desc: "dor de barriga, cólica (não de bebê < 2 meses: isso é colica_bebe)"}
+  dor_ouvido: {lista: secao3, dor_local: true, desc: "dor de ouvido, secreção no ouvido"}
+  dor_garganta: {lista: secao3, desc: "dor de garganta"}
+  dor_lombar: {lista: secao3, desc: "dor nas costas/lombar"}
+  dor_toracica: {lista: secao3, desc: "dor, aperto ou queimação no peito"}
+  pressao_alta: {lista: secao3, desc: "pressão alta medida"}
+  intoxicacao: {lista: secao3, desc: "engoliu remédio/produto/planta, contato com produto químico, inalou gás; picada de cobra/escorpião/aranha"}
+  mordida_animal: {lista: secao3, desc: "mordida, arranhão ou lambida de animal (cão, gato, morcego, macaco, rato)"}
+  queimadura: {lista: secao3, desc: "queimadura (fogo, água quente, óleo, ferro, sol forte, elétrica, química)"}
+  gripe_sinusite: {lista: secao3, desc: "gripe, resfriado, tosse, coriza, nariz entupido, sinusite"}
+  sangramento_genital: {lista: secao3, desc: "sangramento vaginal fora da menstruação, menstruação muito forte (não gestante)"}
+  tontura: {lista: secao3, desc: "tontura, vertigem, sensação de desmaio, desequilíbrio"}
+  urgencia_dente: {lista: secao3, dor_local: true, desc: "dor de dente, inchaço na gengiva, dente quebrado/arrancado, sangramento após extração"}
+  olho_vermelho: {lista: secao3, desc: "olho vermelho, dor no olho, cisco, produto no olho, visão embaçada de repente"}
+  saude_mental: {lista: secao3, desc: "ansiedade, tristeza, crise de pânico, pensamentos de morte, agitação, uso de álcool/drogas"}
+  alergia: {lista: secao3, desc: "reação alérgica a remédio, comida ou picada (inchaço, placas no corpo)"}
+  violencia: {lista: secao3, desc: "violência, agressão, maus-tratos, abuso, violência sexual"}
+  febre: {lista: secao3, desc: "febre sem outra queixa principal"}
+  # idoso
+  queda: {lista: secao3, desc: "pessoa caiu / queda (em qualquer idade; no idoso tem regra própria)"}
+  confusao: {lista: secao3, desc: "confusão mental, comportamento estranho/diferente"}
+  mama_amamentacao: {lista: secao3, sem_intensidade_geral: true, desc: "peito empedrado, dor ou rachadura no mamilo, dificuldade de amamentar (queixa da mãe)"}
+  # bebê
+  ictericia: {lista: secao3, desc: "bebê amarelo (icterícia)"}
+  problema_mamar: {lista: secao3, desc: "bebê com dificuldade para mamar"}
+  colica_bebe: {lista: fora_aguda, desc: "cólica / choro de bebê pequeno"}
+  # fora da lista, agudas (passam pelos sinais gerais; sem sinal -> EQUIPE)
+  trauma: {lista: fora_aguda, desc: "pancada, tombo (não idoso), entorse, torção, batida, acidente leve"}
+  ferimento: {lista: fora_aguda, dor_local: true, desc: "corte, ferida, perfuração (pisou em prego), arranhão não de animal"}
+  engoliu_objeto: {lista: fora_aguda, desc: "engoliu moeda, pilha, ímã, brinquedo, osso, espinha"}
+  inchaco_pernas: {lista: fora_aguda, desc: "pernas/pés inchados, inchaço no corpo"}
+  mal_estar: {lista: fora_aguda, vaga: true, desc: "mensagem vaga: 'fraco', 'passando mal', 'mal-estar', 'estranho', 'amuado', 'não está bem', 'indisposto' sem outra queixa clara"}
+  dor_testiculo: {lista: fora_aguda, desc: "dor no testículo, no saco ou na virilha do homem"}
+  outra_aguda: {lista: fora_aguda, dor_local: true, desc: "outro sintoma agudo que não cabe acima (palpitação, sangramento de nariz, dor no braço, soluço etc.)"}
+  # fora da lista, não agudo
+  fora_da_lista: {lista: fora, desc: "assunto não agudo fora do acolhimento (cabelo, ronco, varizes, dor crônica de juntas, unhas, visão embaçada há tempos, escape de urina, memória, acompanhamento de doença crônica)"}
+
+# Sinais gerais por público (camada 1): valem para TODA queixa do público; para queixa fora da lista são a única checagem.
+# Sinais do 192 nesta camada só se detectam (nunca se perguntam).
+sinais_gerais:
+  adulto:   # Caderno 28 vol. I p. 35 (atendimento imediato) e 1ª caixa dos fluxogramas do vol. II (Fig. 8 p. 62; Fig. 38 p. 166)
+    - {sinal: intensidade, faixas: {"8": PS, "5": HOJE}, fonte: "CAB28v1 p. 35 (dor severa = imediato); CAB28v2 Fig. 8 p. 62 (dor moderada = prioritário; A1)"}
+    - {sinal: desmaio, saida: PS, fonte: "CAB28v1 p. 35 e CAB28v2 Fig. 8 p. 62 (alteração do nível de consciência: imediato)"}
+    - {sinal: sangue_fezes_ou_vomito, saida: PS, fonte: "CAB28v2 Fig. 8, p. 62 (hematêmese, melena: imediato)"}
+    - {sinal: confusao_ou_sonolencia, saida: PS, fonte: "CAB28v2 Fig. 8, p. 62 (alteração do nível de consciência)"}
+    - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 Fig. 8, p. 62 (sinais de choque)"}
+    - {sinal: falta_ar_ao_deitar, saida: PS, fonte: "CAB28v2 §2.6, p. 73 (edema agudo de pulmão/insuficiência cardíaca: remoção para hospital)"}
+    - {sinal: falta_de_ar, saida: HOJE, fonte: "CAB28v1 p. 35 (dispneia leve/moderada = prioritário; A1)"}
+  idoso:    # além dos do adulto
+    - {sinal: confusao_subita, saida: PS, fonte: "Guia da Pessoa Idosa 2023, p. 102 (delirium: pronto atendimento)"}
+    - {sinal: queda, saida: PS, fonte: "Guia da Pessoa Idosa 2023, §3.6, p. 117"}
+  gestante: # além dos do adulto: os sinais de alerta da Caderneta (bloco gestante._todas)
+    []
+  crianca:  # 2 meses a 12 anos: sinais gerais de perigo (AIDPI p. 6; Caderneta da Criança p. 23)
+    - {sinal: crianca_sonolenta, saida: PS, fonte: "AIDPI Quadros 2017, p. 6 (letárgica); Caderneta da Criança, p. 23"}
+    - {sinal: crianca_nao_bebe, saida: PS, fonte: "AIDPI Quadros 2017, p. 6; Caderneta da Criança, p. 23"}
+    - {sinal: crianca_vomita_tudo, saida: PS, fonte: "AIDPI Quadros 2017, p. 6; Caderneta da Criança, p. 23"}
+    - {sinal: convulsao_recente, saida: PS, fonte: "AIDPI Quadros 2017, p. 6 (convulsões há menos de 72 h)"}
+    - {sinal: crianca_tiragem_ou_estridor, saida: PS, fonte: "AIDPI Quadros 2017, p. 7; Caderneta da Criança, p. 23"}
+    - {sinal: crianca_manchas_roxas, saida: PS, fonte: "Caderneta da Criança, p. 23; AIDPI p. 13 (petéquias)"}
+    - {sinal: crianca_pele_pouca_elasticidade, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: crianca_respiracao_rapida, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 7 (respiração rápida = pneumonia; retorno em 2 dias); exemplo 5.3"}
+    - {sinal: episodio_roxo_passou, saida: PS, fonte: "Caderneta da Criança, p. 23 (lábios roxos); AIDPI p. 6 (sinal geral de perigo)", provisoria_lado_seguro: true}
+  bebe:     # menos de 2 meses: Caderneta da Criança p. 23 (lista "menores de 2 meses"); AIDPI Neonatal
+    - {sinal: bebe_febre_ou_hipotermia, saida: PS, fonte: "Caderneta da Criança, p. 23; exemplo 5.4"}
+    - {sinal: crianca_nao_bebe, saida: PS, fonte: "Caderneta da Criança, p. 23 (não consegue mamar)"}
+    - {sinal: crianca_sonolenta, saida: PS, fonte: "Caderneta da Criança, p. 23 (molinha, sonolenta, difícil de acordar)"}
+    - {sinal: crianca_respiracao_rapida, saida: PS, fonte: "Caderneta da Criança, p. 23 (cansaço, respiração muito rápida)"}
+    - {sinal: crianca_tiragem_ou_estridor, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: convulsao_recente, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: crianca_manchas_roxas, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: crianca_pele_pouca_elasticidade, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: bebe_pus_ouvido_urina_escura_sangue_fezes, saida: PS, fonte: "Caderneta da Criança, p. 23"}
+    - {sinal: episodio_roxo_passou, saida: PS, fonte: "Caderneta da Criança, p. 23 (lábios roxos, cansaço); AIDPI Neonatal 2014 (apneia/cianose: doença grave)", provisoria_lado_seguro: true}
+
+# Ordem dos sinais gerais por queixa fora da lista (o que é mais ligado à queixa vem antes; empate de gravidade).
+# Sem ordem aqui, vale a ordem da lista do público. (Ordem tirada das perguntas de cada quadro do AIDPI / caixa do Caderno 28.)
+ordem_gerais_por_queixa:
+  mal_estar: [sinais_choque, confusao_ou_sonolencia, desmaio, sangue_fezes_ou_vomito, falta_de_ar, crianca_sonolenta, crianca_nao_bebe, bebe_febre_ou_hipotermia, crianca_vomita_tudo]
+  inchaco_pernas: [falta_ar_ao_deitar, falta_de_ar]
+  colica_bebe: [bebe_febre_ou_hipotermia, crianca_nao_bebe, crianca_sonolenta, bebe_pus_ouvido_urina_escura_sangue_fezes]
+  diarreia_vomito: [crianca_sonolenta, crianca_nao_bebe, bebe_pus_ouvido_urina_escura_sangue_fezes, crianca_vomita_tudo, bebe_febre_ou_hipotermia]   # AIDPI p. 10: letárgica, bebe, prega
+  gripe_sinusite: [crianca_tiragem_ou_estridor, crianca_respiracao_rapida, crianca_nao_bebe, crianca_sonolenta]   # AIDPI p. 7
+  falta_de_ar: [crianca_tiragem_ou_estridor, crianca_respiracao_rapida, crianca_nao_bebe, crianca_sonolenta]
+  febre: [crianca_sonolenta, crianca_manchas_roxas, crianca_nao_bebe, crianca_vomita_tudo, convulsao_recente]   # AIDPI p. 12–13
+  trauma: [crianca_sonolenta, crianca_vomita_tudo, convulsao_recente]
+  problema_mamar: [crianca_nao_bebe, crianca_sonolenta, bebe_febre_ou_hipotermia]
+
+# Padrões gerais da fonte: quando os fatos combinam, a pergunta indicada entra na camada 0 (vem antes dos gerais).
+padroes:
+  - nome: suspeita_meningite
+    gatilho_qualquer: [[fotofobia], [febre, rigidez_nuca], [cefaleia, febre], [diarreia_vomito, fotofobia], [cefaleia, diarreia_vomito, febre]]
+    regras:
+      - {sinal: rigidez_nuca, saida: PS, fonte: "CAB28v2 §2.2, p. 31 (infecção do SNC: vômitos, fotofobia) e p. 32 (meningite: serviço de urgência imediatamente); AIDPI p. 13 (rigidez de nuca)"}
+      - {sinal: crianca_manchas_roxas, saida: PS, fonte: "AIDPI p. 13 (petéquias: doença febril muito grave)", so_publico: [crianca, bebe]}
+      - {sinal: confusao_ou_sonolencia, saida: PS, fonte: "CAB28v2 §2.2, p. 32 (meningite)", so_publico: [adulto, idoso, gestante]}
+
+  # Rodada 4: condição de base (cond_*, anotada pelo extrator ou pela 1ª pergunta) liga perguntas próprias.
+  - nome: diabetes_com_queixa_aguda
+    gatilho_qualquer: [[cond_diabetes, diarreia_vomito], [cond_diabetes, dor_abdominal], [cond_diabetes, mal_estar], [cond_diabetes, febre], [cond_diabetes, falta_de_ar]]
+    regras:
+      - {sinal: diabetes_descompensado, saida: PS, fonte: "CAB28v2 §2.4, p. 53 (procurar emergência: vômitos, dor abdominal, respiração difícil, alteração mental)"}
+      - {sinal: suor_frio_ou_cansaco, saida: PS, fonte: "CAB28v2 §2.13, Quadro 45, p. 122 (diabético: dor atípica pode ser isquemia)", provisoria_lado_seguro: true}
+  - nome: anticoagulante_com_queda_ou_sangue
+    gatilho_qualquer: [[cond_anticoagulante, trauma], [cond_anticoagulante, queda], [cond_anticoagulante, cefaleia], [cond_anticoagulante, mal_estar], [cond_anticoagulante, ferimento]]
+    regras:
+      - {sinal: bateu_cabeca, saida: PS, fonte: "Guia da Pessoa Idosa 2023, §3.6, p. 117 (queda com batida na cabeça em uso de anticoagulante: avaliação imediata)"}
+      - {sinal: sangue_fezes_ou_vomito, saida: PS, fonte: "CAB28v2 Fig. 8, p. 62 (hematêmese/melena: imediato)"}
+  - nome: dengue_em_curso
+    gatilho_qualquer: [[cond_dengue]]
+    regras:
+      - {sinal: sinal_alarme_dengue, saida: PS, fonte: "Dengue 2024, Quadro 1, p. 13 (sinais de alarme)"}
+  - nome: coracao_com_falta_de_ar_ou_inchaco
+    gatilho_qualquer: [[cond_coracao, falta_de_ar], [cond_coracao, inchaco_pernas], [cond_coracao, tontura], [cond_coracao, mal_estar]]
+    regras:
+      - {sinal: falta_ar_ao_deitar, saida: PS, fonte: "CAB28v2 §2.6, p. 73 (insuficiência cardíaca descompensada)"}
+      - {sinal: palpitacao_ou_dor_peito, saida: PS, fonte: "CAB28v2 §2.20, p. 189 (causas cardíacas)", provisoria_lado_seguro: true}
+  - nome: imunidade_baixa_com_febre
+    gatilho_qualquer: [[cond_imunidade_baixa, febre], [cond_imunidade_baixa, febre_alta]]
+    regras:
+      - {sinal: febre, saida: PS, fonte: "Sem fonte direta no pacote (febre em quimioterapia/transplante)", provisoria_lado_seguro: true}
+  - nome: trauma_na_barriga
+    gatilho_qualquer: [[trauma, dor_abdominal]]
+    regras:
+      - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 §2.9, Quadro 32, p. 96 (sinais de choque); SAMU (trauma)", provisoria_lado_seguro: true}
+
+# ---------------------------------------------------------------------------------------------
+# Regras por público -> queixa. Cada linha: sinal (ou todos:[...]), saída, fonte, provisoria_lado_seguro.
+regras:
+  adulto:   # adulto e adolescente (CAB28 vol. II); idoso e gestante herdam
+    cefaleia:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.2, Fig. 4, p. 39 (sem sinal de alerta: manejo na UBS)"}
+      sinais:
+        - {sinal: sinais_avc, saida: "192", fonte: "Lista 192 item 3"}
+        - {sinal: dor_subita_fortissima, saida: PS, fonte: "CAB28v2 §2.2, Quadro 1, p. 32 (início abrupto de forte intensidade)"}
+        - {sinal: rigidez_nuca, saida: PS, fonte: "CAB28v2 §2.2, Quadro 1 e texto, p. 32 (meningite: urgência imediatamente)"}
+        - {sinal: cefaleia_mudou_padrao, saida: HOJE, fonte: "CAB28v2 §2.2, Quadro 1, p. 32 (mudança de padrão)"}
+        - {sinal: cefaleia_nova_apos_50, saida: HOJE, fonte: "CAB28v2 §2.2, Quadro 1, p. 32"}
+    convulsao:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v2 §2.3, pp. 47–49 (crise que passou: avaliação; neurologista se persistir)", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: convulsao_agora, saida: "192", fonte: "Lista 192 item 2"}
+        - {sinal: nao_voltou_ao_normal, saida: PS, fonte: "CAB28v2 §2.3, p. 48 (não retorna à função normal: pronto-socorro)"}
+        - {sinal: febre, saida: PS, fonte: "CAB28v2 §2.3, p. 48 (crise com febre: meningite até prova em contrário)"}
+        - {sinal: mais_de_uma_crise_hoje, saida: PS, fonte: "CAB28v2 §2.3, pp. 48–49 (mais de uma crise no dia)"}
+        - {sinal: primeira_crise, saida: PS, fonte: "CAB28v2 §2.3, p. 48 (sem epilepsia; Quadro 13)", provisoria_lado_seguro: true}
+    glicose:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.4, pp. 52–53 (regras de prevenção e quando procurar a unidade)"}
+      sinais:
+        - {todos: [glicose_baixa, sintoma_hipoglicemia], saida: PS, fonte: "CAB28v2 §2.4, p. 51 (hipoglicemia moderada/grave: serviço de urgência); decisão do dono 31/10: hipoglicemia com sintomas = PS"}
+        - {sinal: glicose_baixa, saida: HOJE, fonte: "CAB28v2 §2.4, p. 51 (hipoglicemia leve: corrigir e reavaliar o manejo)", provisoria_lado_seguro: true}
+        - {todos: [glicose_alta, hiperglicemia_grave], saida: PS, fonte: "CAB28v2 §2.4, p. 53 (procurar unidade de emergência: vômitos, dor abdominal, respiração difícil, alteração mental)"}
+        - {sinal: glicose_alta_persistente, saida: HOJE, fonte: "CAB28v2 §2.4, p. 53 (procurar a unidade: > 400 por 12 h, não consegue ingerir líquidos)"}
+    diarreia_vomito:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (sem sinais: reidratação oral e orientações gerais)"}
+      sinais:
+        - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (sinais de choque: imediato)"}
+        - {sinal: sangue_fezes_ou_vomito, saida: PS, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (hematêmese, melena: imediato)"}
+        - {sinal: desidratacao, saida: HOJE, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (sinais de desidratação)"}
+        - {sinal: vomitos_persistentes, saida: HOJE, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (vômitos persistentes)"}
+        - {sinal: diarreia_intensa, saida: HOJE, fonte: "CAB28v2 §2.5, Fig. 8, p. 62 (diarreia intensa)"}
+    falta_de_ar:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v1 p. 35 (crise asmática leve/moderada = prioritário); CAB28v2 §2.6"}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: inchaco_boca_com_falta_ar, saida: "192", fonte: "Lista 192 item 6"}
+        - {sinal: falta_ar_ao_deitar, saida: PS, fonte: "CAB28v2 §2.6, p. 73 (suspeita de edema agudo de pulmão: remoção ao hospital)"}
+    disuria:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v1 p. 35 (disúria = atendimento no dia; decisão do dono: sem sinal = CONVERSA); CAB28v2 §2.7, pp. 75–76"}
+      sinais:
+        - {sinal: retencao_urinaria, saida: PS, fonte: "CAB28v2 §2.7, p. 75 (retenção urinária); Guia da Pessoa Idosa 2023 (homem idoso: próstata)", provisoria_lado_seguro: true}
+        - {sinal: urina_sangue_intenso, saida: PS, fonte: "CAB28v2 §2.7, p. 75 (hematúria; retenção)", provisoria_lado_seguro: true}
+        - {sinal: dor_lombar_com_febre, saida: HOJE, fonte: "CAB28v2 §2.7, p. 79 (pielonefrite: exige investigação)"}
+        - {sinal: disuria_grupo_risco, saida: HOJE, fonte: "CAB28v2 §2.7, p. 77 (homens, idosos, diabéticos, gestantes: exames complementares)"}
+        - {sinal: febre, saida: HOJE, fonte: "CAB28v2 §2.7, p. 76 (febre é rara na cistite; sugere infecção alta)"}
+    pele:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.8, pp. 80–91"}
+      sinais:
+        - {sinal: inchaco_boca_com_falta_ar, saida: "192", fonte: "Lista 192 item 6"}
+        - {sinal: inchaco_boca_lingua, saida: PS, fonte: "CAB28v2 §2.1, pp. 26–28 (anafilaxia/angioedema)"}
+        - {sinal: sinal_alarme_dengue, saida: PS, fonte: "Dengue 2024, Quadro 1, p. 13", so_se: manchas_com_febre}
+        - {sinal: manchas_com_febre, saida: HOJE, fonte: "Dengue 2024, p. 13 (caso suspeito)"}
+    dor_abdominal:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.9, p. 98 (sem sinais de alarme: medidas gerais)"}
+      sinais:
+        - {sinal: suor_frio_ou_cansaco, saida: PS, fonte: "CAB28v2 §2.13, Quadro 45, p. 122 (dor epigástrica pode ser isquemia; sudorese, dispneia); §2.9, Quadro 32, p. 96", provisoria_lado_seguro: true}
+        - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 §2.9, Quadro 32, p. 96"}
+        - {sinal: dor_subita_fortissima, saida: PS, fonte: "CAB28v2 §2.9, Quadro 32, p. 96 (início súbito e intenso)"}
+        - {sinal: barriga_dura, saida: PS, fonte: "CAB28v2 §2.9, Quadro 32, p. 96 (abdome tenso ou rígido)"}
+        - {sinal: sangue_fezes_ou_vomito, saida: PS, fonte: "CAB28v2 §2.5, Fig. 8, p. 62"}
+        - {sinal: intensidade, faixas: {"8": PS, "5": HOJE}, fonte: "CAB28v1 p. 35 (dor severa = imediato); Fig. 8 vol. II p. 62 (dor moderada)"}
+    dor_ouvido:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.10, pp. 102–109"}
+      sinais:
+        - {sinal: inchaco_atras_orelha, saida: PS, fonte: "AIDPI Quadros 2017, p. 15 (mastoidite: referir urgentemente); CAB28v2 §2.10"}
+        - {sinal: febre_alta, saida: HOJE, fonte: "CAB28v2 §2.10, p. 104", provisoria_lado_seguro: true}
+        - {sinal: secrecao_ouvido, saida: HOJE, fonte: "CAB28v2 §2.10, Quadro 37, p. 104 (otorreia); AIDPI p. 15"}
+    dor_garganta:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.11, pp. 110–115"}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: nao_abre_boca_ou_engole_saliva, saida: PS, fonte: "CAB28v2 §2.11, pp. 113–114 (abscesso: trismo, voz abafada); AIDPI p. 17 (abaulamento de palato)"}
+        - {sinal: placas_pus_garganta_ou_ingua, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 17 (infecção moderada: antibiótico, retorno 2 dias); CAB28v2 §2.11"}
+        - {sinal: febre_alta, saida: HOJE, fonte: "CAB28v2 §2.11", provisoria_lado_seguro: true}
+    dor_lombar:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.12, pp. 116–120; exemplo 5.1"}
+      sinais:
+        - {sinal: fraqueza_perna_ou_esfincter, saida: PS, fonte: "CAB28v2 §2.12, Quadro 42, p. 117 (itens 10–12)"}
+        - {sinal: lombar_bandeira_vermelha, saida: HOJE, fonte: "CAB28v2 §2.12, Quadro 42, p. 117 (itens 2–6)"}
+        - {sinal: dor_lombar_com_febre, saida: HOJE, fonte: "CAB28v2 §2.7, p. 79 (pielonefrite)"}
+        - {sinal: intensidade, faixas: {"8": HOJE}, fonte: "Exemplo 5.1 do plano (dor 8 a 10)", provisoria_lado_seguro: true}
+    dor_toracica:
+      sem_sinal: {saida: PS, fonte: "Lista 192 item 4 (sem os sinais: pronto-socorro); CAB28v2 §2.13, Quadro 45, p. 122"}
+      sinais:
+        - {sinal: falta_de_ar, saida: "192", fonte: "Lista 192 item 4"}
+        - {sinal: suor_frio, saida: "192", fonte: "Lista 192 item 4"}
+        - {sinal: desmaio, saida: "192", fonte: "Lista 192 item 4"}
+    pressao_alta:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.14, pp. 128–129 (pressão elevada sem sintoma e sem crise: manter a medicação e reavaliar na UBS)"}
+      sinais:
+        - {sinal: sinais_avc, saida: "192", fonte: "Lista 192 item 3"}
+        - {sinal: pressao_alta_com_sintoma, saida: PS, fonte: "CAB28v2 §2.14, p. 129 (lesão aguda de órgão-alvo)"}
+        - {sinal: pressao_muito_alta, saida: HOJE, fonte: "CAB28v2 §2.14, p. 129 (urgência hipertensiva: controle em até 24 h); exemplo 12.5", provisoria_lado_seguro: true}
+    intoxicacao:
+      sem_sinal: {saida: EQUIPE, fonte: "CAB28v2 §2.15, p. 143 (casos leves não precisam de hospital; CIATox orienta)", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: ingeriu_remedio_ou_produto, saida: "192", fonte: "Lista 192 item 7"}
+        - {sinal: animal_peconhento, saida: PS, fonte: "CAB28v2 §2.15, p. 148 (peçonhentos: soroterapia em unidade de referência)"}
+        - {sinal: produto_olho_ou_pele, saida: PS, fonte: "CAB28v2 §2.15, pp. 139 e 143 (lavar e encaminhar); §2.22 p. 215 (química no olho: urgente)"}
+        - {sinal: confusao_ou_sonolencia, saida: PS, fonte: "CAB28v2 §2.15, Fig. 36, p. 136"}
+    mordida_animal:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v2 §2.16, pp. 153–155 (profilaxia da raiva o mais cedo possível; Quadro p. 154)"}
+      sinais:
+        - {sinal: sangramento_forte, saida: "192", fonte: "Lista 192 item 10"}
+    queimadura:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.17, Fig. 38, p. 166 (sem sinal de gravidade: avaliação de enfermagem e orientação)"}
+      sinais:
+        - {sinal: acidente_grave, saida: "192", fonte: "Lista 192 item 9"}
+        - {sinal: queimadura_extensa, saida: PS, fonte: "CAB28v2 §2.17, pp. 159–160 (extensão: remoção imediata)"}
+        - {sinal: queimadura_eletrica_quimica, saida: PS, fonte: "CAB28v2 §2.17, p. 160 (elétrica, química, inalação)"}
+        - {sinal: queimadura_local_especial, saida: PS, fonte: "CAB28v2 §2.17, p. 160 (face, mãos, pés, genitália, articulações)"}
+        - {sinal: queimadura_bolha, saida: PS, fonte: "CAB28v2 §2.17, p. 160 (espessura parcial: sempre ao pronto atendimento)"}
+    gripe_sinusite:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.18, p. 175"}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: falta_de_ar, saida: PS, fonte: "CAB28v2 §2.18, p. 175 (FR > 30: hospital)"}
+        - {sinal: confusao_ou_sonolencia, saida: PS, fonte: "CAB28v2 §2.18, p. 175"}
+        - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 §2.18, p. 175 (PA baixa)"}
+    sangramento_genital:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.19, p. 180 (leve/moderado sem instabilidade: investigação ambulatorial)"}
+      sinais:
+        - {sinal: sangramento_forte, saida: "192", fonte: "Lista 192 item 10"}
+        - {sinal: sinais_choque, saida: PS, fonte: "CAB28v2 §2.19, p. 182 (instabilidade hemodinâmica: pronto-socorro)"}
+        - {sinal: possivel_gravidez, saida: PS, fonte: "CAB28v2 §2.19, p. 180 (complicações da gravidez: principais urgências obstétricas)", provisoria_lado_seguro: true}
+        - {sinal: sangramento_genital_intenso, saida: PS, fonte: "CAB28v2 §2.19, pp. 180–182", provisoria_lado_seguro: true}
+    tontura:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.20, pp. 184–189"}
+      sinais:
+        - {sinal: sinais_avc, saida: "192", fonte: "Lista 192 item 3"}
+        - {sinal: tontura_sinal_neuro, saida: PS, fonte: "CAB28v2 §2.20, p. 189 (início súbito com sintomas neurológicos: pronto-socorro)"}
+        - {sinal: desmaio, saida: PS, fonte: "CAB28v2 §2.20, p. 189 (síncope); CAB28v1 p. 35"}
+        - {sinal: palpitacao_ou_dor_peito, saida: PS, fonte: "CAB28v2 §2.20, p. 189 (causas cardíacas)", provisoria_lado_seguro: true}
+    urgencia_dente:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.21, p. 206 (consulta agendada na UBS)"}
+      sinais:
+        - {sinal: inchaco_face_febre_ou_engolir, saida: PS, fonte: "CAB28v2 §2.21, p. 191 (obstrução de vias aéreas, septicemia)"}
+        - {sinal: dente_arrancado_trauma, saida: PS, fonte: "CAB28v2 §2.21, p. 197 (reimplante imediato)"}
+        - {sinal: sangramento_boca_nao_para, saida: PS, fonte: "CAB28v2 §2.21, pp. 198–199 (urgência hemorrágica)", provisoria_lado_seguro: true}
+        - {sinal: inchaco_gengiva_pus, saida: HOJE, fonte: "CAB28v2 §2.21, pp. 191 e 194 (abscesso: conduta prioritária)"}
+    olho_vermelho:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.22, p. 211 (conjuntivite)"}
+      sinais:
+        - {sinal: visao_piorou, saida: PS, fonte: "CAB28v2 §2.22, pp. 210 e 215 (ameaças à visão; baixa súbita da acuidade)"}
+        - {sinal: dor_olho_forte, saida: PS, fonte: "CAB28v2 §2.22, p. 210 (glaucoma agudo, ceratite)"}
+        - {sinal: olho_produto_ou_trauma, saida: PS, fonte: "CAB28v2 §2.22, pp. 215–216 (química: urgente; trauma)"}
+        - {sinal: cisco_que_nao_sai, saida: HOJE, fonte: "CAB28v2 §2.22, p. 215 (corpo estranho: oftalmologia)"}
+    saude_mental:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.23, pp. 216–217 (acolhimento)"}
+      sinais:
+        - {sinal: agitacao_ou_fora_realidade, saida: PS, fonte: "CAB28v2 §2.23, pp. 226–228 (agitação, sinais de agressão)", provisoria_lado_seguro: true}
+        - {sinal: risco_suicidio_medio, saida: HOJE, fonte: "CAB28v2 §2.23, p. 231 (médio risco: priorizar saúde mental) + CVV 188"}
+        - {sinal: ansiedade_intensa_agora, saida: HOJE, fonte: "CAB28v1 p. 35 (ansiedade significativa = prioritário)"}
+    alergia:
+      sem_sinal: {saida: CONVERSA, fonte: "CAB28v2 §2.1, pp. 25–28; §2.8"}
+      sinais:
+        - {sinal: inchaco_boca_com_falta_ar, saida: "192", fonte: "Lista 192 item 6"}
+        - {sinal: inchaco_boca_lingua, saida: PS, fonte: "CAB28v2 §2.1, p. 26 (anafilaxia: tratamento imediato)"}
+        - {sinal: tontura_apos_alergeno, saida: PS, fonte: "CAB28v2 §2.1, p. 26"}
+        - {sinal: falta_de_ar, saida: PS, fonte: "CAB28v2 §2.1, p. 26 (com sinais de alergia)"}
+    violencia:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v2 §2.25, p. 239 (vítima de violência: atendimento prioritário)"}
+      sinais:
+        - {sinal: acidente_grave, saida: "192", fonte: "Lista 192 item 9"}
+        - {sinal: sangramento_forte, saida: "192", fonte: "Lista 192 item 10"}
+        - {sinal: agressor_presente_ou_perigo, saida: PS, ligar_190: true, fonte: "CAB28v2 §2.25, p. 242 (checar risco à vida, garantir local seguro); decisão do dono 31/10: 190 + PS"}
+        - {sinal: violencia_sexual_recente, saida: PS, fonte: "CAB28v2 §2.25, pp. 240–241 (violência sexual: profilaxias)", provisoria_lado_seguro: true}
+    febre:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v1 p. 35 (febre sem complicação = prioritário)"}
+      sinais:
+        - {sinal: rigidez_nuca, saida: PS, fonte: "CAB28v2 §2.2, p. 32 (meningite)"}
+        - {sinal: falta_de_ar, saida: PS, fonte: "CAB28v2 §2.18, p. 175"}
+        - {sinal: confusao_ou_sonolencia, saida: PS, fonte: "CAB28v2 §2.18, p. 175"}
+        - {sinal: sinal_alarme_dengue, saida: PS, fonte: "Dengue 2024, Quadro 1, p. 13"}
+    # --- fora da lista, agudas (sem sinal -> EQUIPE). Linhas provisórias, lado seguro.
+    dor_testiculo:
+      sem_sinal: {saida: EQUIPE, fonte: "Plano seção 3: fora da lista; agudo -> caso para a equipe", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: dor_testiculo_subita, saida: PS, fonte: "Sem fonte direta no pacote (torção de testículo: cirurgia em horas)", provisoria_lado_seguro: true}
+    trauma:
+      sem_sinal: {saida: EQUIPE, fonte: "Plano seção 3: fora da lista; agudo -> caso para a equipe", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: acidente_grave, saida: "192", fonte: "Lista 192 item 9"}
+        - {sinal: sangramento_forte, saida: "192", fonte: "Lista 192 item 10"}
+        - {todos: [bateu_cabeca, sinal_apos_batida_cabeca], saida: PS, fonte: "Guia da Pessoa Idosa 2023, p. 117 (queda com batida na cabeça: urgência); CAB28v2 Fig. 8 p. 62 (alteração do nível de consciência)", provisoria_lado_seguro: true}
+        - {sinal: deformidade_ou_nao_mexe, saida: PS, fonte: "SAMU (trauma com vítima: não é 192 se leve); Guia da Pessoa Idosa 2023, p. 117", provisoria_lado_seguro: true}
+        - {sinal: intensidade, faixas: {"8": PS}, fonte: "CAB28v1 p. 35 (dor severa = imediato)"}
+    ferimento:
+      sem_sinal: {saida: EQUIPE, fonte: "Plano seção 3: fora da lista; agudo -> caso para a equipe", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: sangramento_forte, saida: "192", fonte: "Lista 192 item 10"}
+        - {sinal: ferimento_profundo_ou_sujo, saida: HOJE, fonte: "CAB28v2 §2.17 p. 160 e §2.16 p. 155 (limpeza do ferimento e verificação da vacina antitetânica)", provisoria_lado_seguro: true}
+    engoliu_objeto:
+      sem_sinal: {saida: EQUIPE, fonte: "Plano seção 3: fora da lista; agudo -> caso para a equipe", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: ingeriu_remedio_ou_produto, saida: "192", fonte: "Lista 192 item 7"}
+        - {sinal: baba_ou_nao_engole, saida: PS, fonte: "CAB28v2 §2.11, p. 113 (não engole a saliva: urgência)", provisoria_lado_seguro: true}
+        - {sinal: objeto_perigoso, saida: PS, fonte: "Sem fonte direta no pacote (pilha/ímã)", provisoria_lado_seguro: true}
+        - {sinal: falta_de_ar, saida: PS, fonte: "CAB28v1 p. 35 (dificuldade respiratória)", provisoria_lado_seguro: true}
+    inchaco_pernas:
+      sem_sinal: {saida: EQUIPE, fonte: "Plano seção 3: fora da lista; agudo -> caso para a equipe", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: falta_ar_ao_deitar, saida: PS, fonte: "CAB28v2 §2.6, p. 73 (edema de membros + dispneia: insuficiência cardíaca/EAP)"}
+        - {sinal: falta_de_ar, saida: PS, fonte: "CAB28v2 §2.6, p. 73", provisoria_lado_seguro: true}
+        - {sinal: perna_inchada_um_lado, saida: PS, fonte: "Sem fonte direta no pacote (trombose)", provisoria_lado_seguro: true}
+
+  idoso:   # herda o adulto + estas (Guia 2023 / Caderneta 2026)
+    _todas:
+      sinais:
+        - {sinal: idoso_desmaio_ou_engasgo, saida: "192", fonte: "Lista 192 item 12; Guia da Pessoa Idosa 2023, §3.6, pp. 113–114"}
+        - {sinal: queda, saida: PS, fonte: "Guia da Pessoa Idosa 2023, §3.6, p. 117"}
+        - {sinal: confusao_subita, saida: PS, fonte: "Guia da Pessoa Idosa 2023, p. 102 (delirium: pronto atendimento)"}
+    dor_abdominal:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v2 §2.9, Quadro 32, p. 96 (idade > 60 = alto risco)", provisoria_lado_seguro: true}
+    tontura:
+      sinais:
+        - {sinal: idoso_desmaio_ou_engasgo, saida: "192", fonte: "Lista 192 item 12"}
+    queda:
+      sem_sinal: {saida: PS, fonte: "Guia da Pessoa Idosa 2023, §3.6, p. 117"}
+      sinais:
+        - {sinal: nao_respira_ou_nao_acorda, saida: "192", fonte: "Lista 192 item 1; Guia 2023 p. 117 (inconsciente: socorro imediato)"}
+        - {sinal: idoso_desmaio_ou_engasgo, saida: "192", fonte: "Lista 192 item 12"}
+    confusao:
+      sem_sinal: {saida: PS, fonte: "Guia da Pessoa Idosa 2023, p. 102 (delirium); exemplo 5.2"}
+      sinais:
+        - {sinal: sinais_avc, saida: "192", fonte: "Lista 192 item 3"}
+        - {sinal: idoso_desmaio_ou_engasgo, saida: "192", fonte: "Lista 192 item 12"}
+    mal_estar:
+      sinais:
+        - {sinal: sinais_avc, saida: "192", fonte: "Lista 192 item 3 (fraqueza súbita: Guia 2023 p. 116)"}
+
+  gestante:   # gestante e pós-parto: herda o adulto + sinais de alerta (Caderneta / ACCR)
+    _todas:
+      sinais:
+        - {sinal: gestante_convulsao_ou_sangramento_intenso, saida: "192", fonte: "Lista 192 item 11"}
+        - {sinal: sangramento_vaginal, saida: PS, fonte: "Caderneta da Gestante 2022, p. 12; ACCR fluxograma 8", perguntar_em: [sangramento_genital, dor_abdominal, mal_estar, outra_aguda]}
+        - {sinal: perda_liquido, saida: PS, fonte: "Caderneta da Gestante 2022, p. 12; ACCR fluxograma 7", perguntar_em: [dor_abdominal, sangramento_genital]}
+        - {sinal: contracoes_fortes, saida: PS, fonte: "Caderneta da Gestante 2022, p. 12; ACCR fluxograma 2", perguntar_em: [dor_abdominal, dor_lombar]}
+        - {sinal: bebe_parou_mexer, saida: PS, fonte: "ACCR Obstetrícia, fluxograma 10, p. 47", perguntar_em: [dor_abdominal, mal_estar, outra_aguda, trauma]}
+        - {sinal: cefaleia_com_visao, saida: PS, fonte: "Caderneta da Gestante 2022, p. 12; exemplo 5.5", perguntar_em: [cefaleia, pressao_alta, inchaco_pernas]}
+        - {sinal: pressao_alta_gestante, saida: PS, fonte: "Caderneta da Gestante 2022, p. 12; plano seção 4", perguntar_em: [cefaleia, inchaco_pernas]}
+        - {sinal: inchaco_intenso, saida: HOJE, fonte: "Caderneta da Gestante 2022, p. 12", provisoria_lado_seguro: true}
+        - {sinal: ardor_urinar, saida: HOJE, fonte: "Caderneta da Gestante 2022, p. 12"}
+        - {sinal: febre_ou_manchas_gestante, saida: HOJE, fonte: "Caderneta da Gestante 2022, p. 12"}
+        - {sinal: pos_parto_febre_ou_dor, saida: PS, fonte: "Exemplo 5.5 do plano", provisoria_lado_seguro: true, so_pos_parto: true, perguntar_em: [febre, dor_abdominal, mal_estar]}
+    dor_abdominal:
+      sem_sinal: {saida: HOJE, fonte: "CAB28v1 p. 35 (gestante com dor abdominal = prioritário)"}
+    disuria:
+      sem_sinal: {saida: HOJE, fonte: "Caderneta da Gestante 2022, p. 12; CAB28v2 §2.7, p. 77"}
+    mama_amamentacao:
+      sem_sinal: {saida: CONVERSA, fonte: "Caderneta da Gestante 2022 (amamentação: peito empedrado — esvaziar a mama, pega correta)"}
+      sinais:
+        - {sinal: mama_sinal_infeccao, saida: HOJE, fonte: "Caderneta da Gestante 2022 (mama vermelha e quente com febre: procurar a unidade — mastite)", provisoria_lado_seguro: true}
+
+  crianca:   # 2 meses a menos de 5 anos (AIDPI). Os sinais gerais (sinais_gerais.crianca) entram em toda queixa.
+    gripe_sinusite:   # tosse ou dificuldade para respirar
+      sem_sinal: {saida: CONVERSA, fonte: "AIDPI Quadros 2017, p. 7 (não é pneumonia: medidas caseiras); exemplo 5.3"}
+      sinais:
+        - {sinal: crianca_tiragem_ou_estridor, saida: PS, fonte: "AIDPI Quadros 2017, p. 7 (tiragem, estridor: referir urgentemente)"}
+        - {sinal: tosse_crise_roxo, saida: PS, fonte: "Caderneta da Criança, p. 23 (lábios roxos); CAB28v2 §2.18 (coqueluche no lactente: crises com cianose/apneia)", provisoria_lado_seguro: true}
+        - {sinal: crianca_respiracao_rapida, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 7 (pneumonia: retorno em 2 dias); exemplo 5.3"}
+    falta_de_ar:
+      sem_sinal: {saida: HOJE, fonte: "AIDPI Quadros 2017, p. 7 (dificuldade para respirar)", provisoria_lado_seguro: true}
+      sinais:
+        - {sinal: falta_ar_forte, saida: "192", fonte: "Lista 192 item 5"}
+        - {sinal: crianca_tiragem_ou_estridor, saida: PS, fonte: "AIDPI Quadros 2017, p. 7"}
+    diarreia_vomito:
+      sem_sinal: {saida: CONVERSA, fonte: "AIDPI Quadros 2017, p. 11 (sem desidratação: plano A em casa)"}
+      sinais:
+        - {sinal: vomito_verde, saida: PS, fonte: "Sem fonte direta no pacote (vômito bilioso: obstrução)", provisoria_lado_seguro: true}
+        - {sinal: crianca_olhos_fundos_sede, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 11 (desidratação: SRO na unidade, plano B)"}
+        - {sinal: sangue_fezes_crianca, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 11 (disenteria: retorno em 2 dias)"}
+        - {sinal: diarreia_14_dias, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 11 (diarreia persistente)"}
+    febre:
+      sem_sinal: {saida: CONVERSA, fonte: "AIDPI Quadros 2017, p. 13 (doença febril sem sinal: antitérmico, retorno se persistir); exemplo 5.3"}
+      sinais:
+        - {sinal: rigidez_nuca, saida: PS, fonte: "AIDPI Quadros 2017, p. 13 (doença febril muito grave)"}
+        - {sinal: febre_mais_5_dias, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 13 (febre todos os dias > 5 dias: investigação)"}
+    dor_ouvido:
+      sem_sinal: {saida: CONVERSA, fonte: "AIDPI Quadros 2017, p. 15 (possível infecção: analgésico, retorno em 2 dias); exemplo 5.6"}
+      sinais:
+        - {sinal: inchaco_atras_orelha, saida: PS, fonte: "AIDPI Quadros 2017, p. 15 (mastoidite)"}
+        - {sinal: secrecao_ouvido, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 15 (infecção aguda do ouvido)"}
+    dor_garganta:
+      sem_sinal: {saida: CONVERSA, fonte: "AIDPI Quadros 2017, p. 17 (não há infecção / leve)"}
+      sinais:
+        - {sinal: nao_abre_boca_ou_engole_saliva, saida: PS, fonte: "AIDPI Quadros 2017, p. 17 (abaulamento de palato: infecção grave)"}
+        - {sinal: placas_pus_garganta_ou_ingua, saida: HOJE, fonte: "AIDPI Quadros 2017, p. 17 (infecção moderada)"}
+  # Queixas da criança tiradas do Caderno 28 (o vol. II também trata de criança nessas seções); valem para 2 meses a 12 anos.
+  crianca_usa_adulto: [dor_testiculo, intoxicacao, queimadura, mordida_animal, convulsao, alergia, violencia, trauma, ferimento, engoliu_objeto]
+  # 5 a 12 anos: plano 5.6 = só as seções do Caderno 28 que tratam de criança; o resto passa pelos sinais gerais e vira FORA.
+  crianca_5_12:
+    adulto: [dor_testiculo, dor_ouvido, dor_garganta, intoxicacao, queimadura, mordida_animal, trauma, ferimento, engoliu_objeto, convulsao, alergia, violencia]
+    crianca: [febre, gripe_sinusite, diarreia_vomito, falta_de_ar]   # AIDPI aplicado acima de 5 anos (provisório, lado seguro); Caderno 28 §2.5/§2.6 trata adulto
+
+  bebe:   # menos de 2 meses. Os sinais gerais (sinais_gerais.bebe) entram em toda queixa. Sem bloco próprio -> EQUIPE.
+    ictericia:
+      sem_sinal: {saida: EQUIPE, fonte: "AIDPI Neonatal 2014 (icterícia: reavaliar em 2 dias); exemplo 5.4"}
+      sinais:
+        - {sinal: bebe_ictericia_extensa, saida: PS, fonte: "AIDPI Neonatal 2014 (abaixo do umbigo, palmas e plantas); exemplo 5.4"}
+    diarreia_vomito:
+      sem_sinal: {saida: EQUIPE, fonte: "AIDPI Neonatal 2014 (diarreia no menor de 2 meses: reavaliação)", provisoria_lado_seguro: true}
+      sinais:   # desidratação/sangue/urina escura/mamada: sinais gerais do bebê (Caderneta p. 23)
+        - {sinal: vomito_verde, saida: PS, fonte: "AIDPI Neonatal 2014 (vômito bilioso/distensão abdominal: doença grave)", provisoria_lado_seguro: true}
+    problema_mamar:
+      sem_sinal: {saida: EQUIPE, fonte: "AIDPI Neonatal 2014 (problema de alimentação: orientar e reavaliar)"}
+    olho_vermelho:
+      sem_sinal: {saida: EQUIPE, fonte: "CAB28v2 §2.22, p. 214"}
+      sinais:
+        - {sinal: bebe_pus_olho, saida: PS, fonte: "CAB28v2 §2.22, p. 214 (oftalmia neonatal: tratar imediatamente)"}
+    gripe_sinusite:
+      sem_sinal: {saida: EQUIPE, fonte: "Decisão 31/10 (padrão): bebê < 2 meses com queixa leve sem sinal -> equipe"}
+      sinais:
+        - {sinal: tosse_crise_roxo, saida: PS, fonte: "Caderneta da Criança, p. 23 (lábios roxos, cansaço); CAB28v2 §2.18 (coqueluche no lactente)", provisoria_lado_seguro: true}
+  bebe_usa_adulto: [intoxicacao, queimadura, engoliu_objeto, trauma, violencia]
+
+# Intenções sem queixa
+intencoes:
+  duvida_simples: {saida: CONVERSA, fonte: "Plano seção 1/6: dúvidas simples ficam iguais"}
+  qual_profissional: {saida: CONVERSA, fonte: "Plano seção 1: diz qual profissional e onde marcar, se a queixa é da lista e aguda"}
+  qual_profissional_fora: {saida: FORA, fonte: "Plano seção 3 (média complexidade: indica o especialista se perguntarem) e decisão (g): FORA com a indicação do profissional"}
+  exame_ou_burocracia: {saida: FORA, fonte: "Plano seção 3: exames, tratamento, remédio, agendamento fora da lista; G1"}
+  fora_de_triagem: {saida: FORA, fonte: "Plano seção 3 e decisão (g) G1"}
+  pede_remedio_sem_queixa: {saida: FORA, fonte: "Plano seção 3: remédio fora da lista; G1"}
+risco_suicidio_nao_imediato: {saida: EQUIPE, fonte: "CAB28v2 §2.23, pp. 229–231 (baixo risco: vínculo e avaliação breve) + CVV 188", provisoria_lado_seguro: true}
+duvida_persistente: {saida: EQUIPE, fonte: "Plano seção 2, passo 4: sem clareza após repergunta -> equipe, sem 192"}
+fora_sem_bloco:
+  adulto_lista_sem_bloco_para_idade: {saida: FORA, fonte: "Exemplo 5.6 do plano: assunto sem fonte para a idade -> FORA depois dos sinais"}
+  fora_aguda: {saida: EQUIPE, fonte: "Pedido do dono 31/10: fora da lista passa pelos sinais gerais; agudo sem sinal -> equipe"}
+  fora: {saida: FORA, fonte: "Plano seção 3 e decisão (g) G1"}
+  bebe: {saida: EQUIPE, fonte: "Exemplo 5.4 do plano: bebê com menos de 2 meses fora dos sinais -> equipe"}
+
+# Rodada 4: condições de base que o extrator anota (lista 'condicoes'); 'nenhuma' se a pessoa disse que não tem.
+condicoes:
+  diabetes: "diabetes (açúcar no sangue), usa insulina ou remédio para diabetes"
+  anticoagulante: "usa remédio que afina o sangue (varfarina/Marevan, rivaroxabana/Xarelto, apixabana, clopidogrel, AAS diário)"
+  dengue: "está com dengue (confirmada ou suspeita) nesta doença atual"
+  coracao: "doença do coração (insuficiência cardíaca, infarto anterior, arritmia, marcapasso)"
+  imunidade_baixa: "quimioterapia, transplante, corticoide em dose alta, HIV sem tratamento"
+  rim: "doença renal crônica, hemodiálise"
+  pulmao: "asma, DPOC, enfisema"
+  pressao_alta: "hipertensão em tratamento"
+  outra: "outra doença crônica ou remédio contínuo"
+  nenhuma: "disse que não tem doença nem usa remédio contínuo"
