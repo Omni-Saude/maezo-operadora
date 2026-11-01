@@ -150,6 +150,7 @@ class PostgresIntakeRecoveryStore:
         try:
             async with transaction(self.admission.engine, self.admission.seconds) as connection:
                 row = (
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: _CANDIDATES (constante) + literal
                     (await connection.execute(text(_CANDIDATES + " AND i.command_id=:command"), params))
                     .mappings()
                     .one_or_none()
@@ -211,6 +212,7 @@ class PostgresIntakeRecoveryStore:
                 rows = (
                     (
                         await connection.execute(
+                            # nosemgrep: avoid-sqlalchemy-text # fonte: _CANDIDATES + boundary literal
                             text(
                                 _CANDIDATES
                                 + " AND i.created_at<=:upper"

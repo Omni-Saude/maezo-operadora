@@ -39,8 +39,8 @@ o tratamento e o comportamento seguro — NAO e adverso ao beneficiario).
 
 INVARIANTE (C) — NO-ADVERSE CLINICO (ADR-0018, L0 hard clinical_decision): o DESLIGAMENTO CLINICO do
 programa (register_program_discharge — alta por motivo clinico, decisao clinica = L0-hard "qualquer
-decisao clinica") SO nasce na User Task humana UT_DecisaoClinica (grupos coordenacao-clinica/
-equipe-cuidado), com decisao_programa=DESLIGAR_CLINICO setado por humano. NENHUMA DMN deste processo
+decisao clinica") SO nasce na User Task humana UT_DecisaoClinica (grupo unico
+coordenacao-clinica, #1084), com decisao_programa=DESLIGAR_CLINICO setado por humano. NENHUMA DMN deste processo
 tem saida de desligamento/alta/negativa de cuidado: programa_routing apenas ESTRATIFICA/sugere
 elegibilidade (informativo); catch-all -&gt; ANALISE_HUMANA (conservador -&gt; clinico humano). Caso clinico
 ambiguo, risco alto, criterio de alta aparente, DMN indisponivel e estouro de SLA todos fail-safe para
@@ -178,7 +178,7 @@ consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegi
         <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
         <bpmn:outgoing>Flow_Dossie_UT</bpmn:outgoing>
       </bpmn:serviceTask>
-      <bpmn:userTask id="UT_DecisaoClinica" name="Decisao clinica do programa (coordenacao-clinica / equipe-cuidado)" camunda:candidateGroups="coordenacao-clinica,equipe-cuidado">
+      <bpmn:userTask id="UT_DecisaoClinica" name="Decisao clinica do programa (coordenacao-clinica)" camunda:candidateGroups="coordenacao-clinica">
         <bpmn:documentation>
 HITL L0 hard (clinical_decision, ADR-0005/0008): UNICO ponto onde o desligamento clinico do programa
 pode nascer. Saidas: decisao_programa in {ENROLL, MANTER_ACOMPANHAMENTO, DESLIGAR_CLINICO, SOLICITAR_INFO}.
@@ -199,7 +199,7 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
           <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
         </bpmn:timerEventDefinition>
       </bpmn:boundaryEvent>
-      <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-clinica / equipe-cuidado)" camunda:type="external" camunda:topic="operadora.programa.notify_sla_risk">
+      <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-clinica)" camunda:type="external" camunda:topic="operadora.programa.notify_sla_risk">
         <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
         <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
       </bpmn:serviceTask>

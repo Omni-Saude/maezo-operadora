@@ -16,7 +16,7 @@ time, rather than being noticed months later by another audit.
 strings, one per declared `escalation.triggers` entry it exercises BEHAVIORALLY (not merely
 mentions in its description): `"dmn:<decision_key>=<value>"` for a `- dmn: <key>=<value>` YAML
 entry, `"signal:<name>"` for a `- signal: <name>` entry (`"intent:<name>"` for helena's own
-`- intent: <name>` entries, not used by this fence's 6 enforced agents). A case may tag zero,
+`- intent: <name>` entries). A case may tag zero,
 one, or several triggers (e.g. EVL-VALENTINA-04 tags BOTH `dmn:programa_routing=ANALISE_HUMANA`
 and `signal:ambiguity` -- the two agent.yaml lines are, honestly, the SAME `assess()` branch:
 `elegivel not in ("ELEGIVEL", "NAO_ELEGIVEL")`). Absent entirely on a case (every pre-GOLDENS-
@@ -24,17 +24,35 @@ MISSING golden that this WP did not itself author or retroactively tag) means "p
 declared trigger by itself" -- a CE/PL/GC case pinning the neutral/happy path, or a bespoke
 FHIR-leak/audit-fence proof, is not thereby uncovered-trigger evidence.
 
-SCOPE (deliberate, disclosed -- read before adding an agent to either set below). This fence
-enforces the 6 agents GOLDENS-MISSING actually closed (`_AGENTS_ENFORCED`): every declared
-trigger of andre/beatriz/fernando/gustavo/marina/valentina was traced by hand, this session,
-through the REAL `graph.py` branch that fires it (module docstrings + `assess()`/`receive()`
-reading, not grep), and either already had a golden or was given one
-(`tests/evals/golden/<agent>/EVL-*-{07..13}.json`, see each new case's own `description`). The
-other 4 fleet agents (carolina/helena/lucas/rafael) are NOT enforced -- `_AGENTS_NOT_YET_ENFORCED`
-names each with why, per this file's own non-negotiable: no bare, unjustified exclusion.
-Extending enforcement to them requires the SAME manual trigger-to-branch trace this WP performed
-for its own 6; doing that honestly for 4 more agents is out of a single WP's scope and is future
-work, not silently declared "already covered".
+SCOPE -- THE WHOLE FLEET (R-043/F-184, owner decision 2026-10-31 in #1084: "estender o
+enforcement aos 4 agentes"). GOLDENS-MISSING (2026-09-05) enforced 6 agents (andre/beatriz/
+fernando/gustavo/marina/valentina) and parked carolina/helena/lucas/rafael in an allowlist,
+each with a written reason. R-043 performed the same manual trigger-to-branch trace for those 4
+(module docstrings + `assess()`/`receive()`/`classify()` reading, not grep) and closed the
+allowlist: every agent directory under `tests/evals/golden/` is now enforced, and the allowlist
+no longer exists -- a NEW agent directory that is not enforced fails
+`test_every_golden_agent_is_enforced` instead of being parked again by omission.
+
+What the 4-agent trace found (each one is in the golden's own `description` or in the PR body):
+
+* carolina -- 8/8 already had a behavioral golden (EVL-CAROLINA-02/03/05/06/07/08, the
+  CAROLINA-CATCHALL branch the old allowlist was waiting for has merged); only the `triggers`
+  tags were missing.
+* rafael -- `dmn: auth_admissibility=PENDENTE_DOCUMENTACAO` had NO golden at all: EVL-RAFAEL-07
+  is new (rule-faithful `__rules__` fixture, so only the input the graph really sends matches
+  r4). `signal: ambiguity` has no code path of its own: in `RafaelGraph.assess` it IS the
+  `auth_auto_approval` catch-all (`r99` -> ANALISE_HUMANA when the facts are not verified), so
+  EVL-RAFAEL-02 (the rule-faithful catch-all case) tags both lines, as EVL-VALENTINA-04 does.
+* lucas -- `signal: negociacao` had NO golden (the Rodada-12 `pedido_negociacao` branch):
+  EVL-LUCAS-08 is new and also carries `dmn: lucas_escalation_routing=ATENDIMENTO_HUMANO`
+  (asserting `roteamento_escalacao`, which EVL-LUCAS-07 does not -- its group coincides with the
+  fail-safe group, so it could not prove the DMN outcome).
+* helena -- `intent: scheduling` was a DECLARED TRIGGER THAT NO LONGER ESCALATES: DL-0052
+  (01/10/2026) made scheduling an out-of-channel fixed reply with no SP-OP-ESCALATION-001 start,
+  and the line's own comment already said "NAO escala mais". Tagging EVL-HELENA-08 (which proves
+  the ABSENCE of escalation) would have been a false green, so the stale line was removed from
+  `escalation.triggers` in `spec/agents/helena/agent.yaml` (the fix lives in the agent spec, not
+  in this fence). The other 5 helena triggers were mapped to the graph branch and tagged.
 """
 
 from __future__ import annotations
@@ -45,48 +63,21 @@ from maezo.agents import AgentLoader
 
 from .conftest import GOLDEN_ROOT, load_golden
 
-#: The 6 agents whose full `escalation.triggers` list this WP traced end-to-end against the real
-#: graph code. Every entry here MUST have zero uncovered triggers (`test_every_declared_trigger_
-#: has_a_golden` is parametrized over exactly this tuple).
-_AGENTS_ENFORCED: tuple[str, ...] = ("andre", "beatriz", "fernando", "gustavo", "marina", "valentina")
-
-#: Every OTHER agent under `tests/evals/golden/`, each with why it is not (yet) enforced above --
-#: never a bare/silent exclusion (this file's own `test_not_yet_enforced_agents_are_all_justified`
-#: fails collection if an agent directory exists in neither set, or if a reason here is blank).
-_AGENTS_NOT_YET_ENFORCED: dict[str, str] = {
-    "carolina": (
-        "5 of carolina's 8 declared triggers (cred_admissibility=ANALISE_HUMANA, "
-        "cred_route=ANALISE_CREDENCIAMENTO, cred_route=ANALISE_HUMANA, indicio_irregularidade, "
-        "ambiguity) are closed by the UNMERGED sibling branch fleet2/carolina-catchall "
-        "(EVL-CAROLINA-06/07/08 -- confirmed present on that branch by `git show "
-        "fleet2/carolina-catchall:tests/evals/golden/carolina/EVL-CAROLINA-0{6,7,8}.json` during "
-        "this WP's propagation-map step) but NOT YET in this branch's own tree. CAROLINA-CATCHALL "
-        "owns carolina's goldens (CAR-05); GOLDENS-MISSING does not touch them. Move carolina "
-        "into _AGENTS_ENFORCED once that branch merges and its 3 new goldens carry `triggers` "
-        "tags (they do not yet, as of this WP -- tagging them is that merge's own follow-up, not "
-        "retroactively done here against a branch this worktree does not contain)."
-    ),
-    "helena": (
-        "Believed fully covered -- this WP's author manually mapped all 6 declared triggers "
-        "(triage_redflag_*, clinical_question, human_request, scheduling, tool_failure, "
-        "psychosocial_risk) to an existing EVL-HELENA-{01,03,04,05,07,08,09} golden by reading "
-        "each case's description (round-5 triage separately marked the GOLDEN-MISSING-SCENARIO "
-        "finding for helena, HEL-10, CLOSED) -- but that mapping was NOT re-derived branch-by-"
-        "branch against graph.py the way the 6 GOLDENS-MISSING agents were in this WP, and no "
-        "`triggers` tags were retroactively added to helena's 17 goldens (out of this WP's "
-        "6-id scope: AND-06/BEA-11/FER-06/GUS-04/RAF-14/VAL-06). Tagging them is future work."
-    ),
-    "lucas": (
-        "Not independently re-derived in this WP (out of the AND-06/BEA-11/FER-06/GUS-04/"
-        "RAF-14/VAL-06 scope) -- lucas's own agent.yaml-vs-golden trigger audit, and tagging its "
-        "7 existing goldens, is future work for whichever WP owns lucas's findings."
-    ),
-    "rafael": (
-        "Not independently re-derived in this WP (out of scope, as above) -- rafael's own "
-        "agent.yaml-vs-golden trigger audit, and tagging its 6 existing goldens, is future work "
-        "for whichever WP owns rafael's findings."
-    ),
-}
+#: EVERY agent with a golden directory. Every entry here MUST have zero uncovered triggers
+#: (`test_every_declared_trigger_has_a_golden` is parametrized over exactly this tuple), and
+#: `test_every_golden_agent_is_enforced` fails if a golden directory is missing from it.
+_AGENTS_ENFORCED: tuple[str, ...] = (
+    "andre",
+    "beatriz",
+    "carolina",
+    "fernando",
+    "gustavo",
+    "helena",
+    "lucas",
+    "marina",
+    "rafael",
+    "valentina",
+)
 
 
 def _canonical_triggers(agent_id: str) -> list[str]:
@@ -143,20 +134,15 @@ def test_every_declared_trigger_has_a_golden(agent_id: str) -> None:
 
 
 @pytest.mark.eval
-def test_not_yet_enforced_agents_are_all_justified() -> None:
-    """Every agent directory under `tests/evals/golden/` is EITHER enforced above OR named in
-    `_AGENTS_NOT_YET_ENFORCED` with a non-blank reason -- an agent silently missing from both
-    would defeat this fence's own completeness (a 5th, 6th, ... agent added to the fleet later
-    must be triaged into one set or the other, not fall through by omission)."""
+def test_every_golden_agent_is_enforced() -> None:
+    """Every agent directory under `tests/evals/golden/` is enforced above -- there is no
+    allowlist any more (R-043/F-184). A 11th agent added to the fleet later is RED here until
+    its declared triggers are traced and tagged, never parked by omission."""
     all_agents = {p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir()}
-    accounted = set(_AGENTS_ENFORCED) | set(_AGENTS_NOT_YET_ENFORCED)
-    assert all_agents == accounted, (
-        f"agent(s) under tests/evals/golden/ neither enforced nor allowlisted: "
-        f"{sorted(all_agents - accounted)!r}; allowlist entrie(s) with no matching directory: "
-        f"{sorted(accounted - all_agents)!r}"
+    assert all_agents == set(_AGENTS_ENFORCED), (
+        f"golden agent(s) not enforced: {sorted(all_agents - set(_AGENTS_ENFORCED))!r}; "
+        f"enforced entrie(s) with no golden directory: {sorted(set(_AGENTS_ENFORCED) - all_agents)!r}"
     )
-    blank = [agent for agent, reason in _AGENTS_NOT_YET_ENFORCED.items() if not reason.strip()]
-    assert not blank, f"allowlist entry with a blank/empty justification: {blank!r}"
 
 
 @pytest.mark.eval

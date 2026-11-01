@@ -27,5 +27,8 @@
     "123.456.789-09",
     "beneficiario.teste@exemplo.com.br",
     "98765-4321"
+  ],
+  "triggers": [
+    "intent:human_request"
   ]
 }

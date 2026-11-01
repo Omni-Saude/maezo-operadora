@@ -288,8 +288,8 @@ diretamente e ecoa no dossie; nenhum gateway ou worker downstream consome esta s
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos | `UT_AnaliseRescisao` (**rescisao/negativa/suspensao SO aqui**) — `decisao_cancelamento ∈ {RESCINDIR, MANTER, SUSPENDER, EFETIVAR_PEDIDO, SOLICITAR_INFO}` |
-| `gestao-contratos` | Gestao de contratos | `UT_AnaliseRescisao` (co-candidate group para casos de pedido/efetivacao clerical revisada) |
-| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana); v0.2.0: tambem `UT_CoordenacaoExecucaoCadastro` (prazo da execucao estourado) |
+| `gestao-contratos` | Gestao de contratos | nenhuma User Task desde R-041 / #1084 (saiu de `UT_AnaliseRescisao`, decisor unico `juridico-contratos`); segue como `grupo_sugerido` advisory da `cancel_routing` e registrado no engine. O pedido do titular admissivel vai direto a `UT_ExecutarCancelamentoCadastro` |
+| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana; Q1 R-041 / #1084: RESCINDIR/SUSPENDER so por `juridico-contratos` — guarda a entregar); v0.2.0: tambem `UT_CoordenacaoExecucaoCadastro` (prazo da execucao estourado) |
 | `cadastro-beneficiarios` | Cadastro de beneficiarios (NOVO, v0.2.0, so' dev — pessoas reais ficam para a operacao) | `UT_ExecutarCancelamentoCadastro` — executa no Tasy o cancelamento a pedido ja' reconhecido e conclui `EXECUTADO`/`IMPEDIDO`; nunca decide rescisao/negativa |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa NUNCA
@@ -396,3 +396,22 @@ OpenAPI registra "Ratificação do DPO pendente"). Enquanto isso, so' teste em d
   (RN 412 — juridico), data de efeito = data do pedido (juridico), textos ao beneficiario (juridico), nomes
   reais do grupo `cadastro-beneficiarios` e das pessoas (operacao), DPO sobre o uso dos dados de §Dados do
   beneficiario; template aprovado da Meta para avisos fora da janela de 24h.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CANCEL-001` → `maezo-payer-cancel-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - contrato: `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `C-{numero_contrato}`.
+  - matrícula (fallback vigente): `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `M-{matricula_beneficiario}`.
+  - pseudônimo (v0.2.0, Lucas): `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `P-{beneficiario_pseudo_id}`.
+- **Classificação (a confirmar pelo DPO):** pessoal; `matricula_beneficiario` é PHI (`PHI_PROCESS_VARS`) — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `EXCLUSIVE` (inalterada).
+- **Âncora do retorno (DL-0111):** durante a janela o agent-resume aceita `CANCEL-{tenant_id}-` OU `{tenant_id}:cancel-001:` como âncora do evento `agents.events.process_completed`; depois de `so_alvo`, só a segunda.
+- A guarda cruzada do INADIMPLENCIA (`ja_em_rescisao_cancel`) consulta as formas alvo e as vigentes, fail-closed.

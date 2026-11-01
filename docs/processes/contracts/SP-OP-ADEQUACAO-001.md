@@ -17,7 +17,7 @@ O **registro de um compromisso financeiro de fallback** (`register_fallback_comm
 garantir livre escolha / reembolso garantido / contratacao ad-hoc com custo para a operadora)
 so nasce numa User Task humana (`UT_DecisaoFallback`, ou `UT_CoordenacaoRede` no estouro de SLA),
 com `decisao_remediacao == COMPROMISSO_FALLBACK` setado por humano do grupo `gestao-rede`
-(ou `coordenacao-rede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
+(`coordenacao-rede` so na escalacao `UT_CoordenacaoRede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
 compromisso financeiro: a DMN `adequacao_gap` apenas **mede o gap de adequacao e classifica a
 severidade/roteamento de remediacao**; ela nunca produz `COMPROMETER`/`GARANTIR_REEMBOLSO`/
 `CONTRATAR`. Gap ambiguo, severidade alta, dados de geolocalizacao insuficientes,
@@ -255,7 +255,7 @@ Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/ve
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `gestao-rede` | Gestao de rede credenciada | `UT_DecisaoFallback` (**compromisso financeiro de fallback SO aqui**: `decisao_remediacao ∈ {MONITORAR_OK, ENCAMINHAR_CRED, COMPROMISSO_FALLBACK, SOLICITAR_INFO}`) |
-| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
+| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (deixou de ser co-candidato de `UT_DecisaoFallback` — R-041 / #1084; SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa (compromisso
 de fallback) NUNCA muda de natureza por estouro de SLA.
@@ -364,3 +364,18 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
   fallback gerar pagamento, interacao com SP-OP-REEMBOLSO-001 no reembolso garantido) — **DRAFT**.
 - Taxonomia de especialidade (TUSS/CBO) e granularidade geografica (regiao de saude vs municipio
   IBGE) — alinhar com a base de rede e a RN.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-ADEQUACAO-001` → `maezo-payer-adequacao-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - célula: `{tenant_id}:adequacao-001:A-{regiao_saude}-{especialidade}[-{ciclo_avaliacao}]` (em claro no motor).
+- **Classificação (a confirmar pelo DPO):** não pessoal.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

@@ -18,6 +18,9 @@ carteirinha_completa: true  # dono, 17/10/2026
 dependentes_nome: true      # DL-0127
 base_saude: true            # DL-0118 / ADR-0064
 identidade_nome_operadora: "Austa Clínicas"  # DL-0078
+# DL-0160 (dono, 01/11/2026): a saude volta ao desenho original (porta unica: o modelo so' le, a tabela DMN decide,
+# tudo que e' clinico vai a equipe), SO' na allowlist do modelo. Substitui a triagem com juiz (DL-0159, removida).
+saude_original: true
 
 # Roteador de habilidades (ADR-0066).
 roteador:

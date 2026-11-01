@@ -190,8 +190,9 @@ class CaseRespondAuthorities:
             refs = (
                 (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: NativeAuthReader.table()
                         text(
-                            "SELECT resource_ FROM "
+                            "SELECT resource_ FROM "  # nosec B608 # fonte: NativeAuthReader.table()
                             + reader.table("mzo_auth_input_head")
                             + " WHERE tenant_=:tenant AND kind_='resource_authority' AND state_"
                             "='active' AND payload_::jsonb->>'action'=:action AND payload_"
@@ -241,8 +242,9 @@ class CaseRespondAuthorities:
         version = (
             (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: NativeAuthReader.table()
                     text(
-                        "SELECT request_,digest_ FROM "
+                        "SELECT request_,digest_ FROM "  # nosec B608 # fonte: NativeAuthReader.table()
                         + reader.table("mzo_auth_input_version")
                         + " WHERE tenant_=:tenant AND kind_='document_policy' AND resource_=:resource"
                         " AND generation_=:generation"

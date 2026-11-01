@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_prestador_trust_scorecard"
+             name="Scorecard de confianca do prestador (MPTT)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    prestador_trust_scorecard v0.1.0 — status: DRAFT — todos os pontos, faixas, pisos de volume e T
+    (meses) sao DRAFT/calibrar em sombra (financas + medico-auditor + DPO); registrados como pendentes
+    em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. MPTT P5 (Maezo Provider Trust Tiers,
+    docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md §3; decisao do dono
+    2026-10-31 "Pagamentos": scorecard hibrido = red flags nao compensatorias + scorecard de pontos).
+    NAO LIGADA a BPMN nem a worker nesta entrega (P6 liga; P4 produz as features em lote).
+
+    DUAS decisoes, MESMAS linhas, na MESMA ordem (cerca: tests/unit/spec/test_prestador_trust_tier_dmn.py):
+      - prestador_trust_scorecard: hitPolicy COLLECT + aggregation SUM; UMA saida inteira
+        `pontuacao_confianca`. Cada linha = uma faixa de UMA feature -> pontos; os pesos vivem AQUI
+        (AGENTS.md regra 5), nunca em Python. Para cada feature exatamente UMA linha casa
+        (faixas exaustivas e disjuntas, inclusive null e fora de faixa), entao a soma tem sempre 3
+        parcelas e a tabela nunca devolve resultado vazio.
+      - prestador_trust_motivos: hitPolicy COLLECT sem agregacao; saidas `motivo_codigo` +
+        `pontos_perdidos` (= peso da feature - pontos da faixa). Codigos de motivo especificos,
+        ordenaveis por pontos perdidos (estilo FICO/Reg B), para o lote gravar
+        {features, pontos, motivos, snapshot, versao da DMN} e tornar todo tier reprodutivel.
+
+    Pesos ordinais DRAFT (analise §3): F1 40, F2 30, F5 15 -> maximo 85.
+      F1 historico de pagamento (taxa com shrinkage, piso 10 ordens; &gt;= 90% = patamar gold-card).
+      F2 glosa liquida sustentada (glosa humana - deferido em RECURSO) / apresentado, em PERCENTIL
+         vs pares DO MESMO TENANT (CADE: benchmark nunca e agregado entre operadoras), piso 10 lotes.
+      F5 tempo de relacionamento: portao de credibilidade T=12 meses, sem pontos alem do portao.
+    Volume insuficiente = NEUTRO (metade do peso; nem bonus nem penalidade). Entrada ausente ou
+    invalida = 0 pontos (fail-closed: dado faltante nunca soma confianca).
+
+    FORA desta versao (declarado): F3 duplicidades (peso 15 na analise) depende do ledger de
+    duplicidade do PAGTO PR-E, que nao existe — entra numa v0.2.0 junto com sua red flag em
+    prestador_tier; nao ha coluna sempre-nula aqui (seria coluna morta). F4 custo de episodio e
+    v2, lake-side, so rebaixa (decisao do dono). F6 pico de faturamento e red flag, nao pontos
+    (vive em prestador_tier).
+
+    INVARIANTE: a pontuacao SO roteia (auto vs humano, tamanho do teto). Nenhuma saida libera,
+    recusa, reduz, glosa ou bloqueia pagamento; fatos duros (descredenciado, fraude) sao avaliados
+    ANTES, em pagto_admissibility (P6). Entradas sao agregados por prestador — nenhum dado de
+    beneficiario (ADR-0019; LGPD art. 20: criterios publicados, motivos sob pedido).
+  </description>
+  <decision id="prestador_trust_scorecard" name="Scorecard de confianca do prestador (pontos)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_prestador_trust_scorecard" hitPolicy="COLLECT" aggregation="SUM">
+      <input id="in_f1_ordens_decididas" label="F1 — ordens PAGTO decididas por humano na janela de 12 meses (f1_ordens_decididas)">
+        <inputExpression id="ie_sc_f1_ordens_decididas" typeRef="integer"><text>f1_ordens_decididas</text></inputExpression>
+      </input>
+      <input id="in_f1_taxa_liberacao_humana" label="F1 — taxa (0..1, com shrinkage beta-binomial) de liberacao humana sem alteracao (f1_taxa_liberacao_humana)">
+        <inputExpression id="ie_sc_f1_taxa_liberacao_humana" typeRef="double"><text>f1_taxa_liberacao_humana</text></inputExpression>
+      </input>
+      <input id="in_f2_lotes_janela" label="F2 — lotes CONTAS na janela de 12 meses (f2_lotes_janela)">
+        <inputExpression id="ie_sc_f2_lotes_janela" typeRef="integer"><text>f2_lotes_janela</text></inputExpression>
+      </input>
+      <input id="in_f2_percentil_glosa_liquida_pares_tenant" label="F2 — percentil (0..100) da glosa liquida sustentada vs pares DO MESMO TENANT (f2_percentil_glosa_liquida_pares_tenant)">
+        <inputExpression id="ie_sc_f2_percentil_glosa_liquida_pares_tenant" typeRef="double"><text>f2_percentil_glosa_liquida_pares_tenant</text></inputExpression>
+      </input>
+      <input id="in_f5_meses_relacionamento" label="F5 — meses desde o credenciamento (ledger/baseline) ou do 1o pagamento liberado por humano (f5_meses_relacionamento)">
+        <inputExpression id="ie_sc_f5_meses_relacionamento" typeRef="integer"><text>f5_meses_relacionamento</text></inputExpression>
+      </input>
+      <output id="out_pontuacao_confianca" label="pontuacao_confianca" name="pontuacao_confianca" typeRef="integer"/>
+      <rule id="r_f1_ordens_ausente">
+        <description>F1: contagem de ordens ausente -> 0 pontos (fail-closed: dado faltante nunca soma)</description>
+        <inputEntry id="r_f1_ordens_ausente_i1"><text>null</text></inputEntry>
+        <inputEntry id="r_f1_ordens_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_ordens_ausente_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f1_ordens_invalida">
+        <description>F1: contagem negativa (dado invalido) -> 0 pontos</description>
+        <inputEntry id="r_f1_ordens_invalida_i1"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_f1_ordens_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_ordens_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_ordens_invalida_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f1_volume_insuficiente">
+        <description>F1: menos de 10 ordens decididas -> NEUTRO (metade do peso; nem bonus nem penalidade)</description>
+        <inputEntry id="r_f1_volume_insuficiente_i1"><text>[0..10)</text></inputEntry>
+        <inputEntry id="r_f1_volume_insuficiente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_volume_insuficiente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_volume_insuficiente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_volume_insuficiente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_volume_insuficiente_o1"><text>20</text></outputEntry>
+      </rule>
+      <rule id="r_f1_taxa_ausente">
+        <description>F1: volume suficiente mas taxa ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="r_f1_taxa_ausente_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f1_taxa_ausente_i2"><text>null</text></inputEntry>
+        <inputEntry id="r_f1_taxa_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_taxa_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_taxa_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_taxa_ausente_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f1_taxa_invalida">
+        <description>F1: taxa fora de [0,1] -> 0 pontos</description>
+        <inputEntry id="r_f1_taxa_invalida_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f1_taxa_invalida_i2"><text>&lt; 0, &gt; 1</text></inputEntry>
+        <inputEntry id="r_f1_taxa_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_taxa_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_taxa_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_taxa_invalida_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f1_faixa_plena">
+        <description>F1: taxa &gt;= 90% em &gt;= 10 ordens (patamar gold-card Texas/WISeR) -> peso cheio</description>
+        <inputEntry id="r_f1_faixa_plena_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f1_faixa_plena_i2"><text>[0.90..1]</text></inputEntry>
+        <inputEntry id="r_f1_faixa_plena_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_plena_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_plena_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_faixa_plena_o1"><text>40</text></outputEntry>
+      </rule>
+      <rule id="r_f1_faixa_media">
+        <description>F1: taxa em [80%, 90%) -> metade do peso</description>
+        <inputEntry id="r_f1_faixa_media_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f1_faixa_media_i2"><text>[0.80..0.90)</text></inputEntry>
+        <inputEntry id="r_f1_faixa_media_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_media_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_media_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_faixa_media_o1"><text>20</text></outputEntry>
+      </rule>
+      <rule id="r_f1_faixa_baixa">
+        <description>F1: taxa abaixo de 80% -> 0 pontos</description>
+        <inputEntry id="r_f1_faixa_baixa_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f1_faixa_baixa_i2"><text>[0..0.80)</text></inputEntry>
+        <inputEntry id="r_f1_faixa_baixa_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_baixa_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f1_faixa_baixa_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f1_faixa_baixa_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f2_lotes_ausente">
+        <description>F2: contagem de lotes ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="r_f2_lotes_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_ausente_i3"><text>null</text></inputEntry>
+        <inputEntry id="r_f2_lotes_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_lotes_ausente_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f2_lotes_invalida">
+        <description>F2: contagem negativa -> 0 pontos</description>
+        <inputEntry id="r_f2_lotes_invalida_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_invalida_i3"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_f2_lotes_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_lotes_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_lotes_invalida_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f2_volume_insuficiente">
+        <description>F2: menos de 10 lotes -> NEUTRO (metade do peso)</description>
+        <inputEntry id="r_f2_volume_insuficiente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_volume_insuficiente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_volume_insuficiente_i3"><text>[0..10)</text></inputEntry>
+        <inputEntry id="r_f2_volume_insuficiente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_volume_insuficiente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_volume_insuficiente_o1"><text>15</text></outputEntry>
+      </rule>
+      <rule id="r_f2_percentil_ausente">
+        <description>F2: volume suficiente mas percentil ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="r_f2_percentil_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_percentil_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_percentil_ausente_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f2_percentil_ausente_i4"><text>null</text></inputEntry>
+        <inputEntry id="r_f2_percentil_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_percentil_ausente_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f2_percentil_invalido">
+        <description>F2: percentil fora de [0,100] -> 0 pontos</description>
+        <inputEntry id="r_f2_percentil_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_percentil_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_percentil_invalido_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f2_percentil_invalido_i4"><text>&lt; 0, &gt; 100</text></inputEntry>
+        <inputEntry id="r_f2_percentil_invalido_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_percentil_invalido_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f2_faixa_plena">
+        <description>F2: glosa liquida ate a mediana dos pares do tenant -> peso cheio</description>
+        <inputEntry id="r_f2_faixa_plena_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_plena_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_plena_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f2_faixa_plena_i4"><text>[0..50]</text></inputEntry>
+        <inputEntry id="r_f2_faixa_plena_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_faixa_plena_o1"><text>30</text></outputEntry>
+      </rule>
+      <rule id="r_f2_faixa_media">
+        <description>F2: glosa liquida entre P50 e P75 dos pares -> metade do peso</description>
+        <inputEntry id="r_f2_faixa_media_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_media_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_media_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f2_faixa_media_i4"><text>(50..75]</text></inputEntry>
+        <inputEntry id="r_f2_faixa_media_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_faixa_media_o1"><text>15</text></outputEntry>
+      </rule>
+      <rule id="r_f2_faixa_alta">
+        <description>F2: glosa liquida acima de P75 dos pares -> 0 pontos</description>
+        <inputEntry id="r_f2_faixa_alta_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_alta_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f2_faixa_alta_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_f2_faixa_alta_i4"><text>(75..100]</text></inputEntry>
+        <inputEntry id="r_f2_faixa_alta_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_f2_faixa_alta_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f5_meses_ausente">
+        <description>F5: tempo de relacionamento ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="r_f5_meses_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_ausente_i5"><text>null</text></inputEntry>
+        <outputEntry id="r_f5_meses_ausente_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f5_meses_invalido">
+        <description>F5: meses negativos -> 0 pontos</description>
+        <inputEntry id="r_f5_meses_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_invalido_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_meses_invalido_i5"><text>&lt; 0</text></inputEntry>
+        <outputEntry id="r_f5_meses_invalido_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f5_relacionamento_curto">
+        <description>F5: menos de T=12 meses -> 0 pontos (portao de credibilidade)</description>
+        <inputEntry id="r_f5_relacionamento_curto_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_relacionamento_curto_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_relacionamento_curto_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_relacionamento_curto_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_relacionamento_curto_i5"><text>[0..12)</text></inputEntry>
+        <outputEntry id="r_f5_relacionamento_curto_o1"><text>0</text></outputEntry>
+      </rule>
+      <rule id="r_f5_faixa_plena">
+        <description>F5: T=12 meses ou mais -> peso cheio (sem pontos alem do portao)</description>
+        <inputEntry id="r_f5_faixa_plena_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_faixa_plena_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_faixa_plena_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_faixa_plena_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_f5_faixa_plena_i5"><text>&gt;= 12</text></inputEntry>
+        <outputEntry id="r_f5_faixa_plena_o1"><text>15</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <decision id="prestador_trust_motivos" name="Scorecard de confianca do prestador (motivos)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_prestador_trust_motivos" hitPolicy="COLLECT">
+      <input id="in_mo_f1_ordens_decididas" label="F1 — ordens PAGTO decididas por humano na janela de 12 meses (f1_ordens_decididas)">
+        <inputExpression id="ie_mo_f1_ordens_decididas" typeRef="integer"><text>f1_ordens_decididas</text></inputExpression>
+      </input>
+      <input id="in_mo_f1_taxa_liberacao_humana" label="F1 — taxa (0..1, com shrinkage beta-binomial) de liberacao humana sem alteracao (f1_taxa_liberacao_humana)">
+        <inputExpression id="ie_mo_f1_taxa_liberacao_humana" typeRef="double"><text>f1_taxa_liberacao_humana</text></inputExpression>
+      </input>
+      <input id="in_mo_f2_lotes_janela" label="F2 — lotes CONTAS na janela de 12 meses (f2_lotes_janela)">
+        <inputExpression id="ie_mo_f2_lotes_janela" typeRef="integer"><text>f2_lotes_janela</text></inputExpression>
+      </input>
+      <input id="in_mo_f2_percentil_glosa_liquida_pares_tenant" label="F2 — percentil (0..100) da glosa liquida sustentada vs pares DO MESMO TENANT (f2_percentil_glosa_liquida_pares_tenant)">
+        <inputExpression id="ie_mo_f2_percentil_glosa_liquida_pares_tenant" typeRef="double"><text>f2_percentil_glosa_liquida_pares_tenant</text></inputExpression>
+      </input>
+      <input id="in_mo_f5_meses_relacionamento" label="F5 — meses desde o credenciamento (ledger/baseline) ou do 1o pagamento liberado por humano (f5_meses_relacionamento)">
+        <inputExpression id="ie_mo_f5_meses_relacionamento" typeRef="integer"><text>f5_meses_relacionamento</text></inputExpression>
+      </input>
+      <output id="out_motivo_codigo" label="motivo_codigo" name="motivo_codigo" typeRef="string"/>
+      <output id="out_pontos_perdidos" label="pontos_perdidos" name="pontos_perdidos" typeRef="integer"/>
+      <rule id="m_f1_ordens_ausente">
+        <description>F1: contagem de ordens ausente -> 0 pontos (fail-closed: dado faltante nunca soma)</description>
+        <inputEntry id="m_f1_ordens_ausente_i1"><text>null</text></inputEntry>
+        <inputEntry id="m_f1_ordens_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_ordens_ausente_o1"><text>"F1_ENTRADA_AUSENTE"</text></outputEntry>
+        <outputEntry id="m_f1_ordens_ausente_o2"><text>40</text></outputEntry>
+      </rule>
+      <rule id="m_f1_ordens_invalida">
+        <description>F1: contagem negativa (dado invalido) -> 0 pontos</description>
+        <inputEntry id="m_f1_ordens_invalida_i1"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="m_f1_ordens_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_ordens_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_ordens_invalida_o1"><text>"F1_ENTRADA_INVALIDA"</text></outputEntry>
+        <outputEntry id="m_f1_ordens_invalida_o2"><text>40</text></outputEntry>
+      </rule>
+      <rule id="m_f1_volume_insuficiente">
+        <description>F1: menos de 10 ordens decididas -> NEUTRO (metade do peso; nem bonus nem penalidade)</description>
+        <inputEntry id="m_f1_volume_insuficiente_i1"><text>[0..10)</text></inputEntry>
+        <inputEntry id="m_f1_volume_insuficiente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_volume_insuficiente_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_volume_insuficiente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_volume_insuficiente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_volume_insuficiente_o1"><text>"F1_VOLUME_INSUFICIENTE_NEUTRO"</text></outputEntry>
+        <outputEntry id="m_f1_volume_insuficiente_o2"><text>20</text></outputEntry>
+      </rule>
+      <rule id="m_f1_taxa_ausente">
+        <description>F1: volume suficiente mas taxa ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="m_f1_taxa_ausente_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f1_taxa_ausente_i2"><text>null</text></inputEntry>
+        <inputEntry id="m_f1_taxa_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_taxa_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_taxa_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_taxa_ausente_o1"><text>"F1_ENTRADA_AUSENTE"</text></outputEntry>
+        <outputEntry id="m_f1_taxa_ausente_o2"><text>40</text></outputEntry>
+      </rule>
+      <rule id="m_f1_taxa_invalida">
+        <description>F1: taxa fora de [0,1] -> 0 pontos</description>
+        <inputEntry id="m_f1_taxa_invalida_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f1_taxa_invalida_i2"><text>&lt; 0, &gt; 1</text></inputEntry>
+        <inputEntry id="m_f1_taxa_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_taxa_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_taxa_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_taxa_invalida_o1"><text>"F1_ENTRADA_INVALIDA"</text></outputEntry>
+        <outputEntry id="m_f1_taxa_invalida_o2"><text>40</text></outputEntry>
+      </rule>
+      <rule id="m_f1_faixa_plena">
+        <description>F1: taxa &gt;= 90% em &gt;= 10 ordens (patamar gold-card Texas/WISeR) -> peso cheio</description>
+        <inputEntry id="m_f1_faixa_plena_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f1_faixa_plena_i2"><text>[0.90..1]</text></inputEntry>
+        <inputEntry id="m_f1_faixa_plena_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_plena_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_plena_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_faixa_plena_o1"><text>"F1_FAIXA_PLENA"</text></outputEntry>
+        <outputEntry id="m_f1_faixa_plena_o2"><text>0</text></outputEntry>
+      </rule>
+      <rule id="m_f1_faixa_media">
+        <description>F1: taxa em [80%, 90%) -> metade do peso</description>
+        <inputEntry id="m_f1_faixa_media_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f1_faixa_media_i2"><text>[0.80..0.90)</text></inputEntry>
+        <inputEntry id="m_f1_faixa_media_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_media_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_media_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_faixa_media_o1"><text>"F1_LIBERACAO_ABAIXO_DE_90"</text></outputEntry>
+        <outputEntry id="m_f1_faixa_media_o2"><text>20</text></outputEntry>
+      </rule>
+      <rule id="m_f1_faixa_baixa">
+        <description>F1: taxa abaixo de 80% -> 0 pontos</description>
+        <inputEntry id="m_f1_faixa_baixa_i1"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f1_faixa_baixa_i2"><text>[0..0.80)</text></inputEntry>
+        <inputEntry id="m_f1_faixa_baixa_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_baixa_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f1_faixa_baixa_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f1_faixa_baixa_o1"><text>"F1_LIBERACAO_ABAIXO_DE_80"</text></outputEntry>
+        <outputEntry id="m_f1_faixa_baixa_o2"><text>40</text></outputEntry>
+      </rule>
+      <rule id="m_f2_lotes_ausente">
+        <description>F2: contagem de lotes ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="m_f2_lotes_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_ausente_i3"><text>null</text></inputEntry>
+        <inputEntry id="m_f2_lotes_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_lotes_ausente_o1"><text>"F2_ENTRADA_AUSENTE"</text></outputEntry>
+        <outputEntry id="m_f2_lotes_ausente_o2"><text>30</text></outputEntry>
+      </rule>
+      <rule id="m_f2_lotes_invalida">
+        <description>F2: contagem negativa -> 0 pontos</description>
+        <inputEntry id="m_f2_lotes_invalida_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_invalida_i3"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="m_f2_lotes_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_lotes_invalida_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_lotes_invalida_o1"><text>"F2_ENTRADA_INVALIDA"</text></outputEntry>
+        <outputEntry id="m_f2_lotes_invalida_o2"><text>30</text></outputEntry>
+      </rule>
+      <rule id="m_f2_volume_insuficiente">
+        <description>F2: menos de 10 lotes -> NEUTRO (metade do peso)</description>
+        <inputEntry id="m_f2_volume_insuficiente_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_volume_insuficiente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_volume_insuficiente_i3"><text>[0..10)</text></inputEntry>
+        <inputEntry id="m_f2_volume_insuficiente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_volume_insuficiente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_volume_insuficiente_o1"><text>"F2_VOLUME_INSUFICIENTE_NEUTRO"</text></outputEntry>
+        <outputEntry id="m_f2_volume_insuficiente_o2"><text>15</text></outputEntry>
+      </rule>
+      <rule id="m_f2_percentil_ausente">
+        <description>F2: volume suficiente mas percentil ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="m_f2_percentil_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_percentil_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_percentil_ausente_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f2_percentil_ausente_i4"><text>null</text></inputEntry>
+        <inputEntry id="m_f2_percentil_ausente_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_percentil_ausente_o1"><text>"F2_ENTRADA_AUSENTE"</text></outputEntry>
+        <outputEntry id="m_f2_percentil_ausente_o2"><text>30</text></outputEntry>
+      </rule>
+      <rule id="m_f2_percentil_invalido">
+        <description>F2: percentil fora de [0,100] -> 0 pontos</description>
+        <inputEntry id="m_f2_percentil_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_percentil_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_percentil_invalido_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f2_percentil_invalido_i4"><text>&lt; 0, &gt; 100</text></inputEntry>
+        <inputEntry id="m_f2_percentil_invalido_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_percentil_invalido_o1"><text>"F2_ENTRADA_INVALIDA"</text></outputEntry>
+        <outputEntry id="m_f2_percentil_invalido_o2"><text>30</text></outputEntry>
+      </rule>
+      <rule id="m_f2_faixa_plena">
+        <description>F2: glosa liquida ate a mediana dos pares do tenant -> peso cheio</description>
+        <inputEntry id="m_f2_faixa_plena_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_plena_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_plena_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f2_faixa_plena_i4"><text>[0..50]</text></inputEntry>
+        <inputEntry id="m_f2_faixa_plena_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_faixa_plena_o1"><text>"F2_FAIXA_PLENA"</text></outputEntry>
+        <outputEntry id="m_f2_faixa_plena_o2"><text>0</text></outputEntry>
+      </rule>
+      <rule id="m_f2_faixa_media">
+        <description>F2: glosa liquida entre P50 e P75 dos pares -> metade do peso</description>
+        <inputEntry id="m_f2_faixa_media_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_media_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_media_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f2_faixa_media_i4"><text>(50..75]</text></inputEntry>
+        <inputEntry id="m_f2_faixa_media_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_faixa_media_o1"><text>"F2_GLOSA_LIQUIDA_ACIMA_P50"</text></outputEntry>
+        <outputEntry id="m_f2_faixa_media_o2"><text>15</text></outputEntry>
+      </rule>
+      <rule id="m_f2_faixa_alta">
+        <description>F2: glosa liquida acima de P75 dos pares -> 0 pontos</description>
+        <inputEntry id="m_f2_faixa_alta_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_alta_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f2_faixa_alta_i3"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="m_f2_faixa_alta_i4"><text>(75..100]</text></inputEntry>
+        <inputEntry id="m_f2_faixa_alta_i5"><text>-</text></inputEntry>
+        <outputEntry id="m_f2_faixa_alta_o1"><text>"F2_GLOSA_LIQUIDA_ACIMA_P75"</text></outputEntry>
+        <outputEntry id="m_f2_faixa_alta_o2"><text>30</text></outputEntry>
+      </rule>
+      <rule id="m_f5_meses_ausente">
+        <description>F5: tempo de relacionamento ausente -> 0 pontos (fail-closed)</description>
+        <inputEntry id="m_f5_meses_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_ausente_i5"><text>null</text></inputEntry>
+        <outputEntry id="m_f5_meses_ausente_o1"><text>"F5_ENTRADA_AUSENTE"</text></outputEntry>
+        <outputEntry id="m_f5_meses_ausente_o2"><text>15</text></outputEntry>
+      </rule>
+      <rule id="m_f5_meses_invalido">
+        <description>F5: meses negativos -> 0 pontos</description>
+        <inputEntry id="m_f5_meses_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_invalido_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_meses_invalido_i5"><text>&lt; 0</text></inputEntry>
+        <outputEntry id="m_f5_meses_invalido_o1"><text>"F5_ENTRADA_INVALIDA"</text></outputEntry>
+        <outputEntry id="m_f5_meses_invalido_o2"><text>15</text></outputEntry>
+      </rule>
+      <rule id="m_f5_relacionamento_curto">
+        <description>F5: menos de T=12 meses -> 0 pontos (portao de credibilidade)</description>
+        <inputEntry id="m_f5_relacionamento_curto_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_relacionamento_curto_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_relacionamento_curto_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_relacionamento_curto_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_relacionamento_curto_i5"><text>[0..12)</text></inputEntry>
+        <outputEntry id="m_f5_relacionamento_curto_o1"><text>"F5_RELACIONAMENTO_CURTO"</text></outputEntry>
+        <outputEntry id="m_f5_relacionamento_curto_o2"><text>15</text></outputEntry>
+      </rule>
+      <rule id="m_f5_faixa_plena">
+        <description>F5: T=12 meses ou mais -> peso cheio (sem pontos alem do portao)</description>
+        <inputEntry id="m_f5_faixa_plena_i1"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_faixa_plena_i2"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_faixa_plena_i3"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_faixa_plena_i4"><text>-</text></inputEntry>
+        <inputEntry id="m_f5_faixa_plena_i5"><text>&gt;= 12</text></inputEntry>
+        <outputEntry id="m_f5_faixa_plena_o1"><text>"F5_FAIXA_PLENA"</text></outputEntry>
+        <outputEntry id="m_f5_faixa_plena_o2"><text>0</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

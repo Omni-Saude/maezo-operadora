@@ -22,5 +22,8 @@
       "escalation_severidade": "grave"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:psychosocial_risk"
+  ]
 }

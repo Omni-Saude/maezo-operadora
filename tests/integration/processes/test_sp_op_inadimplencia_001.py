@@ -564,7 +564,7 @@ async def test_inadimplencia_aparente_roteia_para_humano_nao_suspende(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, inad_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Inadimplencia nao deve produzir terminal adverso automatico (L0)"
@@ -695,7 +695,7 @@ async def test_notificacao_ack_reavalia_nunca_suspende(
         )
 
     ut = await _drive_to_analise(engine, inad_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Ack de notificacao nunca auto-suspende (L0)"
@@ -717,7 +717,7 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, inad_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(ut.id, {"decisao_inadimplencia": "SUSPENDER", **_CAMPOS_SUSP})
     await inad_probe.drain()
@@ -1422,7 +1422,7 @@ async def test_fatos_estritos_off_semente_janela_false_pula_cure_window_legado(
     inst = await start_inad()  # default do fixture: dentro_janela_purga=False
     iid = inst["id"]
     ut = await _drive_to_analise(engine, inad_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
     assert await engine.activity_instance_count(iid, "ICE_PrazoPurga") == 0
 
 

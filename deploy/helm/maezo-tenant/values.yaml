@@ -584,9 +584,9 @@ networkPolicy:
   #     fora desse formato sem `namespace` explicito = render FALHA (fail-closed).
   #   - podLabels: opcional, estreita ao(s) pod(s) do collector (gerenciado fora deste chart —
   #     opentelemetry-operator — por isso nenhum label e inventado aqui).
-  # Vale para TODOS os pods, inclusive Zona PHI: o collector e in-cluster e a ausencia de PHI na
-  # telemetria depende do scrub do PROPRIO collector (configmap-otel-collector.yaml) — revisao de
-  # seguranca/DPO ABERTA em docs/review-queue.md `R-061-OTEL-PHI-EGRESS`, nao assumida aqui.
+  # Vale para TODOS os pods, inclusive Zona PHI (dono 2026-10-31, #1085, opcao a). O scrub provado
+  # (tests/unit/deploy/test_otel_collector_phi_scrub.py) e' o do ConfigMap otel-collector-config, que
+  # nasce no namespace do tenant e so' com observability.collector.enabled — vinculo ao collector deste egress ABERTO.
   otelEgress:
     enabled: true
     namespace: ""
