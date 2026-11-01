@@ -19,21 +19,43 @@ This object holds NO connection state of its own: the pool lives in the registry
 
 from __future__ import annotations
 
+import json
+import unicodedata
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
-from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
 from maezo.platform.driver_idempotency import (
     DEFAULT_TTL_S,
     DedupRegistry,
     inbound_dedup_key,
+    inbound_fallback_dedup_key,
     outbound_dedup_key,
 )
 
-from .security import hash_message_id
+from .security import hash_message_id, hash_phone
+
+if TYPE_CHECKING:  # import cycle guard: dispatch.py imports this module at runtime
+    from .dispatch import InboundEvent
 
 logger = structlog.get_logger(__name__)
+
+#: Quantas entregas IGUAIS de uma mensagem sem `wamid` passam antes da supressao (F-147 / R-060).
+#: NAO e' ajuste de engenharia: e' o numero da decisao do dono de 2026-10-31 (#1084, Rodada 2
+#: "Marina / WhatsApp / chaves": "ate 2, suprime a 3a em diante, silenciosa"). Mudar exige nova
+#: decisao do dono, nao um PR de tuning.
+FALLBACK_MAX_ENTREGAS: Final[int] = 2
+
+#: Versao do formato canonico da identidade de fallback. Entra no HMAC: mudar o formato muda a
+#: versao, e uma identidade antiga nunca colide por acaso com uma nova.
+_FALLBACK_IDENTITY_VERSION: Final[str] = "sem-wamid-v1"
+
+
+def _normalize_body(text: str) -> str:
+    """NFC + bordas aparadas. So' o que a MESMA mensagem pode variar sem mudar de sentido."""
+    return unicodedata.normalize("NFC", text).strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +101,76 @@ class WhatsAppDedupGuard:
     async def release_inbound(self, message_id: str) -> None:
         """Withdraw the claim of a delivery whose handling FAILED, so a redelivery retries it."""
         await self.registry.release(self.inbound_key(message_id))
+
+    # --- Mensagem SEM `wamid` (F-147 / R-060; decisao do dono 2026-10-31, #1084) -------------
+
+    def fallback_identity(self, message: InboundEvent) -> str:
+        """Identidade KEYED `hk1_` de uma mensagem que chegou sem `wamid`.
+
+        HMAC com a chave do vault (ADR-0035) sobre a forma canonica de: pseudonimo keyed do
+        telefone (`hash_phone`), `timestamp` da Meta, tipo da mensagem e um digest KEYED do corpo.
+        O corpo nunca entra num hash sem chave: "sim", "1" ou os digitos de um CPF sao revertidos
+        por dicionario em um sha256 puro. O telefone cru e o texto cru nunca saem daqui — nem na
+        chave persistida, nem em log, nem em rotulo de metrica.
+
+        Uma reentrega da Meta e' byte a byte o mesmo envelope, entao produz a mesma identidade;
+        o beneficiario que de fato repete "sim" gera outro `timestamp` e portanto outra identidade.
+        """
+        from .dispatch import InboundMessage  # local: dispatch.py imports this module at load time
+
+        phone_pseudonym = hash_phone(message.from_number, self.tenant, self.pseudonymizer)
+        if isinstance(message, InboundMessage):
+            message_type = "text"
+            body = _normalize_body(message.text)
+        else:
+            message_type = message.message_type
+            body = ""
+        body_digest = (
+            self.pseudonymizer.pseudonymize({"telefone": f"{self.tenant}:corpo:{body}"})["telefone"]
+            if body
+            else ""
+        )
+        canonical = json.dumps(
+            [
+                _FALLBACK_IDENTITY_VERSION,
+                self.tenant,
+                phone_pseudonym,
+                message.timestamp,
+                message_type,
+                body_digest,
+            ],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        digest = self.pseudonymizer.pseudonymize({"telefone": canonical})["telefone"]
+        return f"{KEYED_PSEUDONYM_PREFIX}{digest}"
+
+    def fallback_key(self, identity: str, *, occurrence: int) -> str:
+        return inbound_fallback_dedup_key(
+            tenant=self.tenant, identity_pseudonym=identity, occurrence=occurrence
+        )
+
+    async def claim_without_wamid(self, identity: str) -> str | None:
+        """Reivindica o primeiro SLOT livre (1..:data:`FALLBACK_MAX_ENTREGAS`) da identidade.
+
+        Devolve a chave do slot ganho (o chamador despacha e depois sela/devolve ESSA chave) ou
+        `None` quando todos os slots ja estao tomados — a entrega deve ser suprimida. Propaga
+        `DedupRegistryUnavailableError` sem traduzir: o que um registro fora significa para a
+        resposta HTTP e' decisao do receptor.
+        """
+        for occurrence in range(1, FALLBACK_MAX_ENTREGAS + 1):
+            key = self.fallback_key(identity, occurrence=occurrence)
+            if await self.registry.claim(key, ttl_s=self.ttl_s):
+                return key
+        return None
+
+    async def seal_key(self, key: str) -> None:
+        """Sela uma chave ja reivindicada (o efeito aconteceu)."""
+        await self.registry.mark_processed(key)
+
+    async def release_key(self, key: str) -> None:
+        """Devolve uma chave reivindicada cujo efeito FALHOU, para a reentrega ter outra chance."""
+        await self.registry.release(key)
 
     async def aclose(self) -> None:
         """Release the underlying registry's resources (drain; idempotent)."""

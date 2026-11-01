@@ -454,6 +454,11 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # resolved to a titular, which is exactly what SEM_COLUNA_DE_TITULAR asserts. Were the raw
         # wamid ever stored instead, this row would have to become PONTE_AUSENTE and carry a
         # subject_column — the pseudonymization is what keeps this line true.
+        # F-147 / R-060 (owner decision 2026-10-31, #1084; flag WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK,
+        # default off): wamid-less messages also write `wa:inbound-sem-wamid:` keys here — a KEYED
+        # `hk1_` HMAC over (phone pseudonym, Meta timestamp, type, keyed body digest), never the raw
+        # phone or text. Same classification by the same argument; DPO confirmation is PENDING (see
+        # the `driver_idempotency` note in spec/policies/retention/erasure-plan.template.yaml).
         identificacao=(
             "key text PRIMARY KEY (0003:62) — since 0010 the keyed `hk1_` pseudonym of the "
             "inbound wamid (never the raw wamid, which embeds the phone number); status text "
