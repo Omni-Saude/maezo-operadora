@@ -306,7 +306,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         `purpose=portal-task-read` envelopes for the six read routes and nothing here changes
         that. The completion travels on its own explicitly composed client. What it lacks — a
         signed envelope, a receipt, an outbox row, an engine-side optimistic fence — is the
-        debt DL-0049 registers and the D6 relay of #427 pays.
+        debt DL-0049 registers and the D6 relay of #1145 pays.
         """
         try:
             if self._completion is None or self._completion.scope != self.scope:

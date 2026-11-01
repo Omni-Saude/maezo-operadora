@@ -73,6 +73,7 @@ from maezo.platform.observability import (
     get_metrics_collector,
 )
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
+from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
@@ -551,6 +552,10 @@ class WorkerState:
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
+    # R-085 (owner 2026-10-31): the engine-history L1 decision poller. Both `None` unless
+    # `MAEZO_L1_DECISION_POLLER` is on AND the engine transport was built (dark by default).
+    engine_metrics_poller: EngineMetricsPoller | None = None
+    engine_metrics_task: asyncio.Task[None] | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -869,6 +874,22 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         logger.error("worker_transport_build_failed", exc_info=True)
 
     try:
+        # R-085 (owner 2026-10-31, #1084): the L1 human-decision poller READS engine history
+        # through the transport above (`read_history`, closed path set) — no client of its own.
+        # DARK: nothing is read unless the deployment turns `MAEZO_L1_DECISION_POLLER` on.
+        if settings.l1_decision_poller and state.transport is not None:
+            state.engine_metrics_poller = EngineMetricsPoller(
+                state.transport,
+                tenant=settings.tenant_id,
+                interval_s=settings.l1_decision_poller_interval_s,
+            )
+            state.engine_metrics_task = asyncio.create_task(
+                state.engine_metrics_poller.run(), name="engine-metrics-poller"
+            )
+    except Exception:  # observability only: never fails the daemon.
+        logger.error("engine_metrics_poller_build_failed", exc_info=True)
+
+    try:
         # ADR-0028 §1: the DMN seam is built once at daemon boot, against the SAME CIB Seven
         # engine the external-task transport targets (`CIBSEVEN_BASE_URL`) — DMN evaluation and
         # external-task dispatch are on the same failure/retry/incident plane (ADR-0028
@@ -1170,6 +1191,18 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
 # --- run() — orchestrates STEP A..E -------------------------------------------------------------
 
 
+async def _stop_engine_metrics_poller(state: WorkerState) -> None:
+    """Cancel the R-085 engine-history poller task BEFORE the transport it reads is closed.
+
+    The poller loops forever by design; awaiting it without cancelling would hang the drain.
+    No-op when the poller is dark (task `None`) or already finished."""
+    task = state.engine_metrics_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+
 async def run(settings: WorkerRuntimeSettings) -> None:
     """Run the worker-runtime until SIGTERM/SIGINT. See the module docstring for STEP 0/A..E."""
     state = WorkerState(settings=settings)
@@ -1250,6 +1283,7 @@ async def run(settings: WorkerRuntimeSettings) -> None:
     if state.harness is not None:
         with contextlib.suppress(Exception):
             await state.harness.drain(settings.drain_deadline_s)
+    await _stop_engine_metrics_poller(state)
     if state.transport is not None:
         with contextlib.suppress(Exception):
             await state.transport.close()

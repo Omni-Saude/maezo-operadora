@@ -57,6 +57,12 @@ variable "alert_rules_content" {
     YAML
 }
 
+variable "alertmanager_definition" {
+  description = "Rendered AMP Alertmanager definition (deploy/observability/alertmanager-amp.yml.tftpl via templatefile). Empty (default) = no routing resource (dark, R-085)."
+  type        = string
+  default     = ""
+}
+
 variable "grafana_admin_group_id" {
   description = "AWS SSO / IAM Identity Center group ID for Grafana admin access. Leave empty to skip."
   type        = string

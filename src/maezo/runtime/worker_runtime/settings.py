@@ -226,6 +226,25 @@ class WorkerRuntimeSettings(BaseSettings):
     # ato da implantacao (ROLL), depois da conferencia juridica do calendario; nunca de agente.
     auth_prazo_dias_uteis: bool = Field(default=False, alias="MAEZO_AUTH_PRAZO_DIAS_UTEIS")
 
+    # R-085 (decisao do dono 2026-10-31, issue #1084 Rodada 2 "Observabilidade"; ADR-0010). Ligada,
+    # o daemon roda o `engine_metrics.EngineMetricsPoller`: le do HISTORICO do engine o campo de
+    # decisao de cada User Task L1 encerrada e emite `maezo_l1_decision_total` (proxy da taxa de
+    # aprovacao humana). So' LEITURA, nunca efeito. DARK por padrao: desligada, nenhuma leitura de
+    # historico acontece. UMA replica por tenant (duas replicas ligadas contam duas vezes — limite
+    # declarado no modulo). Ligar e' ato da implantacao (ROLL), nunca de agente.
+    l1_decision_poller: bool = Field(default=False, alias="MAEZO_L1_DECISION_POLLER")
+    # Intervalo entre rodadas do poller, em segundos. Parametro operacional (latencia do sinal),
+    # nao limiar de negocio; o alerta de queda trabalha em DIAS, entao 60 s fica muito abaixo da
+    # resolucao que importa. TODO-OWNER: confirmar contra o TTL de limpeza do historico do engine.
+    l1_decision_poller_interval_s: float = Field(default=60.0, alias="MAEZO_L1_DECISION_POLLER_INTERVAL_S")
+
+    @field_validator("l1_decision_poller_interval_s", mode="after")
+    @classmethod
+    def _positive_interval(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError(f"must be positive, got {value}")
+        return value
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",
