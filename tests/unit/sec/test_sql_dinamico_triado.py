@@ -35,6 +35,7 @@ _NOSEMGREP_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosemgrep: avoid-sq
 
 # Inventario pinado: arquivo (relativo a src/maezo) -> numero de supressoes triadas.
 NOSEC_B608: Final[dict[str, int]] = {
+    "gateway/audit_anchor_verify.py": 1,
     "gateway/audit_postgres.py": 1,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {}

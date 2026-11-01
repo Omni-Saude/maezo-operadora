@@ -53,3 +53,18 @@ def test_schema_for_tenant_recusa_injecao(carga: str) -> None:
 
     with pytest.raises(ValueError, match="not a valid schema identifier"):
         schema_for_tenant(carga)
+
+
+@pytest.mark.asyncio
+async def test_audit_anchor_verify_recusa_tenant_invalido_antes_de_conectar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from maezo.gateway import audit_anchor_verify
+
+    async def _nunca(*_a: object, **_k: object) -> None:
+        raise AssertionError("conectou ao banco com tenant invalido")
+
+    monkeypatch.setattr(audit_anchor_verify.asyncpg, "connect", _nunca)
+    source = audit_anchor_verify.PostgresChainRecordSource("postgresql://u@h/db")
+    with pytest.raises(ValueError, match="not a valid schema identifier"):
+        await source.read_chain('amh"; DROP TABLE audit_chain; --')
