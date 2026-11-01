@@ -1801,7 +1801,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PR_PAGTO_AB",
+        pr="#1153",
         name="valor_maximo_aprovavel_cents",
         name_delta=1,
         occurrence_delta=3,
@@ -1814,7 +1814,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-31",
-        pr="#PR_PAGTO_AB",
+        pr="#1153",
         name="pagto_alcada",
         name_delta=0,
         occurrence_delta=1,
@@ -1870,7 +1870,7 @@ class TestBuckets:
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
-        # PAGTO PR-A (#PR_PAGTO_AB): +1 (valor_maximo_aprovavel_cents)
+        # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         assert len(live_sweep.names) == expected_names == 367
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
@@ -1884,7 +1884,7 @@ class TestBuckets:
         # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
         #   nomes: +1 (junta_admissibilidade)
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
-        # PAGTO PR-A (#PR_PAGTO_AB): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
+        # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         assert len(live_sweep.refs) == expected_refs == 1758
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
@@ -2018,7 +2018,7 @@ class TestBuckets:
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
         # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
-        # PAGTO PR-A (#PR_PAGTO_AB): +1 (`valor_maximo_aprovavel_cents`).
+        # PAGTO PR-A (#1153): +1 (`valor_maximo_aprovavel_cents`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
