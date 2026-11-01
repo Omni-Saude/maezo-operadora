@@ -41,6 +41,29 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+// F-158 (decisão do DPO de 31/10/2026, #1082 opção b): o `principal_ref` aparece mascarado,
+// só com os 4 últimos caracteres. Referência de até 4 caracteres fica inteiramente mascarada —
+// mostrar "os 4 últimos" dela seria mostrá-la inteira. A chave React segue usando o valor
+// completo (nunca renderizado); a superfície inteira já é dark (`MAEZO_PORTAL_STAFF_ADMIN_PANEL`).
+export const PRINCIPAL_REF_VISIBLE_TAIL = 4;
+
+export function maskPrincipalRef(ref: string): string {
+  const chars = Array.from(ref);
+  return chars.length > PRINCIPAL_REF_VISIBLE_TAIL ? chars.slice(-PRINCIPAL_REF_VISIBLE_TAIL).join("") : "";
+}
+
+function MaskedPrincipalRef({ value }: { value: string }) {
+  const tail = maskPrincipalRef(value);
+  return (
+    <>
+      <span aria-hidden="true">••••</span>
+      {tail === ""
+        ? <span className="visually-hidden">referência mascarada</span>
+        : <><span className="visually-hidden">terminada em </span>{tail}</>}
+    </>
+  );
+}
+
 function VinculoRow({
   vinculo,
   position,
@@ -55,14 +78,14 @@ function VinculoRow({
   const groups = vinculo.memberships.flatMap((membership) => membership.groups);
   return (
     <section className="admin-vinculo" aria-labelledby={`${detailId}-heading`}>
-      {/* F-158: a legible heading; the opaque reference stays available, labelled, below. */}
+      {/* F-158: a legible heading; the reference stays below, labelled and masked (DPO opção b). */}
       <h3 id={`${detailId}-heading`}>
         Vínculo {position} de {total}: {stateLabels[vinculo.state]}
       </h3>
       <dl className="dependency-detail">
         <div>
           <dt>Referência do colaborador</dt>
-          <dd className="exact-value">{vinculo.principal_ref}</dd>
+          <dd className="exact-value"><MaskedPrincipalRef value={vinculo.principal_ref} /></dd>
         </div>
         <div>
           <dt>Situação da revisão</dt>

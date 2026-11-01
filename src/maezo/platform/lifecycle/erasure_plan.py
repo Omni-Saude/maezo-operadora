@@ -22,11 +22,12 @@ WHAT THIS MODULE DOES NOT DO, stated plainly because the omissions are the desig
 
 - It executes nothing destructive. `ErasureRunMode.EXECUTE` is refused unconditionally by
   `assert_dry_run_only()`. While the plan is unratified the reason is `plan_unratified`;
-  once a DPO ratifies it, the reason becomes `execution_mechanism_absent` — because
-  `ErasureManager.erase()` still raises `ErasureNotImplementedError`
-  (`src/maezo/platform/erasure.py:152`) and the identity bridges below still do not
-  exist. Ratification alone is therefore NEVER sufficient to cause an effect, which is the
-  point: a governance act must not double as a destructive trigger.
+  once a DPO ratifies it, the reason becomes `execution_mechanism_absent` — because this
+  dry-run never executes, and the cascade that could (`ErasureManager.erase()`, R-013) is
+  DARK (`MAEZO_ERASURE_CASCADE` OFF, no per-relation executor bound, no production caller),
+  as are the identity bridges below. Ratification alone is therefore NEVER sufficient to
+  cause an effect, which is the point: a governance act must not double as a destructive
+  trigger.
 - It decides nothing. Every `decisao_dpo`, `base_legal` and `retencao` is the DPO's, and an
   unratified plan yields the literal sentinel `DECISION_PENDING` in every finding rather
   than a default.
@@ -40,7 +41,8 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
   (`src/maezo/tools/workers/lgpd.py:112`); the two FHIR patient columns in the
   Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
 - `thread_id` -> `fhir_patient_id`. The working layer is keyed by `thread_id`, not by
-  patient (`src/maezo/platform/erasure.py:196-206`).
+  patient (checkpointer relations provisioned by `PostgresSaver.setup()`,
+  `0006_retire_dead_checkpoint_tables.py`).
 
 W5 CLNT 5.4 ships the flag-gated DARK substrate for exactly these two crossings
 (`src/maezo/platform/identity_bridges.py`: one default-OFF flag per bridge, a
@@ -454,6 +456,11 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # resolved to a titular, which is exactly what SEM_COLUNA_DE_TITULAR asserts. Were the raw
         # wamid ever stored instead, this row would have to become PONTE_AUSENTE and carry a
         # subject_column — the pseudonymization is what keeps this line true.
+        # F-147 / R-060 (owner decision 2026-10-31, #1084; flag WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK,
+        # default off): wamid-less messages also write `wa:inbound-sem-wamid:` keys here — a KEYED
+        # `hk1_` HMAC over (phone pseudonym, Meta timestamp, type, keyed body digest), never the raw
+        # phone or text. Same classification by the same argument; DPO confirmation is PENDING (see
+        # the `driver_idempotency` note in spec/policies/retention/erasure-plan.template.yaml).
         identificacao=(
             "key text PRIMARY KEY (0003:62) — since 0010 the keyed `hk1_` pseudonym of the "
             "inbound wamid (never the raw wamid, which embeds the phone number); status text "
@@ -1243,10 +1250,10 @@ def assert_dry_run_only(mode: ErasureRunMode, plan: ErasurePlan | None) -> None:
 
     The refusal REASON depends on the plan, and that is the whole information content of this
     function: with no ratified plan the blocker is governance (`plan_unratified`); with one,
-    the blocker is that nothing can carry the decision out (`execution_mechanism_absent`) —
-    `ErasureManager.erase()` raises `ErasureNotImplementedError` (`erasure.py:152`) and
-    neither identity bridge exists. Ratification is therefore never, on its own, sufficient
-    to cause an effect.
+    the blocker is that nothing here can carry the decision out (`execution_mechanism_absent`)
+    — this module is dry-run only, and the cascade (`ErasureManager.erase()`, R-013) and both
+    identity bridges are DARK. Ratification is therefore never, on its own, sufficient to cause
+    an effect.
 
     Args:
         mode: The requested mode.
@@ -1267,10 +1274,11 @@ def assert_dry_run_only(mode: ErasureRunMode, plan: ErasurePlan | None) -> None:
     _refuse(
         REASON_EXECUTION_MECHANISM_ABSENT,
         f"mode={mode.value} requested with a ratified plan present, and it is STILL refused: "
-        "no execution mechanism exists (ErasureManager.erase() raises "
-        "ErasureNotImplementedError; the titular_pseudo_id->fhir_patient_id and "
-        "thread_id->fhir_patient_id bridges remain unreachable — the flag-gated substrate is "
-        "DARK: per-bridge flags OFF, no bound mapping source, no production caller). "
+        "no execution mechanism is reachable (this module is dry-run only; the "
+        "ErasureManager cascade is DARK — MAEZO_ERASURE_CASCADE OFF, no per-relation executor "
+        "bound, no production caller — and the titular_pseudo_id->fhir_patient_id and "
+        "thread_id->fhir_patient_id bridges are DARK: per-bridge flags OFF, no bound mapping "
+        "source, no production caller). "
         "Ratification is a governance act, never a trigger",
     )
 

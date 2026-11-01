@@ -4,7 +4,7 @@
 # NAO acrescente linha a mao: dependencia nova para dentro de um agente e' proibida. Este arquivo
 # so' encolhe — ao mover codigo para o lugar certo, rode `--gerar-baseline` e commite a reducao.
 
-# plataforma->agente: 44
+# plataforma->agente: 42
 src/maezo/gateway/amh_interop.py -> maezo.agents.lucas.fonte_v4
 src/maezo/gateway/capabilities/journeys/contracts.py -> maezo.agents.lucas.administrative.handoff
 src/maezo/gateway/seams/population.py -> maezo.agents.andre.graph
@@ -25,7 +25,6 @@ src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_cobranca
 src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_cobranca_amh
 src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_v4
 src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.identidade_amh
-src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.politica_atraso
 src/maezo/platform/webhooks/whatsapp/acesso_ponte.py -> maezo.agents.lucas.fonte_cobranca_amh
 src/maezo/platform/webhooks/whatsapp/dispatch.py -> maezo.agents.lucas.administrative.handoff
 src/maezo/platform/webhooks/whatsapp/dispatch.py -> maezo.agents.lucas.administrative.runtime
@@ -38,7 +37,6 @@ src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.cancel
 src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.fonte_cobranca
 src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.fonte_v4
 src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.graph
-src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.politica_atraso
 src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.andre.delegation
 src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.andre.graph
 src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.carolina.delegation

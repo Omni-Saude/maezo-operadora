@@ -762,11 +762,12 @@ class PostgresChainRecordSource:
         # is built from the SAME `schema_for_tenant`-validated identifier as the search_path pin,
         # so it carries no interpolation risk the search_path does not already carry.
         version_table = f"{schema}_alembic_version"
+        version_sql = f'SELECT version_num FROM "{version_table}"'  # nosec B608 # fonte: schema_for_tenant
         conn = await asyncpg.connect(self._dsn)
         try:
             await conn.execute(f'SET search_path TO "{schema}"')
             try:
-                schema_version = await conn.fetchval(f'SELECT version_num FROM "{version_table}"')
+                schema_version = await conn.fetchval(version_sql)
             except asyncpg.exceptions.UndefinedTableError:
                 # WHAT ELSE DOES THIS SKIP? Only this one table's absence. It cannot hide a missing
                 # `audit_chain` or a wrong `search_path`: the `SELECT * FROM audit_chain` below is

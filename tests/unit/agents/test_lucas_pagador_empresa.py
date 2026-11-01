@@ -138,7 +138,9 @@ async def _dmn(**entrada: Any) -> dict[str, Any]:
         "valores_disponiveis": True,
         "valores_com_atraso": False,
         "pagador_empresa": False,
-        "atraso_critico": False,
+        # R-047: os FATOS do atraso (o limiar >= 2 meses / > 30 dias mora na tabela).
+        "meses_vencidos": 0,
+        "dias_atraso_max": None,
     }
     linhas, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", {**base, **entrada})
     return linhas[0]
@@ -167,7 +169,7 @@ async def test_dmn_empresa_fora_do_vocabulario_nunca_vira_inadimplencia() -> Non
 @pytest.mark.parametrize("tipo", ["consulta_valores", "status_pagamento", ""])
 async def test_dmn_pessoa_fisica_com_atraso_critico_continua_escalando(tipo: str) -> None:
     linha = await _dmn(
-        tipo_solicitacao=tipo, ciclos_sem_conciliacao=2, pagador_empresa=False, atraso_critico=True
+        tipo_solicitacao=tipo, ciclos_sem_conciliacao=2, pagador_empresa=False, meses_vencidos=2
     )
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "inadimplencia")
 
@@ -177,7 +179,13 @@ async def test_dmn_pessoa_fisica_com_atraso_critico_continua_escalando(tipo: str
     [("consulta_valores", "RESPONDER"), ("status_pagamento", "RESPONDER"), ("vencimento", "LEMBRETE")],
 )
 async def test_dmn_pessoa_fisica_com_um_mes_sem_pagamento_responde(tipo: str, esperado: str) -> None:
-    linha = await _dmn(tipo_solicitacao=tipo, ciclos_sem_conciliacao=1, pagador_empresa=False)
+    linha = await _dmn(
+        tipo_solicitacao=tipo,
+        ciclos_sem_conciliacao=1,
+        pagador_empresa=False,
+        meses_vencidos=1,
+        dias_atraso_max=30,
+    )
     assert (linha["roteamento"], linha["categoria"]) == (esperado, "-")
 
 
@@ -187,7 +195,8 @@ async def test_empresa_nunca_e_atraso_critico_mesmo_com_o_sinal() -> None:
         tipo_solicitacao="consulta_valores",
         ciclos_sem_conciliacao=5,
         pagador_empresa=True,
-        atraso_critico=True,
+        meses_vencidos=5,
+        dias_atraso_max=150,
     )
     assert (linha["roteamento"], linha["categoria"]) == ("RESPONDER", "-")
 

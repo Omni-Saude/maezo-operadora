@@ -1,0 +1,52 @@
+{
+  "id": "EVL-RAFAEL-07",
+  "agent": "rafael",
+  "class": "EU",
+  "tier": ["A"],
+  "description": "R-043/F-184 (gatilho `dmn: auth_admissibility=PENDENTE_DOCUMENTACAO` do agent.yaml, sem golden ate aqui). Pedido de autorizacao previa com documentacao incompleta (anexos TISS ausentes): a fixture de `auth_admissibility` reproduz as CINCO regras FIRST-hit da tabela real (r1 NAO_REQUER, r2/r3 SEGUE_ANALISE, r4 PENDENTE_DOCUMENTACAO, r5 catch-all) em vez de devolver a resposta desejada, entao so' a entrada que o grafo de fato manda (`requer_autorizacao=true, documentacao_completa=false, beneficiario_ativo=true, carencia_cumprida=true`) faz a r4 casar. `RafaelGraph.assess` sai pelo ramo `admissibilidade == PENDENTE_DOCUMENTACAO`: route=human_auditor, motivo_auditor=documentacao_pendente, desfecho=encaminhado_auditor, ANTES de `auth_auto_approval` (que nem e' chamada: a fixture nao a registra, e se fosse chamada o turno cairia em dmn_indisponivel, outro motivo). Documentacao pendente NUNCA e' negativa (Rafael nao nega; invariante false_denial_rate==0). Dados sinteticos (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_guia_tiss": "GUIA-EVL-RAFAEL-07",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-RAFAEL-07",
+      "prestador_id": "PREST-TESTE-001",
+      "canal": "a2a",
+      "codigo_procedimento_tuss": "31309038",
+      "categoria_procedimento": "alta_complexidade",
+      "carater_atendimento": "eletivo",
+      "valor_estimado_brl": 18000.0,
+      "documentos_refs": [],
+      "requer_autorizacao": true,
+      "documentacao_completa": false,
+      "beneficiario_ativo": true,
+      "carencia_cumprida": true
+    }
+  },
+  "recorded_llm": [
+    "Solicitacao de autorizacao previa com documentacao obrigatoria ausente encaminhada ao medico auditor para pendencia ao prestador."
+  ],
+  "dmn_fixture": {
+    "auth_admissibility": {
+      "__rules__": [
+        { "when": { "requer_autorizacao": false }, "then": { "resultado": "NAO_REQUER", "motivo": "r1" } },
+        { "when": { "requer_autorizacao": true, "beneficiario_ativo": false }, "then": { "resultado": "SEGUE_ANALISE", "motivo": "r2" } },
+        { "when": { "requer_autorizacao": true, "beneficiario_ativo": true, "carencia_cumprida": false }, "then": { "resultado": "SEGUE_ANALISE", "motivo": "r3" } },
+        { "when": { "requer_autorizacao": true, "documentacao_completa": false, "beneficiario_ativo": true, "carencia_cumprida": true }, "then": { "resultado": "PENDENTE_DOCUMENTACAO", "motivo": "r4" } },
+        { "then": { "resultado": "SEGUE_ANALISE", "motivo": "r5" } }
+      ]
+    },
+    "auth_sla": { "sla_analise": "10d", "sla_alerta": "5d" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_auditor",
+      "motivo_auditor": "documentacao_pendente",
+      "desfecho": "encaminhado_auditor",
+      "admissibilidade": "PENDENTE_DOCUMENTACAO"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:auth_admissibility=PENDENTE_DOCUMENTACAO"
+  ]
+}

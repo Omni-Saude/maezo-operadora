@@ -48,11 +48,11 @@ logger = structlog.get_logger(__name__)
 # structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged
 # through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
 # `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the code
-# is allowlisted. Both codes are T-E-gated (adverse `_NOT_HUMAN` — ADR-0030 §4): consumption-covered
-# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
-# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated, so today they
-# still fail-closed to an (audited) incident — identical runtime effect, but the boundary is now
-# REACHABLE the moment T-E flips the allowlist (exactly the `ERR_CANCEL_MANTER_NOT_HUMAN` posture).
+# is allowlisted. Both codes are adverse `_NOT_HUMAN` guards (ADR-0030 §4): consumption-covered by
+# the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`) and ENABLED in
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` by the lote T-E unico (decisao do dono 2026-10-31, junto com
+# `ERR_CANCEL_MANTER_NOT_HUMAN` e `ERR_CONTRACT_SUSPENSION_NOT_HUMAN`): the refusal is audited
+# (`REFUSED`) and then routed to the modeled boundary -> neutral terminal, instead of an incident.
 ERR_DECRED_NOT_HUMAN = "ERR_DECRED_NOT_HUMAN"
 ERR_CRED_DENIAL_NOT_HUMAN = "ERR_CRED_DENIAL_NOT_HUMAN"
 #: `validate_cred` raises this when `prestador_id` arrives absent/blank/non-string — a TECHNICAL
@@ -73,9 +73,16 @@ ERR_CRED_REGISTER_INVALID = "ERR_CRED_REGISTER_INVALID"
 #: errorCode on `BE_PrestadorInvalido`. Mirrors `nip.NIP_BPMN_ERROR_ALLOWLIST` /
 #: `programa.PROGRAMA_BPMN_ERROR_ALLOWLIST` (#181, the item-9 bucket-3 precedent) — unioned into
 #: `worker_runtime/service.py`'s `_GATE_PROVEN_BPMN_ERROR_CODES`. The two adverse `*_NOT_HUMAN`
-#: codes above are DELIBERATELY excluded: they stay T-E-deferred (ADR-0030 §4) and reach
-#: production only via the T-E enablement, never via this constant.
-CRED_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_CRED_INVALID_PRESTADOR})
+#: codes above are ALSO here (same shape as `auth.AUTH_BPMN_ERROR_ALLOWLIST`, which carries the
+#: denial-block code): this constant lists what is gate-proven, NOT what is enabled. They reach
+#: production only because they are in `TE_ENABLED_CODES` (lote T-E unico, ADR-0030 §4, decisao do
+#: dono 2026-10-31 — R-059 CRED) — the T-E filter in `service.py` is the switch, and the refusal
+#: stays audited (`harness.is_guard_refusal_code`). `operadora.cred.register_descredenciamento` /
+#: `register_cred_denial` are consumed ONLY by SP-OP-CRED-001 (`BE_DecredNaoHumano` /
+#: `BE_CredDenialNaoHumano` -> the NEUTRO terminals).
+CRED_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
+    {ERR_CRED_INVALID_PRESTADOR, ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN}
+)
 
 # Decision values
 DECISAO_DESCREDENCIAR = "DESCREDENCIAR"

@@ -59,16 +59,15 @@ logger = structlog.get_logger(__name__)
 # UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged through
 # `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
 # `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
-# code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
-# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
-# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated for THIS
-# code (the harness's T-E guard-refusal audit already recognizes it — `is_guard_refusal_code`
-# matches on the `_NOT_HUMAN` suffix — so the refusal stays audited either way); the runtime
-# behavior is UNCHANGED today (still an incident) — this closes only the raise-side migration, the
-# same phased split cred's two guard codes went through (PR #166). No
-# `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
-# contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
-# gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
+# code is allowlisted. `_NOT_HUMAN` adverse guard (ADR-0030 §4): consumption-covered by the
+# boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`) and ENABLED in
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` by the lote T-E unico (decisao do dono 2026-10-31, executando o
+# registro R-075 "agrupar depois ... habilitar no mesmo lote de `cred`/`cancel`"): the harness's
+# T-E guard-refusal audit recognizes it (`is_guard_refusal_code`, `_NOT_HUMAN` suffix), records the
+# `REFUSED` row, and then reports the `bpmnError` to `BE_SuspensaoNaoHumano` ->
+# `End_SuspensaoBloqueadaNaoHumano` (terminal NEUTRO) instead of an incident. The switch is
+# `TE_ENABLED_CODES` (gate) / `_TE_ENABLED_CODES` (service.py) — `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST`
+# below only declares what is gate-proven, exactly like `auth.AUTH_BPMN_ERROR_ALLOWLIST`.
 #
 # ERR_INAD_INVALID_CONTRATO (`handoff_rescisao`'s tenant/contract-identity guard, D3-01,
 # WP-ADR-0030-COMPLETION) is declared in the BPMN's `<bpmn:error>` catalog but has ZERO
@@ -76,6 +75,12 @@ logger = structlog.get_logger(__name__)
 # it stays a technical failure (`ValueError` subclass), NOT a `WorkerBpmnError`.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
+
+#: Consumption-covered (regra simples do gate): `operadora.inadimplencia.register_contract_suspension`
+#: e' consumido SO' por SP-OP-INADIMPLENCIA-001, que declara este errorCode em `BE_SuspensaoNaoHumano`.
+#: Unido em `worker_runtime/service.py::_GATE_PROVEN_BPMN_ERROR_CODES`. `ERR_INAD_INVALID_CONTRATO`
+#: fica FORA de proposito: nao tem boundary (falha tecnica, `ValueError`).
+INADIMPLENCIA_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_CONTRACT_SUSPENSION_NOT_HUMAN})
 
 # Human decision value that allows suspension
 DECISAO_SUSPENDER = "SUSPENDER"
@@ -493,7 +498,7 @@ def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
 
     Mirrors the cancel/auth dossier pattern (`auth.AnalyzeRequestWorker`, `cancel.assess_admissibility`):
     it gathers the pre-resolved facts + regulatory context into a dossier the human analyst
-    (juridico-contratos / gestao-cobranca) reviews. It NEVER originates an adverse decision — the
+    (juridico-contratos, sole decider since R-041) reviews. It NEVER originates an adverse decision — the
     suspension/rescisao is born ONLY in the human User Task (L0 hard, contract_termination,
     ADR-0005/0008). This worker therefore produces NO `decisao_inadimplencia` and NO
     SUSPENDER/RESCINDIR output; the returned dict is a non-routing record no BPMN gateway reads for a
@@ -551,7 +556,9 @@ def _record_dossier_delegation_gap(token: str) -> None:
         logger.warning("inadimplencia_dossier_delegation_metric_failed", error=redact_error_message(exc))
 
 
-def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+def make_prepare_dossier_handler(
+    dispatcher: DelegationDispatcher | None, *, chave_exige_contrato: bool = False
+) -> TaskHandler:
     """Cria o handler de `operadora.inadimplencia.prepare_dossier` — dossie local + delegacao REAL.
 
     METADE DE ORIGEM de R-081 (decisao do dono, `APROVADO-APOS-REVISÃO-HUMANA` 2026-09-04, gap
@@ -592,7 +599,13 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
     SEM PHI NO LOG: so' `numero_contrato`/`tenant_id`/`business_key` (identificadores de contrato
     ja usados pelos demais logs deste modulo) e tokens de classe; texto de erro cru fica no campo
     `error` do log estruturado e NUNCA nas variaveis de engine (ADR-0006/ADR-0010).
+
+    F-124 (`chave_exige_contrato`, dark — `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF; decisao
+    do DPO de 31/10/2026, #1082 opcao a): so' o `numero_contrato` deriva o `task_id` INAD; sem ele
+    a delegacao NAO acontece (mesma lacuna divulgada `missing_business_identifiers`), nunca sobre a matricula.
     """
+    if type(chave_exige_contrato) is not bool:
+        raise TypeError("chave_exige_contrato must be a bool (dark flag, default off)")
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         v = dict(task.variables)
@@ -617,7 +630,12 @@ def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> Tas
             _record_dossier_delegation_gap(_GAP_DISPATCHER_UNAVAILABLE)
             return _com_lacuna(_GAP_DISPATCHER_UNAVAILABLE)
 
-        if not non_blank(tenant_id) or not (non_blank(numero_contrato) or non_blank(matricula_beneficiario)):
+        identidade_presente = (
+            non_blank(numero_contrato)
+            if chave_exige_contrato
+            else (non_blank(numero_contrato) or non_blank(matricula_beneficiario))
+        )
+        if not non_blank(tenant_id) or not identidade_presente:
             # Nenhum `task_id` INAD idempotente pode ser derivado (disciplina `non_blank` EB-4):
             # jamais delegar com chave degenerada — `fernando.graph._business_key` mintaria uma
             # identidade vazia, e a Guarda 4 selaria casos DIFERENTES sob o mesmo `task_id`.
@@ -1372,6 +1390,10 @@ def register_inadimplencia_workers(
     `MAEZO_INAD_FATOS_ESTRITOS`, default OFF; ABSENT == OFF): `resolve_facts` deixa de ecoar
     `dentro_janela_purga` (a janela so se encerra pelo timer BPMN). OFF => comportamento de hoje.
 
+    `inad_chave_exige_contrato` (F-124, dark — `WorkerRuntimeSettings.inad_chave_exige_contrato`,
+    `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF; ABSENT == OFF): `prepare_dossier` so' delega ao
+    Fernando com `numero_contrato` (sem fallback para a matricula). OFF => comportamento de hoje.
+
     `dossier_dispatcher` (costura dossie-A2A, metade de ORIGEM de R-081) e' threaded into the
     `prepare_dossier` RAW async handler — um `DelegationDispatcher` montado pela raiz de
     composicao do worker-runtime (`build_dossier_delegation_dispatcher`), que ja chega aqui pelo
@@ -1409,7 +1431,10 @@ def register_inadimplencia_workers(
     # HANDLER RAW (NAO `register_worker`) — precisa da costura assincrona do dispatcher (R-081,
     # metade de ORIGEM; nota do mapa de topicos deste modulo e o precedente `credenciamento.py`).
     harness.register(
-        "operadora.inadimplencia.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher)
+        "operadora.inadimplencia.prepare_dossier",
+        make_prepare_dossier_handler(
+            dossier_dispatcher, chave_exige_contrato=seams.get("inad_chave_exige_contrato") is True
+        ),
     )
     harness.register_worker(
         FunctionWorker(

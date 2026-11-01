@@ -435,6 +435,10 @@ INADIMPLENCIA_KEY_FAMILY: str = "INAD"
 _ANCHOR_CONTRATO = "contrato"
 _ANCHOR_MATRICULA = "matricula"
 _ANCHOR_PSEUDO = "pseudo"
+#: F-124 (flag `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`): chave exigida sobre o contrato e o contrato
+#: AUSENTE — o start e' recusado e nenhuma matricula/pseudo e' usada; contar como `matricula`
+#: corromperia a evidencia DL-0043 (revisao pos-merge do #1152, achado 1).
+_ANCHOR_AUSENTE = "ausente"
 
 
 def contract_business_key(family: str, tenant_id: str, contrato: str) -> str:
@@ -448,6 +452,20 @@ def contract_business_key(family: str, tenant_id: str, contrato: str) -> str:
     is a divergent double start / an invisible active instance.
     """
     return f"{family}-{tenant_id}-{contrato}"
+
+
+def is_contract_anchored_key(family: str, tenant_id: str, business_key: str, numero_contrato: Any) -> bool:
+    """F-124: `business_key` e' EXATAMENTE a forma de contrato `{family}-{tenant}-{numero_contrato}`.
+
+    Terceiro chamador sancionado do formatador nu, ao lado de `mint_contract_business_key` e
+    `contract_business_key_forms`: este COMPARA, nao cunha nem consulta instancia, por isso nao
+    conta no contador DL-0043 (contar uma conferencia corromperia a evidencia do dono). Usado
+    pela recusa de start `mcp_cibseven.transport.require_contract_anchored_start_key` (decisao
+    do DPO de 31/10/2026, #1082 opcao a). `numero_contrato` ausente/branco/`None` -> False.
+    """
+    return non_blank(numero_contrato) and business_key == contract_business_key(
+        family, tenant_id, str(numero_contrato)
+    )
 
 
 def _record_key_mint(family: str, modo: str, anchor: str) -> None:
@@ -515,8 +533,15 @@ def mint_contract_business_key(
     numero_contrato: str,
     matricula_beneficiario: str,
     beneficiario_pseudo_id: str = "",
+    exige_contrato: bool = False,
 ) -> str:
     """Mint a contract-anchored business key AND record the DL-0043 shadow counter.
+
+    `exige_contrato` (F-124, keyword-only, default False): the key is minted on `numero_contrato`
+    ONLY — `resolve_contract_identity` is NOT consulted, so neither the matricula nor the pseudo
+    id can be the anchor. The counter records `anchor="contrato"` when the contract is present and
+    `anchor="ausente"` when it is not (the start is then refused by the chokepoint), never
+    `matricula`/`pseudo`.
 
     The single mint path for the CANCEL and INAD families. Under the shipped (`off`) policy the
     returned string is byte-identical to the pre-existing
@@ -534,6 +559,12 @@ def mint_contract_business_key(
     corrupt the owner's evidence. Pinned by `test_phi_key_flag_behavior.py::
     test_no_cancel_inad_key_is_minted_outside_the_shared_mint_composer`.
     """
+    if exige_contrato is True:
+        from maezo.platform.privacy.phi_key_policy import phi_key_policy  # lazy
+
+        anchor = _ANCHOR_CONTRATO if numero_contrato else _ANCHOR_AUSENTE
+        _record_key_mint(family, phi_key_policy().modo.value, anchor)
+        return contract_business_key(family, tenant_id, numero_contrato)
     contrato, anchor = resolve_contract_identity(
         numero_contrato=numero_contrato,
         matricula_beneficiario=matricula_beneficiario,

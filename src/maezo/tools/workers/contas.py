@@ -43,6 +43,7 @@ from maezo.tools.workers.base import (
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
+from maezo.tools.workers.pagto import PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -968,9 +969,9 @@ HANDOFF_PAGTO_SEEDED_KEYS: frozenset[str] = frozenset(
 #: `lastro_confirmado=true` here would send the order straight into PAGTO's clerical
 #: `DENTRO_TETO_L2` lane (`ST_ReleaseLowValue` — no User Task, and NOT guarded by
 #: `ERR_PAYMENT_RELEASE_NOT_HUMAN`, which covers only `ST_ReleaseHighValue`).
-HANDOFF_PAGTO_FORBIDDEN_KEYS: frozenset[str] = frozenset(
-    {"lastro_confirmado", "dados_pagamento_validos", "duplicidade_suspeita", "dentro_teto_l2"}
-)
+#: Pacote PAGTO PR-B: o conjunto e o CANONICO de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` (fonte
+#: unica, ampliada aos fatos novos do pacote) — nunca uma copia a mao que possa divergir.
+HANDOFF_PAGTO_FORBIDDEN_KEYS: frozenset[str] = PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 
 #: `lastro_origem` values this worker may emit (I-PAGTO-1's enum, CONTAS half). The automatic
 #: value is not a euphemism: it says plainly that NO human adjudicated, which is precisely what
@@ -1056,7 +1057,7 @@ def handoff_pagamento(
     and the four admissibility booleans (`HANDOFF_PAGTO_FORBIDDEN_KEYS`) are NEVER among them.
     Consequence, by construction: `pagto_admissibility` reads `lastro_confirmado` absent =>
     `False` => row `r_sem_lastro` => `ANALISE_HUMANA` => `UT_AnaliseAdmissibilidade`
-    (`coordenacao-financeira`). This is the REAL gate of this path — not
+    (`analise-contas-pagar`, R-041). This is the REAL gate of this path — not
     `ERR_PAYMENT_RELEASE_NOT_HUMAN`, which guards only `ST_ReleaseHighValue` and which this path
     never reaches. In place of the facts the worker seeds EVIDENCE: `lastro_origem` and
     `lastro_decisor_id` (the `analista_id`; the EMPTY STRING on the automatic leg — never invented).

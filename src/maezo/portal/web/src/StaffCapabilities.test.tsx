@@ -451,7 +451,10 @@ it("renderiza o painel read-only de administração quando o ambiente liga o sin
   expect(path).toBe("/api/v1/portal/administration/memberships");
   expect(options).toMatchObject({ method: "GET", redirect: "error" });
   expect(JSON.stringify(options)).not.toMatch(/"body"|csrf/i);
-  expect(await within(panel).findByText("opaque-principal")).toBeInTheDocument();
+  // F-158 (DPO opção b): o vínculo chega, mas só com os 4 últimos caracteres da referência.
+  expect(await within(panel).findByText("Referência do colaborador")).toBeInTheDocument();
+  expect(within(panel).getByText("Referência do colaborador").nextElementSibling).toHaveTextContent("ipal");
+  expect(panel).not.toHaveTextContent("opaque-principal");
   expect(
     within(panel).getByText(
       "Somente leitura. Nenhuma alteração de vínculo é enviada por esta tela; a administração de vínculos continua na conexão administrativa própria, fora do portal.",

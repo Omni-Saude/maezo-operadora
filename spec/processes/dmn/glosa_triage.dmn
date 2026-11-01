@@ -28,16 +28,23 @@
     Inputs booleanos pre-resolvidos por worker deterministico (calculate_impact / conferencia
     de tabela/anexos) — nunca por LLM, nunca decisao adversa.
     hitPolicy FIRST (catch-all conservador como ultima row).
-    GAP-CONTAS-3 (docs/reports/business-logic-audit-improvement-plan.md): a row 1 ignorava
-    `categoria_normalizada` (input i2 = `-`) e, sob hitPolicy FIRST, preemptava r_tecnica_humano
-    sempre que item_conforme_tabela=true + divergencia_valor=false + documentacao_anexa=true —
-    glosa tecnica/clinica com esses tres fatos batia a row permissiva antes de chegar na row de
-    analise humana. Corrigido: a row 1 agora exige `not("tecnica","clinica")` em
-    categoria_normalizada (mesma sintaxe FEEL de negacao usada em programa_sla.dmn); glosa
-    tecnica/clinica cai para r_tecnica_humano (ou catch-all) mesmo com os demais fatos
-    favoraveis. O conjunto NEGATIVO ainda admite `desconhecida` — achado M-4, aberto e
-    documentado em glosa-triage-shadow-candidate.yaml e docs/review-queue.md; fecha-lo e ato do
-    dono da tabela (ADR-0028 §7), nao de um redesenho de perspectiva (ADR-0040 OQ-10).
+    GAP-CONTAS-3 (docs/reports/business-logic-audit-improvement-plan.md): a row permissiva
+    ignorava `categoria_normalizada` (input i2 = `-`) e, sob hitPolicy FIRST, preemptava
+    r_tecnica_humano sempre que item_conforme_tabela=true + divergencia_valor=false +
+    documentacao_anexa=true. Corrigido em duas etapas. (1) GAP-CONTAS-3: a row passou a exigir
+    `not("tecnica","clinica")`. (2) M-4 / F-033 / R-062 — DECISAO DO DONO DEC-14 (2026-10-31,
+    issue #1084, opcao (a) "rotear a humano"): o conjunto NEGATIVO admitia `desconhecida` (o
+    default do worker e o catch-all da glosa_reason_normalization) e qualquer literal fora do
+    dominio declarado, adjudicando PAGAR sem analista. Agora r_pagar usa o conjunto POSITIVO
+    fechado {documental, administrativa, valor} (dominio declarado de categoria_normalizada menos
+    tecnica/clinica menos desconhecida — nenhum literal novo) e foi movida para a posicao 4
+    (especifico antes de permissivo; neutro sob o conjunto positivo, provado por exaustao em
+    tests/unit/spec/test_glosa_triage_shadow_candidate.py). Categoria desconhecida, vazia ou fora
+    do dominio cai no catch-all -> ANALISE_HUMANA -> ST_PrepareTriageDossier -> UT_AnalistaContas
+    (fluxo default de GW_Triagem ja modelado no BPMN). E exatamente a correcao pre-especificada em
+    glosa-triage-shadow-candidate.yaml (opcao (a) de DECISAO-A); hitPolicy e as demais rows
+    inalteradas. ACHADO-4 (documental/administrativa com anexos -> PAGAR) segue como pergunta
+    aberta ao dono em docs/review-queue.md.
   </description>
   <decision id="glosa_triage" name="Triagem da conta apresentada (roteamento)" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_glosa_triage" hitPolicy="FIRST">
@@ -58,16 +65,6 @@
       </input>
       <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
-      <rule id="r_pagar">
-        <description>Item conforme tabela contratada, sem divergencia de valor, com documentacao e categoria NAO tecnica/clinica -> nenhuma glosa candidata; a conta segue para pagamento (GAP-CONTAS-3: exclui tecnica/clinica para nao preemptar r_tecnica_humano)</description>
-        <inputEntry id="r_pagar_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_pagar_i2"><text>not("tecnica","clinica")</text></inputEntry>
-        <inputEntry id="r_pagar_i3"><text>true</text></inputEntry>
-        <inputEntry id="r_pagar_i4"><text>false</text></inputEntry>
-        <inputEntry id="r_pagar_i5"><text>true</text></inputEntry>
-        <outputEntry id="r_pagar_o1"><text>"PAGAR"</text></outputEntry>
-        <outputEntry id="r_pagar_o2"><text>"Item conforme tabela contratada, sem divergencia de valor, com documentacao e categoria nao tecnica/clinica — nenhuma glosa candidata; conta segue para pagamento"</text></outputEntry>
-      </rule>
       <rule id="r_tecnica_humano">
         <description>Glosa candidata tecnica/clinica -> analise humana (default conservador R4; a decisao de glosar e humana)</description>
         <inputEntry id="r_tecnica_humano_i1"><text>-</text></inputEntry>
@@ -97,6 +94,16 @@
         <inputEntry id="r_valor_humano_i5"><text>true</text></inputEntry>
         <outputEntry id="r_valor_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
         <outputEntry id="r_valor_humano_o2"><text>"Divergencia de valor com item conforme e documentado — glosa candidata de valor; a decisao de glosar e humana (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_pagar">
+        <description>Item conforme tabela contratada, sem divergencia de valor, com documentacao e categoria no conjunto POSITIVO fechado {documental, administrativa, valor} -> nenhuma glosa candidata; a conta segue para pagamento. DEC-14 (dono, 2026-10-31, #1084; R-062/F-033, M-4 fechado): categoria desconhecida/fora do dominio NAO casa aqui e desce ao catch-all (ANALISE_HUMANA). Posicao 4: especifico antes de permissivo (GAP-CONTAS-3 preservado: tecnica/clinica nunca chegam aqui)</description>
+        <inputEntry id="r_pagar_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pagar_i2"><text>"documental","administrativa","valor"</text></inputEntry>
+        <inputEntry id="r_pagar_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_pagar_i4"><text>false</text></inputEntry>
+        <inputEntry id="r_pagar_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_pagar_o1"><text>"PAGAR"</text></outputEntry>
+        <outputEntry id="r_pagar_o2"><text>"Item conforme tabela contratada, sem divergencia de valor, com documentacao e categoria documental/administrativa/valor — nenhuma glosa candidata; conta segue para pagamento"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
         <description>Catch-all FAIL-SAFE: qualquer ambiguidade/categoria desconhecida -> analise humana. NUNCA glosa automatica.</description>

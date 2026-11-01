@@ -136,11 +136,14 @@ async def test_pagto_admissibility_parity(
         (100_000_000, False, "ALCADA_L2", "aprovacao-financeira-l2"),
         (500_000_000, False, "ALCADA_L3", "aprovacao-financeira-l3"),
         (2_000_000_000, False, "ANALISE_HUMANA", "comite-financeiro"),
-        # DIVERGENCE: old Python trusted dentro_teto_l2 ALONE. The deployed table's
-        # DENTRO_TETO_L2 row ALSO requires valor_pagamento_cents <= 10_000_000 (hardcoded
-        # ~R$100k) — a value above that gate falls through to ALCADA_L1 even with
-        # dentro_teto_l2=True (e.g. a future tenant ceiling override above R$100k).
-        (15_000_000, True, "ALCADA_L1", "aprovacao-financeira-l1"),
+        # Pacote PAGTO PR-A (#1153, 2026-10-31): the clerical ceiling is single-sourced in policy
+        # (`high_value_payment.threshold_brl`, resolved into `dentro_teto_l2`). The DMN no longer
+        # repeats the `<= 10_000_000` literal (the old T1.5 divergence), so `dentro_teto_l2=True`
+        # decides the clerical band for any POSITIVE amount; the row's value column is the domain
+        # test `> 0`, so a non-positive amount never reaches it even with the boolean true.
+        (15_000_000, True, "DENTRO_TETO_L2", "clerical-pagamentos"),
+        (0, True, "ANALISE_HUMANA", "comite-financeiro"),
+        (-1, True, "ANALISE_HUMANA", "comite-financeiro"),
     ],
 )
 async def test_pagto_alcada_parity(
@@ -157,6 +160,8 @@ async def test_pagto_alcada_parity(
     )
     assert row["faixa_valor"] == expected_faixa
     assert row["grupo_aprovador"] == expected_grupo
+    # Pacote PAGTO PR-A: every rule emits the approved-amount cap = the order amount (R-053 (a)).
+    assert row["valor_maximo_aprovavel_cents"] == valor_cents
 
 
 async def test_pagto_alcada_long_typing_above_int32(dmn: CibSevenDmnTransport) -> None:
@@ -269,13 +274,13 @@ async def test_glosa_reason_normalization_parity(
 @pytest.mark.parametrize(
     ("tipo_item", "categoria", "item_conforme", "divergencia_valor", "documentacao_anexa", "expected"),
     [
-        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-CONTAS-001.md:291,:493,:499): a row 1 e a MESMA
-        # (`r_sem_glosa` -> `r_pagar`, cinco condicoes byte-identicas: `-` / not("tecnica",
-        # "clinica") / true / false / true), mas a SAIDA deixou de ser `SEM_GLOSA` e passou a ser
+        # PERSPECTIVA (ADR-0040 / REDESIGN-SP-OP-CONTAS-001.md:291,:493,:499): `r_sem_glosa` ->
+        # `r_pagar` (desde DEC-14 na posicao 4 e com categoria em {documental, administrativa,
+        # valor}; ver as linhas M-4 abaixo), e a SAIDA deixou de ser `SEM_GLOSA` e passou a ser
         # `PAGAR`. Nao e renomeacao cosmetica: `SEM_GLOSA` era a moldura do PRESTADOR ("nao houve
         # glosa") e terminava sem efeito nenhum; `PAGAR` e o ato do PAGADOR — emite demonstrativo
         # e encaminha a ordem a SP-OP-PAGTO-001, que a segura em `UT_AnaliseAdmissibilidade`.
-        # Com estes cinco inputs a row 1 e a primeira a casar (hitPolicy FIRST).
+        # Com estes cinco inputs `r_pagar` e a primeira a casar (hitPolicy FIRST).
         ("consulta", "administrativa", True, False, True, "PAGAR"),
         # DIVERGENCE (MAJOR): old Python said "no glosas -> SEM_GLOSA" checking only
         # has_glosas/divergencia_valor. The DMN ALSO requires item_conforme_tabela=true AND
@@ -295,6 +300,15 @@ async def test_glosa_reason_normalization_parity(
         # `r_documental_humano` nao casam pela categoria; `r_valor_humano` e a primeira a casar.
         ("consulta", "valor", True, True, True, "ANALISE_HUMANA"),
         ("consulta", "clinica", False, True, False, "ANALISE_HUMANA"),
+        # M-4 / F-033 FECHADO por DEC-14 (dono, 2026-10-31, #1084; R-062): `r_pagar` usa o conjunto
+        # POSITIVO fechado {documental, administrativa, valor} na posicao 4. Com os tres fatos
+        # favoraveis, so as categorias do conjunto chegam a PAGAR; `desconhecida` (default do
+        # worker e catch-all da normalizacao), vazia ou fora do dominio desce ao catch-all.
+        ("consulta", "documental", True, False, True, "PAGAR"),
+        ("consulta", "valor", True, False, True, "PAGAR"),
+        ("consulta", "desconhecida", True, False, True, "ANALISE_HUMANA"),
+        ("", "", True, False, True, "ANALISE_HUMANA"),
+        ("consulta", "fraude_suspeita", True, False, True, "ANALISE_HUMANA"),
     ],
 )
 async def test_glosa_triage_parity(

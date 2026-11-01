@@ -373,6 +373,7 @@ class PostgresExternalSourceImporter:
                 )
                 result = (
                     await connection.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: operation = 1 de 3 nomes literais acima
                         text(
                             "SELECT maezo_external."
                             + operation

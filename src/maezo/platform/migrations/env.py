@@ -220,8 +220,14 @@ async def run_async_migrations() -> None:
         # Per DL-0017: tenant schema first, then public (objetos DB-global).
         # Each schema is its own quoted identifier (T1.10 fix — see SEARCH_PATH comment above:
         # a single quoted string here would set search_path to one bogus schema name).
-        search_path_sql = ", ".join(f'"{schema}"' for schema in SEARCH_PATH)
-        await connection.execute(text(f"SET search_path TO {search_path_sql}"))
+        # R-110 / F-151: TENANT_ID vem de `-x tenant=`/MAEZO_TENANT_ID sem validacao aqui, entao
+        # a lista vai como VALOR ligado de `set_config` (equivale ao SET de sessao), nunca como
+        # texto do SQL: um tenant com aspas so' produz uma lista invalida, nao injecao.
+        search_path_value = ", ".join(f'"{schema}"' for schema in SEARCH_PATH)
+        await connection.execute(
+            text("SELECT set_config('search_path', :search_path, false)"),
+            {"search_path": search_path_value},
+        )
         # T1.10 fix: SQLAlchemy 2.x AsyncConnection autobegins a transaction on first
         # execute() ("commit as you go"). Handing that still-open transaction straight to
         # Alembic's own `context.begin_transaction()` nests inside it instead of owning it —

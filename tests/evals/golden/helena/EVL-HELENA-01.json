@@ -36,5 +36,8 @@
     "assert": "fields",
     "match": ["intent", "population", "psychosocial_risk"],
     "threshold": 0.9
-  }
+  },
+  "triggers": [
+    "dmn:triage_redflag_*"
+  ]
 }

@@ -238,3 +238,15 @@ passou a devolver o trimestre fechado anterior como `YYYY-Qn` (ex.: `2026-Q1`). 
 - **Confirmacao do fuso civil da ancora** (`America/Sao_Paulo`, hoje um default de engenharia —
   pergunta 2b do despacho regulatorio).
 - Revisao humana registrada (regulatorio-ANS) antes de qualquer deploy.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process keys:** `SP-OP-ANS-CRON-001-DIOPS` → `maezo-payer-ans-cron-001-diops`; `SP-OP-ANS-CRON-001-RN209` → `maezo-payer-ans-cron-001-rn209`; `SP-OP-ANS-CRON-001-RN388` → `maezo-payer-ans-cron-001-rn388`; `SP-OP-ANS-CRON-001-RN424TISS` → `maezo-payer-ans-cron-001-rn424tiss`.
+- **Classificação (a confirmar pelo DPO):** sem business key (start por timer).
+- **Postura de dedup do start:** fora do allowlist de start por agente (inalterado — achado colateral do ADR-0038 não é fechado aqui).
+- As fontes de fato de timer ANS do publicador de eventos, hoje fixadas nas process keys vigentes, passam a aceitar as duas durante a janela.

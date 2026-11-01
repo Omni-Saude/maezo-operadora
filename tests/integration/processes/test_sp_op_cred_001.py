@@ -864,7 +864,7 @@ async def test_happy_path_descredenciamento_humano(
     iid = inst["id"]
 
     ut = await _drive_to_descred(engine, cred_probe, iid)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(ut.id, {"decisao_cred": "DESCREDENCIAR", **_CAMPOS_DESCRED})
     await cred_probe.drain()
@@ -1292,7 +1292,7 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_descredencia(
     await cred_probe.drain()
 
     ut = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Expiracao do prazo NUNCA auto-descredencia (L1)"
@@ -1323,7 +1323,7 @@ async def test_notificacao_ack_destrava_analise(
 
     await cred_probe.drain()
     ut = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Ack de notificacao nunca auto-descredencia (L1)"
@@ -1596,7 +1596,7 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     start_cred: Callable[..., Any],
 ) -> None:
     """GAP-CRED-4: cred_route catch-all ANALISE_HUMANA (direcao nao mapeada/ambigua) deve rotear para
-    o ramo de CO-REVIEW (UT_AnaliseDescredenciamento — candidate groups gestao-rede+juridico-rede),
+    o ramo de descredenciamento (UT_AnaliseDescredenciamento — decisor unico juridico-rede, R-041),
     NUNCA para o ramo credenciamento-only (UT_AnaliseCredenciamento — so gestao-rede). A ambiguidade
     tambem deve passar pela obrigacao de notificacao previa RN 567 (cure-window), nunca pula-la
     (regressao conjunta com GAP-CRED-6).
@@ -1609,9 +1609,9 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     iid = inst["id"]
 
     ut = await _drive_to_descred(engine, cred_probe, iid)
-    assert {"gestao-rede", "juridico-rede"}.issubset(ut.candidate_groups), (
-        f"GAP-CRED-4: catch-all ANALISE_HUMANA deve cair no ramo de co-review (ambos os grupos). "
-        f"groups={ut.candidate_groups}"
+    assert ut.candidate_groups == frozenset({"juridico-rede"}), (
+        f"GAP-CRED-4 + R-041: catch-all ANALISE_HUMANA cai no ramo de descredenciamento, cujo "
+        f"decisor unico e juridico-rede (#1084). groups={ut.candidate_groups}"
     )
     # Engine-side (kafka-echo morto pos-#178): o serviceTask check_prior_notice executou.
     assert "ST_CheckPriorNotice" in await engine.activity_instances_ended(iid), (
@@ -1693,7 +1693,7 @@ async def test_solicitar_info_descredenciamento_aguarda_e_retoma_ut(
     await cred_probe.drain()
 
     ut2 = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut2.candidate_groups or "juridico-rede" in ut2.candidate_groups
+    assert ut2.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(
         ut2.id,

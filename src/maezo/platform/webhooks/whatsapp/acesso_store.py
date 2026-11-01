@@ -30,7 +30,7 @@ _COLUNAS: Final[str] = (
     "verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em, regravacoes_falhas, falhas_janela, "
     "janela_inicio, apresentado_em"
 )
-_SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"
+_SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
 _UPSERT_SQL: Final[str] = f"""
 INSERT INTO {TABELA} (
     tenant, conversation_id, estado, tentativas, texto_versao, texto_sha256, consentido_em, revogado_em,
@@ -57,7 +57,7 @@ ON CONFLICT (tenant, conversation_id) DO UPDATE SET
     falhas_janela = EXCLUDED.falhas_janela,
     janela_inicio = EXCLUDED.janela_inicio,
     apresentado_em = EXCLUDED.apresentado_em
-"""
+"""  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
 
 
 #: Retencao (DL-0084): apaga em LOTES (sem lock longo na tabela quente), so' o que nao tem atividade desde
@@ -70,7 +70,7 @@ WHERE tenant = $1 AND conversation_id IN (
     ORDER BY ultima_mensagem_em
     LIMIT $3
 )
-"""
+"""  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
 LOTE_EXPURGO: Final[int] = 500
 
 

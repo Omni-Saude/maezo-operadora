@@ -60,7 +60,8 @@
       "engine_variables": {
         "tenant_id": "amh",
         "ordem_pagamento_id": "ORDEM-EVL-ANDRE-J01",
-        "dentro_teto_l2": true,
+        "dentro_teto_l2": null,
+        "lastro_confirmado": null,
         "andre_route": "auto_route",
         "faixa_valor": "DENTRO_TETO_L2"
       }

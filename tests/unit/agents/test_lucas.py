@@ -463,8 +463,9 @@ async def test_intencao_inadimplencia_passa_pela_dmn_com_os_fatos() -> None:
         "valores_com_atraso": False,
         # 13/10/2026: sem `pagador_tipo` no estado, nao e' contrato de empresa.
         "pagador_empresa": False,
-        # 14/10/2026: sem atraso nos fatos, o atraso nao e' critico.
-        "atraso_critico": False,
+        # R-047 (sobre 14/10/2026): os FATOS do atraso; o limiar mora na tabela. Sem atraso nos fatos.
+        "meses_vencidos": 0,
+        "dias_atraso_max": None,
     }
 
 

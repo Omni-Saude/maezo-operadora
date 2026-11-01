@@ -332,3 +332,20 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - O agente **Gustavo** (general zone) conduz o processo (J1: cron → assemble → validate →
   `UT_RevisarEnvio` → submit → track ACK), mas **nunca transmite autonomamente** — o PEP retorna
   `require_human` para `ans_official_submission` (L1).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-ANS-SUBMIT-001` → `maezo-payer-ans-submit-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - relatório: `{tenant_id}:ans-submit-001:R-{report_type}-{competencia}` (em claro no motor).
+  - protocolamento de NIP: `{tenant_id}:ans-submit-001:hk1_<HMAC>` sobre `N-{numero_nip_ans}`.
+- **Classificação (a confirmar pelo DPO):** forma `R` não pessoal (em claro no motor, sob a Q1-c); forma `N` pessoal (opaca).
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- Na saída, as duas formas aparecem opacas (regra uniforme de saída do ADR-0068).

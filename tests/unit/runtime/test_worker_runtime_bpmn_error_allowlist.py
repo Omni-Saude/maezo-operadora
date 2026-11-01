@@ -24,16 +24,26 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _BPMN_DIR = _REPO_ROOT / "spec" / "processes" / "bpmn"
 _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 
-# The four business-outcome codes ADR-0030 §4 hard-gates on T-E (all consumption-covered or
-# modeled, all MUST stay out of the production allowlist until audited-refusal lands).
-#: Codigos que CONTINUAM hard-gated em T-E. `ERR_AUTH_DENIAL_INCOMPLETE` SAIU desta lista em
-#: 25/08/2026 (habilitado; ver `_TE_ENABLED_CODES` em service.py) — os quatro que restam sao a
-#: familia `*_NOT_HUMAN`, cuja habilitacao e' follow-up por familia e nao aconteceu.
+#: Codigos que CONTINUAM hard-gated em T-E: `*_NOT_HUMAN` que NAO estao em `_TE_ENABLED_CODES`.
+#: `ERR_AUTH_DENIAL_INCOMPLETE` saiu em 25/08/2026; os quatro do lote T-E unico (cancel, cred x2,
+#: inadimplencia) sairam em 2026-10-31 (decisao do dono, registro R-075). Os que restam aqui sao
+#: guards de outras familias — nenhum deles levanta `WorkerBpmnError` hoje, e a habilitacao e'
+#: por lista explicita, nao por sufixo.
 _TE_GATED_CODES = (
-    "ERR_CANCEL_MANTER_NOT_HUMAN",
-    "ERR_DECRED_NOT_HUMAN",
-    "ERR_CRED_DENIAL_NOT_HUMAN",
-    "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    "ERR_CANCELLATION_NOT_HUMAN",
+    "ERR_PAYMENT_RELEASE_NOT_HUMAN",
+    "ERR_REEMBOLSO_DENIAL_NOT_HUMAN",
+    "ERR_OUTRO_GUARD_HIPOTETICO_NOT_HUMAN",
+)
+
+#: Lote T-E unico (2026-10-31): adversos, habilitados, AINDA auditados.
+_LOTE_T_E = frozenset(
+    {
+        "ERR_CANCEL_MANTER_NOT_HUMAN",
+        "ERR_DECRED_NOT_HUMAN",
+        "ERR_CRED_DENIAL_NOT_HUMAN",
+        "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    }
 )
 
 
@@ -91,7 +101,7 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 # unica condicao do gate. Antes disso a negativa sem fundamentacao parava como
                 # incident — nada transmitido, mas sem volta a mesa do auditor, e cada
                 # ocorrencia virava chamado de suporte.
-                # E' o UNICO codigo adverso nesta lista; os outros treze sao nao-adversos.
+                # Foi o PRIMEIRO codigo adverso nesta lista (o lote T-E unico abaixo veio depois).
                 "ERR_AUTH_DENIAL_INCOMPLETE",
                 # VW4/GP11 (2026-10-07): os dois fail-safes tecnicos de admissao do envelope
                 # SP-OP-SUPP-001 (worker suppression.py no estado fail-closed — recusas tipadas,
@@ -99,6 +109,14 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 # cada um roteia a terminal neutro visivel a DPO.
                 "ERR_SUPP_SUBJECT_UNRESOLVED",
                 "ERR_SUPP_ROUTING_UNAVAILABLE",
+                # LOTE T-E UNICO (2026-10-31, decisao do dono; registro R-075; roadmap R-050 /
+                # R-059 CRED / R-119): os quatro guards `*_NOT_HUMAN` cujos boundaries ja' estavam
+                # modelados para terminais neutros. O worker continua RECUSANDO o efeito; muda so'
+                # o desfecho da recusa (terminal neutro auditado em vez de incident).
+                "ERR_CANCEL_MANTER_NOT_HUMAN",
+                "ERR_DECRED_NOT_HUMAN",
+                "ERR_CRED_DENIAL_NOT_HUMAN",
+                "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
             }
         )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST
@@ -124,8 +142,14 @@ def test_te_denial_code_habilitado_e_ainda_auditado() -> None:
     )
 
 
-def test_no_not_human_guard_code_in_production() -> None:
-    assert not any(c.endswith("_NOT_HUMAN") for c in PRODUCTION_BPMN_ERROR_ALLOWLIST)
+def test_only_the_te_batch_not_human_codes_in_production() -> None:
+    """Antes de 2026-10-31: nenhum `*_NOT_HUMAN` em producao. Agora: EXATAMENTE os do lote T-E
+    unico, e cada um deles continua auditado — nenhum outro guard entra por carona."""
+    from maezo.tools.workers.harness import is_guard_refusal_code
+
+    assert {c for c in PRODUCTION_BPMN_ERROR_ALLOWLIST if c.endswith("_NOT_HUMAN")} == _LOTE_T_E
+    for code in _LOTE_T_E:
+        assert is_guard_refusal_code(code), code
 
 
 def test_all_business_outcome_codes_classified_te_gated() -> None:

@@ -1,7 +1,7 @@
 # Alert Runbook: MaezoDeadLetterBacklog
 
 **Audience:** Platform engineers, SRE, on-call
-**Last updated:** 2026-09-02
+**Last updated:** 2026-10-31
 **Applies to:** Kafka dead-letter topics (messaging layer)
 **Alert source:** `deploy/observability/alert-rules.yml:121-135` (group `maezo_dead_letter`)
 **SLO context:** [`docs/observability/SLO.md`](../../observability/SLO.md) §2, §6 row 6
@@ -22,31 +22,28 @@
 
 ## 1. Trigger — READ THIS BEFORE ACTING ON A PAGE
 
-**Code:** `deploy/observability/alert-rules.yml:121-135`
+**Code:** `deploy/observability/alert-rules.yml`, group `maezo_dead_letter`
 
 ```yaml
 - alert: MaezoDeadLetterBacklog
   expr: |
-    maezo_dead_letter_queue_size > 0
-  for: 10m
+    sum by (topic, environment) (
+      increase(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[10m])
+    ) > 0
   labels:
     severity: warning
-    category: dead_letter
-    component: messaging
 ```
 
-**This alert cannot fire, ever, as currently wired.** `maezo_dead_letter_queue_size` is not
-defined anywhere in `src/` — `grep -rn "dead_letter_queue_size\|maezo_dead_letter" src/` returns
-zero hits. The rule file says so itself, in the comment immediately above it
-(`alert-rules.yml:118-120`): *"Note: Uses a synthetic metric — replace with actual Kafka DLQ
-metric from the OTel Collector's JMX exporter or Kafka Exporter when available."* There is also
-no JMX exporter or Kafka Exporter scrape job in `deploy/observability/prometheus.yml` (its 5 jobs
-are `maezo-app`, `maezo-workers`, `otel-collector`, `otel-collector-metrics`, `prometheus` — none
-targets Kafka/JMX). With no series for this metric name at all, Prometheus never evaluates the
-`> 0` condition — this is a "no data" rule, not a rule that is merely under-tuned. If you are
-reading this because you were paged, that page did **not** come from this rule as it exists on
-`main`; check the alert name in Alertmanager carefully, and treat as a manual test/silence
-exercise or a rule-file change since this runbook was written.
+**R-085 (owner decision 2026-10-31, "DLQ por chegadas novas").** The rule used to read
+`maezo_dead_letter_queue_size > 0` for 10m. That recording rule sums a MONOTONIC Kafka offset, so
+after the first message ever routed to a DLQ the alert fired forever and never cleared. The rule
+now fires on NEW arrivals: `increase()` per partition of the kafka_exporter offset on every `.dlq`
+topic, summed, over a 10m window (parameter **P4, TODO-OWNER**), with no `for:` — a DLQ arrival is
+a "should never happen" event. The exporter series exist from topic creation, so the first message
+is visible. It clears by itself one window after the last arrival.
+
+Where it has data: the `kafka-exporter` scrape job (`deploy/observability/prometheus.yml`) exists
+in local compose/CI only. ECS dev has no kafka_exporter, so there is no series there.
 
 ## 2. What this means in business terms — IF a real DLQ metric is wired in the future
 

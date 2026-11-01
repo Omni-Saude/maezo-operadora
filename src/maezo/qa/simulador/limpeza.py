@@ -36,6 +36,15 @@ logger = structlog.get_logger(__name__)
 
 TABELA_ROTEADOR = "conversa_agente_ativo"
 TABELA_ACESSO = "conversa_acesso_beneficiario"
+# R-110 / F-151: mapa fechado tabela -> DELETE literal; tabela fora dele e' recusada (nada interpolado).
+_DELETE_SQL: dict[str, str] = {
+    TABELA_ROTEADOR: (
+        "DELETE FROM conversa_agente_ativo WHERE tenant = $1 AND conversation_id = ANY($2::text[])"
+    ),
+    TABELA_ACESSO: (
+        "DELETE FROM conversa_acesso_beneficiario WHERE tenant = $1 AND conversation_id = ANY($2::text[])"
+    ),
+}
 
 
 @dataclass
@@ -114,10 +123,13 @@ class Limpeza:
         await conn.execute(f'SET search_path TO "{self._schema}"')
 
     async def _apagar(self, tabela: str, conversation_ids: Sequence[str]) -> int:
+        sql = _DELETE_SQL.get(tabela)
+        if sql is None:
+            raise ValueError("limpeza: tabela fora do mapa fechado _DELETE_SQL")
         pool = await self._ensure_pool()
         async with pool.acquire() as conn:
             status = await conn.execute(
-                f"DELETE FROM {tabela} WHERE tenant = $1 AND conversation_id = ANY($2::text[])",
+                sql,
                 self._tenant,
                 list(conversation_ids),
             )

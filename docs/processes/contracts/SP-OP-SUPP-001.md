@@ -51,3 +51,18 @@
 - Sem PHI em nenhuma superfície (G-PHI absoluto — OP20 é a superfície de teste da invariante); sem RATE/comparação entre operadoras (G-CADE).
 - Honrar registro = `REGISTRO_HONRADO` EXPLÍCITO da DMN + plano de lista — nunca automática por omissão; recusa tipada ≠ violação (§4e critério 4).
 - KPI: `supressões honradas no SLA / total` observável pelos eventos `sla_*`; `phi_egress_violations == 0` (§4e — violação é conteúdo proibido que PASSOU a fronteira, nunca a recusa).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-SUPP-001` → `maezo-payer-supp-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - supressão: `{tenant_id}:supp-001:X-{suppression_ref}` em claro quando couber no charset; senão `hk1_<HMAC>`.
+- **Classificação (a confirmar pelo DPO):** já opaco (digest).
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** fora do allowlist de start por agente (inalterado).

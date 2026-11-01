@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_prestador_tier"
+             name="Tier de confianca do prestador (MPTT)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    prestador_tier v0.1.0 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos
+    liberados por humano, T=12 meses e o patamar gold-card sao DRAFT/calibrar em sombra (financas +
+    medico-auditor); pendentes em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. MPTT P5
+    (docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md §4; decisao do dono
+    2026-10-31 "Pagamentos": scorecard hibrido; gold-card &gt;= 90% em &gt;= 10 ordens; novos em
+    WATCH ate N pagamentos). NAO LIGADA a BPMN nem a worker nesta entrega (P6 liga em
+    pagto_admissibility v0.3 / pagto_alcada).
+
+    hitPolicy FIRST, ordem = precedencia: (1) qualquer entrada ausente -> WATCH; (2) pontuacao fora
+    da escala -> WATCH; (3) red flags NAO compensatorias -> WATCH; (4) prestador novo/baixo volume
+    -> WATCH; (5) TRUSTED so com gold-card + T + corte_trusted; (6) STANDARD; (7) WATCH por
+    pontuacao; (8) catch-all WATCH. FAIL-CLOSED: na duvida, WATCH (rota humana).
+
+    O portao gold-card (F1 &gt;= 90% em &gt;= 10 ordens) e checado AQUI e nao so pela pontuacao: uma
+    pontuacao alta montada por faixas neutras/outras features nunca substitui o historico de
+    pagamento exigido para TRUSTED.
+
+    Dominio de `prestador_tier` e EXATAMENTE {TRUSTED, STANDARD, WATCH}. BLOQUEIO NAO existe aqui
+    por design: fatos duros (descredenciado, fraude confirmada/aberta, status desconhecido) sao
+    avaliados ANTES, em pagto_admissibility (P6). O tier SO roteia: WATCH -> ANALISE_HUMANA;
+    STANDARD/TRUSTED -> auto-liberacao dentro de um teto lido da POLITICA (nenhum valor em BRL
+    nesta tabela). Nenhuma saida recusa, reduz, glosa ou retem pagamento (ADR-0018; GAO-26-107799).
+
+    FORA desta versao (declarado): red flag F3 (duplicidade confirmada) entra com o ledger do PAGTO
+    PR-E; red flag F4 (custo de episodio, outlier confiavel) e v2 lake-side, so rebaixa; histerese
+    (promocao exige 2 avaliacoes trimestrais consecutivas; rebaixamento imediato) e snapshot &gt; 48h
+    -> WATCH sao do lote/consumidor (P4/P6), nao desta tabela sem estado.
+  </description>
+  <decision id="prestador_tier" name="Tier de confianca do prestador" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_prestador_tier" hitPolicy="FIRST">
+      <input id="in_pontuacao_confianca" label="Pontuacao do scorecard prestador_trust_scorecard (0..85) (pontuacao_confianca)">
+        <inputExpression id="ie_ti_pontuacao_confianca" typeRef="integer"><text>pontuacao_confianca</text></inputExpression>
+      </input>
+      <input id="in_f1_ordens_decididas" label="F1 — ordens decididas por humano na janela (f1_ordens_decididas)">
+        <inputExpression id="ie_ti_f1_ordens_decididas" typeRef="integer"><text>f1_ordens_decididas</text></inputExpression>
+      </input>
+      <input id="in_f1_taxa_liberacao_humana" label="F1 — taxa de liberacao humana sem alteracao (0..1) (f1_taxa_liberacao_humana)">
+        <inputExpression id="ie_ti_f1_taxa_liberacao_humana" typeRef="double"><text>f1_taxa_liberacao_humana</text></inputExpression>
+      </input>
+      <input id="in_f5_meses_relacionamento" label="F5 — meses de relacionamento (f5_meses_relacionamento)">
+        <inputExpression id="ie_ti_f5_meses_relacionamento" typeRef="integer"><text>f5_meses_relacionamento</text></inputExpression>
+      </input>
+      <input id="in_pagamentos_liberados_humanos" label="Pagamentos ja liberados por humano a este prestador (prestador conhecido, D3-B) (pagamentos_liberados_humanos)">
+        <inputExpression id="ie_ti_pagamentos_liberados_humanos" typeRef="integer"><text>pagamentos_liberados_humanos</text></inputExpression>
+      </input>
+      <input id="in_red_flag_pico_faturamento" label="F6 — pico de faturamento vs k x mediana propria de 6 meses (red_flag_pico_faturamento)">
+        <inputExpression id="ie_ti_red_flag_pico_faturamento" typeRef="boolean"><text>red_flag_pico_faturamento</text></inputExpression>
+      </input>
+      <input id="in_fraude_monitorar_12m" label="Caso FRAUDE encerrado em MONITORAR nos ultimos 12 meses (fraude_monitorar_12m)">
+        <inputExpression id="ie_ti_fraude_monitorar_12m" typeRef="boolean"><text>fraude_monitorar_12m</text></inputExpression>
+      </input>
+      <output id="out_prestador_tier" label="prestador_tier" name="prestador_tier" typeRef="string"/>
+      <output id="out_motivo_tier" label="motivo_tier" name="motivo_tier" typeRef="string"/>
+      <rule id="r_pontuacao_ausente">
+        <description>Pontuacao ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_pontuacao_ausente_i1"><text>null</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_pontuacao_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_pontuacao_ausente_o2"><text>"ENTRADA_AUSENTE_PONTUACAO"</text></outputEntry>
+      </rule>
+      <rule id="r_ordens_ausente">
+        <description>F1 ordens ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_ordens_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i2"><text>null</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_ordens_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_ordens_ausente_o2"><text>"ENTRADA_AUSENTE_F1_ORDENS"</text></outputEntry>
+      </rule>
+      <rule id="r_taxa_ausente">
+        <description>F1 taxa ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_taxa_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i3"><text>null</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_taxa_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_taxa_ausente_o2"><text>"ENTRADA_AUSENTE_F1_TAXA"</text></outputEntry>
+      </rule>
+      <rule id="r_meses_ausente">
+        <description>F5 meses ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_meses_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i4"><text>null</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_meses_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_meses_ausente_o2"><text>"ENTRADA_AUSENTE_F5_MESES"</text></outputEntry>
+      </rule>
+      <rule id="r_pagamentos_ausente">
+        <description>Contagem de pagamentos liberados ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_pagamentos_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i5"><text>null</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_pagamentos_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_pagamentos_ausente_o2"><text>"ENTRADA_AUSENTE_PAGAMENTOS_LIBERADOS"</text></outputEntry>
+      </rule>
+      <rule id="r_pico_ausente">
+        <description>Red flag F6 ausente -> WATCH (fail-closed: ausencia de sinal nao e sinal limpo)</description>
+        <inputEntry id="r_pico_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i6"><text>null</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_pico_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_pico_ausente_o2"><text>"ENTRADA_AUSENTE_RED_FLAG_PICO"</text></outputEntry>
+      </rule>
+      <rule id="r_fraude_monitorar_ausente">
+        <description>Indicador de MONITORAR ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_fraude_monitorar_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i7"><text>null</text></inputEntry>
+        <outputEntry id="r_fraude_monitorar_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_fraude_monitorar_ausente_o2"><text>"ENTRADA_AUSENTE_FRAUDE_MONITORAR"</text></outputEntry>
+      </rule>
+      <rule id="r_pontuacao_invalida">
+        <description>Pontuacao fora de [0,85] (escala desta versao do scorecard) -> WATCH</description>
+        <inputEntry id="r_pontuacao_invalida_i1"><text>&lt; 0, &gt; 85</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_pontuacao_invalida_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_pontuacao_invalida_o2"><text>"PONTUACAO_FORA_DA_ESCALA"</text></outputEntry>
+      </rule>
+      <rule id="r_red_flag_pico">
+        <description>F6 pico de faturamento -> WATCH no ciclo (nao compensatorio: nenhuma pontuacao anula)</description>
+        <inputEntry id="r_red_flag_pico_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i6"><text>true</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_red_flag_pico_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_red_flag_pico_o2"><text>"RED_FLAG_PICO_FATURAMENTO"</text></outputEntry>
+      </rule>
+      <rule id="r_fraude_monitorar">
+        <description>FRAUDE encerrada em MONITORAR nos ultimos 12 meses -> WATCH (nao compensatorio)</description>
+        <inputEntry id="r_fraude_monitorar_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i7"><text>true</text></inputEntry>
+        <outputEntry id="r_fraude_monitorar_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_fraude_monitorar_o2"><text>"RED_FLAG_FRAUDE_MONITORAR_12M"</text></outputEntry>
+      </rule>
+      <rule id="r_prestador_novo">
+        <description>Menos de N=10 pagamentos liberados por humano -> WATCH (decisao do dono: novos em WATCH ate N)</description>
+        <inputEntry id="r_prestador_novo_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i5"><text>&lt; 10</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_prestador_novo_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_prestador_novo_o2"><text>"PRESTADOR_NOVO_OU_BAIXO_VOLUME"</text></outputEntry>
+      </rule>
+      <rule id="r_trusted">
+        <description>TRUSTED: gold-card (&gt;= 90% em &gt;= 10 ordens) E F5 &gt;= T=12 meses E pontuacao &gt;= corte_trusted=70 E nenhuma red flag (linhas acima)</description>
+        <inputEntry id="r_trusted_i1"><text>[70..85]</text></inputEntry>
+        <inputEntry id="r_trusted_i2"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_trusted_i3"><text>[0.90..1]</text></inputEntry>
+        <inputEntry id="r_trusted_i4"><text>&gt;= 12</text></inputEntry>
+        <inputEntry id="r_trusted_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_trusted_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_trusted_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_trusted_o1"><text>"TRUSTED"</text></outputEntry>
+        <outputEntry id="r_trusted_o2"><text>"GOLD_CARD_ATINGIDO"</text></outputEntry>
+      </rule>
+      <rule id="r_standard">
+        <description>STANDARD: pontuacao &gt;= corte_watch=40 sem gold-card completo -> auto dentro do teto reduzido (P6/politica)</description>
+        <inputEntry id="r_standard_i1"><text>[40..85]</text></inputEntry>
+        <inputEntry id="r_standard_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_standard_o1"><text>"STANDARD"</text></outputEntry>
+        <outputEntry id="r_standard_o2"><text>"PONTUACAO_STANDARD"</text></outputEntry>
+      </rule>
+      <rule id="r_watch_pontuacao">
+        <description>Pontuacao abaixo de corte_watch=40 -> WATCH</description>
+        <inputEntry id="r_watch_pontuacao_i1"><text>[0..40)</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_watch_pontuacao_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_watch_pontuacao_o2"><text>"PONTUACAO_ABAIXO_DO_CORTE_WATCH"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-CLOSED: qualquer combinacao nao mapeada -> WATCH (vai a humano; nunca nega)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i7"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"COMBINACAO_NAO_MAPEADA"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

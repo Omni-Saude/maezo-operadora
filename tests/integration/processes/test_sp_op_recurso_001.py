@@ -842,14 +842,14 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     humano semearia `lastro_confirmado=true` e a ordem cairia direto na faixa clerical
     `DENTRO_TETO_L2` (`ST_ReleaseLowValue`, sem nenhuma User Task). Com ela,
     `pagto_admissibility` le o lastro ausente => `ANALISE_HUMANA` => a ordem PARA na fila de
-    `coordenacao-financeira`.
+    `analise-contas-pagar` (R-041).
 
     M3 (gatekeeper R1) — POR QUE ESTE TESTE DRENA PAGTO. Na forma anterior ele NAO drenava os
     workers de destino, e a instancia estacionava na sua PRIMEIRA external task
     (`ST_PublishReceived`): `BRT_PagtoAdmissibility` nunca era avaliada e as tres assercoes
     negativas eram verdadeiras por construcao — valeriam tambem com `lastro_confirmado=true`
     semeado. Agora a instancia e efetivamente conduzida ao gate, a assercao central e POSITIVA
-    (a User Task humana ESTA aberta, para `coordenacao-financeira`) e o controle negativo
+    (a User Task humana ESTA aberta, para `analise-contas-pagar`) e o controle negativo
     `test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical` prova que o MESMO dreno
     e as MESMAS assercoes mudam de resultado quando o lastro chega confirmado.
     """
@@ -879,7 +879,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     await pagto_drain.drain()
 
     pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"}), (
         "a ordem tem de parar na fila HUMANA de admissibilidade — quem julgou o recurso nao e "
         "quem admite a ordem de pagamento (I-PAGTO-1, segregacao de funcoes)"
     )

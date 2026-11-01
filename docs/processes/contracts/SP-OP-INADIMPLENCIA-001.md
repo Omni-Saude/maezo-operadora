@@ -28,7 +28,7 @@
 ## Invariante L0-HARD (no-adverse — nao negociavel; ADR-0018; covers EVERY adverse effect)
 
 `contract_termination` e **L0-hard** (`_hard_frozen.yaml`, CI-enforced). NENHUM caminho automatizado suspende NEM rescinde um contrato por inadimplencia. Ambos os efeitos adversos SO nascem em User Task humana:
-- Suspensao → `UT_AnaliseInadimplencia` (grupo `juridico-contratos` / `gestao-cobranca`), `decisao_inadimplencia == SUSPENDER`.
+- Suspensao → `UT_AnaliseInadimplencia` (grupo unico `juridico-contratos` — R-041 / #1084), `decisao_inadimplencia == SUSPENDER`.
 - Rescisao → `UT_AnaliseInadimplencia`, `decisao_inadimplencia == ENCAMINHAR_RESCISAO` — **NAO materializa a rescisao aqui** (DRAFT-A shipped, §Harmonizacao): dispara o worker NEUTRO `handoff_rescisao`, que inicia/correlaciona SP-OP-CANCEL-001 (unico detentor do terminal `End_ContratoRescindido`); a instancia de INADIMPLENCIA termina no terminal neutro `End_RescisaoHandoffCancel`.
 
 Nenhuma DMN deste processo possui saida que suspenda/rescinda. As DMN apenas **classificam o estado de inadimplencia e roteiam** (sem variante adversa). Inadimplencia aparente, prazo de purga expirado, notificacao previa ausente, ambiguidade de valor/competencia, contrato coletivo e indisponibilidade da DMN **todos fail-safe para a User Task humana** (catch-all conservador → `ANALISE_HUMANA`, allowlist fechada `frozenset`). O UNICO efeito adverso local e materializado pelo worker `operadora.inadimplencia.register_contract_suspension`, guardado por `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` (carrega `responsavel_id`+tier — cadeia de auditoria ADR-0007; verifica tambem `ja_em_rescisao_cancel`, anti-dupla-terminacao cross-process, GAP-INAD-1). O terminal adverso so e alcancavel apos a User Task humana concluida na history. INADIMPLENCIA-001 **NAO** implementa `register_contract_rescission`/`Error_ContractRescissionNotHuman` — a rescisao e propriedade exclusiva de CANCEL-001 (ver §Harmonizacao).
@@ -64,6 +64,14 @@ INAD-{tenant_id}-{numero_contrato}
 ```
 
 > **Coordenacao com CANCEL-001 (RESOLVIDA — DRAFT-A shipped):** CANCEL-001 chaveia por `CANCEL-{tenant_id}-{numero_contrato}`; INADIMPLENCIA por `INAD-{tenant_id}-{numero_contrato}` — **prefixos distintos para o MESMO contrato**. Isto evita colisao de instancia mas **NAO evita por si dupla-rescisao** (duas instancias, dois terminais adversos sobre o mesmo `contract_termination`) — por isso a garantia anti-dupla-rescisao vem, em camadas (§Harmonizacao): (1) topologia — INADIMPLENCIA nao declara terminal de rescisao; (2) `mcp-cibseven.start_process`/`start_by_key` consulta a business key antes de iniciar (idempotencia de instancia); (3) o worker adverso `register_contract_suspension` CONSULTA em runtime se ja existe rescisao/suspensao ativa em CANCEL-001 para `{tenant}-{numero_contrato}` (`ja_em_rescisao_cancel`, resolvido por `resolve_facts` via `CibSevenTransport.find_active_instance`, FAIL-CLOSED se a consulta falhar — GAP-INAD-1) e recusa (`ERR_CONTRACT_SUSPENSION_NOT_HUMAN`) antes de materializar o efeito.
+
+> **Sem fallback para a matricula (F-124 — decisao do DPO de 31/10/2026, #1082 opcao a; implementado DARK atras de `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF).** A chave e' **sempre** a forma de contrato acima. Em plano individual/familiar sem `numero_contrato` o start de INADIMPLENCIA e' **RECUSADO** e o caso exige saneamento cadastral — a chave **nunca** e' cunhada sobre `matricula_beneficiario` (nome `PHI_PROCESS_VARS`, DL-0043 perna c) nem sobre `beneficiario_pseudo_id`. Com a flag ligada:
+>
+> * `FernandoGraph` cunha a chave so' sobre `numero_contrato` (`_business_key(..., exige_contrato=True)`), seu `receive` exige o numero do contrato (`missing_contract_key`) e a variavel de start `numero_contrato` deixa de receber a matricula como substituto;
+> * a recusa acontece no chokepoint de start, no MESMO ponto e com a MESMA postura da recusa de tenant: `start_process_idempotent(..., require_contract_key=True)` levanta `CibSevenStartKeyError` (subclasse de `CibSevenError`) ANTES do scrub, do claim duravel e do POST — nenhuma linha de audit, nenhuma chave presa — e o grafo segue pelo fail-notify ja existente (ADR-0045): `start_failed_state` -> `notify_start_failure` -> desfecho `erro_inicio_processo`, `agent_process_start_failed` (business key degenerada `INAD-{tenant}-`, sem matricula) e `maezo_agent_errors_total`; o handler A2A levanta `StartProcessFailedError` (RAF-02);
+> * `operadora.inadimplencia.prepare_dossier` so' delega `arrears.followup` ao Fernando com `numero_contrato` (sem ele: lacuna `missing_business_identifiers`, a UT humana abre do mesmo jeito).
+>
+> Com a flag desligada (default) o comportamento e' o de hoje, byte a byte: fallback `numero_contrato or matricula_beneficiario`. A documentacao `BUSINESS KEY` do BPMN ainda descreve a variante com fallback — o BPMN nao foi tocado nesta mudanca (bytes do processo inalterados); a variante vale so' com a flag OFF. **Fora de escopo:** a chave CANCEL cunhada pelo handoff de rescisao (`inadimplencia._cancel_business_key`, ainda com fallback) e a guarda `ERR_INAD_INVALID_CONTRATO` pertencem a CANCEL-001. Ligar a flag e' ato humano (ROLL), precedido do saneamento cadastral dos contratos individuais/familiares sem numero.
 
 ## Variaveis de entrada
 
@@ -233,10 +241,10 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos (compartilhado com CANCEL-001) | `UT_AnaliseInadimplencia` (**suspensao/encaminhamento de rescisao SO aqui**: `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO, MANTER, SOLICITAR_INFO}`) |
-| `gestao-cobranca` | Gestao de cobranca/financeiro | `UT_AnaliseInadimplencia` (co-candidate para o merito de cobranca) |
+| `gestao-cobranca` | Gestao de cobranca/financeiro | nenhuma User Task desde R-041 / #1084 (saiu de `UT_AnaliseInadimplencia`); consultivo — os fatos de cobranca chegam pelo dossie; nao registrado no engine |
 | `coordenacao-cobranca` | Coordenacao de cobranca | `UT_CoordenacaoCobranca` (SLA de analise estourado — assume a decisao, que continua humana) |
 
-A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios.
+A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios. Q1 (R-041 / #1084): o coordenador so reatribui/prorroga/MANTER; SUSPENDER/ENCAMINHAR_RESCISAO ficam com `juridico-contratos` — guarda a entregar (ainda NAO aplicada).
 
 Campos obrigatorios por decisao adversa (validacao de formulario/listener da User Task — sem eles a task NAO completa):
 - `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO}` → `fundamentacao_contratual` + `referencia_regulatoria` + `comprovacao_notificacao_previa` + `comprovacao_periodo_minimo`.
@@ -389,3 +397,19 @@ NAO bloqueia arquitetura nem deploy do engine):**
 ## Registro de topicos exigido (REPORTE — nao editar `topic_registry.yaml` aqui)
 
 **JA REGISTRADO** em `config/topic_registry.yaml` (dono: W0.2/orquestrador) — Kafka `agents.events.inadimplencia.*`: `received`, `notified`, `sla_breached`, `completed`. External-task `operadora.inadimplencia.*`: `resolve_facts`, `check_prior_notice`, `prepare_dossier`, `register_contract_suspension`, `handoff_rescisao`, `notify_sla_risk` (**NAO** `register_contract_rescission` — DROPPED, GAP-INAD-5, nunca wireado a nenhuma task no BPMN shipped). Message BPMN `msg.inadimplencia.pagamento_recebido`, `msg.inadimplencia.notificacao_ack`, `msg.inadimplencia.info_received`. (`operadora.events.publish` ja registrado.) Process key `SP-OP-INADIMPLENCIA-001` **JA REGISTRADO** em `KNOWN_PROCESS_KEYS` (ADR-0016, `src/maezo/tools/process_allowlist.py`) via PR humano CODEOWNERS.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-INADIMPLENCIA-001` → `maezo-payer-inadimplencia-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - contrato: `{tenant_id}:inadimplencia-001:hk1_<HMAC>` sobre `C-{numero_contrato}`.
+- **Classificação (a confirmar pelo DPO):** pessoal — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- A forma por matrícula NÃO é cunhada na gramática alvo: F-124 (a), decisão do DPO de 2026-10-31 — exigir o número do contrato e recusar o start. Instâncias vigentes por matrícula continuam achadas pela leitura dupla até a saída da janela.

@@ -11,7 +11,7 @@ agents.py` creates the actual episodic relation, `agent_memory` (columns `tenant
 anywhere in `src/` (grep-verified). Both tools now REFUSE fail-closed with a typed, documented
 error instead of raising a bare `UndefinedTableError` (the pre-existing behaviour if this dead
 code were ever actually invoked) or, worse, returning a fabricated similarity score. This
-module has 0 production consumers today (no `register_tools` call site outside its own tests) —
+module has 0 production consumers today (its uncalled registration hook was removed, ADR-0071) —
 the refusal is therefore a documentation/safety fix, not a behavioural regression for any live
 caller.
 
@@ -160,7 +160,11 @@ class MemoryServer:
         )
 
     def list_tools(self) -> list[dict[str, str]]:
-        """Return tool definitions for registration with ToolRegistry.
+        """Return this server's tool definitions (descriptive inventory; ADR-0071).
+
+        Nothing registers them: there is no `ToolRegistry`. Agents reach the transport through the
+        gated seams built by `gateway/tool_registry.py`, and tool identity lives in the closed
+        operation catalogue (`gateway/effect_classes.py`) plus each `agent.yaml` `tools:` list.
 
         Returns:
             List of tool dicts with 'name' and 'description' keys.
@@ -175,16 +179,6 @@ class MemoryServer:
                 "description": "Recall semantically similar memories for a query.",
             },
         ]
-
-    def register_tools(self, registry: Any) -> None:
-        """Register memory tools with the given ToolRegistry (ADR-0022, ADR-0016).
-
-        Args:
-            registry: A ToolRegistry instance that accepts register(name, handler).
-        """
-        registry.register("store_episodic", self.store_episodic)
-        registry.register("recall_semantic", self.recall_semantic)
-        logger.info("memory_tools_registered", count=2)
 
     async def store_episodic(
         self,

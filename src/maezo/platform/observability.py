@@ -46,6 +46,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -685,6 +686,78 @@ def record_a2a_guard_refusal(*, target: str, guard: str) -> None:
         logger.debug("a2a_guard_refusal_metric_emit_failed", exc_info=True)
 
 
+def preinit_a2a_guard_refusals(*, targets: Iterable[str]) -> None:
+    """Pre-initialise `maezo_a2a_guard_refusal_total` at 0 for every registered target x guard.
+
+    R-085 (decisao do dono 2026-10-31, "pre-inicializar contadores raros"). Um contador rotulado
+    so nasce no primeiro `.inc()`, e `increase()`/`rate()` nao enxergam esse primeiro incremento
+    — para um evento RARO por desenho (a recusa por orcamento A2A) isso esconde justamente o
+    unico evento que `MaezoA2ABudgetExhausted` existe para ver. Chamado UMA vez pelo construtor de
+    `a2a.dispatcher.DelegationDispatcher` com os targets que ele registra (conjunto limitado) e o
+    vocabulario fechado `A2A_GUARDS`. Best-effort: nunca impede a construcao do dispatcher.
+    """
+    try:
+        counter = _get_metrics_collector().a2a_guard_refusal
+        for target in targets:
+            for guard in A2A_GUARDS:
+                counter.labels(target=target, guard=guard)
+    except Exception:  # telemetry must never break dispatcher construction.
+        logger.debug("a2a_guard_refusal_preinit_failed", exc_info=True)
+
+
+#: R-085: tokens SENTINELA de `decisao` em `maezo_l1_decision_total`, minusculos para nunca
+#: colidirem com um token BPMN (todos MAIUSCULOS). `sem_decisao`: a User Task terminou sem ser
+#: concluida (timer interruptivo, cancelamento da instancia — `deleteReason != completed`).
+#: `desconhecido`: o valor lido esta fora do vocabulario declarado da tarefa (ou ausente) — o
+#: valor cru NUNCA vira rotulo.
+L1_DECISAO_SEM_DECISAO: Final[str] = "sem_decisao"
+L1_DECISAO_DESCONHECIDA: Final[str] = "desconhecido"
+
+
+def record_l1_decision(*, tenant: str, agent_id: str, action_class: str, decisao: str) -> None:
+    """Count ONE human decision at an L1 approval User Task — `maezo_l1_decision_total` (R-085).
+
+    O proxy de "taxa de aprovacao humana de propostas L1" de ADR-0010, decidido pelo dono em
+    2026-10-31 (#1084, Rodada 2): poller do historico do engine, um campo de decisao por tarefa,
+    rotulos fechados. UNICO sitio de chamada: `worker_runtime.engine_metrics.EngineMetricsPoller`,
+    que ja normalizou `decisao` para o vocabulario declarado da tarefa ou um dos dois sentinelas
+    acima. Best-effort: telemetria nunca derruba o poller.
+    """
+    try:
+        _get_metrics_collector().l1_decision_total.labels(
+            tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("l1_decision_metric_emit_failed", exc_info=True)
+
+
+def preinit_l1_decisions(*, tenant: str, label_sets: Iterable[tuple[str, str, str]]) -> None:
+    """Pre-initialise `maezo_l1_decision_total` at 0 for every closed (agent_id, action_class,
+    decisao) the poller can emit, so the FIRST decision of each class is visible to `increase()`.
+    Same rationale as :func:`preinit_a2a_guard_refusals`; L1 volume is low by nature."""
+    try:
+        counter = _get_metrics_collector().l1_decision_total
+        for agent_id, action_class, decisao in label_sets:
+            counter.labels(tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao)
+    except Exception:  # telemetry must never break the poller's construction.
+        logger.debug("l1_decision_preinit_failed", exc_info=True)
+
+
+#: R-085: desfechos fechados de `maezo_engine_metrics_poll_total`.
+ENGINE_POLL_OK: Final[str] = "ok"
+ENGINE_POLL_ERRO: Final[str] = "erro"
+
+
+def record_engine_metrics_poll(*, ok: bool) -> None:
+    """Count ONE engine-history poller round — `maezo_engine_metrics_poll_total{outcome}` (R-085)."""
+    try:
+        _get_metrics_collector().engine_metrics_poll_total.labels(
+            outcome=ENGINE_POLL_OK if ok else ENGINE_POLL_ERRO
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("engine_metrics_poll_metric_emit_failed", exc_info=True)
+
+
 #: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
 PEP_DECISION_ALLOW: Final[str] = "allow"
 PEP_DECISION_DENY: Final[str] = "deny"
@@ -923,6 +996,38 @@ def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
         logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
 
 
+#: O que o receptor fez com uma mensagem SEM `wamid` (F-147 / R-060). Fechado: um valor fora vira
+#: `desconhecido`, nunca uma serie nova.
+#:   * `nao_registrada`        — flag `WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK` desligada: despachada
+#:                               sem protecao contra duplicata (o comportamento de antes, agora medido);
+#:   * `registrada`            — flag ligada: identidade de fallback gravada no registro duravel
+#:                               (1a ou 2a entrega) e a mensagem despachada;
+#:   * `suprimida`             — flag ligada: 3a entrega em diante, suprimida em silencio;
+#:   * `registro_indisponivel` — flag ligada, registro fora: despachada mesmo assim (decisao do dono:
+#:                               manter despacho), sem protecao.
+#:   * `sem_timestamp`         — flag ligada, mas a mensagem nao traz o `timestamp` da Meta: despachada
+#:                               sem protecao (a identidade nao separaria repeticoes reais).
+MENSAGEM_SEM_WAMID_DESFECHOS: frozenset[str] = frozenset(
+    {"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "sem_timestamp", "desconhecido"}
+)
+
+
+def record_mensagem_sem_wamid(*, tenant: str, desfecho: str) -> None:
+    """Record ONE inbound message that arrived without a `wamid` (F-147 / R-060).
+
+    O QUE ISTO MEDE. Ate aqui a unica pegada desse caminho era uma linha de log so' com o tenant:
+    ninguem conseguia dizer se F-147 acontece em producao (os dois produtores internos sempre poem
+    `id`). Este contador e' a medida — com a flag desligada ele conta o risco, ligada ele conta a
+    supressao. Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    rotulo = desfecho if desfecho in MENSAGEM_SEM_WAMID_DESFECHOS else "desconhecido"
+    try:
+        collector = _get_metrics_collector()
+        collector.mensagem_sem_wamid.labels(tenant=tenant, desfecho=rotulo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("mensagem_sem_wamid_metric_failed", tenant=tenant, exc_info=True)
+
+
 #: Os tipos de falha do roteador do numero unico (ADR-0062). Fechado: um valor fora vira `outro`.
 ROTEAMENTO_FALHA_TIPOS: frozenset[str] = frozenset({"leitura", "registro", "pre_roteamento", "lucas_turno"})
 
@@ -1050,7 +1155,8 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     durable business key. That count, and not an argument, is what the owner ratifies against.
 
     CONTENT-FREE. All three labels are closed vocabularies (`family` in {CANCEL, INAD}, `modo`
-    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo}). NEVER pass a
+    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo, ausente} —
+    `ausente` = F-124 refusal, contract required and absent, nothing minted on PHI). NEVER pass a
     tenant id, a business key, or a matricula here — same rule `record_worker_task_outcome` and
     `record_llm_token_usage` document above. A per-instance identifier on this metric would
     recreate, in Prometheus, exactly the leak the metric exists to measure.

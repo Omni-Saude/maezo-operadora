@@ -150,6 +150,7 @@ class PostgresVendorMembershipAdministration:
             async with transaction(self.engine, 5) as db:
                 await self._qualify(db, binding)
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: APPLY_CHANGE (constante do modulo)
                     text(f"SELECT {APPLY_CHANGE}(:tenant,:id)"),
                     {"tenant": binding.tenant, "id": command.command_id},
                 )

@@ -1,0 +1,46 @@
+{
+  "id": "EVL-LUCAS-08",
+  "agent": "lucas",
+  "class": "EU",
+  "tier": ["A"],
+  "description": "R-043/F-184 (gatilhos `signal: negociacao` e `dmn: lucas_escalation_routing=ATENDIMENTO_HUMANO` do agent.yaml, sem golden ate aqui). O beneficiario pede para NEGOCIAR/PARCELAR o boleto (`pedido_negociacao=true`, titulo de pessoa fisica, nao de terceiro). `LucasGraph.assess` sai pelo PRIMEIRO ramo (Rodada 12, decisao do dono 14/10/2026: o Lucas nunca negocia nem parcela) ANTES de qualquer DMN de cobranca: `_assess_escalation(motivo=\"pedido_negociacao\")` -> route=escalate_human. A fixture de `lucas_escalation_routing` reproduz as CINCO regras FIRST-hit da tabela real (pedido_cancelamento/cancelamento -> CONTRATOS_HUMANO; inadimplencia_detectada/contestacao_cobranca -> COBRANCA_HUMANO; catch-all -> ATENDIMENTO_HUMANO) em vez de devolver a resposta desejada: so' o motivo que o grafo de fato manda (`pedido_negociacao`, que nenhuma regra especifica nomeia) cai no catch-all, e `roteamento_escalacao=ATENDIMENTO_HUMANO` e' afirmado — se o grafo mandasse outro motivo (p.ex. pedido_cancelamento) o roteamento sairia CONTRATOS_HUMANO e o caso ficaria vermelho. Negociar e' decisao humana; nenhuma condicao de pagamento e' oferecida pelo agente. Sem chamada de modelo (ACK e dossie sao texto fixo). Dados sinteticos.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-08",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-028",
+      "to_hash": "hash-evl-lucas-08",
+      "intencao": "cobranca_info",
+      "tipo_solicitacao": "boleto",
+      "competencia": "2026-06",
+      "pedido_negociacao": true
+    }
+  },
+  "recorded_llm": [],
+  "dmn_fixture": {
+    "lucas_escalation_routing": {
+      "__rules__": [
+        { "when": { "motivo": "pedido_cancelamento" }, "then": { "roteamento": "CONTRATOS_HUMANO" } },
+        { "when": { "intencao": "cancelamento" }, "then": { "roteamento": "CONTRATOS_HUMANO" } },
+        { "when": { "motivo": "inadimplencia_detectada" }, "then": { "roteamento": "COBRANCA_HUMANO" } },
+        { "when": { "motivo": "contestacao_cobranca" }, "then": { "roteamento": "COBRANCA_HUMANO" } },
+        { "then": { "roteamento": "ATENDIMENTO_HUMANO" } }
+      ]
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "pedido_negociacao",
+      "roteamento_escalacao": "ATENDIMENTO_HUMANO",
+      "grupo_humano": "atendimento-humano",
+      "desfecho": "escalado_humano"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:negociacao",
+    "dmn:lucas_escalation_routing=ATENDIMENTO_HUMANO"
+  ]
+}

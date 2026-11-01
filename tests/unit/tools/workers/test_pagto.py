@@ -428,15 +428,11 @@ class _AlwaysWithinCeilingResolver:
 
 
 def test_pagto_alcada_divergence_dentro_teto_but_above_dmn_hardcoded_gate() -> None:
-    """golden-parity finding (T1.5, live-verified): the deployed pagto_alcada DMN's
-    DENTRO_TETO_L2 row ALSO requires valor_pagamento_cents <= 10_000_000 (hardcoded ~R$100k) in
-    addition to dentro_teto_l2=true — the old Python trusted the resolver's boolean alone. If a
-    future tenant overlay raises the resolver's ceiling above the DMN's hardcoded R$100k gate
-    (simulated here via a resolver double, since today's L0-core.yaml ceiling is exactly R$100k
-    and would not itself exercise the gap), valor_pagamento_cents=15_000_000 with
-    dentro_teto_l2=True (from the resolver) -> ALCADA_L1, not DENTRO_TETO_L2 — live-verified
-    against the compose engine. Flagged for finance sign-off (the DMN's own description
-    already requires it)."""
+    """Routing is the DMN's: the worker forwards the resolver's boolean and returns whatever row
+    the engine picked (here a fake ALCADA_L1). Historical note: T1.5 found the deployed DMN ALSO
+    hard-coded `<= 10_000_000` on the clerical row; the PAGTO PR-A package (2026-10-31) removed
+    that duplicate so the ceiling is single-sourced in policy (fenced in
+    tests/unit/sec/test_pagto_valor_fence.py). This test only pins the worker's forwarding."""
     fake = _pagto_alcada_fake(
         faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
     )
@@ -834,6 +830,8 @@ def test_release_high_value_happy_path() -> None:
             "aprovador_tier": 3,
             "justificativa_aprovacao": "Contrato emergencial aprovado pelo comite",
             "valor_aprovado_cents": 500_000_000,
+            # Pacote PAGTO PR-A: o teto do aprovado que BRT_AlcadaRouting achata da DMN.
+            "valor_maximo_aprovavel_cents": 500_000_000,
             "faixa_valor": "ALCADA_L3",
             "tier_minimo": 3,
         }
@@ -908,6 +906,8 @@ def _release_high_value_baseline(**overrides: object) -> dict[str, object]:
         "aprovador_tier": 3,
         "justificativa_aprovacao": "Contrato emergencial aprovado pelo comite",
         "valor_aprovado_cents": 500_000_000,
+        # Pacote PAGTO PR-A: o teto do aprovado que BRT_AlcadaRouting achata da DMN.
+        "valor_maximo_aprovavel_cents": 500_000_000,
         "faixa_valor": "ALCADA_L3",
         "tier_minimo": 3,
     }
@@ -1069,7 +1069,9 @@ def test_release_high_value_f041_repro_shape_recusa() -> None:
 
 @pytest.mark.parametrize("valor", [1, 120_000_000, 2**63 - 1])
 def test_release_high_value_valor_aprovado_inteiro_positivo_libera(valor: int) -> None:
-    result = release_high_value_payment(_release_high_value_baseline(valor_aprovado_cents=valor))
+    result = release_high_value_payment(
+        _release_high_value_baseline(valor_aprovado_cents=valor, valor_maximo_aprovavel_cents=valor)
+    )
     assert result["pagamento_liberado"] is True
 
 

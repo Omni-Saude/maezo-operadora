@@ -1,0 +1,44 @@
+# Roteamento de alertas do Maezo no Alertmanager do AMP (R-085).
+#
+# Decisao do dono 2026-10-31 (issue #1084, Rodada 2 "Observabilidade"): "criar roteamento
+# (Alertmanager: critical -> page, warning -> ticket)". Ate aqui `severity` era INERTE: as regras de
+# `alert-rules.yml` subiam ao AMP, mas nenhum workspace tinha definicao de Alertmanager, entao nada
+# paginava nem abria ticket.
+#
+# ESTE ARQUIVO E A FONTE UNICA do roteamento (ADR-0014: mesmo artefato, destino diferente). E um
+# template Terraform (`templatefile`): `page_topic_arn`, `ticket_topic_arn` e `aws_region` sao
+# preenchidos pelo env/modulo que o instala. O AMP so aceita receptor SNS; QUEM assina cada topico
+# (pager, e-mail, ferramenta de chamados) e decisao do dono, fora daqui.
+#
+# REGRAS DE ROTEAMENTO (fechadas):
+#   * `severity="critical"` -> receptor `page`;
+#   * `severity="warning"`  -> receptor `ticket`;
+#   * qualquer outro valor, ou sem `severity` -> `ticket` (rota raiz). Um alerta mal rotulado NUNCA
+#     pagina por acidente; o erro se ve como ticket.
+# Os tempos de agrupamento/repeticao ficam no padrao do Alertmanager (nenhum numero inventado).
+alertmanager_config: |
+  route:
+    receiver: ticket
+    group_by: ['alertname', 'severity']
+    routes:
+      - receiver: page
+        matchers:
+          - severity="critical"
+      - receiver: ticket
+        matchers:
+          - severity="warning"
+  receivers:
+    - name: page
+      sns_configs:
+        - topic_arn: ${page_topic_arn}
+          sigv4:
+            region: ${aws_region}
+          attributes:
+            severity: critical
+    - name: ticket
+      sns_configs:
+        - topic_arn: ${ticket_topic_arn}
+          sigv4:
+            region: ${aws_region}
+          attributes:
+            severity: warning

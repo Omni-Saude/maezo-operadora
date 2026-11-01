@@ -936,7 +936,7 @@ async def test_estratificacao_alta_roteia_para_humano_nunca_desliga(
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, programa_probe, iid)
-    assert "coordenacao-clinica" in ut.candidate_groups or "equipe-cuidado" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"coordenacao-clinica"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Risco alto NUNCA produz desligamento clinico automatico (L0)"
@@ -1264,7 +1264,7 @@ async def test_solicitar_info_aguarda_correlacao(
     await _correlate_message(business_key, _MSG_INFO_RECEIVED)
 
     ut2 = await engine.await_user_task(iid, _UT_DECISAO)
-    assert "coordenacao-clinica" in ut2.candidate_groups or "equipe-cuidado" in ut2.candidate_groups
+    assert ut2.candidate_groups == frozenset({"coordenacao-clinica"})
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "SOLICITAR_INFO NUNCA auto-desliga (L0)"

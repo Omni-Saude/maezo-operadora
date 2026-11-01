@@ -1,7 +1,7 @@
 # Alert Runbook: MaezoSLAAgentErrorRateHigh
 
 **Audience:** Platform engineers, SRE, on-call
-**Last updated:** 2026-09-02
+**Last updated:** 2026-10-31
 **Applies to:** agent runtime (`agent-{helena,rafael,marina,...}` Deployments)
 **Alert source:** `deploy/observability/alert-rules.yml:36-53` (group `maezo_sla`)
 **SLO context:** [`docs/observability/SLO.md`](../../observability/SLO.md) §3.2, §6 row 2
@@ -22,40 +22,36 @@
 
 ## 1. Trigger — READ THIS BEFORE ACTING ON A PAGE
 
-**Code:** `deploy/observability/alert-rules.yml:36-53`
+**Code:** `deploy/observability/alert-rules.yml`, group `maezo_sla`
 
 ```yaml
 - alert: MaezoSLAAgentErrorRateHigh
   expr: |
     (
-      rate(maezo_agent_errors_total[5m])
+      sum by (agent) (increase(maezo_agent_errors_total[5m]))
       /
-      rate(maezo_tool_calls_total[5m])
+      sum by (agent) (
+        increase(maezo_agent_errors_total[5m])
+        or
+        label_replace(increase(maezo_agent_desfecho_total[5m]), "agent", "$1", "agent_id", "(.+)")
+      )
     ) > 0.01
+    and on (agent) ( <same denominator> >= 10 )
   for: 5m
   labels:
-    severity: critical
-    category: sla
-    component: agents
+    severity: warning
 ```
 
-**This alert cannot fire on real agent errors today.** Both `maezo_agent_errors_total` and
-`maezo_tool_calls_total` are `Counter`s defined at `src/maezo/runtime/metrics.py:50-60`, but
-**no production code path anywhere in `src/` increments either one** — the only callers of
-`get_metrics_collector()` (`agent_runtime/service.py:640`, `gateway/service.py:106`,
-`worker_runtime/service.py:849`, `webhooks/whatsapp/app.py:55,87`) use it solely to hand the
-registry to the `/metrics` HTTP endpoint. Both counters sit at a permanent `0`, so
-`rate(...)` is `0/0` — PromQL never emits a sample for that expression, and `> 0.01` never
-matches. Full trace: `docs/observability/SLO.md` §2, §3.2.
-
-**If you are paged on this alert, the FIRST question is not "what is causing agent errors" —
-it is "how did this fire at all," because on `main` as audited it structurally should not.**
-Possible explanations, in order of likelihood: (a) a manual `amtool alert` test/silence
-exercise, (b) the alert rule or metric wiring changed since this runbook was last updated —
-re-check `alert-rules.yml:36-53` and `metrics.py` against this runbook's claims before trusting
-either, (c) a genuinely new code path started incrementing these counters (grep
-`collector.errors\|collector.tool_calls` in `src/` to confirm) and the underlying agent-error
-signal is real.
+**R-085 (owner decision 2026-10-31: "erro de agente -> warning, corrigir +Inf/unidades").**
+- The denominator used to be `maezo_tool_calls_total` (gated EFFECT calls), a different unit from
+  the numerator (failed TURNS). A failed turn in a window with no tool call produced x/0 = +Inf,
+  which paged `critical` on a single error. The denominator is now TURNS: failed turns plus turns
+  that ended with a desfecho. The ratio is bounded to [0, 1] and can no longer be +Inf.
+- A turn that raises does not emit a desfecho (the graph's terminal node never runs). The CC-01
+  start-failure path counts in both, which slightly over-states the denominator (declared limit).
+- Severity is `warning`: there is no ratified agent SLO (`SLO.md`). The 1% threshold is inherited
+  and unsourced.
+- Minimum volume of 10 turns per 5m: parameter **P2 (TODO-OWNER)**.
 
 ## 2. What this means in business terms — IF the signal turns out to be real
 

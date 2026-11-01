@@ -20,23 +20,27 @@ from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
 TABELA_ENVIADO: Final[str] = "lembrete_cobranca_enviado"
 TABELA_OPTOUT: Final[str] = "lembrete_cobranca_optout"
 
-_RESERVAR_SQL: Final[str] = f"""
-INSERT INTO {TABELA_ENVIADO} (tenant, conversation_id, competencia, reservado_em, canal_envio)
+# R-110 / F-151: SQL literal (nada interpolado); o teste de allowlist confere que as tabelas sao
+# exatamente TABELA_ENVIADO / TABELA_OPTOUT.
+_RESERVAR_SQL: Final[str] = """
+INSERT INTO lembrete_cobranca_enviado (tenant, conversation_id, competencia, reservado_em, canal_envio)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (tenant, conversation_id, competencia) DO NOTHING
 """
 _LIBERAR_SQL: Final[str] = (
-    f"DELETE FROM {TABELA_ENVIADO} WHERE tenant = $1 AND conversation_id = $2 AND competencia = $3"
+    "DELETE FROM lembrete_cobranca_enviado WHERE tenant = $1 AND conversation_id = $2 AND competencia = $3"
 )
 _JA_SQL: Final[str] = (
-    f"SELECT 1 FROM {TABELA_ENVIADO} WHERE tenant = $1 AND conversation_id = $2 AND competencia = $3"
+    "SELECT 1 FROM lembrete_cobranca_enviado WHERE tenant = $1 AND conversation_id = $2 AND competencia = $3"
 )
-_OPTOUT_INSERT_SQL: Final[str] = f"""
-INSERT INTO {TABELA_OPTOUT} (tenant, conversation_id, optout_em) VALUES ($1, $2, $3)
+_OPTOUT_INSERT_SQL: Final[str] = """
+INSERT INTO lembrete_cobranca_optout (tenant, conversation_id, optout_em) VALUES ($1, $2, $3)
 ON CONFLICT (tenant, conversation_id) DO NOTHING
 """
-_OPTOUT_DELETE_SQL: Final[str] = f"DELETE FROM {TABELA_OPTOUT} WHERE tenant = $1 AND conversation_id = $2"
-_OPTOUT_TODOS_SQL: Final[str] = f"SELECT conversation_id FROM {TABELA_OPTOUT} WHERE tenant = $1"
+_OPTOUT_DELETE_SQL: Final[str] = (
+    "DELETE FROM lembrete_cobranca_optout WHERE tenant = $1 AND conversation_id = $2"
+)
+_OPTOUT_TODOS_SQL: Final[str] = "SELECT conversation_id FROM lembrete_cobranca_optout WHERE tenant = $1"
 
 
 class LembreteStoreError(RuntimeError):

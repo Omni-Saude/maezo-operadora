@@ -448,6 +448,10 @@ async def _start_escalation(
             saude=_mensagem_de_saude(state),
             paciente=_paciente[0] if _paciente else None,
         )
+        if motivo == "red_flag_clinico" and severidade == "moderada" and _saude_original.assume(self, state):
+            # DL-0160 (dono, 01/11/2026: "mantem o original"): o P2 da tabela DMN (conduta de ENFERMAGEM)
+            # e' caso moderado para a equipe de saude, sem o "Ligue 192 agora" do P1.
+            response_text = RESPOSTA_HANDOFF_SAUDE
         if motivo == "solicitacao_humano" and _PEDE_CONTATO_DA_EQUIPE.search(
             _plano(str(state.get("message_body") or ""))
         ):
@@ -655,6 +659,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     RESPOSTA_ENCERRAMENTO_MANTIDO,
     RESPOSTA_FALHA_TECNICA_START,
     RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE,
+    RESPOSTA_HANDOFF_SAUDE,
     RESPOSTA_SEM_CASO_PARA_ENCERRAR,
     RESULTADO_ENCERRADO_A_PEDIDO,
     RESUMO_IDENTIDADE_NAO_VERIFICADA,
@@ -691,3 +696,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
 )
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
 from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
+from maezo.agents.helena.habilidades.saude_original import fluxo as _saude_original  # noqa: E402

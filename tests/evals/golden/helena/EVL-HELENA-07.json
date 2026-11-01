@@ -23,5 +23,8 @@
       "escalation_motivo": "solicitacao_humano"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "intent:human_request"
+  ]
 }

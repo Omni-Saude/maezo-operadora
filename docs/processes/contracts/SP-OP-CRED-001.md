@@ -14,7 +14,7 @@
 - **nega** um pedido de credenciamento de um prestador candidato (efeito adverso direcao B).
 
 Ambas as direcoes adversas SO nascem em User Tasks humanas:
-- Descredenciamento → `UT_AnaliseDescredenciamento` (grupo `gestao-rede` / `juridico-rede`), `decisao_cred == DESCREDENCIAR`.
+- Descredenciamento → `UT_AnaliseDescredenciamento` (grupo unico `juridico-rede` — R-041 / #1084), `decisao_cred == DESCREDENCIAR`.
 - Negativa de credenciamento → `UT_AnaliseCredenciamento` (grupo `gestao-rede`), `decisao_cred == NEGAR_CREDENCIAMENTO`.
 
 Nenhuma DMN deste processo possui saida que negue/descredencie. As DMN so produzem dominios de roteamento **sem variante adversa** (ver §DMN). Documentacao incompleta, licenca aparentemente irregular, indicio de irregularidade, queixa de qualidade, vencimento de credencial, ambiguidade e indisponibilidade da DMN **todos fail-safe para uma User Task humana** (catch-all conservador → `ANALISE_HUMANA`, allowlist fechada `frozenset`). Os efeitos adversos sao materializados apenas pelos workers `operadora.cred.register_descredenciamento` e `operadora.cred.register_cred_denial`, guardados respectivamente por `ERR_DECRED_NOT_HUMAN` e `ERR_CRED_DENIAL_NOT_HUMAN` (carregam `responsavel_id` + tier na cadeia de auditoria ADR-0007). Os terminais adversos so sao alcancaveis apos a User Task humana concluida na history.
@@ -160,9 +160,9 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
-| `gestao-rede` | Gestao de rede credenciada | `UT_AnaliseCredenciamento` (**negativa de credenciamento SO aqui**: `decisao_cred ∈ {APROVAR_CREDENCIAMENTO, NEGAR_CREDENCIAMENTO, SOLICITAR_INFO}`); `UT_AnaliseDescredenciamento` (co-candidate) |
+| `gestao-rede` | Gestao de rede credenciada | `UT_AnaliseCredenciamento` (**negativa de credenciamento SO aqui**: `decisao_cred ∈ {APROVAR_CREDENCIAMENTO, NEGAR_CREDENCIAMENTO, SOLICITAR_INFO}`). Saiu de `UT_AnaliseDescredenciamento` (R-041 / #1084: decisor unico) |
 | `juridico-rede` | Juridico de rede/contratos de prestador | `UT_AnaliseDescredenciamento` (**descredenciamento SO aqui**: `decisao_cred ∈ {DESCREDENCIAR, MANTER, SOLICITAR_INFO}`; tambem decide `encaminhar_fraude`) |
-| `coordenacao-rede` | Coordenacao de rede | `UT_CoordenacaoRede` (SLA de analise estourado — assume a decisao, que continua humana) |
+| `coordenacao-rede` | Coordenacao de rede | `UT_CoordenacaoRedeDescred` / `UT_CoordenacaoRedeCred` (SLA de analise estourado — assume a decisao, que continua humana). Q1 (R-041 / #1084): o coordenador so reatribui/prorroga/decide favoravel; DESCREDENCIAR fica com `juridico-rede` — guarda a entregar (ainda NAO aplicada) |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoRede` herda os mesmos campos obrigatorios.
 
@@ -320,3 +320,20 @@ O passo aplica-se ao ramo da **direção A** (`End_PrestadorDescredenciado`) qua
 ## Registro de topicos exigido (REPORTE — nao editar `topic_registry.yaml` aqui)
 
 Adicionar a `config/topic_registry.yaml` (dono: W0.2/orquestrador) — Kafka `agents.events.cred.*`: `received`, `pended`, `sla_breached`, `network_changed`, `completed`. External-task `operadora.cred.*`: `verify_credentials`, `check_network_criteria`, `check_prior_notice`, `prepare_dossier`, `register_cred_denial`, `register_descredenciamento`, `register_credenciamento`, `notify_sla_risk`. Message BPMN `msg.cred.notification_ack`, `msg.cred.info_received`. (`operadora.events.publish` ja registrado.) Process key `SP-OP-CRED-001` a adicionar a `KNOWN_PROCESS_KEYS` (ADR-0016) via **PR humano CODEOWNERS** (fail-closed; nao habilitado em main ate o merge).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CRED-001` → `maezo-payer-cred-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - prestador: `{tenant_id}:cred-001:hk1_<HMAC>` sobre `P-{prestador_id}`.
+  - prestador+protocolo: `{tenant_id}:cred-001:hk1_<HMAC>` sobre `R-{prestador_id}-{protocolo_cred}`.
+- **Classificação (a confirmar pelo DPO):** dado pessoal quando o prestador é PF; ID cru de fonte — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- Os três sítios que cunham CRED hoje (worker de adequação, worker de fraude e a ponte de notificações) e os da Carolina passam a usar o compositor único.

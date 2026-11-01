@@ -104,6 +104,8 @@ pagamento**, risco financeiro direto).
 | `justificativa_recusa` | string | **Obrigatoria se `RECUSAR` ou `CANCELAR`** — motivo da recusa/devolucao para revisao, ou do cancelamento/duplicidade/sem-lastro |
 | `aprovador_id` | string | Aprovador humano (cadeia de auditoria ADR-0007); carregado no worker do efeito adverso |
 | `aprovador_tier` | integer | Tier de alcada do aprovador (1=mais baixo … N=comite); o worker exige `aprovador_tier` compativel com `faixa_valor` (tier-match) |
+| `valor_maximo_aprovavel_cents` | long | **Teto do aprovado** emitido pela DMN `pagto_alcada` (= `valor_pagamento_cents` da ordem — decisao do dono R-053 (a), pacote PAGTO PR-A) e achatado por `BRT_AlcadaRouting`; o worker gated recusa `valor_aprovado_cents` acima dele e recusa se ausente/mal-formado. Fato de PAGTO — **nunca semeado por origem** (I-PAGTO-1) |
+| `analista_admissibilidade_id` | string | Identidade do humano que concluiu `UT_AnaliseAdmissibilidade` (PROSSEGUIR/DEVOLVER). Lida pela guarda de segregacao de funcoes (`ERR_PAYMENT_SOD_NOT_HUMAN`). **Binding pendente**: nenhuma superficie de conclusao de tarefa de PAGTO grava esta variavel hoje (o portal so conclui ESCALATION/CANCEL) — ate o binding (pacote PAGTO PR-F, contratos de formulario), a comparacao com o analista e inerte; a comparacao `aprovador_id` × `lastro_decisor_id` ja e efetiva. **Nunca semeada por origem** (I-PAGTO-1) |
 | `decisao_coordenacao` | string | `assumir_aprovacao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano de tier >= faixa assume) |
 
 ## Variaveis de proveniencia do agente (Andre — ADR-0007/ADR-0015)
@@ -114,6 +116,14 @@ Semeadas por `Andre._contract_variables` (`operadora.pagto.prepare_approval_doss
 `analytics.actuarial`/`analytics.population`, worker→A2A) junto com as variaveis de entrada; NENHUMA
 delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e roteamento humano
 (GAP-PAGTO-7: antes deste registro, `_contract_variables` as emitia sem declaracao no contrato).
+
+**I-PAGTO-1 vale tambem para o start de Andre** (ADR-0040 OQ-13, correcao D-m1; pacote PAGTO PR-B):
+`_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
+`dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
+admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents` e
+`analista_admissibilidade_id`. O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
 |---|---|---|---|
@@ -158,20 +168,20 @@ out: `roteamento: string` (`SEGUE_ROTEAMENTO` | `PENDENTE_DADOS` | `ANALISE_HUMA
 
 ### `pagto_alcada` (hitPolicy FIRST — DRAFT; coracao value-driven; **escada de alcada DRAFT/verify financas**)
 in: `valor_pagamento_cents: integer`, `tipo_pagamento: string`, `dentro_teto_l2: boolean`
-out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `motivo: string`
+out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `tier_minimo: integer`, `motivo: string`, `valor_maximo_aprovavel_cents: long` (teto do aprovado = `valor_pagamento_cents` em toda regra; v0.1.1, R-053 (a))
 **Apenas classifica a faixa e roteia para o grupo aprovador — sem saida que libere.** Mapeia o valor para a faixa da escada (DRAFT) e a faixa para o candidate-group de tier correspondente.
 
 Escada de alcada (**DRAFT/verify — sign-off financas obrigatorio; valores ilustrativos, nao reais**), `hitPolicy=FIRST` (a primeira faixa que casa vence; ordem do menor para o maior):
 
 | Ordem | Condicao (`valor_pagamento_cents`, em centavos BRL) | `faixa_valor` | `grupo_aprovador` (DRAFT) |
 |---|---|---|---|
-| 1 | `<= 10000000` (R$ 100.000 — teto L2 DRAFT) **e** `dentro_teto_l2=true` | `DENTRO_TETO_L2` | `clerical-pagamentos` (caminho clerical L2; sem User Task de alcada — DL-0024) |
+| 1 | `> 0` (dominio — nunca nulo/zero/negativo) **e** `dentro_teto_l2=true` (o teto R$ 100.000 DRAFT vem SO da politica `high_value_payment.threshold_brl`; v0.1.1 removeu o literal duplicado `<= 10000000`) | `DENTRO_TETO_L2` | `clerical-pagamentos` (caminho clerical L2; sem User Task de alcada — DL-0024) |
 | 2 | `> 10000000` e `<= 50000000` (R$ 100k–500k DRAFT) | `ALCADA_L1` | `aprovacao-financeira-l1` |
 | 3 | `> 50000000` e `<= 200000000` (R$ 500k–2MM DRAFT) | `ALCADA_L2` | `aprovacao-financeira-l2` |
 | 4 | `> 200000000` e `<= 1000000000` (R$ 2MM–10MM DRAFT) | `ALCADA_L3` | `aprovacao-financeira-l3` |
 | **5 (catch-all)** | **qualquer outro** (acima do maior tier, faixa ambigua, ou inputs inconsistentes) | `ANALISE_HUMANA` | `comite-financeiro` (**tier mais alto / conservador**) |
 
-- O **threshold_brl L1** = `100000` BRL (= `10000000` centavos) **DRAFT/verify financas** (limite acima do qual o pagamento deixa de ser auto-liberavel e exige aprovador humano).
+- O **threshold_brl L1** = `100000` BRL (= `10000000` centavos) **DRAFT/verify financas** (limite acima do qual o pagamento deixa de ser auto-liberavel e exige aprovador humano). **Fonte unica**: `spec/policies/autonomy/L0-core.yaml` (mantido em R$ 100k pelo dono, Q3 de 2026-10-31), resolvido pelo worker de fatos em `dentro_teto_l2`; a DMN nao repete o valor. As faixas ALCADA_L1..L3 continuam com limites literais; com `dentro_teto_l2=false` abaixo de R$ 100k a ordem cai no catch-all (comite — conservador).
 - **Catch-all conservador → tier mais alto** (`comite-financeiro`/`ANALISE_HUMANA`): valor acima do maior tier configurado, faixa ambigua ou DMN indisponivel NUNCA auto-liberam — sobem para o comite. (ADR-0018 parte 3 — risco #5 do phase3-plan: "se o ramo L2 abaixo-do-teto for mal-escopado, pagamentos acima de alcada auto-liberam"; este catch-all e a defesa.)
 - A DMN emite `grupo_aprovador` como **string** consumida por `camunda:candidateGroups` da User Task (binding value-driven). O mapeamento faixa→grupo e **DRAFT/verify financas + PO/IdP**.
 
@@ -194,6 +204,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
 | `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada DRAFT**) | `ANALISE_HUMANA` |
 | `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada) | (qualquer, respeitando tier-match) |
+| `analise-contas-pagar` | — (checker, nunca aprovador) | `UT_AnaliseAdmissibilidade` (`decisao_admissibilidade ∈ {PROSSEGUIR, DEVOLVER}`) — divisao de `coordenacao-financeira` em admissibilidade x aprovacao (R-041 / #1084); nunca membro de grupo aprovador (SoD S5) | ordem nao-admissivel (antes da escada) |
 
 **Binding value-driven (unico na plataforma):** a `<bpmn:userTask>` de aprovacao usa
 `camunda:candidateGroups="${grupo_aprovador}"` (expressao resolvida da saida da DMN
@@ -253,6 +264,8 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 | Codigo | Onde | Tratamento |
 |---|---|---|
 | `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents` (este **sem default**: ausente, nao-inteiro, booleano, `<= 0` ou acima do `long` = recusa — R-053), OU (c) **tier-match falhar** — `aprovador_tier` < `tier_minimo` emitido pela DMN `pagto_alcada` para a faixa (ausente/mal-formado → tier mais alto, comite; o worker nao guarda copia Python da escada) (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` (d) | idem | (d) **teto do aprovado** (pacote PAGTO PR-A, R-053 (a)): `valor_aprovado_cents > valor_maximo_aprovavel_cents` (saida da DMN `pagto_alcada`), ou `valor_maximo_aprovavel_cents` ausente/mal-formado → recusa. O worker nao recompara com `valor_pagamento_cents` (a regra vive na DMN) |
+| `ERR_PAYMENT_SOD_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` e `operadora.pagto.release_low_value_payment` | **Segregacao de funcoes** (pacote PAGTO PR-A; analise §3 (a)/(b)): recusa se `aprovador_id` == `lastro_decisor_id`, `aprovador_id` == `analista_admissibilidade_id` ou `analista_admissibilidade_id` == `lastro_decisor_id` (comparacao com strip + casefold; identidade ausente/vazia nao e violacao — perna automatica de CONTAS e ordem sem analise humana). Prevalece sobre o codigo generico quando ambos se aplicam. Sufixo `_NOT_HUMAN` deliberado: entra na trilha de recusa auditada T-E (ADR-0030 F4). Sem boundary modelado → incidente (fail-closed a humano). Mensagem so com tokens — nenhuma identidade no texto |
 | `ERR_PAGTO_ORDEM_INVALIDA` | declarado (`Error_PagtoOrdemInvalida`) para uso dos workers | worker `validate_payment_data` lanca BPMN error se a ordem de pagamento for inconsistente/sem lastro na origem (ex.: `ordem_pagamento_id` ausente); capturado por boundary event `BE_PagtoOrdemInvalida` em `ST_ValidatePaymentData` -> `End_PagtoOrdemInvalida` (GAP-PAGTO-4; fail-safe tecnico, NAO decisao de liberacao/negativa) |
 
 > **Tier-match — extensao do guard no-adverse (parte 4 de 5 do padrao §4-bis-F/ADR-0018):**
@@ -299,3 +312,22 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   prestador (contratuais — **DRAFT/verify**).
 - Politica de duplicidade/idempotencia de tesouraria (evitar dupla liberacao) e reconciliacao
   CNAB/PIX/TED com o sistema de tesouraria externo.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-PAGTO-001` → `maezo-payer-pagto-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - ordem: `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `O-{ordem_pagamento_id}`.
+  - lote+prestador (CONTAS): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `L-{numero_lote_tiss}-{prestador_id}`.
+  - guia+glosa (RECURSO): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}-{glosa_id}`.
+- **Classificação (a confirmar pelo DPO):** forma `G` pessoal; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `PERMANENT` (inalterada).
+- As etiquetas `O`/`L`/`G` separam as três formas da família, que hoje só se distinguem pela contagem de `-`.
+- **Gate permanente na janela:** um pagamento legado CONCLUÍDO continua recusando o start na forma alvo — o filtro de histórico aceita as duas process keys e a reivindicação legada ganha uma linha de alias na forma alvo (só inserção; nenhuma linha apagada). O predicado de retenção dos claims `PERMANENT` ganha o segmento `maezo-payer-pagto-001`. Risco direto: pagamento duplicado — teste negativo obrigatório no pacote da janela.

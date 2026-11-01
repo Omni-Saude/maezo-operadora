@@ -359,6 +359,7 @@ class PostgresProviderAuthoritySource:
         constraints = (
             (
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: refs = binds :rN gerados aqui
                     text(
                         """
             SELECT c.oid,c.connamespace,c.conrelid,c.confrelid,c.conindid,
@@ -379,7 +380,7 @@ class PostgresProviderAuthoritySource:
                   WHERE k.ord<=i.indnkeyatts ORDER BY k.ord) AS index_columns
             FROM pg_constraint c LEFT JOIN pg_index i ON i.indexrelid=c.conindid
             WHERE c.contype='f' AND (c.conrelid IN ("""
-                        + refs
+                        + refs  # nosec B608 # fonte: refs = binds :rN gerados aqui; oids ligados
                         + ") OR c.confrelid IN ("
                         + refs
                         + "))"
@@ -529,20 +530,22 @@ class PostgresProviderAuthoritySource:
         )
         async with self._connection(timeout_seconds) as conn:
             await conn.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: self.schema (Identifier ancorado)
                 text(f"""INSERT INTO {self.schema}.evidence
                 (tenant_ref,legal_entity_ref,provider_ref,instrument_ref,business_revision,evidence_ref,snapshot_bytes,snapshot_digest)
                 VALUES (:tenant,:entity,:provider,:instrument,:revision,:evidence,:payload,:digest)
-                ON CONFLICT DO NOTHING"""),
+                ON CONFLICT DO NOTHING"""),  # nosec B608 # fonte: self.schema (Identifier ancorado)
                 params,
             )
             row = (
                 (
                     await conn.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: self.schema (Identifier ancorado)
                         text(f"""SELECT snapshot_digest,snapshot_bytes,evidence_ref,received_at
                 FROM {self.schema}.evidence WHERE tenant_ref=:tenant
                 AND legal_entity_ref=:entity
                 AND provider_ref=:provider
-                AND instrument_ref=:instrument AND business_revision=:revision"""),
+                AND instrument_ref=:instrument AND business_revision=:revision"""),  # nosec B608 # fonte: schema
                         params,
                     )
                 )
@@ -586,6 +589,7 @@ class PostgresProviderAuthoritySource:
         )
         async with self._connection(timeout_seconds) as conn:
             await conn.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: self.schema (Identifier ancorado)
                 text(
                     f"SELECT {self.schema}.publish_validated(CAST(:scope AS jsonb),"
                     ":revision,:proof,:expected)"
@@ -610,6 +614,7 @@ class PostgresProviderAuthoritySource:
         rows = (
             (
                 await conn.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.schema (Identifier ancorado)
                     text(f"""SELECT e.snapshot_bytes,e.snapshot_digest AS evidence_digest,
             p.snapshot_digest AS publication_digest,
             p.receipt_ref,p.publication_ref,
@@ -631,7 +636,7 @@ class PostgresProviderAuthoritySource:
             JOIN {self.schema}.authority_proof a ON a.proof_ref=p.proof_ref
             JOIN {self.schema}.source_binding b ON b.binding_ref=a.binding_ref
             WHERE h.tenant_ref=:tenant AND h.legal_entity_ref=:entity AND h.provider_ref=:provider
-            AND (CAST(:instrument AS text) IS NULL OR h.instrument_ref=:instrument)"""),
+            AND (CAST(:instrument AS text) IS NULL OR h.instrument_ref=:instrument)"""),  # nosec B608 # fonte: schema
                     params,
                 )
             )

@@ -15,10 +15,10 @@ un-audited `start_process` with no idempotency/businessKey, meant to plug into a
 `ToolRegistry`/`tool_wiring.py`/`build_tool_invoker` exists anywhere in this v2 tree; ADR-0022's
 claim that `register_tools` is load-bearing describes that unbuilt mechanism, not v2's actual
 `src/`). Left wired, it would become a LIVE un-audited process-start the moment a future tool
-registry called it directly instead of `start_process_idempotent` below. When T2.4 builds a
-real ToolRegistry, any CIB Seven start tool it exposes MUST wrap `start_process_idempotent`
-(never resurrect a raw, un-fenced call) — see `tests/unit/tools/test_mcp_cibseven.py`'s
-structural guard.
+registry called it directly instead of `start_process_idempotent` below. ADR-0071 (2026-10-31)
+settles that no such registry will be built: the single construction authority is
+`gateway/tool_registry.py`, whose engine seam wraps `start_process_idempotent` (never a raw,
+un-fenced call) — see `tests/unit/tools/test_mcp_cibseven.py`'s structural guard.
 """
 
 from maezo.tools.mcp_cibseven.transport import (

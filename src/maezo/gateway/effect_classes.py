@@ -42,7 +42,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:699-702`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:707-710`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -292,6 +292,12 @@ class OperationSpec:
         phi_egress: this operation can carry PHI OUT of the platform boundary. Documentation for
             the approvers and the reason `inference.generate` is split in two (design §6.1 C2);
             the decision core does not gate on it — ADR-0006 zone routing is INDEPENDENT (I-6).
+        returns_phi: the operation's RESULT carries raw PHI (clinical record content). Read by the
+            construction-time zone fence (ADR-0071 I-5, `gateway/tool_registry.py::build_fhir_seam`):
+            a seam that can gate a `returns_phi` operation is never BUILT for a principal outside
+            the PHI zone. Subtract-only — the decision core does not read it, and the default
+            `False` never widens permission. Pseudonymized Zona Geral reads (the AMH billing/TINA
+            facts) and k-anonymous aggregates are deliberately NOT marked.
     """
 
     operation: str
@@ -302,6 +308,7 @@ class OperationSpec:
     ceiling_action: str | None = None
     ceiling_param: str | None = None
     phi_egress: bool = False
+    returns_phi: bool = False
 
 
 def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
@@ -312,30 +319,35 @@ def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
 #: tree). Unknown operation => L-0 DENY `OPERACAO_DESCONHECIDA`.
 OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # -- FHIR reads (C2). Leaves `tools/mcp_fhir/server.py:88` (read_resource) and `:118`
-    # (search_resources); agents reach them through per-agent adapter Protocols.
+    # (search_resources); agents reach them through per-agent adapter Protocols. All four return
+    # raw clinical record content: `returns_phi=True` (ADR-0071 I-5 zone fence).
     OperationSpec(
         operation="fhir.read_patient",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_patient_summary",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient_summary",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_coverage",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.search_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.search_coverage",
+        returns_phi=True,
     ),
     # -- Canonical AMH subject-context reads (ADR-0037), distinct from FHIR tools.
     OperationSpec(
@@ -546,6 +558,15 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # two siblings above.
     OperationSpec(
         operation="cibseven.read_historic_variables",
+        action_class="consulta_processo",
+        autonomy_action="query_process_status",
+    ),
+    # PAGTO PR-C / MPTT P2: the history INSTANCE resolution by business key and/or variable filter
+    # (`transport.py::resolve_historic_instance`) — state, `endActivityId` and named historic
+    # variables of exactly ONE instance, fail-closed (DL-0050 pattern). No MCP tool id: an
+    # internal read of the same transport, same class and autonomy name as its siblings above.
+    OperationSpec(
+        operation="cibseven.resolve_historic_instance",
         action_class="consulta_processo",
         autonomy_action="query_process_status",
     ),

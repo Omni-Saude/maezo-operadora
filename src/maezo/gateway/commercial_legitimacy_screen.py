@@ -475,6 +475,7 @@ class PostgresLegitimacyScreenStore:
         self, tenant: str, opportunity_ref: str
     ) -> LegitimacyScreenRecord | None:
         return await self._read_one(
+            # nosemgrep: avoid-sqlalchemy-text # fonte: axis = coluna literal nesta linha
             text(_SELECT_LATEST_TEMPLATE.format(axis="opportunity_ref")),
             {"tenant": tenant, "axis_value": opportunity_ref},
         )
@@ -483,6 +484,7 @@ class PostgresLegitimacyScreenStore:
         self, tenant: str, legal_entity_ref: str
     ) -> LegitimacyScreenRecord | None:
         return await self._read_one(
+            # nosemgrep: avoid-sqlalchemy-text # fonte: axis = coluna literal nesta linha
             text(_SELECT_LATEST_TEMPLATE.format(axis="legal_entity_ref")),
             {"tenant": tenant, "axis_value": legal_entity_ref},
         )

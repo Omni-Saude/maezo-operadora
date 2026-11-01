@@ -550,7 +550,7 @@ async def test_inadimplencia_aparente_roteia_para_humano_nao_rescinde(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Inadimplencia nao deve produzir terminal adverso automatico (L0)"
@@ -571,7 +571,7 @@ async def test_inelegibilidade_pedido_roteia_para_humano_nunca_auto_nega(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_PEDIDO_NEGADO not in ended, "Inelegibilidade nao deve auto-negar o pedido (L0)"
@@ -592,7 +592,7 @@ async def test_plano_coletivo_pedido_roteia_para_humano(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_CANCELADO_BENEFICIARIO not in ended, "Pedido coletivo nunca auto-efetiva"
@@ -619,7 +619,7 @@ async def test_fora_prazo_pedido_roteia_para_humano_nunca_auto_efetiva(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_CANCELADO_BENEFICIARIO not in ended, "Pedido fora do prazo nunca auto-efetiva (GAP-CANCEL-2)"
@@ -640,7 +640,7 @@ async def test_fraude_referida_nunca_auto_flag(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS)
@@ -734,7 +734,7 @@ async def test_v020_execucao_impedida_volta_para_analise_humana(
     ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
     await engine.complete_task_as_human(ut_exec.id, {"execucao_cadastro": "IMPEDIDO"})
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_CANCELADO_BENEFICIARIO not in ended
@@ -755,7 +755,7 @@ async def test_v020_conclusao_sem_variavel_cai_no_default_humano(
     ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
     await engine.complete_task_as_human(ut_exec.id, {})
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
     assert "ST_EffectuateMemberRequest" not in await engine.activity_instances_ended(iid)
 
 
@@ -921,7 +921,7 @@ async def test_happy_path_rescisao_pela_operadora_humano(
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(ut.id, {"decisao_cancelamento": "RESCINDIR", **_CAMPOS_ADVERSOS})
     await cancel_probe.drain()
@@ -1342,7 +1342,7 @@ async def test_notificacao_ack_destrava_analise(
         )
 
     ut = await _drive_to_analise(engine, cancel_probe, iid)
-    assert "juridico-contratos" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-contratos"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Ack de notificacao nunca auto-rescinde (L0)"

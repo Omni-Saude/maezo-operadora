@@ -21,7 +21,8 @@ tools:
   - mcp-cibseven.start_process
   - mcp-memory.read_write               # excecao disclosed do fence §8.5 item 2 (sem no vivo
                                          # hoje — GAP-DU-01-b/ADR-0047 DRAFT)
-  - mcp-fhir.read_patient
+  # mcp-fhir.read_patient REMOVIDO (ADR-0071 I-5; decisao do dono 31/10/2026, DEC-11 (i)): Gustavo e
+  # Zona Geral e trabalha com os fatos do processo; `build_fhir_seam` recusa seam PHI para ele.
   # mcp-cibseven.get_process_status / correlate_process_message: nenhum no deste grafo os
   # exerce hoje (CC-05/GUS-02) — mas NAO remover sem substituir: sao os UNICOS agent.yaml do
   # fleet que ainda declaram esses dois ids (helena/rafael tambem os desdeclararam nesta WP), e
@@ -38,7 +39,7 @@ autonomy_actions:
   - query_decision_engine
   - start_compliance_process
   - read_write_memory                   # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
-  - read_phi_data
+  # read_phi_data REMOVIDO junto com mcp-fhir.read_patient (ADR-0071 I-5, DEC-11 (i)).
   - ans_official_submission
   - nip_response
   # query_process_status / correlate_process_message: pareiam os dois tools OWNER-GATED acima

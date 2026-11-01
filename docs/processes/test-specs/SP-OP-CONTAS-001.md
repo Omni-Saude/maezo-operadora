@@ -99,13 +99,15 @@ pseudonimizado `bnf-teste-0001`, tenant `amh`, CPF de teste em faixa invalida
   Irmao generico ja em `main`: `tests/integration/processes/test_sp_op_pagto_001.py`
   (`test_lastro_nao_confirmado_nunca_auto_libera_clerical`).
 
-### test_m4_categoria_desconhecida_para_em_admissibilidade_humana
+### test_m4_categoria_desconhecida_roteia_a_analista_de_contas
 - **Given** `categoria_normalizada="desconhecida"` com os tres fatos favoraveis
   (`item_conforme_tabela=true`, `divergencia_valor=false`, `documentacao_anexa=true`) — o repro do
-  achado **M-4**
-- **Then** a conta e adjudicada `PAGAR` sem analista de contas (o residuo, **OQ-10**), MAS a ordem
-  criada para em `UT_AnaliseAdmissibilidade`: **ordem pendente de humano, nunca liberacao**. E o
-  teste que torna a divulgacao de raio do ADR-0040 um fato verificavel.
+  achado **M-4** (F-033)
+- **Then** (DEC-14, dono 2026-10-31, #1084, opcao (a) rotear a humano; R-062) `glosa_triage` emite
+  `ANALISE_HUMANA` pelo catch-all e a instancia para em `UT_AnalistaContas`: **nenhum** terminal
+  `End_ContaAprovadaIntegral`, **nenhum** `ST_EmitirDemonstrativoIntegral` e **nenhuma** ordem em
+  SP-OP-PAGTO-001 sem analista de contas. Substitui o antigo
+  `test_m4_categoria_desconhecida_para_em_admissibilidade_humana`, que media o residuo OQ-10.
 
 ### test_handoff_pagamento_inicia_pagto_idempotente
 - **Given** duas entregas do mesmo handoff (ou uma segunda decisao no mesmo lote apos

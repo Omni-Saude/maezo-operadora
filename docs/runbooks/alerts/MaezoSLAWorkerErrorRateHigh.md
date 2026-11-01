@@ -1,7 +1,7 @@
 # Alert Runbook: MaezoSLAWorkerErrorRateHigh
 
 **Audience:** Platform engineers, SRE, on-call
-**Last updated:** 2026-09-02
+**Last updated:** 2026-10-31
 **Applies to:** worker-daemon (compose service `worker-runtime`, Helm Deployment `worker-daemon`)
 **Alert source:** `deploy/observability/alert-rules.yml:56-73` (group `maezo_sla`)
 **SLO context:** [`docs/observability/SLO.md`](../../observability/SLO.md) §3.1, §6 row 3
@@ -22,39 +22,32 @@
 
 ## 1. Trigger
 
-**Code:** `deploy/observability/alert-rules.yml:56-73`
+**Code:** `deploy/observability/alert-rules.yml`, group `maezo_sla`
 
 ```yaml
 - alert: MaezoSLAWorkerErrorRateHigh
   expr: |
     (
-      sum by (worker, topic) (rate(maezo_worker_error_count_total[5m]))
+      sum by (tenant, topic) (rate(maezo_worker_task_total{outcome=~"failed|incident"}[5m]))
       /
-      sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))
+      sum by (tenant, topic) (rate(maezo_worker_task_total[5m]))
     ) > 0.05
+    and on (tenant, topic)
+    ( sum by (tenant, topic) (increase(maezo_worker_task_total[5m])) >= 10 )
   for: 5m
   labels:
     severity: warning
-    category: sla
-    component: workers
 ```
 
-More than 5% of worker executions error out over a 5-minute window. Unlike the agent pair
-(`MaezoSLAAgentErrorRateHigh`), this metric pair **is** live in production — but only for
-`WorkerBase`-wrapped topics (`src/maezo/tools/workers/base.py:203-236`). Raw-handler topics
-(`events`, `programa.py`'s `stratify_risk`/`stop_processing`/`proactive_contact`/
-`notify_sla_risk`, and the raw handlers in `recurso.py`/`lgpd.py`/`escalation.py`) contribute to
-**neither** the numerator nor the denominator — an error spike confined to those topics is
-invisible to this alert. Full trace: `docs/observability/SLO.md` §2.
-
-Both sides are wrapped in `sum by (worker, topic) (...)` (the same vector-matching fix the sibling
-`MaezoSLAAgentErrorRateHigh` already used, `ALERT-COUNTER-LABELS`/R-063): the numerator's raw
-`error_type` label is aggregated away so PromQL's default vector matching on `/` finds an operand
-on both sides. As a direct consequence, the fired alert's own labels carry only `worker`/`topic`
-— **not** `error_type` — and the `description` annotation no longer references
-`{{ $labels.error_type }}`. The failure mode (which `error_type`) is still available, just not on
-the alert itself: read it from the raw `maezo_worker_error_count_total` series (which still
-carries the label) or from the worker logs for that `worker`/`topic` pair (§3, §4 below).
+**R-085 (owner decision 2026-10-31: "corrigir unidades" and "volume minimo").** The old
+denominator, `maezo_worker_execution_time_seconds_count`, counted successes only
+(`record_worker_execution` runs in the `try`, `record_worker_error` in the `except`), so the ratio
+was errors / successes, and it counted designed guard refusals as errors. The rule now reads the
+full-coverage dispatch counter `maezo_worker_task_total{tenant,topic,outcome}` emitted by the
+harness on every terminal branch: `failed|incident` over all dispatches. `bpmn_error` (a designed
+refusal such as an `ERR_*` guard) is NOT in the numerator. 5% is inherited and unsourced. Minimum
+volume of 10 dispatches per 5m: parameter **P3 (TODO-OWNER)**. The alert carries `tenant` and
+`topic`, not `worker`.
 
 ## 2. What this means in business terms
 

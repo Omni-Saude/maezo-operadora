@@ -76,3 +76,41 @@ async def test_todo_j3_escala_no_motor_real(dmn: CibSevenDmnTransport) -> None:
     assert all(r["decisao_cancelamento"] is None for r in j3)
     # Nao-vacuidade: a DMN de roteamento da escalacao RODOU no motor em todo J3.
     assert all("lucas_escalation_routing" in r["dmn_refs"] for r in j3)
+
+
+#: R-047/F-031: fronteiras do limiar do atraso critico (>= 2 meses / > 30 dias) que agora mora na tabela.
+_FRONTEIRAS_DO_LIMIAR: tuple[tuple[int, int | None, bool], ...] = (
+    (1, 29, False),
+    (1, 30, False),
+    (1, 31, True),
+    (0, 31, True),
+    (1, 0, False),
+    (2, 0, True),
+    (2, None, True),
+    (1, None, False),
+    (0, None, False),
+)
+
+
+@pytest.mark.parametrize(("meses", "dias", "critico"), _FRONTEIRAS_DO_LIMIAR)
+@pytest.mark.parametrize("pagador_empresa", [False, True])
+async def test_limiar_de_atraso_no_motor_real(
+    meses: int, dias: int | None, critico: bool, pagador_empresa: bool, dmn: CibSevenDmnTransport
+) -> None:
+    """O motor e o leitor local concordam nas fronteiras 29/30/31 dias e 1/2 meses (inclusive `dias` nulo)."""
+    entrada = {
+        "tipo_solicitacao": "consulta_valores",
+        "status_conciliado": meses == 0,
+        "ciclos_sem_conciliacao": meses,
+        "valores_disponiveis": True,
+        "valores_com_atraso": meses > 0 or bool(dias),
+        "pagador_empresa": pagador_empresa,
+        "meses_vencidos": meses,
+        "dias_atraso_max": dias,
+    }
+    motor, versao = await dmn.evaluate("lucas_billing_admissibility", entrada)
+    local, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", entrada)
+    assert "draft-local" not in versao.id
+    esperado = ("ESCALAR_HUMANO", "inadimplencia") if critico and not pagador_empresa else ("RESPONDER", "-")
+    assert (motor[0]["roteamento"], motor[0]["categoria"]) == esperado
+    assert (local[0]["roteamento"], local[0]["categoria"]) == esperado

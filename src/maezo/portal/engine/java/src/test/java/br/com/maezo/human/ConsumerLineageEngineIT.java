@@ -70,7 +70,7 @@ class ConsumerLineageEngineIT {
           String kind=ConsumerLineage.SOURCES.get(process+"/"+task);
           target.put("process_definition_id",definitions.get(process));target.put("process_digest",digests.get(process));
           target.put("binding_digest",original?d.bindingDigest():"a".repeat(64));target.put("consumer_digest","1".repeat(64));
-          String group=switch(task){case "UT_AnaliseMedicoAuditor"->"medico-auditor";case "UT_CoordenacaoAssume"->"coordenacao-auditoria-medica";case "UT_RegistrarParecerJunta"->"junta-medica";case "UT_AnaliseAdmissibilidade"->"coordenacao-financeira";case "UT_TratarEscalonamento"->"synthetic-resolved-group";default->"supervisao-atendimento";};
+          String group=switch(task){case "UT_AnaliseMedicoAuditor"->"medico-auditor";case "UT_CoordenacaoAssume"->"coordenacao-auditoria-medica";case "UT_RegistrarParecerJunta"->"junta-medica";case "UT_AnaliseAdmissibilidade"->"analise-contas-pagar";case "UT_TratarEscalonamento"->"synthetic-resolved-group";default->"supervisao-atendimento";};
           ConsumerEdgeInstallation.write(c,"INSERT INTO MZO_HUMAN_DECISION_BINDING VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
               "tenant-test","test",definitions.get(process),process,"1",digests.get(process),task,kind,"1",original?command.formDigest():"b".repeat(64),target.get("binding_digest"),"1".repeat(64),kind,group,command.workloadRef(),revision,true,deadline);
         }

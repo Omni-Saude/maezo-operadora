@@ -252,3 +252,22 @@ orphans:
     an INPUT/param (the ratified constant lives in gateway/vendor_suppression.py),
     catch-all LAST row -> RECLAMACAO_ENCARREGADO/dpo. PERMANENT orphan from
     crossref's decisionRef-only perspective (docs/review-queue.md SP-OP-SUPP-001).
+  # --- MPTT P5 (Maezo Provider Trust Tiers) — PENDING WIRING ------------------------------
+  # Drafted ahead of their consumer: P4 (batch provider_trust_features) evaluates the
+  # scorecard engine-side via the ADR-0028 dmn= seam and P6 (resolve_prestador +
+  # pagto_admissibility v0.3 / pagto_alcada) consumes the tier. Until P6 lands nothing
+  # calls them — pinned by tests/unit/spec/test_prestador_trust_tier_dmn.py
+  # (test_sem_consumidor_ate_o_p6). All points/cutoffs/N/T are DRAFT (spec/aprovacoes-
+  # de-regras.yaml pendentes; docs/review-queue.md section MPTT P5).
+  prestador_trust_scorecard: >-
+    Pending wiring (MPTT P5; P4 batch will evaluate it via the ADR-0028 dmn= seam,
+    never via a BPMN businessRuleTask). COLLECT+SUM provider trust points
+    (F1/F2/F5); weights DRAFT, calibrate in shadow (financas + medico-auditor).
+  prestador_trust_motivos: >-
+    Pending wiring (MPTT P5; same file and same rows as prestador_trust_scorecard).
+    COLLECT reason codes + points lost per feature band, so every tier is
+    reproducible and explainable (LGPD art. 20). DRAFT.
+  prestador_tier: >-
+    Pending wiring (MPTT P5; P6 consumes it before pagto_admissibility v0.3).
+    FIRST, fail-closed to WATCH; domain exactly TRUSTED/STANDARD/WATCH — routes
+    only, never refuses/reduces payment. Cutoffs/N/T DRAFT (financas).

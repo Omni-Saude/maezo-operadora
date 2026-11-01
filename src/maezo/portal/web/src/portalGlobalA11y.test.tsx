@@ -254,7 +254,7 @@ it("F-155: o nome do download carrega uma extensão coerente com o conteúdo", a
   }
 });
 
-it("F-158: o título de cada vínculo é legível e o identificador fica rotulado", async () => {
+it("F-158: o título de cada vínculo é legível e o identificador fica rotulado e mascarado", async () => {
   vi.mocked(fetch).mockResolvedValue(json({
     schema_version: 1,
     generated_at: "2026-10-25T12:00:00Z",
@@ -276,5 +276,7 @@ it("F-158: o título de cada vínculo é legível e o identificador fica rotulad
   const region = screen.getByRole("region", { name: "Vínculo 1 de 1: Ativo" });
   const term = within(region).getByText("Referência do colaborador");
   expect(term.tagName).toBe("DT");
-  expect(term.nextElementSibling).toHaveTextContent("human-internal-1");
+  // DPO 31/10/2026 (#1082, opção b): só os 4 últimos caracteres; o valor inteiro nunca aparece.
+  expect(term.nextElementSibling).toHaveTextContent("••••terminada em al-1");
+  expect(region).not.toHaveTextContent("human-internal-1");
 });

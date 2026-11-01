@@ -67,6 +67,22 @@ resource "aws_prometheus_rule_group_namespace" "maezo_alerts" {
 }
 
 # ---------------------------------------------------------------------------
+# 2b. Alertmanager routing (R-085, owner decision 2026-10-31, issue #1084): critical -> page,
+#     warning -> ticket. Source of truth: deploy/observability/alertmanager-amp.yml.tftpl, rendered
+#     by the calling env root with its two SNS topic ARNs, e.g.:
+#       alertmanager_definition = templatefile(
+#         "${path.root}/../../../../deploy/observability/alertmanager-amp.yml.tftpl",
+#         { page_topic_arn = ..., ticket_topic_arn = ..., aws_region = var.aws_region })
+#     DARK: empty (the default) => no definition, alerts stay unrouted exactly as before. This
+#     module OWNS its workspace, so the definition cannot clobber another team's routing.
+# ---------------------------------------------------------------------------
+resource "aws_prometheus_alert_manager_definition" "maezo" {
+  count        = var.alertmanager_definition == "" ? 0 : 1
+  workspace_id = aws_prometheus_workspace.maezo.id
+  definition   = var.alertmanager_definition
+}
+
+# ---------------------------------------------------------------------------
 # 3. IRSA IAM role for the OTel collector — SigV4 auth for AMP
 #    The collector pod assumes this role via EKS OIDC token projection.
 #    Role ARN is output below and must be set in Helm values:

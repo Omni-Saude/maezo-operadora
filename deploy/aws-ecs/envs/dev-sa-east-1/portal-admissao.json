@@ -39,8 +39,8 @@
     },
     {
       "process_definition_key": "SP-OP-CANCEL-001",
-      "process_definition_digest": "61b796e54cb873aae347fdab90c799845647b688366b72053fe8bc79908cea66",
-      "motivo": "#1101 (R-050 / F-107, BRT_CancelSla com outgoing Flow_Sla_Classificacao no lugar do IDREF inexistente Flow_Sla_Dossie) mudou o BPMN e ainda NAO foi implantado. O deploy-processes dele cria versao nova do tenant amh: no mesmo corte, repinar a admissao (material-staff-na-aws.md, passo 5, 'Versao nova de processo ja admitido') ou os casos novos somem das filas."
+      "process_definition_digest": "c6f08274f706ef57988c9cbaf632c16f83e5b585bd092f008d801d6f4ec22c08",
+      "motivo": "#1101 (R-050 / F-107, BRT_CancelSla com outgoing Flow_Sla_Classificacao no lugar do IDREF inexistente Flow_Sla_Dossie) e R-041 / DEC-21 (#1084: UT_AnaliseRescisao com decisor unico juridico-contratos; mesmas tarefas) mudaram o BPMN e ainda NAO foram implantados. O deploy-processes dele cria versao nova do tenant amh: no mesmo corte, repinar a admissao (material-staff-na-aws.md, passo 5, 'Versao nova de processo ja admitido') ou os casos novos somem das filas."
     }
   ]
 }

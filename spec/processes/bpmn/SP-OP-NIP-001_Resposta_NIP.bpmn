@@ -202,7 +202,7 @@ default="Flow_GWRotear_Juridico" (REVISAO_JURIDICA, humano) para qualquer valor 
 EXATAMENTE 'ELABORAR_RESPOSTA'. UT_RevisaoJuridicaNip permanece com candidateGroups ESTATICO
 (juridico-regulatorio,medico-auditor) por seguranca: tem TRES incoming flows e nos dois que NAO vem
 direto de GW_Roteamento (pos-elaboracao via GW_Minuta; retomada via ICE_PrazoInfo) o roteamento/
-grupo_humano flat ainda carregariam o valor da rodada ELABORAR_RESPOSTA (nucleo-ans/regulatorio-ans)
+grupo_humano flat ainda carregariam o valor da rodada ELABORAR_RESPOSTA (regulatorio-ans)
 — wiring dinamico ali violaria o invariante L0 de revisao sempre-juridica. O output sla_alerta_iso
 (antes calculado por esta DMN, nunca lido por nenhum consumidor) foi REMOVIDO do nip_routing.dmn —
 superseded por nip_sla.sla_alerta_absoluto_iso (BRT_NipSla), unico valor que alimenta os timers
@@ -233,12 +233,12 @@ timeDate reais (GAP-NIP-1).</bpmn:documentation>
       <bpmn:outgoing>Flow_GWRotear_Juridico</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
-    <!-- Ramo ELABORAR_RESPOSTA: humano autora a minuta (regulatorio-ans / nucleo-ans, DMN-decidido) -->
+    <!-- Ramo ELABORAR_RESPOSTA: humano autora a minuta (regulatorio-ans, DMN-decidido; nucleo-ans fundido nele — #1084) -->
     <bpmn:userTask id="UT_ElaborarRespostaNip" name="Elaborar minuta de resposta a NIP"
                    camunda:candidateGroups="${grupo_humano}">
       <bpmn:documentation><![CDATA[
 HITL: ORIGEM do texto da resposta — o humano SEMPRE autora a minuta (regulatorio-ans para
-assistencial-outro, nucleo-ans para nao-assistencial/clerical). Saidas: texto_resposta_nip (minuta) +
+assistencial-outro e para nao-assistencial/clerical; nucleo-ans fundido — #1084). Saidas: texto_resposta_nip (minuta) +
 decisao_nip in {CONCEDER, RESPONDER_NAO_ASSISTENCIAL, ENCAMINHAR_REVISAO}. Para qualquer caminho
 que possa manter a negativa, encaminha a UT_RevisaoJuridicaNip (juridico-regulatorio). Nenhuma
 DMN/agente escreve texto_resposta_nip. A autoria sai em nome do humano (assignee na trilha de
@@ -247,11 +247,11 @@ auditoria, ADR-0007). SLA (deadline absoluto): a variavel de processo sla.prazo_
 
 GAP-NIP-2 (resolvido): candidateGroups e DMN-DECIDIDO — o UNICO expression-language (dollar-brace)
 desta User Task e o ATRIBUTO camunda:candidateGroups, que le a variavel FLAT grupo_humano (nao mais o
-estatico "regulatorio-ans,nucleo-ans"). grupo_humano e promovida por outputParameter em BRT_Roteamento
+estatico de antes). grupo_humano e promovida por outputParameter em BRT_Roteamento
 a partir de roteamento_nip.grupo_humano (ver nota completa la). Seguro aqui porque este UserTask tem UM
 SO incoming flow (Flow_GWRotear_Elaborar) — so alcancado quando roteamento vale ELABORAR_RESPOSTA,
-condicao sob a qual grupo_humano e SEMPRE "nucleo-ans" (NAO_ASSISTENCIAL) ou "regulatorio-ans"
-(ASSISTENCIAL_OUTRO); nunca "juridico-regulatorio" (essas linhas da DMN produzem
+condicao sob a qual grupo_humano e SEMPRE "regulatorio-ans" (NAO_ASSISTENCIAL e
+ASSISTENCIAL_OUTRO); nunca "juridico-regulatorio" (essas linhas da DMN produzem
 REVISAO_JURIDICA/PENDENTE_INFO, que nunca chegam por este flow). Espelha o roteamento.grupo_atendimento
 de SP-OP-ESCALATION-001 (ADR-0012).
 
@@ -279,7 +279,7 @@ cuja propria doc cita o mesmo exemplo dollar-brace, completa sem erro) — apena
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_NotificarRiscoPrazo" name="Publicar evento: nip.deadline_risk (elaboracao — regulatorio-ans/nucleo-ans)"
+    <bpmn:serviceTask id="ST_NotificarRiscoPrazo" name="Publicar evento: nip.deadline_risk (elaboracao — regulatorio-ans)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:documentation>T3.1 event-gap remedy B — CONVERT-IN-PLACE (not a splice, unlike cancel/auth/reembolso/
 inadimplencia's Wave-1/wave-4 pattern for their own pended/notified gaps): contract
@@ -370,7 +370,7 @@ seria EXECUTADO pelo engine (root-cause do 500 corrigido em UT_ElaborarRespostaN
 User Task tem TRES incoming flows (Flow_GWRotear_Juridico direto do roteamento; Flow_GWMinuta_Revisao
 pos-elaboracao; Flow_PrazoInfo_Revisao apos SOLICITAR_INFO). Nos dois ultimos, `grupo_humano` (como
 `roteamento_nip`) ainda contem o resultado da AVALIACAO ORIGINAL
-de ELABORAR_RESPOSTA (grupo_humano=nucleo-ans/regulatorio-ans) — wiring dinamico aqui roteria a
+de ELABORAR_RESPOSTA (grupo_humano=regulatorio-ans) — wiring dinamico aqui roteria a
 revisao juridica ao grupo ERRADO, violando o invariante L0 de que a revisao (unica origem possivel
 de MANTER_NEGATIVA) e SEMPRE juridico-regulatorio. Ver nota completa em BRT_Roteamento.
 ]]></bpmn:documentation>
@@ -528,7 +528,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
     <!-- Ramo RESPONDER_NAO_ASSISTENCIAL: resposta clerical (neutro; envio confirmado por humano) -->
     <bpmn:serviceTask id="ST_SubmeterRespostaNaoAssistencial" name="Submeter resposta NIP (nao-assistencial)"
                       camunda:type="external" camunda:topic="operadora.nip.submit_response">
-      <bpmn:documentation>Resposta nao-assistencial (clerical): o humano (nucleo-ans) autora e confirma o envio na User Task. decisao_nip=RESPONDER_NAO_ASSISTENCIAL — o guard nao bloqueia. Mesmo no caminho clerical, o envio passa por User Task (nunca auto-submete).</bpmn:documentation>
+      <bpmn:documentation>Resposta nao-assistencial (clerical): o humano (regulatorio-ans) autora e confirma o envio na User Task. decisao_nip=RESPONDER_NAO_ASSISTENCIAL — o guard nao bloqueia. Mesmo no caminho clerical, o envio passa por User Task (nunca auto-submete).</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_NaoAssistencial</bpmn:incoming>
       <bpmn:outgoing>Flow_SubmeterNaoAssist_Handoff</bpmn:outgoing>
     </bpmn:serviceTask>

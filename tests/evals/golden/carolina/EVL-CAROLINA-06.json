@@ -57,5 +57,9 @@
       "prazo_notificacao": ""
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:cred_admissibility=ANALISE_HUMANA",
+    "dmn:cred_route=ANALISE_CREDENCIAMENTO"
+  ]
 }

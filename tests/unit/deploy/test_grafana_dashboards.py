@@ -406,6 +406,19 @@ _LABEL_KEY_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=~?|!~?=)")
 _AGG_CLAUSE_RE = re.compile(r"\b(?:by|on|ignoring|without)\s*\(([^)]*)\)")
 
 
+def _scrape_static_labels() -> set[str]:
+    """Labels que o PROPRIO `prometheus.yml` anexa na raspagem (`static_configs[].labels`, ex.:
+    `environment` do job `kafka-exporter`) — reais em toda serie do job, sem declaracao em
+    metrics.py. R-085: `MaezoDeadLetterBacklog` agrega `by (topic, environment)` direto sobre a
+    serie do exporter (antes so a recording rule carregava o rotulo)."""
+    document = yaml.safe_load((_ALERT_RULES_YML.parent / "prometheus.yml").read_text(encoding="utf-8"))
+    labels: set[str] = set()
+    for job in document.get("scrape_configs", []):
+        for static in job.get("static_configs", []):
+            labels |= set((static.get("labels") or {}).keys())
+    return labels
+
+
 def _exporter_label_names_for_metric(metric: str) -> set[str]:
     """Labels literalmente usadas com `metric` dentro de algum seletor `metric{...}` de
     alert-rules.yml — o mesmo principio de "ja vetada na arvore" usado para o inventario de NOMES
@@ -436,7 +449,7 @@ def _allowed_labels_for_metric_token(
                 return labels
     if token in labelnames_by_metric:
         return set(labelnames_by_metric[token])
-    return _STANDARD_EXPORTER_LABELS | _exporter_label_names_for_metric(token)
+    return _STANDARD_EXPORTER_LABELS | _scrape_static_labels() | _exporter_label_names_for_metric(token)
 
 
 def _label_problems_in_expr(

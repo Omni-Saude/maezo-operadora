@@ -769,3 +769,19 @@ de junta — prazos, desempate e suspensao do art. 4 par. 2 da RN 424 (a vedacao
 esta modelada, dark — R-064); ratificacao da tabela `auth_junta_admissibility` pelo medico
 auditor antes do flip; anexos TISS obrigatorios por categoria; politica de suspensao de prazo em
 pendencia.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-AUTH-001` → `maezo-payer-auth-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - guia: `{tenant_id}:auth-001:hk1_<HMAC>` sobre `ref_claro` = `G-{numero_guia_tiss}`.
+- **Classificação (a confirmar pelo DPO):** pessoal pseudônimo (saúde por inferência) e ID cru de fonte — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `EXCLUSIVE` (inalterada).
+- O compositor Java do portal (`AuthBusinessKeys.java`) e os vetores de paridade mudam junto com o Python; os dois canais continuam UM domínio de idempotência por guia (decisão do dono #16).

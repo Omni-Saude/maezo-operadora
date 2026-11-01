@@ -82,8 +82,9 @@ async def _candidate_heads_in(
     rows = (
         (
             await db.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: reader.table() + clausulas literais do modulo
                 text(
-                    "SELECT resource_ FROM "
+                    "SELECT resource_ FROM "  # nosec B608 # fonte: reader.table() + clausulas literais
                     + reader.table("mzo_auth_input_head")
                     + " WHERE tenant_=:tenant AND kind_=:kind AND state_='active' AND "
                     + where["clause"]
