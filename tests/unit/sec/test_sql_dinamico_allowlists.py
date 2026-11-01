@@ -471,3 +471,26 @@ async def test_task_publication_live_tasks_liga_o_limit() -> None:
     fonte._rows = _rows  # type: ignore[method-assign]
     assert await fonte.live_tasks(["k"]) == []
     assert capturado["sql"].endswith("LIMIT :limit") and capturado["params"]["limit"] == m.MAX_TASKS + 1
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/human/assignment_receipt.py e assignment_transport.py (`SET LOCAL search_path`)
+# ---------------------------------------------------------------------------------------------
+
+
+def _search_path_de_schema_for_tenant(modulo: str, funcao: str) -> None:
+    """O `{schema}` do `SET LOCAL search_path` e' sempre `schema = schema_for_tenant(...)` local."""
+    fn = _funcao(modulo, funcao)
+    atribs = [
+        n.value
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "schema" for t in n.targets)
+    ]
+    assert len(atribs) == 1
+    chamada = atribs[0]
+    assert isinstance(chamada, ast.Call) and isinstance(chamada.func, ast.Name)
+    assert chamada.func.id == "schema_for_tenant"
+
+
+def test_assignment_receipt_search_path_vem_de_schema_for_tenant() -> None:
+    _search_path_de_schema_for_tenant("gateway/human/assignment_receipt.py", "_current_source")

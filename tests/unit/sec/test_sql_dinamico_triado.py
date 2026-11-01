@@ -53,6 +53,7 @@ NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/documents/authority.py": 1,
     "gateway/external_cases/postgres.py": 1,
     "gateway/external_cases/publisher.py": 3,
+    "gateway/human/assignment_receipt.py": 1,
 }
 
 
