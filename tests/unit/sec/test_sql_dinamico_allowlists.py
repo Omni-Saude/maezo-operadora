@@ -662,3 +662,17 @@ def test_case_issuer_timeout_vai_ligado() -> None:
     from maezo.gateway.staff_cases import case_issuer_sources as m
 
     assert m._SET_TIMEOUT == "SELECT set_config('statement_timeout', :timeout, true)"
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/staff_cases/postgres.py (`read_sql` com o schema pinado do manifesto)
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("carga", INJECOES)
+def test_is_native_schema_recusa_injecao(carga: str) -> None:
+    """`is_native_schema` e' a fonte do schema de `NativeMembershipSource.read_sql` (ADR-0060 D3)."""
+    from maezo.gateway.staff_cases.production_config import is_native_schema
+
+    assert is_native_schema(carga) is False
+    assert is_native_schema("maezo_native") is True

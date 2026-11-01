@@ -47,6 +47,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "gateway/intake/native_authority.py": 6,
     "gateway/intake/native_source_lifecycle.py": 10,
     "gateway/staff_cases/case_issuer_sources.py": 7,
+    "gateway/staff_cases/postgres.py": 1,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,
