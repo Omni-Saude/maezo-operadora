@@ -38,6 +38,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "gateway/audit_anchor_verify.py": 1,
     "gateway/audit_postgres.py": 1,
     "gateway/capabilities/authority_postgres.py": 4,
+    "gateway/capabilities/durability/postgres.py": 2,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,
