@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 2 · **Wave:** WA.1 · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
-**Gatilho regulatorio:** Padrao TISS — fluxo lote de guias / analise / demonstrativo de analise de conta (**RN 501/2022**, que revogou a RN 305/2012 — **DRAFT/verify**, `docs/compliance/rn-currency-review.md:39,48,83); **prazo contratual** de analise de conta (**DRAFT/verify** — ADR-0040 OQ-2); Lei 9.656/1998 art. 18 (relacao operadora↔prestador credenciado, **DRAFT/verify** com juridico). A citacao anterior a RN 424/2017 foi **RETIRADA**: aquela norma rege junta medica/odontologica e estava MISATRIBUIDA aqui (`rn-currency-review.md:45,85-87,190-193`). Glosa = a operadora **nega ou reduz** o pagamento de linha de conta ao prestador → `authorization_denial`-adjacent, **L0 hard** (embora o envelope clerical de roteamento seja `standard_glosa_processing`, L2).
+**Gatilho regulatorio:** Padrao TISS — fluxo lote de guias / analise / demonstrativo de analise de conta (**RN 501/2022**, que revogou a RN 305/2012 — **DRAFT/verify**, `docs/compliance/rn-currency-review.md:39,48,83); **prazo contratual** de analise de conta (**DRAFT/verify** — ADR-0040 OQ-2); contrato escrito operadora↔prestador: RN 503/2022, art. 14, II e paragrafo unico (prazos de contestacao da glosa, de resposta e de pagamento) + Lei 9.656/1998, art. 17-A, § 2º, II (prazos e procedimentos de faturamento e pagamento) — **DRAFT/verify**, ancora proposta em `docs/compliance/legal/R-054-RATIFICACAO-CITACOES-POR-LINHA.md` L4, ratificacao do juridico pendente. A Lei 9.656 art. 18 foi **RETIRADA** como ancora de glosa (F-022/R-062): trata de obrigacoes e direitos do prestador credenciado (nao discriminar, marcacao, nao exclusividade), nao de adjudicacao de conta. A citacao anterior a RN 424/2017 foi **RETIRADA**: aquela norma rege junta medica/odontologica e estava MISATRIBUIDA aqui (`rn-currency-review.md:45,85-87,190-193`). Glosa = a operadora **nega ou reduz** o pagamento de linha de conta ao prestador → `authorization_denial`-adjacent, **L0 hard** (embora o envelope clerical de roteamento seja `standard_glosa_processing`, L2).
 **Inverte o anti-padrao:** `../maezo-reference/.archive/bpmn/glosa_management.bpmn` (que identifica→classifica→**auto-aplica** glosa via `Task_UpdatePaymentNotEligible`/`EndEvent_GlosaAccepted` e tem `Task_AutoApprove` no timeout de 48h). Em Maezo a DMN apenas **sinaliza candidata e roteia**; nenhum caminho automatizado **glosa**. Ver §"Notas de design / inversao do reference".
 
 **Inversao de PERSPECTIVA (ADR-0040, Proposed — não ratificada):** além do anti-padrão de
@@ -177,7 +177,7 @@ out: `glosa_type: string` (ex.: `parcial` | `total` | `valor` | `tecnica`), `glo
 ### `glosa_triage` (hitPolicy FIRST — DRAFT; coracao negativa-like)
 in: `tipo_item: string`, `categoria_normalizada: string`, `item_conforme_tabela: boolean`, `divergencia_valor: boolean`, `documentacao_anexa: boolean`
 out: `roteamento: string` (`PAGAR` | `ANALISE_HUMANA`), `motivo: string`
-**Sem saida que glose** por design (ADR-0040): na perspectiva do pagador o adverso **e** `GLOSAR`, portanto ele nao pode existir como valor de saida de DMN. Catch-all (ultima row) → `ANALISE_HUMANA` (qualquer ambiguidade, glosa tecnica/clinica ou divergencia de valor cai aqui). Glosa tecnica/clinica → `ANALISE_HUMANA` (R4: auto-route de glosa puramente formatacional **so** com sign-off de compliance; default conservador = humano). `PAGAR` (row 1) exige `categoria_normalizada` **NAO** `tecnica`/`clinica` (GAP-CONTAS-3): a row original ignorava `categoria_normalizada` e, sob `hitPolicy=FIRST`, preemptava a row de glosa tecnica/clinica sempre que `item_conforme_tabela=true` + `divergencia_valor=false` + `documentacao_anexa=true`. O conjunto NEGATIVO ainda admite `desconhecida` — **achado M-4, aberto** (`glosa-triage-shadow-candidate.yaml`, `docs/review-queue.md`); fecha-lo e ato do dono da tabela (ADR-0028 §7), registrado em **ADR-0040 OQ-10** junto com a variante conservadora pre-especificada.
+**Sem saida que glose** por design (ADR-0040): na perspectiva do pagador o adverso **e** `GLOSAR`, portanto ele nao pode existir como valor de saida de DMN. Catch-all (ultima row) → `ANALISE_HUMANA` (qualquer ambiguidade, glosa tecnica/clinica ou divergencia de valor cai aqui). Glosa tecnica/clinica → `ANALISE_HUMANA` (R4: auto-route de glosa puramente formatacional **so** com sign-off de compliance; default conservador = humano). `PAGAR` (`r_pagar`, row 4) exige `categoria_normalizada` no conjunto **POSITIVO fechado** `{documental, administrativa, valor}` + `item_conforme_tabela=true` + `divergencia_valor=false` + `documentacao_anexa=true`. Historico: GAP-CONTAS-3 (a row ignorava a categoria e preemptava a row tecnica/clinica) foi corrigido com `not("tecnica","clinica")`; esse conjunto NEGATIVO ainda admitia `desconhecida` (achado M-4 / F-033). **M-4 FECHADO por DEC-14** (decisao do dono 2026-10-31, issue #1084, opcao (a) rotear a humano; ratificacao em `docs/compliance/human-windows/R-033-dec-glosa-m4.md`): categoria `desconhecida`, vazia ou fora do dominio declarado nao casa `r_pagar` e desce ao catch-all → `ANALISE_HUMANA` → fluxo default de `GW_Triagem` → `ST_PrepareTriageDossier` → `UT_AnalistaContas` (caminho humano ja modelado; nenhum fluxo BPMN novo). A correcao e a pre-especificada em `glosa-triage-shadow-candidate.yaml` (DECISAO-A opcao (a)); hitPolicy e as demais rows inalteradas. Fica aberta ao dono so a ACHADO-4 (documental/administrativa com anexos → PAGAR).
 
 ### `contas_sla` (hitPolicy FIRST — DRAFT v0.2.0; todos os prazos DRAFT/verify)
 in: `tipo_lote: string`, `valor_apresentado_brl: double`, `data_recebimento_lote: string` (ancora — a data em que a **operadora recebeu** o lote; declarada p/ documentar a dependencia, nao participa do matching)
@@ -381,8 +381,8 @@ estado que o censo do proprio ADR-0030 registra.
   (`docs/compliance/rn-currency-review.md:193`) — **DRAFT/verify**.
 - **OQ-7:** `DEVOLVER` e efeito adverso? Hoje e classificado neutro→prestador-adjacente, espelhando
   `End_PagamentoRecusadoHumano` de PAGTO, e por isso `devolver_conta` nao tem guard `_NOT_HUMAN`.
-- **OQ-10:** o achado M-4 da `glosa_triage` (conjunto negativo admite `desconhecida`) continua
-  **aberto**; a variante conservadora esta pre-especificada e e ato do dono da tabela.
+- **OQ-10:** o achado M-4 da `glosa_triage` (conjunto negativo admitia `desconhecida`) esta
+  **FECHADO** por DEC-14 (2026-10-31, #1084): categoria desconhecida → `ANALISE_HUMANA` (R-062/F-033).
 - **OQ-14:** dever e momento de comunicar o prestador no terminal de fraude.
 - Tabela TISS de motivos de glosa (`codigo_glosa_tiss`) — **ADR-0040 OQ-5**.
 - **Confirmacao dos candidate groups** `auditoria-contas` / `coordenacao-contas` contra a
@@ -393,3 +393,22 @@ estado que o censo do proprio ADR-0030 registra.
   L0 hard) e o handoff a SP-OP-FRAUDE-001 (Phase 3).
 - Anexos TISS obrigatorios por `tipo_lote`; mapa completo reason_code TISS → categoria
   (`glosa_reason_normalization`).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CONTAS-001` → `maezo-payer-contas-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - lote: `{tenant_id}:contas-001:hk1_<HMAC>` sobre `ref_claro` = `L-{numero_lote_tiss}`.
+  - guia+conta: `{tenant_id}:contas-001:hk1_<HMAC>` sobre `ref_claro` = `G-{numero_guia_tiss}-{numero_conta}`.
+- **Classificação (a confirmar pelo DPO):** forma `L`: ID cru de fonte, em geral não pessoal; forma `G`: pessoal (conta de um beneficiário) — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` no mapa; promoção escura a `EXCLUSIVE` inalterada (DL-0046).
+- **R-101 (decisão do dono, 2026-10-31):** as duas formas ganham etiquetas distintas (`L`/`G`), o que elimina a colisão entre `lote="X-Y"` e `(guia="X", conta="Y")`; e `numero_guia_tiss` contendo `-` é RECUSADO na composição (fail-closed, `BusinessKeyComponentError`), nas duas gramáticas durante a janela, o que elimina a colisão interna da forma `G` (`guia="A-B", conta="C"` × `guia="A", conta="B-C"`). O resíduo declarado no compositor `contas_business_key` deixa de existir.
+- **Guia/conta sem lote (decisão do dono, R-101):** o worker usa a business key da própria instância (`task.business_key`) em vez de recompor a partir das variáveis; a obrigatoriedade de `numero_lote_tiss` na tabela de entrada é revista na janela para a forma `G`.
+- O protocolo do demonstrativo, hoje derivado da chave, passa a derivar da forma de saída opaca (não da `ref_claro`).

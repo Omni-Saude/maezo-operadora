@@ -373,16 +373,22 @@ def _e_erro_de_prazo(nome_da_classe: str) -> bool:
     return "timeout" in nome_da_classe.lower()
 
 
-def _roteador_entrada(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str | None, Any, str | None]:
-    """A pendencia de antes, a pendencia para o roteador e a trava de entrada deterministica."""
+def _roteador_entrada(
+    self: HelenaGraph, state: Mapping[str, Any], *, sem_alarme: bool = False
+) -> tuple[str | None, Any, str | None]:
+    """A pendencia de antes, a pendencia para o roteador e a trava de entrada deterministica (`sem_alarme`:
+    a triagem com juiz decide o alarme; a trava de risco e a de dados pessoais seguem)."""
     from maezo.agents.helena import roteador as _rt
 
     antes = str(state.get("coleta_pendente") or "") or None
     pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
     trava = _rt.trava_de_entrada(
         str(state.get("message_body") or ""),
-        alarme=lambda t: self._roteador_alarme(
-            t, antes, self._falas_da_pessoa(state), ultima_fala(_falas_da_helena(state))
+        alarme=lambda t: (
+            not sem_alarme
+            and self._roteador_alarme(
+                t, antes, self._falas_da_pessoa(state), ultima_fala(_falas_da_helena(state))
+            )
         ),
         risco=lambda t: _sg.tem_risco(_plano(t)),
     )
@@ -443,11 +449,14 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         # Falha do proprio turno (`receive`), conversa em seguimento com o Lucas, fechamento logo depois dele
         # ou a pergunta do protocolo do pedido (avaliacao r5b): o caminho de sempre, sem o modelo do roteador.
         return await self.classify(state)
-    if (claro := self._sinal_claro_pelo_texto(state)) is not None:
+    # Teste do dono (01/11/2026): com a triagem com juiz, o alarme pela palavra ("desmaiou") nao responde
+    # antes dela: o motor tem os mesmos sinais claros e pergunta "foi hoje?" quando a palavra sozinha engana.
+    juiz = _triagem_juiz.assume(self, state)
+    if not juiz and (claro := self._sinal_claro_pelo_texto(state)) is not None:
         # Rodada de seguranca de 25/10/2026: sinal CLARO afirmado (desmaiou, parou de respirar,
         # convulsionando, roxo, nao acorda) da' 192 antes do roteador, da pendencia e dos protocolos.
         return {**claro, "habilidade_roteador": None}
-    antes, pendente, trava = self._roteador_entrada(state)
+    antes, pendente, trava = self._roteador_entrada(state, sem_alarme=juiz)
     falha: str | None
     if trava is not None:
         # Rodada de 24/10/2026: com trava (alarme, risco, dados pessoais) a TABELA responde primeiro: o turno
@@ -555,9 +564,15 @@ async def _classify_ativo_decidido(
         # pergunta a pergunta e decidida pela regra (o sinal NOVO fora delas volta ao alarme abaixo).
         return {**protocolo, "habilidade_roteador": "sintoma"}
     alarme = _alarme_do_modelo(self, state, v7)
-    if alarme == "claro":
+    if alarme == "claro" and not _triagem_juiz.assume(self, state):
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
     texto = str(state.get("message_body") or "")
+    if (troca := _triagem_juiz.troca_de_assunto(self, state, antes)) is not None:
+        # 2o teste do dono (01/11/2026): "agora trago outro assunto" encerra o caso anterior e pede o novo.
+        return {**troca, "habilidade_roteador": "conversa"}
+    if (explicada := _triagem_juiz.explicar(self, state, antes)) is not None:
+        # Teste do dono (01/11/2026): "o que eu te respondi?" depois da conclusao da triagem: o porque dela.
+        return {**explicada, "habilidade_roteador": "sintoma"}
     if (oferta := _oferta.responder(self, state)) is not None:
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
@@ -570,6 +585,10 @@ async def _classify_ativo_decidido(
         fixo = await _texto_fixo_de_conversa(self, state, texto)
         if fixo is not None:
             return fixo
+    if (juiz := await _triagem_juiz.conduzir(self, state, decisao, antes, alarme)) is not None:
+        # Experimento do dev (dono, 01/11/2026): tabela como piso e o modelo julgando a conversa, so' com a
+        # chave `triagem_juiz` do pacote e na allowlist; desligada, os protocolos abaixo como sempre.
+        return {**juiz, "habilidade_roteador": "sintoma"}
     if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
         # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.
         return {**protocolo, "habilidade_roteador": "sintoma"}
@@ -921,4 +940,5 @@ from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa
 from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from maezo.agents.helena.habilidades.conversa import falha_tecnica as _falha_tecnica  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
+from maezo.agents.helena.habilidades.triagem_juiz import fluxo as _triagem_juiz  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402

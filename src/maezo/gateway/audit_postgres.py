@@ -131,7 +131,12 @@ _INSERT_PLACEHOLDERS = ", ".join(
     f"${i}::jsonb" if col in ("decision_basis", "dmn_versions") else f"${i}"
     for i, col in enumerate(_COLUMNS, start=1)
 )
-INSERT_SQL = f"INSERT INTO audit_chain ({', '.join(_COLUMNS)}) VALUES ({_INSERT_PLACEHOLDERS})"
+# R-110: so' identificadores de `_COLUMNS` (tupla literal acima) e placeholders `$n` gerados aqui;
+# nenhum valor entra no texto do SQL.
+INSERT_SQL = (
+    f"INSERT INTO audit_chain ({', '.join(_COLUMNS)}) "  # nosec B608 # fonte: _COLUMNS (tupla literal)
+    f"VALUES ({_INSERT_PLACEHOLDERS})"
+)
 
 # Per-tenant transactional advisory lock — released automatically at COMMIT/ROLLBACK. Serializes
 # the read-tail -> compute-hash -> insert critical section for one tenant's chain; see module

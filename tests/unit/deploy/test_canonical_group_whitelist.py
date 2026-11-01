@@ -17,6 +17,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 CANONICAL_STATIC = frozenset(
     [
+        # R-041 / DEC-21 (#1084, 31/10/2026): checker da admissibilidade do SP-OP-PAGTO-001,
+        # separado da aprovacao (coordenacao-financeira fica so na escalacao de alcada).
+        "analise-contas-pagar",
         "analise-reembolso",
         "analista-recurso-glosa",
         "auditoria-contas",
@@ -33,9 +36,10 @@ CANONICAL_STATIC = frozenset(
         "coordenacao-rede",
         "coordenacao-reembolso",
         "coordenacao-regulatorio",
-        "equipe-cuidado",
-        "gestao-cobranca",
-        "gestao-contratos",
+        # `equipe-cuidado` e `gestao-cobranca` sairam de candidateGroups (R-041, #1084): as
+        # tarefas adversas UT_DecisaoClinica / UT_AnaliseInadimplencia tem decisor unico.
+        # `gestao-contratos` idem (UT_AnaliseRescisao, decisor unico `juridico-contratos`); segue
+        # registrado no engine e como `grupo_sugerido` advisory da cancel_routing.
         "gestao-rede",
         "investigacao-fraude",
         "junta-medica",
@@ -54,8 +58,9 @@ ESCALATION = frozenset(
 SCRIPT = ROOT / "deploy/cibseven/configure-group-whitelist.sh"
 
 
-def test_original_27_static_candidate_groups_are_preserved() -> None:
-    """Os 27 originais + `cadastro-beneficiarios` (DL-0111). Nenhum original sai."""
+def test_static_candidate_groups_match_the_canonical_set() -> None:
+    """Os 27 originais + `cadastro-beneficiarios` (DL-0111); R-041 (#1084): -3 co-grupos das
+    tarefas adversas de decisor unico, +`analise-contas-pagar`. Saida so por decisao do dono."""
     actual = set()
     expressions = set()
     for path in (ROOT / "spec/processes/bpmn").glob("*.bpmn"):
@@ -65,7 +70,7 @@ def test_original_27_static_candidate_groups_are_preserved() -> None:
                 expressions.add(value)
             if value and "${" not in value:
                 actual.update(x.strip() for x in value.split(","))
-    assert len(CANONICAL_STATIC) == 28
+    assert len(CANONICAL_STATIC) == 26
     assert actual == CANONICAL_STATIC
     assert expressions == {
         "${grupo_humano}",

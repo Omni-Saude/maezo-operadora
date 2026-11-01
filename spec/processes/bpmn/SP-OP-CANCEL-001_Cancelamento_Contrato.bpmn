@@ -380,8 +380,8 @@ por automacao. Prazo: BT_PrazoExecucao (P5D — prazo a confirmar pelo juridico)
       <bpmn:outgoing>Flow_Dossie_UTAnalise</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:userTask id="UT_AnaliseRescisao" name="Analise de rescisao/cancelamento (juridico/contratos)"
-                   camunda:candidateGroups="juridico-contratos,gestao-contratos">
+    <bpmn:userTask id="UT_AnaliseRescisao" name="Analise de rescisao/cancelamento (juridico-contratos)"
+                   camunda:candidateGroups="juridico-contratos">
       <bpmn:documentation><![CDATA[
 HITL L0 hard (contract_termination, ADR-0005): UNICO ponto onde rescisao/suspensao/negativa do pedido
 pode nascer. Saidas: decisao_cancelamento in {RESCINDIR, SUSPENDER, MANTER, EFETIVAR_PEDIDO, SOLICITAR_INFO}.

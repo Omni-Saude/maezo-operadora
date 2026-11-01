@@ -220,7 +220,7 @@ class NativeMembershipSource:
                 JOIN {schema}.mzo_human_principal h ON h.tenant_=m.tenant_ AND h.principal_=m.principal_
                 WHERE m.tenant_=:tenant AND m.environment_=:environment AND m.engine_=:engine
                   AND m.incarnation_=:incarnation AND m.principal_=:principal
-            """
+            """  # nosec B608 # fonte: is_native_schema (ADR-0060 D3)
 
     async def require_pins(self, connection: Any) -> None:
         """Actual login and the exact pinned relations of the pinned schema, or refuse.

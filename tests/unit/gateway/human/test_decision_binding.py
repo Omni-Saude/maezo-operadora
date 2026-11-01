@@ -200,14 +200,14 @@ class Connection:
         self.step(sql)
         if "SELECT packet_,digest_" in sql:
             assert args[:2] == (SCOPE.tenant, self.state.d.installation_id)
-            assert "ORDER BY digest_ LIMIT 7" in sql
+            assert "ORDER BY digest_ LIMIT $4" in sql and args[3] == 7
             return sorted(
                 (r for (revision, _), r in self.state.rows["qualification"].items() if revision == args[2]),
                 key=lambda r: r["digest_"],
             )[:7]
         if "SELECT binding_digest_" in sql:
             assert args[:2] == (SCOPE.tenant, SCOPE.environment)
-            assert "ORDER BY binding_digest_ LIMIT 7" in sql
+            assert "ORDER BY binding_digest_ LIMIT $4" in sql and args[3] == 7
             return sorted(
                 (r for r in self.state.rows["bindings"].values() if r["authority_rev_"] == args[2]),
                 key=lambda r: r["binding_digest_"],

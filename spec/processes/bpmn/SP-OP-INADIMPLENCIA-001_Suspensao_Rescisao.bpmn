@@ -21,7 +21,7 @@
     <bpmn:documentation><![CDATA[
 SP-OP-INADIMPLENCIA-001 — Suspensao / Rescisao por Inadimplencia. Status: DRAFT (v0.1.0) — Phase 3,
 Wave W-B. DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (juridico/contratos
-+ gestao-cobranca + regulatorio + DPO + finanças + PO) antes de qualquer deploy — docs/review-queue.md.
++ cobranca + regulatorio + DPO + finanças + PO) antes de qualquer deploy — docs/review-queue.md.
 
 GATILHO REGULATORIO: RN 593 (suspensao/rescisao por inadimplencia — janela de purga/cura + notificacao
 previa ate o 50o dia; possivelmente consolida/supersede RN 412/2016 — OQ aberta), Lei 9.656/1998 art. 13
@@ -31,7 +31,7 @@ escadas e candidate-groups sao DRAFT/verify com regulatorio/juridico antes de qu
 INVARIANTE L0 HARD (contract_termination, _hard_frozen.yaml, CI-enforced): NENHUM caminho automatizado
 suspende NEM rescinde o contrato por inadimplencia. A suspensao (efeito adverso NATIVO deste processo) SO
 nasce na User Task humana UT_AnaliseInadimplencia (ou UT_CoordenacaoCobranca no estouro de SLA), via
-decisao_inadimplencia=SUSPENDER setado por humano dos grupos juridico-contratos / gestao-cobranca.
+decisao_inadimplencia=SUSPENDER setado por humano do grupo juridico-contratos (decisor unico, #1084).
 NENHUMA DMN deste processo possui saida que suspenda/rescinda: inadimplencia_status so produz
 {AGUARDA_PURGA, PENDENTE_NOTIFICACAO, SEGUE_ANALISE, ANALISE_HUMANA}; catch-all -> ANALISE_HUMANA. O event
 gateway de purga (RN 593) INVERTE o anti-pattern "auto-suspender/auto-rescindir no estouro do prazo de
@@ -294,8 +294,8 @@ de 12 meses (DMN inadimplencia_status). Assinatura juridica exigida antes do fli
       <bpmn:outgoing>Flow_Dossie_UTAnalise</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:userTask id="UT_AnaliseInadimplencia" name="Analise de inadimplencia (juridico-contratos / gestao-cobranca)"
-                   camunda:candidateGroups="juridico-contratos,gestao-cobranca">
+    <bpmn:userTask id="UT_AnaliseInadimplencia" name="Analise de inadimplencia (juridico-contratos)"
+                   camunda:candidateGroups="juridico-contratos">
       <bpmn:documentation><![CDATA[
 HITL L0 hard (contract_termination, ADR-0005): UNICO ponto onde a suspensao por inadimplencia pode
 nascer e a partir de onde a rescisao e encaminhada (handoff) a CANCEL-001. Saidas: decisao_inadimplencia

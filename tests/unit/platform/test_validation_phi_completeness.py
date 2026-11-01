@@ -1282,19 +1282,10 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "carrega dado do beneficiario, so' o veredito da tabela."
         ),
     ),
-    CorpusDelta(
-        date="2026-10-14",
-        pr="#771",
-        name="atraso_critico",
-        name_delta=1,
-        occurrence_delta=1,
-        reason=(
-            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (decisao do dono, 14/10/2026): booleano "
-            "apurado pelo grafo do Lucas sobre os fatos da fonte ('o atraso e' real: pagador PF com >= 2 "
-            "meses ou > 30 dias sem pagamento?', limiares configuraveis). So' a regra `atraso_critico` o "
-            "le' (escala); nao carrega dado do beneficiario, so' o resultado da comparacao."
-        ),
-    ),
+    # `atraso_critico` (#771, 14/10/2026: +1 nome / +1 ocorrencia, ENTRADA booleana de
+    # `lucas_billing_admissibility`) saiu do corpus em R-047 (#1146: -1 / -1) — ida e volta de soma zero.
+    # A regra do log ("nome com name_delta >= 0 tem de estar vivo") nao modela ida-e-volta, entao a
+    # entrada do #771 foi RETIRADA em vez de pareada com uma de -1; esta nota e' a proveniencia das duas.
     CorpusDelta(
         date="2026-10-14",
         pr="#781",
@@ -1774,6 +1765,80 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "sem dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1141",
+        name="prazo_resposta_dias_uteis",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "R-005 (F-018, DEC-02): nova coluna de saida `prazo_resposta_dias_uteis` (integer) da DMN "
+            "auth_sla (+1) e o inputParameter de ST_CalcularPrazoRespostaUtil em SP-OP-AUTH-001 que a "
+            "copia para a task (+1 nome do parametro, +1 segmento JUEL). Contagem de dias uteis do art. "
+            "12 da RN 623/2024 (5/10/nulo), sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1141",
+        name="sla",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-005 (F-018, DEC-02): +1 leitura `sla.prazo_resposta_dias_uteis` no inputParameter de "
+            "ST_CalcularPrazoRespostaUtil (SP-OP-AUTH-001). O timer BT_SlaAnalise continua lendo "
+            "`sla.sla_analise` (mesma contagem). Nome ja no corpus, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1153",
+        name="valor_maximo_aprovavel_cents",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "Pacote PAGTO PR-A (R-053 (a), dono 2026-10-31 #1084): nova saida long "
+            "`valor_maximo_aprovavel_cents` de pagto_alcada.dmn (teto do aprovado = valor da ordem) "
+            "achatada por BRT_AlcadaRouting (outputParameter + leitura). Centavos de BRL de uma "
+            "ordem a prestador — dado financeiro, nao dado pessoal de saude."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1153",
+        name="pagto_alcada",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "Mesmo pacote: +1 leitura `${pagto_alcada.valor_maximo_aprovavel_cents}` no "
+            "outputParameter de BRT_AlcadaRouting (SP-OP-PAGTO-001). Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1146",
+        name="meses_vencidos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. R-047/F-031 (decisao do dono 29/10/2026): ENTRADA inteira nova de "
+            "`lucas_billing_admissibility` — quantos meses sem pagamento os fatos mostram (maior entre "
+            "ciclos sem conciliacao e competencias `vencida`), contada pelo grafo. Substitui o booleano "
+            "`atraso_critico`; o limiar `>= 2` mora na tabela. Contagem, sem dado identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-31",
+        pr="#1146",
+        name="dias_atraso_max",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. R-047/F-031: ENTRADA inteira nova de `lucas_billing_admissibility` — maior atraso em "
+            "dias segundo a fonte (nulo quando ausente), o mesmo fato que o grafo ja lia. Com "
+            "`meses_vencidos` substitui `atraso_critico`; o limiar `> 30` mora na tabela. Sem identificador."
+        ),
+    ),
 )
 
 
@@ -1785,9 +1850,12 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 349
+            expected_clean == 352
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
+        # R-005 (prazo_resposta_dias_uteis): +1
+        # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
+        # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1819,7 +1887,10 @@ class TestBuckets:
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
         # #786 (DL-0111): +1 (execucao_cadastro)
-        assert len(live_sweep.names) == expected_names == 365
+        # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
+        # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
+        # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
+        assert len(live_sweep.names) == expected_names == 368
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -1831,7 +1902,10 @@ class TestBuckets:
         #   decisao_envio via getVariable -2, `trim` do guard da justificativa +1); nomes: +1 -1 = 0
         # R-064 (#1121): +6 (junta_admissibilidade +2, carater_atendimento +1, motivo +1, resultado +2);
         #   nomes: +1 (junta_admissibilidade)
-        assert len(live_sweep.refs) == expected_refs == 1750
+        # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
+        # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
+        # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
+        assert len(live_sweep.refs) == expected_refs == 1759
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1959,10 +2033,13 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (349)" in rendered
+            f"## {CLEAN} (352)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
+        # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
+        # PAGTO PR-A (#1153): +1 (`valor_maximo_aprovavel_cents`).
+        # R-047 (#1146): +2 (`meses_vencidos`, `dias_atraso_max`) -1 (`atraso_critico`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

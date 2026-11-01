@@ -169,6 +169,12 @@ class WorkerRuntimeSettings(BaseSettings):
     # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
     pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
     inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+    # Forensic audit F-124 (roadmap R-027; decisao do DPO de 31/10/2026, #1082 opcao a): a business
+    # key `INAD-{tenant}-{numero_contrato}` exige o numero do contrato — sem fallback para
+    # `matricula_beneficiario` — e o start sem ele e' RECUSADO no chokepoint (fail-notify ADR-0045);
+    # `prepare_dossier` deixa de delegar ao Fernando sem contrato. DARK by default (ships OFF):
+    # starts sem contrato passam a exigir saneamento cadastral, e o flip e' ato humano (ROLL).
+    inad_chave_exige_contrato: bool = Field(default=False, alias="MAEZO_INAD_CHAVE_EXIGE_CONTRATO")
     # Decisao do dono de 30/10/2026 (criterios de reembolso por beneficiario; desenho em
     # docs/design/condicoes-reembolso-contratuais.md): liga a LEITURA das condicoes contratuais de
     # reembolso pelo contrato AMH PROPOSTO `tina-reembolso`
@@ -211,6 +217,33 @@ class WorkerRuntimeSettings(BaseSettings):
     # resultado da DMN fica em sombra. Ligar e' ato da implantacao (ROLL), depois da ratificacao
     # do medico auditor; nunca de agente.
     auth_junta_rn424_guard: bool = Field(default=False, alias="MAEZO_AUTH_JUNTA_RN424_GUARD")
+
+    # R-005 (F-018; DEC-02 do juridico via dono, 2026-10-31). RN 623/2024 art. 12: prazo de
+    # resposta em DIAS UTEIS (calendario versionado de feriados nacional + UF,
+    # `maezo.platform.calendario`). Ligada, `operadora.auth.compute_response_deadline` converte os
+    # dias uteis da DMN `auth_sla` na duracao que `BT_SlaAnalise` le. DARK por padrao: desligada, o
+    # worker escreve nulos e o timer segue no ISO corrido da DMN (teto temporario da D-05). Ligar e'
+    # ato da implantacao (ROLL), depois da conferencia juridica do calendario; nunca de agente.
+    auth_prazo_dias_uteis: bool = Field(default=False, alias="MAEZO_AUTH_PRAZO_DIAS_UTEIS")
+
+    # R-085 (decisao do dono 2026-10-31, issue #1084 Rodada 2 "Observabilidade"; ADR-0010). Ligada,
+    # o daemon roda o `engine_metrics.EngineMetricsPoller`: le do HISTORICO do engine o campo de
+    # decisao de cada User Task L1 encerrada e emite `maezo_l1_decision_total` (proxy da taxa de
+    # aprovacao humana). So' LEITURA, nunca efeito. DARK por padrao: desligada, nenhuma leitura de
+    # historico acontece. UMA replica por tenant (duas replicas ligadas contam duas vezes — limite
+    # declarado no modulo). Ligar e' ato da implantacao (ROLL), nunca de agente.
+    l1_decision_poller: bool = Field(default=False, alias="MAEZO_L1_DECISION_POLLER")
+    # Intervalo entre rodadas do poller, em segundos. Parametro operacional (latencia do sinal),
+    # nao limiar de negocio; o alerta de queda trabalha em DIAS, entao 60 s fica muito abaixo da
+    # resolucao que importa. TODO-OWNER: confirmar contra o TTL de limpeza do historico do engine.
+    l1_decision_poller_interval_s: float = Field(default=60.0, alias="MAEZO_L1_DECISION_POLLER_INTERVAL_S")
+
+    @field_validator("l1_decision_poller_interval_s", mode="after")
+    @classmethod
+    def _positive_interval(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError(f"must be positive, got {value}")
+        return value
 
     @field_validator(
         "lock_duration_ms",

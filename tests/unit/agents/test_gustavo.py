@@ -548,7 +548,26 @@ async def test_assess_nip_assistencial_outro_routes_elaborar_resposta() -> None:
     assert result["grupo_humano"] == "regulatorio-ans"
 
 
-async def test_assess_nip_nao_assistencial_routes_elaborar_resposta_nucleo() -> None:
+async def test_assess_nip_nao_assistencial_routes_elaborar_resposta_regulatorio() -> None:
+    """R-041 / #1084: o nao-assistencial clerical tambem e autorado por `regulatorio-ans`."""
+    dmn = FakeDmnTransport()
+    _register_all_nip(
+        dmn, classificacao="NAO_ASSISTENCIAL", roteamento="ELABORAR_RESPOSTA", grupo_humano="regulatorio-ans"
+    )
+    graph = _graph(dmn=dmn)
+
+    result = await graph.assess(
+        _nip_state(classificacao_nip="nao_assistencial", contesta_negativa=False, tema_nip="cobranca")
+    )
+
+    assert result["route"] == "instruct_nip"
+    assert result["motivo_humano"] == "elaborar_resposta_nip"
+    assert result["grupo_humano"] == "regulatorio-ans"
+
+
+async def test_assess_nip_retired_nucleo_ans_group_fail_safes_to_juridico() -> None:
+    """Um `nucleo-ans` vindo de uma DMN antiga nao e mais grupo valido (fundido, R-041): cai no
+    fail-safe conservador em vez de mandar a tarefa a um grupo que o engine nao cria."""
     dmn = FakeDmnTransport()
     _register_all_nip(
         dmn, classificacao="NAO_ASSISTENCIAL", roteamento="ELABORAR_RESPOSTA", grupo_humano="nucleo-ans"
@@ -559,9 +578,7 @@ async def test_assess_nip_nao_assistencial_routes_elaborar_resposta_nucleo() -> 
         _nip_state(classificacao_nip="nao_assistencial", contesta_negativa=False, tema_nip="cobranca")
     )
 
-    assert result["route"] == "instruct_nip"
-    assert result["motivo_humano"] == "elaborar_resposta_nip"
-    assert result["grupo_humano"] == "nucleo-ans"
+    assert result["grupo_humano"] == "juridico-regulatorio"
 
 
 async def test_assess_nip_pendente_info_routes_human() -> None:

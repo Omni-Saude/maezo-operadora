@@ -39,6 +39,11 @@ _FORBIDDEN_LABEL_FRAGMENTS: Final[tuple[str, ...]] = (
 )
 
 
+#: Rotulos anexados na RASPAGEM (deploy/observability/otel-collector-ecs-dev.yaml), nao declarados
+#: no contador — os unicos aceitos num `by (...)`/`on (...)` deste grupo alem dos do contador.
+_SCRAPE_LABELS: Final[frozenset[str]] = frozenset({"environment"})
+
+
 def _rules() -> dict[str, dict[str, Any]]:
     document: Any = yaml.safe_load(_ALERT_RULES.read_text(encoding="utf-8"))
     (group,) = [g for g in document["groups"] if g["name"] == _GROUP]
@@ -101,8 +106,16 @@ def test_alert_rules_escalation_rate_uses_runbook_threshold_and_window() -> None
     expr = rule["expr"]
     assert 'maezo_agent_desfecho_total{desfecho="escalado_humano"}[1h]' in expr
     assert "maezo_agent_desfecho_total[1h]" in expr
-    assert expr.count("sum by (agent_id)") == 2
-    assert _threshold(expr) == 0.30  # devops-stack.md §6 "Escalation rate": > 30% / 1h
+    # R-085 (dono 2026-10-31): "volume minimo + 2 janelas, agregado por agente e ambiente".
+    assert "sum by (agent_id)" not in expr
+    assert expr.count("sum by (agent_id, environment)") == 5
+    assert 'maezo_agent_desfecho_total{desfecho="escalado_humano"}[5m]' in expr
+    assert "maezo_agent_desfecho_total[5m]" in expr
+    # O MESMO 30% sourced nas duas janelas (devops-stack.md §6 "Escalation rate": > 30% / 1h).
+    assert [float(t) for t in re.findall(r"\)\s*>\s*([0-9.]+)", expr)] == [0.30, 0.30]
+    # Volume minimo na janela longa (parametro TODO-OWNER P6 do arquivo).
+    assert re.search(r"increase\(maezo_agent_desfecho_total\[1h\]\)\)\s*>=\s*[0-9]+", expr), expr
+    assert "for" not in rule
     assert rule["annotations"]["runbook_url"] == "docs/runbooks/alerts/MaezoEscalationRateHigh.md"
 
 
@@ -126,8 +139,11 @@ def test_alert_rules_governanca_labels_used_in_expr_exist_on_the_metric() -> Non
                 used = {part.split("=")[0].strip() for part in matcher.split(",") if part.strip()}
                 assert used <= labels, (rule["alert"], used - labels)
         metrics_in_expr = re.findall(r"(maezo_[a-z0-9_]+_total)", expr)
-        for grouped in re.findall(r"by \(([^)]*)\)", expr):
+        for grouped in re.findall(r"(?:by|on) \(([^)]*)\)", expr):
             for label in (x.strip() for x in grouped.split(",")):
+                # `environment` e rotulo de RASPAGEM (coletor ECS), nao do contador (R-085).
+                if label in _SCRAPE_LABELS:
+                    continue
                 assert any(label in _labelnames(m) for m in metrics_in_expr), label
 
 
@@ -233,3 +249,18 @@ def test_alert_rules_guard_recorder_never_labels_a_raw_value() -> None:
     record_a2a_guard_refusal(target="rafael", guard="valor_cru_inesperado")
     assert _sample("maezo_a2a_guard_refusal_total", target="rafael", guard="outro") == before + 1.0
     assert _sample("maezo_a2a_guard_refusal_total", target="rafael", guard="valor_cru_inesperado") == 0.0
+
+
+def test_alert_rules_dispatcher_preinitialises_every_guard_refusal_series_at_zero() -> None:
+    """R-085 ("pre-inicializar contadores raros"): building the dispatcher must create
+    `maezo_a2a_guard_refusal_total{target,guard}` at 0 for every registered target x A2A_GUARDS,
+    so the FIRST refusal is visible to `increase()` in MaezoA2ABudgetExhausted."""
+    from maezo.platform.observability import A2A_GUARDS, get_metrics_collector
+
+    build_test_dispatcher(cards=[make_card("valentina")], handlers={"valentina": FakeAgentHandler()})
+    registry = get_metrics_collector().registry
+    for guard in A2A_GUARDS:
+        value = registry.get_sample_value(
+            "maezo_a2a_guard_refusal_total", {"target": "valentina", "guard": guard}
+        )
+        assert value is not None, guard

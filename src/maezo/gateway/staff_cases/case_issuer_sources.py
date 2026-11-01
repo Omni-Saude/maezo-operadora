@@ -61,6 +61,8 @@ from .production_config import is_native_schema
 from .publisher import StaffWitnessSource
 
 SCHEMA = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+#: R-110 / F-151: o timeout e' VALOR e vai ligado; `set_config(..., true)` equivale a `SET LOCAL`.
+_SET_TIMEOUT = "SELECT set_config('statement_timeout', :timeout, true)"
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 TASK_KEY = "UT_TratarEscalonamento"
 #: SLA de resolucao vencido: a escalacao continua VIVA em `UT_SupervisorAssume`, cujo candidate
@@ -94,13 +96,14 @@ class PostgresStaffGranteeSource:
         now = self.clock()
         async with self.engine.connect() as connection:
             await connection.execute(text("SET TRANSACTION READ ONLY"))
-            await connection.execute(text(f"SET LOCAL statement_timeout = '{int(self.seconds)}s'"))
+            await connection.execute(text(_SET_TIMEOUT), {"timeout": f"{int(self.seconds)}s"})
             rows = (
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                     text(
                         # So as colunas que `amh-native-source-grants.sql` concede ao login
                         # `maezo_native_case_issuer` (sem `principal_ref`: vem do payload).
-                        "SELECT tenant, issuer, subject, payload "
+                        "SELECT tenant, issuer, subject, payload "  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                         f'FROM "{self.schema}".portal_memberships '
                         "WHERE tenant=:tenant ORDER BY issuer, subject"
                     ),
@@ -389,11 +392,12 @@ class AuthClaimAnchor:
     async def _claims(self, instance: str) -> list[Any]:
         async with self.engine.connect() as connection:
             await connection.execute(text("SET TRANSACTION READ ONLY"))
-            await connection.execute(text(f"SET LOCAL statement_timeout = '{int(self.seconds)}s'"))
+            await connection.execute(text(_SET_TIMEOUT), {"timeout": f"{int(self.seconds)}s"})
             rows = (
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                     text(
-                        "SELECT tenant_, instance_, case_ "
+                        "SELECT tenant_, instance_, case_ "  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                         f'FROM "{self.native_schema}".mzo_auth_guide_claim '
                         "WHERE tenant_=:tenant AND instance_=:instance"
                     ),
@@ -542,7 +546,7 @@ class PostgresIssuerLedger:
         self._state: IssuerState | None = None
 
     async def _begin(self, connection: Any) -> None:
-        await connection.execute(text(f"SET LOCAL statement_timeout = '{int(self.seconds)}s'"))
+        await connection.execute(text(_SET_TIMEOUT), {"timeout": f"{int(self.seconds)}s"})
         user = (await connection.execute(text("SELECT session_user::text, current_user::text"))).one()
         if tuple(user) != (self.login, self.login):
             raise CaseIssuerError("ledger_login")
@@ -551,12 +555,14 @@ class PostgresIssuerLedger:
         async with self.engine.begin() as connection:
             await self._begin(connection)
             exists = (
-                await connection.execute(text(f"SELECT 1 FROM {self.table} WHERE {self.where}"), self.key)
+                # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
+                await connection.execute(text(f"SELECT 1 FROM {self.table} WHERE {self.where}"), self.key)  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
             ).first()
             if exists is None:
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                     text(
-                        f"INSERT INTO {self.table} (tenant, environment, engine_name, database_incarnation,"
+                        f"INSERT INTO {self.table} (tenant, environment, engine_name, database_incarnation,"  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                         " policy_ref, revision, issued_state, pending_request) VALUES (:tenant, :environment,"
                         " :engine_name, :database_incarnation, :policy_ref, 0, :state, NULL)"
                         " ON CONFLICT DO NOTHING"
@@ -565,8 +571,9 @@ class PostgresIssuerLedger:
                 )
             row = (
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                     text(
-                        f"SELECT revision, issued_state, pending_request FROM {self.table} WHERE {self.where}"
+                        f"SELECT revision, issued_state, pending_request FROM {self.table} WHERE {self.where}"  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                     ),
                     self.key,
                 )
@@ -593,8 +600,9 @@ class PostgresIssuerLedger:
         )
         rows = (
             await connection.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                 text(
-                    f"SELECT issued_state, pending_request FROM {self.table} WHERE {scope_where} FOR UPDATE"
+                    f"SELECT issued_state, pending_request FROM {self.table} WHERE {scope_where} FOR UPDATE"  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                 ),
                 self.key,
             )
@@ -617,8 +625,9 @@ class PostgresIssuerLedger:
         async with self.engine.begin() as connection:
             await self._begin(connection)
             result = await connection.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: is_native_schema/SCHEMA + where literal
                 text(
-                    f"UPDATE {self.table} SET revision=revision+1, issued_state=:state,"
+                    f"UPDATE {self.table} SET revision=revision+1, issued_state=:state,"  # nosec B608 # fonte: is_native_schema/SCHEMA + where literal
                     f" pending_request=:pending, updated_at=now() WHERE {self.where} AND revision=:old"
                 ),
                 dict(self.key, state=encode_state(state), pending=state.pending, old=self._revision),

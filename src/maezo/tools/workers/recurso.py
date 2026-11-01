@@ -24,6 +24,7 @@ from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_pr
 from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
+from maezo.tools.workers.pagto import PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -1248,9 +1249,9 @@ HANDOFF_PAGTO_SEEDED_KEYS: frozenset[str] = frozenset(
 #: `lastro_confirmado=true` here would put the order straight into the `DENTRO_TETO_L2` clerical
 #: lane (`ST_ReleaseLowValue`, no User Task) and skip the segregation of duties: whoever judged
 #: the appeal would also have confirmed the lastro of the payment order it produced.
-HANDOFF_PAGTO_FORBIDDEN_KEYS: frozenset[str] = frozenset(
-    {"lastro_confirmado", "dados_pagamento_validos", "duplicidade_suspeita", "dentro_teto_l2"}
-)
+#: Pacote PAGTO PR-B: o conjunto e o CANONICO de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` (fonte
+#: unica, ampliada aos fatos novos do pacote) — nunca uma copia a mao que possa divergir.
+HANDOFF_PAGTO_FORBIDDEN_KEYS: frozenset[str] = PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 
 #: Provenance value seeded into `lastro_origem` (I-PAGTO-1's enum) for every order this worker
 #: emits — every one of them is downstream of a human DEFERIR/DEFERIR_PARCIAL.
