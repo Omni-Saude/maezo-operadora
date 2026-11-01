@@ -72,7 +72,7 @@ class ConsumerLineageTest {
       try(var candidates=Files.list(root)){file=candidates.filter(p->p.getFileName().toString().startsWith(process+"_")).findFirst().orElseThrow();}
       String group=switch((String)target.get("task_key")){
         case "UT_AnaliseMedicoAuditor"->"medico-auditor";case "UT_CoordenacaoAssume"->"coordenacao-auditoria-medica";case "UT_RegistrarParecerJunta"->"junta-medica";
-        case "UT_AnaliseAdmissibilidade"->"coordenacao-financeira";case "UT_TratarEscalonamento"->"SYNTHETIC-owner-qualified-resolved-group";default->"supervisao-atendimento";};
+        case "UT_AnaliseAdmissibilidade"->"analise-contas-pagar";case "UT_TratarEscalonamento"->"SYNTHETIC-owner-qualified-resolved-group";default->"supervisao-atendimento";};
       ConsumerEdgeInstallation.topology(Files.readAllBytes(file),target,group);
     }
   }

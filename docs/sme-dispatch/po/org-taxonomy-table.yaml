@@ -3,25 +3,39 @@ sessao: sessao unica de taxonomia organizacional
 decisor: dono organizacional da operadora
 teto_herdado: 2026-09-19 (via R-137)
 status: recomendacao — pendente de nomeacao pelo dono
+decisoes_do_dono: 'R-041 / DEC-21: issue #1084, comentario 6545662766 (rodada 2 ''Grupos'' + rodada 3
+  Q1-Q6, 2026-10-31)'
+fonte_cargos: 'descricoes de cargo do tenant (entidades Operadora e CSC; cargos da entidade Hospitais
+  EXCLUIDOS de grupos de decisao -- prestador nao decide sobre si mesmo, S10); mapeamento proposto pela
+  analise GROUPS-AUSTA-mapping (fora do repo) com as escolhas do dono em #1084'
 escopo_do_dono:
 - ADEQUACAO
 - ANS-SUBMIT
 - AUTH
 - CANCEL
+- CONTAS
 - CRED
 - ESCALATION
+- FRAUDE
+- INADIMPLENCIA
+- LGPD-DSR
 - NIP
+- PAGTO
 - PROGRAMA
+- RECURSO
+- REEMBOLSO
+- SUPP
 rows:
 - grupo_declarado: gestao-rede
   arquivo: spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
   linha: 298
   processo: SP-OP-ADEQUACAO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_DecisaoFallback (co-candidate com coordenacao-rede)
+  tarefa_ou_regra_dmn: UT_DecisaoFallback (decisor unico; coordenacao-rede so na escalacao)
   sla_ato: contrato Sec.Papeis linha 217 -- compromisso financeiro de fallback (decisao_remediacao)
   proposto: true
-  notas: caveat PROPOSTO no contrato linha 212-213
+  notas: 'caveat PROPOSTO no contrato linha 212-213; co-candidato coordenacao-rede removido (R-041, anomalia
+    C.7 da analise; #1084 (rodadas 2 e 3, 2026-10-31))'
   nome_real: ''
 - grupo_declarado: coordenacao-rede
   arquivo: spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
@@ -108,22 +122,26 @@ rows:
   linha: 384
   processo: SP-OP-CANCEL-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_AnaliseRescisao
+  tarefa_ou_regra_dmn: UT_AnaliseRescisao (decisor unico)
   sla_ato: contrato Sec.Papeis linha 247 -- rescisao/negativa/suspensao SO aqui
   proposto: true
   notas: caveat PROPOSTO contrato linha 241-243; grupo tambem citado em cancel_routing.dmn:50,57,64,71
-    (grupo_sugerido, ADVISORY -- promovido a variavel de processo, NAO alimenta candidateGroups, ver bpmn:234)
+    (grupo_sugerido, ADVISORY -- promovido a variavel de processo, NAO alimenta candidateGroups, ver bpmn:234);
+    co-candidato gestao-contratos removido (#1084 (rodadas 2 e 3, 2026-10-31))
   nome_real: ''
 - grupo_declarado: gestao-contratos
-  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
-  linha: 384
+  arquivo: spec/processes/dmn/cancel_routing.dmn
+  linha: 43
   processo: SP-OP-CANCEL-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_AnaliseRescisao (co-candidate)
-  sla_ato: contrato Sec.Papeis linha 248 -- pedido/efetivacao clerical revisada
+  tarefa_ou_regra_dmn: regra r_pedido_titular (grupo_sugerido, ADVISORY -- NAO alimenta candidateGroups);
+    sem User Task desde R-041
+  sla_ato: 'contrato Sec.Papeis -- pedido do titular: caminho clerical direto UT_ExecutarCancelamentoCadastro
+    (cadastro-beneficiarios)'
   proposto: true
-  notas: caveat PROPOSTO contrato linha 241-243; tambem citado em cancel_routing.dmn:43 (grupo_sugerido,
-    ADVISORY)
+  notas: 'removido de UT_AnaliseRescisao (#1084 (rodadas 2 e 3, 2026-10-31)); continua registrado no engine.
+    Discrepancia com a analise: o UT_EfetivarPedidoTitular proposto nao e necessario -- o tree ja tem
+    o caminho clerical (DL-0111)'
   nome_real: ''
 - grupo_declarado: coordenacao-contratos
   arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
@@ -141,7 +159,8 @@ rows:
   processo: SP-OP-CANCEL-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_ExecutarCancelamentoCadastro
-  sla_ato: contrato v0.2.0 Sec.Papeis -- execucao do cancelamento a pedido no Tasy (P5D, a confirmar pelo juridico)
+  sla_ato: contrato v0.2.0 Sec.Papeis -- execucao do cancelamento a pedido no Tasy (P5D, a confirmar pelo
+    juridico)
   proposto: true
   notas: grupo NOVO (DL-0111, 15/10/2026, so' dev); pessoas reais ficam para a operacao
   nome_real: ''
@@ -159,7 +178,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
   linha: 190
   processo: SP-OP-CONTAS-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_AnalistaContas
   sla_ato: contrato Sec.Papeis linha 183 -- glosa SO nasce aqui (decisao_contas)
   proposto: true
@@ -169,7 +188,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
   linha: 239
   processo: SP-OP-CONTAS-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoContasAssume
   sla_ato: contrato Sec.Papeis linha 184 -- SLA de analise estourado
   proposto: true
@@ -177,21 +196,21 @@ rows:
   nome_real: ''
 - grupo_declarado: gestao-rede
   arquivo: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
-  linha: 357
+  linha: 551
   processo: SP-OP-CRED-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_AnaliseDescredenciamento (co-candidate); UT_AnaliseCredenciamento (linha 551,
-    primario)
+  tarefa_ou_regra_dmn: UT_AnaliseCredenciamento (primario)
   sla_ato: contrato Sec.Papeis linha 163 -- negativa de credenciamento SO aqui (decisao_cred)
   proposto: true
-  notas: caveat PROPOSTO contrato linha 159
+  notas: caveat PROPOSTO contrato linha 159; removido de UT_AnaliseDescredenciamento (#1084 (rodadas 2
+    e 3, 2026-10-31))
   nome_real: ''
 - grupo_declarado: juridico-rede
   arquivo: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
   linha: 357
   processo: SP-OP-CRED-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_AnaliseDescredenciamento
+  tarefa_ou_regra_dmn: UT_AnaliseDescredenciamento (decisor unico)
   sla_ato: contrato Sec.Papeis linha 164 -- descredenciamento SO aqui (decisao_cred)
   proposto: true
   notas: caveat PROPOSTO contrato linha 159
@@ -214,7 +233,7 @@ rows:
   tarefa_ou_regra_dmn: regra r1 (red_flag_clinico/grave) + r2 (linha 42, risco_psicossocial); wireado
     via bpmn:134 ${roteamento.grupo_atendimento} -> UT_TratarEscalonamento (P1)
   sla_ato: contrato Sec.Papeis linha 87 (P1) + Sec.SLAs linha 96-97 (ack PT5M / resolucao PT30M)
-  proposto: false
+  proposto: true
   notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo (status linha 3); objeto
     do bridge PR desta tarefa
   nome_real: ''
@@ -226,7 +245,7 @@ rows:
   tarefa_ou_regra_dmn: regra r3 (red_flag_clinico nao-grave) + r4 (linha 60, intencao_clinica); wireado
     via bpmn:134 -> UT_TratarEscalonamento (P2)
   sla_ato: contrato Sec.Papeis linha 88 (P2) + Sec.SLAs linha 96-98 (ack PT30M / resolucao PT4H)
-  proposto: false
+  proposto: true
   notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo; objeto do bridge PR desta
     tarefa
   nome_real: ''
@@ -240,7 +259,7 @@ rows:
     wireado via bpmn:134 -> UT_TratarEscalonamento'
   sla_ato: contrato Sec.Papeis linha 89 (P3) + Sec.SLAs linha 98-99 (ack PT4H / resolucao PT24H); catch-all
     real usa os SLAs de P2
-  proposto: false
+  proposto: true
   notas: SEM ressalva PROPOSTO no contrato; DRIFT observado -- ver item (6) do relatorio
   nome_real: ''
 - grupo_declarado: supervisao-atendimento
@@ -250,14 +269,14 @@ rows:
   em_escopo: true
   tarefa_ou_regra_dmn: UT_SupervisorAssume
   sla_ato: contrato Sec.Papeis linha 90 -- SLA de resolucao estourado + alertas de ack
-  proposto: false
+  proposto: true
   notas: SEM ressalva PROPOSTO no contrato; objeto do bridge PR desta tarefa
   nome_real: ''
 - grupo_declarado: investigacao-fraude
   arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
   linha: 223
   processo: SP-OP-FRAUDE-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_DecisaoInvestigador
   sla_ato: contrato Sec.Papeis linha 166 -- acusacao SO aqui (decisao_fraude)
   proposto: true
@@ -268,7 +287,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
   linha: 282
   processo: SP-OP-FRAUDE-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoInvestigacao
   sla_ato: contrato Sec.Papeis linha 167 -- SLA de investigacao estourado
   proposto: true
@@ -279,7 +298,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
   linha: 314
   processo: SP-OP-FRAUDE-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_RevisaoReferral
   sla_ato: contrato Sec.Papeis linha 168 -- revisa/aprova referral ANS/civel/penal
   proposto: true
@@ -289,27 +308,17 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
   linha: 298
   processo: SP-OP-INADIMPLENCIA-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: UT_AnaliseInadimplencia
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseInadimplencia (decisor unico)
   sla_ato: contrato Sec.Papeis linha 184 -- suspensao/encaminhamento SO aqui (decisao_inadimplencia)
   proposto: true
   notas: caveat PROPOSTO contrato linha 180 (compartilhado com CANCEL-001)
-  nome_real: ''
-- grupo_declarado: gestao-cobranca
-  arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
-  linha: 298
-  processo: SP-OP-INADIMPLENCIA-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: UT_AnaliseInadimplencia (co-candidate)
-  sla_ato: contrato Sec.Papeis linha 185 -- merito de cobranca
-  proposto: true
-  notas: caveat PROPOSTO contrato linha 180
   nome_real: ''
 - grupo_declarado: coordenacao-cobranca
   arquivo: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
   linha: 360
   processo: SP-OP-INADIMPLENCIA-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoCobranca
   sla_ato: contrato Sec.Papeis linha 186 -- SLA de analise estourado
   proposto: true
@@ -319,38 +328,26 @@ rows:
   arquivo: spec/processes/dmn/lgpd_dsr_routing.dmn
   linha: 49
   processo: SP-OP-LGPD-DSR-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: regras r1,r3,r5,r7 (EXPORTACAO c/ saude, RETIFICACAO c/ conflito legal, ELIMINACAO_AVALIACAO,
     catch-all); wireado via bpmn:190 ${roteamento_dsr.grupo_revisor} -> UT_RevisaoDpo
   sla_ato: contrato Sec.Papeis linha 97 -- dados de saude/eliminacao/tipos desconhecidos + alertas de
     breach
   proposto: true
-  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora
-    do escopo formal de R-034 (nao esta em escopo_do_dono)
+  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora do
+    escopo formal de R-034 (nao esta em escopo_do_dono)
   nome_real: ''
 - grupo_declarado: dpo
   arquivo: spec/processes/dmn/lgpd_dsr_routing.dmn
   linha: 58
   processo: SP-OP-LGPD-DSR-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: regras r2,r4,r6 (acesso sem saude, RETIFICACAO simples, INFORMATIVO); wireado via
     bpmn:190 -> UT_RevisaoDpo
   sla_ato: contrato Sec.Papeis linha 96 -- requisicoes sem dados de saude
   proposto: true
-  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora
-    do escopo formal de R-034 (nao esta em escopo_do_dono)
-  nome_real: ''
-- grupo_declarado: nucleo-ans
-  arquivo: spec/processes/dmn/nip_routing.dmn
-  linha: 60
-  processo: SP-OP-NIP-001
-  em_escopo: true
-  tarefa_ou_regra_dmn: regra r_nao_assistencial_elaborar; wireado via bpmn:238 ${grupo_humano} (promovido
-    em BRT_Roteamento) -> UT_ElaborarRespostaNip
-  sla_ato: contrato Sec.Papeis linha 234 -- autora a minuta da resposta (nao-assistencial)
-  proposto: true
-  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:66 (grupo_revisor,
-    ADVISORY, NAO wireado -- bpmn:267)
+  notas: caveat PROPOSTO no contrato linha 99-107 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT); fora do
+    escopo formal de R-034 (nao esta em escopo_do_dono)
   nome_real: ''
 - grupo_declarado: regulatorio-ans
   arquivo: spec/processes/dmn/nip_routing.dmn
@@ -360,8 +357,9 @@ rows:
   tarefa_ou_regra_dmn: regra r_assistencial_outro_elaborar; wireado via bpmn:238 -> UT_ElaborarRespostaNip
   sla_ato: contrato Sec.Papeis linha 234 -- autora a minuta (assistencial, sem contestacao)
   proposto: true
-  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:57 (grupo_revisor,
-    ADVISORY)
+  notas: 'caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:57 (grupo_revisor,
+    ADVISORY); absorve nucleo-ans (r_nao_assistencial_elaborar, nip_routing.dmn:60 -- #1084 (rodadas 2
+    e 3, 2026-10-31))'
   nome_real: ''
 - grupo_declarado: juridico-regulatorio
   arquivo: spec/processes/dmn/nip_routing.dmn
@@ -372,8 +370,9 @@ rows:
     88); UT_RevisaoJuridicaNip (bpmn:355, candidateGroups ESTATICO por design)
   sla_ato: contrato Sec.Papeis linha 235 -- unica origem de decisao_nip==MANTER_NEGATIVA
   proposto: true
-  notas: caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:48,75 (grupo_revisor,
-    ADVISORY)
+  notas: 'caveat PROPOSTO contrato linha 228-230; tambem citado em nip_classification.dmn:48,75 (grupo_revisor,
+    ADVISORY); ALVO (pacote NIP, nao nesta entrega): decisor coordenacao-regulatorio + cossinatura medico-auditor
+    quando clinico + escalacao gerencia-regulatoria (Q2)'
   nome_real: ''
 - grupo_declarado: medico-auditor
   arquivo: spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn
@@ -383,7 +382,9 @@ rows:
   tarefa_ou_regra_dmn: UT_RevisaoJuridicaNip (co-candidate, static)
   sla_ato: contrato Sec.Papeis linha 236 -- parecer assistencial quando o merito da NIP e clinico
   proposto: true
-  notas: caveat PROPOSTO contrato linha 228-230; grupo compartilhado com AUTH-001/CONTAS-001/RECURSO-001/REEMBOLSO-001
+  notas: 'caveat PROPOSTO contrato linha 228-230; grupo compartilhado com AUTH-001/CONTAS-001/RECURSO-001/REEMBOLSO-001;
+    ALVO (pacote NIP, nao nesta entrega): decisor coordenacao-regulatorio + cossinatura medico-auditor
+    quando clinico + escalacao gerencia-regulatoria (Q2)'
   nome_real: ''
 - grupo_declarado: coordenacao-regulatorio
   arquivo: spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn
@@ -393,16 +394,17 @@ rows:
   tarefa_ou_regra_dmn: UT_CoordenacaoNip
   sla_ato: contrato Sec.Papeis linha 237 -- SLA estourado (proposto)
   proposto: true
-  notas: caveat PROPOSTO contrato linha 228-230; contrato ja marca este grupo como (proposto) na propria
-    tabela linha 237
+  notas: 'caveat PROPOSTO contrato linha 228-230; contrato ja marca este grupo como (proposto) na propria
+    tabela linha 237; ALVO (pacote NIP, nao nesta entrega): decisor coordenacao-regulatorio + cossinatura
+    medico-auditor quando clinico + escalacao gerencia-regulatoria (Q2)'
   nome_real: ''
 - grupo_declarado: clerical-pagamentos
   arquivo: spec/processes/dmn/pagto_alcada.dmn
   linha: 81
   processo: SP-OP-PAGTO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
-  sla_ato: contrato nao lista este valor na tabela Sec.Papeis (linha 185-191) -- caminho clerical sem
+  sla_ato: contrato nao lista este valor na tabela Sec.Papeis (linha 199-207) -- caminho clerical sem
     grupo aprovador adverso
   proposto: true
   notas: NAO e um candidateGroups real (nao aparece em nenhuma User Task) -- literal de DMN para o caminho
@@ -413,69 +415,70 @@ rows:
   arquivo: spec/processes/dmn/pagto_alcada.dmn
   linha: 92
   processo: SP-OP-PAGTO-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:278 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 187 -- tier 1, faixa ALCADA_L1
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:281 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 202 -- tier 1, faixa ALCADA_L1
   proposto: true
-  notas: caveat PROPOSTO contrato linha 181-183 (binding value-driven)
+  notas: caveat PROPOSTO contrato linha 195-197 (binding value-driven)
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l2
   arquivo: spec/processes/dmn/pagto_alcada.dmn
   linha: 103
   processo: SP-OP-PAGTO-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:278 -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 188 -- tier 2, faixa ALCADA_L2
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:281 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 203 -- tier 2, faixa ALCADA_L2
   proposto: true
-  notas: caveat PROPOSTO contrato linha 181-183
+  notas: caveat PROPOSTO contrato linha 195-197
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l3
   arquivo: spec/processes/dmn/pagto_alcada.dmn
   linha: 114
   processo: SP-OP-PAGTO-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:278 -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 189 -- tier 3, faixa ALCADA_L3
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:281 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 204 -- tier 3, faixa ALCADA_L3
   proposto: true
-  notas: caveat PROPOSTO contrato linha 181-183
+  notas: caveat PROPOSTO contrato linha 195-197
   nome_real: ''
 - grupo_declarado: comite-financeiro
   arquivo: spec/processes/dmn/pagto_alcada.dmn
   linha: 125
   processo: SP-OP-PAGTO-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:278 -> UT_AprovacaoComite
-  sla_ato: contrato Sec.Papeis linha 190 -- catch-all conservador, aprovacao colegiada DRAFT
+  em_escopo: true
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:281 -> UT_AprovacaoComite
+  sla_ato: contrato Sec.Papeis linha 205 -- catch-all conservador, aprovacao colegiada DRAFT
   proposto: true
-  notas: caveat PROPOSTO contrato linha 181-183
+  notas: caveat PROPOSTO contrato linha 195-197
   nome_real: ''
-- grupo_declarado: coordenacao-financeira
+- grupo_declarado: analise-contas-pagar
   arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
   linha: 162
   processo: SP-OP-PAGTO-001
-  em_escopo: false
-  tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade; UT_CoordenacaoAlcada (linha 344, SLA estourado)
-  sla_ato: contrato Sec.Papeis linha 191 -- humano de tier >= faixa assume
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade (checker -- nunca aprovador)
+  sla_ato: contrato Sec.Papeis linha 207 -- admissibilidade da ordem (PROSSEGUIR/DEVOLVER)
   proposto: true
-  notas: caveat PROPOSTO contrato linha 181-183
+  notas: 'NOVO: divisao de coordenacao-financeira em admissibilidade x aprovacao (#1084 (rodadas 2 e 3,
+    2026-10-31))'
+  nome_real: ''
+- grupo_declarado: coordenacao-financeira
+  arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
+  linha: 347
+  processo: SP-OP-PAGTO-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoAlcada (SLA de alcada estourado)
+  sla_ato: contrato Sec.Papeis linha 206 -- humano de tier >= faixa assume
+  proposto: true
+  notas: so aprovacao apos a divisao (#1084 (rodadas 2 e 3, 2026-10-31))
   nome_real: ''
 - grupo_declarado: coordenacao-clinica
   arquivo: spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
   linha: 181
   processo: SP-OP-PROGRAMA-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_DecisaoClinica; UT_CoordenacaoDecisao (linha 225)
+  tarefa_ou_regra_dmn: UT_DecisaoClinica (decisor unico); UT_CoordenacaoDecisao (linha 225)
   sla_ato: contrato Sec.Papeis linha 178 -- desligamento clinico SO aqui (decisao_programa)
-  proposto: true
-  notas: caveat PROPOSTO contrato linha 173-174
-  nome_real: ''
-- grupo_declarado: equipe-cuidado
-  arquivo: spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
-  linha: 181
-  processo: SP-OP-PROGRAMA-001
-  em_escopo: true
-  tarefa_ou_regra_dmn: UT_DecisaoClinica (co-candidate)
-  sla_ato: contrato Sec.Papeis linha 179 -- decisao clinica de cuidado revisada
   proposto: true
   notas: caveat PROPOSTO contrato linha 173-174
   nome_real: ''
@@ -483,7 +486,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
   linha: 314
   processo: SP-OP-RECURSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_AnaliseRecursoAnalista
   sla_ato: contrato Sec.Papeis linha 210 -- unica origem primaria de decisao_recurso
   proposto: true
@@ -494,10 +497,10 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
   linha: 446
   processo: SP-OP-RECURSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
   sla_ato: contrato Sec.Papeis linha 211 -- decide o merito de glosa tecnica/clinica
-  proposto: false
+  proposto: true
   notas: contrato linha 205-206 diz que este reusa o grupo ja existente em AUTH-001/CONTAS-001 (nao remarcado
     PROPOSTO aqui); tambem em recurso_eligibility.dmn:42 (grupo_revisor, ADVISORY)
   nome_real: ''
@@ -505,7 +508,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
   linha: 371
   processo: SP-OP-RECURSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoRecursoAssume; UT_EscalonamentoPrazo (linha 425)
   sla_ato: contrato Sec.Papeis linha 212 -- SLA de resposta estourado / teto de resposta
   proposto: true
@@ -515,7 +518,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
   linha: 408
   processo: SP-OP-REEMBOLSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 105)
   sla_ato: contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui
   proposto: true
@@ -525,7 +528,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
   linha: 179
   processo: SP-OP-REEMBOLSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
   sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (SOLICITAR_AUDITOR, o botao escalar do analista)
   proposto: true
@@ -535,7 +538,7 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
   linha: 155
   processo: SP-OP-REEMBOLSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoReembolso
   sla_ato: contrato Sec.Papeis linha 156 -- SLA de analise estourado
   proposto: true
@@ -545,9 +548,392 @@ rows:
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
   linha: 218
   processo: SP-OP-REEMBOLSO-001
-  em_escopo: false
+  em_escopo: true
   tarefa_ou_regra_dmn: UT_RegistrarPagamento
   sla_ato: contrato v0.2.0 (DL-0160) -- o financeiro paga fora do sistema e registra data_pagamento
   proposto: true
   notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''
+- grupo_declarado: dpo
+  arquivo: spec/processes/dmn/suppression_routing.dmn
+  linha: 76
+  processo: SP-OP-SUPP-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: todas as regras de suppression_routing (r_desconhecido + C1-C6); wireado via ${grupo_decisao}
+    -> UT_RotearEncarregado
+  sla_ato: contrato SP-OP-SUPP-001 -- decisao do encarregado (honrar / nao-honrar fundamentado / escalar)
+  proposto: true
+  notas: 'linha que faltava no inventario (analise C.3.3; #1084 (rodadas 2 e 3, 2026-10-31))'
+  nome_real: ''
+grupos_registrados:
+- id: plantao-clinico
+  nome_exibicao: Plantao clinico (P1)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Telemedicina externa contratada, so ela (Q6, #1084); supervisao clinica: Gerente Medico
+    Plano de Saude'
+  qualificacao: CRM ou COREN
+  tarefas: ESCALATION UT_TratarEscalonamento (linhas P1 de escalation_routing)
+  sod: ''
+- id: enfermagem-triagem
+  nome_exibicao: Enfermagem de triagem (P2)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Enfermeiro Navegador (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de Navegacao
+    do Cuidado -- Operadora'
+  qualificacao: COREN
+  tarefas: ESCALATION UT_TratarEscalonamento (P2)
+  sod: ''
+- id: atendimento-humano
+  nome_exibicao: Atendimento humano (P3)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Atendente (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de Sucesso do Cliente
+    -- Operadora'
+  qualificacao: nenhuma
+  tarefas: ESCALATION UT_TratarEscalonamento (P3 + catch-all P2)
+  sod: ''
+- id: supervisao-atendimento
+  nome_exibicao: Supervisao de atendimento
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Coordenador de Sucesso do Cliente -- Operadora; ultima linha: Gerente de Sucesso do
+    Cliente'
+  qualificacao: nenhuma
+  tarefas: ESCALATION UT_SupervisorAssume
+  sod: 'S7: nunca ouvidoria'
+- id: gestao-rede
+  nome_exibicao: Gestao de rede (credenciamento)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Rede (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de Rede
+    -- Operadora'
+  qualificacao: nenhuma
+  tarefas: ADEQUACAO UT_DecisaoFallback (decisor unico); CRED UT_AnaliseCredenciamento
+  sod: nunca juridico-rede no mesmo prestador; nunca investigacao-fraude
+- id: coordenacao-rede
+  nome_exibicao: Coordenacao de rede
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Coordenador de Rede -- Operadora; backup e alcada acima: Gerente de Relacionamento com
+    a Rede'
+  qualificacao: nenhuma
+  tarefas: ADEQUACAO UT_CoordenacaoRede; CRED UT_CoordenacaoRedeDescred, UT_CoordenacaoRedeCred (escalacao)
+  sod: 'P9: nunca o responsavel da 1a instancia; Q1: desfecho adverso fica com o decisor (guarda a entregar)'
+- id: juridico-rede
+  nome_exibicao: Juridico de rede (contratos com prestadores)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Advogado (cargo de staff a descrever (Q5, #1084)) sob o Gerente Juridico e de Compliance
+    -- CSC'
+  qualificacao: OAB
+  tarefas: CRED UT_AnaliseDescredenciamento (decisor unico)
+  sod: 'S4: nunca investigacao-fraude/coordenacao-investigacao'
+- id: regulatorio-ans
+  nome_exibicao: Regulatorio ANS
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Especialista ANS -- Operadora (backup a nomear)
+  qualificacao: nenhuma
+  tarefas: ANS-SUBMIT UT_CorrigirPendenciaEnvio, UT_RevisarEnvio, UT_TratarNack; NIP UT_ElaborarRespostaNip
+    (via nip_routing; absorve nucleo-ans)
+  sod: 'S8: nunca decisor NIP (coordenacao-regulatorio/gerencia-regulatoria)'
+- id: juridico-regulatorio
+  nome_exibicao: Juridico regulatorio
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Gerente Juridico e de Compliance (+ Advogado, cargo de staff a descrever (Q5, #1084))
+    -- CSC'
+  qualificacao: OAB
+  tarefas: 'ANS-SUBMIT UT_RevisarEnvioJuridico; NIP UT_RevisaoJuridicaNip e UT_CoordenacaoNip HOJE (alvo
+    do pacote NIP: so parecer juridico, nao decide MANTER_NEGATIVA)'
+  sod: ''
+- id: coordenacao-regulatorio
+  nome_exibicao: Coordenacao de regulacao (decisao NIP)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Coordenador de Regulacao -- Operadora (NIP 1a instancia, Q2)
+  qualificacao: nenhuma (cossinatura medica quando clinico)
+  tarefas: 'ANS-SUBMIT UT_CoordenacaoEnvioAssume; NIP UT_CoordenacaoNip HOJE (alvo do pacote NIP: decisor
+    de UT_RevisaoJuridicaNip)'
+  sod: 'P2: nunca participou da decisao original contestada'
+- id: gerencia-regulatoria
+  nome_exibicao: Gerencia regulatoria (prazo NIP estourado)
+  decisao: NOVO
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente Juridico e de Compliance -- CSC, dono do OPE-10 (Q2)
+  qualificacao: nenhuma (cossinatura medica quando clinico)
+  tarefas: nenhuma ainda -- NIP UT_CoordenacaoNip no pacote NIP
+  sod: nunca o decisor de 1a instancia da mesma NIP
+- id: medico-auditor
+  nome_exibicao: Medico auditor
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Medico Auditor -- Operadora
+  qualificacao: CRM ativo
+  tarefas: AUTH UT_DecidirPendenciaExpirada, UT_AnaliseMedicoAuditor; RECURSO UT_RevisaoAuditorMedico;
+    REEMBOLSO UT_RevisaoAuditorMedico; NIP UT_RevisaoJuridicaNip (co-candidato HOJE)
+  sod: 'S7, S11; P1: o auditor que negou nunca cossigna/revisa o proprio caso'
+- id: coordenacao-auditoria-medica
+  nome_exibicao: Coordenacao de auditoria medica
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Medico Auditor (CRM) designado para a escalacao -- Operadora; NAO o Coordenador de Auditoria
+    (decisao do dono, #1084)'
+  qualificacao: CRM ativo
+  tarefas: AUTH UT_CoordenacaoAssume
+  sod: nunca o auditor da negativa original na mesma guia
+- id: junta-medica
+  nome_exibicao: Junta medica (RN 424) - registro de parecer
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Medicos auditores nao envolvidos no caso (registro); desempatador EXTERNO (roster a contratar
+    pelo dono)
+  qualificacao: CRM para quem vota
+  tarefas: AUTH UT_RegistrarParecerJunta
+  sod: 'S9: desempatador nunca e quadro da operadora'
+- id: ouvidoria
+  nome_exibicao: Ouvidoria (reanalise de negativa - RN 623 art. 16)
+  decisao: NOVO
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Ouvidor -- Operadora, reporta a Diretoria (cargo a criar, Q4)
+  qualificacao: ouvidor designado; cossinatura CRM para manter negativa clinica
+  tarefas: nenhuma ainda -- UT_ReanaliseOuvidoria no pacote SP-OP-OUVIDORIA-001
+  sod: 'S7: nunca medico-auditor, coordenacao-auditoria-medica, atendimento-humano, supervisao-atendimento'
+- id: juridico-contratos
+  nome_exibicao: Juridico contratual (beneficiarios)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Advogado (cargo de staff a descrever (Q5, #1084)) sob o Gerente Juridico e de Compliance
+    -- CSC; escalacao de alcada: Diretor Juridico e de Compliance'
+  qualificacao: OAB
+  tarefas: CANCEL UT_AnaliseRescisao (decisor unico); INADIMPLENCIA UT_AnaliseInadimplencia (decisor unico)
+  sod: 'S4: nunca investigacao-fraude'
+- id: gestao-contratos
+  nome_exibicao: Gestao de contratos (pedidos do titular)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Cadastro/contratos (cargo de staff a descrever (Q5, #1084)) sob o Coordenador
+    de Sucesso do Cliente -- Operadora'
+  qualificacao: nenhuma
+  tarefas: nenhuma User Task no tree (grupo_sugerido advisory de cancel_routing)
+  sod: ''
+- id: coordenacao-contratos
+  nome_exibicao: Coordenacao de contratos e cadastro
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente de Sucesso do Cliente -- Operadora
+  qualificacao: nenhuma
+  tarefas: CANCEL UT_CoordenacaoExecucaoCadastro, UT_CoordenacaoCancelamento
+  sod: 'P9; Q1: RESCINDIR/SUSPENDER so por juridico-contratos (guarda a entregar)'
+- id: cadastro-beneficiarios
+  nome_exibicao: Cadastro de beneficiarios
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Cadastro (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de Sucesso
+    do Cliente -- Operadora'
+  qualificacao: nenhuma
+  tarefas: CANCEL UT_ExecutarCancelamentoCadastro (executa, nunca decide)
+  sod: ''
+- id: coordenacao-cobranca
+  nome_exibicao: Coordenacao de cobranca
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Coordenador de Tesouraria -- CSC; acima: Gerente Financeiro'
+  qualificacao: nenhuma
+  tarefas: INADIMPLENCIA UT_CoordenacaoCobranca
+  sod: 'P9; Q1: SUSPENDER/ENCAMINHAR_RESCISAO so por juridico-contratos (guarda a entregar)'
+- id: auditoria-contas
+  nome_exibicao: Auditoria de contas medicas
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Contas Medicas / Enfermeiro Auditor (cargo de staff a descrever (Q5, #1084))
+    e Medico Auditor (glosa tecnica), sob o Coordenador de Auditoria -- Operadora'
+  qualificacao: CRM/COREN para glosa tecnica
+  tarefas: CONTAS UT_AnalistaContas
+  sod: S1, S4, S6
+- id: coordenacao-contas
+  nome_exibicao: Coordenacao de auditoria de contas
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Coordenador de Auditoria -- Operadora
+  qualificacao: nenhuma
+  tarefas: CONTAS UT_CoordenacaoContasAssume
+  sod: 'S2: nunca coordenacao-recurso'
+- id: analista-recurso-glosa
+  nome_exibicao: Analise de recurso de glosa
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Recurso de Glosa (cargo de staff a descrever (Q5, #1084)), fora da equipe
+    que glosou; reporta ao Gerente de Controle de Sinistros -- Operadora'
+  qualificacao: merito clinico via medico-auditor
+  tarefas: RECURSO UT_AnaliseRecursoAnalista
+  sod: 'S1: nunca auditoria-contas'
+- id: coordenacao-recurso
+  nome_exibicao: Coordenacao de recursos de glosa
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente de Controle de Sinistros -- Operadora
+  qualificacao: nenhuma
+  tarefas: RECURSO UT_CoordenacaoRecursoAssume, UT_EscalonamentoPrazo
+  sod: S2
+- id: analise-reembolso
+  nome_exibicao: Analise de reembolso
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Reembolso (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de
+    Regulacao -- Operadora'
+  qualificacao: negativa clinica via medico-auditor
+  tarefas: REEMBOLSO UT_DecidirPendenciaExpirada, UT_AnaliseReembolso
+  sod: P2
+- id: coordenacao-reembolso
+  nome_exibicao: Coordenacao de reembolso
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Coordenador de Regulacao -- Operadora
+  qualificacao: nenhuma
+  tarefas: REEMBOLSO UT_CoordenacaoReembolso
+  sod: P9
+- id: financeiro-reembolso
+  nome_exibicao: Financeiro do reembolso (registro do pagamento)
+  decisao: NOVO
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista financeiro (cargo de staff a descrever) -- CSC; paga fora do sistema e registra
+    data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0160)'
+  qualificacao: nenhuma
+  tarefas: REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor)
+  sod: nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto)
+- id: coordenacao-clinica
+  nome_exibicao: Coordenacao medica de programas
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Coordenacao Medica (cargo a descrever) + Gerente Medico Plano de Saude -- Operadora
+  qualificacao: CRM
+  tarefas: PROGRAMA UT_DecisaoClinica (decisor unico), UT_CoordenacaoDecisao
+  sod: 'P9; Q1: DESLIGAR_CLINICO na escalacao so pelo decisor (guarda a entregar)'
+- id: investigacao-fraude
+  nome_exibicao: Investigacao de fraude
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Prevencao a Fraudes (cargo de staff a descrever (Q5, #1084)) em Compliance
+    -- CSC, fora do contencioso'
+  qualificacao: apoio CRM quando clinica
+  tarefas: FRAUDE UT_DecisaoInvestigador
+  sod: S3, S4
+- id: coordenacao-investigacao
+  nome_exibicao: Coordenacao de prevencao a fraudes
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Coordenador de Controladoria -- CSC (interino; cargo dedicado a criar)
+  qualificacao: nenhuma
+  tarefas: FRAUDE UT_CoordenacaoInvestigacao
+  sod: S3, S4
+- id: juridico-fraude
+  nome_exibicao: Juridico de fraude (encaminhamentos)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente Juridico e de Compliance -- CSC
+  qualificacao: OAB
+  tarefas: FRAUDE UT_RevisaoReferral
+  sod: S3
+- id: dpo
+  nome_exibicao: Encarregado de dados (DPO)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Encarregado indicado pelo dono (LGPD art. 41; ato de indicacao em docs/compliance/human-windows/)
+  qualificacao: nenhuma
+  tarefas: LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing); SUPP UT_RotearEncarregado (via suppression_routing)
+  sod: ''
+- id: juridico-privacidade
+  nome_exibicao: Juridico de privacidade
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Gerente Juridico e de Compliance -- CSC; incidente: consulta ao Diretor de Tecnologia
+    e Inovacao'
+  qualificacao: OAB recomendada
+  tarefas: LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing)
+  sod: ''
+- id: analise-contas-pagar
+  nome_exibicao: Analise de contas a pagar (admissibilidade)
+  decisao: NOVO
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista de Contas a Pagar (cargo de staff a descrever (Q5, #1084)) sob o Gerente Financeiro
+    / Coordenador de Tesouraria -- CSC'
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_AnaliseAdmissibilidade
+  sod: 'S5, S6: nunca aprovador; P5: nunca o solicitante'
+- id: coordenacao-financeira
+  nome_exibicao: Coordenacao financeira (aprovacao por SLA)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente Financeiro (tier 1) / VP de CSC e Financas (tier 2) -- CSC
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_CoordenacaoAlcada
+  sod: S5; nunca quem deixou o SLA estourar
+- id: aprovacao-financeira-l1
+  nome_exibicao: Alcada financeira L1
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: Gerente Financeiro -- CSC
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_AprovacaoAlcada (faixa L1 via pagto_alcada)
+  sod: S5, S6, P6
+- id: aprovacao-financeira-l2
+  nome_exibicao: Alcada financeira L2
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: VP de CSC e Financas (CFO) -- CSC
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_AprovacaoAlcada (faixa L2)
+  sod: S5, S6, P6
+- id: aprovacao-financeira-l3
+  nome_exibicao: Alcada financeira L3
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: CEO (sem descricao de cargo -- dono confirma)
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_AprovacaoAlcada (faixa L3)
+  sod: S5, S6, P6
+- id: comite-financeiro
+  nome_exibicao: Comite financeiro (aprovacao colegiada)
+  decisao: CONFIRMAR
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Colegiado proposto: CFO + CEO + Diretor Juridico e de Compliance (composicao e quorum
+    a definir pelo dono)'
+  qualificacao: nenhuma
+  tarefas: PAGTO UT_AprovacaoAlcada (catch-all/acima de L3 via pagto_alcada)
+  sod: S5, S6, P7
+grupos_nao_registrados:
+- id: nucleo-ans
+  motivo: 'fundido em regulatorio-ans (nip_routing.dmn:60, nip_classification.dmn:66; #1084 (rodadas 2
+    e 3, 2026-10-31))'
+- id: equipe-cuidado
+  motivo: removido de UT_DecisaoClinica (#1084 (rodadas 2 e 3, 2026-10-31)); consultivo, sem fila -- o
+    insumo multiprofissional chega pelo dossie
+- id: gestao-cobranca
+  motivo: removido de UT_AnaliseInadimplencia (#1084 (rodadas 2 e 3, 2026-10-31)); consultivo, sem fila
+    -- fatos de cobranca chegam pelo dossie
+- id: clerical-pagamentos
+  motivo: 'rotulo de DMN da faixa sem aprovador humano (pagto_alcada); nunca vira fila. Teto clerical
+    R$ 100k MANTIDO (Q3, #1084): o dono emenda a descricao do Coordenador de Tesouraria'
+sod_estrutural:
+- S1 auditoria-contas x analista-recurso-glosa
+- S2 coordenacao-contas x coordenacao-recurso
+- S3 investigacao-fraude/coordenacao-investigacao x juridico-fraude
+- S4 investigacao-fraude/coordenacao-investigacao x auditoria-contas, juridico-rede, juridico-contratos
+- S5 analise-contas-pagar x coordenacao-financeira, aprovacao-financeira-l1/l2/l3, comite-financeiro
+- S6 auditoria-contas x todo aprovador de pagamento e analise-contas-pagar
+- S7 ouvidoria x medico-auditor, coordenacao-auditoria-medica, atendimento-humano, supervisao-atendimento
+- S8 regulatorio-ans x coordenacao-regulatorio, gerencia-regulatoria
+- S9 quadro da operadora x desempatador da junta (externo)
+- S10 todo cargo da entidade Hospitais x todo grupo de decisao da operadora
+- S11 nao-medico/nao-enfermeiro x medico-auditor, coordenacao-auditoria-medica, coordenacao-clinica, plantao-clinico
+pendencias_fora_desta_entrega:
+- 'pacote NIP: decisor coordenacao-regulatorio + UT_CossignaturaMedicaNip (medico-auditor) + escalacao
+  gerencia-regulatoria -- nova User Task exige binding de portal e guarda de worker'
+- 'pacote SP-OP-OUVIDORIA-001: UT_ReanaliseOuvidoria (ouvidoria) + cossinatura medica'
+- guarda Q1 nas 5 escalacoes de decisor unico (CRED UT_CoordenacaoRedeDescred, CANCEL UT_CoordenacaoCancelamento,
+  INADIMPLENCIA UT_CoordenacaoCobranca, PROGRAMA UT_CoordenacaoDecisao, NIP UT_CoordenacaoNip)
+- guardas por instancia P1-P11 e lint estrutural S1-S11 no IdP/bootstrap (variaveis de ator)
+- PAGTO UT_AprovacaoComite multi-instancia (controle duplo) e ESCALATION grupo_supervisao clinico
+- descricoes completas dos cargos de staff (Q5) e cargo de Ouvidor (Q4) -- entrega do dono/RH

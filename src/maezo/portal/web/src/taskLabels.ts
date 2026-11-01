@@ -72,7 +72,7 @@ export const taskLabels = [
     "process": "SP-OP-CANCEL-001",
     "task": "UT_AnaliseRescisao",
     "processLabel": "Cancelamento / Rescisao Contratual",
-    "taskLabel": "Analise de rescisao/cancelamento (juridico/contratos)"
+    "taskLabel": "Analise de rescisao/cancelamento (juridico-contratos)"
   },
   {
     "process": "SP-OP-CANCEL-001",
@@ -114,7 +114,7 @@ export const taskLabels = [
     "process": "SP-OP-CRED-001",
     "task": "UT_AnaliseDescredenciamento",
     "processLabel": "(Des)credenciamento de Prestador / Rede",
-    "taskLabel": "Analise de descredenciamento (gestao-rede/juridico-rede)"
+    "taskLabel": "Analise de descredenciamento (juridico-rede)"
   },
   {
     "process": "SP-OP-CRED-001",
@@ -162,7 +162,7 @@ export const taskLabels = [
     "process": "SP-OP-INADIMPLENCIA-001",
     "task": "UT_AnaliseInadimplencia",
     "processLabel": "Suspensao / Rescisao por Inadimplencia",
-    "taskLabel": "Analise de inadimplencia (juridico-contratos / gestao-cobranca)"
+    "taskLabel": "Analise de inadimplencia (juridico-contratos)"
   },
   {
     "process": "SP-OP-INADIMPLENCIA-001",
@@ -222,7 +222,7 @@ export const taskLabels = [
     "process": "SP-OP-PROGRAMA-001",
     "task": "UT_DecisaoClinica",
     "processLabel": "Programas de Cuidado (Consent-Gated)",
-    "taskLabel": "Decisao clinica do programa (coordenacao-clinica / equipe-cuidado)"
+    "taskLabel": "Decisao clinica do programa (coordenacao-clinica)"
   },
   {
     "process": "SP-OP-RECURSO-001",

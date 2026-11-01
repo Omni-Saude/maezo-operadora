@@ -200,6 +200,10 @@ class InboundMessage:
     from_number: str = field(repr=False)
     text: str = field(repr=False)
     message_id: str
+    #: O `timestamp` por mensagem da Meta (string de epoch), vazio quando ausente. Lido SO' para a
+    #: identidade de fallback da mensagem sem `wamid` (F-147 / R-060, `dedup.py`): uma reentrega
+    #: da Meta traz o mesmo valor, uma repeticao real do beneficiario traz outro.
+    timestamp: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +233,8 @@ class InboundNonTextMessage:
     #: midia liga o arquivo ao numero; nunca vai a log, metrica ou excecao. Sem a chave, nada os le'.
     media_id: str = field(default="", repr=False)
     mime_type: str = field(default="", repr=False)
+    #: Ver :attr:`InboundMessage.timestamp` (F-147 / R-060).
+    timestamp: str = field(default="", repr=False)
 
 
 #: What `extract_inbound_messages` yields: a real message of either shape. Delivery-status
@@ -270,6 +276,14 @@ def extract_inbound_messages(payload: Any) -> list[InboundEvent]:
                         logger.info("whatsapp_inbound_message_skipped", reason="malformed_message")
                         continue
                     message_id = str(msg.get("id", ""))
+                    # Meta's per-message epoch string. Only a scalar is accepted: any other shape
+                    # is treated as absent rather than stringified into the fallback identity.
+                    raw_timestamp = msg.get("timestamp", "")
+                    timestamp = (
+                        str(raw_timestamp)
+                        if isinstance(raw_timestamp, (str, int)) and not isinstance(raw_timestamp, bool)
+                        else ""
+                    )
                     if message_type != "text":
                         corpo_da_midia = msg.get(message_type)
                         media_id, mime_type = "", ""
@@ -283,6 +297,7 @@ def extract_inbound_messages(payload: Any) -> list[InboundEvent]:
                                 message_id=message_id,
                                 media_id=media_id,
                                 mime_type=mime_type,
+                                timestamp=timestamp,
                             )
                         )
                         continue
@@ -291,7 +306,12 @@ def extract_inbound_messages(payload: Any) -> list[InboundEvent]:
                         logger.info("whatsapp_inbound_message_skipped", reason="empty_text_body")
                         continue
                     out.append(
-                        InboundMessage(from_number=str(from_number), text=str(text), message_id=message_id)
+                        InboundMessage(
+                            from_number=str(from_number),
+                            text=str(text),
+                            message_id=message_id,
+                            timestamp=timestamp,
+                        )
                     )
     except (AttributeError, TypeError) as exc:
         logger.warning("whatsapp_inbound_payload_unparseable", error=str(exc))

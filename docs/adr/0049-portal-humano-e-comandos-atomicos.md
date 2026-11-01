@@ -127,6 +127,12 @@ cancelamento a pedido no Tasy (SP-OP-CANCEL-001 v0.2.0, `UT_ExecutarCancelamento
 Acrescido em 29/10/2026 (DL-0160, so' dev): `financeiro-reembolso`, o grupo que registra a data do
 pagamento do reembolso feito fora do sistema (SP-OP-REEMBOLSO-001 v0.2.0, `UT_RegistrarPagamento`).
 
+Acrescido em 31/10/2026 (R-041 / DEC-21, decisao do dono em #1084, rodadas 2 e 3):
+`analise-contas-pagar`, o checker da admissibilidade do SP-OP-PAGTO-001
+(`UT_AnaliseAdmissibilidade`), separado da aprovacao. `equipe-cuidado`, `gestao-cobranca` e
+`gestao-contratos` deixam de ser candidate-group de User Task (decisor unico nas tarefas adversas) — os
+identificadores nao sao renomeados nem reutilizados.
+
 As expressões `${grupo_humano}`, `${pagto_alcada.grupo_aprovador}`,
 `${roteamento.grupo_atendimento}` e `${roteamento_dsr.grupo_revisor}` são resolvidas no servidor
 a partir do estado autoritativo do engine e intersectadas com membership autenticado. Não se

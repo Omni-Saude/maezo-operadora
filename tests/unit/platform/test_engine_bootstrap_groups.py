@@ -11,20 +11,30 @@ from maezo.platform.engine_bootstrap import bootstrap as b
 
 
 @pytest.mark.parametrize(
-    "existing", [set(), {"plantao-clinico"}, {name for name, _ in b.GRUPOS_DE_ATENDIMENTO}]
+    "existing",
+    [
+        set(),
+        {"plantao-clinico"},
+        {name for name, _ in b.GRUPOS_DE_ATENDIMENTO},
+        {"medico-auditor", "ouvidoria"},
+        {name for name, _ in b.GRUPOS_CANONICOS},
+    ],
 )
 def test_bootstrap_only_creates_missing_canonical_queues_without_grants_or_memberships(
     monkeypatch: pytest.MonkeyPatch, existing: set[str]
 ) -> None:
     monkeypatch.setenv("ENGINE_REST_URL", "http://bootstrap.invalid/engine-rest")
     groups = set(existing) | {b.GRUPO_ADMIN, b.GRUPO_LEITURA, "unrelated-queue", "plantaoClinico"}
-    canonical = {name for name, _ in b.GRUPOS_DE_ATENDIMENTO}
-    assert canonical == {
+    assert {name for name, _ in b.GRUPOS_DE_ATENDIMENTO} == {
         "plantao-clinico",
         "enfermagem-triagem",
         "atendimento-humano",
         "supervisao-atendimento",
     }
+    # R-041 / DEC-21 (#1084): atendimento + as filas de decisao de todos os processos.
+    canonical = {name for name, _ in b.GRUPOS_CANONICOS}
+    # 38 do modelo do dono (R-041) + `financeiro-reembolso` (DL-0160, #1074).
+    assert len(canonical) == 39
     grants = [
         {
             "id": f"read-{kind}",

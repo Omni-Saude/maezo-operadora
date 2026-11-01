@@ -45,6 +45,58 @@ GRUPOS_DE_ATENDIMENTO: Final[tuple[tuple[str, str], ...]] = (
     ("supervisao-atendimento", "Supervisao de atendimento (fallback)"),
 )
 
+#: As filas de DECISAO dos demais processos SP-OP — R-041 / DEC-21, decisao do dono em
+#: #1084 (rodadas 2 e 3, 2026-10-31): "Criar TODOS os grupos no bootstrap do engine". Fonte
+#: do modelo: `docs/sme-dispatch/po/org-taxonomy-table.yaml` (`grupos_registrados`, mesma
+#: ordem; o teste `test_engine_bootstrap_canonical_groups.py` amarra os dois).
+#:
+#: Mesmas garantias das filas de atendimento: cria SOMENTE o que falta, sem membership e sem
+#: grant (quem entra em cada grupo e o IdP/dono, com o cargo da taxonomia); nada e apagado
+#: nem renomeado. Fora da lista de proposito: `nucleo-ans` (fundido em `regulatorio-ans`),
+#: `equipe-cuidado` e `gestao-cobranca` (sem User Task — consultivos) e `clerical-pagamentos`
+#: (rotulo de DMN da faixa sem aprovador humano; nunca vira fila).
+GRUPOS_DE_DECISAO: Final[tuple[tuple[str, str], ...]] = (
+    ("gestao-rede", "Gestao de rede (credenciamento)"),
+    ("coordenacao-rede", "Coordenacao de rede"),
+    ("juridico-rede", "Juridico de rede (contratos com prestadores)"),
+    ("regulatorio-ans", "Regulatorio ANS"),
+    ("juridico-regulatorio", "Juridico regulatorio"),
+    ("coordenacao-regulatorio", "Coordenacao de regulacao (decisao NIP)"),
+    ("gerencia-regulatoria", "Gerencia regulatoria (prazo NIP estourado)"),
+    ("medico-auditor", "Medico auditor"),
+    ("coordenacao-auditoria-medica", "Coordenacao de auditoria medica"),
+    ("junta-medica", "Junta medica (RN 424) - registro de parecer"),
+    ("ouvidoria", "Ouvidoria (reanalise de negativa - RN 623 art. 16)"),
+    ("juridico-contratos", "Juridico contratual (beneficiarios)"),
+    ("gestao-contratos", "Gestao de contratos (pedidos do titular)"),
+    ("coordenacao-contratos", "Coordenacao de contratos e cadastro"),
+    ("cadastro-beneficiarios", "Cadastro de beneficiarios"),
+    ("coordenacao-cobranca", "Coordenacao de cobranca"),
+    ("auditoria-contas", "Auditoria de contas medicas"),
+    ("coordenacao-contas", "Coordenacao de auditoria de contas"),
+    ("analista-recurso-glosa", "Analise de recurso de glosa"),
+    ("coordenacao-recurso", "Coordenacao de recursos de glosa"),
+    ("analise-reembolso", "Analise de reembolso"),
+    ("coordenacao-reembolso", "Coordenacao de reembolso"),
+    # DL-0160 (#1074, so' dev): SP-OP-REEMBOLSO-001 v0.2.0 UT_RegistrarPagamento (PROPOSTO).
+    ("financeiro-reembolso", "Financeiro do reembolso (registro do pagamento)"),
+    ("coordenacao-clinica", "Coordenacao medica de programas"),
+    ("investigacao-fraude", "Investigacao de fraude"),
+    ("coordenacao-investigacao", "Coordenacao de prevencao a fraudes"),
+    ("juridico-fraude", "Juridico de fraude (encaminhamentos)"),
+    ("dpo", "Encarregado de dados (DPO)"),
+    ("juridico-privacidade", "Juridico de privacidade"),
+    ("analise-contas-pagar", "Analise de contas a pagar (admissibilidade)"),
+    ("coordenacao-financeira", "Coordenacao financeira (aprovacao por SLA)"),
+    ("aprovacao-financeira-l1", "Alcada financeira L1"),
+    ("aprovacao-financeira-l2", "Alcada financeira L2"),
+    ("aprovacao-financeira-l3", "Alcada financeira L3"),
+    ("comite-financeiro", "Comite financeiro (aprovacao colegiada)"),
+)
+
+#: Tudo o que o bootstrap garante existir: atendimento (ESCALATION) + decisao.
+GRUPOS_CANONICOS: Final[tuple[tuple[str, str], ...]] = GRUPOS_DE_ATENDIMENTO + GRUPOS_DE_DECISAO
+
 #: O que o grupo de leitura pode: ver o motor, e nada mais.
 #:
 #: `(resourceType, resourceId, permissões)`. Os tipos são os do engine — 0 aplicação,
@@ -172,7 +224,7 @@ def _planejar_grupo_de_leitura(http: httpx.Client, plano: Plano, *, grupos: set[
     o erro" produziria lixo crescente a cada execução.
     """
     plano.grupo_leitura_a_criar = GRUPO_LEITURA not in grupos
-    plano.filas_a_criar = [gid for gid, _ in GRUPOS_DE_ATENDIMENTO if gid not in grupos]
+    plano.filas_a_criar = [gid for gid, _ in GRUPOS_CANONICOS if gid not in grupos]
 
     existentes = {
         (a["resourceType"], str(a["resourceId"]))
@@ -270,7 +322,7 @@ def _imprimir(plano: Plano, *, executar: bool) -> None:
     for aid, desc in plano.autorizacoes_a_apagar:
         print(f"    - {aid[:8]}  {desc}")
     criar = "SIM" if plano.grupo_leitura_a_criar else "ja existe"
-    print(f"  filas de atendimento a criar: {plano.filas_a_criar or 'nenhuma (todas existem)'}")
+    print(f"  filas (atendimento + decisao) a criar: {plano.filas_a_criar or 'nenhuma (todas existem)'}")
     print(f"  grupo de leitura {GRUPO_LEITURA!r}: {criar}")
     print(f"  grants de leitura a criar: {len(plano.grants_de_leitura_a_criar)}")
     for g in plano.grants_de_leitura_a_criar:
@@ -360,7 +412,7 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 6) O grupo de leitura. Depois da limpeza de propósito: criar permissão antes de
     #    remover a antiga deixaria as duas coexistindo se algo falhasse no meio.
-    for gid, nome in GRUPOS_DE_ATENDIMENTO:
+    for gid, nome in GRUPOS_CANONICOS:
         if gid not in plano.filas_a_criar:
             continue
         _exigir_ok(

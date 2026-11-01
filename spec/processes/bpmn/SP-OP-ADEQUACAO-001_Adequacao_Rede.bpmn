@@ -32,7 +32,7 @@ human-gated. INVARIANTE no-adverse (ADR-0018, mesmo num processo L3): o registro
 financeiro de fallback (register_fallback_commitment — garantir livre escolha / reembolso garantido /
 contratacao ad-hoc com custo para a operadora) SO nasce na User Task humana UT_DecisaoFallback (ou
 UT_CoordenacaoRede no estouro de SLA), via decisao_remediacao==COMPROMISSO_FALLBACK setado por humano
-do grupo gestao-rede (ou coordenacao-rede). NENHUMA DMN deste processo tem coluna de saida que
+do grupo gestao-rede (coordenacao-rede SO na escalacao). NENHUMA DMN deste processo tem coluna de saida que
 firme/autorize o compromisso: adequacao_gap apenas MEDE o gap e classifica severidade
 (gap_adequacao in {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO}); adequacao_remediation_routing
 apenas ROTEIA (roteamento_remediacao in {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}).
@@ -295,7 +295,7 @@ PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o obj
     </bpmn:serviceTask>
 
     <bpmn:userTask id="UT_DecisaoFallback" name="Decisao de remediacao (gestao de rede)"
-                   camunda:candidateGroups="gestao-rede,coordenacao-rede">
+                   camunda:candidateGroups="gestao-rede">
       <bpmn:documentation><![CDATA[
 HITL no-adverse (ADR-0018, mesmo num processo L3): UNICO ponto onde o compromisso financeiro de
 fallback pode nascer. Saidas: decisao_remediacao in {MONITORAR_OK, ENCAMINHAR_CRED,

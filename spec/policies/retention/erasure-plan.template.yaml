@@ -370,6 +370,19 @@ camadas:
       o telefone da contraparte em base64 —, mas isso e uma decisao de ENGENHARIA
       registrada aqui, nao a ratificacao de
       `spec/policies/privacy/phi-business-key-remediation.yaml`, que continua pendente.
+      NOTA AO DPO (F-147 / R-060, decisao do dono de 2026-10-31, #1084 Rodada 2 — CONFIRMACAO
+      PENDENTE, campo `decisao_dpo` abaixo segue em branco/PENDENTE): com a flag
+      WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK (padrao desligado) ligada, esta tabela passa a
+      receber TAMBEM chaves `wa:inbound-sem-wamid:{tenant}:hk1_...:{1|2}` — a identidade de
+      fallback de uma mensagem que chegou SEM wamid, ate 2 slots por identidade. A identidade
+      e' um HMAC COM CHAVE (vault, ADR-0035) sobre o pseudonimo keyed do telefone, o
+      `timestamp` da Meta, o tipo da mensagem e um digest KEYED do corpo
+      (`webhooks/whatsapp/dedup.py::WhatsAppDedupGuard.fallback_identity`); telefone e texto
+      crus nunca sao gravados. Engenharia mantem SEM_COLUNA_DE_TITULAR pelo mesmo motivo do
+      wamid (irreversivel sem PHI_HMAC_KEY), mas a chave e' VINCULADA a uma pessoa pela
+      composicao telefone+conteudo, e por isso o dono pediu a confirmacao do DPO antes de a
+      flag ser ligada. Expiracao: a mesma do wamid (expires_at, WHATSAPP_WAMID_DEDUP_TTL_S).
+      Sem migracao nova: mesma coluna `key`, mesmo formato `hk1_`.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO

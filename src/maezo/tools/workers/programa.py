@@ -358,7 +358,7 @@ def register_discharge(variables: dict[str, Any]) -> dict[str, Any]:
     """Register clinical discharge from program.
 
     GUARDED: ERR_PROGRAM_DISCHARGE_NOT_HUMAN (L0-hard).
-    Clinical decision MUST come from a human (coordenacao-clinica / equipe-cuidado).
+    Clinical decision MUST come from a human (coordenacao-clinica, sole decider since R-041).
     """
     return _register_program_discharge(variables)
 
@@ -566,7 +566,7 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
     quem publica e `make_notify_sla_risk_handler` abaixo, e SO quando ha produtor Kafka. No
     caminho `kafka is None` o wrapper devolvia este mesmo `True` sem ter publicado coisa alguma.
     Mesmo com produtor, o publish e um registro INTERNO em `operadora.notifications.internal` — um
-    PEDIDO de alerta, nunca a prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada.
+    PEDIDO de alerta, nunca a prova de que a `coordenacao-clinica` foi avisada.
     Os DOIS caminhos passam a devolver `{}`; o publish observavel segue intacto.
 
     ZERO CONSUMIDORES: `sla_risk_notified` nao aparece em `conditionExpression` de BPMN,

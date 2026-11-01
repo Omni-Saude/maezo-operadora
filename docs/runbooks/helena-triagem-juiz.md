@@ -22,9 +22,24 @@ Fora da allowlist, nada muda mesmo ligada.
 Ordem de implantação: a imagem com o código precisa estar no ar ANTES do pacote com `triagem_juiz` (chave desconhecida
 faz o pacote ser recusado inteiro; o serviço fica no último pacote bom).
 
+## Ajustes do teste do dono (01/11/2026)
+No primeiro teste real, "minha mãe de 70 anos… chegou a desmaiar" (um desmaio da semana anterior) recebeu o 192 da
+trava antiga por palavra, antes da triagem; depois a conversa misturou triagem, protocolo antigo e conversa geral.
+- Com a chave ligada (e na allowlist), o alarme pela palavra (`_sinal_claro_pelo_texto`, a trava de alarme e o alarme
+  "claro" do roteador) **abre a triagem** em vez de dar 192 direto; o motor tem os mesmos sinais claros (não respira,
+  convulsão agora, não acorda → 192 sem modelo) e, para "desmaiou", pergunta "foi hoje?". A trava de risco
+  psicossocial e a de dados pessoais seguem como antes.
+- Sinais de emergência só contam como presentes se aconteceram hoje; o leitor entende "foi semana passada" como "não".
+- Pronto-socorro e "atendimento hoje" dizem o porquê (uma frase do juiz, sem 192/SAMU nem link).
+- Logo depois da conclusão: "o que eu te respondi?" / "por que o pronto-socorro?" recebe o porquê, sem nova triagem;
+  um fato novo do mesmo caso reavalia a conversa inteira.
+- Falha do modelo: 192 se havia palavra de alarme; senão, a oferta da equipe (nunca a lista do protocolo antigo).
+- "O que você está sentindo?" só quando a pessoa ainda não contou.
+
 ## Logs (sem conteúdo da conversa)
-`helena_triagem_juiz_pergunta` (motivo, rodada), `helena_triagem_juiz_saida` (saida, regra, piso, juiz, perguntas),
-`helena_triagem_juiz_falhou` (falha, continua), `helena_triagem_juiz_contexto_invalido`.
+`helena_triagem_juiz_pergunta` (motivo, rodada), `helena_triagem_juiz_saida` (saida, regra, piso, juiz, perguntas,
+com_razao), `helena_triagem_juiz_explicou`, `helena_triagem_juiz_reavalia`, `helena_triagem_juiz_falhou` (falha,
+continua, palavra), `helena_triagem_juiz_contexto_invalido`.
 
 ## Limites conhecidos (teste de mesa, 01/11/2026)
 - Conjunto com 40 alertas escondidos: 83–85% de destino certo e 1–2 emergências perdidas por rodada
