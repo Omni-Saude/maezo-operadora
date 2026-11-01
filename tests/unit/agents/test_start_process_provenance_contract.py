@@ -145,7 +145,7 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str]] = [
     (
         "gustavo",
         "GustavoGraph",
-        {"fhir": None},
+        {},
         "start_process",
         {
             "tenant_id": "amh",

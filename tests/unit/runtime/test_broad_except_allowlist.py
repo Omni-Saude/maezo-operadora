@@ -104,7 +104,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 25/10/2026: 39 — `habilidades/protocolo/fluxo.py::_chamar` (protocolos clinicos da Helena): escolha do
 #: protocolo, leitura das respostas e mapa do especialista pelo provedor do roteador; `PROGRAMMING_ERRORS`
 #: re-levanta, prazo e falha do provedor viram `None` (alerta universal / "sem clareza"). Sitio NOVO.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 39
+#: 31/10/2026: 38 — `GustavoGraph.gather` (try da leitura FHIR da J2) SAIU com o acesso FHIR do Gustavo
+#: (ADR-0071 I-5; decisao do dono DEC-11 (i)): o `gather` dele nao le mais nada, entao nao ha `except`.
+#: Sitio REMOVIDO junto com o codigo, nao um predicado que parou de casar.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

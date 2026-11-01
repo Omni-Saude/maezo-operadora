@@ -1,8 +1,8 @@
 """Gated FHIR read seam — action class `leitura_phi_clinica` (C2, design §6.1).
 
 Satisfies, structurally and simultaneously, every FHIR Protocol the graphs declare: `FhirReader`
-de `rafael/graph.py` (`read_patient` + `search_coverage`), `FhirReader` de `gustavo/graph.py` e
-`PatientSummaryReader` de `andre/graph.py` (`read_patient` sozinho), e `SummaryReader` de
+de `rafael/graph.py` (`read_patient` + `search_coverage`) e `PatientSummaryReader` de
+`andre/graph.py` (`read_patient` sozinho), e `SummaryReader` de
 `carolina/graph.py` + `PatientSummaryReader` de `marina/graph.py`/`valentina/graph.py`/
 `beatriz/graph.py` (`read_patient_summary`). Um unico wrapper cobre todos porque sao estruturais
 (R-7): os adaptadores por baixo sao `agents/rafael/adapters.py::FhirServerReader` (escolhido para
@@ -31,7 +31,7 @@ carrying only bounded tokens — which is the `LACUNA_DECLARADA` shape §6.1 dec
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from maezo.gateway.seams._base import GatedSeam, SeamContext, gate
 
@@ -39,6 +39,14 @@ _OP_READ_PATIENT = "fhir.read_patient"
 _OP_READ_PATIENT_SUMMARY = "fhir.read_patient_summary"
 _OP_READ_COVERAGE = "fhir.read_coverage"
 _OP_SEARCH_COVERAGE = "fhir.search_coverage"
+
+#: Every operation a `GatedFhirReader` can decide on. The construction-time zone fence
+#: (`gateway/tool_registry.py::build_fhir_seam`, ADR-0071 I-5) reads THIS set against
+#: `OperationSpec.returns_phi`: the wrapper exposes all four methods whatever adapter sits below,
+#: so the fence asks about the whole surface, never only the adapter's own method.
+FHIR_OPERATIONS: Final[frozenset[str]] = frozenset(
+    {_OP_READ_PATIENT, _OP_READ_PATIENT_SUMMARY, _OP_READ_COVERAGE, _OP_SEARCH_COVERAGE}
+)
 
 
 class GatedFhirReader(GatedSeam):
@@ -70,4 +78,4 @@ def gate_fhir(inner: Any, seam: SeamContext) -> GatedFhirReader:
     return GatedFhirReader(inner, seam=seam)
 
 
-__all__ = ["GatedFhirReader", "gate_fhir"]
+__all__ = ["FHIR_OPERATIONS", "GatedFhirReader", "gate_fhir"]
