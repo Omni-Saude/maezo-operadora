@@ -2,12 +2,13 @@
 
 O R-110 triou um a um os 85 sitios bandit B608 e os 51 semgrep `avoid-sqlalchemy-text`. Cada sitio
 ou foi parametrizado (o valor saiu do texto do SQL e virou parametro ligado), ou recebeu
-`# nosec B608 -- <fonte>` / `# nosemgrep: avoid-sqlalchemy-text -- <fonte>`, onde `<fonte>` nomeia
+`# nosec B608 # fonte: <X>` / `# nosemgrep: avoid-sqlalchemy-text # fonte: <X>`, onde `<X>` nomeia
 a allowlist fechada (constante de codigo) ou o validador ancorado de onde vem o IDENTIFICADOR
 interpolado. Valor externo nunca e' interpolado: valor vai por `$n` / `:nome`.
 
 Esta cerca garante, sem precisar de bandit/semgrep no CI, que:
-  1. nenhuma supressao e' nua (sem regra) nem sem `-- <fonte>`;
+  1. nenhuma supressao e' nua (sem regra) nem sem `# fonte: <X>` (o segundo `#` encerra a lista de
+     testes que o bandit le, entao a justificativa nao vira nome de teste invalido);
   2. o inventario por arquivo e' pinado: uma supressao nova obriga a editar este arquivo (e a
      justificar no PR) — nunca entra calada.
 
@@ -28,12 +29,14 @@ from typing import Final
 _SRC: Final[Path] = Path(__file__).resolve().parents[3] / "src" / "maezo"
 
 _NOSEC: Final[re.Pattern[str]] = re.compile(r"#\s*nosec\b(?P<resto>.*)$")
-_NOSEC_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosec B608 -- \S.*$")
+_NOSEC_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosec B608 # fonte: \S.*$")
 _NOSEMGREP: Final[re.Pattern[str]] = re.compile(r"#\s*nosemgrep\b(?P<resto>.*)$")
-_NOSEMGREP_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosemgrep: avoid-sqlalchemy-text -- \S.*$")
+_NOSEMGREP_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosemgrep: avoid-sqlalchemy-text # fonte: \S.*$")
 
 # Inventario pinado: arquivo (relativo a src/maezo) -> numero de supressoes triadas.
-NOSEC_B608: Final[dict[str, int]] = {}
+NOSEC_B608: Final[dict[str, int]] = {
+    "gateway/audit_postgres.py": 1,
+}
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {}
 
 
@@ -53,12 +56,12 @@ def _varre(root: Path) -> tuple[Counter[str], Counter[str], list[str]]:
                 if _NOSEC_TRIADO.search(comentario):
                     nosec[rel] += 1
                 else:
-                    defeitos.append(f"{rel}:{linha}: nosec sem 'B608 -- <fonte>'")
+                    defeitos.append(f"{rel}:{linha}: nosec sem 'B608 # fonte: <X>'")
             if _NOSEMGREP.search(comentario):
                 if _NOSEMGREP_TRIADO.search(comentario):
                     nosemgrep[rel] += 1
                 else:
-                    defeitos.append(f"{rel}:{linha}: nosemgrep sem 'avoid-sqlalchemy-text -- <fonte>'")
+                    defeitos.append(f"{rel}:{linha}: nosemgrep sem 'avoid-sqlalchemy-text # fonte: <X>'")
     return nosec, nosemgrep, defeitos
 
 
@@ -81,10 +84,10 @@ def test_a_cerca_enxerga_supressao_nua_e_triada(tmp_path: Path) -> None:
     """Nao-vacuidade: a mesma varredura conta as triadas e acusa as nuas, ignorando docstrings."""
     (tmp_path / "plantado.py").write_text(
         '"""docstring citando # nosec B608 nao conta."""\n'
-        'A = f"SELECT 1 FROM {T}"  # nosec B608 -- T: constante\n'
+        'A = f"SELECT 1 FROM {T}"  # nosec B608 # fonte: T constante\n'
         'B = f"SELECT 1 FROM {T}"  # nosec\n'
         'C = f"SELECT 1 FROM {T}"  # nosec B608\n'
-        "# nosemgrep: avoid-sqlalchemy-text -- T: constante\n"
+        "# nosemgrep: avoid-sqlalchemy-text # fonte: T constante\n"
         "# nosemgrep\n",
         encoding="utf-8",
     )
@@ -92,7 +95,7 @@ def test_a_cerca_enxerga_supressao_nua_e_triada(tmp_path: Path) -> None:
     assert dict(nosec) == {"plantado.py": 1}
     assert dict(nosemgrep) == {"plantado.py": 1}
     assert defeitos == [
-        "plantado.py:3: nosec sem 'B608 -- <fonte>'",
-        "plantado.py:4: nosec sem 'B608 -- <fonte>'",
-        "plantado.py:6: nosemgrep sem 'avoid-sqlalchemy-text -- <fonte>'",
+        "plantado.py:3: nosec sem 'B608 # fonte: <X>'",
+        "plantado.py:4: nosec sem 'B608 # fonte: <X>'",
+        "plantado.py:6: nosemgrep sem 'avoid-sqlalchemy-text # fonte: <X>'",
     ]
