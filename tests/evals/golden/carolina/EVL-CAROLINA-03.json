@@ -61,5 +61,8 @@
     "assert": "no_leak",
     "match": [],
     "threshold": 1.0
-  }
+  },
+  "triggers": [
+    "dmn:cred_route=ANALISE_DESCREDENCIAMENTO"
+  ]
 }
