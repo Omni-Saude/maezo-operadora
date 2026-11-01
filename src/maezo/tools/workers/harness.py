@@ -938,8 +938,32 @@ class CibSevenWorkerTransport:
         resp = await self._client.post(f"/external-task/{task_id}/unlock")
         resp.raise_for_status()
 
+    async def read_history(self, path: str, params: Mapping[str, str]) -> Any:
+        """READ-ONLY engine-history GET for the L1 decision poller (R-085, owner 2026-10-31).
+
+        Reuses THIS transport's client (same `CIBSEVEN_BASE_URL`, same credential) instead of a
+        new HTTP client — the poller (`worker_runtime.engine_metrics.EngineMetricsPoller`) holds
+        no transport of its own. Closed path set (`HISTORY_READ_PATHS`): never a write, never any
+        other engine route. CIB Seven emits raw control characters inside free-text fields such as
+        a task `description` (measured on the local engine, 2026-10-31), so the body is decoded
+        with `strict=False`; the caller reads only the fields it names and never logs a payload.
+        """
+        if path not in HISTORY_READ_PATHS:
+            raise ValueError(f"history read path outside the closed set: {path!r}")
+        resp = await self._client.get(path, params=dict(params))
+        resp.raise_for_status()
+        return json.loads(resp.content, strict=False)
+
     async def close(self) -> None:
         await self._client.aclose()
+
+
+#: R-085: the ONLY engine routes `CibSevenWorkerTransport.read_history` will GET. All three are
+#: history READS (`/history/task` list, `/history/variable-instance` by name, `/history/detail` by
+#: variable instance + activity instance) — the poller reads ONE named decision variable per task.
+HISTORY_READ_PATHS: frozenset[str] = frozenset(
+    {"/history/task", "/history/variable-instance", "/history/detail"}
+)
 
 
 class FakeWorkerTransport:

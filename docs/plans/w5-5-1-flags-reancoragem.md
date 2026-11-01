@@ -43,7 +43,7 @@ O item 5.1 do programa diz: "PRs de habilitação dark por flag (**16 flags do `
 
 | # | Flag | Local | Default | Estado |
 |---|---|---|---|---|
-| B1 | `direct_completion` (`MAEZO_PORTAL_DIRECT_COMPLETION`) | `src/maezo/portal/api/config.py:37` | `False` | Cercado por `scripts/ci/check_portal_direct_completion.py` (7 cercas) + `tests/unit/ci/test_check_portal_direct_completion.py`; end-state = REMOÇÃO com o relay de #427 (`config.py:31-36`) |
+| B1 | `direct_completion` (`MAEZO_PORTAL_DIRECT_COMPLETION`) | `src/maezo/portal/api/config.py:37` | `False` | Cercado por `scripts/ci/check_portal_direct_completion.py` (7 cercas) + `tests/unit/ci/test_check_portal_direct_completion.py`; end-state = REMOÇÃO com o relay de #1145 (`config.py:31-36`) |
 | B2 | `direct_completion` do perfil de produção (`PortalProductionSettings`) | `src/maezo/gateway/staff_cases/production_config.py:176` | `False` | Mesmo env, portão INDEPENDENTE por desenho (`production_config.py:169-175`); mesma cerca |
 | B3 | `cors_origins` (`MAEZO_PORTAL_CORS_ORIGINS`) | `config.py:45` | `""` (nenhuma origem cross-origin) | Mesma cerca (curinga proibido, recorte por caminho obrigatório) |
 
