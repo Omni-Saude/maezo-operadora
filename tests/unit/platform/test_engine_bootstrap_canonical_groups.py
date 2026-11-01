@@ -154,3 +154,18 @@ def test_taxonomy_registry_mirrors_the_bootstrap() -> None:
         assert entry["status"].startswith("PROPOSTO"), entry["id"]
     nao = {g["id"] for g in data["grupos_nao_registrados"]}
     assert nao == {"nucleo-ans", "equipe-cuidado", "gestao-cobranca", "clerical-pagamentos"}
+
+
+#: Estado CONGELADO da 5a tarefa adversa ate o pacote NIP (R-041 sec. 3): MANTER_NEGATIVA clinica
+#: exige medico-auditor; nenhum grupo nao-decisor (p.ex. o redator regulatorio-ans, SoD S8) entra.
+NIP_DEFERRED_FROZEN = {
+    ("SP-OP-NIP-001", "UT_RevisaoJuridicaNip"): frozenset({"juridico-regulatorio", "medico-auditor"}),
+    ("SP-OP-NIP-001", "UT_CoordenacaoNip"): frozenset({"coordenacao-regulatorio", "juridico-regulatorio"}),
+}
+
+
+def test_nip_adverse_task_stays_frozen_until_the_nip_package() -> None:
+    tasks = _user_tasks()
+    for key, groups in NIP_DEFERRED_FROZEN.items():
+        got = frozenset(g.strip() for g in tasks[key].split(","))
+        assert got == groups, f"{key}: {sorted(got)} != {sorted(groups)} (pacote NIP, R-041 sec. 3)"
