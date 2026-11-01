@@ -1,6 +1,12 @@
-"""`SP-OP-REEMBOLSO-001` nao tem binding de agente — gap `PERSP-REEMBOLSO-BINDING`.
+"""`SP-OP-REEMBOLSO-001`: so o LUCAS tem binding de agente — gap `PERSP-REEMBOLSO-BINDING` (revisto por
+DL-0161/DL-0162).
 
-Arbitragem (nao decisao do dono, ao contrario de `PERSP-B5-ADEQ-BINDING`/R-049): o achado original
+DL-0162 (28/10/2026): o Lucas passa a ABRIR o pedido de reembolso (flag `MAEZO_REEMBOLSO_V1`), entao a
+chave entra em
+`process_keys` DELE — e so dele. A arbitragem original segue valendo para a Marina e para todos os
+demais agentes.
+
+Arbitragem original (nao decisao do dono, ao contrario de `PERSP-B5-ADEQ-BINDING`/R-049): o achado original
 (`phase1/perspective-part-A.md` Sec.5 item 5) foi REFUTADO pelo verificador
 (`phase1/perspective-part-A-VERIFICATION.md` C-4) como **MENOR PRIVILEGIO CORRETO, nao defeito**.
 Marina serve `SP-OP-REEMBOLSO-001` via delegacao A2A (`operadora.reembolso.analyze_request`) de
@@ -26,6 +32,10 @@ from maezo.gateway.effect_pep import KNOWN_PROCESS_KEYS, AgentCapabilities
 
 _REEMBOLSO_KEY = "SP-OP-REEMBOLSO-001"
 
+#: O UNICO agente com autoridade de start sobre o reembolso (DL-0162). Conceder a chave a QUALQUER outro e ato
+#: explicito do dono e tem de ficar VERMELHO aqui primeiro.
+_AGENTES_COM_A_CHAVE = frozenset({"lucas"})
+
 
 def _agent_manifests() -> list[Path]:
     """Todo `agent.yaml` shipado, incluindo o `_template` (um binding la se propagaria)."""
@@ -43,16 +53,18 @@ def test_a_chave_de_reembolso_esta_no_universo_adr0016() -> None:
 
 
 @pytest.mark.parametrize("manifest", _MANIFESTS, ids=lambda p: p.parent.name)
-def test_nenhum_manifesto_declara_reembolso_como_processo_iniciavel(manifest: Path) -> None:
-    """`process_keys:` e a UNICA lista que concede autoridade de start ao effect-PEP — nenhum
-    agente (incluindo a Marina, que SERVE este processo via A2A) a declara para REEMBOLSO."""
+def test_so_o_lucas_declara_reembolso_como_processo_iniciavel(manifest: Path) -> None:
+    """`process_keys:` e a UNICA lista que concede autoridade de start ao effect-PEP — so o Lucas a
+    declara para
+    REEMBOLSO (a Marina, que SERVE este processo via A2A, NAO)."""
     data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
-    assert _REEMBOLSO_KEY not in (data.get("process_keys") or [])
+    declara = _REEMBOLSO_KEY in (data.get("process_keys") or [])
+    assert declara == (manifest.parent.name in _AGENTES_COM_A_CHAVE)
 
 
 @pytest.mark.parametrize("manifest", _MANIFESTS, ids=lambda p: p.parent.name)
-def test_nenhuma_visao_de_capacidade_permite_iniciar_reembolso(manifest: Path) -> None:
-    """A mesma prova pelo lado do PEP: a construcao de producao (`AgentCapabilities.of`) recusa.
+def test_a_visao_de_capacidade_so_permite_iniciar_reembolso_ao_lucas(manifest: Path) -> None:
+    """A mesma prova pelo lado do PEP: a construcao de producao (`AgentCapabilities.of`) concede so ao Lucas.
 
     Ler o YAML prova o que esta escrito; construir a visao de capacidade prova o que o PEP
     concede — as duas pernas, porque uma grafia futura de `process_keys` que o loader aceitasse e
@@ -64,10 +76,10 @@ def test_nenhuma_visao_de_capacidade_permite_iniciar_reembolso(manifest: Path) -
         tools=data.get("tools") or [],
         process_keys=data.get("process_keys") or [],
     )
-    assert caps.allows_process_key(_REEMBOLSO_KEY) is False
+    assert caps.allows_process_key(_REEMBOLSO_KEY) is (manifest.parent.name in _AGENTES_COM_A_CHAVE)
 
 
-def test_nenhum_agente_no_conjunto_inteiro_inicia_reembolso() -> None:
+def test_so_o_lucas_no_conjunto_inteiro_inicia_reembolso() -> None:
     """A afirmacao agregada que o contrato do processo publica, provada de uma vez so."""
     concedem = [
         manifest.parent.name
@@ -75,10 +87,10 @@ def test_nenhum_agente_no_conjunto_inteiro_inicia_reembolso() -> None:
         if _REEMBOLSO_KEY
         in ((yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("process_keys") or [])
     ]
-    assert concedem == [], (
-        "PERSP-REEMBOLSO-BINDING arbitra que NENHUM agente inicia SP-OP-REEMBOLSO-001 (menor "
-        "privilegio correto — Marina so serve via A2A, start_process e NO-OP para reembolso); "
-        f"conceder a chave e ato explicito do dono. Concedem hoje: {concedem}"
+    assert set(concedem) == _AGENTES_COM_A_CHAVE, (
+        "DL-0162: so o Lucas inicia SP-OP-REEMBOLSO-001 (menor privilegio — Marina so serve via A2A, "
+        "start_process e NO-OP para reembolso); conceder a chave a outro agente e ato explicito do dono. "
+        f"Concedem hoje: {concedem}"
     )
 
 
@@ -99,7 +111,7 @@ def test_reembolso_contract_documents_the_binding_arbitration() -> None:
     contract = repo_root / "docs" / "processes" / "contracts" / "SP-OP-REEMBOLSO-001.md"
     text = contract.read_text(encoding="utf-8")
     assert "PERSP-REEMBOLSO-BINDING" in text
-    assert "NENHUM agente declara" in text or "NENHUM agente inicia" in text
+    assert "so dele" in text and "Marina NAO declara a chave" in text
 
 
 def test_reembolso_contract_reproduction_is_structural_not_a_substring_grep() -> None:

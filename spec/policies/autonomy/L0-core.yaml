@@ -21,11 +21,6 @@ actions:
   high_value_payment:           { level: L1, params: { threshold_brl: 100000 } }
   authorization_approval:       { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
     # max_value_brl=0 em L0-core: teto REAL e definido por tenant (ex.: tenants/amh.yaml) — D-07
-  reembolso_auto_approval:      { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
-    # Espelha authorization_approval para SP-OP-REEMBOLSO-001 (GAP-REEMBOLSO-3): teto de auto-aprovacao
-    # L2 do reembolso. max_value_brl=0 em L0-core: teto REAL por tenant (tenants-amh.yaml) — D-07.
-    # `operadora.reembolso.calculate_amount` compara valor_calculado_tabela_cents com este teto (via
-    # gateway.pep.load_matrix) e COMPUTA dentro_teto_l2 — nunca confia no booleano de entrada.
   standard_glosa_processing:    { level: L2 }
   triage_and_routing:           { level: L3 }
   scheduling:                   { level: L3 }

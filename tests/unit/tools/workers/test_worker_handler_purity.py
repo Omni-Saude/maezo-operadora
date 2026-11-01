@@ -177,7 +177,6 @@ _NONDETERMINISM_BASELINE: dict[str, str] = {
     # (`_mint_protocolo_resposta`) — entao uma re-entrega da mesma task cunha o MESMO protocolo em
     # vez de uma identidade nova para uma unica decisao. Pinado por
     # `test_recurso_protocolos_sao_deterministicos_por_business_key` abaixo.
-    "reembolso": "comprovante_ref = sha256(time_ns()) — latent; same P1 caveat.",
 }
 
 

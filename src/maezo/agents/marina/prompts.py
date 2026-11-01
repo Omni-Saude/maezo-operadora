@@ -20,7 +20,7 @@ from __future__ import annotations
 SYSTEM_PROMPT_VERSION = "system-v2"
 DOSSIER_PROMPT_VERSION = "dossier-v2"
 RECURSO_PROMPT_VERSION = "recurso-v2"
-REEMBOLSO_PROMPT_VERSION = "reembolso-v1"
+REEMBOLSO_PROMPT_VERSION = "reembolso-v2"
 
 SYSTEM_PROMPT = """Voce e a Marina Andrade, analista de contas medicas e de recurso de glosa de
 uma operadora de planos de saude no Brasil. Voce trabalha tres fluxos: SP-OP-CONTAS-001
@@ -114,8 +114,9 @@ def reembolso_prompt() -> str:
     `UT_CoordenacaoReembolso`, SP-OP-REEMBOLSO-001).
 
     The SP-OP-REEMBOLSO-001 instance is ALREADY RUNNING when Marina is convoked (`ST_PrepararDossie`,
-    after the BPMN's own `reembolso_admissibility`/`reembolso_calculo`/`reembolso_auto_approval`
-    business-rule tasks have already run) — Marina uses ONLY the pre-resolved facts that arrive in
+    after the BPMN's own `reembolso_prazo`/`reembolso_sla` business-rule tasks have already run;
+    v0.2.0, DL-0161: there is no calculation or auto-approval any more — every request is human) —
+    Marina uses ONLY the pre-resolved facts that arrive in
     context; she does NOT re-evaluate any of those rules, only REPORTS them.
     """
     return f"""{SYSTEM_PROMPT}
@@ -123,16 +124,16 @@ def reembolso_prompt() -> str:
 Tarefa: monte o dossie factual de reembolso para o analista de reembolso humano (ou o
 medico-auditor no merito clinico, ou a coordenacao no estouro de SLA). A instancia de
 SP-OP-REEMBOLSO-001 ja esta rodando quando voce e convocada — use APENAS os fatos ja
-pre-resolvidos que chegam no contexto (cobertura prevista, prazo, comparacao com a tabela, teto
-de auto-aprovacao, valor calculado). Voce NAO reavalia essas regras, so as REPORTA. Nao invente,
+pre-resolvidos que chegam no contexto (situacao do prazo — so informativa —, tipo e categoria,
+paciente, motivo informado para nao usar a rede, documentos enviados). Nao ha calculo de valor
+nem tabela: quem decide direito e valor e o analista. Voce NAO reavalia regra alguma, so REPORTA. Nao invente,
 nao deduza regra contratual/clinica, nao recomende desfecho.
 
 Estrutura (portugues do Brasil, factual e enxuto): (1) resumo do caso — protocolo de reembolso,
 guia TISS se houver, tipo de reembolso, categoria do procedimento, codigo TUSS, valor
-solicitado; (2) achados — cobertura prevista, dentro do prazo, dentro da tabela de referencia,
-dentro do teto de auto-aprovacao, valor calculado pela DMN de referencia, cada um com sua
-origem; (3) o que as regras ja avaliadas indicam (reembolso_admissibility/reembolso_calculo/
-reembolso_auto_approval/reembolso_sla ja rodaram antes de voce — voce so reporta); (4)
+solicitado; (2) achados — situacao do prazo, documentos declarados e enviados (NAO conferidos: nao ha
+OCR), motivo informado, cada um com sua origem; (3) o que as regras ja avaliadas indicam
+(reembolso_prazo/reembolso_sla ja rodaram antes de voce — voce so reporta); (4)
 lacunas/pendencias; (5) pontos de atencao objetivos (nunca uma recomendacao de aprovar, negar ou
 reduzir).
 

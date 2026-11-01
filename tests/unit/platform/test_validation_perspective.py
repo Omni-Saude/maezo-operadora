@@ -1429,13 +1429,16 @@ class TestLiveTree:
         # 81 -> 82: `helena_triage_admissibility.dmn` (DL-0104), que nao e' artefato de cadeia.
         # 82 -> 83: `auth_junta_admissibility.dmn` (R-064, RN 424 art. 3 I, #1121), que nao e'
         # artefato de cadeia. Ver as entradas #1121 do CORPUS_DELTA_LOG (phi_completeness).
-        # 83 -> 85: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5), fora da cadeia.
-        assert len(_tier_a_paths()) == 85  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
+        # 83 -> 82: DL-0161 (reembolso v2) tirou `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e
+        # pôs `reembolso_prazo.dmn`.
+        # 82 -> 84: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5), fora da cadeia.
+        assert len(_tier_a_paths()) == 84  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
         assert len([p for p in _tier_a_paths() if p.suffix == ".bpmn"]) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 71 -> 72 pela mesma razao: `triage_sufficiency.dmn` nao e' artefato de cadeia.
         # 75 -> 76: `auth_junta_admissibility.dmn` (R-064, #1121) tambem fica fora da cadeia.
-        # 76 -> 78: as duas DMNs do MPTT P5 tambem ficam fora da cadeia.
-        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 78  # idem; DL-0104: +1
+        # 76 -> 75: DL-0161 (reembolso v2, -2 +1).
+        # 75 -> 77: as duas DMNs do MPTT P5 tambem ficam fora da cadeia.
+        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 77  # idem; DL-0104: +1
 
     def test_tier_b_hit_lines_are_pinned(self) -> None:
         """The gate's own Tier-B re-measurement, line by line — now EMPTY.

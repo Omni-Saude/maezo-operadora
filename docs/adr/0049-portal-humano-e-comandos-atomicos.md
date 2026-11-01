@@ -124,6 +124,9 @@ Os identificadores estáticos existentes são preservados literalmente:
 Acrescido em 15/10/2026 (DL-0111, so' dev): `cadastro-beneficiarios`, o grupo da execucao do
 cancelamento a pedido no Tasy (SP-OP-CANCEL-001 v0.2.0, `UT_ExecutarCancelamentoCadastro`).
 
+Acrescido em 29/10/2026 (DL-0161, so' dev): `financeiro-reembolso`, o grupo que registra a data do
+pagamento do reembolso feito fora do sistema (SP-OP-REEMBOLSO-001 v0.2.0, `UT_RegistrarPagamento`).
+
 Acrescido em 31/10/2026 (R-041 / DEC-21, decisao do dono em #1084, rodadas 2 e 3):
 `analise-contas-pagar`, o checker da admissibilidade do SP-OP-PAGTO-001
 (`UT_AnaliseAdmissibilidade`), separado da aprovacao. `equipe-cuidado`, `gestao-cobranca` e

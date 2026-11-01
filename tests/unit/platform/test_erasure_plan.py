@@ -453,6 +453,8 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         # Lembrete de cobranca (0027): idempotencia e opt-out, keyed by conversation_id.
         "lembrete_cobranca_enviado",
         "lembrete_cobranca_optout",
+        # DL-0161: a coleta do pedido de reembolso pelo WhatsApp, keyed by conversation_id.
+        "reembolso_coleta",
     ]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
@@ -828,9 +830,9 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # (the PJ refs, closed criteria JSONB with typed evidence references — never document
     # bytes — and the internal editor principal_ref reach no data subject), the substrate is
     # DARK and the table empty by default.
-    assert len(camadas) == 43, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 44, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 43, pendentes
+    assert len(pendentes) == 44, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

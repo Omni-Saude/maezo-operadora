@@ -516,33 +516,43 @@ rows:
   nome_real: ''
 - grupo_declarado: analise-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 189
+  linha: 408
   processo: SP-OP-REEMBOLSO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 314)
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 105)
   sla_ato: contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
   nome_real: ''
 - grupo_declarado: medico-auditor
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 384
+  linha: 179
   processo: SP-OP-REEMBOLSO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RevisaoAuditorMedico
-  sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (requer_avaliacao_clinica)
+  sla_ato: contrato Sec.Papeis linha 155 -- merito clinico (SOLICITAR_AUDITOR, o botao escalar do analista)
   proposto: true
   notas: caveat PROPOSTO contrato linha 149; grupo compartilhado com AUTH-001/CONTAS-001/NIP-001/RECURSO-001
   nome_real: ''
 - grupo_declarado: coordenacao-reembolso
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
-  linha: 365
+  linha: 155
   processo: SP-OP-REEMBOLSO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoReembolso
   sla_ato: contrato Sec.Papeis linha 156 -- SLA de analise estourado
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
+  nome_real: ''
+- grupo_declarado: financeiro-reembolso
+  arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+  linha: 218
+  processo: SP-OP-REEMBOLSO-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_RegistrarPagamento
+  sla_ato: contrato v0.2.0 (DL-0161) -- o financeiro paga fora do sistema e registra data_pagamento
+  proposto: true
+  notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''
 - grupo_declarado: dpo
   arquivo: spec/processes/dmn/suppression_routing.dmn
@@ -784,6 +794,15 @@ grupos_registrados:
   qualificacao: nenhuma
   tarefas: REEMBOLSO UT_CoordenacaoReembolso
   sod: P9
+- id: financeiro-reembolso
+  nome_exibicao: Financeiro do reembolso (registro do pagamento)
+  decisao: NOVO
+  status: PROPOSTO -- aguarda Nomeacao do dono
+  cargo_mapeado: 'Analista financeiro (cargo de staff a descrever) -- CSC; paga fora do sistema e registra
+    data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0161)'
+  qualificacao: nenhuma
+  tarefas: REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor)
+  sod: nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto)
 - id: coordenacao-clinica
   nome_exibicao: Coordenacao medica de programas
   decisao: CONFIRMAR

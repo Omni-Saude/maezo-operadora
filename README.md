@@ -87,7 +87,7 @@ Cada agente é governado por uma **matriz de autonomia L0–L3 por ação** (ADR
 
 ## Jornadas cobertas
 
-17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 68 arquivos DMN (`spec/processes/dmn/`):
+17 processos BPMN (`spec/processes/bpmn/`) com contrato de negócio versionado (~1.000 regras em `docs/processes/contracts/`) e decisão determinística em 67 arquivos DMN (`spec/processes/dmn/`):
 
 | Jornada | Processos SP-OP |
 |---------|-----------------|
@@ -130,13 +130,13 @@ O que separa esta base do go-live **não é código** — são ações que só h
 |---------|-------|
 | Agentes de IA nomeados | 10 (8 ativos + 2 em DRAFT) |
 | Processos BPMN SP-OP | 17 |
-| Arquivos de decisão DMN (`.dmn`) | 68 |
+| Arquivos de decisão DMN (`.dmn`) | 67 |
 | Servidores MCP | 5 (CIB Seven, DMN, FHIR, WhatsApp, Memory) |
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
 | ADRs | 71 (0001–0071; 49 Accepted, 22 Proposed/Proposto) |
-| Decision log | 160 decisões registradas (DL-0001–DL-0160) |
+| Decision log | 163 decisões registradas (DL-0001–DL-0163) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
 
@@ -201,7 +201,7 @@ src/maezo/
 | [docs/adr/](docs/adr/) | 71 ADRs numerados (0001–0071; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 17 contratos SP-OP — ~1.000 regras de negócio |
-| [docs/decisions-log.md](docs/decisions-log.md) | 160 decisões operacionais (DL-0001–DL-0160) |
+| [docs/decisions-log.md](docs/decisions-log.md) | 163 decisões operacionais (DL-0001–DL-0163) |
 | [docs/runbooks/](docs/runbooks/) | 32 runbooks operacionais (22 gerais + 8 de alerta + 2 drills) |
 | [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Como contribuir: princípios, receitas de agente/MCP/processo |

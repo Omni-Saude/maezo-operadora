@@ -21,7 +21,16 @@ from typing import Annotated, Literal, Self, get_args
 
 from pydantic import Field, StringConstraints, model_validator
 
-from .models import CancelExecucaoInputs, EscalationDecisionInputs, FormKey, OpaqueRef, Sha256Digest
+from .models import (
+    CancelExecucaoInputs,
+    EscalationDecisionInputs,
+    FormKey,
+    OpaqueRef,
+    ReembolsoAuditorInputs,
+    ReembolsoDecisionInputs,
+    ReembolsoPendingInputs,
+    Sha256Digest,
+)
 from .queues import ClosedRead, DecimalRevision, DecimalVersion, UTCDateTime
 
 CompletionOutcome = Literal["resolvido_humano", "devolvido_agente", "emergencia_acionada"]
@@ -36,6 +45,33 @@ CancelExecucaoOutcome = Literal["EXECUTADO", "IMPEDIDO"]
 CANCEL_EXECUCAO_OUTCOMES: tuple[str, ...] = get_args(
     CancelExecucaoInputs.model_fields["execucao_cadastro"].annotation
 )
+
+#: DL-0163: os desfechos fechados do reembolso, lidos dos contratos canonicos dos formularios. `PAGO` e' o
+#: token do registro de pagamento (o formulario so' tem a data; o token nunca vai ao motor).
+ReembolsoCompletionOutcome = Literal[
+    "APROVAR",
+    "APROVAR_PARCIAL",
+    "NEGAR",
+    "SOLICITAR_INFO",
+    "SOLICITAR_AUDITOR",
+    "cancelar_solicitacao",
+    "conceder_prazo_extra",
+    "seguir_analise",
+    "PAGO",
+]
+REEMBOLSO_DECISAO_OUTCOMES: tuple[str, ...] = get_args(
+    ReembolsoDecisionInputs.model_fields["decisao_reembolso"].annotation
+)
+REEMBOLSO_AUDITOR_OUTCOMES: tuple[str, ...] = get_args(
+    ReembolsoAuditorInputs.model_fields["decisao_reembolso"].annotation
+)
+REEMBOLSO_PENDENCIA_OUTCOMES: tuple[str, ...] = get_args(
+    ReembolsoPendingInputs.model_fields["decisao_pendencia"].annotation
+)
+if set(REEMBOLSO_DECISAO_OUTCOMES + REEMBOLSO_AUDITOR_OUTCOMES + REEMBOLSO_PENDENCIA_OUTCOMES) | {
+    "PAGO"
+} != set(get_args(ReembolsoCompletionOutcome)):
+    raise AssertionError("os desfechos do reembolso divergiram dos contratos dos formularios")
 
 #: THE limit of one free-text note, in characters — a transport/product bound, NOT a clinical or
 #: regulatory one. ONE number, three places (P3/P4, 16/10/2026): the wire schema (`maxLength` of
@@ -127,7 +163,7 @@ class TaskCompletionResponse(ClosedRead):
     state: Literal["completed"] = "completed"
     #: The closed outcome of the completed form: an ESCALATION `resultado` or, since DL-0111, the
     #: CANCEL `execucao_cadastro` (EXECUTADO/IMPEDIDO). `form_key` says which.
-    resultado: CompletionOutcome | CancelExecucaoOutcome
+    resultado: CompletionOutcome | CancelExecucaoOutcome | ReembolsoCompletionOutcome
     consumed_task_revision: DecimalRevision
     authority_revision: DecimalRevision
     evidence_revision: DecimalRevision
