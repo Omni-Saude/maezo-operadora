@@ -1,4 +1,4 @@
-"""Armazenamento da coleta do pedido de reembolso (DL-0160/DL-0161; tabela `reembolso_coleta`, 0031).
+"""Armazenamento da coleta do pedido de reembolso (DL-0161/DL-0162; tabela `reembolso_coleta`, 0031).
 
 Uma linha por `(tenant, conversation_id)`. Escrita por compare-and-set (`revisao`): `INSERT ... ON CONFLICT
 DO NOTHING` na primeira vez, `UPDATE ... WHERE revisao = :esperada` depois. Quem perde a corrida rele' e

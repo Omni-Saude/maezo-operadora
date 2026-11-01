@@ -60,7 +60,7 @@ SCRIPT = ROOT / "deploy/cibseven/configure-group-whitelist.sh"
 
 
 def test_static_candidate_groups_match_the_canonical_set() -> None:
-    """Os 27 originais + `cadastro-beneficiarios` (DL-0111) + `financeiro-reembolso` (DL-0160);
+    """Os 27 originais + `cadastro-beneficiarios` (DL-0111) + `financeiro-reembolso` (DL-0161);
     R-041 (#1084): -3 co-grupos das tarefas adversas de decisor unico, +`analise-contas-pagar`.
     Saida so por decisao do dono."""
     actual = set()

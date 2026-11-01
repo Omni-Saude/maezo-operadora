@@ -546,7 +546,7 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
     )
-    # REEMBOLSO PELO WHATSAPP (DL-0160/DL-0161; rascunho para dev, revisao juridica, DPO e operacao antes de
+    # REEMBOLSO PELO WHATSAPP (DL-0161/DL-0162; rascunho para dev, revisao juridica, DPO e operacao antes de
     # producao). DESLIGADA por padrao, e desligada e' o canal de antes byte a byte (nenhuma coleta, nenhum
     # arquivo recebido). Ligada: o pedido de reembolso e' conduzido pelo Lucas (perguntas fechadas, laco de
     # documentos, confirmacao), o processo SP-OP-REEMBOLSO-001 nasce com `aviso_beneficiario_whatsapp=true`
@@ -555,7 +555,7 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_REEMBOLSO_V1", "reembolso_v1"),
     )
-    # DL-0162: a custodia dos anexos do reembolso (S3 com SSE-KMS, `deploy/.../reembolso-anexos.tf`). As duas
+    # DL-0163: a custodia dos anexos do reembolso (S3 com SSE-KMS, `deploy/.../reembolso-anexos.tf`). As duas
     # vem juntas ou nenhuma; sem elas o reembolso nao e' construido (nunca se aceita um arquivo sem custodia).
     reembolso_anexos_bucket: str = Field(
         default="",

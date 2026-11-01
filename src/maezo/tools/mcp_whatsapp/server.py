@@ -483,7 +483,7 @@ class WhatsAppServer:
         return data
 
 
-# DL-0161: download da midia (foto/PDF do pedido de reembolso). Mesmo modulo do cliente httpx da Meta.
+# DL-0162: download da midia (foto/PDF do pedido de reembolso). Mesmo modulo do cliente httpx da Meta.
 class WhatsAppMediaClient:
     """`BaixadorDeMidia` sobre httpx. `transport` e' injetavel (testes usam `httpx.MockTransport`)."""
 

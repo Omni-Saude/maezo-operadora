@@ -235,7 +235,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
         "DL-0104, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
-    # DL-0160 (reembolso v2): sairam `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e entrou
+    # DL-0161 (reembolso v2): sairam `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e entrou
     # `reembolso_prazo.dmn` (66 -> 65, ja' contando `auth_junta_admissibility.dmn`). Os tres de reembolso
     # sao nomeados aqui para o censo nao mudar calado.
     assert "reembolso_prazo.dmn" in dmns

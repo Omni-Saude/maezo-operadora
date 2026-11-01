@@ -355,7 +355,7 @@ estado que o censo do proprio ADR-0030 registra.
 - **I-PAGTO-1 (ADR-0040):** as tres pernas de handoff **nunca** semeiam os quatro fatos de
   admissibilidade de SP-OP-PAGTO-001. Consequencia por construcao: `pagto_admissibility` le
   `lastro_confirmado` ausente ⇒ `false` ⇒ row `r_sem_lastro` ⇒ `ANALISE_HUMANA` ⇒
-  `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`). As **duas pernas sem User Task** deste
+  `UT_AnaliseAdmissibilidade` (`analise-contas-pagar`). As **duas pernas sem User Task** deste
   processo (`has_glosas == false` e `glosa_triage == PAGAR`) produzem um demonstrativo e uma ordem
   de pagamento **admissivelmente pendente** — nunca uma liberacao de caixa. O gate real deste
   caminho **nao** e `ERR_PAYMENT_RELEASE_NOT_HUMAN`, que guarda apenas `ST_ReleaseHighValue` e que

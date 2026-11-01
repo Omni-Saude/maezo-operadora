@@ -10,8 +10,8 @@ arvore, e o carregador do plano repete as duas como as primeiras lacunas de iden
    (`agent_memory` 0001:69 e `erasure_log` 0004:67). Sem a travessia, a referencia do titular
    NAO chega a nenhuma delas (`IdentityResolution.PONTE_AUSENTE`).
 2. **`thread_id` -> `fhir_patient_id`** — a camada de trabalho (checkpointer LangGraph) e
-   chaveada por `thread_id`/`checkpoint_ns`, nao por paciente (`erasure.py`, docstring de
-   `_erase_working`). Sem a travessia, nenhuma relacao da camada de trabalho e alcancavel
+   chaveada por `thread_id`/`checkpoint_ns`, nao por paciente (`0006_retire_dead_checkpoint_tables.py`;
+   `PostgresSaver.setup()`). Sem a travessia, nenhuma relacao da camada de trabalho e alcancavel
    por titular.
 
 O QUE ESTE MODULO E — e o que ele NAO E:
@@ -33,16 +33,16 @@ O QUE ESTE MODULO E — e o que ele NAO E:
     - Ponte B (`thread_id` -> `fhir_patient_id`): as decisoes das relacoes da camada de
       trabalho chaveadas por thread — `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`.
 * NAO elimina dado nenhum. Esta ponte e uma travessia de LEITURA de identidade; o unico
-  efeito destrutivo do erasure segue atras de `ErasureManager.erase()`/`verify()`, que
-  levantam `ErasureNotImplementedError` SEMPRE (T3.4-F3) e nao foram tocados. Compor
-  travessia + cascata e trabalho do futuro mecanismo de execucao, que tambem esbarrara no
-  `assert_dry_run_only` (`execution_mechanism_absent`) — ratificacao nunca e gatilho.
+  efeito destrutivo do erasure fica atras de `ErasureManager.erase()` (R-013), a cascata DARK
+  (`MAEZO_ERASURE_CASCADE` OFF por padrao) que compoe a Ponte A para confirmar que o titular
+  checado no legal-hold e o paciente eliminado sao o mesmo. Ratificacao nunca e gatilho.
 * NAO tem fonte propria. A origem do mapeamento e um `ErasureBridgeSource` que o CHAMADOR
   provisiona; sem fonte vinculada a ponte recusa (`source_unbound`) e NUNCA inventa
   mapeamento. Nenhuma tabela, DSN ou query vive aqui — este modulo nao executa SQL.
-* NAO tem chamador de producao. Nenhum caminho de runtime chama `resolve_*` — isso e
-  pinado por teste (o molde `test_retention_query_has_no_production_caller`). A ROLL que
-  ligar a flag tambem assume criar a amarracao, com revisor proprio.
+* NAO tem chamador de producao. O UNICO compositor e `maezo.platform.erasure` (a cascata
+  DARK, ela propria sem chamador de producao) — ambos pinados por teste (o molde
+  `test_retention_query_has_no_production_caller`). A ROLL que ligar as flags tambem assume
+  criar a amarracao de runtime, com revisor proprio.
 
 FAIL-CLOSED em ausencia e divergencia, cada recusa com motivo proprio e tipado:
 

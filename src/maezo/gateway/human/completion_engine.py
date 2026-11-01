@@ -73,7 +73,7 @@ class InterimCompletionConfig:
 
     engine_origin: str
     timeout_seconds: int
-    #: DL-0162: o bucket dos anexos do reembolso (so' leitura). `None` = o portal nao serve anexo.
+    #: DL-0163: o bucket dos anexos do reembolso (so' leitura). `None` = o portal nao serve anexo.
     reembolso_anexos_bucket: str | None = None
 
 
@@ -152,7 +152,7 @@ class EngineRestTaskCompletion(DirectTaskCompletion):
         extras: CompletionExtras | None = None,
     ) -> CompletionAck:
         form = COMPLETION_FORMS.get(form_key)
-        # DL-0162: extras so' num formulario que os declara, ja' validados (`build_completion_extras`), e cada
+        # DL-0163: extras so' num formulario que os declara, ja' validados (`build_completion_extras`), e cada
         # nome dentro do formulario fechado ou a variavel de quem concluiu. Nada alem disso vai ao motor.
         permitidos = (
             {nome for nome, _ in form.extras}
@@ -300,7 +300,7 @@ def completion_audit_record(entry: CompletionAuditEntry, *, workload_ref: str) -
         form = COMPLETION_FORMS[snap.form_key]
         details[form.outcome_variable or "resultado"] = entry.resultado
         if entry.notes_digest is not None:
-            # DL-0162: o digest dos campos enviados (textos ja' pelo scrub, valores, quem concluiu); nunca o
+            # DL-0163: o digest dos campos enviados (textos ja' pelo scrub, valores, quem concluiu); nunca o
             # texto, que fica so' no motor (Zona PHI).
             details["campos_digest"] = entry.notes_digest
     if entry.outcome is not None:

@@ -1,4 +1,4 @@
-"""Download de midia da WhatsApp Cloud API (DL-0161: o pedido de reembolso recebe foto/PDF).
+"""Download de midia da WhatsApp Cloud API (DL-0162: o pedido de reembolso recebe foto/PDF).
 
 Duas chamadas, como a Meta exige: `GET {base}/{media_id}` devolve a URL curta (e o mime e o tamanho
 declarados); `GET {url}` devolve os bytes. As duas levam o mesmo bearer. O que este modulo garante:

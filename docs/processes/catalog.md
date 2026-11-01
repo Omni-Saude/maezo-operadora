@@ -15,7 +15,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
 | SP-OP-ANS-CRON-001 | Agendador dos envios ANS (5 definitions, 1 timer por report_type) | Calendario regulatorio (RN 124/209/388/424, DIOPS — DRAFT/verify) | 2 | modelado (agendador puro, NAO negativa-like; sem DMN propria e sem User Task propria — ver a nota sobre a quadrupla abaixo) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-REEMBOLSO-001** | Reembolso | RN 566/2022 (DRAFT/verify) | 2 | modelado — v0.2.0, 100% análise humana (DL-0160); suite de integração no CI |
+| SP-OP-REEMBOLSO-001** | Reembolso | RN 566/2022 (DRAFT/verify) | 2 | modelado — v0.2.0, 100% análise humana (DL-0161); suite de integração no CI |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-CRED-001 | (Des)credenciamento | RN 567 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ADEQUACAO-001 | Adequacao de rede | RN 259 geografia | 3 | modelado (suite de integração planejada — T3.1) |
@@ -85,7 +85,7 @@ A familia irma que devolve `published: True` sob a mesma forma (`ans_submit`, `c
 proprio mapa de consumidores a refazer, e cerca-los sem corrigi-los exigiria seis entradas de baseline
 que pareceriam cobertura sem nada ter mudado.
 
-\*\* SP-OP-REEMBOLSO-001 (v0.2.0, DL-0160/DL-0161): **so o Lucas** declara este processo em `process_keys:` (abre o pedido
+\*\* SP-OP-REEMBOLSO-001 (v0.2.0, DL-0161/DL-0162): **so o Lucas** declara este processo em `process_keys:` (abre o pedido
 pelo WhatsApp, flag `MAEZO_REEMBOLSO_V1`); a Marina NAO declara — arbitrado como MENOR PRIVILEGIO
 CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC; reproducao estrutural por parse de YAML, nao por grep). Marina serve o processo
 via A2A (`operadora.reembolso.analyze_request`) mas nunca o INICIA: seu node `start_process` é
@@ -319,7 +319,7 @@ Fonte: [SP-OP-NIP-001_Resposta_NIP.bpmn](../../spec/processes/bpmn/SP-OP-NIP-001
 Fonte: [SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn](../../spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-PAGTO-001.md).
 
 - Gatilhos: `Start_OrdemPagamentoRecebida` (contract start).
-- Humanos (3): `UT_AnaliseAdmissibilidade` → `coordenacao-financeira`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
+- Humanos (3): `UT_AnaliseAdmissibilidade` → `analise-contas-pagar`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
 - DMNs: `pagto_admissibility`, `pagto_alcada`, `pagto_sla`. Workers: `operadora.events.publish`, `operadora.pagto.calculate_facts`, `operadora.pagto.notify_sla_risk`, `operadora.pagto.prepare_approval_dossier`, `operadora.pagto.register_payment_refusal`, `operadora.pagto.release_high_value_payment`, `operadora.pagto.release_low_value_payment`, `operadora.pagto.validate_payment_data`.
 - Esperas/timers: `TD_AlertaSlaPagto` = `${sla.sla_alerta}`; `TD_SlaAprovacao` = `${sla.sla_aprovacao}`. Mensagens: `msg.pagto.dados_corrigidos`.
 - Eventos: `agents.events.pagto.completed`, `agents.events.pagto.received`, `agents.events.pagto.routed`, `agents.events.pagto.sla_breached`. Call activities: —.

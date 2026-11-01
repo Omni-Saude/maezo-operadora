@@ -43,7 +43,7 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     # Protocolos clinicos (dono, 25/10/2026): ausente = ligado pela composicao; `false` desliga sem deploy.
     "protocolos": ("helena_protocolos_enabled",),
     # Triagem com juiz (DL-0159, 01/11/2026): ausente/`false` desliga; `true` liga SO' na allowlist.
-    "triagem_juiz": ("helena_triagem_juiz_enabled",),
+    "saude_original": ("helena_saude_original_enabled",),
 }
 #: DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena. `cobertura_modo` continua ACEITO (e ignorado) so'
 #: para um pacote antigo nao ser recusado inteiro durante a troca; o pacote atual nao o traz.

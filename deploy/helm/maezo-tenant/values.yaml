@@ -1024,7 +1024,7 @@ lifecycle:
 #     `qa/simulador/composicao.py` importa `ProcessInstance`/`ProcessStatus`/`CibSevenError` para
 #     fingir SP-OP-ESCALATION-001 por tras do gate (nenhum start chega ao motor); os outros 39
 #     importadores permanecem.
-#     Recontado por AST em 41 no reembolso pelo WhatsApp (DL-0161):
+#     Recontado por AST em 41 no reembolso pelo WhatsApp (DL-0162):
 #     `platform/webhooks/whatsapp/reembolso_turno.py` abre SP-OP-REEMBOLSO-001 por
 #     `start_process_idempotent` e devolve a resposta por `correlate_message_audited`; os outros 40
 #     importadores permanecem.

@@ -121,7 +121,7 @@ class EngineRestEscalationContext(EscalationContextSource):
             raise GatewayRefusalError("admission_unavailable") from None
 
     async def get_json(self, path: str, params: dict[str, str] | None = None) -> Any:
-        """DL-0162: o MESMO GET limitado, para o contexto do reembolso (`reembolso_context.py`)."""
+        """DL-0163: o MESMO GET limitado, para o contexto do reembolso (`reembolso_context.py`)."""
         if self._closed:
             raise GatewayRefusalError("task_unavailable")
         return await self._get(path, params)

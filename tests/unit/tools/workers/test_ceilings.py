@@ -279,8 +279,10 @@ def test_value_guard_rejection_logs_the_type_and_never_the_raw_amount(tmp_path: 
 
 
 def test_inclusive_boundary_at_the_teto_is_unchanged_by_the_value_guard(tmp_path: Path) -> None:
-    """The `<=` semantics at exactly the teto are UNTOUCHED (ceilings.py module docstring; the DMN
-    mirrors it with `<= 10000000`). The guard only rejects values that were never money."""
+    """The `<=` semantics at exactly the teto are UNTOUCHED (ceilings.py module docstring). The DMN
+    row no longer repeats the ceiling (pagto_alcada v0.1.1 reads `> 0` plus `dentro_teto_l2`);
+    this resolver is the only source of the R$100k teto. The guard only rejects values that were
+    never money."""
     resolver = _generous_resolver(tmp_path)
     assert resolver.within_l2_ceiling(**_KW, value_cents=49_999) is True
     assert resolver.within_l2_ceiling(**_KW, value_cents=50_000) is True, "boundary EXACT — inclusive"

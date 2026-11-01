@@ -7,7 +7,7 @@ export type CompletionOutcome = Schemas["TaskCompletionSubmission"]["resultado"]
 // DL-0111: a execucao do cancelamento no cadastro (`cancel_execucao`): um campo fechado, sem nota.
 export type CancelExecucaoOutcome = Schemas["CancelExecucaoCompletionSubmission"]["execucao_cadastro"];
 export type CancelExecucaoSubmission = Schemas["CancelExecucaoCompletionSubmission"];
-// DL-0162: os quatro formularios do reembolso.
+// DL-0163: os quatro formularios do reembolso.
 export type ReembolsoSubmission =
   | Schemas["ReembolsoDecisaoCompletionSubmission"]
   | Schemas["ReembolsoAuditorCompletionSubmission"]
@@ -73,7 +73,7 @@ export function validCompletionSubmission(value: unknown): value is CompletionSu
 function submittedOutcome(submission: CompletionSubmission): string {
   if ("execucao_cadastro" in submission) return submission.execucao_cadastro;
   if ("kind" in submission) {
-    // DL-0162: o desfecho do reembolso. O registro de pagamento nao tem desfecho: o servidor responde "PAGO".
+    // DL-0163: o desfecho do reembolso. O registro de pagamento nao tem desfecho: o servidor responde "PAGO".
     if (submission.kind === "reembolso_pagamento") return "PAGO";
     if (submission.kind === "reembolso_pendencia") return submission.decisao_pendencia;
     return submission.decisao_reembolso;

@@ -550,7 +550,7 @@ rows:
   processo: SP-OP-REEMBOLSO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RegistrarPagamento
-  sla_ato: contrato v0.2.0 (DL-0160) -- o financeiro paga fora do sistema e registra data_pagamento
+  sla_ato: contrato v0.2.0 (DL-0161) -- o financeiro paga fora do sistema e registra data_pagamento
   proposto: true
   notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''
@@ -799,7 +799,7 @@ grupos_registrados:
   decisao: NOVO
   status: PROPOSTO -- aguarda Nomeacao do dono
   cargo_mapeado: 'Analista financeiro (cargo de staff a descrever) -- CSC; paga fora do sistema e registra
-    data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0160)'
+    data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0161)'
   qualificacao: nenhuma
   tarefas: REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor)
   sod: nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto)

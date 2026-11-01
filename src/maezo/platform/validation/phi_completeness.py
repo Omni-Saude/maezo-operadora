@@ -552,7 +552,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:121 "
                     "(bpmn_form_field; lines :121, :170, :192) — "
                     'camunda:formField type="string" without a camunda:value domain on the '
-                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0160/DL-0162: UT_AnaliseReembolso, "
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0161/DL-0163: UT_AnaliseReembolso, "
                     "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). Written by the analyst/auditor only "
                     "on NEGAR/APROVAR_PARCIAL (portal/contracts/models.py::_ReembolsoDecisionFields); "
                     "scrubbed of identifiers by gateway/human/completion.py::build_completion_extras before "
@@ -576,7 +576,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:122 "
                     "(bpmn_form_field; lines :122, :171, :193) — "
                     'camunda:formField type="string" without a camunda:value domain on the '
-                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0160/DL-0162: UT_AnaliseReembolso, "
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0161/DL-0163: UT_AnaliseReembolso, "
                     "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). Contractual basis of a "
                     "denial/reduction; same completion path and scrub as `justificativa`; required by the L0 "
                     "guard."
@@ -594,7 +594,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:123 "
                     "(bpmn_form_field; lines :123, :172) — "
                     'camunda:formField type="string" without a camunda:value domain on the '
-                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0160/DL-0162: UT_AnaliseReembolso, "
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0161/DL-0163: UT_AnaliseReembolso, "
                     "UT_CoordenacaoReembolso). The question the analyst asks the beneficiary on "
                     "SOLICITAR_INFO; read by "
                     "platform/integrations/agent_resume.py::EngineHistoryReembolsoSource BY NAME from the "
@@ -615,9 +615,9 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:124 "
                     "(bpmn_form_field; lines :124, :173, :196) — "
                     'camunda:formField type="string" without a camunda:value domain on the '
-                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0160/DL-0162: UT_AnaliseReembolso, "
+                    "SP-OP-REEMBOLSO-001 v0.2.0 human decision forms (DL-0161/DL-0163: UT_AnaliseReembolso, "
                     "UT_CoordenacaoReembolso, UT_RevisaoAuditorMedico). The text of a denial/reduction notice"
-                    " the beneficiary receives (DL-0160 item 5); required by the L0 guard; read by name from "
+                    " the beneficiary receives (DL-0161 item 5); required by the L0 guard; read by name from "
                     "the history by the resume and sent after the output fences; refused in any event "
                     "payload."
                 ),
@@ -625,7 +625,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "RECOMMEND listing it, for the same reasons as `info_solicitada`, with more weight: it is"
                     " the adverse communication itself and will often carry the clinical/contractual reason. "
                     "REQUIRES legal review of the wording before production regardless of this classification"
-                    " (DL-0160)."
+                    " (DL-0161)."
                 ),
             ),
             Disposition(
@@ -633,7 +633,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 evidence=(
                     "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:195 "
                     "(bpmn_form_field; lines :195) — "
-                    "UT_RevisaoAuditorMedico only (DL-0162). The medical auditor's opinion on clinical merit;"
+                    "UT_RevisaoAuditorMedico only (DL-0163). The medical auditor's opinion on clinical merit;"
                     " required with cid10_referencia on NEGAR/APROVAR_PARCIAL "
                     "(models.py::ReembolsoAuditorInputs)."
                 ),

@@ -180,7 +180,7 @@ class PortalProductionSettings(BaseSettings):
     #: An explicit positive operational interval. No default: an invented timeout on a call
     #: that changes engine state is an invented promise about how long a case may hang.
     direct_completion_timeout_seconds: int | None = Field(default=None, ge=1, le=120)
-    #: INTERIM (DL-0162): o bucket S3 dos anexos do reembolso, so' para LER (o portal nunca grava). So' vale
+    #: INTERIM (DL-0163): o bucket S3 dos anexos do reembolso, so' para LER (o portal nunca grava). So' vale
     #: junto com `direct_completion` (mesmo portao, mesma cerca de ambiente).
     reembolso_anexos_bucket: str | None = Field(default=None, min_length=3, max_length=63)
 

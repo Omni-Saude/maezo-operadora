@@ -279,7 +279,7 @@ acoes:
   pagamento_emissao:
     enforcement: shadow
     descricao: >-
-      Liberação de pagamento (prestador). O reembolso ao beneficiário não emite pagamento pelo sistema desde a v0.2.0 (DL-0160): o financeiro paga fora e registra a data. Efeito financeiro
+      Liberação de pagamento (prestador). O reembolso ao beneficiário não emite pagamento pelo sistema desde a v0.2.0 (DL-0161): o financeiro paga fora e registra a data. Efeito financeiro
       irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
     superficies:
       - referencia: "src/maezo/tools/workers/pagto.py:896"

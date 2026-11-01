@@ -200,7 +200,7 @@ where applicable) before any of these contracts can leave DRAFT.
 
 ### SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiário (DRAFT, v0.1.0)
 
-> **SUPERSEDIDO por DL-0160 (28/10/2026) — reembolso v2, 100% análise humana.** A tabela de referência (`reembolso_calculo`), o teto L2 (`dentro_teto_l2`), a escolha A×B do sobrepagamento (R-058/R-059) e o sign-off atuarial **deixaram de ser necessários**: o processo não calcula nem paga. O texto abaixo descreve a v0.1.0 e fica como histórico; a tabela padronizada de reembolso é tema de uma versão futura e não bloqueia a v2.
+> **SUPERSEDIDO por DL-0161 (28/10/2026) — reembolso v2, 100% análise humana.** A tabela de referência (`reembolso_calculo`), o teto L2 (`dentro_teto_l2`), a escolha A×B do sobrepagamento (R-058/R-059) e o sign-off atuarial **deixaram de ser necessários**: o processo não calcula nem paga. O texto abaixo descreve a v0.1.0 e fica como histórico; a tabela padronizada de reembolso é tema de uma versão futura e não bloqueia a v2.
 
 - **Why finanças:** the reimbursement reference table (`reembolso_calculo`) and the L2
   auto-approval ceiling (`dentro_teto_l2`) are both finance-owned figures requiring actuarial
