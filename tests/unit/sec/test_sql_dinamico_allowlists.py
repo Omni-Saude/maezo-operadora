@@ -370,3 +370,25 @@ def test_external_publisher_snapshot_so_nasce_em_capture_com_kind_literal() -> N
     assert capture.lineno <= construcoes[0].lineno <= (capture.end_lineno or 0)
     primeiro = construcoes[0].args[0]
     assert isinstance(primeiro, ast.Name) and primeiro.id == "kind"
+
+
+def test_external_postgres_operation_e_um_de_tres_nomes_literais() -> None:
+    tree = ast.parse((_SRC / "gateway/external_cases/postgres.py").read_bytes())
+    atribuicoes = [
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "operation" for t in n.targets)
+    ]
+    assert len(atribuicoes) == 1
+
+    def folhas(no: ast.expr) -> list[Any]:
+        if isinstance(no, ast.IfExp):
+            return folhas(no.body) + folhas(no.orelse)
+        return [ast.literal_eval(no)]
+
+    assert folhas(atribuicoes[0]) == [
+        "accept_external_scope_checkpoint",
+        "revoke_external_case_source",
+        "accept_external_case_source",
+    ]
