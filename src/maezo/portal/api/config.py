@@ -33,7 +33,7 @@ class PortalSettings(BaseSettings):
     #: engine's REST surface instead of the signed durable relay ADR-0049 D5/D6/D7 designs.
     #: OFF by default, and `scripts/ci/check_portal_direct_completion.py` reproves any
     #: `deploy/**` that turns it on outside `dev-sa-east-1`. Deleting this flag — with the
-    #: relay of #427 in its place — is the intended end state.
+    #: relay of #1145 in its place — is the intended end state.
     direct_completion: bool = False
     #: INTERIM (DL-0049). Exact HTTPS origins, comma separated, that may call this BFF with
     #: credentials. EMPTY by default, which is "no cross-origin caller at all": the portal is

@@ -152,7 +152,6 @@ from maezo.agents.lucas.fonte_v4 import (
     SEGUNDA_VIA_COM_CODIGO,
     SEGUNDA_VIA_SEM_CODIGO,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.domain.conversa.cobranca_foco import (
     FOCO_COMO_PAGAR,
     FOCO_CONSEQUENCIA_DO_ATRASO,
@@ -1265,17 +1264,14 @@ def titulo_de_terceiro(state: LucasState) -> bool:
     return pagador_empresa(state) or cobranca_administradora(state)
 
 
-def atraso_critico(state: LucasState, limiares: LimiaresDeAtraso) -> bool:
-    """A entrada `atraso_critico` da DMN (rodada 12, decisao do dono de 14/10/2026): o atraso e' REAL o
-    bastante para abrir caso humano? So' para pagador PF (o titulo e' do beneficiario); contrato de empresa e
-    adesao nunca. `ciclos_sem_conciliacao` e as competencias `vencida` contam os MESES sem pagamento; o maior
-    atraso e' `dias_atraso_max`. Apurado dos fatos, nunca pelo modelo (`politica_atraso.py`)."""
-    if titulo_de_terceiro(state):
-        return False
+def meses_vencidos(state: LucasState) -> int:
+    """A entrada `meses_vencidos` da DMN (R-047/F-031): quantos MESES sem pagamento os fatos mostram — o
+    maior entre `ciclos_sem_conciliacao` e o numero de competencias `vencida`. E' uma CONTAGEM dos fatos da
+    fonte, nunca do modelo; o LIMIAR (>= 2 meses ou > 30 dias, decisao do dono de 14/10/2026) e a exclusao do
+    titulo de terceiro (`pagador_empresa`) moram na tabela `lucas_billing_admissibility`, nao aqui."""
     vencidas = sum(1 for c in _competencias_dos_fatos(state) if c["situacao"] == "vencida")
     ciclos = _ciclos_sem_conciliacao(state)
-    meses = max(0 if ciclos is None else ciclos, vencidas)
-    return limiares.critico(meses_vencidos=meses, dias_atraso_max=_dias_atraso_max(state))
+    return max(0 if ciclos is None else ciclos, vencidas)
 
 
 def pede_cancelamento(state: LucasState) -> bool:
@@ -2318,7 +2314,9 @@ def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
     primeiro) e a data da fonte. Com menos meses do que o pedido, o cabecalho diz quantos achou; sem
     nenhum, diz que nao achou e responde o mes mais recente, como a pergunta de um mes."""
     lista = lista_do_handoff(facts.get("lista"))
-    assert lista is not None  # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    if lista is None:
+        raise AssertionError("lista do handoff ausente (so existe com pedido valido)")
     foco = str(facts["foco"]) if foco_valido(facts.get("foco")) else FOCO_GERAL
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
     # Contagem ausente ou fora da forma vale "nenhum mes listado" (a resposta de um mes so', honesta).
@@ -3344,7 +3342,6 @@ class LucasGraph:
         whatsapp: WhatsAppSender,
         agent_version: str = "lucas@v0",
         hoje: Callable[[], date] | None = None,
-        limiares_atraso: LimiaresDeAtraso | None = None,
         cancelamento_pf_v1: bool = False,
         lucas_v4: bool = False,
     ) -> None:
@@ -3353,8 +3350,6 @@ class LucasGraph:
         self._v4 = lucas_v4 is True
         # DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), NENHUM ramo novo roda: byte a byte o de antes.
         self._cancel_pf_v1 = cancelamento_pf_v1 is True
-        # Rodada 12: quando o atraso abre caso humano (so' o critico). Padrao: 2 meses ou > 30 dias.
-        self._limiares_atraso = limiares_atraso or LimiaresDeAtraso()
         # Relogio injetavel (testes): so' o texto de vencimento o le' ("vence" x "venceu").
         self._hoje = hoje or _hoje_em_brasilia
         self._dmn = dmn
@@ -3520,10 +3515,12 @@ class LucasGraph:
             # DL-0114 (`MAEZO_LUCAS_V4`): o titulo do PF que NAO e' o pagador tambem e' de terceiro (o do
             # responsavel financeiro): o atraso dele nunca escala quem nao e' o pagador.
             "pagador_empresa": titulo_de_terceiro(state) or self._nao_pagador_v4(state),
-            # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO (>= 2 meses ou > 30 dias, PF;
-            # configuravel) abre caso. Um mes sem pagamento e' resposta com fatos e a oferta de uma pessoa.
-            "atraso_critico": atraso_critico(state, self._limiares_atraso)
-            and not self._nao_pagador_v4(state),
+            # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO de PF abre caso. R-047/F-031: o
+            # LIMIAR (>= 2 meses ou > 30 dias) mora na tabela; aqui vao so' os FATOS contados. A exclusao
+            # do titulo de terceiro (empresa, adesao, nao pagador v4) e' `pagador_empresa=true` acima.
+            "meses_vencidos": meses_vencidos(state),
+            # `None` quando a fonte nao informa: a regra `> 30` nao casa — nunca se presume atraso.
+            "dias_atraso_max": _dias_atraso_max(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -4935,13 +4932,11 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
             "injected; audit_sink is the T-C2 fence — no escalation start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "lucas@v0"))
-    limiares = cfg.get("limiares_atraso")
     return LucasGraph(
         # DL-0111: `MAEZO_CANCEL_PF_V1` (so' `True` literal liga; qualquer outra coisa e' desligada).
         cancelamento_pf_v1=cfg.get("cancelamento_pf_v1") is True,
         # DL-0114: `MAEZO_LUCAS_V4` (so' `True` literal liga).
         lucas_v4=cfg.get("lucas_v4") is True,
-        limiares_atraso=limiares if isinstance(limiares, LimiaresDeAtraso) else None,
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
         cibseven=cast(CibSevenTransport, cibseven),

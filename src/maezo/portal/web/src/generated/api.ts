@@ -754,7 +754,7 @@ export interface paths {
         };
         /**
          * Read Task Reembolso
-         * @description INTERIM (DL-0160): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+         * @description INTERIM (DL-0161): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
          *
          *     Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
          *     a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
@@ -778,7 +778,7 @@ export interface paths {
         };
         /**
          * Read Task Reembolso Anexo
-         * @description INTERIM (DL-0160): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+         * @description INTERIM (DL-0161): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
          *     `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
          *     da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.
          */
@@ -924,11 +924,12 @@ export interface components {
         };
         /**
          * AnsNackInputs
-         * @description UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+         * @description UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).
          *
-         *     The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
-         *     not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
-         *     runtime binding remains unavailable until this contract/consumer gap is reconciled.
+         *     GW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to
+         *     UT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new
+         *     human sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other
+         *     value reopens the task. Recording retransmitir_manual does not itself retransmit.
          */
         AnsNackInputs: {
             /**
@@ -3743,7 +3744,7 @@ export interface components {
         };
         /**
          * ReembolsoPagamentoInputs
-         * @description Registro do pagamento feito fora do sistema (DL-0158, ``UT_RegistrarPagamento``).
+         * @description Registro do pagamento feito fora do sistema (DL-0159, ``UT_RegistrarPagamento``).
          *
          *     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
          */

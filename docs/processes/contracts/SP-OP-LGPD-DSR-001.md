@@ -93,6 +93,19 @@ Re-pedido do mesmo tipo no mesmo dia retorna a instancia ativa.
 > habilitada. A habilitacao continua **ato do DPO** (F-2 + matriz AF-07) e este contrato segue
 > `DRAFT (v0.1.0)` — nenhum campo de signoff foi tocado por essa mudanca.
 
+> **Legal-hold antes da eliminacao (R-044 / F-062, 2026-10-30) — DARK, nenhuma ratificacao
+> implicada.** ADR-0020 item 6: eliminacao que colide com legal-hold ativo e resolvida a favor do
+> hold e reconciliada ao fim dele; sob colisao a decisao e humana. Com a bandeira
+> `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` ligada (padrao: desligada), `ST_ExecutarRequisicao` com
+> `tipo_requisicao=eliminacao` consulta o registro de legal-hold
+> (`src/maezo/platform/lifecycle/legal_hold.py`, YAML em `MAEZO_LEGAL_HOLD_REGISTRY_PATH`, chave
+> `tenant_id` + `titular_pseudo_id`) depois das guardas humanas e antes de qualquer execucao. Hold
+> ativo **ou** duvida (registro ausente/invalido, titular nao identificado) => recusa
+> `ERR_DSR_LEGAL_HOLD_NOT_HUMAN` gravada na cadeia ADR-0007 (`REFUSED`) e incidente nao-retentado
+> — eliminacao **diferida**, nunca silenciosa. Sem hold ativo a recusa por nao-implementacao acima
+> continua valendo. Nenhum prazo de retencao e decidido no codigo. Ligar a bandeira exige a
+> assinatura do juridico/DPO sobre o registro e sua governanca (R-030: quem coloca/levanta, escopo).
+
 ## DMN referenciada
 
 ### `lgpd_dsr_routing` (FIRST — DRAFT)
@@ -138,3 +151,18 @@ Catch-all: tipo desconhecido -> `juridico-privacidade`.
 DI; validacao juridica dos prazos internos; matriz de bases legais de retencao por tipo
 de dado; fluxo de revogacao de consentimento com efeito imediato (art. 18 §2 — avaliar
 caminho dedicado); interacao com SP-OP-CANCEL-001.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-LGPD-DSR-001` → `maezo-payer-lgpd-dsr-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - requisição: `{tenant_id}:lgpd-dsr-001:D-{titular_pseudo_id}-{tipo_requisicao}-{data_solicitacao_iso}` em claro quando couber no charset `[A-Za-z0-9._-]`; senão `hk1_<HMAC>`.
+- **Classificação (a confirmar pelo DPO):** já pseudônimo.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

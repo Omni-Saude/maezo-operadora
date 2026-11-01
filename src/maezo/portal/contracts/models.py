@@ -162,7 +162,7 @@ FormKey = Literal[
     "reembolso_pendencia",
     "reembolso_decisao",
     "reembolso_auditor",
-    # DL-0158 (SP-OP-REEMBOLSO-001 v0.2.0): o financeiro registra o pagamento feito fora do sistema.
+    # DL-0159 (SP-OP-REEMBOLSO-001 v0.2.0): o financeiro registra o pagamento feito fora do sistema.
     "reembolso_pagamento",
     "cancel_decisao",
     "inad_decisao",
@@ -606,7 +606,7 @@ class _ReembolsoDecisionFields(_FrozenContract):
     valor_reembolso_aprovado_cents: Centavos | None = None
     justificativa: RequiredText | None = None
     fundamentacao_contratual: RequiredText | None = None
-    # DL-0158: texto ao beneficiario (negativa/reducao) e pergunta ao beneficiario (pedir informacao),
+    # DL-0159: texto ao beneficiario (negativa/reducao) e pergunta ao beneficiario (pedir informacao),
     # ambos escritos pelo analista; `justificativa`/`fundamentacao_contratual` seguem internas.
     info_solicitada: RequiredText | None = None
     texto_ao_beneficiario: RequiredText | None = None
@@ -671,7 +671,7 @@ class ReembolsoAuditorInputs(_ReembolsoDecisionFields):
 
 
 class ReembolsoPagamentoInputs(_FrozenContract):
-    """Registro do pagamento feito fora do sistema (DL-0158, ``UT_RegistrarPagamento``).
+    """Registro do pagamento feito fora do sistema (DL-0159, ``UT_RegistrarPagamento``).
 
     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
     """
@@ -1245,11 +1245,12 @@ class AnsSubmissionCorrectionInputs(_FrozenContract):
 
 
 class AnsNackInputs(_FrozenContract):
-    """UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+    """UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).
 
-    The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
-    not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
-    runtime binding remains unavailable until this contract/consumer gap is reconciled.
+    GW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to
+    UT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new
+    human sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other
+    value reopens the task. Recording retransmitir_manual does not itself retransmit.
     """
 
     kind: Literal["ans_nack"]

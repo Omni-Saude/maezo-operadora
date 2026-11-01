@@ -7,7 +7,7 @@ Google-SRE-workbook template rather than derived from this codebase's own traffi
 stated explicitly next to the number.
 
 **Audience:** Platform engineers, SRE, on-call — companion to
-[`docs/runbooks/README.md`](../runbooks/README.md) and the 8 alert runbooks under
+[`docs/runbooks/README.md`](../runbooks/README.md) and the 11 alert runbooks under
 [`docs/runbooks/alerts/`](../runbooks/alerts/).
 
 **Last updated:** 2026-09-02
@@ -17,6 +17,11 @@ actually cover — worker-runtime, agent-runtime, and the gateway (PEP/audit/pse
 does NOT cover CIB Seven (the BPMN engine itself), Kafka/broker health, or Postgres — those have
 no dedicated Maezo-authored metrics today either, but are out of this gap's scope
 (GAP-D12-01-a / audit gateway gvr-d12).
+
+**Count update (R-085, 2026-10-30):** `deploy/observability/alert-rules.yml` now ships **11**
+alerts — the 8 this document was written about plus 3 in group `maezo_governanca_agentes`
+(`MaezoPEPDenySpike`, `MaezoA2ABudgetExhausted`, `MaezoEscalationRateHigh`), each with its own
+runbook. Every "8 alerts" below refers to that original set, as of the date it was written.
 
 **Why this document exists:** `docs/audits/maezo-deep-audit` finding D12-03 — no SLO or
 error-budget document existed anywhere in `docs/` before this file, while
@@ -139,9 +144,11 @@ adds no gateway-specific business metric of its own.
 | Signal | SLI | PromQL | Coverage |
 |---|---|---|---|
 | Latency | PEP decision latency | *no metric exists* | **DOES NOT EXIST.** |
-| Traffic | PEP decisions per second | *no metric exists* | **DOES NOT EXIST.** |
-| Errors | PEP deny rate / audit emit failure rate | *no metric exists* | **DOES NOT EXIST.** |
+| Traffic | PEP decisions per second | `sum(rate(maezo_gateway_pep_decision_total[5m])) by (tenant, principal)` | **LIVE** (R-085, 2026-10-30) — `gateway.seams._base.gate` increments it once per effect-PEP decision. |
+| Errors | PEP deny rate / audit emit failure rate | `sum(rate(maezo_gateway_pep_decision_total{decision="deny", enforced="true"}[5m])) by (tenant)` | **PARTIAL** (R-085) — the deny half is LIVE (`MaezoPEPDenySpike` reads it; shadow denies carry `enforced="false"`); audit emit failure rate still DOES NOT EXIST. |
 | Saturation | audit consumer lag | *no metric exists* | **DOES NOT EXIST.** |
+
+**Update (R-085, 2026-10-30; PEND-552 — agent-runtime SLI, §3.2 — remains OPEN):** the PEP traffic/deny SLI rows above are now LIVE via `maezo_gateway_pep_decision_total`; latency and saturation (audit lag) rows remain gaps. The original observation follows.
 
 **This is the largest gap in the document.** `grep -rln "prometheus_client\|Counter(\|Histogram(\|Gauge(" src/maezo/gateway/` returns zero files — no Prometheus metric object of any kind is
 defined in the gateway package, LIVE or dead. None of the 8 shipped alerts reference a

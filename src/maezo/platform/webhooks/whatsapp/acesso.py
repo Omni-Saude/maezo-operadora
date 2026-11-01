@@ -1016,7 +1016,8 @@ class AcessoBeneficiario:
         """RESOLVE pelo documento (DL-0084). `unico` -> verificado com a ref devolvida; `nenhum` -> nao
         verificado (gasta tentativa); qualquer recusa (indice fora, 429, AMH fora, contrato) -> indisponivel,
         sem gastar tentativa. O log leva so' o motivo fechado da recusa."""
-        assert self._documentos is not None
+        if self._documentos is None:
+            raise AssertionError("resolucao por documento desligada")
         try:
             async with asyncio.timeout(self._prazo):
                 resultado = await self._documentos.resolve_by_document(
@@ -1189,7 +1190,8 @@ class AcessoBeneficiario:
         if atual.falhas_janela > MAX_FALHAS_JANELA:
             # Falhas demais na janela (ex.: telefone compartilhado alternando o proprio acerto com tentativas
             # contra outra pessoa): bloqueio ate' o FIM da janela + atendente.
-            assert atual.janela_inicio is not None
+            if atual.janela_inicio is None:
+                raise AssertionError("janela de falhas sem inicio")
             self._pendentes.descartar(atual.conversation_id)
             novo = replace(
                 atual,

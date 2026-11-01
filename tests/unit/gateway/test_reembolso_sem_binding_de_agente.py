@@ -1,7 +1,7 @@
 """`SP-OP-REEMBOLSO-001`: so o LUCAS tem binding de agente — gap `PERSP-REEMBOLSO-BINDING` (revisto por
-DL-0158/DL-0159).
+DL-0159/DL-0160).
 
-DL-0159 (28/10/2026): o Lucas passa a ABRIR o pedido de reembolso (flag `MAEZO_REEMBOLSO_V1`), entao a
+DL-0160 (28/10/2026): o Lucas passa a ABRIR o pedido de reembolso (flag `MAEZO_REEMBOLSO_V1`), entao a
 chave entra em
 `process_keys` DELE — e so dele. A arbitragem original segue valendo para a Marina e para todos os
 demais agentes.
@@ -32,7 +32,7 @@ from maezo.gateway.effect_pep import KNOWN_PROCESS_KEYS, AgentCapabilities
 
 _REEMBOLSO_KEY = "SP-OP-REEMBOLSO-001"
 
-#: O UNICO agente com autoridade de start sobre o reembolso (DL-0159). Conceder a chave a QUALQUER outro e ato
+#: O UNICO agente com autoridade de start sobre o reembolso (DL-0160). Conceder a chave a QUALQUER outro e ato
 #: explicito do dono e tem de ficar VERMELHO aqui primeiro.
 _AGENTES_COM_A_CHAVE = frozenset({"lucas"})
 
@@ -88,7 +88,7 @@ def test_so_o_lucas_no_conjunto_inteiro_inicia_reembolso() -> None:
         in ((yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("process_keys") or [])
     ]
     assert set(concedem) == _AGENTES_COM_A_CHAVE, (
-        "DL-0159: so o Lucas inicia SP-OP-REEMBOLSO-001 (menor privilegio — Marina so serve via A2A, "
+        "DL-0160: so o Lucas inicia SP-OP-REEMBOLSO-001 (menor privilegio — Marina so serve via A2A, "
         "start_process e NO-OP para reembolso); conceder a chave a outro agente e ato explicito do dono. "
         f"Concedem hoje: {concedem}"
     )

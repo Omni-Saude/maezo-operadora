@@ -7,7 +7,7 @@ autonomy_level: L3
 process_keys:
   - SP-OP-ESCALATION-001
   - SP-OP-CANCEL-001
-  - SP-OP-REEMBOLSO-001   # DL-0158/DL-0159: o Lucas abre o pedido de reembolso (flag MAEZO_REEMBOLSO_V1); a Marina segue sem a chave
+  - SP-OP-REEMBOLSO-001   # DL-0159/DL-0160: o Lucas abre o pedido de reembolso (flag MAEZO_REEMBOLSO_V1); a Marina segue sem a chave
 reports_to: "atendimento@amh"
 security_zone: general
 graph: graph.py:build
@@ -56,8 +56,8 @@ kpis:
 # POLITICA DE ESCALACAO (rodada 12, decisao do dono — sessao de 14/10/2026). O Lucas responde os FATOS
 # primeiro, sempre. So' abre caso humano (SP-OP-ESCALATION-001) para: contestacao do valor; pedido de
 # negociacao/parcelamento; pedido explicito de pessoa; ou ATRASO REAL — pagador pessoa fisica com 2 ou
-# mais meses sem pagamento ou mais de 30 dias de atraso (limiares: MAEZO_LUCAS_ATRASO_MESES_MIN e
-# MAEZO_LUCAS_ATRASO_DIAS_MIN). Um mes sem pagamento ate' 30 dias recebe os fatos e a oferta "Se quiser,
+# mais meses sem pagamento ou mais de 30 dias de atraso (limiar na DMN lucas_billing_admissibility desde
+# R-047/F-031; o grafo so' conta os fatos). Um mes sem pagamento ate' 30 dias recebe os fatos e a oferta "Se quiser,
 # posso te passar para alguem da nossa equipe.", sem caso. Contrato de empresa e adesao (titulo de
 # terceiro) nunca escalam pelo atraso da empresa/administradora. Falha da fonte de dados e assunto fora do
 # que o Lucas responde recebem texto fixo, sem caso.

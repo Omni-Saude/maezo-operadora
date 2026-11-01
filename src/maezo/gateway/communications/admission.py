@@ -85,16 +85,26 @@ class CommunicationPublicationSource(ABC):
         raise NotImplementedError
 
 
+# R-110 / F-151: o modo de lock escolhe um SQL literal deste mapa fechado; nada e' concatenado.
+_HEAD_SELECT = (
+    "SELECT revision,publication_ref,payload FROM portal_communication.authority_head "
+    "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access"
+)
+_HEAD_SQL: dict[str, str] = {
+    "": _HEAD_SELECT,
+    " FOR SHARE": _HEAD_SELECT + " FOR SHARE",
+    " FOR UPDATE": _HEAD_SELECT + " FOR UPDATE",
+}
+
+
 async def head(connection: AsyncConnection, access: CommunicationAccess, *, lock: str = "") -> Any:
-    if lock not in {"", " FOR SHARE", " FOR UPDATE"}:
+    statement = _HEAD_SQL.get(lock)
+    if statement is None:
         raise ExternalCaseError("unavailable")
     return (
         (
             await connection.execute(
-                text(
-                    "SELECT revision,publication_ref,payload FROM portal_communication.authority_head "
-                    "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access" + lock
-                ),
+                text(statement),
                 dict(**access.scope.model_dump(), access=digest(access)),
             )
         )
@@ -336,7 +346,8 @@ class PostgresCommunicationPublisher:
             self._busy = False
 
     async def _submit(self) -> PublicationReceipt:
-        assert self._pending is not None
+        if self._pending is None:
+            raise AssertionError("_submit sem publicacao pendente")
         publication, frozen = self._pending
         raw = packed(publication)
         request_digest = digest(publication)

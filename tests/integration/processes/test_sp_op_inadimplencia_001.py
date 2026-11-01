@@ -336,8 +336,25 @@ async def inad_probe_rn593(
         yield probe
 
 
+@pytest_asyncio.fixture
+async def inad_probe_fatos_estritos(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[InadEngineProbe]:
+    """Probe com a flag dark R-063 LIGADA (`inad_fatos_estritos=True`, = MAEZO_INAD_FATOS_ESTRITOS)."""
+    async for probe in _inad_probe_gen(
+        engine, audit_sink, audit_tenant, audit_pg, rn593_estrito=False, fatos_estritos=True
+    ):
+        yield probe
+
+
 async def _inad_probe_gen(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str], *, rn593_estrito: bool
+    engine: EngineRest,
+    audit_sink: Any,
+    audit_tenant: str,
+    audit_pg: tuple[str, str],
+    *,
+    rn593_estrito: bool,
+    fatos_estritos: bool = False,
 ) -> AsyncIterator[InadEngineProbe]:
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -387,6 +404,7 @@ async def _inad_probe_gen(
         engine=engine_seam,
         audit_sink=handoff_audit_sink,
         **({"inad_rn593_estrito": True} if rn593_estrito else {}),
+        **({"inad_fatos_estritos": True} if fatos_estritos else {}),
     )
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
@@ -1387,3 +1405,81 @@ async def test_rn593_notificacao_confirmada_abre_prazo_de_10_dias(
     assert "ICE_PrazoNotificacao50" not in pending
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS)
+
+
+# ---------------------------------------------------------------------------
+# R-063 / F-029 — `dentro_janela_purga` deixa de ser ecoado (flag dark MAEZO_INAD_FATOS_ESTRITOS)
+# ---------------------------------------------------------------------------
+
+
+async def test_fatos_estritos_off_semente_janela_false_pula_cure_window_legado(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """Dark provado no engine: flag OFF => a semente `dentro_janela_purga=false` e ECOADA e o caso
+    segue direto a analise humana, sem cure-window (o comportamento de hoje, F-029)."""
+    inst = await start_inad()  # default do fixture: dentro_janela_purga=False
+    iid = inst["id"]
+    ut = await _drive_to_analise(engine, inad_probe, iid)
+    assert "juridico-contratos" in ut.candidate_groups
+    assert await engine.activity_instance_count(iid, "ICE_PrazoPurga") == 0
+
+
+async def test_fatos_estritos_semente_janela_false_nao_pula_cure_window(
+    engine: EngineRest,
+    inad_probe_fatos_estritos: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """Flag ON: a MESMA semente `dentro_janela_purga=false` NAO e ecoada — `resolve_facts` devolve
+    `true`, a `inadimplencia_status` roteia AGUARDA_PURGA e o caso espera o timer BPMN
+    `ICE_PrazoPurga`; so a expiracao do timer leva a analise HUMANA (nunca terminal adverso)."""
+    inst = await start_inad()  # default do fixture: dentro_janela_purga=False
+    iid = inst["id"]
+    await inad_probe_fatos_estritos.drain()
+
+    job = await engine.await_timer_job(iid, "ICE_PrazoPurga")
+    assert await engine.get_variable(iid, "dentro_janela_purga") is True
+    assert await engine.instance_is_active(iid)
+    assert not [t for t in await engine.list_user_tasks(iid) if t.task_definition_key == _UT_ANALISE]
+
+    await engine.execute_job(job.id)
+    await inad_probe_fatos_estritos.drain()
+    ut = await engine.await_user_task(iid, _UT_ANALISE)
+    assert "juridico-contratos" in ut.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert not (ended & _ENDS_ADVERSOS), "expiracao da purga NUNCA auto-suspende (L0)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): no critico nunca executado no motor
+# ===========================================================================
+
+
+async def test_r119_info_recebida_com_analise_aberta_reabre_a_analise(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """BME_InfoRecebida: a informacao chega com UT_AnaliseInadimplencia ainda aberta (sem SOLICITAR_INFO
+    previo); a UT e' interrompida e recriada para o mesmo grupo — nenhum desfecho, nenhuma suspensao."""
+    inst = await start_inad()
+    iid = inst["id"]
+    ut = await _drive_to_analise(engine, inad_probe, iid)
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={"messageName": "msg.inadimplencia.info_received", "businessKey": inst["businessKey"]},
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    ut2 = await engine.await_user_task(iid, _UT_ANALISE)
+
+    assert ut2.id != ut.id
+    assert ut2.candidate_groups == ut.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoRecebida" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_ANALISE) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)

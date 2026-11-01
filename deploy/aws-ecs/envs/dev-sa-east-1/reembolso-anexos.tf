@@ -1,4 +1,4 @@
-# Anexos do pedido de reembolso pelo WhatsApp (DL-0159/DL-0160): foto/PDF do pedido medico e da nota fiscal.
+# Anexos do pedido de reembolso pelo WhatsApp (DL-0160/DL-0161): foto/PDF do pedido medico e da nota fiscal.
 #
 # DESLIGADO por padrao (`reembolso_anexos_enabled = false`): com false NENHUM recurso deste arquivo existe e as
 # task definitions do receptor e do portal ficam byte-identicas. Dado de saude (Zona PHI, ADR-0006): ligar exige
@@ -19,7 +19,7 @@ locals {
 
 resource "aws_kms_key" "reembolso_anexos" {
   count                   = local.reembolso_anexos_ativo
-  description             = "${local.name} — anexos do pedido de reembolso (PHI, DL-0159)"
+  description             = "${local.name} — anexos do pedido de reembolso (PHI, DL-0160)"
   enable_key_rotation     = true
   deletion_window_in_days = 30
   tags                    = merge(local.base_tags, { zona = "phi" })

@@ -143,7 +143,7 @@ def _reembolso_state(**overrides: Any) -> MarinaState:
         "tipo_reembolso": "livre_escolha",
         "categoria_procedimento": "consulta",
         "codigo_procedimento_tuss": "10101012",
-        # DL-0158 (reembolso v2): no calculation, table or ceiling any more — the only pre-resolved fact is
+        # DL-0159 (reembolso v2): no calculation, table or ceiling any more — the only pre-resolved fact is
         # the informative `situacao_prazo` (DMN `reembolso_prazo`), plus closed-set facts of the request.
         "valor_solicitado_cents": 10000,
         "situacao_prazo": "NAO_AVALIADO",
@@ -593,7 +593,7 @@ async def test_assess_reembolso_always_routes_human_no_dmn_calls() -> None:
 
 
 async def test_assess_reembolso_is_always_human_review_and_passes_the_prazo_fact_through() -> None:
-    """L0 guard (DL-0158): every reembolso request is decided by a human. Marina's reembolso flow only REPORTS
+    """L0 guard (DL-0159): every reembolso request is decided by a human. Marina's reembolso flow only REPORTS
     the pre-resolved `situacao_prazo` — never computes/derives it, evaluates no DMN at all, and the fact never
     drives an automatic outcome."""
     dmn = FakeDmnTransport()

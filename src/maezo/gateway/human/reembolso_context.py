@@ -1,4 +1,4 @@
-"""INTERIM reembolso-context read (DL-0160): o que o analista/financeiro precisa ver na tarefa do reembolso.
+"""INTERIM reembolso-context read (DL-0161): o que o analista/financeiro precisa ver na tarefa do reembolso.
 
 MESMO ATALHO DA DL-0050, pelo mesmo motivo e atras do mesmo portao: o modelo de leitura assinado nao carrega
 evidencia de reembolso, e estende-lo e' trabalho de plugin Java + grants + vetores assinados. Aqui se
@@ -26,7 +26,7 @@ from typing import Any, Final, Protocol
 
 from .errors import GatewayRefusalError
 
-DECISION_REF: Final = "DL-0160"
+DECISION_REF: Final = "DL-0161"
 REEMBOLSO_PROCESS_KEY: Final = "SP-OP-REEMBOLSO-001"
 
 #: As tarefas humanas do reembolso (as do catalogo). Outra tarefa e' recusada.
@@ -86,7 +86,7 @@ class ReembolsoContexto:
     decisao_reembolso: str | None
     valor_reembolso_aprovado_cents: int | None
     anexos: tuple[AnexoDoPedido, ...] = field(default_factory=tuple)
-    #: DL-0160: o resultado da DMN informativa de prazo (nao roteia nada) e a ultima resposta da
+    #: DL-0161: o resultado da DMN informativa de prazo (nao roteia nada) e a ultima resposta da
     #: beneficiaria a
     #: um pedido de informacao (texto ja' pelo scrub de identificadores; PHI, so' exibido).
     situacao_prazo: str | None = None

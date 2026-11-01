@@ -1,9 +1,9 @@
-"""SP-OP-REEMBOLSO-001 Worker — Reembolso ao Beneficiario (v0.2.0, DL-0158: 100% analise humana).
+"""SP-OP-REEMBOLSO-001 Worker — Reembolso ao Beneficiario (v0.2.0, DL-0159: 100% analise humana).
 
 External tasks for beneficiary reimbursement. O sistema so ORGANIZA o pedido, os documentos e a
 resposta; uma pessoa da analise decide direito e valor. Por isso este modulo NAO calcula valor, NAO
 compara teto, NAO auto-aprova e NAO emite pagamento (o financeiro paga fora e registra
-`data_pagamento` em `UT_RegistrarPagamento`). Foram removidos em DL-0158: `calculate_value`,
+`data_pagamento` em `UT_RegistrarPagamento`). Foram removidos em DL-0159: `calculate_value`,
 `calculate_amount_entry`, o interruptor R-058 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`), `process_payment`,
 `issue_payment_entry`, `validate_reembolso`/`check_prazo` e os tres erros de dinheiro associados.
 
@@ -146,7 +146,7 @@ def check_coverage(input_data: ReembolsoInput) -> dict[str, Any]:
     `protocolo_reembolso`
     ausente/em branco lanca o `WorkerBpmnError` modelado, antes de qualquer outro passo.
 
-    v0.2.0 (DL-0158): nao ha mais conferencia de cobertura por maquina (o analista avalia). O unico fato
+    v0.2.0 (DL-0159): nao ha mais conferencia de cobertura por maquina (o analista avalia). O unico fato
     resolvido e `dias_desde_atendimento`, insumo da DMN informativa `reembolso_prazo`. NUNCA decide
     pagar/negar.
     """

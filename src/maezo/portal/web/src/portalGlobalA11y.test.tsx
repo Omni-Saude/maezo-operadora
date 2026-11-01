@@ -191,7 +191,7 @@ it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e a
     .mockResolvedValueOnce(json(oneItemQueue()))
     .mockReturnValueOnce(detail.promise);
   render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Ver detalhes: Analise do medico auditor" }));
 
   // Loading state: "Consultando o snapshot autorizado da tarefa."
   await screen.findByRole("heading", { name: "Carregando detalhes" });
@@ -204,7 +204,7 @@ it("F-161: \"Snapshot\" no detalhe da tarefa carrega lang=\"en\" ao carregar e a
 
   // Ready state: eyebrow "Snapshot somente leitura".
   detail.resolve(json(taskSnapshot()));
-  const region = await screen.findByRole("region", { name: "UT_AnaliseMedicoAuditor" });
+  const region = await screen.findByRole("region", { name: "Analise do medico auditor" });
   const eyebrow = within(region).getByText(/somente leitura$/);
   expect(eyebrow).toHaveTextContent("Snapshot somente leitura");
   expect(eyebrow.querySelector('[lang="en"]')).toHaveTextContent(/^Snapshot$/);
@@ -254,7 +254,7 @@ it("F-155: o nome do download carrega uma extensão coerente com o conteúdo", a
   }
 });
 
-it("F-158: o título de cada vínculo é legível e o identificador fica rotulado", async () => {
+it("F-158: o título de cada vínculo é legível e o identificador fica rotulado e mascarado", async () => {
   vi.mocked(fetch).mockResolvedValue(json({
     schema_version: 1,
     generated_at: "2026-10-25T12:00:00Z",
@@ -276,5 +276,7 @@ it("F-158: o título de cada vínculo é legível e o identificador fica rotulad
   const region = screen.getByRole("region", { name: "Vínculo 1 de 1: Ativo" });
   const term = within(region).getByText("Referência do colaborador");
   expect(term.tagName).toBe("DT");
-  expect(term.nextElementSibling).toHaveTextContent("human-internal-1");
+  // DPO 31/10/2026 (#1082, opção b): só os 4 últimos caracteres; o valor inteiro nunca aparece.
+  expect(term.nextElementSibling).toHaveTextContent("••••terminada em al-1");
+  expect(region).not.toHaveTextContent("human-internal-1");
 });

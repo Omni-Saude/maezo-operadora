@@ -113,7 +113,8 @@ class PortalReadClient:
             await self.partition.prepare()
             now = self.partition.guard()
             signing, admission = self.partition.signing, self.partition.admission
-            assert signing is not None and admission is not None
+            if signing is None or admission is None:
+                raise AssertionError("particao sem signing/admission apos prepare()")
             a = admission.record
             request = {
                 "schema": "portal-engine-read.v1",

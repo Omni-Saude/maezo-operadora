@@ -1,12 +1,12 @@
 # Contrato — SP-OP-REEMBOLSO-001 (Reembolso ao Beneficiario)
 
-**Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md; DL-0158)
+**Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md; DL-0159)
 **Fase:** 2 · **Wave:** WC.2 · **BPMN:** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
 **Gatilho regulatorio:** Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify**). A RN 259/2011 foi substituida pela RN 566/2022 (prazos em dias uteis); a norma que fixa o prazo de reembolso segue **nao identificada** (`docs/compliance/rn-currency-review.md`, R3). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`).**
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/worker de REEMBOLSO derivam dele.
 
-## O que a v0.2.0 muda (DL-0158)
+## O que a v0.2.0 muda (DL-0159)
 
 O sistema so **organiza** o pedido, os documentos e a resposta. **Uma pessoa da analise decide direito e valor**, como hoje. O financeiro **paga fora do sistema** e registra `data_pagamento`. O Lucas recebe o pedido pelo WhatsApp e avisa a beneficiaria.
 
@@ -58,7 +58,7 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 | `valor_solicitado_cents` | integer | sim | Valor pago pela beneficiaria, em centavos de BRL (inteiro — nunca `number`) |
 | `data_atendimento` | date | sim | Data do atendimento/despesa |
 | `data_solicitacao` | date | sim | Data da solicitacao (base de contagem de prazo) |
-| `documentos_refs` | json | sim | Lista de `{tipo: pedido_medico \| nota_fiscal, document_ref, sha256}`. Aceita **mais de um arquivo por tipo**. `document_ref` (`rdoc_<32hex>`) aponta para a custodia S3 da Zona PHI (DL-0160, ADR-0006); o engine nunca recebe o arquivo. `sha256` e' o do conteudo (principio do `input_hash`, ADR-0020): o portal recusa entregar um objeto que nao confere |
+| `documentos_refs` | json | sim | Lista de `{tipo: pedido_medico \| nota_fiscal, document_ref, sha256}`. Aceita **mais de um arquivo por tipo**. `document_ref` (`rdoc_<32hex>`) aponta para a custodia S3 da Zona PHI (DL-0161, ADR-0006); o engine nunca recebe o arquivo. `sha256` e' o do conteudo (principio do `input_hash`, ADR-0020): o portal recusa entregar um objeto que nao confere |
 | `aviso_beneficiario_whatsapp` | boolean | nao | `true` so quando o Lucas abriu o pedido com a flag `MAEZO_REEMBOLSO_V1` ligada. Sem ela (outra origem) o processo segue calado |
 | `agent_id` | string | nao | `lucas` quando ha aviso |
 | `conversation_id` | string | nao | Conversa do WhatsApp para o aviso |
@@ -79,8 +79,8 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 | `parecer_auditor` | string | Obrigatoria se a negativa/reducao decorre de `UT_RevisaoAuditorMedico` |
 | `decisao_pendencia` | string | `cancelar_solicitacao` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano decide) |
 | `data_pagamento` | date | Registrada pelo financeiro em `UT_RegistrarPagamento` ("pago em DD/MM"), ISO `AAAA-MM-DD` |
-| `analista_id` / `auditor_id` | string | Referencia PSEUDONIMA de quem concluiu a decisao no portal, preenchida pelo SERVIDOR (o navegador nunca escolhe). Exigida pela guarda L0 na negativa/reducao (DL-0160) |
-| `aguardando_resposta` | boolean | `true` ao entrar na espera da resposta da beneficiaria (`ST_PublishReembolsoPended`), `false` ao (re)preparar o dossie e na correlacao. E' a UNICA variavel que o Lucas le' para saber se uma mensagem dela e' a resposta (DL-0160) |
+| `analista_id` / `auditor_id` | string | Referencia PSEUDONIMA de quem concluiu a decisao no portal, preenchida pelo SERVIDOR (o navegador nunca escolhe). Exigida pela guarda L0 na negativa/reducao (DL-0161) |
+| `aguardando_resposta` | boolean | `true` ao entrar na espera da resposta da beneficiaria (`ST_PublishReembolsoPended`), `false` ao (re)preparar o dossie e na correlacao. E' a UNICA variavel que o Lucas le' para saber se uma mensagem dela e' a resposta (DL-0161) |
 | `resposta_beneficiario` | string | A resposta da beneficiaria a um pedido de informacao (texto ja' pelo scrub de identificadores, ate' 1000 caracteres), entregue pela correlacao de `msg.reembolso.docs_received`. PHI: so' exibida ao analista |
 | `documentos_adicionais_refs` | json | Os arquivos da resposta (`{tipo: complemento, document_ref, sha256}`), na mesma correlacao. Uma nova rodada de pedido de informacao substitui a lista anterior (o analista ve' a ultima) |
 
@@ -136,7 +136,7 @@ Campos obrigatorios por decisao (validacao do formulario do portal e do guard do
 - `NEGAR` → `justificativa` + `fundamentacao_contratual` + `texto_ao_beneficiario` (+ `cid10_referencia`/`parecer_auditor` no merito clinico).
 - `SOLICITAR_INFO` → `info_solicitada`.
 
-## Bindings de agente (arbitragem `PERSP-REEMBOLSO-BINDING`, revista por DL-0158/DL-0159)
+## Bindings de agente (arbitragem `PERSP-REEMBOLSO-BINDING`, revista por DL-0159/DL-0160)
 
 **Lucas** declara `SP-OP-REEMBOLSO-001` em `process_keys:` (`spec/agents/lucas/agent.yaml`) e abre o pedido (flag `MAEZO_REEMBOLSO_V1`, desligada por padrao), no molde do cancelamento.
 
@@ -185,7 +185,7 @@ Texto livre do analista numa comunicacao adversa exige **revisao juridica antes 
 - Definicao do prazo de reembolso (preencher `reembolso_prazo.dmn`) e confirmacao dos prazos de `reembolso_sla.dmn`; base RN 566/2022.
 - Template Meta para aviso fora da janela de 24h.
 - Pessoas reais nos grupos `analise-reembolso`, `medico-auditor`, `coordenacao-reembolso` e `financeiro-reembolso`; confirmacao dos nomes contra a taxonomia organizacional.
-- Zona PHI para os comprovantes (foto/PDF): custodia em S3 com SSE-KMS implementada para dev (DL-0160; JPG/PNG/PDF ate' 10 MiB); a retencao de 5 anos (decisao do dono — DL-0159) e a disposicao dos cinco textos humanos (`phi_completeness.py::DISPOSITIONS`) sao do DPO.
+- Zona PHI para os comprovantes (foto/PDF): custodia em S3 com SSE-KMS implementada para dev (DL-0161; JPG/PNG/PDF ate' 10 MiB); a retencao de 5 anos (decisao do dono — DL-0160) e a disposicao dos cinco textos humanos (`phi_completeness.py::DISPOSITIONS`) sao do DPO.
 - Politica de suspensao de prazo em pendencia.
 
 ## Tópicos a registrar (REPORTE)
@@ -195,3 +195,19 @@ Kafka `agents.events.reembolso.{received,pended,sla_breached,completed}`; extern
 ## Anti-pattern invertido (ADR-0011, reference READ-ONLY)
 
 O `../maezo-reference` so possui um `doctor_reimbursement_summary_worker.py` (extrato ao prestador — **nao** e adjudicacao ao beneficiario). Este processo e **greenfield**. O padrao a evitar (auto-aplicar efeito adverso por timeout ou por regra) esta **invertido** aqui: nenhuma regra decide, nenhum timer nega; toda negativa/reducao e User Task humana.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-REEMBOLSO-001` → `maezo-payer-reembolso-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - protocolo: `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `P-{protocolo_reembolso}`.
+  - guia (alternativa): `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}`.
+- **Classificação (a confirmar pelo DPO):** pseudônimo ligado a beneficiário; guia é ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` no mapa (R-077, decisão do dono: `EXCLUSIVE`, em pacote próprio).

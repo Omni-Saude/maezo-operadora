@@ -59,7 +59,7 @@ to human review — never a silent auto_route (structurally: every `assess` bran
 prove a neutral, allow-listed DMN output returns `human_review`, mirroring Rafael's own
 "nothing ambiguous falls through to automatic by omission" invariant).
 
-REEMBOLSO (v0.2.0, DL-0158): the process has NO calculation, ceiling or auto-approval any more —
+REEMBOLSO (v0.2.0, DL-0159): the process has NO calculation, ceiling or auto-approval any more —
 every request is decided by a human. The only pre-resolved fact Marina carries for it is
 `situacao_prazo` (informative DMN `reembolso_prazo`); `_reembolso_facts` below is a pure
 pass-through of what the process already resolved and never computes anything.
@@ -150,6 +150,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -355,6 +356,10 @@ def _business_key(state: MarinaState) -> str:
 
     CONTAS:    `CONTAS-{tenant}-{numero_lote_tiss}` (or, when adjudicating by guia/conta:
                `CONTAS-{tenant}-{numero_guia_tiss}-{numero_conta}`). Marina STARTS this instance.
+               Composed ONLY by `tools/process_business_keys.contas_business_key` (R-101 /
+               F-139), which RAISES `BusinessKeyComponentError` on an input that composes neither
+               form (e.g. guia without conta and without lote) instead of degenerating to the
+               shared key `CONTAS-{tenant}-`.
     RECURSO:   `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`. Marina STARTS this instance.
     REEMBOLSO: `REEMB-{tenant}-{protocolo_reembolso}` — the SAME format SP-OP-REEMBOLSO-001 itself
                uses (contract §Correlacao). Marina does NOT start this instance (already running
@@ -367,11 +372,27 @@ def _business_key(state: MarinaState) -> str:
         return f"RECURSO-{tenant}-{state.get('numero_guia_tiss', '')}-{state.get('glosa_id', '')}"
     if flow == "reembolso":
         return f"REEMB-{tenant}-{state.get('protocolo_reembolso', '')}"
-    guia = state.get("numero_guia_tiss", "")
-    conta = state.get("numero_conta", "")
-    if guia and conta:
-        return f"CONTAS-{tenant}-{guia}-{conta}"
-    return f"CONTAS-{tenant}-{state.get('numero_lote_tiss', '')}"
+    return contas_business_key(
+        tenant_id=tenant,
+        numero_lote_tiss=state.get("numero_lote_tiss", ""),
+        numero_guia_tiss=state.get("numero_guia_tiss", ""),
+        numero_conta=state.get("numero_conta", ""),
+    )
+
+
+def _has_contas_business_key(state: MarinaState) -> bool:
+    """True iff the single composer can build this CONTAS identity (R-101: one source of truth
+    for "is there a key?" — the seam and the graph ask the composer, never a parallel predicate)."""
+    try:
+        contas_business_key(
+            tenant_id=state.get("tenant_id", ""),
+            numero_lote_tiss=state.get("numero_lote_tiss", ""),
+            numero_guia_tiss=state.get("numero_guia_tiss", ""),
+            numero_conta=state.get("numero_conta", ""),
+        )
+    except BusinessKeyComponentError:
+        return False
+    return True
 
 
 def _process_key(state: MarinaState) -> str:
@@ -597,7 +618,7 @@ _FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
     "documentacao_recurso_completa": "documentacao do recurso completa",
 }
 
-#: REEMBOLSO (v0.2.0, DL-0158): nao ha fato booleano pre-resolvido — nao ha cobertura, tabela nem teto
+#: REEMBOLSO (v0.2.0, DL-0159): nao ha fato booleano pre-resolvido — nao ha cobertura, tabela nem teto
 #: por maquina.
 #: `situacao_prazo` e texto (DENTRO | FORA | NAO_AVALIADO) e vai nos fatos, nao neste mapa de booleanos.
 _FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {}
@@ -623,7 +644,14 @@ class MarinaGraph:
         audit_sink: AuditStartSink,
         fhir: PatientSummaryReader | None = None,
         agent_version: str = "marina@v0",
+        contas_start_dedup_exclusive: bool = False,
     ) -> None:
+        if type(contas_start_dedup_exclusive) is not bool:
+            raise TypeError(
+                "contas_start_dedup_exclusive must be a bool (dark flag, default off) — got "
+                f"{type(contas_start_dedup_exclusive).__name__}; a truthy string must never "
+                "silently arm the EXCLUSIVE start gate"
+            )
         self._llm = inference
         self._dmn = dmn
         self._cibseven = cibseven
@@ -632,6 +660,12 @@ class MarinaGraph:
         self._model_id = getattr(inference, "model_id", None)
         self._fhir = fhir
         self._agent_version = agent_version
+        # R-101 / F-139 — DARK (default off). When True, SP-OP-CONTAS-001 starts are promoted to
+        # the `EXCLUSIVE` start-dedup posture (`transport._FLAGGED_START_DEDUP_PROMOTIONS`):
+        # concurrent re-sends of the same lote/conta resolve to ONE instance against engine
+        # evidence instead of the TOCTOU-prone `find_active_instance` alone. The DL-0046 policy
+        # map keeps CONTAS `NON_STRICT` ("Human call"); flipping this flag is that human call.
+        self._contas_start_dedup_exclusive = contas_start_dedup_exclusive
 
     # -- Nodes ----------------------------------------------------------------------------
 
@@ -659,7 +693,9 @@ class MarinaGraph:
         elif flow == "reembolso":
             key_ok = bool(state.get("protocolo_reembolso"))
         else:
-            key_ok = bool(state.get("numero_lote_tiss") or state.get("numero_guia_tiss"))
+            # R-101 / F-139: the composer decides. Pre-fix this accepted `lote OR guia`, and a guia
+            # WITHOUT conta (and without lote) was stamped with the degenerate `CONTAS-{tenant}-`.
+            key_ok = _has_contas_business_key(state)
         if not tenant_ok or not key_ok:
             return {
                 **sanitized,
@@ -945,6 +981,7 @@ class MarinaGraph:
                 variables=variables,
                 audit_sink=self._audit_sink,
                 provenance=provenance,
+                promote_start_dedup=self._contas_start_dedup_exclusive and _flow(state) == "contas",
             )
         except CibSevenError as exc:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
@@ -1349,6 +1386,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[MarinaState]:
             "audit_sink is the T-C2 fence — no process start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "marina@v0"))
+    contas_start_dedup_exclusive = cfg.get("contas_start_dedup_exclusive", False)
     return MarinaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -1356,6 +1394,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[MarinaState]:
         audit_sink=cast(AuditStartSink, audit_sink),
         fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
         agent_version=agent_version,
+        contas_start_dedup_exclusive=contas_start_dedup_exclusive,
     ).compile_graph()
 
 

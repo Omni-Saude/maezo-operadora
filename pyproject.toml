@@ -218,7 +218,10 @@ exclude-newer = "2026-08-05T00:00:00Z"
 # - opentelemetry-* (29/10/2026, F-094): api 1.43.0 tem CVE-2026-114603 (GHSA-xcq7-p3pf-p88h, ReDoS em
 #   TraceState.from_header), fix 1.45.1 de 06/10; a familia sdk/exporter/proto/semconv acompanha a
 #   mesma versao (e o exporter passa a exigir opentelemetry-exporter-otlp-common==0.66b1). Janela ate' 07/10: 1.45.2 (29/10) continua em quarentena.
-exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph-checkpoint = "2026-10-13T00:00:00Z", langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z", langgraph-sdk = "2026-10-17T00:00:00Z", mcp = "2026-09-08T00:00:00Z", opentelemetry-api = "2026-10-07T00:00:00Z", opentelemetry-sdk = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-common = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-common = "2026-10-07T00:00:00Z", opentelemetry-proto = "2026-10-07T00:00:00Z", opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+# - pyasn1 (30/10/2026): 0.6.4 recebeu 4 GHSA HIGH em 30/10 (GHSA-2qm8-x737-gmw5,
+#   GHSA-9m75-vc3g-4x39, GHSA-fm9c-5rcf-2q5p, GHSA-mm57-4v3p-rchx: DoS por CPU quadratica no
+#   decoder BER/CER/DER), fix 0.6.5 publicado em 27/10 06:32 UTC (transitiva). Janela ate' 28/10.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph-checkpoint = "2026-10-13T00:00:00Z", langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z", langgraph-sdk = "2026-10-17T00:00:00Z", mcp = "2026-09-08T00:00:00Z", opentelemetry-api = "2026-10-07T00:00:00Z", opentelemetry-sdk = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-common = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-common = "2026-10-07T00:00:00Z", opentelemetry-proto = "2026-10-07T00:00:00Z", opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z", pyasn1 = "2026-10-28T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -230,6 +233,7 @@ markers = [
     "llm_live: real Anthropic API call (T1.7); skipped loudly without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY",
     "root_fixture: exige fixture PRIVADO fornecido pelo ROOT (variavel de ambiente + manifesto); DESELECIONADO pelo lane global -m integration salvo MAEZO_ROOT_FIXTURES=1 — ver tests/integration/conftest.py::pytest_collection_modifyitems; nunca skip, nunca deselect escondido",
     "chaos: T3.3 seam-level fault-injection / cross-process resilience suite (tests/integration/chaos/); PG-only (no cibseven), runs in the dedicated `chaos` CI job — see docs/design/T3.3-chaos-resilience.md",
+    "performance: medicao de latencia/carga (R-086, p95 do AUTH); sempre junto de `integration` (engine real) — selecao explicita com -m performance; ver tests/load/README.md",
 ]
 
 [tool.ruff]

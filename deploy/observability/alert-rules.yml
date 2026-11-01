@@ -5,8 +5,30 @@
 #
 # Categories:
 #   1. SLA breach — agent/worker latency or error rate exceeds thresholds
-#   2. Crash-loop — frequent worker/agent restarts
-#   3. Dead-letter — unprocessed messages accumulating in DLQ
+#   2. Crash-loop — frequent worker/agent CONTAINER RESTARTS (kube-state-metrics)
+#   3. Dead-letter — NEW messages arriving at a DLQ topic
+#   4. Governanca de agentes / HITL L1 / Kafka consumidor parado
+#
+# ROTEAMENTO (R-085, decisao do dono 2026-10-31, #1084 Rodada 2): `severity` passa a ter efeito —
+# `deploy/observability/alertmanager-amp.yml.tftpl` roteia `critical` -> receptor `page` e
+# `warning` -> receptor `ticket` (qualquer outro valor cai em `ticket`, nunca em page). A definicao
+# so existe no workspace AMP quando a implantacao liga o roteamento (dark; ver
+# deploy/aws-ecs/envs/dev-sa-east-1/alert-routing.tf e o modulo observability).
+#
+# PARAMETROS SEM FONTE (R-085). Onde a analise/o dono fixou a FORMA mas nao o NUMERO, o numero
+# abaixo e um PARAMETRO explicito, marcado `TODO-OWNER(P<n>)` na regra que o usa — nunca um limiar
+# de negocio inventado. O dono substitui cada um depois de medir o baseline:
+#   P1  volume minimo de observacoes por (worker, topic) em 5m — MaezoSLAWorkerLatencyHigh (10)
+#   P2  volume minimo de turnos por agente em 5m — MaezoSLAAgentErrorRateHigh (10)
+#   P3  volume minimo de despachos por (tenant, topic) em 5m — MaezoSLAWorkerErrorRateHigh (10)
+#   P4  janela de chegadas novas na DLQ — MaezoDeadLetterBacklog (10m)
+#   P5  janela curta de confirmacao — MaezoEscalationRateHigh (5m; forma 1h & 5m do SLO.md §5)
+#   P6  volume minimo de desfechos por (agente, ambiente) em 1h — MaezoEscalationRateHigh (10)
+#   P7  janela sem progresso do consumidor (> p99 do processamento) — MaezoKafkaConsumerStalled (15m)
+#   P8  janela corrente / baseline / defasagem — MaezoHITLApprovalRateDrop (7d / 28d / offset 7d)
+#   P9  k erros-padrao binomiais abaixo do baseline — MaezoHITLApprovalRateDrop (3)
+#   P10 volume minimo de decisoes na janela corrente — MaezoHITLApprovalRateDrop (30)
+#   P11 severidade dos crash loops rebaseados em restart (warning; promover a critical = dono)
 #
 # `runbook_url` (D12-01-b / R-007): every `alert:` rule below carries one, pointing at the
 # SPECIFIC docs/runbooks/alerts/<AlertName>.md that covers it (never a generic index). Fenced by
@@ -21,11 +43,21 @@ groups:
   - name: maezo_sla
     rules:
       # Worker latency SLA: p95 > 5s for 5 minutes
+      #
+      # R-085 (owner 2026-10-31, "guardas de volume minimo"): `sum by (le, worker, topic)` antes do
+      # quantil (agregar replicas; sem isso o p95 era por pod) e guarda de volume minimo — num
+      # topico de baixo volume UMA tarefa lenta ERA o p95. TODO-OWNER(P1): volume minimo.
       - alert: MaezoSLAWorkerLatencyHigh
         expr: |
-          histogram_quantile(0.95,
-            rate(maezo_worker_execution_time_seconds_bucket[5m])
-          ) > 5
+          (
+            histogram_quantile(0.95,
+              sum by (le, worker, topic) (rate(maezo_worker_execution_time_seconds_bucket[5m]))
+            ) > 5
+          )
+          and on (worker, topic)
+          (
+            sum by (worker, topic) (increase(maezo_worker_execution_time_seconds_count[5m])) >= 10
+          )
         for: 5m
         labels:
           severity: warning
@@ -49,23 +81,47 @@ groups:
       # mismatched `error_type` label between numerator and denominator (`tool_calls` always
       # carries the `error_type="nao_aplicavel"` sentinel — see metrics.py) — `by (agent)`
       # aggregates it away on both sides instead of requiring the label sets to be identical.
+      #
+      # R-085 (owner 2026-10-31: "erro de agente -> warning, corrigir +Inf/unidades"). O
+      # denominador era `maezo_tool_calls_total` — chamadas de EFEITO, unidade diferente do
+      # numerador (TURNOS falhos) — e um turno falho numa janela sem tool call dava x/0 = +Inf >
+      # 0.01: critical por UM erro. Agora o denominador e TURNOS: turnos falhos (`errors`) +
+      # turnos que terminaram com desfecho (`maezo_agent_desfecho_total`, rotulo `agent_id`
+      # renomeado para `agent` por `label_replace`). Os dois conjuntos de rotulos nunca coincidem,
+      # entao `A or B` dentro de UM `sum by (agent)` e a soma A+B; denominador >= numerador, a razao
+      # fica em [0, 1] e nunca e +Inf. Um turno que levanta excecao NAO emite desfecho (o no
+      # terminal do grafo nao roda — `record_agent_error`); a falha de inicio CC-01 conta nos dois
+      # (superestima levemente o denominador — limite declarado). Severidade `warning`: nao ha SLO
+      # de agente ratificado (SLO.md). 1% continua sem fonte (herdado). TODO-OWNER(P2): volume minimo.
       - alert: MaezoSLAAgentErrorRateHigh
         expr: |
           (
-            sum by (agent) (rate(maezo_agent_errors_total[5m]))
+            sum by (agent) (increase(maezo_agent_errors_total[5m]))
             /
-            sum by (agent) (rate(maezo_tool_calls_total[5m]))
+            sum by (agent) (
+              increase(maezo_agent_errors_total[5m])
+              or
+              label_replace(increase(maezo_agent_desfecho_total[5m]), "agent", "$1", "agent_id", "(.+)")
+            )
           ) > 0.01
+          and on (agent)
+          (
+            sum by (agent) (
+              increase(maezo_agent_errors_total[5m])
+              or
+              label_replace(increase(maezo_agent_desfecho_total[5m]), "agent", "$1", "agent_id", "(.+)")
+            ) >= 10
+          )
         for: 5m
         labels:
-          severity: critical
+          severity: warning
           category: sla
           component: agents
         annotations:
           summary: "Agent error rate exceeds 1% (SLA breach)"
           description: >
-            Agent {{ $labels.agent }} error rate is {{ $value | humanizePercentage }}
-            over the last 5 minutes. SLA threshold: 1%.
+            Agent {{ $labels.agent }} failed {{ $value | humanizePercentage }} of its turns
+            over the last 5 minutes (failed turns / all turns). Threshold: 1%.
             Check agent logs and LLM provider health.
           runbook_url: "docs/runbooks/alerts/MaezoSLAAgentErrorRateHigh.md"
 
@@ -82,13 +138,26 @@ groups:
       # `sum by (worker, topic) (...)` on BOTH sides — same technique the sibling
       # `MaezoSLAAgentErrorRateHigh` above already uses (`ALERT-COUNTER-LABELS (R-063)`) —
       # aggregates away the mismatched `error_type` label instead of requiring the sets to match.
+      #
+      # R-085 (owner 2026-10-31: "corrigir unidades" + "volume minimo"). O denominador antigo
+      # (`maezo_worker_execution_time_seconds_count`) contava SO sucessos (`record_worker_execution`
+      # roda no `try`, `record_worker_error` no `except` — tools/workers/base.py), entao a razao era
+      # erros/sucessos (1 falha + 1 sucesso = 100%) e contava recusas de guarda desenhadas. Agora le
+      # o contador de DESPACHO de cobertura total `maezo_worker_task_total{tenant,topic,outcome}`
+      # (harness, todo ramo terminal): falhas (`failed|incident`) / todos os despachos. `bpmn_error`
+      # (recusa desenhada, ex.: guarda ERR_*) fica FORA do numerador. 5% herdado, sem fonte.
+      # TODO-OWNER(P3): volume minimo.
       - alert: MaezoSLAWorkerErrorRateHigh
         expr: |
           (
-            sum by (worker, topic) (rate(maezo_worker_error_count_total[5m]))
+            sum by (tenant, topic) (rate(maezo_worker_task_total{outcome=~"failed|incident"}[5m]))
             /
-            sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))
+            sum by (tenant, topic) (rate(maezo_worker_task_total[5m]))
           ) > 0.05
+          and on (tenant, topic)
+          (
+            sum by (tenant, topic) (increase(maezo_worker_task_total[5m])) >= 10
+          )
         for: 5m
         labels:
           severity: warning
@@ -97,9 +166,9 @@ groups:
         annotations:
           summary: "Worker error rate exceeds 5% (SLA breach)"
           description: >
-            Worker {{ $labels.worker }} on topic {{ $labels.topic }}
-            has error rate of {{ $value | humanizePercentage }} over last 5m.
-            SLA threshold: 5%. Check worker logs.
+            Tenant {{ $labels.tenant }}, topic {{ $labels.topic }}: {{ $value | humanizePercentage }}
+            of external-task dispatches ended failed/incident over the last 5m
+            (designed BPMN-error refusals excluded). Threshold: 5%. Check worker logs.
           runbook_url: "docs/runbooks/alerts/MaezoSLAWorkerErrorRateHigh.md"
 
   # ---------------------------------------------------------------------------
@@ -107,42 +176,53 @@ groups:
   # ---------------------------------------------------------------------------
   - name: maezo_crash_loop
     rules:
-      # Worker crash-loop: > 3 restarts in 5 minutes
+      # REBASEADO (R-085, owner 2026-10-31: "remover/rebasear os 2 falsos crash loop"). A regra
+      # antiga era `rate(maezo_worker_error_count_total[5m]) > 0.01` — uma TAXA DE ERRO (duplicata
+      # de MaezoSLAWorkerErrorRateHigh, incluindo recusas de guarda desenhadas), nao um crash loop.
+      # Agora le o que o nome promete: reinicios do container `worker-daemon`
+      # (deploy/helm/maezo-tenant/templates/deployment-worker-daemon.yaml) pelo
+      # `kube_pod_container_status_restarts_total` do kube-state-metrics. Limiar ">= 3 em 15 min" e
+      # a assinatura CrashLoopBackOff que o runbook ja fixa (devops-stack.md §"Crash loop"). Sem
+      # serie no ECS dev (nao ha kube-state-metrics la) — nao dispara falso, so nao tem o que ver.
+      # TODO-OWNER(P11): severidade (warning ate o dono promover).
       - alert: MaezoWorkerCrashLoop
         expr: |
-          rate(maezo_worker_error_count_total[5m]) > 0.01
-        for: 5m
+          sum by (namespace, pod, container) (
+            increase(kube_pod_container_status_restarts_total{container="worker-daemon"}[15m])
+          ) >= 3
         labels:
-          severity: critical
+          severity: warning
           category: crash_loop
           component: workers
         annotations:
-          summary: "Worker crash-loop detected: {{ $labels.worker }}"
+          summary: "Worker container crash-looping: {{ $labels.namespace }}/{{ $labels.pod }}"
           description: >
-            Worker {{ $labels.worker }} on topic {{ $labels.topic }}
-            is experiencing sustained error rate of {{ $value }} errors/s
-            (error type: {{ $labels.error_type }}).
-            This may indicate a crash-loop. Check worker health and recent deployments.
+            Container {{ $labels.container }} of pod {{ $labels.pod }} (namespace
+            {{ $labels.namespace }}) restarted {{ $value }} times in the last 15 minutes
+            (CrashLoopBackOff signature). Check `kubectl logs --previous` for the startup failure.
           runbook_url: "docs/runbooks/alerts/MaezoWorkerCrashLoop.md"
 
-      # Agent restart loop: errors > 0 within 1 minute, sustained for 2 minutes
-      #
-      # ALERT-COUNTER-LABELS (R-063): `sum by (agent)` names WHICH agent is crash-looping instead
-      # of collapsing all 10 agents into one series — see the note on MaezoSLAAgentErrorRateHigh.
+      # REBASEADO (R-085, mesma decisao do dono). A regra antiga, `sum by (agent)
+      # (rate(maezo_agent_errors_total[1m])) > 0` por 2m, contava TURNOS falhos (nao reinicios),
+      # com `[1m]` = duas amostras a 30s de raspagem e o primeiro erro de cada agente invisivel.
+      # A taxa de erro de agente e o trabalho de MaezoSLAAgentErrorRateHigh; este alerta agora le
+      # reinicios do container `agent-runtime` (deployment-agent-runtime.yaml). Mesmo limiar
+      # sourced (runbook §"Crash loop": >= 3 em 15 min). TODO-OWNER(P11): severidade.
       - alert: MaezoAgentCrashLoop
         expr: |
-          sum by (agent) (rate(maezo_agent_errors_total[1m])) > 0
-        for: 2m
+          sum by (namespace, pod, container) (
+            increase(kube_pod_container_status_restarts_total{container="agent-runtime"}[15m])
+          ) >= 3
         labels:
-          severity: critical
+          severity: warning
           category: crash_loop
           component: agents
         annotations:
-          summary: "Agent crash-loop detected: {{ $labels.agent }}"
+          summary: "Agent container crash-looping: {{ $labels.namespace }}/{{ $labels.pod }}"
           description: >
-            Agent {{ $labels.agent }} errors detected at rate {{ $value }}/s sustained for 2 minutes.
-            Possible crash-loop or persistent upstream failure.
-            Check agent health endpoint and restart policy.
+            Container {{ $labels.container }} of pod {{ $labels.pod }} (namespace
+            {{ $labels.namespace }}) restarted {{ $value }} times in the last 15 minutes
+            (CrashLoopBackOff signature). Check `kubectl logs --previous` for the startup failure.
           runbook_url: "docs/runbooks/alerts/MaezoAgentCrashLoop.md"
 
   # ---------------------------------------------------------------------------
@@ -166,24 +246,35 @@ groups:
       # target the day G4 (Terraform apply, `TF-ALERT-RULES-EXT`/staging plan) stops being
       # external-blocked. DLQ-EXPORTER-GAUGE (R-069) is a scope precision of this same decision
       # (OWNER-DECISIONS-REGISTER pergunta 56, memo M-28) — it opens no work item of its own.
+      #
+      # R-085 (owner 2026-10-31: "DLQ por chegadas novas"). `maezo_dead_letter_queue_size` e um
+      # offset MONOTONICO (ver HONESTY LIMIT abaixo): `> 0` disparava PARA SEMPRE depois da primeira
+      # mensagem da vida do broker, e `for: 10m` nao ajudava (entrada monotona). Agora o alerta e o
+      # invariante "nao deveria acontecer": houve CHEGADA NOVA na DLQ na janela — `increase()` por
+      # particao do offset do exporter, somado — sem `for`. As series do exporter existem desde a
+      # criacao do topico, entao a primeira mensagem e visivel. TODO-OWNER(P4): janela.
       - alert: MaezoDeadLetterBacklog
         expr: |
-          maezo_dead_letter_queue_size > 0
-        for: 10m
+          sum by (topic, environment) (
+            increase(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[10m])
+          ) > 0
         labels:
           severity: warning
           category: dead_letter
           component: messaging
         annotations:
-          summary: "Dead-letter queue backlog detected"
+          summary: "New messages arrived at dead-letter topic {{ $labels.topic }}"
           description: >
-            Dead-letter queue has {{ $value }} unprocessed messages
-            for more than 10 minutes.
+            {{ $value }} new message(s) were routed to dead-letter topic {{ $labels.topic }}
+            in the last 10 minutes.
             Investigate message payloads and consumer health.
             Topics affected may need manual replay or purge.
           runbook_url: "docs/runbooks/alerts/MaezoDeadLetterBacklog.md"
 
       # Dead-letter growth rate: > 5 messages/sec inflow, sustained for 5m.
+      # TODO-OWNER (R-085, analise B.1 #7): o limiar 5/s nao tem fonte (SLO.md diz "5/min") e a
+      # severidade `critical` so se justifica se os topicos com DLQ forem voltados ao usuario. NAO
+      # alterado aqui — o dono nao decidiu este alerta; com o roteamento novo ele PAGINA.
       # See MaezoDeadLetterBacklog above (R-056) for `maezo_dead_letter_queue_size`'s derivation
       # and honesty limit. This alert deliberately does NOT read that series: reads
       # `maezo_dead_letter_inflow_rate` instead (defined in the `maezo_dead_letter_derived` group
@@ -420,3 +511,228 @@ groups:
             expected to succeed genuinely failed; either way this is a real
             signal, not noise.
           runbook_url: "docs/runbooks/alerts/MaezoLifecycleJobFailed.md"
+
+  # ---------------------------------------------------------------------------
+  # Governanca de agentes (R-085 / F-090 — ADR-0010 "Alertas: budget A2A estourado, queda de
+  # aprovacao humana, spike de custo"; docs/runbooks/devops-stack.md §6 "PEP deny spike" e
+  # "Escalation rate"). FONTE DE CADA LIMIAR, citada regra a regra abaixo — nenhum numero foi
+  # inventado aqui. O que ficou de FORA, e por que (cada um exige decisao/fonte do dono, nao um
+  # chute neste arquivo):
+  #   * queda de aprovacao humana L1 (`MaezoHITLApprovalRateDrop`) — AGORA no grupo
+  #     `maezo_hitl_l1` abaixo, sobre `maezo_l1_decision_total` (poller do historico do engine,
+  #     decisao do dono 2026-10-31). O rele de decisao humana D6 continua inexistente (issue #1145).
+  #   * spike de custo (`MaezoLLMCostSpike`/`MaezoA2ATaskBudgetExceeded` em USD) — so existem
+  #     contagens de token (`maezo_llm_tokens_total`); preco por token e decisao de financas.
+  #   * `MaezoAuditLagHigh` — REMOVIDO (decisao do dono R-085, 2026-10-31): nao ha consumidor Kafka
+  #     de auditoria; a trilha ADR-0007 e gravada de forma sincrona e fail-closed.
+  #   * `MaezoKafkaConsumerLagHigh` (lag ABSOLUTO) — nao existe; no lugar, o invariante sem limiar
+  #     de negocio `MaezoKafkaConsumerStalled` (grupo `maezo_kafka`, decisao do dono 2026-10-31).
+  # JANELAS/`for`: onde a fonte nao fixa janela, seguem a convencao das regras `maezo_sla` acima
+  # (`[5m]`, `for: 5m`) — convencao deste arquivo, nao fonte de negocio. TODO-OWNER: confirmar.
+  # SEVERIDADE: `warning` em todas (nenhuma fonte manda paginar como critical). TODO-OWNER.
+  - name: maezo_governanca_agentes
+    rules:
+      # PEP deny spike — "The Policy Enforcement Point is denying > 1 req/s — attack,
+      # misconfiguration, or policy regression" (docs/runbooks/devops-stack.md §6 "PEP deny
+      # spike"). Le SO recusas que BLOQUEIAM (`enforced="true"`): com o manifesto de aprovacoes
+      # ainda DRAFT toda classe nega em SOMBRA (WOULD_DENY), e um alerta sobre recusas-sombra
+      # paginaria por todo trafego normal. Enquanto nada estiver em `enforcing` este alerta nao
+      # tem o que disparar — por desenho, nao por defeito.
+      - alert: MaezoPEPDenySpike
+        expr: |
+          sum by (tenant) (
+            rate(maezo_gateway_pep_decision_total{decision="deny", enforced="true"}[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: governanca
+          component: gateway
+        annotations:
+          summary: "PEP is enforcing more than 1 deny/s on tenant {{ $labels.tenant }}"
+          description: >
+            The effect PEP blocked {{ $value }} calls/s over the last 5 minutes on tenant
+            {{ $labels.tenant }} (enforced denies only; shadow WOULD_DENY is excluded).
+            Threshold 1 req/s from docs/runbooks/devops-stack.md "PEP deny spike".
+            Break down by principal/layer/reason in maezo_gateway_pep_decision_total.
+          runbook_url: "docs/runbooks/alerts/MaezoPEPDenySpike.md"
+
+      # Budget A2A estourado — ADR-0010 ("Alertas: budget A2A estourado") sobre a guarda 3 de
+      # ADR-0003 (orcamento por salto, `a2a.delegation.Budget.charge`). O EVENTO e o alerta: o
+      # ADR nao fixa taxa, entao qualquer recusa por orcamento na janela dispara (`> 0`). Nao e o
+      # `MaezoA2ATaskBudgetExceeded` do runbook (gasto em USD/min) — esse continua PLANEJADO por
+      # falta de metrica de custo.
+      # ESTRUTURALMENTE INALCANCAVEL HOJE: nenhum handler de producao subdelega (nenhuma chamada a
+      # DelegationEnvelope.extend em src/; todo .delegate() parte de um worker originador com
+      # Budget(tokens=64) novo e DelegationEnvelope.root). A serie fica em 0 ate existir
+      # subdelegacao real; recusas de guarda na construcao do root (no worker) NAO sao contadas.
+      # TODO-OWNER.
+      - alert: MaezoA2ABudgetExhausted
+        expr: |
+          sum by (target) (
+            increase(maezo_a2a_guard_refusal_total{guard="budget_exhausted"}[5m])
+          ) > 0
+        labels:
+          severity: warning
+          category: governanca
+          component: a2a
+        annotations:
+          summary: "A2A delegation budget exhausted (target {{ $labels.target }})"
+          description: >
+            {{ $value }} A2A delegation(s) handled by {{ $labels.target }} were refused in the
+            last 5 minutes because the delegation budget was exhausted (ADR-0003 guard 3).
+            ADR-0010 requires this to alert. Check the delegation chain in the A2A audit trail.
+          runbook_url: "docs/runbooks/alerts/MaezoA2ABudgetExhausted.md"
+
+      # Escalation rate — "An agent is escalating > 30% of its conversations to a human ... over
+      # a 1-hour window" (docs/runbooks/devops-stack.md §6 "Escalation rate"). Le o contador CC-09
+      # `maezo_agent_desfecho_total` (desfecho `escalado_humano`, o token que os vocabularios
+      # fechados de Helena e Lucas declaram — `runtime.turn_telemetry._DESFECHO_VOCAB`) em vez dos
+      # `maezo_escalation_total`/`maezo_conversation_total` que o runbook imaginava e que nunca
+      # existiram. O denominador inclui toda desfecho do agente (mesma regra das recording rules
+      # `maezo_agent_kpi_derived`). LIMITE (TODO-OWNER): `sum by (agent_id)` SOMA todos os tenants
+      # raspados pelo mesmo Prometheus/AMP e o alerta NAO carrega rotulo de tenant. Nao ha rotulo de
+      # tenant/namespace provado nestas series em todos os destinos (nenhuma regra deste arquivo nem
+      # o prometheus.yml de dev usa `namespace`), entao a agregacao por tenant fica para o dono.
+      # Mede TURNOS (desfechos), nao conversas.
+      # R-085 (owner 2026-10-31: "volume minimo + 2 janelas, agregado por agente e ambiente"):
+      # agrega `by (agent_id, environment)` (`environment` e rotulo de raspagem do coletor ECS,
+      # otel-collector-ecs-dev.yaml; ausente no compose local = um unico grupo), confirma numa
+      # janela CURTA com o MESMO 30% sourced (dispara e limpa rapido — padrao 1h & 5m do SLO.md §5)
+      # e exige volume minimo na janela de 1h (1 escalacao em 1 turno nao e 100%).
+      # TODO-OWNER(P5): janela curta. TODO-OWNER(P6): volume minimo.
+      - alert: MaezoEscalationRateHigh
+        expr: |
+          (
+            sum by (agent_id, environment) (increase(maezo_agent_desfecho_total{desfecho="escalado_humano"}[1h]))
+            /
+            sum by (agent_id, environment) (increase(maezo_agent_desfecho_total[1h]))
+          ) > 0.30
+          and on (agent_id, environment)
+          (
+            sum by (agent_id, environment) (increase(maezo_agent_desfecho_total{desfecho="escalado_humano"}[5m]))
+            /
+            sum by (agent_id, environment) (increase(maezo_agent_desfecho_total[5m]))
+          ) > 0.30
+          and on (agent_id, environment)
+          (
+            sum by (agent_id, environment) (increase(maezo_agent_desfecho_total[1h])) >= 10
+          )
+        labels:
+          severity: warning
+          category: governanca
+          component: agents
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} escalated more than 30% of turns in 1h"
+          description: >
+            Agent {{ $labels.agent_id }} ({{ $labels.environment }}) ended
+            {{ $value | humanizePercentage }} of its turns with escalado_humano over the last hour,
+            confirmed over the last 5 minutes. Threshold 30% / 1h from
+            docs/runbooks/devops-stack.md "Escalation rate".
+          runbook_url: "docs/runbooks/alerts/MaezoEscalationRateHigh.md"
+
+  # ---------------------------------------------------------------------------
+  # HITL L1 — queda da taxa de aprovacao humana (R-085; ADR-0010 "queda de aprovacao humana")
+  # ---------------------------------------------------------------------------
+  # Decisao do dono 2026-10-31 (#1084, Rodada 2 "Observabilidade"): metrica do poller do historico
+  # do engine (`maezo_l1_decision_total`, emitida SO por
+  # `runtime.worker_runtime.engine_metrics.EngineMetricsPoller`, DARK atras de
+  # `MAEZO_L1_DECISION_POLLER`), alerta por QUEDA contra o PROPRIO baseline, em DIAS, `warning`.
+  # Sem o poller ligado nao ha serie e o alerta nao tem o que avaliar — por desenho.
+  - name: maezo_hitl_l1
+    rules:
+      # REATIVADO com emissor real (o `MaezoHITLApprovalRateDrop` antigo foi REMOVIDO por dividir
+      # por um contador sem emissor — devops-stack.md §"HITL approval drop"). Por
+      # (tenant, agent_id, action_class): a fracao APROVADA da janela corrente cai mais de k erros-
+      # padrao binomiais abaixo da fracao do baseline da propria serie, com volume minimo.
+      # "Aprovada" = o token que EXECUTA a acao L1 da tarefa (o que o guard do worker exige):
+      # APROVAR (release_high_value_payment), APROVAR_ENVIO (ans submit), DESCREDENCIAR
+      # (register descredenciamento), CONCEDER | RESPONDER_NAO_ASSISTENCIAL (resposta NIP nao
+      # adversa, nip_response), COMPROMISSO_FALLBACK (register_fallback_commitment). Denominador =
+      # toda decisao com token BPMN (`decisao=~"[A-Z_]+"`): `sem_decisao`/`desconhecido` ficam fora.
+      # TODO-OWNER (analise A.3 item 1): a definicao das classes de desfecho — em especial se
+      # SOLICITAR_INFO/CORRIGIR_PENDENCIA contam contra a aprovacao — e do dono; os dossies L1 NAO
+      # recomendam, entao isto mede mix de casos/qualidade do dossie, nao concordancia.
+      # TODO-OWNER(P8): janelas 7d / 28d / offset 7d (o baseline de 28d com offset de 7d exige
+      # ~35d de retencao: AMP sim, o Prometheus local de 15d nao). TODO-OWNER(P9): k = 3.
+      # TODO-OWNER(P10): volume minimo = 30 decisoes na janela corrente. Sem `for`: em dias, `for`
+      # nada acrescenta.
+      - alert: MaezoHITLApprovalRateDrop
+        expr: |
+          (
+            sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"APROVAR|APROVAR_ENVIO|DESCREDENCIAR|CONCEDER|RESPONDER_NAO_ASSISTENCIAL|COMPROMISSO_FALLBACK"}[7d]))
+            /
+            sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[7d]))
+          )
+          < on (tenant, agent_id, action_class)
+          (
+            (
+              sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"APROVAR|APROVAR_ENVIO|DESCREDENCIAR|CONCEDER|RESPONDER_NAO_ASSISTENCIAL|COMPROMISSO_FALLBACK"}[28d] offset 7d))
+              /
+              sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[28d] offset 7d))
+            )
+            - 3 * sqrt(
+              (
+                sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"APROVAR|APROVAR_ENVIO|DESCREDENCIAR|CONCEDER|RESPONDER_NAO_ASSISTENCIAL|COMPROMISSO_FALLBACK"}[28d] offset 7d))
+                /
+                sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[28d] offset 7d))
+              )
+              * (
+                1 - (
+                  sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"APROVAR|APROVAR_ENVIO|DESCREDENCIAR|CONCEDER|RESPONDER_NAO_ASSISTENCIAL|COMPROMISSO_FALLBACK"}[28d] offset 7d))
+                  /
+                  sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[28d] offset 7d))
+                )
+              )
+              / sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[7d]))
+            )
+          )
+          and on (tenant, agent_id, action_class)
+          (
+            sum by (tenant, agent_id, action_class) (increase(maezo_l1_decision_total{decisao=~"[A-Z_]+"}[7d])) >= 30
+          )
+        labels:
+          severity: warning
+          category: hitl
+          component: agents
+        annotations:
+          summary: "L1 human approval share dropped for {{ $labels.agent_id }} / {{ $labels.action_class }}"
+          description: >
+            Over the last 7 days the share of L1 decisions that executed the action
+            ({{ $labels.action_class }}, dossier by {{ $labels.agent_id }}, tenant {{ $labels.tenant }})
+            fell to {{ $value | humanizePercentage }}, more than 3 binomial standard errors below its
+            own 28-day baseline. Quality/drift signal (ADR-0010), not user impact: review recent
+            dossiers and case mix before touching the agent.
+          runbook_url: "docs/runbooks/alerts/MaezoHITLApprovalRateDrop.md"
+
+  # ---------------------------------------------------------------------------
+  # Kafka — consumidor parado (R-085, decisao do dono 2026-10-31: "lag Kafka como consumidor
+  # parado")
+  # ---------------------------------------------------------------------------
+  - name: maezo_kafka
+    rules:
+      # Invariante SEM limiar de negocio: o grupo tem backlog (`lag > 0`) e o offset consumido NAO
+      # andou na janela. Um lag absoluto exigiria um objetivo de frescor que nao existe (CDC/Kafka
+      # fora do escopo do SLO.md). Series do danielqsj/kafka_exporter (job `kafka-exporter`,
+      # prometheus.yml) — so no compose/CI hoje; no ECS dev nao ha exporter, entao nao ha serie.
+      # TODO-OWNER(P7): janela W (deve exceder o p99 do tempo de processamento por mensagem).
+      - alert: MaezoKafkaConsumerStalled
+        expr: |
+          (
+            sum by (consumergroup, topic, environment) (kafka_consumergroup_lag_sum) > 0
+          )
+          and on (consumergroup, topic, environment)
+          (
+            sum by (consumergroup, topic, environment) (increase(kafka_consumergroup_current_offset_sum[15m])) == 0
+          )
+        labels:
+          severity: warning
+          category: messaging
+          component: messaging
+        annotations:
+          summary: "Kafka consumer group {{ $labels.consumergroup }} stalled on {{ $labels.topic }}"
+          description: >
+            Consumer group {{ $labels.consumergroup }} has {{ $value }} message(s) of lag on topic
+            {{ $labels.topic }} and its committed offset did not advance in the last 15 minutes
+            (backlog with zero progress). Check the consuming service's health and logs.
+          runbook_url: "docs/runbooks/alerts/MaezoKafkaConsumerStalled.md"

@@ -27,7 +27,7 @@ Fontes rastreadas (as ÚNICAS; cada linha do artefato cita arquivo:linha)
 2. `docs/plans/w5-5-1-flags-reancoragem.md` §3 — inventário rastreado das flags de
    habilitação dark (6 grupos; 32 interruptores ENUMERADOS linha a linha — o headline do doc
    diz 31, a soma dos parciais declarados por ele é 5+3+3+1+19+2 = 33, e a linha B-F1
-   (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com DL-0158, que removeu o interruptor; a divergência é
+   (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com DL-0159, que removeu o interruptor; a divergência é
    registrada no painel, não reproduzida). Cada linha cita a linha da tabela do doc E a âncora
    de código da flag (verificada viva contra a árvore).
 3. `docs/review-queue.md` — as linhas da fila que nomeiam interruptor + revisor + janela
@@ -512,7 +512,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "default `False`; cercado por `scripts/ci/check_portal_direct_completion.py` (7 cercas)",
         Anchor("src/maezo/portal/api/config.py", "direct_completion: bool = False", 37),
         Anchor(FLAGS_DOC, "MAEZO_PORTAL_DIRECT_COMPLETION", 46),
-        "DL-0049 (relay #427)",
+        "DL-0049 (relay #1145)",
         "end-state = REMOÇÃO com o relay, não flip",
     ),
     FlagRow(
@@ -806,7 +806,7 @@ _FLAGS_DOC_GRUPO_ANCHORS: Final[tuple[Anchor, ...]] = (
 #: O headline do doc §3 ("soma checada: 31 interruptores em 6 grupos") diverge da SOMA DOS
 #: PRÓPRIOS PARCIAIS que ele declara no fechamento (`TOTAL GERAL: 5+3+3+1+19+2`), que dá 33:
 #: A(5) + B(3) + C(3) + D(1) + E(19 = 17 default-False + 2 exceções default-True) + F(2) = 33 no doc; o
-#: painel enumera 32 (B-F1 removida por DL-0158).
+#: painel enumera 32 (B-F1 removida por DL-0159).
 #: O `31` do headline é o subtotal A..E (5+3+3+1+19) que ficou congelado no fechamento. O
 #: dashboard segue o INVENTÁRIO ENUMERADO (32 — é o que existe linha a linha no doc) e
 #: REGISTRA a divergência no título da seção com o número extraído VIVO do headline — sem
@@ -923,8 +923,8 @@ CANDIDATE_ROWS: Final[tuple[CandidateRow, ...]] = (
         "auditoria-contas + compliance",
         Anchor("spec/processes/dmn/glosa-triage-shadow-candidate.yaml", "regras_candidatas:"),
         Anchor(QUEUE_DOC, "glosa-triage-shadow-candidate.yaml", 640),
-        'conjunto negativo `not("tecnica","clinica")` admite `"desconhecida"` — sob FIRST '
-        "o fail-safe `r_catchall` fica inalcançável no subespaço favorável",
+        "aplicado na tabela viva por DEC-14 (2026-10-31, #1084; R-062): `r_pagar` na posição 4 "
+        "com conjunto positivo fechado — `desconhecida` desce ao `r_catchall` (humano)",
     ),
     CandidateRow(
         "C-M5",
@@ -1033,7 +1033,7 @@ def build_secao_op21(hoje: date) -> tuple[list[ShadowItem], list[AnchorVerdict]]
     flag_anchor = Anchor("src/maezo/portal/api/config.py", "collective_legitimacy_screen: bool = False", 110)
     queue_anchor = Anchor(QUEUE_DOC, "collective_legitimacy_screen", 33)
     guard_anchor = Anchor(
-        "src/maezo/gateway/commercial_legitimacy_guard.py", "def collective_legitimacy_shadow(", 494
+        "src/maezo/gateway/commercial_legitimacy_guard.py", "def collective_legitimacy_shadow(", 499
     )
     v_flag = verify_anchor(REPO_ROOT, flag_anchor)
     v_queue = verify_anchor(REPO_ROOT, queue_anchor)
@@ -1616,7 +1616,7 @@ def self_check() -> list[str]:
 
     # (5) O inventário congelado de flags: soma dos parciais declarados pelo doc §3
     # (A5+B3+C3+D1+E19+F2 = 33) — e a DIVERGÊNCIA registrada com o headline do doc (31).
-    # DL-0158: o doc §3 ainda lista F=2; B-F1 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com o interruptor.
+    # DL-0159: o doc §3 ainda lista F=2; B-F1 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com o interruptor.
     soma_esperada = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 1}
     soma = {g: sum(1 for r in FLAG_ROWS if r.grupo == g) for g in soma_esperada}
     if soma != soma_esperada:

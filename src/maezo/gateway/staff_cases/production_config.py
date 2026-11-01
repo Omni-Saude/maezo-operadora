@@ -180,7 +180,7 @@ class PortalProductionSettings(BaseSettings):
     #: An explicit positive operational interval. No default: an invented timeout on a call
     #: that changes engine state is an invented promise about how long a case may hang.
     direct_completion_timeout_seconds: int | None = Field(default=None, ge=1, le=120)
-    #: INTERIM (DL-0160): o bucket S3 dos anexos do reembolso, so' para LER (o portal nunca grava). So' vale
+    #: INTERIM (DL-0161): o bucket S3 dos anexos do reembolso, so' para LER (o portal nunca grava). So' vale
     #: junto com `direct_completion` (mesmo portao, mesma cerca de ambiente).
     reembolso_anexos_bucket: str | None = Field(default=None, min_length=3, max_length=63)
 
@@ -285,7 +285,8 @@ class PortalProductionSettings(BaseSettings):
             return self
         if any(v is None for v in values):
             raise PortalStaffBootstrapError()
-        assert self.staff_scope is not None and self.staff_native_origin is not None
+        if self.staff_scope is None or self.staff_native_origin is None:
+            raise AssertionError("staff_scope/staff_native_origin checados acima")
         if (
             self.staff_scope.tenant != self.tenant
             or len({self.staff_root_key_sha256, self.staff_read_key_sha256, self.staff_witness_key_sha256})

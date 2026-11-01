@@ -453,7 +453,7 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         # Lembrete de cobranca (0027): idempotencia e opt-out, keyed by conversation_id.
         "lembrete_cobranca_enviado",
         "lembrete_cobranca_optout",
-        # DL-0158: a coleta do pedido de reembolso pelo WhatsApp, keyed by conversation_id.
+        # DL-0159: a coleta do pedido de reembolso pelo WhatsApp, keyed by conversation_id.
         "reembolso_coleta",
     ]
     assert report.counted_rows == 0

@@ -69,9 +69,9 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         # admissão da base foram REMOVIDAS pelo ratchet, como ela prometeu) — a ratchet
         # abaixo força a remoção desta linha no dia em que `canal` passar a discriminar.
         ("suppression_routing.dmn", "in_canal", "canal"),
-        # Lucas rodada 12 (14/10/2026, decisao do dono): o atraso e' decidido pelo grafo e chega
-        # pronto a tabela (`atraso_critico`); estas tres colunas seguem DECLARADAS (contrato dos fatos),
-        # sem regra que dependa delas em v0.2.0.
+        # Lucas rodada 12 (14/10/2026, decisao do dono) + R-047/F-031: o atraso critico e' decidido pela
+        # tabela sobre `meses_vencidos`/`dias_atraso_max` (contados pelo grafo); estas tres colunas seguem
+        # DECLARADAS (contrato dos fatos), sem regra que dependa delas.
         ("lucas_billing_admissibility.dmn", "lba_in_ciclos", "ciclos_sem_conciliacao"),
         ("lucas_billing_admissibility.dmn", "lba_in_status_conciliado", "status_conciliado"),
         ("lucas_billing_admissibility.dmn", "lba_in_valores_com_atraso", "valores_com_atraso"),
@@ -93,7 +93,7 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("pagto_sla.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("recurso_eligibility.dmn", "in_reason_code", "glosa_reason_code"),
         ("recurso_eligibility.dmn", "in_valor", "valor_glosado_brl"),
-        # DL-0158: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
+        # DL-0159: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
         # (DRAFT/verify). Quando o
         # juridico definir, as linhas DENTRO/FORA passam a ler a coluna e esta linha sai.
         ("reembolso_prazo.dmn", "in_dias", "dias_desde_atendimento"),

@@ -46,6 +46,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -661,6 +662,138 @@ def record_a2a_handler_error(*, target: str, error_type: str) -> None:
         logger.debug("a2a_handler_error_metric_emit_failed", exc_info=True)
 
 
+#: R-085: vocabulario FECHADO do rotulo `guard` de `maezo_a2a_guard_refusal_total` — as tres
+#: guardas estruturais de ADR-0003 (`a2a.delegation`) mais o fallback para uma subclasse futura de
+#: `DelegationError` sem token proprio. Um valor fora do conjunto vira `outro`, nunca o valor cru.
+A2A_GUARD_OUTRO: Final[str] = "outro"
+A2A_GUARDS: Final[frozenset[str]] = frozenset({"budget_exhausted", "max_hops", "cyclic", A2A_GUARD_OUTRO})
+
+
+def record_a2a_guard_refusal(*, target: str, guard: str) -> None:
+    """Count ONE A2A delegation refused by a structural anti-loop guard — R-085 / F-090.
+
+    `maezo_a2a_guard_refusal_total{target,guard}`. ADR-0010 promete o alerta "budget A2A
+    estourado"; ADR-0003 define as guardas (aciclicidade, `max_hops`, orcamento por salto). Um
+    unico sitio de chamada: o ramo `DelegationError` de
+    `a2a.dispatcher.DelegationDispatcher._finish_handler` — uma contagem por delegacao recusada.
+
+    Best-effort: a telemetria nunca mascara a rejeicao estruturada que ela conta.
+    """
+    rotulo = guard if guard in A2A_GUARDS else A2A_GUARD_OUTRO
+    try:
+        _get_metrics_collector().a2a_guard_refusal.labels(target=target, guard=rotulo).inc()
+    except Exception:  # never mask the delegation rejection this is counting.
+        logger.debug("a2a_guard_refusal_metric_emit_failed", exc_info=True)
+
+
+def preinit_a2a_guard_refusals(*, targets: Iterable[str]) -> None:
+    """Pre-initialise `maezo_a2a_guard_refusal_total` at 0 for every registered target x guard.
+
+    R-085 (decisao do dono 2026-10-31, "pre-inicializar contadores raros"). Um contador rotulado
+    so nasce no primeiro `.inc()`, e `increase()`/`rate()` nao enxergam esse primeiro incremento
+    — para um evento RARO por desenho (a recusa por orcamento A2A) isso esconde justamente o
+    unico evento que `MaezoA2ABudgetExhausted` existe para ver. Chamado UMA vez pelo construtor de
+    `a2a.dispatcher.DelegationDispatcher` com os targets que ele registra (conjunto limitado) e o
+    vocabulario fechado `A2A_GUARDS`. Best-effort: nunca impede a construcao do dispatcher.
+    """
+    try:
+        counter = _get_metrics_collector().a2a_guard_refusal
+        for target in targets:
+            for guard in A2A_GUARDS:
+                counter.labels(target=target, guard=guard)
+    except Exception:  # telemetry must never break dispatcher construction.
+        logger.debug("a2a_guard_refusal_preinit_failed", exc_info=True)
+
+
+#: R-085: tokens SENTINELA de `decisao` em `maezo_l1_decision_total`, minusculos para nunca
+#: colidirem com um token BPMN (todos MAIUSCULOS). `sem_decisao`: a User Task terminou sem ser
+#: concluida (timer interruptivo, cancelamento da instancia — `deleteReason != completed`).
+#: `desconhecido`: o valor lido esta fora do vocabulario declarado da tarefa (ou ausente) — o
+#: valor cru NUNCA vira rotulo.
+L1_DECISAO_SEM_DECISAO: Final[str] = "sem_decisao"
+L1_DECISAO_DESCONHECIDA: Final[str] = "desconhecido"
+
+
+def record_l1_decision(*, tenant: str, agent_id: str, action_class: str, decisao: str) -> None:
+    """Count ONE human decision at an L1 approval User Task — `maezo_l1_decision_total` (R-085).
+
+    O proxy de "taxa de aprovacao humana de propostas L1" de ADR-0010, decidido pelo dono em
+    2026-10-31 (#1084, Rodada 2): poller do historico do engine, um campo de decisao por tarefa,
+    rotulos fechados. UNICO sitio de chamada: `worker_runtime.engine_metrics.EngineMetricsPoller`,
+    que ja normalizou `decisao` para o vocabulario declarado da tarefa ou um dos dois sentinelas
+    acima. Best-effort: telemetria nunca derruba o poller.
+    """
+    try:
+        _get_metrics_collector().l1_decision_total.labels(
+            tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("l1_decision_metric_emit_failed", exc_info=True)
+
+
+def preinit_l1_decisions(*, tenant: str, label_sets: Iterable[tuple[str, str, str]]) -> None:
+    """Pre-initialise `maezo_l1_decision_total` at 0 for every closed (agent_id, action_class,
+    decisao) the poller can emit, so the FIRST decision of each class is visible to `increase()`.
+    Same rationale as :func:`preinit_a2a_guard_refusals`; L1 volume is low by nature."""
+    try:
+        counter = _get_metrics_collector().l1_decision_total
+        for agent_id, action_class, decisao in label_sets:
+            counter.labels(tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao)
+    except Exception:  # telemetry must never break the poller's construction.
+        logger.debug("l1_decision_preinit_failed", exc_info=True)
+
+
+#: R-085: desfechos fechados de `maezo_engine_metrics_poll_total`.
+ENGINE_POLL_OK: Final[str] = "ok"
+ENGINE_POLL_ERRO: Final[str] = "erro"
+
+
+def record_engine_metrics_poll(*, ok: bool) -> None:
+    """Count ONE engine-history poller round — `maezo_engine_metrics_poll_total{outcome}` (R-085)."""
+    try:
+        _get_metrics_collector().engine_metrics_poll_total.labels(
+            outcome=ENGINE_POLL_OK if ok else ENGINE_POLL_ERRO
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("engine_metrics_poll_metric_emit_failed", exc_info=True)
+
+
+#: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
+PEP_DECISION_ALLOW: Final[str] = "allow"
+PEP_DECISION_DENY: Final[str] = "deny"
+PEP_REASON_OUTRO: Final[str] = "outro"
+
+
+def record_pep_decision(
+    *, tenant: str, principal: str, allow: bool, layer: str, reason: str, enforced: bool
+) -> None:
+    """Count ONE effect-PEP decision — `maezo_gateway_pep_decision_total` (R-085 / F-090).
+
+    ADR-0010 (metricas por agente) e o runbook `docs/runbooks/devops-stack.md` "PEP deny spike".
+    Um unico sitio de chamada: `gateway.seams._base.gate`, o ponto por onde toda chamada gated
+    passa exatamente uma vez. O chamador ja normalizou `layer`/`reason` para os vocabularios
+    fechados do PEP (`EffectLayer`, razoes do PEP ou `outro`); nenhum argumento da chamada, nenhum
+    identificador de negocio e nenhum PHI chega a um rotulo (ADR-0006).
+
+    `enforced` separa a recusa que BLOQUEIA (modo `enforcing`) da recusa-sombra (`WOULD_DENY`):
+    com o manifesto ainda DRAFT toda classe nega em sombra, e um alerta sobre recusas-sombra
+    paginaria por todo trafego normal.
+
+    Best-effort: a telemetria nunca derruba a chamada de efeito.
+    """
+    try:
+        _get_metrics_collector().gateway_pep_decision.labels(
+            tenant=tenant,
+            principal=principal,
+            decision=PEP_DECISION_ALLOW if allow else PEP_DECISION_DENY,
+            layer=layer,
+            reason=reason,
+            enforced="true" if enforced else "false",
+        ).inc()
+    except Exception:  # a metric error must never break an effect call.
+        logger.debug("pep_decision_metric_emit_failed", exc_info=True)
+
+
 def record_llm_tier_resolution(*, task_kind: str, tier: str, resolution: str) -> None:
     """Record how ONE `task_kind` resolved to a model — `maezo_llm_tier_resolution_total` (AF-12).
 
@@ -990,7 +1123,8 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     durable business key. That count, and not an argument, is what the owner ratifies against.
 
     CONTENT-FREE. All three labels are closed vocabularies (`family` in {CANCEL, INAD}, `modo`
-    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo}). NEVER pass a
+    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo, ausente} —
+    `ausente` = F-124 refusal, contract required and absent, nothing minted on PHI). NEVER pass a
     tenant id, a business key, or a matricula here — same rule `record_worker_task_outcome` and
     `record_llm_token_usage` document above. A per-instance identifier on this metric would
     recreate, in Prometheus, exactly the leak the metric exists to measure.

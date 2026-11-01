@@ -95,6 +95,12 @@ EXTERNAL_ALERT_METRICS: Final[dict[str, str]] = {
     "kube_job_annotations": "R-040/SC-07 — kube-state-metrics annotation-derived series",
     "maezo_dead_letter_inflow_rate": "ALERTS-WITHOUT-METRICS-b — Kafka/DLQ exporter series (rate-then-sum)",
     "kafka_topic_partition_current_offset": "ALERTS-WITHOUT-METRICS-b — danielqsj/kafka_exporter (finding 5)",
+    # R-085 (decisao do dono 2026-10-31, #1084): os dois crash loops rebaseados em reinicio de
+    # container e o invariante "consumidor Kafka parado". Mesma natureza das linhas acima: fatos
+    # do cluster/broker, nao telemetria da aplicacao — emiti-los de `src/` seria fabricar.
+    "kube_pod_container_status_restarts_total": "ALERTS-WITHOUT-METRICS-b (R-085) — kube-state-metrics",
+    "kafka_consumergroup_lag_sum": "ALERTS-WITHOUT-METRICS-b (R-085) — danielqsj/kafka_exporter",
+    "kafka_consumergroup_current_offset_sum": "ALERTS-WITHOUT-METRICS-b (R-085) — danielqsj/kafka_exporter",
 }
 
 #: Every `EXTERNAL_ALERT_METRICS` entry that is ITSELF scraped directly (as opposed to a
@@ -106,6 +112,9 @@ EXTERNAL_METRIC_SCRAPE_JOB: Final[dict[str, str]] = {
     "kube_job_status_failed": "kube-state-metrics",
     "kube_job_annotations": "kube-state-metrics",
     "kafka_topic_partition_current_offset": "kafka-exporter",
+    "kube_pod_container_status_restarts_total": "kube-state-metrics",
+    "kafka_consumergroup_lag_sum": "kafka-exporter",
+    "kafka_consumergroup_current_offset_sum": "kafka-exporter",
 }
 
 _PROMETHEUS_CONFIG: Final[Path] = _REPO_ROOT / "deploy" / "observability" / "prometheus.yml"
@@ -123,9 +132,18 @@ def _scrape_job_names() -> set[str]:
 #: fails here instead of shipping as a rule that can never fire.
 ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_worker_execution_time_seconds": "record_worker_execution",
-    "maezo_worker_error_count_total": "record_worker_error",
     "maezo_agent_errors_total": "record_agent_error",
-    "maezo_tool_calls_total": "record_tool_call",
+    # R-085 (2026-10-31): `MaezoSLAWorkerErrorRateHigh` le o contador de DESPACHO de cobertura
+    # total (falhas / todos os despachos) em vez de erros/sucessos; `maezo_worker_error_count_total`
+    # e `maezo_tool_calls_total` deixaram de ser lidos por alerta (o crash loop de worker virou
+    # reinicio de container; o denominador do erro de agente virou TURNOS, nao chamadas de efeito).
+    "maezo_worker_task_total": "record_worker_task_outcome",
+    # R-085 — grupo `maezo_hitl_l1`: decisoes humanas L1 lidas do historico do engine.
+    "maezo_l1_decision_total": "record_l1_decision",
+    # R-085 / F-090 (ADR-0010) — grupo `maezo_governanca_agentes`.
+    "maezo_gateway_pep_decision_total": "record_pep_decision",
+    "maezo_a2a_guard_refusal_total": "record_a2a_guard_refusal",
+    "maezo_agent_desfecho_total": "record_agent_desfecho",
 }
 
 #: The mirror of `ALERT_METRIC_EMITTERS`, one hop upstream (GAP 11.2, round-5 2026-09-05): every
@@ -217,7 +235,7 @@ def _recording_rules() -> list[tuple[str, str]]:
 #: `unless`), and `bool` is the comparison-operator modifier (`> bool 0`). `on`/`ignoring` ARE
 #: followed by `(` and so are already excluded by the not-a-call test below, but are named here too
 #: for readers matching this set against the PromQL grammar.
-_PROMQL_KEYWORDS: Final[frozenset[str]] = frozenset({"and", "or", "unless", "bool"})
+_PROMQL_KEYWORDS: Final[frozenset[str]] = frozenset({"and", "or", "unless", "bool", "offset"})
 
 
 def _metric_names(expr: str) -> set[str]:
@@ -471,7 +489,9 @@ def test_the_alert_file_is_parsed_non_vacuously() -> None:
     assert {"MaezoSLAAgentErrorRateHigh", "MaezoAgentCrashLoop"} <= names, sorted(names)
     series = _all_alert_series()
     assert "maezo_agent_errors_total" in series, sorted(series)
-    assert "maezo_tool_calls_total" in series, sorted(series)
+    # R-085: o denominador do erro de agente e TURNOS (desfechos + turnos falhos), nao tool calls.
+    assert "maezo_agent_desfecho_total" in series, sorted(series)
+    assert "maezo_tool_calls_total" not in series, sorted(series)
 
 
 def test_the_dlq_recording_rule_derives_from_the_kafka_exporter() -> None:
@@ -656,13 +676,17 @@ def test_the_emitter_table_covers_the_alert_file_exactly() -> None:
 
 
 def test_external_metric_allowlist_is_exactly_the_five_owner_slice_series() -> None:
-    """The escape hatch is FIVE named series, and widening it is a reviewed edit to this list."""
+    """The escape hatch is a closed list of named series (five, plus the three R-085 added), and
+    widening it is a reviewed edit to this list."""
     assert set(EXTERNAL_ALERT_METRICS) == {
         "maezo_dead_letter_queue_size",
         "kube_job_status_failed",
         "kube_job_annotations",
         "maezo_dead_letter_inflow_rate",
         "kafka_topic_partition_current_offset",
+        "kube_pod_container_status_restarts_total",
+        "kafka_consumergroup_lag_sum",
+        "kafka_consumergroup_current_offset_sum",
     }
     for series, reason in EXTERNAL_ALERT_METRICS.items():
         assert "ALERTS-WITHOUT-METRICS-b" in reason or "R-040/SC-07" in reason, (series, reason)
@@ -1017,7 +1041,9 @@ def test_the_two_agent_counters_share_a_label_set_so_the_ratio_alert_can_aggrega
     assert all(isinstance(v, str) and v for v in AGENT_ERROR_TYPES)
 
     exprs = dict(_alert_exprs())
-    for alert_name in ("MaezoSLAAgentErrorRateHigh", "MaezoAgentCrashLoop"):
+    # R-085: `MaezoAgentCrashLoop` le reinicio de container (nao estes contadores); o erro de agente
+    # continua agregando `by (agent)` dos dois lados.
+    for alert_name in ("MaezoSLAAgentErrorRateHigh",):
         assert "by (agent)" in exprs[alert_name], (
             f"{alert_name}'s expr no longer aggregates `by (agent)` — with labelled counters this "
             "would either fail PromQL's default vector matching (division) or collapse every "

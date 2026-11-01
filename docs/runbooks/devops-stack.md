@@ -297,7 +297,7 @@ It is the **single source of truth** for all metric names, label schemas, and ty
 | Domain | Metric prefix | Emitter service (future PR) |
 |---|---|---|
 | Agent runtime | `maezo_conversation_*`, `maezo_escalation_*`, `maezo_response_*`, `maezo_eval_*`, `maezo_hitl_*`, `maezo_llm_*` | each `agent-{name}` Deployment (port 8000) |
-| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | **NOT YET IMPLEMENTED** (RUNBOOK-PHANTOM-METRICS, 2026-09-03: 0 hits for any of the three prefixes under `src/maezo/gateway/`). Would be emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
+| Gateway / PEP | `maezo_gateway_pep_*`, `maezo_gateway_pseudonymizer_*`, `maezo_gateway_audit_*` | `maezo_gateway_pep_decision_total` **IMPLEMENTED** (R-085, 2026-10-30 — `gateway.seams._base.gate`); `maezo_gateway_pseudonymizer_*` and `maezo_gateway_audit_*` **NOT YET IMPLEMENTED** (RUNBOOK-PHANTOM-METRICS, 2026-09-03). Would be emitted **in-process** by the runtime pods that import the `maezo.gateway` library (each `agent-{name}`, worker-daemon) — scraped from those pods' `/metrics` (port 8000); there is no standalone gateway service |
 | Engine / BPMN | `cibseven_process_*`, `cibseven_user_task_*` | `webhook` / engine worker (port 8002) |
 
 Scrape targets are configured in `config/prometheus.yml`.  All labels are bounded
@@ -342,6 +342,15 @@ the steps below as manual triage guidance once either fires.
 in `deploy/observability/alert-rules.yml` (verified 2026-09-05: `grep -n 'alert:
 MaezoKafkaConsumerLagHigh' deploy/observability/alert-rules.yml` — 0 hits). The rule (and any
 dashboard) belongs there and remains owner-gated / D12-02 scope — not added by this note.
+
+**R-085 (owner decision 2026-10-31, issue #1084):** lag is now alerted as a STALLED CONSUMER, not
+as an absolute count: `MaezoKafkaConsumerStalled` (group `maezo_kafka`) fires when a group has lag
+AND its committed offset did not advance in the window (no business threshold; window is a
+TODO-OWNER parameter). Runbook: [`alerts/MaezoKafkaConsumerStalled.md`](alerts/MaezoKafkaConsumerStalled.md).
+The absolute-lag `MaezoKafkaConsumerLagHigh` below stays PLANNED.
+
+**Alert:** `MaezoKafkaConsumerStalled` — IMPLEMENTADO (R-085). Backlog with zero progress for the
+window; severity `warning` (ticket).
 
 **Drift correction (GAP D4-03, round-5, 2026-09-05):** this section previously claimed "no
 consumer-lag metric is scraped anywhere in this repo today" (RUNBOOK-PHANTOM-ALERTS-5-MORE,
@@ -399,13 +408,13 @@ cannot check.
 
 ### PEP deny spike
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoPEPDenySpike` rule exists in
-`deploy/observability/alert-rules.yml`, and no `maezo_gateway_pep_*` metric is emitted anywhere
-in `src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn
-MaezoPEPDenySpike deploy/observability/alert-rules.yml` and `grep -rn maezo_gateway_pep
-src/maezo/gateway/` both 0 hits). The steps below describe the intended response once the alert
-and its emitter exist (see `ALERTS-WITHOUT-METRICS-a`/`WP-OBSERVABILITY-WIRING-EXEC`) — this
-alert cannot fire today.  
+**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
+(grupo `maezo_governanca_agentes`), sobre `maezo_gateway_pep_decision_total{tenant,principal,
+decision,layer,reason,enforced}`, emitido por `gateway.seams._base.gate` (um incremento por decisao
+do PEP de efeitos). Le SO recusas `enforced="true"`: enquanto o manifesto de aprovacoes estiver
+DRAFT (toda classe nega em sombra), o alerta nao tem o que disparar — por desenho. Runbook
+dedicado: [`alerts/MaezoPEPDenySpike.md`](alerts/MaezoPEPDenySpike.md). O PEP e uma biblioteca
+in-process: `maezo_gateway_pep_*` e raspado do `/metrics` dos pods de runtime.  
 **Alert:** `MaezoPEPDenySpike`  
 **Meaning:** The Policy Enforcement Point is denying > 1 req/s — attack, misconfiguration, or policy regression.  
 **Steps:**
@@ -417,21 +426,27 @@ alert cannot fire today.
 
 ### Audit lag
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoAuditLagHigh` rule exists in
-`deploy/observability/alert-rules.yml`, and no `maezo_gateway_audit_*` metric (including
-`maezo_gateway_audit_lag_seconds`, referenced in step 3 below) is emitted anywhere in
-`src/maezo/gateway/` (RUNBOOK-PHANTOM-METRICS, verified 2026-09-03, same method as above). The
-steps below describe the intended response once the alert and its emitter exist — this alert
-cannot fire today.  
+**Status:** **REMOVED** by owner decision (R-085, issue #1084, 2026-10-31: "MaezoAuditLagHigh:
+REMOVED"). There is no lag to measure in the current design (R-085/R-102 reconciliation,
+2026-10-31). No `MaezoAuditLagHigh` rule exists in
+`deploy/observability/alert-rules.yml`, and no audit-lag metric is emitted anywhere in `src/`. The
+audit trail is not consumed asynchronously: `PostgresAuditSink` (`src/maezo/gateway/audit_postgres.py`)
+writes each record synchronously, inside the caller's path, and fails closed (ADR-0007,
+ADR-0027 Postgres-first). There is no Kafka audit consumer, so "consumer lag" has no source. The
+owner decided to keep it REMOVED; do not re-add it without a new decision.  
 **Alert:** `MaezoAuditLagHigh`  
-**Meaning:** Audit event Kafka consumer lag has exceeded 120 seconds. The ADR-0007
-non-repudiation guarantee (every gateway PEP decision is durably audited) is at risk
-of a gap while lag is high.  
-**Steps:**
-1. Check the gateway's audit consumer health: `kubectl logs -n maezo-{tenant} deploy/gateway | grep -i audit`
-2. Check the `operadora.audit.*` Kafka topic's consumer-group lag directly against the broker
-3. If the consumer is stuck or crashed, restart it and confirm `maezo_gateway_audit_lag_seconds` trends back down
-4. If lag persists after restart: this is a compliance-relevant gap — open an incident and notify the compliance/audit team (ADR-0007)
+**Meaning (as originally planned):** the ADR-0007 non-repudiation guarantee (every gateway PEP
+decision is durably audited) is at risk. In the synchronous design that risk shows up as a failed
+write, not as lag.  
+**What operators check instead:**
+1. Audit write failures: `AuditPersistenceError` (`src/maezo/gateway/audit_postgres.py`) is raised to
+   the caller on any durability failure — grep the runtime pods' logs for it:
+   `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep AuditPersistenceError` (and
+   `deploy/worker-daemon`). The action that needed the audit row did not proceed (fail-closed).
+2. Chain integrity: `verify_chain` (`src/maezo/gateway/audit_postgres.py`, async, per `tenant_id`)
+   re-verifies the hash chain of the tenant's audit trail.
+3. Any persistent write failure or chain break is a compliance-relevant gap — open an incident and
+   notify the compliance/audit team (ADR-0007).
 
 ### Service down
 
@@ -454,22 +469,23 @@ service is unreachable (crashed, crash-looping, network-partitioned, or never st
 
 ### Escalation rate
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoEscalationRateHigh` rule exists in
-`deploy/observability/alert-rules.yml`, and neither `maezo_escalation_total` nor
-`maezo_conversation_total` is defined in `src/maezo/runtime/metrics.py` today
-(RUNBOOK-PHANTOM-METRICS, verified 2026-09-03: `grep -rn 'maezo_escalation_total\|maezo_conversation_total'
-src/maezo/` — 0 hits). The "Context" paragraph below describes the intended wiring — this alert
-cannot fire today.  
+**Status:** IMPLEMENTADO (R-085 / F-090, 2026-10-30) — `deploy/observability/alert-rules.yml`
+(grupo `maezo_governanca_agentes`). Runbook dedicado:
+[`alerts/MaezoEscalationRateHigh.md`](alerts/MaezoEscalationRateHigh.md).  
 **Alert:** `MaezoEscalationRateHigh`  
 **Meaning:** An agent is escalating > 30% of its conversations to a human for a given
 tenant over a 1-hour window.  
-**Context (intended, not yet wired):** Relies on `maezo_escalation_total` (emitted by
-`CibSevenServer.start_process` on each NEW `SP-OP-ESCALATION-001` instance, label
-`escalation_reason` = the contract's `motivo_categoria`) / `maezo_conversation_total` (emitted
-by the inbound/resume drivers on each real turn) — neither exists in
-`src/maezo/runtime/metrics.py` yet.  
+**Context:** Built on `maezo_agent_desfecho_total` (CC-09; desfecho `escalado_humano` over every
+desfecho of the agent, `sum by (agent_id)` on both sides, `increase(...[1h])`). The
+`maezo_escalation_total` / `maezo_conversation_total` pair this section used to describe never
+existed and was NOT created: the CC-09 counter already carries the same fact. Applies to the
+agents whose closed vocabulary declares `escalado_humano` (Helena, Lucas). **R-085 (owner
+2026-10-31):** aggregated `by (agent_id, environment)`, confirmed by a short 5m window at the same
+30%, and guarded by a minimum volume on the 1h window (short window and volume are TODO-OWNER
+parameters P5/P6 in `alert-rules.yml`). **Limit:** no tenant label (needs a scrape-time tenant
+label); it measures turns (desfechos), not conversations.  
 **Steps:**
-1. Identify the agent and tenant from the alert labels
+1. Identify the agent and environment from the alert's `agent_id`/`environment` labels (no tenant label — see the Limit above; find the tenant from the Prometheus/AMP workspace the alert came from)
 2. Check recent eval scores for the agent — see [Eval score drop](#eval-score-drop)
 3. Check recent prompt/model/config changes: `git log --oneline -- src/maezo/agents/{agent}/`
 4. Sample a handful of the escalated conversations in the audit trail for a common failure pattern
@@ -547,43 +563,40 @@ worker/agent logs for delegation-chain depth per the steps below.
 - Log delegation chain depth and abort if depth exceeds safe threshold
 - Run periodic delegation graph validation in CI
 
+### A2A budget exhausted
+
+**Status:** IMPLEMENTADO — REGRA E EMISSOR EXISTEM, EVENTO INALCANCAVEL HOJE (R-085, 2026-10-30) —
+nenhum handler de producao subdelega, entao a guarda nunca recusa dentro do dispatcher; o "budget
+A2A" de ADR-0010 em custo (USD) continua NAO IMPLEMENTADO. Regra em
+`deploy/observability/alert-rules.yml` (grupo `maezo_governanca_agentes`). ADR-0010 exige o alerta "budget A2A estourado"; a guarda e a
+3 de ADR-0003 (`a2a.delegation.Budget.charge`). Le
+`maezo_a2a_guard_refusal_total{target,guard="budget_exhausted"}`, emitido pelo ramo
+`DelegationError` de `a2a.dispatcher.DelegationDispatcher._finish_handler`. Qualquer recusa na
+janela dispara (`> 0`): o ADR nomeia o evento, nao uma taxa. Distinto do
+`MaezoA2ATaskBudgetExceeded` acima (gasto em USD), que continua PLANEJADO por falta de metrica
+de custo. Runbook dedicado: [`alerts/MaezoA2ABudgetExhausted.md`](alerts/MaezoA2ABudgetExhausted.md).  
+**Alert:** `MaezoA2ABudgetExhausted`  
+**Meaning:** A delegation chain ran out of its per-chain budget and a sub-delegation was rejected.  
+
 ### HITL approval drop
 
-**Alert:** `MaezoHITLApprovalRateDrop` — **REMOVED** (predeploy obs-wiring). The rule divided
-by `maezo_hitl_approved_total`, which has no production emitter by design (GAP-XOBS-5 separated
-L0 human-auditor decisions — counted by `maezo_bpmn_usertask_decision_total` — from L1
-agent-mediated approvals, whose out-of-band wiring is not yet built), so the alert was a
-guaranteed-firing false signal under any HITL volume. Use [HITL pending](#hitl-pending)
-(`MaezoHITLPendingTooLong` / `MaezoBpmnUserTaskDecisionStalled`) for queue health. The guidance
-below is retained for when the L1 approval wiring lands and the alert is re-added.  
-**Meaning:** Approval rate for human-in-the-loop (HITL) L1 proposals has dropped below 50% for 10+ minutes.  
-**Context:** L1 proposals are agent-generated recommendations sent to human operators for approval. A drop below 50% indicates operators are rejecting/ignoring proposals or the agent is making poor-quality recommendations.
-
-**Metrics involved:**
-- `maezo_hitl_presented_total`: count of proposals sent to HITL queue
-- `maezo_hitl_approved_total`: count of proposals approved by operators
-- Alert fires when: (approved/presented over 10m) < 0.50 AND presented volume > 0.1/min
-
-**First checks:**
-1. Verify operator availability: there is no deployed `maezo-console` (or `console`)
-   resource today — the médico-auditor console app (`src/maezo/platform/console/app.py`)
-   exists in code but has no Helm Deployment/Service yet (only an unwired,
-   disabled-by-default `ingress.consoleHost` backend name is reserved in
-   `ingress.yaml`). Check operator activity via the CIB Seven Tasklist UI instead
-   (`http://{cockpit-url}/cockpit/default/dashboard` — see engine-processes.md §4).
-2. Check queue depth (the gateway is an in-process library — grep the runtime pods, not a gateway Deployment): `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep hitl_queue | tail -10`
-3. Sample recent proposals: check the audit trail for 5–10 rejected proposals to identify patterns
-
-**If operators are present but rejecting:**
-1. Review the agent's reasoning in the last 10 rejected proposals
-2. Check if a recent prompt/model change degraded proposal quality (compare with eval baseline)
-3. Consider re-training the agent or tightening acceptance criteria
-4. Engage the medical team to refine the decision rubric
-
-**If operators are absent/unavailable:**
-1. Alert the on-call manager immediately
-2. If absence is planned: scale down agent proposals via `runtime/proposal_rate.yaml`
-3. Consider fail-safe: auto-escalate stale proposals to JM (Junta Médica) after N hours
+**Status:** IMPLEMENTADO, DARK (R-085, owner decision 2026-10-31, issue #1084 Rodada 2) — group
+`maezo_hitl_l1` in `deploy/observability/alert-rules.yml`, over `maezo_l1_decision_total{tenant,
+agent_id,action_class,decisao}`, emitted ONLY by the engine-history poller
+(`src/maezo/runtime/worker_runtime/engine_metrics.py`, flag `MAEZO_L1_DECISION_POLLER`, default
+off). Without the poller there is no series and the alert has nothing to evaluate. Runbook:
+[`alerts/MaezoHITLApprovalRateDrop.md`](alerts/MaezoHITLApprovalRateDrop.md).  
+**Alert:** `MaezoHITLApprovalRateDrop` — re-added with a real emitter. History: it was **REMOVED**
+(predeploy obs-wiring) because it divided by `maezo_hitl_approved_total`, which had no emitter; the
+old 50% / 10m / presented > 0.1/min parameters had no source and are NOT reused.  
+**Meaning:** for one `(tenant, agent_id, action_class)`, the share of L1 decisions that executed the
+action over the last 7 days fell more than k binomial standard errors below its own 28-day
+baseline, with a minimum volume. Windows, k and the minimum volume are TODO-OWNER parameters
+(P8–P10). Severity `warning` (ticket): quality/drift, not user impact.  
+**Context:** the L1 dossiers do not recommend, so this measures case mix and dossier quality, not
+human-agent agreement. The decision is read from engine history, so every channel is seen
+(Tasklist today; the portal/D6 relay later — issue #1145). Never emit it a second time at the
+relay or the portal.
 
 ### HITL pending
 
@@ -826,16 +839,13 @@ Preservado porque e' o conteudo que teria de ser reexecutado se a camada voltar:
 
 ### Crash loop
 
-**Status:** PLANNED — NOT YET IMPLEMENTED. No `MaezoPodCrashLooping` rule exists in
-`deploy/observability/alert-rules.yml` — the two shipped crash-loop rules
-(`MaezoAgentCrashLoop`/`MaezoWorkerCrashLoop`) fire on APPLICATION error rates
-(`maezo_agent_errors_total`/`maezo_worker_error_count_total`), not on
-`kube_pod_container_status_restarts_total` as this section describes
-(RUNBOOK-PHANTOM-ALERTS-5-MORE, verified 2026-09-03: `grep -n 'alert: MaezoPodCrashLooping'
-deploy/observability/alert-rules.yml` — 0 hits). The rule belongs in
-`deploy/observability/alert-rules.yml` (owner-gated). Meanwhile, operators should run `kubectl
-get pods` / watch `kube_pod_container_status_restarts_total` directly, or use
-`MaezoAgentCrashLoop`/`MaezoWorkerCrashLoop` as an application-level proxy.  
+**Status:** PLANNED — NOT YET IMPLEMENTED as a GENERAL (every-container) rule. No
+`MaezoPodCrashLooping` rule exists in `deploy/observability/alert-rules.yml`. Since R-085 (owner
+decision 2026-10-31, "remover/rebasear os 2 falsos crash loop") the two shipped crash-loop rules
+`MaezoWorkerCrashLoop`/`MaezoAgentCrashLoop` read exactly this signal —
+`increase(kube_pod_container_status_restarts_total[15m]) >= 3` — for the `worker-daemon` and
+`agent-runtime` containers only. For any other container, watch
+`kube_pod_container_status_restarts_total` directly.  
 **Alert:** `MaezoPodCrashLooping`  
 **Meaning:** A container has restarted ≥ 3 times in the last 15 minutes — the standard
 CrashLoopBackOff signature. This is the general-purpose detector for the "fails on
@@ -918,7 +928,7 @@ below — there is no automated compliance alert for a rejected/late ANS submiss
 
 ### Alertas implementados
 
-As 9 secoes abaixo (esta nota + 8 alertas) cobrem os alertas REALMENTE existentes em
+As secoes abaixo (esta nota + os alertas dos grupos `maezo_sla`/`maezo_crash_loop`/`maezo_dead_letter`/`maezo_lifecycle`; os de governanca, HITL L1 e Kafka tem secao propria acima) cobrem os alertas REALMENTE existentes em
 `deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, gap reverso: os
 alertas *shipped* nao tinham nenhuma secao de runbook). Cada secao e derivada ESTRITAMENTE da
 regra (`expr`, `for`, `labels`, `annotations`) — nenhum limiar ou procedimento foi inventado alem
@@ -928,107 +938,84 @@ hits); dito explicitamente em cada secao abaixo em vez de omitido em silencio.
 
 ### MaezoSLAWorkerLatencyHigh
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`). Revisado em R-085 (2026-10-31).  
 **Alert:** `MaezoSLAWorkerLatencyHigh`  
-**Expr:** `histogram_quantile(0.95, rate(maezo_worker_execution_time_seconds_bucket[5m])) > 5`
+**Expr (forma):** `histogram_quantile(0.95, sum by (le, worker, topic) (rate(maezo_worker_execution_time_seconds_bucket[5m]))) > 5` **and** volume minimo por (worker, topic) em 5m (P1)
 **For:** `5m`
 **Labels:** `severity: warning`, `category: sla`, `component: workers`
-**Annotations:**
-- `summary`: "Worker execution latency P95 exceeds 5s (SLA breach)"
-- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} has P95 latency of {{ $value }}s over the last 5 minutes. SLA threshold: 5s. Investigate upstream dependency or resource contention."
-- `runbook_url`: ausente na regra.
+**Runbook:** [`alerts/MaezoSLAWorkerLatencyHigh.md`](alerts/MaezoSLAWorkerLatencyHigh.md). Expr completa e racional no runbook dedicado; parametros sem fonte marcados TODO-OWNER em `alert-rules.yml`.
 
 **Resposta do operador:**
 1. Identificar `worker`/`topic` pelos labels do alerta e checar `kubectl logs -n maezo-{tenant} deploy/worker-daemon | grep {topic}` para latencia de dependencia (engine REST, DB, Kafka).
-2. Correlacionar com `MaezoSLAWorkerErrorRateHigh` (mesmo topic) — latencia alta seguida de erro costuma ser a MESMA causa (dependencia degradada), nao duas.
-3. Se sustentado: escalar como investigacao de performance, nao como incidente de disponibilidade (nao ha `for` curto o bastante para pager imediato — 5m e alerta de tendencia).
+2. Correlacionar com `MaezoSLAWorkerErrorRateHigh` (mesmo topic) — latencia alta seguida de erro costuma ser a MESMA causa.
+3. Se sustentado: investigacao de performance, nao incidente de disponibilidade.
 
 ### MaezoSLAAgentErrorRateHigh
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`). Revisado em R-085 (2026-10-31: "erro de agente -> warning, corrigir +Inf/unidades").  
 **Alert:** `MaezoSLAAgentErrorRateHigh`  
-**Expr:** `(rate(maezo_agent_errors_total[5m]) / rate(maezo_tool_calls_total[5m])) > 0.01`
+**Expr (forma):** turnos falhos / (turnos falhos + turnos com desfecho) por `agent` `> 0.01` **and** volume minimo de turnos em 5m (P2) — nunca +Inf, razao em [0, 1]
 **For:** `5m`
-**Labels:** `severity: critical`, `category: sla`, `component: agents`
-**Annotations:**
-- `summary`: "Agent error rate exceeds 1% (SLA breach)"
-- `description`: "Agent error rate is {{ $value | humanizePercentage }} over the last 5 minutes. SLA threshold: 1%. Check agent logs and LLM provider health."
-- `runbook_url`: ausente na regra.
+**Labels:** `severity: warning`, `category: sla`, `component: agents`
+**Runbook:** [`alerts/MaezoSLAAgentErrorRateHigh.md`](alerts/MaezoSLAAgentErrorRateHigh.md). Expr completa e racional no runbook dedicado; parametros sem fonte marcados TODO-OWNER em `alert-rules.yml`.
 
 **Resposta do operador:**
-1. Identificar o agente pelo label `agent` e checar `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep -i '\[error'` (nota de nivel minusculo, ver secao "DLQ alert" acima).
-2. Checar saude do provedor LLM (rate limit, timeout, erro 5xx) — o denominador e `maezo_tool_calls_total`, entao o numero cru de erros pode ser pequeno mesmo com a razao alta se `tool_calls` tambem caiu.
-3. Se persistente: correlacionar com [`MaezoAgentCrashLoop`](#maezoagentcrashloop) (mesma metrica-fonte `maezo_agent_errors_total`, janela mais curta).
+1. Identificar o agente pelo label `agent` e checar `kubectl logs -n maezo-{tenant} deploy/agent-{agent} | grep -i '\[error'`.
+2. Checar saude do provedor LLM (rate limit, timeout, erro 5xx).
+3. Se o container estiver reiniciando, ver [`MaezoAgentCrashLoop`](#maezoagentcrashloop) (reinicio de container, outro sinal).
 
 ### MaezoSLAWorkerErrorRateHigh
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_sla`). Revisado em R-085 (2026-10-31: unidades + volume minimo).  
 **Alert:** `MaezoSLAWorkerErrorRateHigh`  
-**Expr:** `(rate(maezo_worker_error_count_total[5m]) / rate(maezo_worker_execution_time_seconds_count[5m])) > 0.05`
+**Expr (forma):** `sum by (tenant, topic) (rate(maezo_worker_task_total{outcome=~"failed|incident"}[5m])) / sum by (tenant, topic) (rate(maezo_worker_task_total[5m])) > 0.05` **and** volume minimo de despachos em 5m (P3)
 **For:** `5m`
 **Labels:** `severity: warning`, `category: sla`, `component: workers`
-**Annotations:**
-- `summary`: "Worker error rate exceeds 5% (SLA breach)"
-- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} has error rate of {{ $value | humanizePercentage }} over last 5m. Error type: {{ $labels.error_type }}. Check worker logs."
-- `runbook_url`: ausente na regra.
+**Runbook:** [`alerts/MaezoSLAWorkerErrorRateHigh.md`](alerts/MaezoSLAWorkerErrorRateHigh.md). Expr completa e racional no runbook dedicado; parametros sem fonte marcados TODO-OWNER em `alert-rules.yml`.
 
 **Resposta do operador:**
-1. Identificar `worker`/`topic`/`error_type` pelos labels do alerta; `kubectl logs -n maezo-{tenant} deploy/worker-daemon | grep {topic}` para o traceback.
-2. `error_type` distingue falha de negocio (BPMN error esperado) de falha de infra — so a segunda deve virar incidente.
-3. Se sustentado por > 2 janelas de 5m: tratar como o inicio de um crash-loop e checar [`MaezoWorkerCrashLoop`](#maezoworkercrashloop) (mesma metrica de contagem de erro, limiar absoluto em vez de razao).
+1. Identificar `tenant`/`topic` pelos labels do alerta; `kubectl logs -n maezo-{tenant} deploy/worker-daemon | grep {topic}` para o traceback.
+2. `bpmn_error` (recusa desenhada, guarda `ERR_*`) NAO entra no numerador; um `ERR_*_NOT_HUMAN` e incidente proprio — ver [Worker task failures](#worker-task-failures).
+3. Se o container tambem reinicia, ver [`MaezoWorkerCrashLoop`](#maezoworkercrashloop).
 
 ### MaezoWorkerCrashLoop
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`). REBASEADO em R-085 (2026-10-31): antes era uma taxa de erro (`rate(maezo_worker_error_count_total[5m]) > 0.01`), agora e reinicio de container.  
 **Alert:** `MaezoWorkerCrashLoop`  
-**Expr:** `rate(maezo_worker_error_count_total[5m]) > 0.01`
-**For:** `5m`
-**Labels:** `severity: critical`, `category: crash_loop`, `component: workers`
-**Annotations:**
-- `summary`: "Worker crash-loop detected: {{ $labels.worker }}"
-- `description`: "Worker {{ $labels.worker }} on topic {{ $labels.topic }} is experiencing sustained error rate of {{ $value }} errors/s (error type: {{ $labels.error_type }}). This may indicate a crash-loop. Check worker health and recent deployments."
-- `runbook_url`: ausente na regra.
+**Expr:** `sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{container="worker-daemon"}[15m])) >= 3`
+**For:** nenhum
+**Labels:** `severity: warning` (P11: promover a critical = dono), `category: crash_loop`, `component: workers`
+**Runbook:** [`alerts/MaezoWorkerCrashLoop.md`](alerts/MaezoWorkerCrashLoop.md). Limiar = assinatura CrashLoopBackOff de [Crash loop](#crash-loop). Sem serie no ECS dev (sem kube-state-metrics).
 
 **Resposta do operador:**
-1. Checar deployments recentes do worker-daemon: `kubectl rollout history deployment/worker-daemon -n maezo-{tenant}`.
-2. `kubectl logs -n maezo-{tenant} deploy/worker-daemon --previous` para o erro anterior ao restart mais recente, se o pod tambem estiver reiniciando (ver [Crash loop](#crash-loop) para o sinal a nivel de POD, que e um alerta diferente, ainda nao implementado).
-3. Se o erro for `outcome="bpmn_error"` com codigo `ERR_*_NOT_HUMAN`: tratar como INCIDENTE (guard de nao-negacao disparou), nao como crash-loop comum — ver [Worker task failures](#worker-task-failures).
+1. `kubectl logs -n {namespace} {pod} -c worker-daemon --previous` para o erro anterior ao ultimo restart.
+2. `kubectl rollout history deployment/worker-daemon -n {namespace}`; reverter se for regressao.
 
 ### MaezoAgentCrashLoop
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_crash_loop`). REBASEADO em R-085 (2026-10-31): antes contava turnos falhos (`sum by (agent) (rate(maezo_agent_errors_total[1m])) > 0`), agora e reinicio de container.  
 **Alert:** `MaezoAgentCrashLoop`  
-**Expr:** `rate(maezo_agent_errors_total[1m]) > 0`
-**For:** `2m`
-**Labels:** `severity: critical`, `category: crash_loop`, `component: agents`
-**Annotations:**
-- `summary`: "Agent crash-loop detected"
-- `description`: "Agent errors detected at rate {{ $value }}/s sustained for 2 minutes. Possible crash-loop or persistent upstream failure. Check agent health endpoint and restart policy."
-- `runbook_url`: ausente na regra.
+**Expr:** `sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{container="agent-runtime"}[15m])) >= 3`
+**For:** nenhum
+**Labels:** `severity: warning` (P11: promover a critical = dono), `category: crash_loop`, `component: agents`
+**Runbook:** [`alerts/MaezoAgentCrashLoop.md`](alerts/MaezoAgentCrashLoop.md). Sem serie no ECS dev (sem kube-state-metrics).
 
 **Resposta do operador:**
-1. Identificar o agente pelo label `agent`; checar `kubectl get pods -n maezo-{tenant} -l app.kubernetes.io/component=agent-{agent}` para status de restart.
-2. `kubectl logs -n maezo-{tenant} deploy/agent-{agent} --previous` para a excecao antes do ultimo restart.
-3. Limiar `> 0` sustentado por 2m e agressivo por design (qualquer erro sustentado dispara) — confirmar se e falha real do agente vs. upstream (provedor LLM) antes de reiniciar o deployment.
+1. `kubectl logs -n {namespace} {pod} -c agent-runtime --previous` para a excecao antes do ultimo restart.
+2. A taxa de turnos falhos (sem reinicio) e `MaezoSLAAgentErrorRateHigh`, nao este alerta.
 
 ### MaezoDeadLetterBacklog
 
-**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_dead_letter`). A
-propria regra se declara sobre uma metrica SINTETICA: "Uses a synthetic metric — replace with
-actual Kafka DLQ metric from the OTel Collector's JMX exporter or Kafka Exporter when available"
-(`alert-rules.yml:118-120`).  
+**Status:** IMPLEMENTADO — `deploy/observability/alert-rules.yml` (grupo `maezo_dead_letter`). Revisado em R-085 (2026-10-31: "DLQ por chegadas novas").  
 **Alert:** `MaezoDeadLetterBacklog`  
-**Expr:** `maezo_dead_letter_queue_size > 0`
-**For:** `10m`
+**Expr:** `sum by (topic, environment) (increase(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[10m])) > 0`
+**For:** nenhum (evento "nao deveria acontecer")
 **Labels:** `severity: warning`, `category: dead_letter`, `component: messaging`
-**Annotations:**
-- `summary`: "Dead-letter queue backlog detected"
-- `description`: "Dead-letter queue has {{ $value }} unprocessed messages for more than 10 minutes. Investigate message payloads and consumer health. Topics affected may need manual replay or purge."
-- `runbook_url`: ausente na regra.
+**Runbook:** [`alerts/MaezoDeadLetterBacklog.md`](alerts/MaezoDeadLetterBacklog.md). Antes lia `maezo_dead_letter_queue_size > 0` — offset MONOTONICO, que disparava para sempre depois da primeira mensagem. Janela = P4 (TODO-OWNER). So ha serie onde ha kafka_exporter (compose/CI).
 
 **Resposta do operador:**
-1. Ver [DLQ alert](#dlq-alert) acima — os passos manuais de triagem (logs de erro, external tasks travadas no CIB Seven, replay do topico DLQ) se aplicam aqui tambem; este e o alerta REAL para essa condicao, `MaezoDLQRateHigh` (a secao acima) e o planejado.
-2. Confirmar se a fonte da metrica sintetica ja foi substituida por um exporter real (`ALERTS-WITHOUT-METRICS-b`) antes de confiar no valor absoluto de `{{ $value }}`.
+1. Ver [DLQ alert](#dlq-alert) acima — triagem de logs de erro, external tasks no CIB Seven, replay do topico DLQ.
+2. O alerta limpa sozinho uma janela depois da ultima chegada.
 
 ### MaezoDeadLetterGrowth
 

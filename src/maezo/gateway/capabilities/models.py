@@ -7,6 +7,7 @@ remain the admission boundary's responsibility. No domain memberships ship here.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -515,7 +516,9 @@ def _payload_field(payload: object, field: str) -> object:
 def _parse(
     model: type[CandidateDTO], payload: object, memberships: DeclaredMemberships | None
 ) -> CandidateDTO:
-    try:
+    # Engolir e' o contrato: qualquer defeito vira a MESMA recusa fechada, levantada FORA do
+    # bloco para nao carregar texto de validacao nem `__context__` do fornecedor (B110 triado).
+    with contextlib.suppress(Exception):
         if isinstance(payload, BaseModel):
             if type(payload) is not model or not set(payload.__dict__) <= set(model.model_fields):
                 raise ValueError("wrong contract")
@@ -523,8 +526,6 @@ def _parse(
         raw = payload if type(payload) is bytes else canonicalize(payload)
         strict_loads(raw)
         return model.model_validate_json(raw, context={"memberships": memberships})
-    except Exception:
-        pass
     raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
 
 
@@ -532,11 +533,13 @@ def parse_envelope(payload: object) -> AnyCapabilityEnvelope:
     schema = _payload_field(payload, "schema_version")
     if schema == CANDIDATE_SCHEMA_VERSION:
         result = _parse(CapabilityEnvelope, payload, None)
-        assert isinstance(result, CapabilityEnvelope)
+        if not isinstance(result, CapabilityEnvelope):
+            raise AssertionError("_parse devolveu tipo diferente de CapabilityEnvelope")
         return result
     if schema == PROVIDER_SCHEMA_VERSION:
         result = _parse(ProviderCapabilityEnvelope, payload, None)
-        assert isinstance(result, ProviderCapabilityEnvelope)
+        if not isinstance(result, ProviderCapabilityEnvelope):
+            raise AssertionError("_parse devolveu tipo diferente de ProviderCapabilityEnvelope")
         return result
     raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
 

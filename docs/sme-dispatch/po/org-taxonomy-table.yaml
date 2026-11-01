@@ -48,14 +48,14 @@ rows:
   linha: 205
   processo: SP-OP-ANS-SUBMIT-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_CorrigirPendenciaEnvio; UT_RevisarEnvio (linha 281); UT_TratarNack (linha 571)
+  tarefa_ou_regra_dmn: UT_CorrigirPendenciaEnvio; UT_RevisarEnvio (linha 282); UT_TratarNack (linha 602)
   sla_ato: contrato Sec.Papeis linha 197 -- assina o envio oficial (decisao_envio==APROVAR_ENVIO)
   proposto: true
   notas: caveat PROPOSTO no titulo da secao (contrato linha 193) e linha 201-203
   nome_real: ''
 - grupo_declarado: juridico-regulatorio
   arquivo: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
-  linha: 237
+  linha: 238
   processo: SP-OP-ANS-SUBMIT-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RevisarEnvioJuridico
@@ -65,7 +65,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-regulatorio
   arquivo: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
-  linha: 344
+  linha: 346
   processo: SP-OP-ANS-SUBMIT-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoEnvioAssume
@@ -398,7 +398,7 @@ rows:
   nome_real: ''
 - grupo_declarado: clerical-pagamentos
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 68
+  linha: 81
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
@@ -411,7 +411,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l1
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 78
+  linha: 92
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:278 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
@@ -421,7 +421,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l2
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 88
+  linha: 103
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:278 -> UT_AprovacaoAlcada
@@ -431,7 +431,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l3
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 98
+  linha: 114
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:278 -> UT_AprovacaoAlcada
@@ -441,7 +441,7 @@ rows:
   nome_real: ''
 - grupo_declarado: comite-financeiro
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 108
+  linha: 125
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:278 -> UT_AprovacaoComite
@@ -547,7 +547,7 @@ rows:
   processo: SP-OP-REEMBOLSO-001
   em_escopo: false
   tarefa_ou_regra_dmn: UT_RegistrarPagamento
-  sla_ato: contrato v0.2.0 (DL-0158) -- o financeiro paga fora do sistema e registra data_pagamento
+  sla_ato: contrato v0.2.0 (DL-0159) -- o financeiro paga fora do sistema e registra data_pagamento
   proposto: true
   notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
   nome_real: ''

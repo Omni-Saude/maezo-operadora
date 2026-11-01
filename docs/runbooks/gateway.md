@@ -345,8 +345,14 @@ Tenant overlays **cannot:**
 
 ## 7. PEP deny spike response
 
-**Alert:** `MaezoPEPDenySpike` — more than 1 DENY decision per second  
-**Severity:** High (indicates attack, misconfiguration, or policy regression)
+**Alert:** `MaezoPEPDenySpike` (`deploy/observability/alert-rules.yml`, group
+`maezo_governanca_agentes`) — fires when
+`sum by (tenant) (rate(maezo_gateway_pep_decision_total{decision="deny", enforced="true"}[5m])) > 1`
+holds for 5 minutes, i.e. more than 1 **enforced** deny per second on one tenant. Shadow denies
+(`enforced="false"`, WOULD_DENY while the approvals manifest is DRAFT) are excluded on purpose, so
+while nothing runs in `enforcing` mode this alert has nothing to fire on. Per-alert runbook:
+[`alerts/MaezoPEPDenySpike.md`](alerts/MaezoPEPDenySpike.md).  
+**Severity:** `warning` in the rule (indicates attack, misconfiguration, or policy regression)
 
 ### Investigation
 
@@ -410,19 +416,26 @@ done
 
 ## Monitoring & dashboards
 
-**Dashboard:** `/deploy/observability/dashboards/gateway.json`
+**Dashboard:** none checked in for the gateway — `deploy/observability/dashboards/` holds only
+`agentes.json`, `dlq-lifecycle.json` and `worker-runtime.json`, and none of them plots the PEP
+counter. Use the queries below in Prometheus / Grafana Explore.
 
 **Key metrics** (canonical catalog: `src/maezo/runtime/metrics.py` — there is ONE
-PEP decision counter with a `decision` label, not separate per-decision metrics;
-emitted in-process by the runtime pods, scraped from their `/metrics` port 8000):
+PEP decision counter, `maezo_gateway_pep_decision_total{tenant,principal,decision,layer,reason,enforced}`
+(R-085), incremented once per effect-PEP decision by `gateway.seams._base.gate` via
+`platform.observability.record_pep_decision`; emitted in-process by the runtime pods, scraped from
+their `/metrics` port 8000). Label vocabularies are closed: `decision` is `allow` | `deny` (there is
+no `require_human` value), `enforced` is `true` | `false` (`false` = shadow WOULD_DENY), `layer` is
+the `EffectLayer` enum and `reason` the PEP reason vocabulary (anything else becomes `outro`):
 
 | Metric | Query |
 |--------|-------|
-| Total decisions/s | `rate(maezo_gateway_pep_decision_total[5m])` |
-| Deny rate | `rate(maezo_gateway_pep_decision_total{decision="deny"}[5m])` |
-| Require-human rate | `rate(maezo_gateway_pep_decision_total{decision="require_human"}[5m])` |
-| L2 spot-check sample rate | `rate(maezo_gateway_pep_l2_review_sampled_total[5m])` |
-| Audit trail lag | `max by (tenant) (maezo_gateway_audit_lag_seconds)` — a **gauge** (seconds behind), not a histogram; `MaezoAuditLagHigh` fires at > 120s for 3m |
+| Total decisions/s | `sum by (tenant) (rate(maezo_gateway_pep_decision_total[5m]))` |
+| Enforced deny rate (what `MaezoPEPDenySpike` reads) | `sum by (tenant) (rate(maezo_gateway_pep_decision_total{decision="deny", enforced="true"}[5m]))` |
+| Shadow deny rate (WOULD_DENY, does not block) | `sum by (tenant) (rate(maezo_gateway_pep_decision_total{decision="deny", enforced="false"}[5m]))` |
+| Deny breakdown | `sum by (principal, layer, reason) (rate(maezo_gateway_pep_decision_total{decision="deny"}[5m]))` |
+| L2 spot-check sampling | **Not instrumented today.** L2 review sampling is intentionally out of v2 (ADR-0034, descope ratified); the effect PEP keeps only the L-6 hook (`gateway.effect_pep.L2SampleHook`), whose default is a no-op (`_noop_sample_hook`) — there is no sampler or review queue, so nothing is sampled and no metric exists for it. The only related signal is the `effect_pep_sampler_failed` warning log, emitted if an injected sampler raises. |
+| Audit trail lag | **Not instrumented today, and there is no lag to measure.** The ADR-0007 audit trail is written synchronously: `gateway.audit_postgres.PostgresAuditSink.emit()` writes each record straight to the tenant's `audit_chain` table inside the call, with no Kafka audit consumer (ADR-0027, Postgres-first) — so there is no lag gauge and no audit-lag alert in `alert-rules.yml`. What operators can check instead: `AuditPersistenceError` raised by the sink, surfacing as a failed call in the runtime pods' logs (the sink is fail-closed — `emit()` raises on any DB failure and the audited action does not proceed) and chain integrity with `verify_chain` (section 4). |
 
 **Logs:**
 

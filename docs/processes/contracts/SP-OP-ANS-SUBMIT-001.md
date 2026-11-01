@@ -52,7 +52,7 @@ ANSSUB-{tenant_id}-{report_type}-{competencia}
 | `report_type` | string | sim | `RN_124_SIP` \| `RN_209_UTILIZACAO` \| `RN_388_QUALIDADE` \| `RN_424_TISS_MONITORAMENTO` \| `DIOPS_TRIMESTRAL` |
 | `competencia` | string | sim | Periodo de competencia (`YYYY-MM` ou `YYYY-Qn`) — compoe a business key |
 | `periodicidade` | string | sim | `mensal` \| `trimestral` \| `anual` (derivada do `report_type` por worker) |
-| `origem_envio` | string | sim | `calendario` \| `nip_filing` \| `retransmissao_manual` — distingue cron de filing originado por NIP (handoff SP-OP-NIP-001) |
+| `origem_envio` | string | sim | `calendario` \| `nip_filing` \| `retransmissao_manual` — distingue cron de filing originado por NIP (handoff SP-OP-NIP-001). `retransmissao_manual` e valor RESERVADO, sem starter: a retransmissao manual acontece DENTRO da instancia, via `UT_TratarNack` (`decisao_nack=retransmitir_manual`, R-066) — a business key por competencia impede uma 2a instancia enquanto a 1a esta ativa |
 | `nip_protocolo_origem` | string | nao* | Protocolo NIP de origem (*obrigatorio se `origem_envio==nip_filing`; correlaciona o handoff) |
 | `dataset_complete` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.assemble` retornou dataset integro) |
 | `schema_valid` | boolean | sim | Pre-resolvido por worker (`regulatorio.anssubmit.validate` — XSD/TISS) |
@@ -71,12 +71,13 @@ carrega PHI direto — apenas `dataset_ref` (ponteiro) e flags.
 |---|---|---|
 | `decisao_envio` | string | `APROVAR_ENVIO` \| `CORRIGIR_PENDENCIA` \| `ADIAR_ENVIO` (User Task humana `UT_RevisarEnvio`) |
 | `revisor_id` | string | Id do humano (`regulatorio-ans`) que aprovou o envio (cadeia de auditoria ADR-0007; obrigatorio se `APROVAR_ENVIO`) |
-| `justificativa_adiamento` | string | Obrigatoria se `decisao_envio==ADIAR_ENVIO` (registra o motivo do nao-envio no prazo) |
+| `justificativa_adiamento` | string | Obrigatoria se `decisao_envio==ADIAR_ENVIO` (registra o motivo do nao-envio no prazo). **Validada pelo engine** (R-066, F-138), nao so pelo formulario do portal: `Flow_GWDec_Adiar` so e tomado com `ADIAR_ENVIO` E justificativa nao vazia (`trim()`); decisao ausente/desconhecida ou adiamento sem justificativa cai no default de `GW_DecisaoEnvio` → `UT_CoordenacaoEnvioAssume` (humano), nunca no desfecho `adiado_humano` |
 | `protocolo_ans` | string | Protocolo retornado pela ANS (emitido por `regulatorio.anssubmit.submit`). **Quando `origem_envio==nip_filing`, este e o `protocolo_filing` referenciado pelo contrato SP-OP-NIP-001** (GAP-NIP-4) — SP-OP-NIP-001 termina antes de a ANS emitir protocolo, entao nao ha `protocolo_filing` como variavel de processo de NIP; correlacionar por `nip_protocolo_origem`/business key `ANSSUB-{tenant}-nipfiling-{submit_id}` |
 | `status_envio` | string | `enviado` \| `ack` \| `nack` \| `retransmitido` |
 | `data_envio` | string | Timestamp ISO 8601 do envio (nao-repudio) |
 | `nack_motivo` | string | Motivo do NACK retornado pela ANS (preenchido apenas em retransmissao) |
 | `retry_attempt` | integer | Contador de tentativa de retransmissao (subprocess SUB_RetryEnvio; INPUT da DMN ans_retry_policy) |
+| `decisao_nack` | string | `retransmitir_manual` \| `registrar_falha` (User Task humana `UT_TratarNack`; mesmos literais do formulario `ans_nack`). Consumida pelo engine em `GW_DecisaoNack` (R-066, F-138): `retransmitir_manual` → `UT_CorrigirPendenciaEnvio` (corrige e volta a reavaliacao + revisao humana; o engine zera `decisao_envio`/`revisor_id`/`retry_attempt` no fluxo, entao nenhum novo envio sai sem nova assinatura — ADR-0007); `registrar_falha` → `anssubmit.completed` com `desfecho=falha_retransmissao` (`status_envio==nack`) ou `enviado_pendente_ack` (`status_envio` ∈ {`enviado`, `retransmitido`}: o envio saiu e o ACK nao veio); ausente/invalida → a mesma User Task reabre |
 
 ## Variaveis de proveniencia do agente (Gustavo — ADR-0007/ADR-0015)
 
@@ -197,7 +198,7 @@ catch-all (>3) → `""`/`continue_retry=false` (esgotado → `End_RetryEsgotado`
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `regulatorio-ans` | Nucleo regulatorio ANS (sign-off vinculante do envio) | `UT_RevisarEnvio` (assina o envio oficial — unica origem de `decisao_envio==APROVAR_ENVIO`); `UT_CorrigirPendenciaEnvio` (dataset/schema pendente); `UT_TratarNack` (NACK da ANS) |
+| `regulatorio-ans` | Nucleo regulatorio ANS (sign-off vinculante do envio) | `UT_RevisarEnvio` (assina o envio oficial — unica origem de `decisao_envio==APROVAR_ENVIO`); `UT_CorrigirPendenciaEnvio` (dataset/schema pendente); `UT_TratarNack` (NACK definitivo apos retry esgotado OU ACK nao recebido no prazo de `ICE_AguardarAck` — R-066; `retransmitir_manual` zera `decisao_envio`/`revisor_id`/`retry_attempt`, exigindo nova assinatura em `UT_RevisarEnvio`) |
 | `juridico-regulatorio` | Juridico/regulatorio (revisao de envios sensiveis / NIP filing) | `UT_RevisarEnvio` quando `origem_envio==nip_filing` (filing de resposta NIP — texto legal sempre humano) |
 | `coordenacao-regulatorio` | Coordenacao regulatoria (assume no estouro de prazo) | `UT_CoordenacaoEnvioAssume` (deadline-risk persistente / SLA de calendario estourado) |
 
@@ -213,7 +214,7 @@ catch-all (>3) → `""`/`continue_retry=false` (esgotado → `End_RetryEsgotado`
 | Alerta de deadline-risk | `${calendario.sla_alerta}` (ex.: due_date − 5d) | nao-interruptivo → `regulatorio.anssubmit.notify_regulatorio` + evento `anssubmit.deadline_risk` (instancia segue aberta) | politica interna ancorada na RN — **DRAFT/verify** |
 | Prazo de calendario (`due_date`) | `${calendario.due_date}` | timer interruptivo na espera de revisao → `UT_CoordenacaoEnvioAssume` (coordenacao assume; decisao de envio continua humana) | RN/IN vigente — **DRAFT/verify** |
 | Retry/backoff de transmissao | subprocess embarcado `SUB_RetryEnvio` dirigido pela DMN `ans_retry_policy` (`BRT_RetryPolicy`): contagem de tentativas + backoff exponencial `PT5M`/`PT30M`/`PT2H`; timer `ICE_Backoff` usa `${retry.backoff}` | retry no NACK transitorio (entrada via `ERR_ANS_PROTOCOLO_NACK`); esgotado (`continue_retry=false`) → `ERR_ANS_RETRY_ESGOTADO` → `UT_TratarNack` (humano) | politica operacional — **DRAFT** (contagem/backoff a confirmar) |
-| Aguardo de ACK | `ICE_AguardarAck` timer intermediario (ref `P1D`) com `GW_AckRecebido` | espera correlacao `msg.anssubmit.ack_received`; expirado → `UT_TratarNack`/alerta | politica operacional — **DRAFT/verify** |
+| Aguardo de ACK | `ICE_AguardarAck` timer intermediario (ref `P1D`) com `GW_AguardarAck` | espera correlacao `msg.anssubmit.ack_received`; expirado → `UT_TratarNack` (humano decide via `decisao_nack`; R-066, F-137), com alerta nao-interruptivo `BT_DeadlineRiskNack` = `${sla.sla_alerta}` (DMN `ans_sla`, mesma duracao das demais User Tasks — nenhum valor novo) | politica operacional — **DRAFT/verify** |
 
 Nota: o calendario regulatorio e por **dias corridos/data fixa de competencia** (diferente dos
 prazos em dias uteis dos processos negativa-like). Resolver feriados/fim de semana no worker de
@@ -331,3 +332,20 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - O agente **Gustavo** (general zone) conduz o processo (J1: cron → assemble → validate →
   `UT_RevisarEnvio` → submit → track ACK), mas **nunca transmite autonomamente** — o PEP retorna
   `require_human` para `ans_official_submission` (L1).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-ANS-SUBMIT-001` → `maezo-payer-ans-submit-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - relatório: `{tenant_id}:ans-submit-001:R-{report_type}-{competencia}` (em claro no motor).
+  - protocolamento de NIP: `{tenant_id}:ans-submit-001:hk1_<HMAC>` sobre `N-{numero_nip_ans}`.
+- **Classificação (a confirmar pelo DPO):** forma `R` não pessoal (em claro no motor, sob a Q1-c); forma `N` pessoal (opaca).
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- Na saída, as duas formas aparecem opacas (regra uniforme de saída do ADR-0068).

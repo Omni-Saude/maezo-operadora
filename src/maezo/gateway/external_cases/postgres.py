@@ -291,7 +291,8 @@ class PostgresExternalSourceImporter:
             raise ExternalCaseError("invalid")
         async with transaction(self.engine, self.seconds) as connection:
             authority, _ = await self._authority(connection, "reserve", None, None)
-            assert authority is not None
+            if authority is None:
+                raise AssertionError("autoridade de reserva ausente")
             result = (
                 await connection.execute(
                     text("SELECT maezo_external.reserve_external_case_ref(CAST(:scope AS jsonb),:key)"),
@@ -307,7 +308,8 @@ class PostgresExternalSourceImporter:
         self, raw: bytes, ingress_id: str, *, expected_revision: str | None, expected_digest: str | None
     ) -> SourceIngressReceipt:
         result = await self._accept(raw, ingress_id, False, expected_revision, expected_digest)
-        assert isinstance(result, SourceIngressReceipt)
+        if not isinstance(result, SourceIngressReceipt):
+            raise AssertionError("_accept(checkpoint=False) devolveu tipo inesperado")
         return result
 
     async def accept_checkpoint(
@@ -319,7 +321,8 @@ class PostgresExternalSourceImporter:
         expected_digest: str | None,
     ) -> CheckpointIngressReceipt:
         result = await self._accept(raw, ingress_id, True, expected_epoch, expected_digest)
-        assert isinstance(result, CheckpointIngressReceipt)
+        if not isinstance(result, CheckpointIngressReceipt):
+            raise AssertionError("_accept(checkpoint=True) devolveu tipo inesperado")
         return result
 
     async def _accept(
@@ -354,7 +357,8 @@ class PostgresExternalSourceImporter:
                     else parse(SourceIngressReceipt, historical)
                 )
             else:
-                assert authority is not None
+                if authority is None:
+                    raise AssertionError("autoridade ausente sem recibo historico")
                 until = (
                     authority.checkpoint(packet, self.clock())
                     if isinstance(packet, CheckpointPacket)
@@ -369,6 +373,7 @@ class PostgresExternalSourceImporter:
                 )
                 result = (
                     await connection.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: operation = 1 de 3 nomes literais acima
                         text(
                             "SELECT maezo_external."
                             + operation

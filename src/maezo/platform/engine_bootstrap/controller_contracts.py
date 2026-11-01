@@ -4994,8 +4994,8 @@ def check_intent_binding(
     _need(intent.expected_precondition.target_generation_status == generation.status)
     _need(intent.request.cluster == decision.topology.cluster_arn)
     if type(intent) is StopTaskIntent:
-        _need(type(managed_resource) is ManagedResource)
-        assert managed_resource is not None
+        if type(managed_resource) is not ManagedResource:
+            _fail()
         _need(intent.target_arn == managed_resource.provider_resource_id)
         _need(intent.admission_generation == managed_resource.generation_id)
         _same(
@@ -5039,12 +5039,13 @@ def check_issuer_request(
     if type(body) is IssuerPrepare:
         _need(body.generation == generation and generation.status == "PREPARED")
     else:
-        assert isinstance(body, (IssuerCandidate, IssuerOpen, IssuerRetire))
+        if not isinstance(body, (IssuerCandidate, IssuerOpen, IssuerRetire)):
+            raise AssertionError("corpo de issuer fora da uniao fechada")
         _need(body.generation_id == generation.binding.generation_id)
         if type(body) is IssuerCandidate:
-            _need(type(decision) is CandidateDecision and generation.binding.purpose == "candidate")
+            if not (type(decision) is CandidateDecision and generation.binding.purpose == "candidate"):
+                _fail()
             _need(body.candidate_decision_sha256 == decision.digest())
-            assert isinstance(decision, CandidateDecision)
             _need(body.disposal_sha256 == decision.provisioner_disposal_sha256)
             _need(
                 body.deployment_receipt == decision.deployment_receipt

@@ -196,8 +196,8 @@ class NativeFetchAdapter:
         if initial.status != "executed":
             return initial, ()
         current = self._client.claim(expected, initial)
-        require(initial.receipt is not None)
-        assert initial.receipt is not None
+        if initial.receipt is None:
+            raise FetchUnavailableError()
         receipt = decode(initial.receipt)
         acquired = tuple(
             AcquiredInputs(

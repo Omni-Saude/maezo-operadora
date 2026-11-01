@@ -196,13 +196,16 @@ grupo coordenacao-financeira e DRAFT/verify (taxonomia organizacional — docs/r
            outputParameter achatam as saidas necessarias para o escopo do processo APOS a DMN resolver
            (sem isso, o tier-match cai no tier conservador 4 e pagto.routed omite faixa/grupo). GAP-PAGTO-3:
            `tier_minimo` (a escada faixa->tier, movida do dict Python para a DMN, ADR-0012) e achatado aqui
-           para o GUARD (3) TIER-MATCH de release_high_value_payment le-lo. NAO existe saida adversa: so
-           re-expoe a classificacao/roteamento ja produzido pela DMN. -->
+           para o GUARD (3) TIER-MATCH de release_high_value_payment le-lo. Pacote PAGTO PR-A (R-053 (a)):
+           `valor_maximo_aprovavel_cents` (o teto do aprovado = valor da ordem, regra na DMN) e achatado
+           aqui para o guard do teto do aprovado (valor_aprovado_cents acima dele, ou ele ausente -> recusa).
+           NAO existe saida adversa: so re-expoe a classificacao/roteamento ja produzido pela DMN. -->
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:outputParameter name="faixa_valor">${pagto_alcada.faixa_valor}</camunda:outputParameter>
           <camunda:outputParameter name="grupo_aprovador">${pagto_alcada.grupo_aprovador}</camunda:outputParameter>
           <camunda:outputParameter name="tier_minimo">${pagto_alcada.tier_minimo}</camunda:outputParameter>
+          <camunda:outputParameter name="valor_maximo_aprovavel_cents">${pagto_alcada.valor_maximo_aprovavel_cents}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWAdmiss_Segue</bpmn:incoming>

@@ -240,7 +240,7 @@ class LucasRetomada:
         raw_to: str,
         resume_ref: str,
     ) -> dict[str, Any]:
-        """DL-0158/DL-0159 (`MAEZO_REEMBOLSO_V1`): o RETORNO do pedido de reembolso (SP-OP-REEMBOLSO-001).
+        """DL-0159/DL-0160 (`MAEZO_REEMBOLSO_V1`): o RETORNO do pedido de reembolso (SP-OP-REEMBOLSO-001).
 
         A moldura e' FIXA (`domain/reembolso/pedido.py::texto_do_retorno`); o texto que a equipe escreveu
         (negativa, reducao, pedido de informacao) entra ENTRE ASPAS, como escrito, e SO' ele passa pelas

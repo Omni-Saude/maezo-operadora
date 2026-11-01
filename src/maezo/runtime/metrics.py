@@ -435,6 +435,68 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # R-085 / F-090 (ADR-0010 "Alertas: budget A2A estourado"; ADR-0003 guardas anti-loop).
+        # UMA contagem por delegacao recusada por uma guarda ESTRUTURAL dentro do handler
+        # (`DelegationError` capturado em `a2a.dispatcher.DelegationDispatcher._finish_handler`).
+        # Rotulos limitados: `target` e um agent id REGISTRADO (o dispatcher ja rejeitou o resto
+        # com `no_handler`) e `guard` e o vocabulario FECHADO `platform.observability.A2A_GUARDS`
+        # (`budget_exhausted` | `max_hops` | `cyclic` | `outro`). Nunca task_id, chain ou payload.
+        self._a2a_guard_refusal = Counter(
+            "maezo_a2a_guard_refusal_total",
+            "A2A delegations refused by a structural anti-loop guard, by guard (COUNTS ONLY)",
+            labelnames=["target", "guard"],
+            registry=self._registry,
+        )
+
+        # R-085 / F-090 (ADR-0010 metricas por agente; docs/runbooks/devops-stack.md "PEP deny
+        # spike", prefixo `maezo_gateway_pep_*` do catalogo §5). UMA contagem por decisao do PEP de
+        # efeitos (`gateway.effect_pep.decide`, via `gateway.seams._base.gate` — o unico ponto por
+        # onde toda chamada gated passa). Rotulos TODOS limitados e sem PHI (ADR-0006): `tenant` e
+        # `principal` sao os mesmos tokens validados de `SeamContext` (mesma postura de
+        # `maezo_effect_rate_limited_total`); `decision` e `allow` | `deny`; `layer` e o enum
+        # fechado `EffectLayer`; `reason` e o vocabulario fechado de razoes do PEP (normalizado
+        # para `outro` no chamador); `enforced` e `true` | `false` — separa a recusa REAL da
+        # recusa-sombra (WOULD_DENY), para que nenhum alerta pagine sobre o modo shadow.
+        # `operation` fica de FORA de proposito (um token nao catalogado e alcancavel aqui).
+        self._gateway_pep_decision = Counter(
+            "maezo_gateway_pep_decision_total",
+            "Effect-PEP decisions by decision/layer/reason/enforced (COUNTS ONLY)",
+            labelnames=["tenant", "principal", "decision", "layer", "reason", "enforced"],
+            registry=self._registry,
+        )
+
+        # R-085 (decisao do dono 2026-10-31, issue #1084 Rodada 2 "Observabilidade"; ADR-0010
+        # "taxa de aprovacao humana de propostas L1 (proxy de qualidade/drift)"). UMA contagem por
+        # User Task L1 ENCERRADA no engine, lida do HISTORICO do engine pelo
+        # `worker_runtime.engine_metrics.EngineMetricsPoller` (um campo de decisao por tarefa, lido
+        # pelo NOME). Fonte de verdade = o engine, qualquer que seja o canal que completou a
+        # tarefa (Tasklist hoje; portal/rele D6 depois) — por isso nenhum outro sitio pode emitir
+        # esta serie (contaria duas vezes). Rotulos TODOS fechados (ADR-0006): `tenant` e o
+        # tenant do daemon; `agent_id`/`action_class` vem da tabela estatica
+        # `engine_metrics.L1_DECISION_TASKS` (chave L0-core); `decisao` e o token BPMN declarado
+        # da tarefa, `sem_decisao` (tarefa encerrada sem conclusao: timer interruptivo, cancelamento)
+        # ou `desconhecido` (valor fora do vocabulario — NUNCA o valor cru). Nunca task/instance/
+        # business id, nunca justificativa. NAO mede concordancia humano x agente: os dossies L1
+        # nao recomendam (andre/graph.py `decisao_pagamento: None`) — e proxy de mix de casos e de
+        # qualidade do dossie, como a analise registrou.
+        self._l1_decision_total = Counter(
+            "maezo_l1_decision_total",
+            "Human decisions at the L1 approval User Tasks (human approval rate proxy, ADR-0010), "
+            "read from engine history (COUNTS ONLY, closed vocabularies, never an id or free text)",
+            labelnames=["tenant", "agent_id", "action_class", "decisao"],
+            registry=self._registry,
+        )
+
+        # R-085: saude do proprio poller do historico do engine — uma contagem por rodada, por
+        # desfecho fechado (`ok` | `erro`). Sem esta serie um poller parado e indistinguivel de
+        # "nenhuma decisao humana", que e exatamente o sinal que o alerta de queda le.
+        self._engine_metrics_poll_total = Counter(
+            "maezo_engine_metrics_poll_total",
+            "Engine-history poller rounds by closed outcome (ok | erro)",
+            labelnames=["outcome"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -654,3 +716,36 @@ class MetricsCollector:
         matricula value ever reaches this metric.
         """
         return self._phi_business_key_mint
+
+    @property
+    def a2a_guard_refusal(self) -> Counter:
+        """Counter for A2A delegations refused by a structural anti-loop guard (R-085, ADR-0010).
+
+        Labels: target (a REGISTERED agent id), guard (closed
+        `platform.observability.A2A_GUARDS`). COUNTS ONLY.
+        """
+        return self._a2a_guard_refusal
+
+    @property
+    def gateway_pep_decision(self) -> Counter:
+        """Counter for effect-PEP decisions (R-085, ADR-0010, runbook "PEP deny spike").
+
+        Labels: tenant, principal, decision (allow | deny), layer (closed `EffectLayer`), reason
+        (closed PEP reason vocabulary or `outro`), enforced (true | false). COUNTS ONLY.
+        """
+        return self._gateway_pep_decision
+
+    @property
+    def l1_decision_total(self) -> Counter:
+        """Counter for human decisions at the L1 approval User Tasks (R-085, ADR-0010).
+
+        The human approval rate proxy: labels tenant, agent_id, action_class (an L0-core key),
+        decisao (declared BPMN token | `sem_decisao` | `desconhecido`). Emitted ONLY by the
+        engine-history poller. COUNTS ONLY.
+        """
+        return self._l1_decision_total
+
+    @property
+    def engine_metrics_poll_total(self) -> Counter:
+        """Counter for engine-history poller rounds (R-085). Label: outcome (ok | erro)."""
+        return self._engine_metrics_poll_total

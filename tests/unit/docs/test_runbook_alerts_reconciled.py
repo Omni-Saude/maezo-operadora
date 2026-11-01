@@ -85,6 +85,16 @@ _SHIPPED_ALERT_NAMES_FLOOR: Final[frozenset[str]] = frozenset(
         "MaezoDeadLetterBacklog",
         "MaezoDeadLetterGrowth",
         "MaezoLifecycleJobFailed",
+        # R-085 / F-090 (ADR-0010; limiares do proprio devops-stack.md §6): grupo
+        # `maezo_governanca_agentes`. As secoes de runbook correspondentes carregam IMPLEMENTADO.
+        "MaezoPEPDenySpike",
+        "MaezoA2ABudgetExhausted",
+        "MaezoEscalationRateHigh",
+        # R-085 (decisao do dono 2026-10-31, #1084 Rodada 2): grupo `maezo_hitl_l1` (o alerta
+        # REMOVIDO volta com emissor real — poller do historico do engine) e grupo `maezo_kafka`
+        # (lag como consumidor parado). Secoes de runbook: "HITL approval drop" e "Kafka lag".
+        "MaezoHITLApprovalRateDrop",
+        "MaezoKafkaConsumerStalled",
     }
 )
 

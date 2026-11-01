@@ -97,6 +97,43 @@ def test_resolve_facts_empty_competencias() -> None:
 
 
 # ---------------------------------------------------------------
+# R-063 / F-029 — `dentro_janela_purga` nao e ecoado (estrito)
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("semente", [False, True, None, "nao", 0])
+def test_estrito_dentro_janela_purga_nunca_ecoa_a_entrada(semente: object) -> None:
+    """So o timer BPMN `ICE_PrazoPurga` encerra a janela: o fato e sempre `True` (AGUARDA_PURGA)."""
+    variables: dict[str, Any] = {} if semente is None else {"dentro_janela_purga": semente}
+    assert resolve_facts(variables)["dentro_janela_purga"] is True
+
+
+def test_legado_dentro_janela_purga_ecoa_a_entrada() -> None:
+    """Caminho do worker registrado com `MAEZO_INAD_FATOS_ESTRITOS` desligada (dark)."""
+    assert resolve_facts({"dentro_janela_purga": False}, fatos_estritos=False)["dentro_janela_purga"] is False
+    assert resolve_facts({}, fatos_estritos=False)["dentro_janela_purga"] is True
+
+
+def _resolve_facts_registrado(**seams: Any) -> FunctionWorker:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="r063-inad-wiring")
+    register_inadimplencia_workers(harness, None, **seams)
+    worker = harness.registry.get("operadora.inadimplencia.resolve_facts")
+    assert isinstance(worker, FunctionWorker)
+    return worker
+
+
+@pytest.mark.parametrize("seams", [{}, {"inad_fatos_estritos": False}, {"inad_fatos_estritos": "true"}])
+def test_registro_sem_flag_mantem_eco_legado(seams: dict[str, Any]) -> None:
+    out = _resolve_facts_registrado(**seams).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is False
+
+
+def test_registro_com_flag_ligada_nao_ecoa() -> None:
+    out = _resolve_facts_registrado(inad_fatos_estritos=True).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is True
+
+
+# ---------------------------------------------------------------
 # assess_status
 # ---------------------------------------------------------------
 
@@ -373,9 +410,9 @@ def test_inadimplencia_register_suspension_alias() -> None:
 # Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — the suspension guard raises
 # WorkerBpmnError so its modeled BPMN boundary catch (BE_SuspensaoNaoHumano) CAN fire, instead of
 # the old InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
-# engine incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted
-# (the actual production posture today — the code stays T-E-deferred) -> the fail-closed incident
-# (handle_failure, retries=0), so the runtime behavior is UNCHANGED by this raise-side migration.
+# engine incident. Mutation-minded: allowlisted (production since the lote T-E unico, 2026-10-31)
+# -> boundary (handle_bpmn_error); NOT allowlisted (the pre-lote T-E-deferred posture) -> the
+# fail-closed incident (handle_failure, retries=0).
 # Drives the REAL harness dispatch path (harness._handle) end-to-end, no live engine. Mirrors
 # test_credenciamento.py's `_drive_guard_failure`.
 # ---------------------------------------------------------------------------
@@ -418,7 +455,7 @@ _SUSPENSION_GUARD_FAIL = {
 
 
 def test_suspension_guard_reaches_boundary_when_allowlisted() -> None:
-    """ALLOWLISTED (hypothetical post-T-E production wiring): the adverse suspension guard routes
+    """ALLOWLISTED (the production posture since the lote T-E unico, 2026-10-31): the guard routes
     to handle_bpmn_error (BE_SuspensaoNaoHumano fires), NEVER to a failure/incident — the boundary
     is now REACHABLE (was unreachable pre-fix, at ANY allowlist state)."""
     bpmn_errors, failures = _drive_suspension_guard_failure(
@@ -430,9 +467,9 @@ def test_suspension_guard_reaches_boundary_when_allowlisted() -> None:
 
 
 def test_suspension_guard_demotes_to_incident_when_not_allowlisted() -> None:
-    """NOT ALLOWLISTED (the ACTUAL production posture today — T-E-deferred, ADR-0030 §4): fail-
-    closed by construction — demotes to a failure/incident, never a silent scope-end. This is the
-    UNCHANGED runtime behavior this raise-side migration preserves."""
+    """NOT ALLOWLISTED (the pre-2026-10-31 T-E-deferred posture, ADR-0030 §4 — still the outcome if
+    the code ever leaves `TE_ENABLED_CODES`): fail-closed by construction — demotes to a
+    failure/incident, never a silent scope-end."""
     bpmn_errors, failures = _drive_suspension_guard_failure(
         _SUSPENSION_GUARD_FAIL,
         allowlist=frozenset(),

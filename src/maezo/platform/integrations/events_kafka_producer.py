@@ -352,7 +352,8 @@ class AioKafkaEventsProducer:
             return self._raw
         async with self._start_lock:
             if not self._started:
-                assert self._connection_settings is not None
+                if self._connection_settings is None:
+                    raise AssertionError("produtor sem connection settings")
                 producer = await create_kafka_producer(
                     self._connection_settings,
                     request_timeout_ms=int(self._send_timeout_s * 1000),
@@ -366,7 +367,9 @@ class AioKafkaEventsProducer:
                     raise
                 self._raw = producer
                 self._started = True
-        assert self._raw is not None  # narrows for mypy — set immediately above under the lock
+        # narrows for mypy — set immediately above under the lock
+        if self._raw is None:
+            raise AssertionError("produtor nao iniciado apos o lock")
         return self._raw
 
     def resolve_partition_key(

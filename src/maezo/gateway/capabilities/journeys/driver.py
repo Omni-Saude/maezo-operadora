@@ -516,7 +516,8 @@ class JourneyDriver:
                     if (control := await self._control(current)) is not None:
                         return await self._outcome(snapshot, refusal=control)
                     self._proof_current(proof)
-                    assert self.journal is not None
+                    if self.journal is None:
+                        raise AssertionError("journal ausente no driver de jornada")
                     enqueued = await self.journal.enqueue_outbox(
                         snapshot.binding, intent, snapshot.journal_revision
                     )
@@ -561,7 +562,8 @@ class JourneyDriver:
                     if (control := await self._control(current)) is not None:
                         return await self._outcome(snapshot, refusal=control)
                     self._proof_current(proof)
-                    assert self.journal is not None
+                    if self.journal is None:
+                        raise AssertionError("journal ausente no driver de jornada")
                     recorded = await self.journal.record_wait(
                         snapshot.binding, descriptor, snapshot.journal_revision
                     )
@@ -590,7 +592,8 @@ class JourneyDriver:
                     if (control := await self._control(current)) is not None:
                         return await self._outcome(snapshot, refusal=control)
                     self._proof_current(proof)
-                    assert self.journal is not None
+                    if self.journal is None:
+                        raise AssertionError("journal ausente no driver de jornada")
                     enqueued = await self.journal.enqueue_outbox(
                         snapshot.binding, descriptor_outbox, snapshot.journal_revision
                     )

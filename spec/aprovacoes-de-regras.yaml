@@ -76,7 +76,7 @@ pendentes:
     marca_no_arquivo: "SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status: DRAFT (v0.1.0) —"
   - artefato: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
     responsavel: a definir
-    marca_no_arquivo: "SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.2.0, DL-0158) — 100% ANALISE HUMANA."
+    marca_no_arquivo: "SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.2.0, DL-0159) — 100% ANALISE HUMANA."
   - artefato: spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn
     responsavel: a definir
     marca_no_arquivo: "`suppression.record`). Status: DRAFT v0.1.0 — ADMITIDO pelo dono em 2026-10-07"
@@ -111,6 +111,9 @@ pendentes:
   - artefato: spec/processes/dmn/auth_criteria_contratual.dmn
     responsavel: a definir
     marca_no_arquivo: "auth_criteria_contratual v0.1.0 — status: DRAFT — **COSTURA VAZIA, DELIBERADAMENTE**."
+  - artefato: spec/processes/dmn/auth_junta_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_junta_admissibility v0.1.0 — status: DRAFT (vedacao RN 424 art. 3 I requer ratificacao do medico auditor antes do flip)."
   - artefato: spec/processes/dmn/auth_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
@@ -195,7 +198,7 @@ pendentes:
   - artefato: spec/processes/dmn/lucas_billing_admissibility.dmn
     responsavel: a definir
     marca_no_arquivo: "lucas_billing_admissibility v0.2.0 — status: DRAFT — requires human review (financeiro/PO)"
-    nota: "Pendencia 27 do diretor: a regra de atraso critico (2 meses / 30 dias) entra por aqui como booleano; os NUMEROS vivem em MAEZO_LUCAS_ATRASO_MESES_MIN/_DIAS_MIN (settings.py), fora desta cerca."
+    nota: "Pendencia 27 do diretor: desde R-047/F-031 (decisao do dono 29/10/2026) o limiar do atraso critico (>= 2 meses / > 30 dias) mora NESTA tabela (regras lba_r_atraso_critico e lba_r_atraso_critico_dias) e passa por esta cerca; MAEZO_LUCAS_ATRASO_MESES_MIN/_DIAS_MIN deixaram de existir."
   - artefato: spec/processes/dmn/lucas_escalation_routing.dmn
     responsavel: a definir
     marca_no_arquivo: "lucas_escalation_routing v0.1.0 — status: DRAFT — requires human review (financeiro/PO)"
@@ -243,7 +246,7 @@ pendentes:
     marca_no_arquivo: "recurso_sla v0.3.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
   - artefato: spec/processes/dmn/reembolso_prazo.dmn
     responsavel: a definir
-    marca_no_arquivo: "reembolso_prazo v0.1.0 — status: DRAFT (DL-0158). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo)."
+    marca_no_arquivo: "reembolso_prazo v0.1.0 — status: DRAFT (DL-0159). Consumida por SP-OP-REEMBOLSO-001 (BRT_PrazoInformativo)."
   - artefato: spec/processes/dmn/reembolso_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "reembolso_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"

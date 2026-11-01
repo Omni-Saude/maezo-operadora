@@ -67,15 +67,24 @@ UT_RegistrarParecerJunta — a worker-persisted True would poison the downstream
 
 from __future__ import annotations
 
+import datetime as _dt
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.gateway.required_text import ZERO_WIDTH_CHARS, ZERO_WIDTH_TRANSLATION, is_blank
+from maezo.platform.calendario.dias_uteis import (
+    CALENDARIO_VERSAO,
+    FUSO_NEGOCIO,
+    MAX_DIAS_UTEIS,
+    duracao_iso_ate,
+    normalizar_uf,
+    vencimento_em_dias_uteis,
+)
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.observability import record_worker_error
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
@@ -1824,6 +1833,10 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # ConveneJuntaWorker
 # ---------------------------------------------------------------------------
 
+#: R-064: variavel de processo lida por `GW_JuntaAdmissivel` (SP-OP-AUTH-001) para saber se a
+#: vedacao da RN 424 art. 3 I roteia. Fonte UNICA: a implantacao (`MAEZO_AUTH_JUNTA_RN424_GUARD`).
+_JUNTA_RN424_GUARD_VAR = "junta_guarda_rn424_ativa"
+
 
 class ConveneJuntaWorker(WorkerBase):
     """External task: operadora.auth.convene_junta
@@ -1842,10 +1855,22 @@ class ConveneJuntaWorker(WorkerBase):
     explicito do guard da negativa a jusante (uma junta-NEGAR sem auditor_id passaria pelo flag
     stale). Proveniencia e' derivada onde consumida, jamais fabricada por worker em ramo
     nao-terminal.
+
+    R-064 (F-017; decisao do dono DEC-15, issue #1083 -> R-034): RN 424/2017 art. 3 I veda a junta
+    em urgencia/emergencia. A REGRA mora na DMN `auth_junta_admissibility`, avaliada pelo engine em
+    `BRT_JuntaAdmissibilidade` logo depois desta task; este worker NAO le `carater_atendimento`
+    (nenhuma regra de negocio em Python, AGENTS.md regra 5). O que ele escreve e' so' a posicao da
+    IMPLANTACAO: `junta_guarda_rn424_ativa` (bool), `True` apenas com `rn424_guard is True`
+    (`MAEZO_AUTH_JUNTA_RN424_GUARD`, DARK por padrao). Escrito em TODO caminho, inclusive no
+    bloqueio do guard: uma semente de start com o mesmo nome e' sempre sobrescrita. Com a guarda
+    ligada o status vira `junta_solicitada` — a junta so' e' de fato convocada se a DMN a admitir;
+    vedada, o caso volta a coordenacao de auditoria medica (humana). Nada aqui aprova nem nega.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, rn424_guard: bool = False) -> None:
         super().__init__(topic="operadora.auth.convene_junta")
+        # `is True`, nunca truthiness: um valor-lixo ("true", 1) jamais liga a guarda (dark).
+        self._rn424_guard = rn424_guard is True
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Convokes a medical board.
@@ -1879,6 +1904,7 @@ class ConveneJuntaWorker(WorkerBase):
                 "status": "blocked_by_guard",
                 "error_code": ERR_DENIAL_NOT_HUMAN,
                 "mensagem": "Convocacao de junta medica requer aprovacao humana (L0 hard)",
+                _JUNTA_RN424_GUARD_VAR: self._rn424_guard,
             }
 
         self.logger.info(
@@ -1886,13 +1912,134 @@ class ConveneJuntaWorker(WorkerBase):
             tenant_id=tenant_id,
             guia=guia,
             decisao=decisao,
+            rn424_guard=self._rn424_guard,
         )
 
         return {
-            "status": "junta_convened",
+            # Guarda ligada: a admissibilidade (RN 424 art. 3 I) ainda vai ser decidida pela DMN.
+            "status": "junta_solicitada" if self._rn424_guard else "junta_convened",
             "junta_group": "junta-medica",
             "fundamentacao": "RN 424/2017",
             "event": "agents.events.auth.completed",
+            _JUNTA_RN424_GUARD_VAR: self._rn424_guard,
+        }
+
+
+# ---------------------------------------------------------------------------
+# ComputeResponseDeadlineWorker (R-005 / F-018; DEC-02) — DARK
+# ---------------------------------------------------------------------------
+
+#: Topico de `ST_CalcularPrazoRespostaUtil` (SP-OP-AUTH-001), logo antes de UT_AnaliseMedicoAuditor.
+COMPUTE_RESPONSE_DEADLINE_TOPIC = "operadora.auth.compute_response_deadline"
+#: Variaveis lidas (least-privilege no fetchAndLock — nunca todas). `prazo_resposta_dias_uteis` e
+#: a variavel LOCAL que o input mapping da task copia de `sla.prazo_resposta_dias_uteis` (DMN).
+COMPUTE_RESPONSE_DEADLINE_VARIABLES: tuple[str, ...] = (
+    "tenant_id",
+    "numero_guia_tiss",
+    "prazo_resposta_dias_uteis",
+    "data_solicitacao_iso",
+    "uf_beneficiario",
+)
+#: Lida pelo timer `BT_SlaAnalise` (`execution.getVariable`): nula = o ISO corrido da DMN segue ativo.
+_PRAZO_DURACAO_VAR = "prazo_resposta_duracao_util"
+_PRAZO_VENCIMENTO_VAR = "prazo_resposta_vencimento_util_iso"
+_PRAZO_CALENDARIO_VAR = "prazo_resposta_calendario_versao"
+
+
+def _agora_utc() -> _dt.datetime:
+    return _dt.datetime.now(_dt.UTC)
+
+
+def _instante_da_solicitacao(valor: object) -> _dt.datetime | None:
+    """`data_solicitacao_iso` -> instante com fuso; data pura = inicio do dia em America/Sao_Paulo.
+
+    Instante sem fuso, texto invalido ou outro tipo -> None (ambiguo: nunca adivinhado).
+    """
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    texto = valor.strip()
+    try:
+        if len(texto) == 10:
+            return _dt.datetime.combine(_dt.date.fromisoformat(texto), _dt.time(0, 0), tzinfo=FUSO_NEGOCIO)
+        instante = _dt.datetime.fromisoformat(texto)
+    except ValueError:
+        return None
+    if instante.tzinfo is None or instante.utcoffset() is None:
+        return None
+    return instante
+
+
+class ComputeResponseDeadlineWorker(WorkerBase):
+    """External task: operadora.auth.compute_response_deadline — DARK (`MAEZO_AUTH_PRAZO_DIAS_UTEIS`).
+
+    R-005 / F-018 (DEC-02 do juridico via dono, 2026-10-31): a RN 623/2024 art. 12 conta o prazo
+    de resposta em DIAS UTEIS a partir da data da solicitacao (II "a": ate 5; II "b" PAC/internacao
+    eletiva: ate 10). QUANTOS dias uteis vem da DMN `auth_sla` (`prazo_resposta_dias_uteis`,
+    copiado para a task pelo input mapping); este worker so faz a aritmetica de calendario
+    (`maezo.platform.calendario`: feriados nacionais + os da UF, versionados) e devolve a duracao
+    ISO ate o vencimento, que o timer `BT_SlaAnalise` le. Nenhuma regra de prazo mora aqui.
+
+    Escreve as tres variaveis em TODO caminho (uma semente de start homonima e sempre
+    sobrescrita). Ficam NULAS — e o timer segue no ISO corrido da DMN, comportamento historico —
+    quando: a bandeira esta desligada (padrao); a DMN nao deu dias uteis (urgencia: resposta
+    imediata, segue o `sla_analise` da DMN); o numero e invalido; ou `data_solicitacao_iso` veio
+    mas e ambigua/invalida (nunca se adivinha a ancora). Ancora ausente = o relogio do worker,
+    que roda imediatamente antes da User Task: a mesma ancora que o timer ISO usa hoje. Ancora
+    no futuro e limitada a agora. UF ausente, desconhecida ou ainda sem fonte estadual conta so
+    os feriados nacionais — vencimento igual ou anterior ao legal, nunca posterior.
+    """
+
+    def __init__(
+        self,
+        dias_uteis_ativo: bool = False,
+        *,
+        relogio: Callable[[], _dt.datetime] | None = None,
+    ) -> None:
+        super().__init__(topic=COMPUTE_RESPONSE_DEADLINE_TOPIC)
+        # `is True`, nunca truthiness: um valor-lixo ("true", 1) jamais liga a bandeira (dark).
+        self._ativo = dias_uteis_ativo is True
+        self._relogio = relogio or _agora_utc
+
+    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        nulos: dict[str, Any] = {
+            _PRAZO_DURACAO_VAR: None,
+            _PRAZO_VENCIMENTO_VAR: None,
+            _PRAZO_CALENDARIO_VAR: None,
+        }
+        if not self._ativo:
+            return nulos
+        tenant_id = process_vars.get("tenant_id", "")
+        guia = process_vars.get("numero_guia_tiss", "unknown")
+        dias = process_vars.get("prazo_resposta_dias_uteis")
+        if isinstance(dias, bool) or not isinstance(dias, int) or not 1 <= dias <= MAX_DIAS_UTEIS:
+            self.logger.info(
+                "auth_prazo_util_sem_dias_uteis", tenant_id=tenant_id, guia=guia, dias=repr(dias)[:32]
+            )
+            return nulos
+        agora = self._relogio()
+        bruto = process_vars.get("data_solicitacao_iso")
+        if bruto is None or (isinstance(bruto, str) and not bruto.strip()):
+            inicio = agora
+        else:
+            ancora = _instante_da_solicitacao(bruto)
+            if ancora is None:
+                self.logger.warning("auth_prazo_util_ancora_invalida", tenant_id=tenant_id, guia=guia)
+                return nulos
+            inicio = min(ancora, agora)
+        uf = normalizar_uf(process_vars.get("uf_beneficiario"))
+        vencimento = vencimento_em_dias_uteis(inicio, dias, uf)
+        self.logger.info(
+            "auth_prazo_util_calculado",
+            tenant_id=tenant_id,
+            guia=guia,
+            dias_uteis=dias,
+            uf=uf,
+            calendario=CALENDARIO_VERSAO,
+        )
+        return {
+            _PRAZO_DURACAO_VAR: duracao_iso_ate(agora, vencimento),
+            _PRAZO_VENCIMENTO_VAR: vencimento.isoformat(),
+            _PRAZO_CALENDARIO_VAR: CALENDARIO_VERSAO,
         }
 
 
@@ -1912,7 +2059,7 @@ def register_auth_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the 6 SP-OP-AUTH-001 `WorkerBase` workers + 1 raw handler on `harness`.
+    """Register the 7 SP-OP-AUTH-001 `WorkerBase` workers + 1 raw handler on `harness`.
 
     `ValidateAutoCriteriaWorker` takes the ADR-0028 `dmn=` seam. An ABSENT seam is NOT a
     registration failure: the worker fails each DMN-backed criterion closed with its own
@@ -1926,6 +2073,14 @@ def register_auth_workers(
     `TopicOwnershipError` instead of being silently ignored. `denial_written_notice` (bool,
     default False — `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`) is threaded into that one owner and
     only switches on the honest manual-delivery state of the RN 623 art. 14 written notice.
+
+    `junta_rn424_guard` (bool, default False — `MAEZO_AUTH_JUNTA_RN424_GUARD`, R-064) is threaded
+    into `ConveneJuntaWorker`, which only publishes whether `GW_JuntaAdmissivel` applies the
+    RN 424/2017 art. 3 I veto computed by the DMN `auth_junta_admissibility`.
+
+    `auth_prazo_dias_uteis` (bool, default False — `MAEZO_AUTH_PRAZO_DIAS_UTEIS`, R-005) is
+    threaded into `ComputeResponseDeadlineWorker`, which converts the DMN's business-day count
+    into the ISO duration `BT_SlaAnalise` reads; off, it writes nulls and the DMN's ISO stays.
 
     WP-J1-09: `operadora.auth.notify_sla_risk` is now a RAW `harness.register()` handler instead
     of a `register_worker(NotifySlaRiskWorker())` entry, because publishing the alert needs the
@@ -1950,7 +2105,6 @@ def register_auth_workers(
     workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
         IssueAuthorizationWorker,
-        ConveneJuntaWorker,
     ]
     # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
     # consumidores possiveis e EXATAMENTE UM pode estar registrado:
@@ -1973,7 +2127,16 @@ def register_auth_workers(
     # saiu por decisao do dono (DEC-01, issue #1081); o seam que o instalava e' recusado acima.
     for worker_cls in workers:
         harness.register_worker(worker_cls())
+    # R-064 (RN 424/2017 art. 3 I), DARK: `junta_rn424_guard` vem de `MAEZO_AUTH_JUNTA_RN424_GUARD`.
+    # `is True`, nao truthiness: um valor-lixo ("true", 1) nunca liga a guarda.
+    harness.register_worker(ConveneJuntaWorker(rn424_guard=seams.get("junta_rn424_guard") is True))
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
+    # R-005 / F-018 (DEC-02), DARK: `auth_prazo_dias_uteis` vem de `MAEZO_AUTH_PRAZO_DIAS_UTEIS`.
+    # Desligada, o worker so' escreve as tres variaveis nulas e o timer segue no ISO da DMN.
+    harness.register_worker(
+        ComputeResponseDeadlineWorker(dias_uteis_ativo=seams.get("auth_prazo_dias_uteis") is True),
+        variables=COMPUTE_RESPONSE_DEADLINE_VARIABLES,
+    )
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
     # POR ULTIMO (18/09/2026, bateria adversarial): um selo de topico pre-existente que recuse
     # este registro nao pode deixar `ValidateAutoCriteriaWorker` nem o handler cru de

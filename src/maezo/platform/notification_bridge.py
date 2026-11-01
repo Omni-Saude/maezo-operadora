@@ -80,6 +80,7 @@ from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY as _INADIMPLENCIA_
 from maezo.tools.workers.base import mint_contract_business_key as _shared_mint_contract_business_key
 from maezo.tools.workers.base import non_blank as _shared_non_blank
 from maezo.tools.workers.base import resolve_fraude_numero_caso as _resolve_fraude_numero_caso
+from maezo.tools.workers.fraude import cred_start_seed_from_fraude
 
 logger = structlog.get_logger(__name__)
 
@@ -588,6 +589,13 @@ class _SlaAlertSpec:
     `<dominio>.notify_sla_risk` a WARNING + a counted `unrecognised_shape`, never a silent
     pass-through.
 
+    R-107 (F-135) — `contas` NOW HAS A PRODUCER, DARK, AND IS DELIBERATELY NOT A SPEC HERE.
+    `contas.make_notify_sla_risk_handler` publishes `contas.notify_sla_risk` to the same channel
+    when `MAEZO_CONTAS_SLA_RISK_ENTREGA` is on (default off). It gets no `_SlaAlertSpec`: adding
+    CONTAS as an SP-OP-ESCALATION-001 origin is the same kind of owner ratification decision #17
+    was for AUTH (the ESCALATION contract lists its SLA-alert origins), so until then that `type`
+    takes the `unrecognised_shape` WARNING + counter path described above.
+
     WHY `auth` JOINED THE SET (WP-J1-09, owner decision #17, 2026-09-12 — RATIFIED). It was the
     named exception in the sentence above: `auth.NotifySlaRiskWorker` was the class-based,
     Kafka-less step whose alert reached nobody. Decision #17 ratifies the AUTH->ESCALATION handoff
@@ -980,6 +988,9 @@ class NotificationBridge:
                 "numero_caso": p.get("numero_caso", ""),
                 "bundle_root": p.get("bundle_root", ""),
                 "destino_referral": p.get("destino_referral", {}),
+                # F-077: direcao, tipo_prestador, origem_solicitacao, data_solicitacao_iso e
+                # documentos_refs (obrigatorias no contrato CRED) pelo MESMO seed do worker in-flow.
+                **cred_start_seed_from_fraude(p),
                 "business_key": _cred_business_key(
                     str(p.get("tenant_id", "")), str(p.get("prestador_id", ""))
                 ),

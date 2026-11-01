@@ -1467,14 +1467,22 @@ def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto() -
         dados_pagamento_validos=True,
         duplicidade_suspeita=False,
         dentro_teto_l2=True,
+        # Pacote PAGTO PR-B: os fatos novos tambem chegam hostis e tambem nao passam.
+        lastro_status="CONFIRMADO",
+        duplicidade_status="NENHUMA",
+        prestador_situacao="ATIVO",
+        valor_maximo_aprovavel_cents=10**12,
+        analista_admissibilidade_id="analista-plantado",
     )
     handoff_pagamento(hostile, engine=engine, audit_sink=FakeStartAuditSink())
     payload = asyncio.run(engine.get_process_status(_PAGTO_BK)).variables
     for forbidden in HANDOFF_PAGTO_FORBIDDEN_KEYS:
         assert forbidden not in payload, f"{forbidden} vazou para PAGTO — I-PAGTO-1 violada"
+    # Os quatro originais continuam no conjunto (a igualdade do conjunto ampliado e pinada em
+    # tests/unit/agents/test_andre_i_pagto_1.py, contra a fonte unica pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE).
     assert (
         frozenset({"lastro_confirmado", "dados_pagamento_validos", "duplicidade_suspeita", "dentro_teto_l2"})
-        == HANDOFF_PAGTO_FORBIDDEN_KEYS
+        <= HANDOFF_PAGTO_FORBIDDEN_KEYS
     )
 
 

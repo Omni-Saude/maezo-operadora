@@ -56,7 +56,7 @@ SCRIPT = ROOT / "deploy/cibseven/configure-group-whitelist.sh"
 
 
 def test_original_27_static_candidate_groups_are_preserved() -> None:
-    """Os 27 originais + `cadastro-beneficiarios` (DL-0111) + `financeiro-reembolso` (DL-0158)."""
+    """Os 27 originais + `cadastro-beneficiarios` (DL-0111) + `financeiro-reembolso` (DL-0159)."""
     actual = set()
     expressions = set()
     for path in (ROOT / "spec/processes/bpmn").glob("*.bpmn"):

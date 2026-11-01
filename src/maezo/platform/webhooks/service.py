@@ -184,7 +184,8 @@ def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
     if getattr(settings, "helena_busca_semantica", False) is True:
         # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
         # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
-        from maezo.conhecimento.busca_semantica import BuscaSemantica, TransporteBedrockRegional
+        from maezo.conhecimento.busca_semantica import BuscaSemantica
+        from maezo.runtime.inference.embeddings import TransporteBedrockRegional
 
         try:
             busca = BuscaSemantica(
@@ -406,7 +407,6 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
     lucas_turno = None
     if settings.roteador_lucas_enabled:
         from maezo.agents.lucas.fonte_cobranca import FonteCobranca, FonteCobrancaSimulada
-        from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
         from maezo.platform.webhooks.whatsapp.lucas_turno import LucasTurno
 
         if dispatcher.dedup is None:
@@ -453,9 +453,6 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             fonte=fonte,
             hash_telefone_amh=amh_interop.phone_hasher if amh_interop is not None else None,
             fonte_aclose=amh_interop.aclose if amh_interop is not None else None,
-            limiares_atraso=LimiaresDeAtraso(
-                meses_minimo=settings.lucas_atraso_meses_min, dias_minimo=settings.lucas_atraso_dias_min
-            ),
             # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
             cancelamento_pf_v1=settings.cancel_pf_v1 is True,
             fonte_cancelamento=fonte_cancelamento,
@@ -477,7 +474,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
 
 
 def _custodia_de_arquivo(settings: WhatsAppWebhookSettings) -> CustodiaDeArquivo | None:
-    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0159/DL-0160).
+    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0160/DL-0161).
 
     S3 com SSE-KMS (`gateway/reembolso_anexos.py`), so' com o bucket E a chave configurados
     (`MAEZO_REEMBOLSO_ANEXOS_BUCKET`/`MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN`, `reembolso-anexos.tf`). O plano de
@@ -1162,7 +1159,7 @@ async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = Fal
     if state.acesso is not None:
         state.dispatcher.acesso = state.acesso
 
-    # DL-0158/DL-0159: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
+    # DL-0159/DL-0160: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
     # pre-condicoes (Lucas, acesso verificado, custodia de arquivo) = o receptor sobe SEM o reembolso e
     # diz por que (nunca aceita um arquivo que nao sabe onde guardar).
     try:

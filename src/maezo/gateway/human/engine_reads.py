@@ -128,7 +128,8 @@ class EngineReadBundle:
         self.guard()
         c = ct.claims
         admission, signing = self.client.partition.admission, self.client.partition.signing
-        assert admission is not None and signing is not None
+        if admission is None or signing is None:
+            raise AssertionError("particao sem admission/signing apos guard()")
         a, b = admission.record, c.binding
         if (
             c.stage != stage
@@ -308,7 +309,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         `purpose=portal-task-read` envelopes for the six read routes and nothing here changes
         that. The completion travels on its own explicitly composed client. What it lacks — a
         signed envelope, a receipt, an outbox row, an engine-side optimistic fence — is the
-        debt DL-0049 registers and the D6 relay of #427 pays.
+        debt DL-0049 registers and the D6 relay of #1145 pays.
         """
         try:
             if self._completion is None or self._completion.scope != self.scope:
@@ -324,7 +325,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 raise unavailable()
             self._b.guard()
             self._b._completed.add(task_id)  # reserve before the first await
-            # DL-0160: `extras` so' quando existe (os formularios de sempre seguem a chamada de antes).
+            # DL-0161: `extras` so' quando existe (os formularios de sempre seguem a chamada de antes).
             com_extras = {} if extras is None else {"extras": extras}
             ack = await self._completion.complete(
                 task_id=task_id,

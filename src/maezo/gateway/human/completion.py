@@ -6,7 +6,7 @@ durable, deduplicated envelope dispatched by `HumanCommandRelay` over the outbox
 is declared NOT ESTABLISHED in `src/maezo/portal/engine/README.md`, so the portal today shows
 the queue and cannot close the case. This module is the *interim* path that closes it, behind
 a gate that is OFF by default and fenced to `dev-sa-east-1` by
-`scripts/ci/check_portal_direct_completion.py`. It is not the destination; issue #427's relay
+`scripts/ci/check_portal_direct_completion.py`. It is not the destination; issue #1145's relay
 is. Read DL-0049 before extending anything here.
 
 Nothing in this module is a capability: no key, no connection, no HTTP client and no audit
@@ -85,7 +85,7 @@ COMPLETION_VARIABLES: tuple[str, str] = ("resultado", "notas_resolucao")
 #: SLA coordination). One closed outcome variable, NO note: nothing free-text reaches the engine.
 CANCEL_EXECUCAO_FORM_KEY = "cancel_execucao"
 
-#: DL-0160: os quatro formularios do reembolso (SP-OP-REEMBOLSO-001 v0.2.0, BPMN_FORMDATA).
+#: DL-0161: os quatro formularios do reembolso (SP-OP-REEMBOLSO-001 v0.2.0, BPMN_FORMDATA).
 REEMBOLSO_DECISAO_FORM_KEY = "reembolso_decisao"
 REEMBOLSO_AUDITOR_FORM_KEY = "reembolso_auditor"
 REEMBOLSO_PENDENCIA_FORM_KEY = "reembolso_pendencia"
@@ -97,7 +97,7 @@ RESULTADO_PAGAMENTO_REGISTRADO = "PAGO"
 #: The outcome of any form this path may close.
 AnyCompletionOutcome = CompletionOutcome | CancelExecucaoOutcome | ReembolsoCompletionOutcome
 
-#: O tipo de cada variavel extra de um formulario (DL-0160): texto livre (passa pelo MESMO scrub da nota),
+#: O tipo de cada variavel extra de um formulario (DL-0161): texto livre (passa pelo MESMO scrub da nota),
 #: centavos inteiros (Long no motor) ou data ISO.
 ExtraKind = Literal["texto", "centavos", "data"]
 
@@ -107,7 +107,7 @@ class CompletionForm:
     """One form the interim path may close: the outcome variable, its closed values and the
     optional pseudonymized note variable. Server-owned: nothing here comes from the browser.
 
-    DL-0160: um formulario pode ter VARIAVEIS EXTRAS tipadas (`extras`, nome -> tipo), todas declaradas no
+    DL-0161: um formulario pode ter VARIAVEIS EXTRAS tipadas (`extras`, nome -> tipo), todas declaradas no
     `camunda:formData` da tarefa, e uma variavel que o SERVIDOR preenche com a referencia pseudonima de quem
     concluiu (`principal_variable`, ex. `analista_id`). `outcome_variable=None`: o formulario nao manda
     desfecho ao motor (o registro de pagamento so' manda a data)."""
@@ -146,7 +146,7 @@ COMPLETION_FORMS: Mapping[str, CompletionForm] = MappingProxyType(
         CANCEL_EXECUCAO_FORM_KEY: CompletionForm(
             CANCEL_EXECUCAO_FORM_KEY, "execucao_cadastro", CANCEL_EXECUCAO_OUTCOMES, None
         ),
-        # DL-0160: o reembolso. Os desfechos e as regras condicionais (texto exigido em NEGAR etc.) sao os
+        # DL-0161: o reembolso. Os desfechos e as regras condicionais (texto exigido em NEGAR etc.) sao os
         # do contrato canonico (`portal/contracts/models.py`), revalidados na rota; o worker refaz a
         # guarda L0.
         REEMBOLSO_DECISAO_FORM_KEY: CompletionForm(
@@ -186,7 +186,7 @@ COMPLETION_FORMS: Mapping[str, CompletionForm] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CompletionExtras:
-    """As variaveis extras JA' validadas e com os textos JA' passados pelo scrub (DL-0160).
+    """As variaveis extras JA' validadas e com os textos JA' passados pelo scrub (DL-0161).
 
     `values`: (nome, tipo do motor, valor). `digest` e' o que vai a trilha de auditoria (Zona Geral): nunca o
     texto. Construido SO' por `build_completion_extras`."""

@@ -418,7 +418,7 @@ class FernandoState(TypedDict, total=False):
 # --- Helpers ---------------------------------------------------------------------------
 
 
-def _business_key(state: FernandoState) -> str:
+def _business_key(state: FernandoState, *, exige_contrato: bool = False) -> str:
     """Idempotent business key per contract: `INAD-{tenant_id}-{numero_contrato}` — falls back
     to `matricula_beneficiario` when there is no contract number (individual/familiar plans),
     matching the BPMN's own documented variant (`spec/processes/bpmn/
@@ -430,7 +430,21 @@ def _business_key(state: FernandoState) -> str:
     byte-identical under the shipped (`off`) privacy policy, records the content-free DL-0043
     shadow counter, and switches to `beneficiario_pseudo_id` (the `PROG-...` precedent this repo
     already follows in `valentina/graph.py`) only under a RATIFIED `modo: pseudo_keys`.
+
+    F-124 (`exige_contrato`, flag dark `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`; decisao do DPO de
+    31/10/2026, #1082 opcao a): a chave e' cunhada SO' sobre `numero_contrato` — sem fallback
+    para matricula nem pseudo id, a mesma forma de `fraude`/`notification_bridge`. Sem contrato
+    sai a chave degenerada `INAD-{tenant}-`, que o chokepoint recusa
+    (`require_contract_key=True` em `start_process`) antes de qualquer efeito.
     """
+    if exige_contrato:
+        return mint_contract_business_key(
+            INADIMPLENCIA_KEY_FAMILY,
+            state.get("tenant_id", ""),
+            numero_contrato=state.get("numero_contrato") or "",
+            matricula_beneficiario="",
+            exige_contrato=True,
+        )
     return mint_contract_business_key(
         INADIMPLENCIA_KEY_FAMILY,
         state.get("tenant_id", ""),
@@ -647,6 +661,10 @@ class FernandoGraph:
     provider/a fake `WhatsAppSender`.
     """
 
+    #: F-124 dark flag — class-level default OFF, so an instance built without `__init__`
+    #: (contract fences use `object.__new__`) keeps today's behaviour instead of crashing.
+    _chave_exige_contrato: bool = False
+
     def __init__(
         self,
         *,
@@ -656,7 +674,13 @@ class FernandoGraph:
         audit_sink: AuditStartSink,
         whatsapp: WhatsAppSender,
         agent_version: str = "fernando@v0",
+        chave_exige_contrato: bool = False,
     ) -> None:
+        if type(chave_exige_contrato) is not bool:
+            raise TypeError(
+                "chave_exige_contrato must be a bool (dark flag, default off) — got "
+                f"{type(chave_exige_contrato).__name__}"
+            )
         self._llm = inference
         self._dmn = dmn
         self._cibseven = cibseven
@@ -665,6 +689,9 @@ class FernandoGraph:
         self._model_id = getattr(inference, "model_id", None)
         self._whatsapp = whatsapp
         self._agent_version = agent_version
+        # F-124 (dark, `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`): chave INAD so' sobre `numero_contrato`;
+        # sem contrato o start e' recusado pelo chokepoint (fail-notify ADR-0045).
+        self._chave_exige_contrato = chave_exige_contrato
 
     # -- Nodes ----------------------------------------------------------------------------
 
@@ -678,7 +705,7 @@ class FernandoGraph:
             return self._escalate_min("falha_tecnica", "missing_tenant_id")
         if state.get("intencao") not in _VALID_INTENCOES:
             return self._escalate_min("ambiguidade", "invalid_intencao")
-        if not (state.get("numero_contrato") or state.get("matricula_beneficiario")):
+        if not self._contract_identity_present(state):
             return self._escalate_min("falha_tecnica", "missing_contract_key")
         # FER-05/FER-04: os outros dois campos de DOMINIO FECHADO do chamador. Um valor presente
         # e fora do dominio e' recusado aqui (fail-closed -> humano), com TOKEN DE CLASSE — nunca
@@ -689,7 +716,16 @@ class FernandoGraph:
             return self._escalate_min("ambiguidade", "invalid_tipo_plano")
         if _canal_recusado(state):
             return self._escalate_min("ambiguidade", "invalid_canal")
-        return {**_output_field_resets(), "business_key": _business_key(state)}
+        return {
+            **_output_field_resets(),
+            "business_key": _business_key(state, exige_contrato=self._chave_exige_contrato),
+        }
+
+    def _contract_identity_present(self, state: FernandoState) -> bool:
+        """`receive`: ha identidade para a chave? Sob F-124 so' o `numero_contrato` conta."""
+        if self._chave_exige_contrato:
+            return bool(state.get("numero_contrato"))
+        return bool(state.get("numero_contrato") or state.get("matricula_beneficiario"))
 
     async def assess(self, state: FernandoState) -> dict[str, Any]:
         """Evaluate the deterministic DMNs and decide `route` — NEVER by merit, only by the
@@ -833,7 +869,9 @@ class FernandoGraph:
         (mirrors the donor's explicit design note and the BPMN: the notice/reminder path is
         handled entirely inside an ALREADY-running instance's own cure-window, never something
         Fernando originates)."""
-        business_key = state.get("business_key") or _business_key(state)
+        business_key = state.get("business_key") or _business_key(
+            state, exige_contrato=self._chave_exige_contrato
+        )
         variables = self._inadimplencia_variables(state)
         provenance = AgentDecisionProvenance(
             agent_id="fernando",
@@ -855,6 +893,9 @@ class FernandoGraph:
                 variables=variables,
                 audit_sink=self._audit_sink,
                 provenance=provenance,
+                # F-124 (dark): sem contrato, recusa no chokepoint -> `CibSevenStartKeyError`
+                # (subclasse de `CibSevenError`) -> o mesmo `start_failed_state` abaixo.
+                require_contract_key=self._chave_exige_contrato,
             )
         except CibSevenError as exc:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
@@ -1092,7 +1133,12 @@ class FernandoGraph:
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "fernando",
             "source_agent_version": self._agent_version,
-            "numero_contrato": state.get("numero_contrato", "") or state.get("matricula_beneficiario", ""),
+            # F-124: sob a flag a matricula NUNCA e' copiada para `numero_contrato`.
+            "numero_contrato": (
+                state.get("numero_contrato", "")
+                if self._chave_exige_contrato
+                else state.get("numero_contrato", "") or state.get("matricula_beneficiario", "")
+            ),
             "matricula_beneficiario": state.get("matricula_beneficiario", ""),
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
             "tipo_plano": _tipo_plano(state),
@@ -1168,6 +1214,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[FernandoState]:
       - `whatsapp`: a `WhatsAppSender`.
     Optional:
       - `agent_version`: audit provenance string (ADR-0007), defaults to `"fernando@v0"`.
+      - `inad_chave_exige_contrato`: F-124 dark flag (`MAEZO_INAD_CHAVE_EXIGE_CONTRATO`),
+        default False — must be a real `bool`.
 
     Fail-closed: missing a required dependency raises `ValueError` at build time — Fernando
     never silently constructs a graph that would crash mid-case on its first tool call (mirrors
@@ -1204,6 +1252,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[FernandoState]:
         audit_sink=cast(AuditStartSink, audit_sink),
         whatsapp=cast(WhatsAppSender, whatsapp),
         agent_version=agent_version,
+        chave_exige_contrato=cfg.get("inad_chave_exige_contrato", False),
     ).compile_graph()
 
 
