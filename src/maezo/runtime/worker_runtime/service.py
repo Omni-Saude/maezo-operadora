@@ -307,6 +307,7 @@ def register_default_workers(
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
+    pagto_resolve_lastro: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -414,6 +415,8 @@ def register_default_workers(
         junta_rn424_guard=junta_rn424_guard,
         # R-005 / F-018: prazo de resposta AUTH em dias uteis (dark; see settings).
         auth_prazo_dias_uteis=auth_prazo_dias_uteis,
+        # PAGTO PR-D: fatos do lastro conferidos no historico do motor (dark; see settings).
+        **({"pagto_resolve_lastro": True} if pagto_resolve_lastro is True else {}),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1143,6 +1146,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
                 # R-005 (RN 623/2024 art. 12), DARK: prazo de resposta em dias uteis so' quando ligada.
                 auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
+                # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
+                pagto_resolve_lastro=settings.pagto_resolve_lastro,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url

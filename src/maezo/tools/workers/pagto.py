@@ -1280,12 +1280,22 @@ def register_pagto_workers(
     # Passado SEMPRE explicito: o default de `validate_pagto` e o estrito, entao omitir o kwarg aqui
     # mudaria o caminho vivo com a flag desligada (pinado por teste de fiacao).
     pagto_fatos_estritos = seams.get("pagto_fatos_estritos") is True
-    harness.register_worker(
-        FunctionWorker(
-            "operadora.pagto.validate_payment_data",
-            functools.partial(validate_pagto, fatos_estritos=pagto_fatos_estritos),
+    validar = functools.partial(validate_pagto, fatos_estritos=pagto_fatos_estritos)
+    if seams.get("pagto_resolve_lastro") is True:
+        # Pacote PAGTO PR-D dark seam (settings `MAEZO_PAGTO_RESOLVE_LASTRO`, default off; ABSENT
+        # == OFF, `is True`): o MESMO topico passa a acrescentar os fatos do lastro conferidos no
+        # historico do motor (`pagto_lastro`), com escopo de leitura explicito. Rota inalterada.
+        from maezo.tools.workers.pagto_lastro import VALIDATE_COM_LASTRO_VARIABLES, validar_com_lastro
+
+        harness.register_worker(
+            FunctionWorker(
+                "operadora.pagto.validate_payment_data",
+                functools.partial(validar_com_lastro, validar=validar, engine=seams.get("engine")),
+            ),
+            variables=VALIDATE_COM_LASTRO_VARIABLES,
         )
-    )
+    else:
+        harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validar))
     harness.register_worker(
         FunctionWorker(
             "operadora.pagto.assess_admissibility", functools.partial(assess_admissibility, dmn=dmn)

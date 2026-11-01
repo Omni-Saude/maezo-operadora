@@ -32,7 +32,7 @@ lifecycle would break anyway.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -40,6 +40,8 @@ import structlog
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
+    HistoricInstanceResolvingTransport,
+    HistoricVariableReadingTransport,
     HistoryQueryingTransport,
     UserTaskAssigneeReadingTransport,
     require_engine_tenant_token,
@@ -48,6 +50,8 @@ from maezo.tools.mcp_cibseven.transport import (
 if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import (
         CibSevenTransport,
+        HistoricInstanceRecord,
+        HistoricProcessVariables,
         ProcessInstance,
         ProcessStatus,
     )
@@ -136,6 +140,46 @@ class FreshClientCibSevenTransport:
                     f"inner transport {type(inner).__name__!r} does not implement `read_user_task_assignee`"
                 )
             return await inner.read_user_task_assignee(process_instance_id, task_definition_key)
+        finally:
+            await inner.close()
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        """`HistoricVariableReadingTransport` delegation. Existe para que `gate_cibseven` possa
+        expor a leitura seguinte (que exige as tres pernas do historico); inner sem a capacidade
+        LEVANTA `CibSevenError` — nunca uma leitura vazia lida como "nao ha nada"."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricVariableReadingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `read_historic_variables`"
+                )
+            return await inner.read_historic_variables(process_instance_id, names)
+        finally:
+            await inner.close()
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        """`HistoricInstanceResolvingTransport` delegation (pacote PAGTO PR-D): a costura de PR-C
+        chega ao daemon de workers SO' por aqui, e SO' atras do decorator cercado (C0
+        `consulta_processo`). Inner sem a capacidade LEVANTA `CibSevenError` (o consumidor,
+        `pagto_lastro.resolve_lastro`, le isso como `INDISPONIVEL`)."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricInstanceResolvingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `resolve_historic_instance`"
+                )
+            return await inner.resolve_historic_instance(
+                process_key, business_key=business_key, variable_equals=variable_equals, names=names
+            )
         finally:
             await inner.close()
 
