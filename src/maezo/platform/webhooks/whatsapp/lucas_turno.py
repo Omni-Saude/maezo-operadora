@@ -82,7 +82,6 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
     ref_de_resposta,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.domain.conversa.cobranca_foco import FOCO_GERAL, foco_valido
 from maezo.domain.conversa.cobranca_intencao import confirmacao_valida
 from maezo.domain.conversa.cobranca_lista import PedidoDeLista, lista_do_handoff
@@ -440,8 +439,6 @@ class LucasTurno:
     hash_telefone_amh: Callable[[str], str | None] | None = field(default=None, repr=False)
     #: Drenagem dos recursos da fonte (os executores do gateway da fonte AMH). `None` na simulada.
     fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
-    #: Rodada 12: quando o atraso abre caso humano (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`).
-    limiares_atraso: LimiaresDeAtraso = field(default_factory=LimiaresDeAtraso)
     #: DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), o turno e' o de antes byte a byte.
     cancelamento_pf_v1: bool = False
     #: DL-0111: a fonte dos fatos do cancelamento (TINA elegibilidade). So' com a chave e a fonte AMH;
@@ -470,7 +467,6 @@ class LucasTurno:
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
                 "agent_version": self.agent_version,
-                "limiares_atraso": self.limiares_atraso,
                 "cancelamento_pf_v1": self.cancelamento_pf_v1 is True,
                 "lucas_v4": self.lucas_v4 is True,
             }

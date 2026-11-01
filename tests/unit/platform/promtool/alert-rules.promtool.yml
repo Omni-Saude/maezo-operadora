@@ -1,0 +1,109 @@
+# promtool rule unit tests for deploy/observability/alert-rules.yml (R-085, owner decision
+# 2026-10-31, issue #1084). Run: `promtool test rules tests/unit/platform/promtool/alert-rules.promtool.yml`
+# (wrapped by tests/unit/platform/test_alert_rules_promtool.py, skipped where promtool is absent).
+# Synthetic series only.
+rule_files:
+  - ../../../../deploy/observability/alert-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Agent error rate: a failed turn with NO tool call used to read x/0 = +Inf and page critical.
+  # Now: failed turns / all turns, warning, minimum volume.
+  - interval: 1m
+    input_series:
+      - series: 'maezo_agent_errors_total{agent="rafael", error_type="validacao"}'
+        values: '0+2x20'
+      - series: 'maezo_agent_errors_total{agent="helena", error_type="validacao"}'
+        values: '0+1x20'
+      - series: 'maezo_agent_desfecho_total{agent_id="helena", desfecho="resolvido_automatico", route="r", motivo_categoria="m"}'
+        values: '0+150x20'
+      - series: 'maezo_agent_errors_total{agent="lucas", error_type="validacao"}'
+        values: '0+0x10 0+1x10'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MaezoSLAAgentErrorRateHigh
+        exp_alerts:
+          - exp_labels: {agent: rafael, severity: warning, category: sla, component: agents}
+            exp_annotations:
+              summary: "Agent error rate exceeds 1% (SLA breach)"
+              description: "Agent rafael failed 100% of its turns over the last 5 minutes (failed turns / all turns). Threshold: 1%. Check agent logs and LLM provider health.\n"
+              runbook_url: "docs/runbooks/alerts/MaezoSLAAgentErrorRateHigh.md"
+
+  # DLQ: a static (monotonic) offset no longer fires forever; a NEW arrival fires, then clears.
+  - interval: 1m
+    input_series:
+      - series: 'kafka_topic_partition_current_offset{topic="operadora.events.dlq", partition="0", environment="dev"}'
+        values: '7x30 8x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: MaezoDeadLetterBacklog
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: MaezoDeadLetterBacklog
+        exp_alerts:
+          - exp_labels: {topic: operadora.events.dlq, environment: dev, severity: warning, category: dead_letter, component: messaging}
+            exp_annotations:
+              summary: "New messages arrived at dead-letter topic operadora.events.dlq"
+              description: "1.1111111111111112 new message(s) were routed to dead-letter topic operadora.events.dlq in the last 10 minutes. Investigate message payloads and consumer health. Topics affected may need manual replay or purge.\n"
+              runbook_url: "docs/runbooks/alerts/MaezoDeadLetterBacklog.md"
+      - eval_time: 55m
+        alertname: MaezoDeadLetterBacklog
+        exp_alerts: []
+
+  # Escalation: 40% in both windows with volume fires; 1 escalation out of 1 turn does not.
+  - interval: 1m
+    input_series:
+      - series: 'maezo_agent_desfecho_total{agent_id="helena", desfecho="escalado_humano", route="r", motivo_categoria="m", environment="dev"}'
+        values: '0+2x70'
+      - series: 'maezo_agent_desfecho_total{agent_id="helena", desfecho="resolvido_automatico", route="r", motivo_categoria="m", environment="dev"}'
+        values: '0+3x70'
+      - series: 'maezo_agent_desfecho_total{agent_id="lucas", desfecho="escalado_humano", route="r", motivo_categoria="m", environment="dev"}'
+        values: '0x60 1x10'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: MaezoEscalationRateHigh
+        exp_alerts:
+          - exp_labels: {agent_id: helena, environment: dev, severity: warning, category: governanca, component: agents}
+            exp_annotations:
+              summary: "Agent helena escalated more than 30% of turns in 1h"
+              description: "Agent helena (dev) ended 40% of its turns with escalado_humano over the last hour, confirmed over the last 5 minutes. Threshold 30% / 1h from docs/runbooks/devops-stack.md \"Escalation rate\".\n"
+              runbook_url: "docs/runbooks/alerts/MaezoEscalationRateHigh.md"
+
+  # Crash loops read container restarts (kube-state-metrics), not error rates.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="maezo-t", pod="worker-daemon-abc", container="worker-daemon"}'
+        values: '0x5 1x3 2x3 3x10'
+      - series: 'maezo_worker_error_count_total{worker="W", topic="t", error_type="E"}'
+        values: '0+100x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MaezoWorkerCrashLoop
+        exp_alerts:
+          - exp_labels: {namespace: maezo-t, pod: worker-daemon-abc, container: worker-daemon, severity: warning, category: crash_loop, component: workers}
+            exp_annotations:
+              summary: "Worker container crash-looping: maezo-t/worker-daemon-abc"
+              description: "Container worker-daemon of pod worker-daemon-abc (namespace maezo-t) restarted 3 times in the last 15 minutes (CrashLoopBackOff signature). Check `kubectl logs --previous` for the startup failure.\n"
+              runbook_url: "docs/runbooks/alerts/MaezoWorkerCrashLoop.md"
+
+  # Kafka: lag with zero progress fires; lag with a moving offset does not.
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag_sum{consumergroup="g-stuck", topic="t", environment="dev"}'
+        values: '5x30'
+      - series: 'kafka_consumergroup_current_offset_sum{consumergroup="g-stuck", topic="t", environment="dev"}'
+        values: '100x30'
+      - series: 'kafka_consumergroup_lag_sum{consumergroup="g-slow", topic="t", environment="dev"}'
+        values: '5x30'
+      - series: 'kafka_consumergroup_current_offset_sum{consumergroup="g-slow", topic="t", environment="dev"}'
+        values: '100+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MaezoKafkaConsumerStalled
+        exp_alerts:
+          - exp_labels: {consumergroup: g-stuck, topic: t, environment: dev, severity: warning, category: messaging, component: messaging}
+            exp_annotations:
+              summary: "Kafka consumer group g-stuck stalled on t"
+              description: "Consumer group g-stuck has 5 message(s) of lag on topic t and its committed offset did not advance in the last 15 minutes (backlog with zero progress). Check the consuming service's health and logs.\n"
+              runbook_url: "docs/runbooks/alerts/MaezoKafkaConsumerStalled.md"

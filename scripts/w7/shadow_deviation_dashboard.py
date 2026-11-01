@@ -511,7 +511,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "default `False`; cercado por `scripts/ci/check_portal_direct_completion.py` (7 cercas)",
         Anchor("src/maezo/portal/api/config.py", "direct_completion: bool = False", 37),
         Anchor(FLAGS_DOC, "MAEZO_PORTAL_DIRECT_COMPLETION", 46),
-        "DL-0049 (relay #427)",
+        "DL-0049 (relay #1145)",
         "end-state = REMOÇÃO com o relay, não flip",
     ),
     FlagRow(
@@ -934,8 +934,8 @@ CANDIDATE_ROWS: Final[tuple[CandidateRow, ...]] = (
         "auditoria-contas + compliance",
         Anchor("spec/processes/dmn/glosa-triage-shadow-candidate.yaml", "regras_candidatas:"),
         Anchor(QUEUE_DOC, "glosa-triage-shadow-candidate.yaml", 640),
-        'conjunto negativo `not("tecnica","clinica")` admite `"desconhecida"` — sob FIRST '
-        "o fail-safe `r_catchall` fica inalcançável no subespaço favorável",
+        "aplicado na tabela viva por DEC-14 (2026-10-31, #1084; R-062): `r_pagar` na posição 4 "
+        "com conjunto positivo fechado — `desconhecida` desce ao `r_catchall` (humano)",
     ),
     CandidateRow(
         "C-M5",

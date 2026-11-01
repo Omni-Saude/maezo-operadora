@@ -151,3 +151,18 @@ Catch-all: tipo desconhecido -> `juridico-privacidade`.
 DI; validacao juridica dos prazos internos; matriz de bases legais de retencao por tipo
 de dado; fluxo de revogacao de consentimento com efeito imediato (art. 18 §2 — avaliar
 caminho dedicado); interacao com SP-OP-CANCEL-001.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-LGPD-DSR-001` → `maezo-payer-lgpd-dsr-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - requisição: `{tenant_id}:lgpd-dsr-001:D-{titular_pseudo_id}-{tipo_requisicao}-{data_solicitacao_iso}` em claro quando couber no charset `[A-Za-z0-9._-]`; senão `hk1_<HMAC>`.
+- **Classificação (a confirmar pelo DPO):** já pseudônimo.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

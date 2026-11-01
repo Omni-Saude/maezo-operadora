@@ -311,3 +311,22 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   prestador (contratuais — **DRAFT/verify**).
 - Politica de duplicidade/idempotencia de tesouraria (evitar dupla liberacao) e reconciliacao
   CNAB/PIX/TED com o sistema de tesouraria externo.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-PAGTO-001` → `maezo-payer-pagto-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - ordem: `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `O-{ordem_pagamento_id}`.
+  - lote+prestador (CONTAS): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `L-{numero_lote_tiss}-{prestador_id}`.
+  - guia+glosa (RECURSO): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}-{glosa_id}`.
+- **Classificação (a confirmar pelo DPO):** forma `G` pessoal; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `PERMANENT` (inalterada).
+- As etiquetas `O`/`L`/`G` separam as três formas da família, que hoje só se distinguem pela contagem de `-`.
+- **Gate permanente na janela:** um pagamento legado CONCLUÍDO continua recusando o start na forma alvo — o filtro de histórico aceita as duas process keys e a reivindicação legada ganha uma linha de alias na forma alvo (só inserção; nenhuma linha apagada). O predicado de retenção dos claims `PERMANENT` ganha o segmento `maezo-payer-pagto-001`. Risco direto: pagamento duplicado — teste negativo obrigatório no pacote da janela.
