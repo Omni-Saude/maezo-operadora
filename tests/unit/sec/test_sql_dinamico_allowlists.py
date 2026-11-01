@@ -741,3 +741,7 @@ def _tabela_e_colunas_literais(modulo: str, colunas: bool) -> None:
 
 def test_whatsapp_acesso_limite_cpf_tabela_literal() -> None:
     _tabela_e_colunas_literais("platform/webhooks/whatsapp/acesso_limite_cpf.py", colunas=False)
+
+
+def test_whatsapp_acesso_store_tabela_e_colunas_literais() -> None:
+    _tabela_e_colunas_literais("platform/webhooks/whatsapp/acesso_store.py", colunas=True)
