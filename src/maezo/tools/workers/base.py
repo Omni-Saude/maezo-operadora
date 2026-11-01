@@ -450,6 +450,20 @@ def contract_business_key(family: str, tenant_id: str, contrato: str) -> str:
     return f"{family}-{tenant_id}-{contrato}"
 
 
+def is_contract_anchored_key(family: str, tenant_id: str, business_key: str, numero_contrato: Any) -> bool:
+    """F-124: `business_key` e' EXATAMENTE a forma de contrato `{family}-{tenant}-{numero_contrato}`.
+
+    Terceiro chamador sancionado do formatador nu, ao lado de `mint_contract_business_key` e
+    `contract_business_key_forms`: este COMPARA, nao cunha nem consulta instancia, por isso nao
+    conta no contador DL-0043 (contar uma conferencia corromperia a evidencia do dono). Usado
+    pela recusa de start `mcp_cibseven.transport.require_contract_anchored_start_key` (decisao
+    do DPO de 31/10/2026, #1082 opcao a). `numero_contrato` ausente/branco/`None` -> False.
+    """
+    return non_blank(numero_contrato) and business_key == contract_business_key(
+        family, tenant_id, str(numero_contrato)
+    )
+
+
 def _record_key_mint(family: str, modo: str, anchor: str) -> None:
     """Emit the DL-0043 shadow counter. NEVER raises into a key mint (telemetry is not the job).
 

@@ -301,6 +301,7 @@ def register_default_workers(
     inad_rn593_estrito: bool = False,
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
+    inad_chave_exige_contrato: bool = False,
     contas_sla_risk_entrega: bool = False,
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
@@ -402,6 +403,8 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # F-124: INAD sem contrato nao delega ao Fernando (dark; see settings).
+        **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
         **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
         # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
@@ -1043,6 +1046,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # Delegation facts ride the no-op FactProducer default (mirrors the auth edge):
                 # the DURABLE T-F record is the injected audit_sink, not a Kafka facts mirror, so
                 # the real events producer is deliberately NOT threaded here.
+                # F-124 (dark): Fernando recusa o start INAD sem `numero_contrato`.
+                inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
             )
             state.dossier_dispatcher_detail = "assembled"
         else:
@@ -1128,6 +1133,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
                 pagto_fatos_estritos=settings.pagto_fatos_estritos,
                 inad_fatos_estritos=settings.inad_fatos_estritos,
+                inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
             )
             state.harness = harness
