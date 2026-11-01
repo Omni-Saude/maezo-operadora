@@ -92,6 +92,26 @@ pagamento**, risco financeiro direto).
 > calculo fracionario de tabela, usar `double` (BRL). A allowlist de shape DMN (§4-bis-A,
 > ADR-0018 parte 2) torna `number` invalido por construcao.
 
+### Fatos do lastro conferidos no historico do motor (DARK — `MAEZO_PAGTO_RESOLVE_LASTRO`, pacote PAGTO PR-D)
+
+Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem tarefa nova no BPMN)
+acrescenta ao escopo os fatos abaixo, resolvidos por `tools/workers/pagto_lastro.py` contra o
+HISTORICO do motor (costura `resolve_historic_instance`, padrao DL-0050, falha fechada) — analise
+PAGTO §2, fatos L1-L4; ADR-0040 I-PAGTO-1. A evidencia semeada `lastro_origem` so escolhe ONDE
+procurar (CONTAS-001 ou RECURSO-001); a busca usa a identidade da propria ordem
+(`numero_lote_tiss` + `prestador_id` para CONTAS; `RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}`
+para RECURSO) e terminal, valor e `has_glosas` vem do que o motor gravou na origem. **Nao muda
+rota:** `lastro_confirmado` segue como descrito acima, e a DMN que vai ler estes fatos
+(`pagto_admissibility` v0.2) e o pacote PR-F. Desligada (padrao), nada disto e escrito.
+
+| Variavel | Tipo | Descricao |
+|---|---|---|
+| `lastro_status` | string | `CONFIRMADO` (origem concluida num terminal que gera obrigacao, mesmo credor, e `valor_pagamento_cents` <= valor da origem — tolerancia do dono de 31/10/2026: abaixo segue, acima vai a humano) \| `DIVERGENTE_VALOR` (acima da origem, ou um dos valores sem confianca) \| `NAO_ENCONTRADO` (sem origem conferivel, origem inexistente, de outro credor, cancelada ou encerrada num terminal sem obrigacao) \| `NAO_CONCLUIDO` (origem ainda em curso) \| `INDISPONIVEL` (costura ausente, motor fora, resposta ambigua/malformada, estado nao provado — **nunca** `CONFIRMADO`) |
+| `lastro_origem_tipo` | string | `contas_humana` (`End_ContaAprovadaHumano`/`End_PagamentoParcialHumano`) \| `contas_auto_sem_glosa` / `contas_auto_triagem` (`End_ContaAprovadaIntegral` com `has_glosas` historico `false`/`true`) \| `recurso_humano` (`End_RecursoDeferido`/`End_RecursoDeferidoParcial`) \| `outro`. A elegibilidade ao auto (decisao do dono: humana + sem glosa + recurso deferido; triagem PAGAR fora ate M-4) e linha da DMN, nunca do worker |
+| `lastro_origem_instancia_id` | string | Evidencia: id da instancia de origem resolvida (`""` quando nenhuma) |
+| `lastro_origem_terminal` | string | Evidencia: evento final que encerrou a origem (`""` quando nenhum) |
+| `lastro_valor_origem_cents` | integer \| null | Evidencia: valor que a origem registrou (`valor_liberado_brl`/`valor_apresentado_brl`/`valor_deferido_brl`), em centavos; `null` quando nao conferido |
+
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
@@ -121,8 +141,9 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 `_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
 `dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
-`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents` e
-`analista_admissibilidade_id`. O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
+`analista_admissibilidade_id` e `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
+`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |

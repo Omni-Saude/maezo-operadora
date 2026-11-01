@@ -422,7 +422,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
+        pagto_resolve_lastro: bool = False,
     ) -> None:
+        captured["pagto_resolve_lastro"] = pagto_resolve_lastro
         captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
         captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
         captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
@@ -488,6 +490,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-005 / F-018: prazo de resposta AUTH em dias uteis ships dark (MAEZO_AUTH_PRAZO_DIAS_UTEIS).
         assert settings.auth_prazo_dias_uteis is False
         assert captured["auth_prazo_dias_uteis"] is False
+        # PAGTO PR-D: os fatos do lastro conferidos no historico ship dark (MAEZO_PAGTO_RESOLVE_LASTRO).
+        assert settings.pagto_resolve_lastro is False
+        assert captured["pagto_resolve_lastro"] is False
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False

@@ -536,11 +536,16 @@ def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
 
 
 def test_domain_worker_modules_discovered() -> None:
-    """Guard: the discovery actually found the 19 registered worker modules (so the fences below
+    """Guard: the discovery actually found the 20 domain worker modules (so the fences below
     are not silently scanning an empty set)."""
     mods = _domain_worker_modules()
     # 18 worker modules (bootstrap.ALL_WORKER_BOOTSTRAPS = 18: 16 + events + vendor_admin).
-    assert len(mods) == 19, f"expected 19 domain worker modules, found {sorted(mods)}"
+    # 20 (pacote PAGTO PR-D): `pagto_lastro` — handler de dominio de SP-OP-PAGTO-001 (registrado
+    # por `register_pagto_workers` no topico `operadora.pagto.validate_payment_data` sob a flag
+    # dark), NAO infra: as cercas de pureza abaixo valem para ele (nao importa cliente de rede,
+    # nao cunha identificador; chega ao motor so' pela costura `engine=` via `cibseven_engine`).
+    assert len(mods) == 20, f"expected 20 domain worker modules, found {sorted(mods)}"
+    assert "pagto_lastro" in mods
 
 
 def test_no_domain_worker_imports_a_network_or_engine_client() -> None:
