@@ -3,7 +3,7 @@
 Unitario sobre o duble `FakeCibSevenTransport` (a costura de PR-C ja tem seus testes de fio HTTP e
 a prova contra o motor real; aqui o que se prova e' a CLASSIFICACAO dos fatos e a falha fechada).
 A prova contra o motor real deste worker esta em
-`tests/integration/test_pagto_lastro_history_live.py`.
+`tests/integration/test_pagto_lastro_history_resolution.py`.
 """
 
 from __future__ import annotations
@@ -576,7 +576,7 @@ def test_escopo_de_leitura_explicito_cobre_tudo_que_o_handler_le() -> None:
     lidos = (
         _nomes_lidos(pagto.validate_pagto)
         | _nomes_lidos(pagto_lastro.resolve_lastro)
-        | _nomes_lidos(pagto_lastro._consultar)
+        | _nomes_lidos(pagto_lastro._seletor)
         | _nomes_lidos(pagto_lastro._classificar)
     )
     assert len(lidos) >= 10, lidos  # o parser nao pode passar vacuamente

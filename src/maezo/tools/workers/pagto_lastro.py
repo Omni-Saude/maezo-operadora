@@ -40,22 +40,17 @@ sem valor confiavel, `DIVERGENTE_VALOR`. O valor da origem vai junto como eviden
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 import structlog
 
 from maezo.platform.keys import key_segment
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
-from maezo.tools.mcp_cibseven.transport import (
-    HistoricInstanceNotFoundError,
-    HistoricInstanceRecord,
-    HistoricInstanceResolvingTransport,
-)
 from maezo.tools.workers import contas as _contas
 from maezo.tools.workers import recurso as _recurso
+from maezo.tools.workers.cibseven_engine import resolver_instancia_historica
 from maezo.tools.workers.pagto import _valor_pagamento_cents_or_none
 
 logger = structlog.get_logger(__name__)
@@ -220,36 +215,54 @@ def _fatos(
     }
 
 
-def _consultar(
-    engine: HistoricInstanceResolvingTransport, fonte: FonteLastro, variables: Mapping[str, Any]
-) -> HistoricInstanceRecord | None:
-    """A UNICA instancia de origem desta ordem (ou `None` quando a ordem nao carrega identidade
-    para a busca). Erros da costura PROPAGAM — quem chama os classifica."""
-    tenant = key_segment(variables.get("tenant_id"))
+class _RegistroHistorico(Protocol):
+    """O que este modulo le do `HistoricInstanceRecord` da costura (forma estrutural — o modulo
+    nao importa o transporte; chega ao motor so' por `cibseven_engine.resolver_instancia_historica`)."""
+
+    @property
+    def instance_id(self) -> str: ...
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def end_activity_id(self) -> str | None: ...
+
+    @property
+    def variables(self) -> Mapping[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _Seletor:
+    business_key: str
+    variable_equals: dict[str, str]
+    names: tuple[str, ...]
+
+
+def _seletor(fonte: FonteLastro, variables: Mapping[str, Any]) -> _Seletor | None:
+    """A identidade da PROPRIA ordem usada na busca da origem; `None` quando a ordem nao a carrega
+    (sem identidade nao ha consulta — e nunca uma consulta larga)."""
+    valores = tuple(sorted(set(fonte.variavel_valor.values())))
     if fonte.familia == _FAMILIA_CONTAS:
         lote = key_segment(variables.get("numero_lote_tiss"))
         prestador = key_segment(variables.get("prestador_id"))
         if not (lote and prestador):
             return None
-        nomes: tuple[str, ...] = ("has_glosas", *sorted(set(fonte.variavel_valor.values())))
-        return asyncio.run(
-            engine.resolve_historic_instance(
-                fonte.process_key,
-                variable_equals={"numero_lote_tiss": lote, "prestador_id": prestador},
-                names=nomes,
-            )
+        return _Seletor(
+            business_key="",
+            variable_equals={"numero_lote_tiss": lote, "prestador_id": prestador},
+            names=("has_glosas", *valores),
         )
+    tenant = key_segment(variables.get("tenant_id"))
     guia = key_segment(variables.get("numero_guia_tiss"))
     glosa = key_segment(variables.get("glosa_id"))
     if not (tenant and guia and glosa):
         return None
-    return asyncio.run(
-        engine.resolve_historic_instance(
-            fonte.process_key,
-            # A chave contratual de RECURSO-001 (`recurso._recurso_business_key`).
-            business_key=_recurso._recurso_business_key(tenant, guia, glosa),
-            names=("prestador_id", *sorted(set(fonte.variavel_valor.values()))),
-        )
+    return _Seletor(
+        # A chave contratual de RECURSO-001 (`recurso._recurso_business_key`).
+        business_key=_recurso._recurso_business_key(tenant, guia, glosa),
+        variable_equals={},
+        names=("prestador_id", *valores),
     )
 
 
@@ -259,7 +272,8 @@ def resolve_lastro(
     engine: Any = None,
     fontes: Mapping[str, FonteLastro] = FONTE_POR_EVIDENCIA,
 ) -> dict[str, Any]:
-    """L1-L4 da analise PAGTO §2 -> fatos. Nunca levanta; nunca escreve `lastro_confirmado`.
+    """L1-L4 da analise PAGTO §2 -> fatos. Nunca escreve `lastro_confirmado`; so' levanta erro de
+    programacao.
 
     `fontes` existe SO' para o teste de integracao apontar a mesma logica para processos ad hoc
     num motor real (sem redeployar `SP-OP-*` no motor compartilhado); producao usa o default."""
@@ -269,29 +283,33 @@ def resolve_lastro(
         # Ordem sem origem conferivel (manual, Andre, evidencia desconhecida): nada a conferir.
         logger.info("pagto_lastro_sem_origem_conferivel", lastro_origem=evidencia)
         return _fatos(STATUS_NAO_ENCONTRADO)
-    if not isinstance(engine, HistoricInstanceResolvingTransport):
-        logger.warning("pagto_lastro_costura_ausente", processo=fonte.process_key)
-        return _fatos(STATUS_INDISPONIVEL)
-    try:
-        registro = _consultar(engine, fonte, variables)
-    except HistoricInstanceNotFoundError:
-        logger.info("pagto_lastro_origem_nao_encontrada", processo=fonte.process_key)
+    seletor = _seletor(fonte, variables)
+    if seletor is None:
+        logger.info("pagto_lastro_sem_identidade", processo=fonte.process_key)
         return _fatos(STATUS_NAO_ENCONTRADO)
+    try:
+        registro = resolver_instancia_historica(
+            engine,
+            fonte.process_key,
+            business_key=seletor.business_key,
+            variable_equals=seletor.variable_equals,
+            names=seletor.names,
+        )
     except PROGRAMMING_ERRORS:
         raise
     except EXTERNAL_DEPENDENCY_FAILURES as exc:
-        # `CibSevenError` (fora/ambigua/malformada/negada pelo gate) e' `RuntimeError`; rede crua e'
-        # `OSError`/`httpx.HTTPError`. "Nao sei" — nunca "confirmado".
+        # `CibSevenError` (costura ausente, motor fora, ambiguo, malformado, recusa do gate) e'
+        # `RuntimeError`; rede crua e' `OSError`/`httpx.HTTPError`. "Nao sei" — nunca "confirmado".
         logger.warning("pagto_lastro_indisponivel", processo=fonte.process_key, erro=type(exc).__name__)
         return _fatos(STATUS_INDISPONIVEL)
     if registro is None:
-        logger.info("pagto_lastro_sem_identidade", processo=fonte.process_key)
+        logger.info("pagto_lastro_origem_nao_encontrada", processo=fonte.process_key)
         return _fatos(STATUS_NAO_ENCONTRADO)
     return _classificar(registro, fonte, variables)
 
 
 def _classificar(
-    registro: HistoricInstanceRecord, fonte: FonteLastro, variables: Mapping[str, Any]
+    registro: _RegistroHistorico, fonte: FonteLastro, variables: Mapping[str, Any]
 ) -> dict[str, Any]:
     instancia = registro.instance_id
     estado = (registro.state or "").strip().upper()

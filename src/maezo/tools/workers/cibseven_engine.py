@@ -32,6 +32,7 @@ lifecycle would break anyway.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -40,6 +41,7 @@ import structlog
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
+    HistoricInstanceNotFoundError,
     HistoricInstanceResolvingTransport,
     HistoricVariableReadingTransport,
     HistoryQueryingTransport,
@@ -226,4 +228,40 @@ class FreshClientCibSevenTransport:
     async def close(self) -> None:
         """No-op: no persistent client to close (fresh-client-per-call). Kept for
         `CibSevenTransport` lifecycle symmetry — the daemon calls it on drain."""
+        return None
+
+
+def resolver_instancia_historica(
+    engine: object,
+    process_key: str,
+    *,
+    business_key: str = "",
+    variable_equals: Mapping[str, str] | None = None,
+    names: tuple[str, ...] = (),
+) -> HistoricInstanceRecord | None:
+    """Ponte SINCRONA de um `FunctionWorker` para a costura de historico de PR-C (pacote PAGTO PR-D).
+
+    O worker que precisa do fato chega ao motor SO' por aqui — pela mesma costura `engine=` que o
+    daemon injeta (o decorator cercado sobre `FreshClientCibSevenTransport`), nunca importando o
+    transporte. Contrato reduzido ao que o consumidor precisa distinguir:
+
+      * `HistoricInstanceRecord` — a UNICA instancia que casou;
+      * `None` — o motor respondeu, bem-formado, que NENHUMA casa (o unico "nao existe");
+      * `CibSevenError` (um `RuntimeError`) — tudo o mais: costura ausente no `engine`, motor fora,
+        ambiguo, malformado, recusa do gate. "Nao sei", nunca "nao existe".
+
+    `asyncio.run` como em `inadimplencia`: o harness despacha o `FunctionWorker` numa thread propria,
+    e o `FreshClientCibSevenTransport` constroi o cliente dentro do loop desta chamada.
+    """
+    if not isinstance(engine, HistoricInstanceResolvingTransport):
+        raise CibSevenError(
+            f"engine seam {type(engine).__name__!r} does not implement `resolve_historic_instance`"
+        )
+    try:
+        return asyncio.run(
+            engine.resolve_historic_instance(
+                process_key, business_key=business_key, variable_equals=variable_equals, names=names
+            )
+        )
+    except HistoricInstanceNotFoundError:
         return None
