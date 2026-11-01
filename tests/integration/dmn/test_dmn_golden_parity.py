@@ -136,11 +136,14 @@ async def test_pagto_admissibility_parity(
         (100_000_000, False, "ALCADA_L2", "aprovacao-financeira-l2"),
         (500_000_000, False, "ALCADA_L3", "aprovacao-financeira-l3"),
         (2_000_000_000, False, "ANALISE_HUMANA", "comite-financeiro"),
-        # DIVERGENCE: old Python trusted dentro_teto_l2 ALONE. The deployed table's
-        # DENTRO_TETO_L2 row ALSO requires valor_pagamento_cents <= 10_000_000 (hardcoded
-        # ~R$100k) — a value above that gate falls through to ALCADA_L1 even with
-        # dentro_teto_l2=True (e.g. a future tenant ceiling override above R$100k).
-        (15_000_000, True, "ALCADA_L1", "aprovacao-financeira-l1"),
+        # Pacote PAGTO PR-A (#1153, 2026-10-31): the clerical ceiling is single-sourced in policy
+        # (`high_value_payment.threshold_brl`, resolved into `dentro_teto_l2`). The DMN no longer
+        # repeats the `<= 10_000_000` literal (the old T1.5 divergence), so `dentro_teto_l2=True`
+        # decides the clerical band for any POSITIVE amount; the row's value column is the domain
+        # test `> 0`, so a non-positive amount never reaches it even with the boolean true.
+        (15_000_000, True, "DENTRO_TETO_L2", "clerical-pagamentos"),
+        (0, True, "ANALISE_HUMANA", "comite-financeiro"),
+        (-1, True, "ANALISE_HUMANA", "comite-financeiro"),
     ],
 )
 async def test_pagto_alcada_parity(
@@ -157,6 +160,8 @@ async def test_pagto_alcada_parity(
     )
     assert row["faixa_valor"] == expected_faixa
     assert row["grupo_aprovador"] == expected_grupo
+    # Pacote PAGTO PR-A: every rule emits the approved-amount cap = the order amount (R-053 (a)).
+    assert row["valor_maximo_aprovavel_cents"] == valor_cents
 
 
 async def test_pagto_alcada_long_typing_above_int32(dmn: CibSevenDmnTransport) -> None:
