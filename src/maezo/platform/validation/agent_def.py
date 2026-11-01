@@ -45,6 +45,18 @@ the declared value actually matches `agents/<id>/delegation.py` and the composit
 registration — is `tests/unit/a2a/test_agent_card_handlers_parity.py`'s job, the same division of
 labor this module already draws between "the process key has a contract" (here) and "the DMN
 actually reaches it at runtime" (the effect PEP).
+
+Since R-043/F-054/F-184 it ALSO refuses an `agent.yaml` that DECLARES a `hard` autonomy action
+(AGENTS.md hard rule 7: negativa, decisao clinica, acusacao de fraude, manutencao de negativa NIP,
+rescisao contratual — the code-frozen `maezo.gateway.pep.HARD_ACTIONS`). Those are human-only by
+ADR-0008; the PEP already DENIES them at runtime whatever the agent declares, but an agent whose
+contract LISTS one is a spec that contradicts the autonomy matrix, and it must not reach `main`.
+Three places of an `agent.yaml` can name an action, and all three are checked: `autonomy_actions`,
+the A2A card vocabulary (`a2a.capabilities` / `a2a.skills` / `a2a.accepted_task_types`), and the
+`tools` allowlist (each `mcp-<server>.<action>` id resolved through the code-frozen operation
+catalogue `maezo.gateway.effect_classes.OPERATIONS` to the autonomy action it exercises). This
+validator READS the hard set; it never defines or edits it (`spec/policies/autonomy/` is
+CODEOWNERS-guarded).
 """
 
 from __future__ import annotations
@@ -56,6 +68,8 @@ from typing import Any
 import yaml
 
 from maezo.agents import AgentDefinition, AgentLoader
+from maezo.gateway.effect_classes import OPERATIONS
+from maezo.gateway.pep import HARD_ACTIONS
 from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
 
 from .result import Report
@@ -263,6 +277,55 @@ def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, 
         )
 
 
+#: The A2A card fields that name what an agent DOES (`a2a.capabilities` / `skills` /
+#: `accepted_task_types`). A hard action named here would advertise a human-only act to other
+#: agents through the Agent Card, so it is refused exactly like one in `autonomy_actions`.
+_A2A_ACTION_FIELDS = ("capabilities", "skills", "accepted_task_types")
+
+
+def _action_token(value: object) -> str | None:
+    """Normalize a declared action name for the hard-set comparison (`Fraud-Accusation` ->
+    `fraud_accusation`), so a spelling variant cannot slip a hard action past the check."""
+    if not isinstance(value, str):
+        return None
+    return value.strip().lower().replace("-", "_")
+
+
+def _validate_no_hard_action(path: Path, definition: AgentDefinition, report: Report) -> None:
+    """R-043/F-054/F-184: refuse an `agent.yaml` that declares a `hard` autonomy action anywhere
+    it can name one (module docstring). Each offending declaration is its own blocking error."""
+    for action in definition.autonomy_actions:
+        if _action_token(action) in HARD_ACTIONS:
+            report.error(
+                path,
+                f"autonomy_actions declares the hard action '{action}' — hard items are human-only "
+                "(AGENTS.md rule 7, ADR-0008); an agent may never declare one",
+            )
+    for field in _A2A_ACTION_FIELDS:
+        values = definition.a2a.get(field) or []
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if _action_token(value) in HARD_ACTIONS:
+                report.error(
+                    path,
+                    f"a2a.{field} declares the hard action '{value}' — hard items are human-only "
+                    "(AGENTS.md rule 7, ADR-0008); an agent may never advertise one",
+                )
+    hard_tools = {
+        spec.tool_id: spec.autonomy_action
+        for spec in OPERATIONS.values()
+        if spec.tool_id is not None and spec.autonomy_action in HARD_ACTIONS
+    }
+    for tool in definition.tools:
+        if tool in hard_tools:
+            report.error(
+                path,
+                f"tool '{tool}' exercises the hard action '{hard_tools[tool]}' — hard items are "
+                "human-only (AGENTS.md rule 7, ADR-0008); an agent may never declare one",
+            )
+
+
 def validate_file(
     path: Path,
     mcp_servers: frozenset[str],
@@ -301,6 +364,7 @@ def validate_file(
             )
 
     _validate_whatsapp_channel_posture(path, definition, report)
+    _validate_no_hard_action(path, definition, report)
 
     # HEL-12 spec-first fence. ADDITIVE: it validates the keys an agent DECLARES. An agent that
     # declares NO `process_keys` at all is not caught here — that is the separate, OPEN,

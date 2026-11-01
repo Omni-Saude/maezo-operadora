@@ -1142,6 +1142,59 @@ async def test_aprovar_exige_campos(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
+async def test_teto_do_aprovado_vem_da_dmn_e_acima_dele_nao_libera(
+    engine: EngineRest,
+    pagto_probe: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """Pacote PAGTO PR-A (R-053 (a)): `pagto_alcada` emite `valor_maximo_aprovavel_cents` (= valor
+    da ordem) e BRT_AlcadaRouting o achata; APROVAR acima dele => o guard recusa e a instancia NAO
+    atinge End_PagamentoLiberadoHumano. Prova no motor que o teto e a SAIDA DA DMN, nao Python."""
+    inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut = await _drive_to_aprovacao(engine, pagto_probe, iid)
+    assert await engine.get_variable(iid, "valor_maximo_aprovavel_cents") == 120_000_000
+    await engine.complete_task_as_human(ut.id, _aprovacao_vars(valor_aprovado_cents=120_000_001))
+    await pagto_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "aprovado acima do teto da DMN NAO pode liberar"
+    assert not pagto_probe.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    incidentes = await engine.incidents(iid)
+    assert any("valor_maximo_aprovavel_cents" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_aprovador_igual_ao_decisor_do_lastro_nao_libera(
+    engine: EngineRest,
+    pagto_probe: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """Pacote PAGTO PR-A, SoD (b): o aprovador de alcada nao pode ser quem adjudicou a conta na
+    origem (`lastro_decisor_id`, evidencia semeada pelo handoff). ERR_PAYMENT_SOD_NOT_HUMAN."""
+    decisor = _CAMPOS_APROVACAO_BASE["aprovador_id"]
+    inst = await start_pagto(
+        valor_pagamento_cents=120_000_000, dentro_teto_l2=False, lastro_decisor_id=decisor
+    )
+    iid = inst["id"]
+
+    ut = await _drive_to_aprovacao(engine, pagto_probe, iid)
+    await engine.complete_task_as_human(ut.id, _aprovacao_vars())
+    await pagto_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "aprovador == decisor do lastro NAO pode liberar (SoD)"
+    assert not pagto_probe.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_SOD_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
 # ===========================================================================
 # SLA estourado -> coordenacao humana assume (NUNCA auto-libera por timeout)
 # ===========================================================================

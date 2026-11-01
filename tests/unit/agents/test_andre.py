@@ -1572,7 +1572,8 @@ async def test_start_process_starts_pagto_with_contract_variables() -> None:
     assert result["process_ref"]["already_existed"] is False
     variables = cibseven.started_variables[0]
     assert variables["valor_pagamento_cents"] == 85_000
-    assert variables["dentro_teto_l2"] is True  # pure pass-through of the worker fact
+    # I-PAGTO-1 / ADR-0040 OQ-13 D-m1 (pacote PAGTO PR-B): o fato NUNCA e semeado no start.
+    assert "dentro_teto_l2" not in variables
     assert variables["data_vencimento"] == "2026-08-01"  # GAP-PAGTO-7 seeded
     assert variables["source_agent_id"] == "andre"
     assert variables["dossie_andre"] == {"route": "auto_route"}

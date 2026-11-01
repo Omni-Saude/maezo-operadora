@@ -960,12 +960,14 @@ def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto() -
     payload = asyncio.run(engine.get_process_status(_PAGTO_KEY)).variables
     for forbidden in HANDOFF_PAGTO_FORBIDDEN_KEYS:
         assert forbidden not in payload, forbidden
+    # Os quatro originais continuam no conjunto; a igualdade do conjunto ampliado (pacote PAGTO
+    # PR-B) e pinada em tests/unit/agents/test_andre_i_pagto_1.py contra a fonte unica.
     assert {
         "lastro_confirmado",
         "dados_pagamento_validos",
         "duplicidade_suspeita",
         "dentro_teto_l2",
-    } == HANDOFF_PAGTO_FORBIDDEN_KEYS
+    } <= HANDOFF_PAGTO_FORBIDDEN_KEYS
     # Even when the caller PASSES them explicitly, they are dropped — the allowlist is the payload,
     # not a filter over the inbound variables.
     assert set(payload) == HANDOFF_PAGTO_SEEDED_KEYS

@@ -140,11 +140,17 @@ def test_helena_agent_yaml_has_required_fields() -> None:
     assert data.get("phase") == 0
 
 
-def test_helena_agent_yaml_marks_scheduling_out_of_scope_with_escalation_trigger() -> None:
+def test_helena_agent_yaml_marks_scheduling_out_of_scope_without_escalation_trigger() -> None:
     """GAP 9.2: the role no longer claims Helena performs scheduling — it is an explicit,
-    tracked out-of-scope item with its own escalation trigger, mirroring what `graph.py`'s
-    `schedule()` node actually does now (a real SP-OP-ESCALATION-001 handoff, not a silent
-    dead end after an honest-but-unrouted refusal)."""
+    tracked out-of-scope item.
+
+    DL-0052 (01/10/2026) then made scheduling an out-of-channel FIXED reply that opens NO
+    SP-OP-ESCALATION-001 (`_INTENTS_FORA_DO_CANAL`), so `intent: scheduling` stopped being an
+    escalation trigger in behavior. R-043/F-184 (2026-11-01) removed the stale declaration: a line
+    in `escalation.triggers` that does not escalate is a false contract, and the fleet-wide
+    trigger-coverage fence (`tests/evals/test_trigger_coverage.py`) would have had to be satisfied
+    by a golden proving the ABSENCE of escalation. A scheduling request that needs a person
+    escalates through `intent: human_request`, which stays declared."""
     agent_path = _AGENTS_ROOT / "helena" / "agent.yaml"
     with open(agent_path) as f:
         data = yaml.safe_load(f)
@@ -156,7 +162,8 @@ def test_helena_agent_yaml_marks_scheduling_out_of_scope_with_escalation_trigger
     assert "agendamento_direto" in out_of_scope_ids
 
     triggers = data["escalation"]["triggers"]
-    assert {"intent": "scheduling"} in triggers
+    assert {"intent": "scheduling"} not in triggers
+    assert {"intent": "human_request"} in triggers
 
 
 # ---------------------------------------------------------------------------
