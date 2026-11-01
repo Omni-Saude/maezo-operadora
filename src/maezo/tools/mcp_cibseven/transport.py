@@ -78,7 +78,12 @@ from maezo.tools.workers.engine_var_types import (
     declared_long_variable,
     validate_centavos_engine_var,
 )
-from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
+from maezo.tools.workers.phi_vars import (
+    PHI_FREE_TEXT_VARS,
+    PHI_PROCESS_VARS,
+    redact_free_text_vars,
+    redact_phi_vars,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -253,6 +258,134 @@ class UserTaskAssigneeReadingTransport(Protocol):
     async def read_user_task_assignee(
         self, process_instance_id: str, task_definition_key: str
     ) -> str | None: ...
+
+
+# =================================================================================================
+# Costura de leitura do HISTORICO por chave de negocio / filtro de variavel (PAGTO PR-C, MPTT P2)
+# =================================================================================================
+#
+# O QUE E': UMA leitura somente-leitura, falha-fechada, que responde "qual e' A instancia de
+# `process_key` que casa com esta chave de negocio e/ou estes valores de variavel, em que estado
+# ela esta, por qual evento terminou (`endActivityId`) e quanto valiam ESTAS variaveis nomeadas".
+# E' a fonte dos fatos L1-L4 do lastro (analise PAGTO §2: a adjudicacao de origem fechou com qual
+# terminal, valor, identidade) e do fato L8/P6 do prestador — esses consumidores (`resolve_lastro`,
+# `resolve_prestador`) NAO existem aqui; esta costura nao decide nada, so' devolve fatos.
+#
+# PADRAO DL-0050: escopo fechado, leitura POR NOME (nunca "todas as variaveis da instancia"),
+# nomes PHI recusados antes da rede, e toda resposta que nao prova exatamente UMA instancia vira
+# erro tipado — nunca `None`, nunca um registro "vazio" que um chamador leia como "nao ha nada".
+
+
+class HistoryReadUnavailableError(CibSevenError):
+    """A leitura do historico NAO se completou: motor fora, timeout, HTTP nao-2xx (inclusive 404
+    no endpoint de consulta, que nao e' prova de ausencia). Sempre "nao sei", nunca "nao existe"."""
+
+
+class HistoricInstanceNotFoundError(CibSevenError):
+    """O motor respondeu, bem-formado, que NENHUMA instancia casa com o seletor.
+
+    E' o UNICO erro desta costura que afirma ausencia. Subclasse de `CibSevenError` de proposito:
+    um chamador que trate `CibSevenError` em bloco cai no lado seguro ("indisponivel"); so' quem
+    captura ESTA classe explicitamente pode concluir "nao encontrado".
+    """
+
+
+class HistoricInstanceAmbiguousError(CibSevenError):
+    """Mais de uma instancia casa com o seletor, ou a mesma variavel veio com valores diferentes em
+    escopos diferentes. A costura nao escolhe linha: escolher seria inventar um fato."""
+
+
+class HistoryPayloadMalformedError(CibSevenError):
+    """A resposta do motor nao tem a forma esperada, ou contradiz o proprio seletor (outra
+    definicao, outra chave, outro tenant, variavel do filtro com outro valor). Uma resposta que
+    contradiz a pergunta prova que o filtro nao foi aplicado — logo nao prova nada."""
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricInstanceRecord:
+    """A UNICA instancia historica que casou com o seletor de `resolve_historic_instance`.
+
+    `state` e `end_activity_id` vem verbatim de `/history/process-instance` (`endActivityId` e'
+    `None` enquanto a instancia nao terminou). `variables` traz SO' os nomes pedidos em `names`
+    que o historico tinha; nome ausente fica ausente (nunca `None` inventado).
+    """
+
+    instance_id: str
+    business_key: str
+    process_key: str
+    state: str
+    end_activity_id: str | None
+    variables: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class HistoricInstanceResolvingTransport(Protocol):
+    """Um `CibSevenTransport` que resolve UMA instancia do historico por chave/filtro de variavel.
+
+    Protocolo SEPARADO pela mesma razao de `HistoryQueryingTransport`: todo implementador e dublê
+    existente continua tipando, e quem precisa da leitura sonda com `isinstance` e falha fechado
+    quando ela nao existe.
+
+    Contrato de erro (todos subclasses de `CibSevenError`):
+      * `HistoricInstanceNotFoundError` — nenhuma instancia casa (o unico "nao existe");
+      * `HistoricInstanceAmbiguousError` — mais de uma casa;
+      * `HistoryPayloadMalformedError` — resposta fora de forma ou contraditoria;
+      * `HistoryReadUnavailableError` — a leitura nao se completou (inclui timeout);
+      * `CibSevenTenantError` — transporte sem tenant do motor ligado;
+      * `ValueError` — seletor invalido (erro de programacao), antes de qualquer rede.
+    """
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord: ...
+
+
+_HISTORY_PROCESS_KEY_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]*")
+_HISTORY_VARIABLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+#: Teto tecnico (nao regra de negocio): a costura le POR NOME, e um pedido com dezenas de nomes
+#: deixa de ser "estes fatos" para virar "quase tudo" — o que o DL-0050 fecha.
+_HISTORY_MAX_NAMES = 16
+_HISTORY_MAX_FILTERS = 4
+
+
+def _require_history_selector(
+    process_key: str,
+    business_key: str,
+    variable_equals: Mapping[str, str] | None,
+    names: tuple[str, ...],
+) -> dict[str, str]:
+    """Valida o seletor ANTES de qualquer rede; devolve o filtro normalizado. `ValueError` se
+    invalido — inclusive nome PHI (Zona PHI, ADR-0006), que nunca sai do motor por esta costura
+    nem viaja como valor de filtro."""
+    if not isinstance(process_key, str) or not _HISTORY_PROCESS_KEY_RE.fullmatch(process_key):
+        raise ValueError("resolve_historic_instance: process_key ausente ou fora do formato")
+    if not isinstance(business_key, str):
+        raise ValueError("resolve_historic_instance: business_key tem de ser str")
+    if not isinstance(names, tuple):
+        raise ValueError("resolve_historic_instance: names tem de ser tuple")
+    filters: dict[str, str] = dict(variable_equals or {})
+    if not business_key and not filters:
+        # Sem chave nem filtro a consulta seria "toda instancia da definicao": recusada.
+        raise ValueError("resolve_historic_instance: exige business_key e/ou variable_equals")
+    if len(filters) > _HISTORY_MAX_FILTERS or len(names) > _HISTORY_MAX_NAMES:
+        raise ValueError("resolve_historic_instance: seletor acima do teto da costura")
+    for name in (*filters, *names):
+        if not isinstance(name, str) or not _HISTORY_VARIABLE_NAME_RE.fullmatch(name):
+            raise ValueError("resolve_historic_instance: nome de variavel fora do formato")
+        if name in PHI_PROCESS_VARS or name in PHI_FREE_TEXT_VARS or name.startswith("dossie_"):
+            raise ValueError(f"resolve_historic_instance: variavel PHI recusada ({name})")
+    for value in filters.values():
+        # So' `str`: o filtro `eq` do motor compara por tipo, e os fatos que esta costura serve
+        # (chaves, ids, lote) sao texto. Numero/booleano entram em `names` e sao comparados por
+        # quem le, nunca filtrados aqui.
+        if not isinstance(value, str) or not value:
+            raise ValueError("resolve_historic_instance: valor de filtro tem de ser str nao-vazia")
+    return filters
 
 
 #: The engine's HISTORIC state tokens for an instance that has ENDED (CIB Seven / Camunda
@@ -617,6 +750,165 @@ class CibSevenHttpTransport:
             variables=variables,
         )
 
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        """`HistoricInstanceResolvingTransport` (PAGTO PR-C, MPTT P2): UMA instancia do historico.
+
+        Duas leituras, nenhuma efeito no motor:
+          1. `POST /history/process-instance?firstResult=0&maxResults=2` — a consulta do motor por
+             corpo JSON (Camunda 7 REST "Get List (POST)"). POST e nao GET porque o filtro de
+             variavel do GET (`variables=nome_eq_valor`) usa `_` como separador e os nomes deste
+             repo tem `_` (`prestador_id`, `numero_lote_tiss`); a forma POST e' a unica que
+             expressa o filtro sem ambiguidade. E' uma consulta: o motor nao grava nada. Pede DUAS
+             linhas para provar unicidade sem baixar o historico inteiro.
+          2. `GET /history/variable-instance` filtrado pela instancia e por `variableNameIn` — so'
+             os nomes pedidos (+ os do filtro, para conferir que o filtro foi aplicado).
+
+        Tenant OBRIGATORIO (`CibSevenTenantError` sem ele): um filtro so' por variavel nao carrega
+        o tenant na chave, entao a consulta vai com `tenantIdIn` e cada linha e' conferida.
+
+        Toda resposta que nao prove exatamente UMA instancia coerente com a pergunta levanta um
+        erro tipado (ver o Protocol). Timeout e' `httpx.TimeoutException` (um `RequestError`) e
+        vira `HistoryReadUnavailableError` — nunca "nao encontrado".
+        """
+        filters = _require_history_selector(process_key, business_key, variable_equals, names)
+        tenant_id = self._tenant_id
+        if not tenant_id:
+            raise CibSevenTenantError(
+                "refusing a historic instance read: this transport has no engine tenant bound"
+            )
+        body: dict[str, Any] = {"processDefinitionKey": process_key, "tenantIdIn": [tenant_id]}
+        if business_key:
+            body["processInstanceBusinessKey"] = business_key
+        if filters:
+            body["variables"] = [{"name": n, "operator": "eq", "value": v} for n, v in filters.items()]
+        where = f"`{process_key}`" + (f" (business_key `{business_key}`)" if business_key else "")
+        try:
+            resp = await self._client.post(
+                "/history/process-instance",
+                params={"firstResult": "0", "maxResults": "2"},
+                json=body,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven history instance query failed [{exc.response.status_code}] for {where}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven unreachable resolving historic instance of {where}: {type(exc).__name__}"
+            ) from exc
+        except ValueError as exc:
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history instance query of {where} returned non-JSON"
+            ) from exc
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history instance query of {where} returned an unexpected shape"
+            )
+        if not rows:
+            raise HistoricInstanceNotFoundError(f"no historic instance of {where} matches the selector")
+        if len(rows) > 1:
+            raise HistoricInstanceAmbiguousError(
+                f"more than one historic instance of {where} matches the selector"
+            )
+        item = rows[0]
+        instance_id = item.get("id")
+        state = item.get("state")
+        end_activity_id = item.get("endActivityId")
+        if (
+            not isinstance(instance_id, str)
+            or not instance_id
+            or not isinstance(state, str)
+            or not state
+            or not (end_activity_id is None or isinstance(end_activity_id, str))
+            or item.get("processDefinitionKey") != process_key
+            or item.get("tenantId") != tenant_id
+            or (business_key and item.get("businessKey") != business_key)
+        ):
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history instance row of {where} contradicts the query or is malformed"
+            )
+
+        values: dict[str, Any] = {}
+        wanted = (*filters, *(n for n in names if n not in filters))
+        if wanted:
+            values = await self._read_named_historic_values(instance_id, wanted)
+        for name, expected in filters.items():
+            if values.get(name) != expected:
+                # O motor devolveu uma instancia cujo valor NAO e' o do filtro: o filtro nao foi
+                # aplicado (versao do motor que ignora o campo, por exemplo). Nada provado.
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven historic instance of {where} does not carry the filtered value of `{name}`"
+                )
+        return HistoricInstanceRecord(
+            instance_id=instance_id,
+            business_key=str(item.get("businessKey") or ""),
+            process_key=process_key,
+            state=state,
+            end_activity_id=end_activity_id,
+            variables={n: values[n] for n in names if n in values},
+        )
+
+    async def _read_named_historic_values(self, instance_id: str, wanted: tuple[str, ...]) -> dict[str, Any]:
+        """`GET /history/variable-instance` por instancia e por nome; falha fechada em tudo."""
+        try:
+            resp = await self._client.get(
+                "/history/variable-instance",
+                params={
+                    "processInstanceId": instance_id,
+                    "variableNameIn": ",".join(wanted),
+                    "deserializeValues": "false",
+                },
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven history variable read failed [{exc.response.status_code}] for `{instance_id}`"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven unreachable reading history variables of `{instance_id}`: {type(exc).__name__}"
+            ) from exc
+        except ValueError as exc:
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history variable read of `{instance_id}` returned non-JSON"
+            ) from exc
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history variable read of `{instance_id}` returned an unexpected shape"
+            )
+        values: dict[str, Any] = {}
+        for row in rows:
+            name = row.get("name")
+            if name not in wanted:
+                continue
+            owner = row.get("processInstanceId")
+            if owner is not None and owner != instance_id:
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven history variable read of `{instance_id}` returned another instance's row"
+                )
+            try:
+                value = _from_camunda_var(row)
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven historic variable `{name}` of `{instance_id}` could not be decoded"
+                ) from exc
+            if name in values and values[name] != value:
+                raise HistoricInstanceAmbiguousError(
+                    f"CIB Seven historic variable `{name}` of `{instance_id}` has conflicting values"
+                )
+            values[str(name)] = value
+        return values
+
     async def read_user_task_assignee(self, process_instance_id: str, task_definition_key: str) -> str | None:
         """`UserTaskAssigneeReadingTransport`: `GET /task` da instancia filtrado pela chave da task.
 
@@ -822,6 +1114,8 @@ class FakeCibSevenTransport:
         self._historic_variables: dict[str, HistoricProcessVariables] = {}
         #: Pendencia 40: `(instance_id, task_definition_key) -> assignee` (`read_user_task_assignee`).
         self._assignees: dict[tuple[str, str], str | None] = {}
+        #: PAGTO PR-C: instancias historicas para `resolve_historic_instance`.
+        self._historic_records: list[HistoricInstanceRecord] = []
 
     def seed_user_task_assignee(
         self, process_instance_id: str, task_definition_key: str, assignee: str | None
@@ -851,6 +1145,36 @@ class FakeCibSevenTransport:
             state=seeded.state,
             variables={k: v for k, v in seeded.variables.items() if k in names},
         )
+
+    def seed_historic_instance_record(self, record: HistoricInstanceRecord) -> None:
+        """Pre-carrega uma instancia do historico para `resolve_historic_instance`. `record.variables`
+        e' o historico COMPLETO de variaveis dela; a leitura devolve so' os nomes pedidos."""
+        self._historic_records.append(record)
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        """Dublê de `CibSevenHttpTransport.resolve_historic_instance`: mesmo seletor validado, mesmos
+        erros de nao-encontrado / ambiguo; nao simula falha de rede (isso e' do teste HTTP)."""
+        filters = _require_history_selector(process_key, business_key, variable_equals, names)
+        matches = [
+            r
+            for r in self._historic_records
+            if r.process_key == process_key
+            and (not business_key or r.business_key == business_key)
+            and all(r.variables.get(n) == v for n, v in filters.items())
+        ]
+        if not matches:
+            raise HistoricInstanceNotFoundError(f"no historic instance of `{process_key}` matches")
+        if len(matches) > 1:
+            raise HistoricInstanceAmbiguousError(f"more than one historic instance of `{process_key}`")
+        found = matches[0]
+        return replace(found, variables={n: found.variables[n] for n in names if n in found.variables})
 
     def seed_instance(
         self,
