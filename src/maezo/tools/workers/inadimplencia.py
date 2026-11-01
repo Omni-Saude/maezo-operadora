@@ -59,16 +59,15 @@ logger = structlog.get_logger(__name__)
 # UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged through
 # `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
 # `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the
-# code is allowlisted. `_NOT_HUMAN` adverse guard -> T-E-gated (ADR-0030 §4): consumption-covered
-# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
-# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated for THIS
-# code (the harness's T-E guard-refusal audit already recognizes it — `is_guard_refusal_code`
-# matches on the `_NOT_HUMAN` suffix — so the refusal stays audited either way); the runtime
-# behavior is UNCHANGED today (still an incident) — this closes only the raise-side migration, the
-# same phased split cred's two guard codes went through (PR #166). No
-# `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` constant is added: with only a T-E-deferred code to
-# contribute, there is nothing to wire into `service.py` yet — mirrors `cancel`, whose sole
-# gate-proven code (`ERR_CANCEL_MANTER_NOT_HUMAN`) also exposes no allowlist constant.
+# code is allowlisted. `_NOT_HUMAN` adverse guard (ADR-0030 §4): consumption-covered by the
+# boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`) and ENABLED in
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` by the lote T-E unico (decisao do dono 2026-10-31, executando o
+# registro R-075 "agrupar depois ... habilitar no mesmo lote de `cred`/`cancel`"): the harness's
+# T-E guard-refusal audit recognizes it (`is_guard_refusal_code`, `_NOT_HUMAN` suffix), records the
+# `REFUSED` row, and then reports the `bpmnError` to `BE_SuspensaoNaoHumano` ->
+# `End_SuspensaoBloqueadaNaoHumano` (terminal NEUTRO) instead of an incident. The switch is
+# `TE_ENABLED_CODES` (gate) / `_TE_ENABLED_CODES` (service.py) — `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST`
+# below only declares what is gate-proven, exactly like `auth.AUTH_BPMN_ERROR_ALLOWLIST`.
 #
 # ERR_INAD_INVALID_CONTRATO (`handoff_rescisao`'s tenant/contract-identity guard, D3-01,
 # WP-ADR-0030-COMPLETION) is declared in the BPMN's `<bpmn:error>` catalog but has ZERO
@@ -76,6 +75,12 @@ logger = structlog.get_logger(__name__)
 # it stays a technical failure (`ValueError` subclass), NOT a `WorkerBpmnError`.
 ERR_CONTRACT_SUSPENSION_NOT_HUMAN = "ERR_CONTRACT_SUSPENSION_NOT_HUMAN"
 ERR_INAD_INVALID_CONTRATO = "ERR_INAD_INVALID_CONTRATO"
+
+#: Consumption-covered (regra simples do gate): `operadora.inadimplencia.register_contract_suspension`
+#: e' consumido SO' por SP-OP-INADIMPLENCIA-001, que declara este errorCode em `BE_SuspensaoNaoHumano`.
+#: Unido em `worker_runtime/service.py::_GATE_PROVEN_BPMN_ERROR_CODES`. `ERR_INAD_INVALID_CONTRATO`
+#: fica FORA de proposito: nao tem boundary (falha tecnica, `ValueError`).
+INADIMPLENCIA_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_CONTRACT_SUSPENSION_NOT_HUMAN})
 
 # Human decision value that allows suspension
 DECISAO_SUSPENDER = "SUSPENDER"

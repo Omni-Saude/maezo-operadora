@@ -9,9 +9,9 @@ Two layers:
 2. **Real-tree** tests run the full parser against ``spec/**`` + ``src/maezo/tools/workers`` and
    assert the gate PASSES and independently reproduces the ADR-0030 census: 16 consumption-covered
    codes (WP-ADR-0030-COMPLETION, D3-01, closed the last 3 dead models — ``ERR_CONTRACT_SUSPENSION_
-   NOT_HUMAN`` / ``ERR_PAGTO_ORDEM_INVALIDA`` / ``ERR_REEMBOLSO_INVALID_PROTOCOLO``), 12 Tier-0/
-   Tier-1/Tier-2-enabled, 4 T-E-deferred guard/denial codes, ZERO dead-model warnings → 16 distinct
-   spec codes, all raised.
+   NOT_HUMAN`` / ``ERR_PAGTO_ORDEM_INVALIDA`` / ``ERR_REEMBOLSO_INVALID_PROTOCOLO``), all enabled
+   since the lote T-E unico (2026-10-31) moved the last 4 T-E-deferred guard codes into
+   ``TE_ENABLED_CODES``, ZERO dead-model warnings → 18 distinct spec codes, all raised.
 
 SHARED FILE (T3.1 P2b flag for merge-time reconciliation): the census counts below
 (``_G1_COVERED``, ``dead_models`` counts) move every time a branch wires a NEW ``WorkerBpmnError``
@@ -119,20 +119,20 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             # fail-closed de admissao (recusas tipadas — nunca dead models, nunca fabricacao).
             "ERR_SUPP_SUBJECT_UNRESOLVED",
             "ERR_SUPP_ROUTING_UNAVAILABLE",
-        }
-    )
-    # `ERR_AUTH_DENIAL_INCOMPLETE` SAIU do deferido em 25/08/2026 — habilitado, e por isso
-    # aparece no tier0 acima. `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` ENTROU no deferido agora
-    # (WP-ADR-0030-COMPLETION): raise-side migrado, mas e' `*_NOT_HUMAN` — mesma fase que os
-    # dois guards de cred, habilitacao de producao e' follow-up por familia (T-E).
-    assert result.te_deferred == frozenset(
-        {
+            # LOTE T-E UNICO (2026-10-31, decisao do dono; registro R-075): os quatro guards
+            # `*_NOT_HUMAN` entram juntos, roteando aos boundaries ja' modelados para os terminais
+            # neutros. Continuam auditados pelo harness — ver TE_ENABLED_CODES.
             "ERR_CANCEL_MANTER_NOT_HUMAN",
             "ERR_DECRED_NOT_HUMAN",
             "ERR_CRED_DENIAL_NOT_HUMAN",
             "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
         }
     )
+    # `ERR_AUTH_DENIAL_INCOMPLETE` SAIU do deferido em 25/08/2026; os quatro `*_NOT_HUMAN`
+    # (cancel, cred x2, inadimplencia) sairam JUNTOS em 2026-10-31 (lote T-E unico). O deferido
+    # fica VAZIO: todo guard levantado como `WorkerBpmnError` hoje esta' habilitado. Um guard
+    # novo continua entrando aqui pelo sufixo `_NOT_HUMAN` ate' uma habilitacao explicita.
+    assert result.te_deferred == frozenset()
     # ADR-0030 census: 16 distinct external-task boundary codes, ALL covered now.
     # WP-ADR-0030-COMPLETION (D3-01) closed the last 3 dead models: ERR_PAGTO_ORDEM_INVALIDA
     # (pagto validate_pagto), ERR_REEMBOLSO_INVALID_PROTOCOLO (reembolso check_coverage — moved to
@@ -160,10 +160,11 @@ def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
     # With zero dead models left in the current census (WP-ADR-0030-COMPLETION, D3-01), Tier-3's
     # hardened clause (c) (`--strict-dead-models`) now PASSES against the real tree too — there is
-    # nothing left to harden to a failure. This does not by itself declare Tier-3 CLOSED (other
-    # ADR-0030 co-requisites, e.g. T-E production enablement for the `*_NOT_HUMAN` codes, are
-    # tracked separately and remain open) — it only proves clause (c) has nothing left to flag
-    # for the boundary codes raised today. The FAIL-on-dead-model mechanism itself is covered
+    # nothing left to harden to a failure. This does not by itself declare Tier-3 CLOSED (the T-E
+    # production enablement of the four `*_NOT_HUMAN` codes landed with the lote T-E unico,
+    # 2026-10-31; flipping the CI to `--strict-dead-models` is a separate act) — it only proves
+    # clause (c) has nothing left to flag for the boundary codes raised today. The
+    # FAIL-on-dead-model mechanism itself is covered
     # generically by `test_dead_model_is_warn_only_then_strict` (synthetic fixtures) below.
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
     assert result.ok
@@ -297,9 +298,14 @@ def test_dead_model_is_warn_only_then_strict() -> None:
 
 
 def test_is_te_gated_matches_adr_pattern() -> None:
-    assert is_te_gated("ERR_CANCEL_MANTER_NOT_HUMAN")
-    assert is_te_gated("ERR_DECRED_NOT_HUMAN")
-    assert is_te_gated("ERR_CONTRACT_SUSPENSION_NOT_HUMAN")
+    # LOTE T-E UNICO (2026-10-31): os quatro guards sairam do gate juntos e CONTINUAM auditados.
+    assert not is_te_gated("ERR_CANCEL_MANTER_NOT_HUMAN")
+    assert not is_te_gated("ERR_DECRED_NOT_HUMAN")
+    assert not is_te_gated("ERR_CRED_DENIAL_NOT_HUMAN")
+    assert not is_te_gated("ERR_CONTRACT_SUSPENSION_NOT_HUMAN")
+    # Outros guards continuam gated pelo sufixo (habilitacao e' lista explicita).
+    assert is_te_gated("ERR_CANCELLATION_NOT_HUMAN")
+    assert is_te_gated("ERR_PAYMENT_RELEASE_NOT_HUMAN")
     # HABILITADO em 25/08/2026 (TE_ENABLED_CODES): sai do gate e CONTINUA auditado pelo
     # harness. Ver `is_te_gated` e `test_detector_contem_o_gate`.
     assert not is_te_gated("ERR_AUTH_DENIAL_INCOMPLETE")
@@ -310,6 +316,24 @@ def test_is_te_gated_matches_adr_pattern() -> None:
 
 def test_te_gated_covered_code_is_deferred_not_enabled() -> None:
     # A correctly-raised, consumption-covered guard code is NOT a violation, but is deferred.
+    # Usa um guard HIPOTETICO: os quatro reais foram habilitados no lote T-E unico (2026-10-31), e
+    # o que este teste prova e' o mecanismo do sufixo — um `*_NOT_HUMAN` NOVO nasce deferido.
+    code = "ERR_GUARD_NOVO_HIPOTETICO_NOT_HUMAN"
+    spec = SpecModel(
+        boundary_decls=(BoundaryDecl("CANCEL", "op.c", code, "ST", None),),
+        topic_consumers={"op.c": frozenset({"CANCEL"})},
+        process_event_topics={},
+    )
+    workers = WorkerModel(raises=(WorkerRaise(code, "cancel", 357),), dispatch_filters={})
+    result = evaluate(spec, workers)
+    assert result.ok
+    assert result.consumption_covered == frozenset({code})
+    assert result.te_deferred == frozenset({code})
+    assert result.tier0_enabled == frozenset()  # NOT enabled without an explicit T-E enablement
+
+
+def test_te_enabled_batch_code_is_enabled_not_deferred() -> None:
+    # Lote T-E unico (2026-10-31): o mesmo formato com um codigo REAL do lote vai ao tier0.
     spec = SpecModel(
         boundary_decls=(BoundaryDecl("CANCEL", "op.c", "ERR_CANCEL_MANTER_NOT_HUMAN", "ST", None),),
         topic_consumers={"op.c": frozenset({"CANCEL"})},
@@ -320,9 +344,8 @@ def test_te_gated_covered_code_is_deferred_not_enabled() -> None:
     )
     result = evaluate(spec, workers)
     assert result.ok
-    assert result.consumption_covered == frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"})
-    assert result.te_deferred == frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"})
-    assert result.tier0_enabled == frozenset()  # NOT enabled pre-T-E
+    assert result.te_deferred == frozenset()
+    assert result.tier0_enabled == frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"})
 
 
 def test_unresolvable_raise_fails_closed() -> None:
