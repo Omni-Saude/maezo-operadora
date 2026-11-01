@@ -22,22 +22,21 @@ the LLM extracts + normalizes `sintoma_codigo`/`intensidade`/a population field;
 true -> `escalate`, which starts SP-OP-ESCALATION-001 (idempotent, business key
 `ESC-{tenant}-{conversation_id}`) via the CibSeven transport.
 
-Six escalation triggers (each maps to a distinct `motivo_categoria`, contract
+Escalation triggers (each maps to a distinct `motivo_categoria`, contract
 SP-OP-ESCALATION-001):
 1. DMN red_flag=true                       -> red_flag_clinico (or risco_psicossocial if the
                                                mental_health table fired)
 2. intent = clinical question              -> intencao_clinica (L0 hard — Helena never answers)
 3. explicit request for a human            -> solicitacao_humano
-4. intent = scheduling                     -> solicitacao_humano (GAP 9.2 — direct scheduling is
-                                               OUT OF SCOPE this phase; the `schedule` node drafts
-                                               its own honest, scheduling-specific reply, then
-                                               hands off through the SAME SP-OP-ESCALATION-001
-                                               start `escalate` uses, via the shared
-                                               `_start_escalation` helper — the beneficiary is
-                                               actually routed to a human, not just told one will
-                                               follow up. See `spec/agents/helena/agent.yaml`'s
-                                               `scope`/`out_of_scope` block for the phase-boundary
-                                               declaration this trigger implements.)
+4. intent = scheduling                     -> NO LONGER A TRIGGER (DL-0052, 01/10/2026): it is
+                                               an out-of-channel intent (`_INTENTS_FORA_DO_CANAL`)
+                                               answered with the fixed `RESPOSTA_FORA_DO_CANAL`,
+                                               no SP-OP-ESCALATION-001 start; a person who asks
+                                               for someone escalates through trigger 3. R-043/
+                                               F-184 removed the stale `intent: scheduling` line
+                                               from `spec/agents/helena/agent.yaml`'s
+                                               `escalation.triggers` (the `schedule` node keeps
+                                               no inbound route).
 5. technical failure                       -> falha_tecnica — DMN down/no-result, OR any
                                                classify-LLM failure: exception, unparseable
                                                JSON, or schema-invalid JSON (unknown intent,
@@ -4656,6 +4655,7 @@ class HelenaGraph:
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
         helena_protocolos_enabled: bool = False,
+        helena_triagem_juiz_enabled: bool = False,
         modelo_allowlist: str | None = None,
     ) -> None:
         self._llm = inference
@@ -4696,6 +4696,7 @@ class HelenaGraph:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
         # PROTOCOLOS CLINICOS (dono, 25/10/2026): so' no roteador ativo; `None` = o caminho de antes.
         self._protocolos = _pr.catalogo_do_ambiente() if helena_protocolos_enabled is True else None
+        self._triagem_juiz = helena_triagem_juiz_enabled is True  # DL-0159: so' o pacote liga (so' dev)
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -8162,6 +8163,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
         helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
+        helena_triagem_juiz_enabled=cfg.get("helena_triagem_juiz_enabled") is True,
         modelo_allowlist=_ma.modo_escolhido(cfg.get("helena_modelo_allowlist")),
     ).compile_graph()
 

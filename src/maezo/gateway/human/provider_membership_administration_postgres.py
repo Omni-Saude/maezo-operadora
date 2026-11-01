@@ -308,6 +308,7 @@ class PostgresProviderMembershipAdministration:
                 await self._qualify(db, binding)
                 outcome = (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: descriptor.schema_name (Identifier)
                         text(
                             f'SELECT "{self.descriptor.schema_name}".record_provider_administration('
                             ":tenant,:actor,:session,:source,:policy,:install,:until,:payload,:act,:audit)"

@@ -443,6 +443,7 @@ def _business_key(state: FernandoState, *, exige_contrato: bool = False) -> str:
             state.get("tenant_id", ""),
             numero_contrato=state.get("numero_contrato") or "",
             matricula_beneficiario="",
+            exige_contrato=True,
         )
     return mint_contract_business_key(
         INADIMPLENCIA_KEY_FAMILY,

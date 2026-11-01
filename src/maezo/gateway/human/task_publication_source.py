@@ -192,7 +192,8 @@ class NativeTaskSource:
 
     async def authority_revision(self) -> int:
         rows = await self._rows(
-            f"SELECT rev_ FROM {self._native}.mzo_human_tenant WHERE tenant_=:tenant", tenant=self.tenant
+            f"SELECT rev_ FROM {self._native}.mzo_human_tenant WHERE tenant_=:tenant",  # nosec B608 # fonte: _schema()
+            tenant=self.tenant,
         )
         if len(rows) != 1 or type(rows[0][0]) is not int or rows[0][0] < 0:
             raise unavailable("authority_counter_invalid")
@@ -202,9 +203,10 @@ class NativeTaskSource:
         rows = await self._rows(
             f"SELECT id_, rev_, proc_def_id_, task_def_key_ FROM {self._act}.act_ru_task "
             "WHERE tenant_id_=:tenant AND suspension_state_=1 AND task_def_key_ = ANY(:keys) "
-            f'ORDER BY id_ COLLATE "C" LIMIT {MAX_TASKS + 1}',
+            'ORDER BY id_ COLLATE "C" LIMIT :limit',  # nosec B608 # fonte: _schema(); LIMIT ligado
             tenant=self.tenant,
             keys=sorted(set(keys)),
+            limit=MAX_TASKS + 1,
         )
         if len(rows) > MAX_TASKS:
             raise unavailable("too_many_live_tasks")
@@ -213,7 +215,7 @@ class NativeTaskSource:
     async def task(self, task_id: str) -> LiveTask | None:
         rows = await self._rows(
             f"SELECT id_, rev_, proc_def_id_, task_def_key_ FROM {self._act}.act_ru_task "
-            "WHERE tenant_id_=:tenant AND id_=:task AND suspension_state_=1",
+            "WHERE tenant_id_=:tenant AND id_=:task AND suspension_state_=1",  # nosec B608 # fonte: _schema()
             tenant=self.tenant,
             task=task_id,
         )
@@ -222,7 +224,7 @@ class NativeTaskSource:
     async def evidence(self, task_id: str) -> EvidenceRow | None:
         rows = await self._rows(
             f"SELECT rev_, ref_, digest_, valid_until_, process_ FROM {self._native}.mzo_human_evidence "
-            "WHERE tenant_=:tenant AND task_=:task",
+            "WHERE tenant_=:tenant AND task_=:task",  # nosec B608 # fonte: _schema()
             tenant=self.tenant,
             task=task_id,
         )

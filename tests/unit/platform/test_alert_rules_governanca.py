@@ -249,3 +249,18 @@ def test_alert_rules_guard_recorder_never_labels_a_raw_value() -> None:
     record_a2a_guard_refusal(target="rafael", guard="valor_cru_inesperado")
     assert _sample("maezo_a2a_guard_refusal_total", target="rafael", guard="outro") == before + 1.0
     assert _sample("maezo_a2a_guard_refusal_total", target="rafael", guard="valor_cru_inesperado") == 0.0
+
+
+def test_alert_rules_dispatcher_preinitialises_every_guard_refusal_series_at_zero() -> None:
+    """R-085 ("pre-inicializar contadores raros"): building the dispatcher must create
+    `maezo_a2a_guard_refusal_total{target,guard}` at 0 for every registered target x A2A_GUARDS,
+    so the FIRST refusal is visible to `increase()` in MaezoA2ABudgetExhausted."""
+    from maezo.platform.observability import A2A_GUARDS, get_metrics_collector
+
+    build_test_dispatcher(cards=[make_card("valentina")], handlers={"valentina": FakeAgentHandler()})
+    registry = get_metrics_collector().registry
+    for guard in A2A_GUARDS:
+        value = registry.get_sample_value(
+            "maezo_a2a_guard_refusal_total", {"target": "valentina", "guard": guard}
+        )
+        assert value is not None, guard
