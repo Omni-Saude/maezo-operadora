@@ -1057,7 +1057,7 @@ def handoff_pagamento(
     and the four admissibility booleans (`HANDOFF_PAGTO_FORBIDDEN_KEYS`) are NEVER among them.
     Consequence, by construction: `pagto_admissibility` reads `lastro_confirmado` absent =>
     `False` => row `r_sem_lastro` => `ANALISE_HUMANA` => `UT_AnaliseAdmissibilidade`
-    (`coordenacao-financeira`). This is the REAL gate of this path — not
+    (`analise-contas-pagar`, R-041). This is the REAL gate of this path — not
     `ERR_PAYMENT_RELEASE_NOT_HUMAN`, which guards only `ST_ReleaseHighValue` and which this path
     never reaches. In place of the facts the worker seeds EVIDENCE: `lastro_origem` and
     `lastro_decisor_id` (the `analista_id`; the EMPTY STRING on the automatic leg — never invented).
