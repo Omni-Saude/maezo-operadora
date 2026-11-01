@@ -31,7 +31,7 @@ subprocesso de cuidado: ao disparar, **interrompe** o subprocesso, dispara o wor
 **(C) No-adverse clinico — alta/desligamento do programa so por humano (ADR-0018).** O
 **desligamento clinico do programa** (`register_program_discharge` — alta por motivo clinico, que
 e uma decisao clinica e, por ADR-0008, **L0-hard "qualquer decisao clinica"**) so nasce numa User
-Task humana (`UT_DecisaoClinica`, grupo `coordenacao-clinica`/`equipe-cuidado`), com
+Task humana (`UT_DecisaoClinica`, grupo unico `coordenacao-clinica` — R-041 / #1084), com
 `decisao_programa == DESLIGAR_CLINICO` setado por humano. Nenhuma DMN deste processo possui saida
 de desligamento/alta clinica: a DMN `programa_routing` apenas **estratifica risco e sugere
 elegibilidade ao programa** (informativo); ela nunca produz `DESLIGAR`/`ALTA`/`NEGAR_CUIDADO`.
@@ -154,7 +154,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.programa.build_care_plan` | consome (worker→A2A) | **ALVO (a ligar):** monta plano de cuidado / dossie para a User Task clinica (delegacao `care.enroll` a Valentina — **sem decidir alta**). **HOJE (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL):** o worker `enroll_beneficiario` NAO monta plano de cuidado algum — sem chamada A2A, sem plano, sem dossie — e retorna exatamente `{enrollment_gap: enroll_a2a_nao_ligado}`. **NAO afirma `enrollment_realizado=true`** (antes retornava essa constante de um corpo cuja unica instrucao era `logger.info`) |
 | External task | `operadora.programa.proactive_contact` | consome (worker) | **ALVO (a ligar):** contato proativo com o beneficiario (so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9). **HOJE (NEW-A2-2):** o worker `proactive_contact` **nao contata ninguem** — nenhum canal de saida ao beneficiario esta ligado a esta task — e retorna exatamente `{contato_gap: contato_beneficiario_nao_ligado}`. **NAO afirma `contato_realizado=true`** (antes retornava essa constante em ambos os caminhos, inclusive no `kafka=None`, de um corpo cuja unica instrucao efetiva era `logger.info`). O guard de consentimento (`ERR_PROGRAMA_NO_CONSENT` como `ProgramaError` -> incidente, pois a task nao carrega error boundary) segue inalterado e fail-closed |
 | External task | `operadora.programa.stop_processing` | consome (worker) | **para o tratamento de PHI** apos revogacao (boundary interruptivo); registra cessacao (LGPD) |
-| External task | `operadora.programa.notify_sla_risk` | consome (worker) | worker `notify_sla_risk` + wrapper `make_notify_sla_risk_handler`: o wrapper publica o alerta em `operadora.notifications.internal` (`best_effort=False`) quando ha produtor Kafka, e AMBOS os caminhos retornam `{}` — **NAO afirmam `sla_risk_notified`** (FAB-SLA-RISK-NOTIFIED-SLICE4; antes o caminho `kafka is None` devolvia `True` sem ter publicado nada, e o registro interno e pedido de alerta, nunca prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada). Informativo e nunca adverso: `UT_DecisaoClinica` segue aberta |
+| External task | `operadora.programa.notify_sla_risk` | consome (worker) | worker `notify_sla_risk` + wrapper `make_notify_sla_risk_handler`: o wrapper publica o alerta em `operadora.notifications.internal` (`best_effort=False`) quando ha produtor Kafka, e AMBOS os caminhos retornam `{}` — **NAO afirmam `sla_risk_notified`** (FAB-SLA-RISK-NOTIFIED-SLICE4; antes o caminho `kafka is None` devolvia `True` sem ter publicado nada, e o registro interno e pedido de alerta, nunca prova de que a `coordenacao-clinica` foi avisada). Informativo e nunca adverso: `UT_DecisaoClinica` segue aberta |
 | External task | `operadora.programa.register_program_discharge` | consome (worker) | **efeito adverso gated (clinico)** — registra desligamento clinico; recusa sem decisao humana (`ERR_PROGRAM_DISCHARGE_NOT_HUMAN`); carrega `responsavel_clinico_id` |
 | Message BPMN | `msg.programa.consent_revoked` | **recebe (interruptivo)** | correlacao por business key — revogacao de consentimento (de SP-OP-LGPD-DSR-001 ou canal direto) → boundary event interrompe e para |
 | Message BPMN | `msg.programa.info_received` | recebe | correlacao por business key — info clinica solicitada pela User Task chegou |
@@ -185,7 +185,7 @@ SLA da decisao clinica (quando ha User Task). Prazos como string ISO — **DRAFT
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `coordenacao-clinica` | Coordenacao clinica / medico do programa | `UT_DecisaoClinica` (**desligamento clinico SO aqui**: `decisao_programa ∈ {ENROLL, MANTER_ACOMPANHAMENTO, DESLIGAR_CLINICO, SOLICITAR_INFO}`) |
-| `equipe-cuidado` | Equipe multiprofissional de cuidado | `UT_DecisaoClinica` (co-candidate group para decisao clinica de cuidado revisada) |
+| `equipe-cuidado` | Equipe multiprofissional de cuidado | nenhuma User Task desde R-041 / #1084 (saiu de `UT_DecisaoClinica`); consultivo — o insumo multiprofissional chega pelo dossie; nao registrado no engine |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). O desligamento clinico (decisao
 clinica L0-hard) NUNCA muda de natureza por estouro de SLA — `coordenacao-clinica` assume com os

@@ -33,7 +33,7 @@ INVARIANTE L1 (provider_decredentialing, _hard_frozen.yaml, CI-enforced — prom
 pendente de sign-off arquitetura+compliance): DUAS DIRECOES ADVERSAS, um processo. NENHUM caminho
 automatizado (1) DESCREDENCIA um prestador ja credenciado (direcao A) NEM (2) NEGA um pedido de
 credenciamento (direcao B). Ambas as direcoes adversas SO nascem em User Tasks humanas:
-  - Descredenciamento -> UT_AnaliseDescredenciamento (grupos gestao-rede,juridico-rede),
+  - Descredenciamento -> UT_AnaliseDescredenciamento (grupo unico juridico-rede, #1084),
     decisao_cred == DESCREDENCIAR, apos cure-window de notificacao previa (RN 567);
   - Negativa de credenciamento -> UT_AnaliseCredenciamento (grupo gestao-rede),
     decisao_cred == NEGAR_CREDENCIAMENTO.
@@ -264,12 +264,12 @@ docs/processes/contracts/SP-OP-CRED-001.md.
     <!-- GAP-CRED-4 (T2, orchestrator-wave3): default de GW_Natureza roteava o catch-all ANALISE_HUMANA
          (rota nao mapeada/ambigua) para o ramo credenciamento-only, pulando a cure-window/notificacao
          previa RN 567 e caindo so no candidate group gestao-rede (UT_AnaliseCredenciamento). Agora o
-         catch-all ANALISE_HUMANA roteia para o ramo de DESCREDENCIAMENTO (co-review: candidate groups
-         gestao-rede+juridico-rede em UT_AnaliseDescredenciamento, decisao_cred inclui MANTER como saida
+         catch-all ANALISE_HUMANA roteia para o ramo de DESCREDENCIAMENTO (decisor unico juridico-rede em
+         UT_AnaliseDescredenciamento desde R-041/#1084; decisao_cred inclui MANTER como saida
          neutra) — o ramo mais conservador dos dois, e o UNICO que passa pela obrigacao de notificacao
          previa RN 567 (BRT_PriorNotice/ST_CheckPriorNotice). Ambiguidade de direcao NUNCA deve pular a
-         cure-window nem restringir a revisao a um unico grupo. -->
-    <bpmn:exclusiveGateway id="GW_Natureza" name="Natureza: credenciamento ou descredenciamento/co-review?" default="Flow_GWNat_Credenciamento">
+         cure-window RN 567. -->
+    <bpmn:exclusiveGateway id="GW_Natureza" name="Natureza: credenciamento ou descredenciamento?" default="Flow_GWNat_Credenciamento">
       <bpmn:incoming>Flow_Sla_GWNatureza</bpmn:incoming>
       <bpmn:outgoing>Flow_GWNat_Descredenciamento</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWNat_Credenciamento</bpmn:outgoing>
@@ -278,7 +278,7 @@ docs/processes/contracts/SP-OP-CRED-001.md.
     <!-- GAP-CRED-6 (T2, orchestrator-wave3): BRT_PriorNotice ficava wired ANTES de GW_Natureza (entre
          BRT_Route e BRT_CredSla) e rodava tambem para direcao=credenciamento, onde cred_prior_notice
          nao tem input de direcao/relevancia (a DMN e SO descredenciamento — RN 567, ver contrato e
-         cred_prior_notice.dmn). Movido para o ramo de descredenciamento/co-review (apos GW_Natureza,
+         cred_prior_notice.dmn). Movido para o ramo de descredenciamento (apos GW_Natureza,
          antes de ST_CheckPriorNotice) — so roda quando a instancia realmente segue para
          UT_AnaliseDescredenciamento/UT_CoordenacaoRedeDescred. -->
     <bpmn:businessRuleTask id="BRT_PriorNotice" name="Determinar notificacao previa (DMN cred_prior_notice)"
@@ -353,8 +353,8 @@ docs/processes/contracts/SP-OP-CRED-001.md.
       <bpmn:outgoing>Flow_DossieDescred_UT</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:userTask id="UT_AnaliseDescredenciamento" name="Analise de descredenciamento (gestao-rede/juridico-rede)"
-                   camunda:candidateGroups="gestao-rede,juridico-rede">
+    <bpmn:userTask id="UT_AnaliseDescredenciamento" name="Analise de descredenciamento (juridico-rede)"
+                   camunda:candidateGroups="juridico-rede">
       <bpmn:documentation><![CDATA[
 HITL L1 (provider_decredentialing, ADR-0008): UNICO ponto onde o descredenciamento (direcao A) pode
 nascer. Saidas: decisao_cred in {DESCREDENCIAR, MANTER, SOLICITAR_INFO}. DESCREDENCIAR exige
@@ -709,9 +709,9 @@ auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_Route_Sla" sourceRef="BRT_Route" targetRef="BRT_CredSla"/>
     <bpmn:sequenceFlow id="Flow_Sla_GWNatureza" sourceRef="BRT_CredSla" targetRef="GW_Natureza"/>
     <!-- GAP-CRED-4: catch-all ANALISE_HUMANA (rota ambigua/nao mapeada) roteia para o MESMO ramo de
-         ANALISE_DESCREDENCIAMENTO — co-review (gestao-rede+juridico-rede) + cure-window RN 567, nunca
+         ANALISE_DESCREDENCIAMENTO — decisor juridico-rede + cure-window RN 567, nunca
          o ramo credenciamento-only (single group, sem notificacao previa). -->
-    <bpmn:sequenceFlow id="Flow_GWNat_Descredenciamento" name="ANALISE_DESCREDENCIAMENTO / ANALISE_HUMANA (catch-all -> co-review)" sourceRef="GW_Natureza" targetRef="BRT_PriorNotice">
+    <bpmn:sequenceFlow id="Flow_GWNat_Descredenciamento" name="ANALISE_DESCREDENCIAMENTO / ANALISE_HUMANA (catch-all -> descredenciamento)" sourceRef="GW_Natureza" targetRef="BRT_PriorNotice">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rota.roteamento == 'ANALISE_DESCREDENCIAMENTO' or rota.roteamento == 'ANALISE_HUMANA'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWNat_Credenciamento" name="ANALISE_CREDENCIAMENTO (default)" sourceRef="GW_Natureza" targetRef="ST_PrepareDossierCred"/>

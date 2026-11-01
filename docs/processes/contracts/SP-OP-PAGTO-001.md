@@ -204,6 +204,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
 | `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada DRAFT**) | `ANALISE_HUMANA` |
 | `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada) | (qualquer, respeitando tier-match) |
+| `analise-contas-pagar` | — (checker, nunca aprovador) | `UT_AnaliseAdmissibilidade` (`decisao_admissibilidade ∈ {PROSSEGUIR, DEVOLVER}`) — divisao de `coordenacao-financeira` em admissibilidade x aprovacao (R-041 / #1084); nunca membro de grupo aprovador (SoD S5) | ordem nao-admissivel (antes da escada) |
 
 **Binding value-driven (unico na plataforma):** a `<bpmn:userTask>` de aprovacao usa
 `camunda:candidateGroups="${grupo_aprovador}"` (expressao resolvida da saida da DMN

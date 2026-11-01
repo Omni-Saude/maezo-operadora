@@ -697,7 +697,8 @@ async def test_gap_critico_roteia_para_humano_nao_firma_compromisso(
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, adequacao_probe, iid)
-    assert "gestao-rede" in ut.candidate_groups
+    # R-041: coordenacao-rede so na escalacao (UT_CoordenacaoRede), nunca co-candidato.
+    assert ut.candidate_groups == frozenset({"gestao-rede"})
 
     ended = await engine.activity_instances_ended(iid)
     assert _END_ADVERSO not in ended, "Gap critico nao deve firmar compromisso automaticamente"
@@ -727,7 +728,8 @@ async def test_dados_incompletos_roteia_para_humano(
     )
     iid = inst["id"]
     ut = await _drive_to_decisao(engine, adequacao_probe, iid)
-    assert "gestao-rede" in ut.candidate_groups
+    # R-041: coordenacao-rede so na escalacao (UT_CoordenacaoRede), nunca co-candidato.
+    assert ut.candidate_groups == frozenset({"gestao-rede"})
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
@@ -957,7 +959,8 @@ async def test_happy_path_compromisso_fallback_humano(
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, adequacao_probe, iid)
-    assert "gestao-rede" in ut.candidate_groups
+    # R-041: coordenacao-rede so na escalacao (UT_CoordenacaoRede), nunca co-candidato.
+    assert ut.candidate_groups == frozenset({"gestao-rede"})
 
     await engine.complete_task_as_human(
         ut.id,

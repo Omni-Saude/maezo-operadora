@@ -1186,7 +1186,7 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     definindo o booleano como "conta adjudicada" — e a ordem cairia direto na faixa clerical
     `DENTRO_TETO_L2` (`ST_ReleaseLowValue`, sem User Task nenhuma), que NAO e coberta por
     `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Com ela, `pagto_admissibility` le o lastro ausente =>
-    `ANALISE_HUMANA` => a ordem PARA na fila de `coordenacao-financeira`.
+    `ANALISE_HUMANA` => a ordem PARA na fila de `analise-contas-pagar` (R-041).
 
     Este e o caso MAIS FORTE dos dois: aqui nao houve humano NENHUM do lado da origem, entao a
     User Task de admissibilidade e o UNICO humano no caminho inteiro do dinheiro.
@@ -1221,7 +1221,7 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     await pagto_drain.drain()
 
     pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"}), (
         "a ordem tem de parar na fila HUMANA de admissibilidade — a adjudicacao automatica da "
         "conta nao confirma o lastro da ordem que ela produziu (I-PAGTO-1)"
     )

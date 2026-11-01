@@ -498,7 +498,7 @@ def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
 
     Mirrors the cancel/auth dossier pattern (`auth.AnalyzeRequestWorker`, `cancel.assess_admissibility`):
     it gathers the pre-resolved facts + regulatory context into a dossier the human analyst
-    (juridico-contratos / gestao-cobranca) reviews. It NEVER originates an adverse decision — the
+    (juridico-contratos, sole decider since R-041) reviews. It NEVER originates an adverse decision — the
     suspension/rescisao is born ONLY in the human User Task (L0 hard, contract_termination,
     ADR-0005/0008). This worker therefore produces NO `decisao_inadimplencia` and NO
     SUSPENDER/RESCINDIR output; the returned dict is a non-routing record no BPMN gateway reads for a

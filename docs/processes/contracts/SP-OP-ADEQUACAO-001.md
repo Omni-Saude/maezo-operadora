@@ -17,7 +17,7 @@ O **registro de um compromisso financeiro de fallback** (`register_fallback_comm
 garantir livre escolha / reembolso garantido / contratacao ad-hoc com custo para a operadora)
 so nasce numa User Task humana (`UT_DecisaoFallback`, ou `UT_CoordenacaoRede` no estouro de SLA),
 com `decisao_remediacao == COMPROMISSO_FALLBACK` setado por humano do grupo `gestao-rede`
-(ou `coordenacao-rede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
+(`coordenacao-rede` so na escalacao `UT_CoordenacaoRede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
 compromisso financeiro: a DMN `adequacao_gap` apenas **mede o gap de adequacao e classifica a
 severidade/roteamento de remediacao**; ela nunca produz `COMPROMETER`/`GARANTIR_REEMBOLSO`/
 `CONTRATAR`. Gap ambiguo, severidade alta, dados de geolocalizacao insuficientes,
@@ -255,7 +255,7 @@ Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/ve
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `gestao-rede` | Gestao de rede credenciada | `UT_DecisaoFallback` (**compromisso financeiro de fallback SO aqui**: `decisao_remediacao ∈ {MONITORAR_OK, ENCAMINHAR_CRED, COMPROMISSO_FALLBACK, SOLICITAR_INFO}`) |
-| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
+| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (deixou de ser co-candidato de `UT_DecisaoFallback` — R-041 / #1084; SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa (compromisso
 de fallback) NUNCA muda de natureza por estouro de SLA.
