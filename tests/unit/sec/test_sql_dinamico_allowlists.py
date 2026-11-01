@@ -438,3 +438,36 @@ def test_decision_binding_colunas_do_insert_sao_kwargs_literais() -> None:
     assert not ret.args and all(k.arg is not None for k in ret.keywords)
     colunas = [k.arg for k in ret.keywords]
     assert len(colunas) == 18 and all(SIMPLES.fullmatch(c or "") for c in colunas)
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/human/task_publication_source.py (`self._native` / `self._act` via `_schema()`)
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("carga", INJECOES)
+def test_task_publication_schema_recusa_injecao(carga: str) -> None:
+    from maezo.gateway.human import task_publication_source as m
+    from maezo.gateway.human.read_credentials import ReadRefusalError
+
+    with pytest.raises(ReadRefusalError) as erro:
+        m._schema(carga)
+    assert erro.value.reason == "configuration_invalid"
+    assert m._schema("maezo_native") == "maezo_native"
+
+
+@pytest.mark.asyncio
+async def test_task_publication_live_tasks_liga_o_limit() -> None:
+    from maezo.gateway.human import task_publication_source as m
+
+    capturado: dict[str, Any] = {}
+
+    async def _rows(sql: str, **params: Any) -> list[Any]:
+        capturado.update(sql=sql, params=params)
+        return []
+
+    fonte = m.NativeTaskSource.__new__(m.NativeTaskSource)
+    fonte.tenant, fonte._act = "t", "cibseven"
+    fonte._rows = _rows  # type: ignore[method-assign]
+    assert await fonte.live_tasks(["k"]) == []
+    assert capturado["sql"].endswith("LIMIT :limit") and capturado["params"]["limit"] == m.MAX_TASKS + 1
