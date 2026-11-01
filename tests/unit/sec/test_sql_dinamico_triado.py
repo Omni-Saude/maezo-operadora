@@ -56,6 +56,7 @@ NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/human/assignment_receipt.py": 1,
     "gateway/human/assignment_transport.py": 1,
     "gateway/human/provider_membership_administration_postgres.py": 1,
+    "gateway/human/vendor_membership_administration_postgres.py": 1,
 }
 
 

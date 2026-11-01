@@ -510,3 +510,20 @@ def test_provider_membership_schema_e_identifier_ancorado() -> None:
 
     _recusa_todas(m.Identifier)
     _campo_validado(m.AdministrationSourceDescriptor, "schema_name")
+
+
+def test_vendor_membership_apply_change_e_constante_qualificada() -> None:
+    from maezo.gateway.human import vendor_membership_administration_postgres as m
+
+    assert m.APPLY_CHANGE == "portal_auth.apply_change"
+    tree = ast.parse((_SRC / "gateway/human/vendor_membership_administration_postgres.py").read_bytes())
+    atribs = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign | ast.AnnAssign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "APPLY_CHANGE"
+            for t in getattr(n, "targets", [getattr(n, "target", None)])
+        )
+    ]
+    assert len(atribs) == 1 and isinstance(atribs[0].value, ast.Constant)
