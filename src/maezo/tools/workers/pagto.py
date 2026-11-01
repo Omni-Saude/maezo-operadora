@@ -43,9 +43,9 @@ _CEILING_PARAM = "threshold_brl"
 # inside `route_aprovacao` below, used only to compute the `faixa_valor`/`grupo_aprovador`/
 # `tier_minimo` THIS function returns/logs). NOT a fabricated payment amount: with
 # `dentro_teto_l2=False` forced alongside it, the DMN's own rows decide the route and 0 matches
-# NONE of the value bands — `r_dentro_teto_l2` requires `dentro_teto_l2=true` (pagto_alcada.dmn:65),
-# and the three ALCADA ranges all start ABOVE 10000000 (dmn:74,84,94) — so the token lands on
-# `r_catchall` (dmn:102-111), whose own description names this exact case: "dentro_teto_l2
+# NONE of the value bands — `r_dentro_teto_l2` requires `dentro_teto_l2=true` (pagto_alcada.dmn:78),
+# and the three ALCADA ranges all start ABOVE 10000000 (dmn:88,99,110) — so the token lands on
+# `r_catchall` (dmn:119-129), whose own description names this exact case: "dentro_teto_l2
 # inconsistente ou inputs nao mapeados -> tier mais alto (comite-financeiro / ANALISE_HUMANA).
 # NUNCA auto-libera."
 #
@@ -77,7 +77,7 @@ _VALOR_NAO_POSITIVO = "nao_positivo"
 _VALOR_ACIMA_LONG_MAX = "acima_long_max"
 
 #: Java `long` (int64) upper bound (MINOR-2) — `pagto_alcada`'s `valor_pagamento_cents` input
-#: declares `typeRef="long"` (spec/processes/dmn/pagto_alcada.dmn:50, ADR-0018 parte 2), and CIB
+#: declares `typeRef="long"` (spec/processes/dmn/pagto_alcada.dmn:62, ADR-0018 parte 2), and CIB
 #: Seven/Camunda's engine `Long` variable type IS Java's signed 64-bit `long`. A Python `int` fits
 #: Python's arbitrary precision but an `int` above this bound is NOT representable as that
 #: typeRef — forwarding it to `evaluate_sync` risks a `DmnEvaluationError` at the engine (retries ->
@@ -328,7 +328,7 @@ def _valor_pagamento_cents_or_none(valor_cents: Any) -> tuple[int | None, str]:
     (integral ones like `8000.0` included — money is never rounded, and NaN/+-inf are rejected as
     a subcase since they exist only as floats); any other non-`int` type; an `int` ABOVE the Java
     `long` (int64) upper bound (`_JAVA_LONG_MAX = 2**63-1`) that `pagto_alcada`'s
-    `valor_pagamento_cents` input declares as its `typeRef` (dmn:50, ADR-0018 parte 2) — MINOR-2:
+    `valor_pagamento_cents` input declares as its `typeRef` (dmn:62, ADR-0018 parte 2) — MINOR-2:
     oversize is not representable on the wire and would risk a `DmnEvaluationError` at the engine
     (retries -> incident) instead of the conservative catch-all this function otherwise
     guarantees; and `<= 0` (a zero or negative "payment" is not a payment).
@@ -404,10 +404,10 @@ def route_aprovacao(
     so it admits nothing here either) and
     does NOT invent a route: it forces `dentro_teto_l2=False`, which structurally closes the
     auto-release band FOR THIS FUNCTION'S OWN in-process DMN call (`r_dentro_teto_l2` requires
-    `true` — spec/processes/dmn/pagto_alcada.dmn:65), and hands that call
-    `_VALOR_CENTS_ROTA_CONSERVADORA`, which matches none of the three ALCADA ranges (dmn:74,84,94)
+    `true` — spec/processes/dmn/pagto_alcada.dmn:78), and hands that call
+    `_VALOR_CENTS_ROTA_CONSERVADORA`, which matches none of the three ALCADA ranges (dmn:88,99,110)
     — so THIS call's own `faixa`/`grupo`/`tier_minimo` (returned/logged below) land on the table's
-    OWN conservative catch-all `r_catchall` (dmn:102-111) — `ANALISE_HUMANA` / `comite-financeiro` /
+    OWN conservative catch-all `r_catchall` (dmn:119-129) — `ANALISE_HUMANA` / `comite-financeiro` /
     `tier_minimo=4`, the highest human band — whose description names this exact case
     ("dentro_teto_l2 inconsistente ou inputs nao mapeados ... NUNCA auto-libera").
 
@@ -426,7 +426,7 @@ def route_aprovacao(
     (`r_catchall`) is guaranteed only when the raw amount is null/0/negative; a rejected `float`
     that happens to fall inside an ALCADA range yields THAT band's lower tier instead
     (`ALCADA_L1`/`L2`/`L3`, tier 1-3); a rejected `str`/`bool` raw amount may cause
-    `BRT_AlcadaRouting` itself to incident on the DMN's `long`-typed input (dmn:50) — the SAME
+    `BRT_AlcadaRouting` itself to incident on the DMN's `long`-typed input (dmn:62) — the SAME
     failure class a malformed engine variable was already exposed to pre-fix, not a regression this
     function introduces or resolves.
 
@@ -487,7 +487,7 @@ def route_aprovacao(
     if valor_cents is None:
         # FAIL-CLOSED, fail-NEUTRAL (ADR-0030 — `ST_CalculateFacts` has no error boundary): never
         # raise, never guess an amount. `dentro_teto_l2=False` structurally closes the auto-release
-        # band (`r_dentro_teto_l2` requires `true`, pagto_alcada.dmn:65) and the conservative token
+        # band (`r_dentro_teto_l2` requires `true`, pagto_alcada.dmn:78) and the conservative token
         # lands the DMN on its OWN catch-all row -> ANALISE_HUMANA / comite-financeiro / tier 4.
         # The route is the MODEL's, not this function's.
         logger.error(
