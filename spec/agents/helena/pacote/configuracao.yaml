@@ -18,6 +18,8 @@ carteirinha_completa: true  # dono, 17/10/2026
 dependentes_nome: true      # DL-0127
 base_saude: true            # DL-0118 / ADR-0064
 identidade_nome_operadora: "Austa Clínicas"  # DL-0078
+# DL-0159 (dono, 01/11/2026): triagem com juiz SO' na allowlist do modelo. Voltar: false ("volte para a tabela original").
+triagem_juiz: true
 
 # Roteador de habilidades (ADR-0066).
 roteador:
