@@ -27,9 +27,11 @@ chave de CONTAS-001, lote e guia/conta, carregam essas variaveis; `RECURSO-{tena
 para RECURSO, a chave contratual). Terminal, valor e `has_glosas` sao lidos do que o MOTOR gravou
 na instancia de origem.
 
-FALHA FECHADA. Costura ausente, motor fora, resposta ambigua/malformada, estado desconhecido ou
-qualquer excecao viram `INDISPONIVEL` — nunca `CONFIRMADO`, e nunca uma excecao que derrube a
-validacao da ordem (o fato vai a humano; a validacao segue como sempre foi).
+FALHA FECHADA. Costura ausente, motor fora, recusa do gate, resposta ambigua/malformada ou estado
+desconhecido viram `INDISPONIVEL` — nunca `CONFIRMADO`, e nunca uma excecao que derrube a validacao
+da ordem (o fato vai a humano; a validacao segue como sempre foi). ERRO DE PROGRAMACAO NAO e'
+absorvido (`maezo.runtime.dependency_failures.PROGRAMMING_ERRORS` re-levanta, licao NEW-12): um
+`TypeError` do proprio worker vira incidente visivel, nao um `INDISPONIVEL` silencioso para sempre.
 
 TOLERANCIA DE VALOR (decisao do dono, 31/10/2026, "Pagamentos": abaixo da origem segue, acima vai a
 humano): `CONFIRMADO` quando `valor_pagamento_cents` <= valor da origem; acima, ou qualquer lado
@@ -46,6 +48,7 @@ from typing import Any, Final
 import structlog
 
 from maezo.platform.keys import key_segment
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.tools.mcp_cibseven.transport import (
     HistoricInstanceNotFoundError,
     HistoricInstanceRecord,
@@ -274,7 +277,11 @@ def resolve_lastro(
     except HistoricInstanceNotFoundError:
         logger.info("pagto_lastro_origem_nao_encontrada", processo=fonte.process_key)
         return _fatos(STATUS_NAO_ENCONTRADO)
-    except Exception as exc:  # costura fora/ambigua/malformada/negada: "nao sei", nunca "confirmado"
+    except PROGRAMMING_ERRORS:
+        raise
+    except EXTERNAL_DEPENDENCY_FAILURES as exc:
+        # `CibSevenError` (fora/ambigua/malformada/negada pelo gate) e' `RuntimeError`; rede crua e'
+        # `OSError`/`httpx.HTTPError`. "Nao sei" — nunca "confirmado".
         logger.warning("pagto_lastro_indisponivel", processo=fonte.process_key, erro=type(exc).__name__)
         return _fatos(STATUS_INDISPONIVEL)
     if registro is None:

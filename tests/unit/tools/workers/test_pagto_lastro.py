@@ -432,7 +432,7 @@ def test_costura_ausente_e_indisponivel(engine: Any) -> None:
         HistoryPayloadMalformedError("forma"),
         PermissionError("negado pelo gate"),
         RuntimeError("qualquer coisa"),
-        ValueError("seletor"),
+        ConnectionError("rede crua"),
     ],
     ids=lambda e: type(e).__name__,
 )
@@ -440,6 +440,18 @@ def test_erro_da_costura_e_indisponivel_nunca_excecao(erro: BaseException) -> No
     out = resolve_lastro(_ordem_contas(), engine=_Quebrado(erro))
     _assert_forma(out)
     assert out["lastro_status"] == "INDISPONIVEL"
+
+
+@pytest.mark.parametrize(
+    "erro",
+    [TypeError("bug"), KeyError("bug"), AttributeError("bug"), NotImplementedError("bug"), ValueError("bug")],
+    ids=lambda e: type(e).__name__,
+)
+def test_erro_de_programacao_nao_vira_indisponivel_silencioso(erro: BaseException) -> None:
+    """Licao NEW-12: um bug nao pode se passar por "motor indisponivel" para sempre — re-levanta
+    (o harness o transforma em incidente visivel)."""
+    with pytest.raises(type(erro)):
+        resolve_lastro(_ordem_contas(), engine=_Quebrado(erro))
 
 
 # ---------------------------------------------------------------------------------------------
