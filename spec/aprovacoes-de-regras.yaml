@@ -226,6 +226,14 @@ pendentes:
   - artefato: spec/processes/dmn/phantom_suspicious_prefix.dmn
     responsavel: a definir
     marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/prestador_tier.dmn
+    responsavel: a definir
+    marca_no_arquivo: "prestador_tier v0.1.0 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos"
+    nota: "MPTT P5, nao ligada (P6 liga). Valores DRAFT a ratificar (financas + medico-auditor): corte_watch=40, corte_trusted=70, N=10 pagamentos liberados por humano, T=12 meses, gold-card >= 90% em >= 10 ordens (patamar do dono 2026-10-31). docs/review-queue.md secao MPTT P5."
+  - artefato: spec/processes/dmn/prestador_trust_scorecard.dmn
+    responsavel: a definir
+    marca_no_arquivo: "prestador_trust_scorecard v0.1.0 — status: DRAFT — todos os pontos, faixas, pisos de volume e T"
+    nota: "MPTT P5, nao ligada (P4 produz as features, P6 liga). Valores DRAFT a calibrar em sombra (financas + medico-auditor + DPO): pesos F1 40 / F2 30 / F5 15; faixas F1 [0.90..1]=40, [0.80..0.90)=20, <0.80=0; F2 percentil <=50=30, (50..75]=15, >75=0; pisos 10 ordens / 10 lotes; neutro = metade do peso; T=12 meses. F3 (peso 15) fora ate o PAGTO PR-E. docs/review-queue.md secao MPTT P5."
   - artefato: spec/processes/dmn/programa_routing.dmn
     responsavel: a definir
     marca_no_arquivo: "programa_routing v0.1.0 — status: DRAFT (criterios de estratificacao/elegibilidade requerem"

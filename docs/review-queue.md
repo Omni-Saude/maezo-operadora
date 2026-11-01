@@ -2484,3 +2484,24 @@ número de linha (618, 640–644) e uma inserção na tabela principal desalinha
 
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
 REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.
+
+## MPTT P5 — scorecard e tier de confianca do prestador: valores DRAFT pendentes de ratificacao (2026-11-01)
+
+Desenho: `docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md` §3/§4/§6/§8 (P5);
+decisao do dono 2026-10-31 ("Pagamentos": scorecard hibrido = red flags nao compensatorias +
+scorecard de pontos; gold-card >= 90% em >= 10 ordens; pares por tenant/CADE; custo de episodio
+lake-side, so rebaixa, v2; novos em WATCH ate N pagamentos). As tabelas NAO estao ligadas a BPMN
+nem a worker (P4 produz as features; P6 liga). Nenhum bloco de aprovacao foi preenchido.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/dmn/prestador_trust_scorecard.dmn` (decisoes `prestador_trust_scorecard` COLLECT+SUM e `prestador_trust_motivos` COLLECT) | Pesos F1 40 / F2 30 / F5 15 (maximo 85); faixas F1 taxa de liberacao humana `[0.90..1]`=40, `[0.80..0.90)`=20, `[0..0.80)`=0; F2 percentil da glosa liquida vs pares do tenant `[0..50]`=30, `(50..75]`=15, `(75..100]`=0; pisos de volume 10 ordens (F1) e 10 lotes (F2; piso em R$ "calibrar" sem valor inicial — fica para o lote P4); volume insuficiente = neutro (metade do peso); T=12 meses (F5, sem pontos alem do portao); entrada ausente/invalida = 0 pontos. Calibrar em sombra (cortes por percentis da distribuicao, TRUSTED contido em prestadores com zero DEVOLVER/CANCELAR humano) | financas + medico-auditor; DPO (LGPD art. 20 — perfil profissional; RIPD/LIA) | `DRAFT — valores pendentes de ratificacao; nao ligado` |
+| `spec/processes/dmn/prestador_tier.dmn` (decisao `prestador_tier` FIRST) | corte_watch=40, corte_trusted=70, N=10 pagamentos liberados por humano (prestador conhecido, D3-B), T=12 meses, gold-card >= 90% em >= 10 ordens; red flags nao compensatorias F6 (pico de faturamento) e FRAUDE MONITORAR nos ultimos 12 meses; fail-closed para WATCH em qualquer entrada ausente. Dominio fechado TRUSTED/STANDARD/WATCH — so roteia (auto vs humano); teto por tier fica na politica (financas, P9) | financas + medico-auditor; juridico (clausula contratual de roteamento, RN 503 art. 12) | `DRAFT — valores pendentes de ratificacao; nao ligado` |
+
+Fora desta entrega (declarado): F3 duplicidades (peso 15 e red flag) depende do ledger do PAGTO
+PR-E e entra numa v0.2.0; F4 custo de episodio e v2 lake-side (P8); histerese trimestral e
+snapshot > 48h -> WATCH sao do lote/consumidor (P4/P6); BLOQUEIO por fato duro (descredenciado,
+fraude) e do `pagto_admissibility` v0.3 (P6).
+
+Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
+REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.
