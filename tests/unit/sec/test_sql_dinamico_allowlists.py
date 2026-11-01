@@ -745,3 +745,7 @@ def test_whatsapp_acesso_limite_cpf_tabela_literal() -> None:
 
 def test_whatsapp_acesso_store_tabela_e_colunas_literais() -> None:
     _tabela_e_colunas_literais("platform/webhooks/whatsapp/acesso_store.py", colunas=True)
+
+
+def test_whatsapp_roteamento_tabela_e_colunas_literais() -> None:
+    _tabela_e_colunas_literais("platform/webhooks/whatsapp/roteamento.py", colunas=True)

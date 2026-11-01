@@ -51,6 +51,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "platform/integrations/amh_inbox.py": 1,
     "platform/webhooks/whatsapp/acesso_limite_cpf.py": 3,
     "platform/webhooks/whatsapp/acesso_store.py": 3,
+    "platform/webhooks/whatsapp/roteamento.py": 4,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,
