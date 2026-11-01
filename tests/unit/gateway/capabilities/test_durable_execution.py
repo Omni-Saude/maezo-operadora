@@ -1,6 +1,7 @@
 """DUR3 UNIT doubles only: no PostgreSQL, provider receipts or production qualification."""
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 import pytest
@@ -593,13 +594,33 @@ async def test_cancellation_after_fence_preserves_original_identity_and_drains_c
 
 
 @pytest.mark.asyncio
-async def test_technical_timeout_after_fence_never_resets_or_retries_effect():
+@pytest.mark.parametrize("slow_preamble", [False, True], ids=["fast", "slow-preamble"])
+async def test_technical_timeout_after_fence_never_resets_or_retries_effect(monkeypatch, slow_preamble):
+    # O prazo tecnico vence sob o relogio do loop, nao o de parede: antes, 10 ms reais cobriam
+    # todo o pipeline pre-fonte e o yield de check_current (asyncio.sleep(0)) entre fence e
+    # fonte podia ser cancelado sob carga, sem a fonte ser chamada (flake, nao race no fence).
+    # Congelado, o prazo so vence quando a fonte avanca o relogio: sempre DEPOIS da fence.
+    loop = asyncio.get_running_loop()
+    frozen = loop.time()
+    elapsed = 0.0
+    monkeypatch.setattr(loop, "time", lambda: frozen + elapsed)
     h = harness()
     calls = []
+    if slow_preamble:
+        # Pipeline pre-fonte mais lento que o prazo inteiro em tempo de parede (CI carregado).
+        check_current = h.authority.check_current
+
+        async def slow_check_current(*args, **kwargs):
+            time.sleep(0.02)  # noqa: ASYNC251 - bloqueio proposital: CPU do pre-fonte, nao timer
+            return await check_current(*args, **kwargs)
+
+        monkeypatch.setattr(h.authority, "check_current", slow_check_current)
 
     class HangingSource:
         async def execute(self, env, request, *, timeout_seconds):
+            nonlocal elapsed
             calls.append(env.idempotency_key)
+            elapsed += timeout_seconds * 2  # o prazo tecnico vence agora, apos a fence
             await asyncio.Event().wait()
 
     h.service = CapabilityService(
