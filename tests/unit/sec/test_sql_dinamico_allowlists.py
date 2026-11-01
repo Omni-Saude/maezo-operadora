@@ -494,3 +494,7 @@ def _search_path_de_schema_for_tenant(modulo: str, funcao: str) -> None:
 
 def test_assignment_receipt_search_path_vem_de_schema_for_tenant() -> None:
     _search_path_de_schema_for_tenant("gateway/human/assignment_receipt.py", "_current_source")
+
+
+def test_assignment_transport_search_path_vem_de_schema_for_tenant() -> None:
+    _search_path_de_schema_for_tenant("gateway/human/assignment_transport.py", "_active")
