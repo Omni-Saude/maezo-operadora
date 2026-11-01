@@ -773,7 +773,9 @@ class CibSevenHttpTransport:
              linhas para provar unicidade sem baixar o historico inteiro.
           2. `GET /history/variable-instance` filtrado pela instancia e por `variableNameIn` — so'
              os nomes pedidos (+ os do filtro, para conferir que o filtro foi aplicado).
-          3. SO' quando a instancia terminou e o motor nao informou `endActivityId`:
+          3. SO' quando a instancia terminou `COMPLETED` e o motor nao informou `endActivityId`;
+             `EXTERNALLY_TERMINATED` devolve sempre `None` (cancelada nao termina por evento final,
+             ainda que um ramo paralelo tenha passado por um antes):
              `GET /history/activity-instance` da instancia (`finished=true`). Observado no motor do
              CI (CIB Seven, 01/11/2026): instancia `COMPLETED` pelo evento final com
              `endActivityId: null` na linha de `/history/process-instance`. O fato entao vem do
@@ -849,7 +851,11 @@ class CibSevenHttpTransport:
                 f"CIB Seven history instance row of {where} contradicts the query or is malformed"
             )
 
-        if end_activity_id is None and state.strip().upper() in _FINISHED_HISTORIC_STATES:
+        state_token = state.strip().upper()
+        if state_token == "EXTERNALLY_TERMINATED":
+            # Cancelada: nao terminou por evento final, mesmo que um ramo paralelo tenha passado por um.
+            end_activity_id = None
+        elif end_activity_id is None and state_token == "COMPLETED":
             end_activity_id = await self._read_process_end_activity(instance_id)
 
         values: dict[str, Any] = {}

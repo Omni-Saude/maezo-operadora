@@ -470,7 +470,7 @@ async def test_engine_reported_end_activity_is_used_verbatim_without_activity_re
 
 
 async def test_parallel_process_level_ends_pick_the_one_that_ended_last() -> None:
-    activities = [_act("End_RamoA", "noneEndEvent", _T2), _act("End_RamoB", "terminateEndEvent", _T1)]
+    activities = [_act("End_RamoA", "noneEndEvent", _T2), _act("End_RamoB", "noneEndEvent", _T1)]
     transport, _ = _transport(_engine([_row(endActivityId=None)], activities=activities))
     record = await transport.resolve_historic_instance(_PK, business_key=_BK)
     assert record.end_activity_id == "End_RamoA"
@@ -539,3 +539,13 @@ async def test_malformed_activity_payload_fails_closed(activities: Any) -> None:
     transport, _ = _transport(_engine([_row(endActivityId=None)], activities=activities))
     with pytest.raises(HistoryPayloadMalformedError):
         await transport.resolve_historic_instance(_PK, business_key=_BK)
+
+
+async def test_cancelled_instance_with_a_prior_parallel_end_event_has_no_end_activity() -> None:
+    activities = [_act("End_RamoA", "noneEndEvent", _T1), _act("UT_RamoB", "userTask", _T2)]
+    transport, seen = _transport(
+        _engine([_row(state="EXTERNALLY_TERMINATED", endActivityId=None)], activities=activities)
+    )
+    record = await transport.resolve_historic_instance(_PK, business_key=_BK)
+    assert record.end_activity_id is None
+    assert len(seen) == 1, "cancelled: no activity-history read"
