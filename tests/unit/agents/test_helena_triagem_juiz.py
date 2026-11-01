@@ -45,6 +45,7 @@ class _Modelo:
         motivo: str = "queixa leve",
         leitura: str = "NAO",
         item_192: int | None = None,
+        explica: str | None = None,
     ) -> None:
         self.fatos = fatos or _FATOS_LEVES
         self.pergunta = pergunta
@@ -52,6 +53,7 @@ class _Modelo:
         self.motivo = motivo
         self.leitura = leitura
         self.item_192 = item_192
+        self.explica = explica
         self.papeis: list[str] = []
 
     def papel(self, sistema: str) -> str:
@@ -79,7 +81,9 @@ class _Modelo:
             return "SIM" if invertida and self.leitura == "NAO" else self.leitura
         if papel == "pergunta":
             return json.dumps({"pergunta": self.pergunta})
-        return json.dumps({"saida": self.juiz, "item_192": self.item_192, "motivo": self.motivo})
+        return json.dumps(
+            {"saida": self.juiz, "item_192": self.item_192, "motivo": self.motivo, "explica": self.explica}
+        )
 
 
 async def _ate_o_fim(modelo: _Modelo, mensagem: str, resposta: str = "não, nada disso") -> dict[str, Any]:
@@ -221,3 +225,90 @@ async def test_contexto_perdido_no_meio_oferece_a_equipe() -> None:
     r = await tj.conduzir(grafo, estado, _Decisao(), f"{tj.PENDENTE}1", None)
     assert r is not None
     assert r["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE
+
+
+# --- Teste do dono de 01/11/2026 ----------------------------------------------------------------------------
+_PORQUE = "Um desmaio numa pessoa de 70 anos com diabetes precisa ser visto por um médico hoje."
+
+
+def _depois(turno: dict[str, Any], mensagem: str) -> dict[str, Any]:
+    """O estado do turno seguinte: a fala da Helena no historico e o contexto que o turno gravou."""
+    estado = _estado(mensagem)
+    estado["coleta_pendente"] = turno["coleta_pendente"]
+    estado["coleta_contexto"] = turno["coleta_contexto"]
+    estado["historico_conversa"] = [{"papel": "helena", "texto": turno["response_text"]}]
+    return estado
+
+
+async def _concluido(grafo: Any, mensagem: str) -> dict[str, Any]:
+    """Conduz a triagem (respondendo "nao" as perguntas) ate' a conclusao."""
+    turno = await tj.conduzir(grafo, _estado(mensagem), _Decisao(), None, None)
+    while turno is not None and str(turno["coleta_pendente"] or "").startswith(tj.PENDENTE):
+        turno = await tj.conduzir(grafo, _depois(turno, "nao"), _Decisao(), turno["coleta_pendente"], None)
+    assert turno is not None
+    return turno
+
+
+async def test_desmaio_pela_palavra_pergunta_se_foi_hoje_antes_do_192() -> None:
+    modelo = _Modelo(fatos={**_FATOS_LEVES, "queixas": ["mal_estar"], "faixa_etaria": "idoso"})
+    r = await m.passo(modelo, m.contexto_novo(["minha mae de 70 anos desmaiou semana passada"]), None)
+    assert r["tipo"] == "pergunta"
+    assert "hoje" in r["texto"]
+
+
+async def test_a_palavra_de_alarme_abre_a_triagem_mesmo_com_outra_pendencia() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo())))
+    estado = _estado("minha mae desmaiou")
+    estado["coleta_pendente"] = PENDENTE_OFERTA_EQUIPE
+    r = await tj.conduzir(grafo, estado, _Decisao(habilidade="conversa"), PENDENTE_OFERTA_EQUIPE, None)
+    assert r is not None
+    assert str(r["coleta_pendente"]).startswith(tj.PENDENTE)
+
+
+async def test_pronto_socorro_diz_o_porque_e_depois_explica_sem_nova_triagem() -> None:
+    modelo = _Modelo(juiz="PS", motivo="idosa com sincope", explica=_PORQUE, pergunta=None)
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(modelo)))
+    final = await _concluido(grafo, "minha mae de 70 anos esta fraca")
+    assert final["response_text"].startswith(_PORQUE)
+    assert final["coleta_pendente"] is None
+    chamadas = len(modelo.papeis)
+    pergunta = _depois(final, "O que eu te respondi pra voce ter tirado essa conclusao?")
+    explicada = tj.explicar(grafo, pergunta, None)
+    assert explicada is not None and _PORQUE in explicada["response_text"]
+    assert len(modelo.papeis) == chamadas  # sem modelo e sem nova triagem
+    de_novo = tj.explicar(grafo, _depois(explicada, "mas por que o pronto-socorro?"), None)
+    assert de_novo is not None
+
+
+async def test_fato_novo_logo_depois_da_conclusao_reavalia_a_conversa_inteira() -> None:
+    modelo = _Modelo(juiz="PS", motivo="idosa com sincope", explica=_PORQUE, pergunta=None)
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(modelo)))
+    final = await _concluido(grafo, "minha mae de 70 anos esta fraca")
+    modelo.juiz, modelo.explica = "HOJE", "Ela precisa ser vista hoje."
+    estado = _depois(final, "isso foi semana passada, hoje ela esta bem, so fraca")
+    novo = await tj.conduzir(grafo, estado, _Decisao(), None, None)
+    assert novo is not None and novo["response_text"].startswith("Ela precisa ser vista hoje.")
+    assert json.loads(novo["coleta_contexto"])["msgs"] == [  # a conversa inteira, nao so' a mensagem nova
+        "minha mae de 70 anos esta fraca",
+        "isso foi semana passada, hoje ela esta bem, so fraca",
+    ]
+
+
+async def test_falha_do_modelo_oferece_a_equipe_e_nao_cai_no_protocolo_antigo() -> None:
+    class _Quebrado(_Modelo):
+        async def __call__(self, sistema: str, texto: str, max_tokens: int) -> str:
+            return "sem json"
+
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Quebrado())))
+    r = await tj.conduzir(grafo, _estado("estou com dor de garganta desde ontem"), _Decisao(), None, None)
+    assert r is not None and r["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE
+
+
+async def test_falha_do_modelo_com_palavra_de_alarme_e_o_192_de_sempre() -> None:
+    class _Quebrado(_Modelo):
+        async def __call__(self, sistema: str, texto: str, max_tokens: int) -> str:
+            return "sem json"
+
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Quebrado())))
+    r = await tj.conduzir(grafo, _estado("meu pai desmaiou agora"), _Decisao(), None, None)
+    assert r is not None and r["next_kind"] == "escalate"
