@@ -193,3 +193,37 @@ async def test_document_requests_head_recusa_lock_fora_do_mapa(lock: str) -> Non
 
     with pytest.raises(ExternalCaseError):
         await admission.head(_ConexaoProibida(), object(), lock=lock)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------------------------
+# Validadores ancorados de identificador (schema interpolado como `"<schema>".<objeto>`)
+# ---------------------------------------------------------------------------------------------
+
+
+def _recusa_todas(tipo: Any) -> None:
+    from pydantic import TypeAdapter, ValidationError
+
+    adaptador = TypeAdapter(tipo)
+    for carga in INJECOES:
+        with pytest.raises(ValidationError):
+            adaptador.validate_python(carga)
+    assert adaptador.validate_python("schema_ok") == "schema_ok"
+
+
+def _campo_validado(modelo: Any, campo: str) -> None:
+    """O campo do modelo carrega a mesma regex ancorada; recusa cada carga de `INJECOES`."""
+    padroes = [getattr(m, "pattern", None) for m in modelo.model_fields[campo].metadata]
+    assert any(p and p.startswith("^") and p.endswith("$") for p in padroes), padroes
+    from typing import Annotated
+
+    from pydantic import StringConstraints
+
+    (padrao,) = [p for p in padroes if p]
+    _recusa_todas(Annotated[str, StringConstraints(strict=True, pattern=padrao)])
+
+
+def test_provider_notice_identifier_recusa_injecao() -> None:
+    from maezo.gateway.communications import provider_notice
+
+    _recusa_todas(provider_notice.Identifier)
+    _campo_validado(provider_notice.ProviderNoticeInstallation, "schema_name")
