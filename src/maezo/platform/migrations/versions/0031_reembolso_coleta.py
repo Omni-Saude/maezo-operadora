@@ -1,4 +1,4 @@
-"""Coleta do pedido de reembolso pelo WhatsApp (DL-0159/DL-0160, `MAEZO_REEMBOLSO_V1`).
+"""Coleta do pedido de reembolso pelo WhatsApp (DL-0160/DL-0161, `MAEZO_REEMBOLSO_V1`).
 
 **Por que esta tabela existe.** O Lucas e' de um turno so' (sem checkpoint, ADR-0062) e a coleta do
 reembolso dura varias mensagens (perguntas fechadas, laco de documentos, confirmacao). Alguem precisa
@@ -7,7 +7,7 @@ variavel de processo (o processo so' nasce na confirmacao) nem o checkpoint do g
 por `(tenant, conversation_id)`, fora do estado dos agentes.
 
 **O que NAO esta aqui.** Nenhum telefone e nenhum texto livre da COLETA. A unica excecao e' a RESPOSTA a um
-pedido de informacao da equipe (`resposta_texto`, DL-0161): ja' passada pelo scrub de identificadores,
+pedido de informacao da equipe (`resposta_texto`, DL-0162): ja' passada pelo scrub de identificadores,
 ate' 1000
 caracteres, so' na etapa `resposta` (CHECK) e apagada no "terminei" que a entrega ao processo (ou quando
 a linha
@@ -88,7 +88,7 @@ def upgrade() -> None:
     """)
     op.execute("CREATE INDEX reembolso_coleta_expira_em ON reembolso_coleta (expira_em)")
     op.execute(
-        "COMMENT ON TABLE reembolso_coleta IS 'Coleta do pedido de reembolso pelo WhatsApp (DL-0159): "
+        "COMMENT ON TABLE reembolso_coleta IS 'Coleta do pedido de reembolso pelo WhatsApp (DL-0160): "
         "etapa e respostas FECHADAS por conversa, gravada por CAS (revisao). Nenhum telefone, nenhum texto "
         "livre; document_ref e opaco (o arquivo vive na Zona PHI)'"
     )

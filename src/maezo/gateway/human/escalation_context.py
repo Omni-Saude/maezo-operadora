@@ -110,7 +110,7 @@ class EscalationContextSource(ABC):
         raise NotImplementedError
 
     async def read_reembolso(self, *, task_id: str) -> ReembolsoContexto:
-        """INTERIM (DL-0161): o contexto de uma tarefa de REEMBOLSO ja' autorizada. O padrao RECUSA: so'
+        """INTERIM (DL-0162): o contexto de uma tarefa de REEMBOLSO ja' autorizada. O padrao RECUSA: so'
         o adaptador do motor (`EngineRestEscalationContext`) sabe ler."""
         del task_id
         raise GatewayRefusalError("task_unavailable")

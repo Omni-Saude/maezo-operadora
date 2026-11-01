@@ -190,7 +190,7 @@ _REEMBOLSO_STRING_META_KEYS = (
     "motivo_nao_rede",
 )
 _REEMBOLSO_INT_META_KEYS = ("valor_solicitado_cents",)
-_REEMBOLSO_BOOLEAN_META_KEYS: tuple[str, ...] = ()  # v0.2.0 (DL-0159): nenhum fato booleano pre-resolvido
+_REEMBOLSO_BOOLEAN_META_KEYS: tuple[str, ...] = ()  # v0.2.0 (DL-0160): nenhum fato booleano pre-resolvido
 
 #: The PRINCIPAL TISS reason code, carried as a scalar and re-expanded into the list-shaped
 #: `reason_codes_tiss` state field (module docstring's disclosed fidelity residual).

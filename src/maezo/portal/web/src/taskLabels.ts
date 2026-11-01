@@ -268,6 +268,12 @@ export const taskLabels = [
   },
   {
     "process": "SP-OP-REEMBOLSO-001",
+    "task": "UT_RegistrarPagamento",
+    "processLabel": "Reembolso ao Beneficiario",
+    "taskLabel": "Registrar pagamento do reembolso (pago em DD/MM)"
+  },
+  {
+    "process": "SP-OP-REEMBOLSO-001",
     "task": "UT_RevisaoAuditorMedico",
     "processLabel": "Reembolso ao Beneficiario",
     "taskLabel": "Revisao do medico auditor (merito clinico)"

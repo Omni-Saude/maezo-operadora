@@ -151,7 +151,7 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
-        # INTERIM (DL-0161): `None` keeps `read_reembolso_anexo` refusing (o contexto continua servido).
+        # INTERIM (DL-0162): `None` keeps `read_reembolso_anexo` refusing (o contexto continua servido).
         self._reembolso_anexos = reembolso_anexos
         # DL-0149: `None` does NOT refuse the context read (owner's decision, best-effort): the
         # read is served and `portal_read_audit_skipped` (reason=sink_absent) is logged.
@@ -793,7 +793,7 @@ class HumanGateway:
     async def _reembolso_autorizado(
         self, session_secret: str, task_id: str
     ) -> tuple[ResolvedHumanSession, AuthoritativeTask, CurrentTaskAuthority, ReembolsoContexto]:
-        """INTERIM (DL-0161): a MESMA autorizacao de `read_escalation_context`, para uma tarefa do reembolso.
+        """INTERIM (DL-0162): a MESMA autorizacao de `read_escalation_context`, para uma tarefa do reembolso.
 
         Sessao `staff` resolvida, tarefa que a membership pode ler (`_read_authorized`), e a tarefa e' do
         SP-OP-REEMBOLSO-001 e uma das cinco do catalogo. So' depois o motor e' perguntado, pelo cliente
@@ -835,7 +835,7 @@ class HumanGateway:
         task_id: str,
         render: Callable[[TaskReembolsoContextResponse], _ReadResult],
     ) -> _ReadResult:
-        """INTERIM (DL-0161): os dados fechados do pedido e a lista de anexos de uma tarefa do reembolso."""
+        """INTERIM (DL-0162): os dados fechados do pedido e a lista de anexos de uma tarefa do reembolso."""
         try:
             final, _task, _authority, contexto = await self._reembolso_autorizado(session_secret, task_id)
             now = datetime.now(UTC)
@@ -887,7 +887,7 @@ class HumanGateway:
             raise ReadRefusalError("read_dependency_unavailable") from None
 
     async def read_reembolso_anexo(self, *, session_secret: str, task_id: str, document_ref: str) -> Any:
-        """INTERIM (DL-0161): os BYTES de UM anexo do pedido de uma tarefa que a pessoa pode ler.
+        """INTERIM (DL-0162): os BYTES de UM anexo do pedido de uma tarefa que a pessoa pode ler.
 
         So' sai se a referencia estiver no `documentos_refs` DAQUELA instancia e o sha256 do objeto conferir
         com o registrado no processo (ADR-0020, principio do `input_hash`). Cada leitura servida vira um elo
@@ -984,7 +984,7 @@ class HumanGateway:
         if audit is None or audit.scope != self._scope:
             raise GatewayRefusalError("production_capabilities_unavailable")
         notes = pseudonymize_notes(notas_resolucao) if form.note_variable is not None else None
-        # DL-0161: os extras do formulario, validados e com os textos pelo MESMO scrub da nota, ANTES das
+        # DL-0162: os extras do formulario, validados e com os textos pelo MESMO scrub da nota, ANTES das
         # leituras remotas, do elo de intent e do motor (texto longo demais: `NotesTooLongError`).
         try:
             prontos = build_completion_extras(form, extras or {}) if form.extras else None

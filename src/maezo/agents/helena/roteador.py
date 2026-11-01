@@ -570,6 +570,10 @@ async def _classify_ativo_decidido(
         fixo = await _texto_fixo_de_conversa(self, state, texto)
         if fixo is not None:
             return fixo
+    if (juiz := await _triagem_juiz.conduzir(self, state, decisao, antes, alarme)) is not None:
+        # Experimento do dev (dono, 01/11/2026): tabela como piso e o modelo julgando a conversa, so' com a
+        # chave `triagem_juiz` do pacote e na allowlist; desligada, os protocolos abaixo como sempre.
+        return {**juiz, "habilidade_roteador": "sintoma"}
     if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
         # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.
         return {**protocolo, "habilidade_roteador": "sintoma"}
@@ -921,4 +925,5 @@ from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa
 from maezo.agents.helena.habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from maezo.agents.helena.habilidades.conversa import falha_tecnica as _falha_tecnica  # noqa: E402
 from maezo.agents.helena.habilidades.protocolo import fluxo as _protocolo  # noqa: E402
+from maezo.agents.helena.habilidades.triagem_juiz import fluxo as _triagem_juiz  # noqa: E402
 from maezo.agents.helena.travas_entrada import alarme_afirmado, texto_afirmado_do_turno  # noqa: E402

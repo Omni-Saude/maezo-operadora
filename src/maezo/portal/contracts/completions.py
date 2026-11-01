@@ -46,7 +46,7 @@ CANCEL_EXECUCAO_OUTCOMES: tuple[str, ...] = get_args(
     CancelExecucaoInputs.model_fields["execucao_cadastro"].annotation
 )
 
-#: DL-0161: os desfechos fechados do reembolso, lidos dos contratos canonicos dos formularios. `PAGO` e' o
+#: DL-0162: os desfechos fechados do reembolso, lidos dos contratos canonicos dos formularios. `PAGO` e' o
 #: token do registro de pagamento (o formulario so' tem a data; o token nunca vai ao motor).
 ReembolsoCompletionOutcome = Literal[
     "APROVAR",
@@ -68,11 +68,10 @@ REEMBOLSO_AUDITOR_OUTCOMES: tuple[str, ...] = get_args(
 REEMBOLSO_PENDENCIA_OUTCOMES: tuple[str, ...] = get_args(
     ReembolsoPendingInputs.model_fields["decisao_pendencia"].annotation
 )
-assert set(REEMBOLSO_DECISAO_OUTCOMES + REEMBOLSO_AUDITOR_OUTCOMES + REEMBOLSO_PENDENCIA_OUTCOMES) | {
+if set(REEMBOLSO_DECISAO_OUTCOMES + REEMBOLSO_AUDITOR_OUTCOMES + REEMBOLSO_PENDENCIA_OUTCOMES) | {
     "PAGO"
-} == set(get_args(ReembolsoCompletionOutcome)), (
-    "os desfechos do reembolso divergiram dos contratos dos formularios"
-)
+} != set(get_args(ReembolsoCompletionOutcome)):
+    raise AssertionError("os desfechos do reembolso divergiram dos contratos dos formularios")
 
 #: THE limit of one free-text note, in characters — a transport/product bound, NOT a clinical or
 #: regulatory one. ONE number, three places (P3/P4, 16/10/2026): the wire schema (`maxLength` of

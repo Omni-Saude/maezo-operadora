@@ -569,7 +569,7 @@ INERTE; ativação = ato humano de DADO, nunca de Python:**
   bytes da tabela viva no disco, o manifesto degrada para `ratificado: false` mesmo que o campo
   literal ainda diga `true`. Nenhum dos 6 manifestos está ratificado hoje. Detalhe: §2.1 e
   `docs/review-queue.md` (linha da RN 259 + seção W4).
-- **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO (financeiro).** Ver §4. **[REEMBOLSO: ENCERRADA por perda de objeto — DL-0159, 28/10/2026: o reembolso v2 e 100% analise humana; nao ha mais teto, calculo nem aprovacao automatica de reembolso. Resta so AUTH.]** 
+- **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO (financeiro).** Ver §4. **[REEMBOLSO: ENCERRADA por perda de objeto — DL-0160, 28/10/2026: o reembolso v2 e 100% analise humana; nao ha mais teto, calculo nem aprovacao automatica de reembolso. Resta so AUTH.]** 
 
 ### 1.5 🔴 Revisão de código pré-lançamento (lista `review-before-launch` — agora ENUMERADA por completo)
 **Correção de framing: a versão anterior deste item dizia "exemplos, não exaustivo" — isso não é
@@ -874,7 +874,7 @@ MEDIÇÃO desses critérios (censo de unmapped em CI, leitura da telemetria de d
 | 🔴 **Acesso Tasy/Oracle** (acordo de integração) — e o próprio consumer fhir-sync precisa ser construído (módulo não existe) | integração Tasy | #33 |
 | 🟡 **WABA (WhatsApp Business)** | canal WhatsApp (Helena) | — |
 | 🔴 **Billing AWS** (conta, limites, sa-east-1) | todo o `terraform apply` (EKS, Aurora, AMP/AMG) | #15/#32 |
-| 🔴 **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO** | **[REEMBOLSO: ENCERRADA por perda de objeto — DL-0159, 28/10/2026: o reembolso v2 e 100% analise humana; nao ha mais teto, calculo nem aprovacao automatica de reembolso. Resta so AUTH.]** `authorization_approval.max_value_brl`/`reembolso_auto_approval.max_value_brl` em `spec/policies/autonomy/{L0-core,tenants-amh}.yaml` estão em `0` (fail-closed: nenhuma auto-aprovação automática ocorre até a diretoria definir o teto real); `CeilingResolver.within_l2_ceiling` é consultado no canal automático de AUTH (`auth.py`) e REEMBOLSO antes da emissão — 2 strict-xfails vivos (`test_sp_op_auth_001.py:697`, `test_sp_op_reembolso_001.py:627`) FLIPAM quando o teto for decidido; canal humano nunca é afetado pelo teto | diretoria AMH + finanças |
+| 🔴 **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO** | **[REEMBOLSO: ENCERRADA por perda de objeto — DL-0160, 28/10/2026: o reembolso v2 e 100% analise humana; nao ha mais teto, calculo nem aprovacao automatica de reembolso. Resta so AUTH.]** `authorization_approval.max_value_brl`/`reembolso_auto_approval.max_value_brl` em `spec/policies/autonomy/{L0-core,tenants-amh}.yaml` estão em `0` (fail-closed: nenhuma auto-aprovação automática ocorre até a diretoria definir o teto real); `CeilingResolver.within_l2_ceiling` é consultado no canal automático de AUTH (`auth.py`) e REEMBOLSO antes da emissão — 2 strict-xfails vivos (`test_sp_op_auth_001.py:697`, `test_sp_op_reembolso_001.py:627`) FLIPAM quando o teto for decidido; canal humano nunca é afetado pelo teto | diretoria AMH + finanças |
 
 ---
 
@@ -1091,7 +1091,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 **WP-REEMBOLSO-DMN** (1)
 
-- [x] **[ENCERRADA por perda de objeto — DL-0159: `reembolso_calculo.dmn` foi removida]** R-060 — Ato do dono: acrescentar a coluna de output de versao em spec/processes/dmn/reembolso_calculo.dmn, no mesmo pacote do s… — WP-REEMBOLSO-DMN — `spec/processes/dmn/reembolso_calculo.dmn`, `scripts/ci/`
+- [x] **[ENCERRADA por perda de objeto — DL-0160: `reembolso_calculo.dmn` foi removida]** R-060 — Ato do dono: acrescentar a coluna de output de versao em spec/processes/dmn/reembolso_calculo.dmn, no mesmo pacote do s… — WP-REEMBOLSO-DMN — `spec/processes/dmn/reembolso_calculo.dmn`, `scripts/ci/`
 
 **WP-SEC-GITLEAKS-ALLOWLIST** (1)
 
@@ -1145,7 +1145,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 - **R-137 primeiro**: é a linha-pivô do lote — ~15 acelerações herdam o teto 2026-09-19 do
   despacho dos 6 pacotes SME (ver `docs/sme-dispatch/tracker.md`).
-- **[ENCERRADA por perda de objeto — DL-0159: nao ha teto de reembolso]** **R-157 nunca antes de R-059**: o teto positivo de reembolso só entra depois de
+- **[ENCERRADA por perda de objeto — DL-0160: nao ha teto de reembolso]** **R-157 nunca antes de R-059**: o teto positivo de reembolso só entra depois de
   `min(solicitado, tabela)` implementado (REEMBOLSO-AUTO-OVERPAY-a) e do sign-off atuarial de
   REEMBOLSO-AUTO-OVERPAY-b em R-059 (gatekeeper rejeitou A→B nessa linha); depende também de
   M-08/F-1-b (R-011..R-017).

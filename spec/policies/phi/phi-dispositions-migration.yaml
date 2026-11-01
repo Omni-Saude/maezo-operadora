@@ -124,7 +124,7 @@ ratificacao:
 #   rotulo          o rotulo obrigatorio enquanto a linha nao esta assinada.
 # ---------------------------------------------------------------------------------------------
 disposicoes:
-  # DL-0161 (29/10/2026): os textos humanos dos formularios do reembolso no portal (analise, coordenacao e
+  # DL-0162 (29/10/2026): os textos humanos dos formularios do reembolso no portal (analise, coordenacao e
   # auditor do SP-OP-REEMBOLSO-001 v0.2.0). As perguntas integrais vivem em `phi_completeness.py::DISPOSITIONS`;
   # resumo: texto livre de quem decide sobre UM beneficiario identificado. Recomendacao da engenharia: LISTAR os
   # cinco. A chave `MAEZO_REEMBOLSO_V1` segue desligada; registrado ANTES de ligar.

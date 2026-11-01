@@ -224,7 +224,7 @@ class InboundNonTextMessage:
     from_number: str
     message_type: str
     message_id: str
-    #: DL-0160 (`MAEZO_REEMBOLSO_V1`): o id da midia e o mime que a Meta declara, SO' para `image` e
+    #: DL-0161 (`MAEZO_REEMBOLSO_V1`): o id da midia e o mime que a Meta declara, SO' para `image` e
     #: `document`, e SO' usados quando ha' uma coleta de reembolso esperando arquivo. `repr=False`: o id da
     #: midia liga o arquivo ao numero; nunca vai a log, metrica ou excecao. Sem a chave, nada os le'.
     media_id: str = field(default="", repr=False)
@@ -570,7 +570,7 @@ class HelenaDispatcher:
     #: fonte de
     #: cobranca do Lucas e a identidade da Helena nao resolvam pelo telefone de novo.
     refs_verificadas: RefsVerificadas | None = None
-    #: REEMBOLSO PELO WHATSAPP (DL-0159/DL-0160, `MAEZO_REEMBOLSO_V1`). `None` (o default, e o que
+    #: REEMBOLSO PELO WHATSAPP (DL-0160/DL-0161, `MAEZO_REEMBOLSO_V1`). `None` (o default, e o que
     #: `service.py` passa com a chave desligada ou sem custodia de arquivo) = o despachante de sempre, byte a
     #: byte. Presente, so' vale com o `acesso` (a conversa `verificada`): o turno do reembolso roda DEPOIS do
     #: acesso e ANTES do agente, deterministico, sem modelo.
@@ -861,7 +861,7 @@ class HelenaDispatcher:
             message_type=message.message_type,
         )
         if self.reembolso is not None and message.media_id and message.message_type in ("image", "document"):
-            # DL-0160: com uma coleta de reembolso esperando arquivo, o arquivo e' o pedido (nunca o aviso de
+            # DL-0161: com uma coleta de reembolso esperando arquivo, o arquivo e' o pedido (nunca o aviso de
             # "so' texto"). Sem coleta ativa, `None` e o aviso de sempre.
             resposta = await self.reembolso.tratar_arquivo(
                 conversation_id=conversation_id,
@@ -1242,11 +1242,12 @@ class HelenaDispatcher:
         beneficiario_pseudo_id: str,
         sender: WhatsAppSender,
     ) -> dict[str, Any] | None:
-        """DL-0159/DL-0160 (`MAEZO_REEMBOLSO_V1`): o pedido de reembolso, conversa VERIFICADA.
+        """DL-0160/DL-0161 (`MAEZO_REEMBOLSO_V1`): o pedido de reembolso, conversa VERIFICADA.
 
         Texto fixo da maquina de estados, sem agente e sem modelo. Emergencia/saude na mensagem vence (segue
         para o grafo). `None` = nao e' do reembolso: o fluxo de sempre."""
-        assert self.acesso is not None
+        if self.acesso is None:
+            raise AssertionError("reembolso so' roda em conversa verificada (acesso ligado)")
         if self.reembolso is None:
             return None
         resposta = await self.reembolso.tratar_texto(

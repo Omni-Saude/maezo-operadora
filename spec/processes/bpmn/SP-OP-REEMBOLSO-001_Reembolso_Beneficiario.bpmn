@@ -18,10 +18,10 @@
   <bpmn:process id="SP-OP-REEMBOLSO-001" name="SP-OP-REEMBOLSO-001 Reembolso ao Beneficiario"
                 isExecutable="true" camunda:historyTimeToLive="1825">
     <bpmn:documentation><![CDATA[
-SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.2.0, DL-0159) — 100% ANALISE HUMANA.
+SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.2.0, DL-0160) — 100% ANALISE HUMANA.
 Requer revisao humana (juridico + analista de reembolso + financeiro) antes de qualquer deploy — ver docs/review-queue.md.
 
-v0.2.0 (DL-0159): o sistema so ORGANIZA o pedido, os documentos e a resposta; uma pessoa da analise decide direito e
+v0.2.0 (DL-0160): o sistema so ORGANIZA o pedido, os documentos e a resposta; uma pessoa da analise decide direito e
 valor (como hoje, de forma manual). NAO ha calculo, tabela, aprovacao automatica nem pagamento emitido pelo sistema:
 o financeiro paga FORA e registra `data_pagamento` em UT_RegistrarPagamento. Foram removidos BRT_Admissibilidade,
 BRT_Calculo, ST_CalculateAmount, BRT_AutoApproval, o caminho automatico (R-058) e o worker issue_payment (CNAB).
@@ -65,7 +65,7 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
       <bpmn:outgoing>Flow_PubReceived_Validar</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_ValidarSolicitacao" name="Validar solicitacao (protocolo e datas)" camunda:type="external" camunda:topic="operadora.reembolso.check_coverage">
-      <bpmn:documentation>Valida a origem da solicitacao: protocolo_reembolso ausente lanca ERR_REEMBOLSO_INVALID_PROTOCOLO (boundary BE_ReembolsoProtocoloInvalido). Resolve `dias_desde_atendimento` (data_solicitacao - data_atendimento; -1 se nao calculavel) para a DMN informativa de prazo. FATO apenas: nao decide pagar/negar (v0.2.0, DL-0159: nao ha mais conferencia de cobertura por maquina — o analista avalia).</bpmn:documentation>
+      <bpmn:documentation>Valida a origem da solicitacao: protocolo_reembolso ausente lanca ERR_REEMBOLSO_INVALID_PROTOCOLO (boundary BE_ReembolsoProtocoloInvalido). Resolve `dias_desde_atendimento` (data_solicitacao - data_atendimento; -1 se nao calculavel) para a DMN informativa de prazo. FATO apenas: nao decide pagar/negar (v0.2.0, DL-0160: nao ha mais conferencia de cobertura por maquina — o analista avalia).</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_Validar</bpmn:incoming>
       <bpmn:outgoing>Flow_Validar_Prazo</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -91,7 +91,7 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="situacao_prazo">${prazo.situacao_prazo}</camunda:inputParameter>
-          <!-- DL-0161: o inputOutput cria escopo local; o que o processo precisa sobe por estes outputs. A espera
+          <!-- DL-0162: o inputOutput cria escopo local; o que o processo precisa sobe por estes outputs. A espera
                pela resposta da beneficiaria termina sempre que o dossie e' (re)preparado. -->
           <camunda:outputParameter name="situacao_prazo">${situacao_prazo}</camunda:outputParameter>
           <camunda:outputParameter name="aguardando_resposta">${false}</camunda:outputParameter>
@@ -103,10 +103,10 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
       <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_AnaliseReembolso" name="Analise do analista de reembolso" camunda:candidateGroups="analise-reembolso">
-      <bpmn:documentation>HITL L0 hard (ADR-0005): TODO pedido passa aqui (v0.2.0, DL-0159). Saidas: decisao_reembolso in {APROVAR, NEGAR, APROVAR_PARCIAL, SOLICITAR_INFO, SOLICITAR_AUDITOR}.
+      <bpmn:documentation>HITL L0 hard (ADR-0005): TODO pedido passa aqui (v0.2.0, DL-0160). Saidas: decisao_reembolso in {APROVAR, NEGAR, APROVAR_PARCIAL, SOLICITAR_INFO, SOLICITAR_AUDITOR}.
 APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige valor_reembolso_aprovado_cents (&lt; valor_solicitado_cents) + justificativa + fundamentacao_contratual + texto_ao_beneficiario. NEGAR exige justificativa + fundamentacao_contratual + texto_ao_beneficiario (e, no merito clinico, cid10_referencia/parecer_auditor). SOLICITAR_INFO exige info_solicitada (a pergunta que o Lucas leva a beneficiaria). A decisao sai em nome do analista (assignee, ADR-0007). SLA: `sla.sla_analise` (DMN reembolso_sla).</bpmn:documentation>
       <bpmn:extensionElements>
-        <!-- Formulario fechado do portal (DL-0161, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+        <!-- Formulario fechado do portal (DL-0162, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
              decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
         <camunda:formData>
@@ -155,7 +155,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:userTask id="UT_CoordenacaoReembolso" name="Coordenacao de reembolso assume a analise" camunda:candidateGroups="coordenacao-reembolso">
       <bpmn:documentation>Escalation do SLA: mesmas decisoes e mesmos campos obrigatorios de UT_AnaliseReembolso (decisao continua HUMANA — nunca auto-nega por timeout).</bpmn:documentation>
       <bpmn:extensionElements>
-        <!-- Formulario fechado do portal (DL-0161, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+        <!-- Formulario fechado do portal (DL-0162, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
              decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
         <camunda:formData>
@@ -179,7 +179,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:userTask id="UT_RevisaoAuditorMedico" name="Revisao do medico auditor (merito clinico)" camunda:candidateGroups="medico-auditor">
       <bpmn:documentation>Botao 'escalar' do analista (SOLICITAR_AUDITOR). Merito clinico (RN 424 / ADR-0005): APROVAR/NEGAR/APROVAR_PARCIAL; negativa/reducao exige parecer_auditor + cid10_referencia + auditor_id + texto_ao_beneficiario.</bpmn:documentation>
       <bpmn:extensionElements>
-        <!-- Formulario fechado do portal (DL-0161, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+        <!-- Formulario fechado do portal (DL-0162, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
              decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
         <camunda:formData>
@@ -216,9 +216,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:outgoing>Flow_ST_ComunicarReducao_AvisoParcial</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_RegistrarPagamento" name="Registrar pagamento do reembolso (pago em DD/MM)" camunda:candidateGroups="financeiro-reembolso">
-      <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0159: o worker issue_payment/CNAB e o caminho automatico R-058 foram removidos).</bpmn:documentation>
+      <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0160: o worker issue_payment/CNAB e o caminho automatico R-058 foram removidos).</bpmn:documentation>
       <bpmn:extensionElements>
-        <!-- Formulario fechado do portal (DL-0161, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+        <!-- Formulario fechado do portal (DL-0162, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
              decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
         <camunda:formData>
@@ -381,7 +381,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.reembolso.pended</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso</camunda:inputParameter>
-          <!-- DL-0161: a instancia ESPERA a resposta da beneficiaria (o Lucas le' so' esta variavel, por nome, para
+          <!-- DL-0162: a instancia ESPERA a resposta da beneficiaria (o Lucas le' so' esta variavel, por nome, para
                saber se uma mensagem dela e' a resposta). A correlacao de msg.reembolso.docs_received a volta a false. -->
           <camunda:outputParameter name="aguardando_resposta">${true}</camunda:outputParameter>
         </camunda:inputOutput>
@@ -408,7 +408,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:userTask id="UT_DecidirPendenciaExpirada" name="Decidir destino da solicitacao com pendencia expirada" camunda:candidateGroups="analise-reembolso">
       <bpmn:documentation>Conservador (L0 hard): nem o cancelamento por inacao da beneficiaria e automatizado. Saidas: decisao_pendencia in {cancelar_solicitacao, conceder_prazo_extra, seguir_analise}. A expiracao NUNCA auto-nega.</bpmn:documentation>
       <bpmn:extensionElements>
-        <!-- Formulario fechado do portal (DL-0161, BPMN_FORMDATA). Sem `required` de proposito: quem garante
+        <!-- Formulario fechado do portal (DL-0162, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
              decisao ausente/desconhecida nao tem caminho em GW_DecisaoReembolso (a tarefa nao fecha). -->
         <camunda:formData>
