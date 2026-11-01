@@ -724,3 +724,20 @@ def test_lembretes_sql_e_literal_e_usa_as_tabelas_declaradas() -> None:
         assert atribuicao_literal_de_modulo(modulo, nome) == getattr(m, nome)
     assert all(m.TABELA_ENVIADO in getattr(m, n) and m.TABELA_OPTOUT not in getattr(m, n) for n in envio)
     assert all(m.TABELA_OPTOUT in getattr(m, n) and m.TABELA_ENVIADO not in getattr(m, n) for n in optout)
+
+
+# ---------------------------------------------------------------------------------------------
+# platform/webhooks/whatsapp/*.py (`TABELA` / `_COLUNAS` constantes Final)
+# ---------------------------------------------------------------------------------------------
+
+
+def _tabela_e_colunas_literais(modulo: str, colunas: bool) -> None:
+    tabela = atribuicao_literal_de_modulo(modulo, "TABELA")
+    assert SIMPLES.fullmatch(tabela)
+    if colunas:
+        lista = atribuicao_literal_de_modulo(modulo, "_COLUNAS")
+        assert all(SIMPLES.fullmatch(c.strip()) for c in lista.split(","))
+
+
+def test_whatsapp_acesso_limite_cpf_tabela_literal() -> None:
+    _tabela_e_colunas_literais("platform/webhooks/whatsapp/acesso_limite_cpf.py", colunas=False)
