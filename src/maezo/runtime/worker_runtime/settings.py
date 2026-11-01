@@ -238,6 +238,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # resolucao que importa. TODO-OWNER: confirmar contra o TTL de limpeza do historico do engine.
     l1_decision_poller_interval_s: float = Field(default=60.0, alias="MAEZO_L1_DECISION_POLLER_INTERVAL_S")
 
+    # MPTT P3 (analise PROVIDER-trust-tiers §2; decisao do dono D-T1(A): ledger = baseline AMH
+    # assinada + deltas de CRED/FRAUDE). Ligada, `python -m maezo.platform.prestador_status`
+    # importa a baseline atestada e reconcilia terminais de SP-OP-CRED-001/SP-OP-FRAUDE-001 no
+    # `prestador_status_ledger` (0032), so' pela costura de historico do PR #1167. DARK por
+    # padrao: desligada, as duas subcomandas que gravam recusam antes de qualquer rede/banco, e
+    # nenhum consumidor le o ledger (P6). Ligar e' ato da implantacao (ROLL), nunca de agente.
+    prestador_status_ledger: bool = Field(default=False, alias="MAEZO_PRESTADOR_STATUS_LEDGER")
+
     @field_validator("l1_decision_poller_interval_s", mode="after")
     @classmethod
     def _positive_interval(cls, value: float) -> float:

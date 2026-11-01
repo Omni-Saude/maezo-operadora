@@ -99,11 +99,13 @@ SOURCE_UNAVAILABLE_REASON: Final = "SOURCE_UNAVAILABLE"
 #: roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal, 14/10/2026; 0027 = lembrete de
 #: cobranca; 0028 = falhas de verificacao por CPF, D-04; 0029 = estruturas de ajuste de
 #: comissao em rascunho, D-36 (dono, 25/10/2026); 0030 = registro da verificacao de
-#: legitimidade da PJ contratante, OP21/REG-1.1 (escura no substrato, 26/10/2026) — nenhuma
-#: delas e' do plano vendor, so' empurraram a head linear).
-EXPECTED_HEAD: Final = "0030"
+#: legitimidade da PJ contratante, OP21/REG-1.1 (escura no substrato, 26/10/2026); 0032 = ledger
+#: append-only do status do prestador, MPTT P3 (escuro, 01/11/2026; revisa 0030 — se a 0031 do PR
+#: #1074 entrar antes, a 0032 passa a revisar a 0031) — nenhuma delas e' do plano vendor, so'
+#: empurraram a head linear).
+EXPECTED_HEAD: Final = "0032"
 #: O pai IMEDIATO da head (o par de revisão que o item (b) prova estruturalmente).
-EXPECTED_HEAD_PARENT: Final = "0029"
+EXPECTED_HEAD_PARENT: Final = "0030"
 VENDOR_MIGRATIONS: Final = ("0019", "0020", "0021")
 
 #: (e) — quantos bytes bastam para probar decodabilidade SEM parse de conteúdo.
