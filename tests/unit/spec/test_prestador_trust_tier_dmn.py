@@ -395,6 +395,13 @@ def test_percentil_nulo_com_volume_insuficiente_e_neutro_nao_ausente() -> None:
     )
 
 
+@pytest.mark.parametrize(("lotes", "ausente"), [(9, False), (10, True)])
+def test_fronteira_do_percentil_nulo_no_piso_de_lotes(lotes: int, ausente: bool) -> None:
+    """O piso de F2 e 10 lotes (mesmo do scorecard): a partir dele, percentil nulo e dado faltante."""
+    resultado = tier(**_ti(f2_lotes_janela=lotes, f2_percentil_glosa_liquida_pares_tenant=None))
+    assert (resultado == ("WATCH", "ENTRADA_AUSENTE_F2_PERCENTIL")) is ausente
+
+
 def test_taxa_f1_nula_da_watch_mesmo_sem_volume() -> None:
     """Aviso A2: o P4 deve SEMPRE emitir a taxa F1; nula da WATCH em qualquer volume de ordens."""
     assert tier(**_ti(f1_ordens_decididas=3, f1_taxa_liberacao_humana=None)) == (
