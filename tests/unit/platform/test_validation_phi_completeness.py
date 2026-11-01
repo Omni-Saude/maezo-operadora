@@ -1989,6 +1989,32 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "regra que casou. Agregado por prestador, sem dado de beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_lotes_janela",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (contagem de lotes CONTAS) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_percentil_glosa_liquida_pares_tenant",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (percentil 0..100 vs pares do MESMO tenant) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
 )
 
 
@@ -2055,7 +2081,7 @@ class TestBuckets:
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
         # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.refs) == expected_refs == 1781
+        assert len(live_sweep.refs) == expected_refs == 1783
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
