@@ -644,7 +644,6 @@ class PostgresProviderNoticeStore:
                     sql = f"SELECT {self.schema}.acknowledge_notice("
                     sql += ":tenant,:environment,:notice,:command,:digest,:revision,"
                     sql += ":content,:secret,:receipt,:audit,:until)"
-                # nosemgrep: avoid-sqlalchemy-text # fonte: self.schema = Identifier ancorado
                 raw = (await db.execute(text(sql), params)).scalar_one()
                 result = NoticeRecipientObservation.model_validate_json(_json(raw))
                 alive(ceiling, result.valid_until)

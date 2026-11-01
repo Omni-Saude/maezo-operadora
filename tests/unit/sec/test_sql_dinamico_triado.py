@@ -57,7 +57,6 @@ NOSEC_B608: Final[dict[str, int]] = {
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,
     "gateway/commercial_legitimacy_screen.py": 2,
-    "gateway/communications/provider_notice.py": 1,
     "gateway/document_requests/production.py": 2,
     "gateway/documents/authority.py": 1,
     "gateway/external_cases/postgres.py": 1,

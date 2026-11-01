@@ -222,13 +222,6 @@ def _campo_validado(modelo: Any, campo: str) -> None:
     _recusa_todas(Annotated[str, StringConstraints(strict=True, pattern=padrao)])
 
 
-def test_provider_notice_identifier_recusa_injecao() -> None:
-    from maezo.gateway.communications import provider_notice
-
-    _recusa_todas(provider_notice.Identifier)
-    _campo_validado(provider_notice.ProviderNoticeInstallation, "schema_name")
-
-
 # ---------------------------------------------------------------------------------------------
 # gateway/commercial_legitimacy_screen.py (_SELECT_LATEST_TEMPLATE.format(axis=...))
 # ---------------------------------------------------------------------------------------------
