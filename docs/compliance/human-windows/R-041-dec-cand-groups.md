@@ -11,7 +11,7 @@
 
 | # | Escolha | Onde está no repo |
 |---|---|---|
-| G1 | Remover os co-grupos das 5 tarefas adversas de decisor único | CRED `UT_AnaliseDescredenciamento` → `juridico-rede`; CANCEL `UT_AnaliseRescisao` → `juridico-contratos`; INADIMPLENCIA `UT_AnaliseInadimplencia` → `juridico-contratos`; PROGRAMA `UT_DecisaoClinica` → `coordenacao-clinica`. A 5ª (NIP `UT_RevisaoJuridicaNip`) fica para o pacote NIP (§3) |
+| G1 | Remover os co-grupos das 5 tarefas adversas de decisor único | **4 de 5 aplicadas nesta entrega:** CRED `UT_AnaliseDescredenciamento` → `juridico-rede`; CANCEL `UT_AnaliseRescisao` → `juridico-contratos`; INADIMPLENCIA `UT_AnaliseInadimplencia` → `juridico-contratos`; PROGRAMA `UT_DecisaoClinica` → `coordenacao-clinica`. A 5ª (NIP `UT_RevisaoJuridicaNip`) fica para o pacote NIP (§3) |
 | G2 | Dividir `coordenacao-financeira` em admissibilidade × aprovação | PAGTO `UT_AnaliseAdmissibilidade` → `analise-contas-pagar` (novo); `UT_CoordenacaoAlcada` segue `coordenacao-financeira` |
 | G3 | Criar o grupo `ouvidoria` (RN 623, art. 16) | Grupo criado no bootstrap do engine e na taxonomia. O processo SP-OP-OUVIDORIA-001 é pacote separado |
 | G4 | Criar TODOS os grupos no bootstrap do engine e atualizar a tabela de taxonomia | `src/maezo/platform/engine_bootstrap/bootstrap.py` (`GRUPOS_CANONICOS`, 38 grupos); `org-taxonomy-table.yaml` (`grupos_registrados`, mesma ordem) |

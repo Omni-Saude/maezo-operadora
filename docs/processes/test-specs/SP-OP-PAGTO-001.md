@@ -49,7 +49,7 @@ nenhuma saida libera pagamento.
 
 ### test_duplicidade_suspeita_roteia_humano_nunca_alcada
 - **Given** `duplicidade_suspeita=true`
-- **Then** `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`) criada; `BRT_AlcadaRouting`
+- **Then** `UT_AnaliseAdmissibilidade` (`analise-contas-pagar`) criada; `BRT_AlcadaRouting`
   **NAO** executa; `pagto.routed` **nao** publicado; nenhum terminal adverso/auto-liberacao.
 
 ### test_lastro_nao_confirmado_nunca_auto_libera_clerical

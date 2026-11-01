@@ -1324,7 +1324,7 @@ def handoff_pagamento(
     (`HANDOFF_PAGTO_SEEDED_KEYS`) and the four admissibility booleans
     (`HANDOFF_PAGTO_FORBIDDEN_KEYS`) are NEVER among them. Consequence, by construction:
     `pagto_admissibility` reads `lastro_confirmado` absent => `False` => row `r_sem_lastro` =>
-    `ANALISE_HUMANA` => `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`). What this buys is
+    `ANALISE_HUMANA` => `UT_AnaliseAdmissibilidade` (`analise-contas-pagar`). What this buys is
     SEGREGATION OF DUTIES on top of HITL: the analista/auditor who granted the appeal did in fact
     confirm the lastro, and letting that fact ride into PAGTO would drop the order straight into
     the clerical `DENTRO_TETO_L2` lane (`ST_ReleaseLowValue`, no User Task at all). Instead the
