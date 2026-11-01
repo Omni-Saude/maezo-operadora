@@ -279,8 +279,10 @@ MotivoHumano = Literal[
 ]
 
 # Human candidate groups of the alcada ladder (contract DRAFT — value-driven by pagto_alcada).
-# CLOSED set (ADR-0018 part 3): no group outside this list is ever emitted as a human destination
-# on the pagto flow.
+# CLOSED set of APPROVER groups (ADR-0018 part 3): `_resolve_grupo` never emits an approver group
+# outside this list. The only other human destination on the pagto flow is the admissibility
+# checker `_GRUPO_ADMISSIBILIDADE` (`analise-contas-pagar`), kept deliberately OUTSIDE this set
+# (R-041 / #1084, SoD S5 — the checker is never an approver).
 _GRUPOS_VALIDOS: frozenset[str] = frozenset(
     {
         "aprovacao-financeira-l1",

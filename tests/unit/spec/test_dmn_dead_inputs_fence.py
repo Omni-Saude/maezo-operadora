@@ -355,7 +355,15 @@ def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
             if any(_text_of(entry) != "-" for entry in last):
                 offenders.append(name)
     assert offenders == [], f"FIRST-policy tables whose LAST row is not a catch-all: {offenders}"
-    assert unique_tables == ["programa_sla.dmn:dt_programa_sla"], (
+    # MPTT P5: as duas tabelas COLLECT de `prestador_trust_scorecard.dmn` NAO podem ter linha `-`
+    # nua — sob COLLECT+SUM ela somaria pontos para TODO prestador. Em vez disso cada feature tem
+    # faixas exaustivas e disjuntas (null e fora de faixa inclusos), provadas por
+    # `tests/unit/spec/test_prestador_trust_tier_dmn.py::test_exatamente_uma_faixa_por_feature`.
+    assert unique_tables == [
+        "prestador_trust_scorecard.dmn:dt_prestador_trust_scorecard",
+        "prestador_trust_scorecard.dmn:dt_prestador_trust_motivos",
+        "programa_sla.dmn:dt_programa_sla",
+    ], (
         "a new non-FIRST decision table appeared — confirm its catch-all covers the remaining "
         f"domain before adding it here: {unique_tables}"
     )

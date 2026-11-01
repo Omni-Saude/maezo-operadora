@@ -42,7 +42,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:699-702`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:707-710`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -558,6 +558,15 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # two siblings above.
     OperationSpec(
         operation="cibseven.read_historic_variables",
+        action_class="consulta_processo",
+        autonomy_action="query_process_status",
+    ),
+    # PAGTO PR-C / MPTT P2: the history INSTANCE resolution by business key and/or variable filter
+    # (`transport.py::resolve_historic_instance`) — state, `endActivityId` and named historic
+    # variables of exactly ONE instance, fail-closed (DL-0050 pattern). No MCP tool id: an
+    # internal read of the same transport, same class and autonomy name as its siblings above.
+    OperationSpec(
+        operation="cibseven.resolve_historic_instance",
         action_class="consulta_processo",
         autonomy_action="query_process_status",
     ),

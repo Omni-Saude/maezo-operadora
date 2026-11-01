@@ -319,7 +319,7 @@ Fonte: [SP-OP-NIP-001_Resposta_NIP.bpmn](../../spec/processes/bpmn/SP-OP-NIP-001
 Fonte: [SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn](../../spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-PAGTO-001.md).
 
 - Gatilhos: `Start_OrdemPagamentoRecebida` (contract start).
-- Humanos (3): `UT_AnaliseAdmissibilidade` → `coordenacao-financeira`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
+- Humanos (3): `UT_AnaliseAdmissibilidade` → `analise-contas-pagar`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
 - DMNs: `pagto_admissibility`, `pagto_alcada`, `pagto_sla`. Workers: `operadora.events.publish`, `operadora.pagto.calculate_facts`, `operadora.pagto.notify_sla_risk`, `operadora.pagto.prepare_approval_dossier`, `operadora.pagto.register_payment_refusal`, `operadora.pagto.release_high_value_payment`, `operadora.pagto.release_low_value_payment`, `operadora.pagto.validate_payment_data`.
 - Esperas/timers: `TD_AlertaSlaPagto` = `${sla.sla_alerta}`; `TD_SlaAprovacao` = `${sla.sla_aprovacao}`. Mensagens: `msg.pagto.dados_corrigidos`.
 - Eventos: `agents.events.pagto.completed`, `agents.events.pagto.received`, `agents.events.pagto.routed`, `agents.events.pagto.sla_breached`. Call activities: —.

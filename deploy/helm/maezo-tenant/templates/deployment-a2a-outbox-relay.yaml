@@ -13,7 +13,7 @@ entrega e' uma decisao de DEPLOYMENT, nao de composition root. `outbox_relay.py`
 pronto (lease expiravel, `claimed_by`, batch/TTL parametricos) — faltava so' o invocador; este
 Deployment E' o invocador.
 
-Diferente do notifications-bridge, o relay tambem precisa de DATABASE_URL (drena o outbox
+Como o notifications-bridge (R-061), o relay tambem precisa de DATABASE_URL (drena o outbox
 Postgres) — mesmo secretKeyRef do Aurora que worker-daemon/agent-runtime usam (`build_relay`
 em outbox_relay.py recusa construir sem DATABASE_URL nem KAFKA_BOOTSTRAP_SERVERS — fail-closed,
 nunca reivindica linhas do outbox e as descarta em silencio).
