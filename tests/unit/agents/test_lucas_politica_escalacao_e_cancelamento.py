@@ -2,8 +2,8 @@
 
 Politica: o Lucas responde os FATOS primeiro, sempre. So' abre caso humano para contestacao, negociacao/
 parcelamento, cancelamento (PF confirmado), pedido explicito de pessoa ou atraso real (pagador PF com
->= 2 meses sem pagamento ou > 30 dias de atraso, limiares configuraveis). Contrato de empresa e adesao
-nunca escalam pelo atraso da empresa/administradora. Fonte fora do ar e assunto sem tipo: texto fixo.
+>= 2 meses sem pagamento ou > 30 dias de atraso; o limiar mora na DMN desde R-047). Contrato de empresa
+e adesao nunca escalam pelo atraso da empresa/administradora. Fonte fora do ar e assunto sem tipo: texto fixo.
 
 Cancelamento: empresa/administradora -> texto fixo; PF -> confirma UMA vez e so' entao inicia SP-OP-CANCEL-001
 (motor FALSO — nenhuma instancia real); nunca diz que o plano foi cancelado.
@@ -31,7 +31,6 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
     ref_de_resposta,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.domain.conversa.cobranca_intencao import confirmacao_valida, decidir_confirmacao, pede_negociacao
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
@@ -103,7 +102,6 @@ def _estado(tipo: str, intencao: str = "cobranca_info", **extra: Any) -> LucasSt
 async def _turno(
     estado: LucasState,
     *,
-    limiares: LimiaresDeAtraso | None = None,
     motor: FakeCibSevenTransport | None = None,
 ) -> tuple[dict[str, Any], _Envio, FakeCibSevenTransport]:
     envio = _Envio()
@@ -115,7 +113,6 @@ async def _turno(
         audit_sink=FakeStartAuditSink(),
         whatsapp=envio,
         hoje=lambda: date(2026, 10, 13),
-        limiares_atraso=limiares or LimiaresDeAtraso(),
     )
     final = dict(await grafo.compile_graph().compile().ainvoke(estado))
     return final, envio, motor
@@ -153,27 +150,7 @@ async def test_empresa_e_adesao_nunca_escalam_pelo_atraso_do_titulo_de_terceiro(
     assert len(envio.textos) == 1
 
 
-async def test_limiares_configuraveis_mudam_quando_o_atraso_e_critico() -> None:
-    final, _, _ = await _turno(_estado("consulta_valores", **_fatos(1, 28)), limiares=LimiaresDeAtraso(1, 30))
-    assert final["route"] == "escalate_human"
-    final, _, _ = await _turno(_estado("consulta_valores", **_fatos(1, 40)), limiares=LimiaresDeAtraso(2, 60))
-    assert final["route"] == "respond_member"
-
-
-@pytest.mark.parametrize(
-    ("meses", "dias", "esperado"),
-    [(0, None, False), (1, 30, False), (1, 31, True), (2, 0, True), (0, 31, True), (1, None, False)],
-)
-def test_limiares_padrao_dois_meses_ou_mais_de_trinta_dias(
-    meses: int, dias: int | None, esperado: bool
-) -> None:
-    assert LimiaresDeAtraso().critico(meses_vencidos=meses, dias_atraso_max=dias) is esperado
-
-
-@pytest.mark.parametrize("args", [(0, 30), (25, 30), (2, 0), (2, 366), (True, 30)])
-def test_limiares_fora_da_faixa_sao_recusados(args: tuple[Any, Any]) -> None:
-    with pytest.raises(ValueError, match="limiar"):
-        LimiaresDeAtraso(*args)
+# Limiar (R-047/F-031): as fronteiras 29/30/31 dias e 1/2 meses vivem em `test_lucas_limiar_atraso_dmn.py`.
 
 
 async def test_fonte_indisponivel_responde_texto_fixo_sem_caso() -> None:
