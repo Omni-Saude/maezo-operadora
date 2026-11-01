@@ -2,7 +2,7 @@
 
 **Estado: INTERINO e declarado.** Registrado em `docs/decisions-log.md` **DL-0049**. Esta rota
 contorna os comandos atômicos da ADR-0049 (D5/D6/D7) e nasce **desligada**. Leia DL-0049 antes de
-construir algo em cima dela: o destino é o relé durável (#427), não este endpoint.
+construir algo em cima dela: o destino é o relé durável (#1145), não este endpoint.
 
 Este documento existe para a **Frente 3** do mandato de 21/09/2026: outro agente constrói a página
 `src/maezo/platform/testchannel/paginas/escalonamento.html` em paralelo, a partir daqui.
@@ -174,4 +174,4 @@ já tem em mãos.
 - Não manda uma terceira variável ao motor: só `resultado` e `notas_resolucao`.
 - Não assina envelope, não gera receipt, não grava outbox e não tem cerca otimista no motor.
 - Não retenta. Uma reentrega do mesmo clique é recusada com 409 pelo claim de auditoria.
-- Não substitui o relé durável. Quando #427 existir, esta rota sai.
+- Não substitui o relé durável. Quando #1145 existir, esta rota sai.

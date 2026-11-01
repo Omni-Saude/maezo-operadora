@@ -1,5 +1,19 @@
 # CANDIDATE (shadow) rule set for `glosa_triage` — M-4: the permissive terminal at position 1.
 # =================================================================================================
+# ESTADO 2026-10-31 — APLICADO NA TABELA VIVA POR DECISAO DO DONO (DEC-14, issue #1084, opcao (a)
+# "rotear a humano"; roadmap R-033 + R-062, achado F-033). REAUTORADO contra a nova tabela viva:
+#   - a correcao abaixo (`regras_candidatas`, DECISAO-A opcao (a)) foi aplicada VERBATIM em
+#     spec/processes/dmn/glosa_triage.dmn: `r_pagar` movida para a posicao 4 e com a celula
+#     `categoria_normalizada` = "documental","administrativa","valor". Nenhuma outra celula mudou;
+#   - `tabela_viva.sha256` agora e o digest da tabela CORRIGIDA; live e candidato emitem o mesmo
+#     `roteamento` em toda a grade (tests/unit/spec/test_glosa_triage_shadow_candidate.py);
+#   - o bloco de ratificacao deste arquivo continua EM BRANCO (ADR-0007: agentes nao preenchem). O
+#     registro humano da decisao e docs/compliance/human-windows/R-033-dec-glosa-m4.md (assinatura
+#     em branco), e o gate de revisor e o CODEOWNERS deste arquivo e da tabela viva;
+#   - as secoes "THE DEFECT" e "equivalencia_provada" abaixo descrevem a tabela PRE-DEC-14 (row 1
+#     com `not("tecnica","clinica")`), mantida como evidencia historica; ACHADO-3/ACHADO-4 seguem
+#     abertos ao dono.
+# =================================================================================================
 # THIS FILE IS NOT A DEPLOYABLE ARTIFACT. It is DATA describing a PROPOSED correction to
 # `spec/processes/dmn/glosa_triage.dmn`. It carries the `.yaml` extension deliberately: every
 # artifact-selection path in this repository globs `*.dmn` / `*.bpmn` ONLY, so nothing here can
@@ -151,7 +165,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/glosa_triage.dmn
-  sha256: "ec7fac3d1413af7fc222d1bcb36d0f2c734ac9ff47e92695d596cc087252d068"
+  sha256: "2e33dd83a54aa1dce159842056dae2daf4bfcc050fb5f9f5f7f92bb1006255eb"
 
 # --- OPERATING MODE -----------------------------------------------------------------------------
 # `sombra` is the ONLY mode that exists. There is no consumer of this file in `src/` at all, and the
@@ -160,8 +174,9 @@ tabela_viva:
 modo_operacao: sombra
 
 # =================================================================================================
-# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
+# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE — AS IT STOOD BEFORE DEC-14
 # =================================================================================================
+# (Historico: desde DEC-14 a tabela viva tem a ordem e a celula de `regras_candidatas`.)
 # Read directly off spec/processes/dmn/glosa_triage.dmn (hitPolicy=FIRST, :43). Columns, in
 # declaration order (:44-58): tipo_item / categoria_normalizada / item_conforme_tabela /
 # divergencia_valor / documentacao_anexa. Live rules in evaluation order:
