@@ -173,3 +173,23 @@ async def test_communications_head_recusa_lock_fora_do_mapa(lock: str) -> None:
 
     with pytest.raises(ExternalCaseError):
         await admission.head(_ConexaoProibida(), object(), lock=lock)  # type: ignore[arg-type]
+
+
+def test_document_requests_head_sql_e_mapa_literal_fechado() -> None:
+    from maezo.gateway.document_requests import admission
+
+    base = (
+        "SELECT revision,publication_ref,payload FROM portal_document_request.authority_head "
+        "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access"
+    )
+    assert {" FOR SHARE": base + " FOR SHARE", " FOR UPDATE": base + " FOR UPDATE"} == admission._HEAD_SQL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lock", ["", " FOR SHARE; DROP TABLE t", " for share", " FOR KEY SHARE"])
+async def test_document_requests_head_recusa_lock_fora_do_mapa(lock: str) -> None:
+    from maezo.gateway.document_requests import admission
+    from maezo.gateway.external_cases.models import ExternalCaseError
+
+    with pytest.raises(ExternalCaseError):
+        await admission.head(_ConexaoProibida(), object(), lock=lock)  # type: ignore[arg-type]
