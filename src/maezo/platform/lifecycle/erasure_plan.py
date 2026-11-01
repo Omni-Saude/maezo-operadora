@@ -41,7 +41,8 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
   (`src/maezo/tools/workers/lgpd.py:112`); the two FHIR patient columns in the
   Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
 - `thread_id` -> `fhir_patient_id`. The working layer is keyed by `thread_id`, not by
-  patient (`src/maezo/platform/erasure.py:196-206`).
+  patient (checkpointer relations provisioned by `PostgresSaver.setup()`,
+  `0006_retire_dead_checkpoint_tables.py`).
 
 W5 CLNT 5.4 ships the flag-gated DARK substrate for exactly these two crossings
 (`src/maezo/platform/identity_bridges.py`: one default-OFF flag per bridge, a

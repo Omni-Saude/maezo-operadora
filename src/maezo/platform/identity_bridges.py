@@ -10,8 +10,8 @@ arvore, e o carregador do plano repete as duas como as primeiras lacunas de iden
    (`agent_memory` 0001:69 e `erasure_log` 0004:67). Sem a travessia, a referencia do titular
    NAO chega a nenhuma delas (`IdentityResolution.PONTE_AUSENTE`).
 2. **`thread_id` -> `fhir_patient_id`** — a camada de trabalho (checkpointer LangGraph) e
-   chaveada por `thread_id`/`checkpoint_ns`, nao por paciente (`erasure.py`, docstring de
-   `_erase_working`). Sem a travessia, nenhuma relacao da camada de trabalho e alcancavel
+   chaveada por `thread_id`/`checkpoint_ns`, nao por paciente (`0006_retire_dead_checkpoint_tables.py`;
+   `PostgresSaver.setup()`). Sem a travessia, nenhuma relacao da camada de trabalho e alcancavel
    por titular.
 
 O QUE ESTE MODULO E — e o que ele NAO E:

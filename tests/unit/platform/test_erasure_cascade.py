@@ -509,6 +509,73 @@ def test_verify_limpo_e_sujo() -> None:
     assert dirty["status"] == er.STATUS_DIRTY and dirty["residual"] == ["agent_memory"]
 
 
+class _RaisingRemainingExecutor(_Executor):
+    def remaining(self, tenant_id: str, fhir_patient_id: str, decisao_dpo: str) -> int:
+        self.journal.append(f"remaining:{self.name}")
+        raise RuntimeError(f"boom {fhir_patient_id}")
+
+
+class _RaisingRemainingSurrogate(_Surrogate):
+    def remaining(self, tenant_id: str, fhir_patient_id: str) -> int:
+        self.journal.append("remaining:surrogate")
+        raise RuntimeError(f"boom {fhir_patient_id}")
+
+
+class _InvalidDropSurrogate(_Surrogate):
+    def drop(self, tenant_id: str, fhir_patient_id: str) -> int:
+        self.journal.append("drop:surrogate")
+        return None  # type: ignore[return-value]
+
+
+def test_verificacao_de_executor_que_levanta_nunca_e_completed() -> None:
+    journal: list[str] = []
+    plan, executors = _eliminar_episodica(journal)
+    executors["agent_memory"] = _RaisingRemainingExecutor("agent_memory", journal)
+    result = _manager(journal, plan=plan, executors=executors).erase(
+        _TENANT, _PATIENT, titular_pseudo_id=_PSEUDO
+    )
+    assert result.status == er.STATUS_PARTIAL
+    assert "agent_memory: verify_failed" in result.errors
+    assert {o.tabela: o for o in result.layers}["agent_memory"].residual is None
+    assert _PATIENT not in " ".join(result.errors)
+
+
+def test_verificacao_do_surrogate_que_levanta_nunca_e_completed() -> None:
+    journal: list[str] = []
+    plan, executors = _eliminar_episodica(journal)
+    result = _manager(
+        journal, plan=plan, executors=executors, surrogate=_RaisingRemainingSurrogate(journal)
+    ).erase(_TENANT, _PATIENT, titular_pseudo_id=_PSEUDO)
+    assert result.status == er.STATUS_PARTIAL
+    assert result.surrogate_dropped is False
+    assert "surrogate_mpi_id: verify_failed" in result.errors
+
+
+def test_drop_do_surrogate_com_retorno_invalido_e_falha() -> None:
+    journal: list[str] = []
+    plan, executors = _eliminar_episodica(journal)
+    result = _manager(
+        journal, plan=plan, executors=executors, surrogate=_InvalidDropSurrogate(journal)
+    ).erase(_TENANT, _PATIENT, titular_pseudo_id=_PSEUDO)
+    assert result.status == er.STATUS_PARTIAL
+    assert result.surrogate_dropped is False
+    assert "surrogate_mpi_id: invalid_store_result" in result.errors
+
+
+@pytest.mark.parametrize("surrogate_kind", ["residual", "raises"])
+def test_verify_com_surrogate_sujo_ou_ilegivel_e_dirty(surrogate_kind: str) -> None:
+    journal: list[str] = []
+    plan, executors = _eliminar_episodica(journal)
+    surrogate = (
+        _Surrogate(journal, residual=1)
+        if surrogate_kind == "residual"
+        else _RaisingRemainingSurrogate(journal)
+    )
+    report = _manager(journal, plan=plan, executors=executors, surrogate=surrogate).verify(_TENANT, _PATIENT)
+    assert report["status"] == er.STATUS_DIRTY
+    assert report["surrogate_clean"] is False
+
+
 # ---------------------------------------------------------------------------
 # PHI (ADR-0006) — nenhum valor de titular em log/erro
 # ---------------------------------------------------------------------------
