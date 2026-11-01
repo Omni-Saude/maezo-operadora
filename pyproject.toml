@@ -266,7 +266,6 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ASYNC"]
 # Triagem com juiz (experimento do dev, teste de mesa rodada 7): os PROMPTS e a tabela de regras ficam
 # byte a byte como foram MEDIDOS no teste de mesa (7 rodadas, 701 mensagens); quebrar as linhas dos prompts
 # mudaria o texto que o modelo le'. So' E501, so' neste arquivo.
-"src/maezo/agents/helena/habilidades/triagem_juiz/motor.py" = ["E501"]
 
 [tool.ruff.format]
 # bpmn.py exhibits a cross-platform / non-deterministic `ruff format` divergence under the

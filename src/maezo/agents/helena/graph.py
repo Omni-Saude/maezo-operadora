@@ -4613,6 +4613,7 @@ from .habilidades.plano import consulta as _plano_consulta  # noqa: E402
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.saude.informar` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.saude import informar as _saude  # noqa: E402
+from .habilidades.saude_original import fluxo as _saude_original  # noqa: E402
 from .habilidades.sintoma import fluxo as _sintoma  # noqa: E402
 
 
@@ -4655,7 +4656,7 @@ class HelenaGraph:
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
         helena_protocolos_enabled: bool = False,
-        helena_triagem_juiz_enabled: bool = False,
+        helena_saude_original_enabled: bool = False,
         modelo_allowlist: str | None = None,
     ) -> None:
         self._llm = inference
@@ -4696,7 +4697,7 @@ class HelenaGraph:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
         # PROTOCOLOS CLINICOS (dono, 25/10/2026): so' no roteador ativo; `None` = o caminho de antes.
         self._protocolos = _pr.catalogo_do_ambiente() if helena_protocolos_enabled is True else None
-        self._triagem_juiz = helena_triagem_juiz_enabled is True  # DL-0159: so' o pacote liga (so' dev)
+        self._saude_original = helena_saude_original_enabled is True  # DL-0160: so' o pacote liga (so' dev)
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -7334,10 +7335,11 @@ class HelenaGraph:
             # RODADA 2: o aviso e' escolhido pelo MOTIVO e pelo que a pessoa disse (emergencia primeiro com
             # caso clinico; prazo/supervisor/urgencia respondidos; 192 so' em contexto de saude). A
             # repeticao e' tratada em `respond` (`_sem_repetir`).
-            enviar = _texto_de_caso_aberto(state) or RESPOSTA_HANDOFF_JA_ABERTO
-            if enviar == TEXTO_CASO_MANTIDO:
-                # DL-0154 (sem segundo 192): o texto do pacote, sem o rascunho atras.
-                enviar = self._textos[CHAVE_CASO_MANTIDO]
+            enviar = _saude_original.texto_do_caso_aberto(self, state) or _texto_de_caso_aberto(state)
+            enviar = enviar or RESPOSTA_HANDOFF_JA_ABERTO
+            if enviar in (TEXTO_CASO_MANTIDO, _saude_original.TEXTO_CASO_DE_SAUDE_ABERTO):
+                # DL-0154 (sem segundo 192) e DL-0160 (porta unica): o texto fixo, sem o rascunho atras.
+                enviar = self._textos[CHAVE_CASO_MANTIDO] if enviar == TEXTO_CASO_MANTIDO else enviar
                 return enviar, self._registrar_troca(
                     state,
                     grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
@@ -8163,7 +8165,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
         helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
-        helena_triagem_juiz_enabled=cfg.get("helena_triagem_juiz_enabled") is True,
+        helena_saude_original_enabled=cfg.get("helena_saude_original_enabled") is True,
         modelo_allowlist=_ma.modo_escolhido(cfg.get("helena_modelo_allowlist")),
     ).compile_graph()
 

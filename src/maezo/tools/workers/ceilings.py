@@ -32,7 +32,9 @@ auto-approves):
     ceiling must still route safely to human review (ADR-0025 D5 / design T1.9 §5.8).
 
 The comparison is ``value_cents <= ceiling_brl * 100`` (inclusive teto — value AT the
-ceiling is within; mirrors the DMN row ``<= 10000000``). Money is centavos as an int
+ceiling is within). The DMN row no longer repeats the ceiling (``pagto_alcada`` v0.1.1 reads
+``> 0`` plus ``dentro_teto_l2``); this resolver is the only source of the R$100k teto.
+Money is centavos as an int
 (``long`` at the engine boundary), never ``number``/float (ADR-0018 parte 2); ``int`` in
 Python is arbitrary-precision so high-value centavos never overflow.
 """
@@ -228,9 +230,10 @@ class CeilingResolver:
         the RULE that consumes ``dentro_teto_l2`` lives in the DMN (ADR-0012) — here we resolve
         only the FACT.
 
-        The INCLUSIVE boundary at exactly the teto is UNCHANGED (``<=``; module docstring, and
-        the DMN mirrors it with ``<= 10000000``) — this guard only rejects values that were never
-        legitimate money in the first place.
+        The INCLUSIVE boundary at exactly the teto is UNCHANGED (``<=``; module docstring). The
+        DMN row no longer repeats the ceiling (``pagto_alcada`` v0.1.1 reads ``> 0`` plus
+        ``dentro_teto_l2``); this resolver is the only source of the R$100k teto — this guard
+        only rejects values that were never legitimate money in the first place.
         """
         if not _is_valid_value_cents(value_cents):
             # No raw value in the log: an untrusted `value_cents` can be any object off the wire.
