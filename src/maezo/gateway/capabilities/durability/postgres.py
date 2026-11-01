@@ -492,7 +492,7 @@ class PostgresDurabilityJournal:
                 rows = await w.connection.fetch(
                     f"SELECT {column} FROM {table} WHERE environment_ref=$1 AND tenant_ref=$2 "
                     "AND legal_entity_ref=$3 AND journey_ref=$4 AND principal_ref=$5 AND task_ref=$6 "
-                    f"ORDER BY {column}",
+                    f"ORDER BY {column}",  # nosec B608 # fonte: tupla literal (tabela, coluna) do laco
                     *self._aggregate,
                 )
                 refs.append(tuple(row[column] for row in rows))
@@ -1247,7 +1247,8 @@ class PostgresDurabilityJournal:
             anchors = set()
             for kind, table, column, states in entities:
                 rows = await w.connection.fetch(
-                    f"SELECT {column},snapshot FROM {table} WHERE environment_ref=$1 AND tenant_ref=$2 "
+                    f"SELECT {column},snapshot FROM {table} "  # nosec B608 # fonte: tupla literal `entities`
+                    "WHERE environment_ref=$1 AND tenant_ref=$2 "
                     "AND legal_entity_ref=$3 AND journey_ref=$4 AND principal_ref=$5 AND task_ref=$6",
                     *self._aggregate,
                 )

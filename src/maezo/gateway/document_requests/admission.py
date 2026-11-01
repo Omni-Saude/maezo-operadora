@@ -34,12 +34,22 @@ async def lock_key(c: AsyncConnection, value: object) -> None:
     await c.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"), {"key": digest(value)})
 
 
+# R-110 / F-151: o modo de lock escolhe um SQL literal deste mapa fechado; nada e' concatenado.
+_HEAD_SELECT = (
+    "SELECT revision,publication_ref,payload FROM portal_document_request.authority_head "
+    "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access"
+)
+_HEAD_SQL: dict[str, str] = {
+    " FOR SHARE": _HEAD_SELECT + " FOR SHARE",
+    " FOR UPDATE": _HEAD_SELECT + " FOR UPDATE",
+}
+
+
 async def head(c: AsyncConnection, access: SystemAccess, lock: str = " FOR SHARE") -> Any:
-    require(lock in {" FOR SHARE", " FOR UPDATE"})
+    require(lock in _HEAD_SQL)
     return await one(
         c,
-        "SELECT revision,publication_ref,payload FROM portal_document_request.authority_head "
-        "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access" + lock,
+        _HEAD_SQL[lock],
         dict(**access.scope.model_dump(), access=digest(access)),
     )
 
