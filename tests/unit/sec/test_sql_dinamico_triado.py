@@ -37,8 +37,11 @@ _NOSEMGREP_TRIADO: Final[re.Pattern[str]] = re.compile(r"#\s*nosemgrep: avoid-sq
 NOSEC_B608: Final[dict[str, int]] = {
     "gateway/audit_anchor_verify.py": 1,
     "gateway/audit_postgres.py": 1,
+    "gateway/capabilities/authority_postgres.py": 4,
 }
-NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {}
+NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
+    "gateway/capabilities/authority_postgres.py": 5,
+}
 
 
 def _comentarios(path: Path) -> list[tuple[int, str]]:

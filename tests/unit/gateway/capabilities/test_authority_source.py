@@ -654,3 +654,29 @@ async def test_missing_or_extra_fk_graph_refuses(change):
     source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
     with pytest.raises(AuthoritySourceError):
         await source.qualify(db)
+
+
+async def test_r110_fk_census_sql_interpolates_only_generated_bind_names():
+    """R-110 / F-151: o `+ refs` do censo de FK so' injeta nomes de bind `:rN` gerados no codigo.
+
+    Os OIDs (valores) vao no dicionario de parametros; nada vindo do banco ou do descritor entra
+    como texto no SQL alem do proprio schema, que e' `Identifier` ancorado.
+    """
+    import re
+
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d)
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    await source.qualify(db)
+    (fk_sql,) = [q for q in db.queries if "FROM pg_constraint c LEFT JOIN pg_index" in q]
+    tail = fk_sql[fk_sql.index("AND (c.conrelid IN (") :]
+    binds = ",".join(f":r{i}" for i in range(len(TABLES)))
+    assert tail == f"AND (c.conrelid IN ({binds}) OR c.confrelid IN ({binds}))"
+    assert not re.search(r"\d{3,}", tail)
+
+
+@pytest.mark.parametrize("schema", ['a"; DROP TABLE t; --', "a\n", "A", "a b", 'a"."b', "a" * 64])
+def test_r110_schema_identifier_refuses_injection_shapes(schema):
+    """R-110: `self.schema` (interpolado em evidence/publication/...) so' vem de `Identifier` ancorado."""
+    with pytest.raises(ValidationError):
+        descriptor(schema_name=schema)
