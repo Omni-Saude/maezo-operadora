@@ -606,3 +606,59 @@ def test_recovery_store_candidates_e_boundary_sao_literais() -> None:
         and any(isinstance(t, ast.Name) and t.id == "_CANDIDATES" for t in n.targets)
     ]
     assert _so_literais(atrib.value)
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/staff_cases/case_issuer_sources.py (schema via SCHEMA/is_native_schema; where literal)
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("carga", INJECOES)
+def test_case_issuer_sources_recusam_schema_injetado_antes_de_io(carga: str) -> None:
+    from types import SimpleNamespace
+
+    from maezo.gateway.staff_cases import case_issuer_sources as m
+
+    motor: Any = SimpleNamespace()
+    with pytest.raises(m.CaseIssuerError):
+        m.PostgresStaffGranteeSource(motor, tenant="t", schema=carga)
+    with pytest.raises(m.CaseIssuerError):
+        m.AuthClaimAnchor(SimpleNamespace(), motor, tenant="t", native_schema=carga)  # type: ignore[arg-type]
+    with pytest.raises(m.CaseIssuerError):
+        m.PostgresIssuerLedger(motor, scope=SimpleNamespace(), policy_ref="p", native_schema=carga)  # type: ignore[arg-type]
+
+
+def test_case_issuer_ledger_where_e_literal() -> None:
+    modulo = "gateway/staff_cases/case_issuer_sources.py"
+    tree = ast.parse((_SRC / modulo).read_bytes())
+    ledger = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "PostgresIssuerLedger")
+    wheres = [
+        n.value
+        for n in ast.walk(ledger)
+        if isinstance(n, ast.Assign)
+        and any(
+            (isinstance(t, ast.Attribute) and t.attr == "where")
+            or (isinstance(t, ast.Name) and t.id == "scope_where")
+            for t in n.targets
+        )
+    ]
+    assert len(wheres) == 2 and all(_so_literais(w) for w in wheres)
+    tabela = [
+        n.value
+        for n in ast.walk(ledger)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Attribute) and t.attr == "table" for t in n.targets)
+    ]
+    assert len(tabela) == 1 and isinstance(tabela[0], ast.JoinedStr)
+    nomes = {
+        v.value.id
+        for v in tabela[0].values
+        if isinstance(v, ast.FormattedValue) and isinstance(v.value, ast.Name)
+    }
+    assert nomes == {"native_schema"}
+
+
+def test_case_issuer_timeout_vai_ligado() -> None:
+    from maezo.gateway.staff_cases import case_issuer_sources as m
+
+    assert m._SET_TIMEOUT == "SELECT set_config('statement_timeout', :timeout, true)"
