@@ -99,6 +99,9 @@ Regras:
 - Anote só o que a pessoa ESCREVEU (mensagens e respostas). Não deduza sinais que ela não disse.
 - Separe: afirmado (presente AGORA ou nesta doença atual) | negado ("não", "sem", "nenhum", "nada disso") | duvida (não sabe, "acho que",
   "mais ou menos", resposta que não responde). História antiga ou de outra pessoa ("meu avô teve convulsão anos atrás") vai em historia.
+- QUANDO (teste do dono, 01/11): desmaio, convulsão, falta de ar forte, dor no peito, sangramento forte, fala enrolada, boca torta,
+  fraqueza de um lado e "não acorda" só são afirmado se aconteceram HOJE ou estão acontecendo. Se aconteceram em outro dia e já
+  passaram ("semana passada", "há 5 dias", "na segunda"), NÃO anote em sinais: anote em historia (ex.: "desmaio há dias, já passou").
 - LEIA A RESPOSTA DO JEITO DA PESSOA. Ela responde com as palavras dela; traduza para o sinal perguntado:
   "nenhuma" = negado; "só a febre" = febre afirmado e os outros perguntados negados; "a 2 sim" = o 2º item afirmado;
   "tá caidinho", "molinho", "dá pra acordar mas volta a dormir", "só quer dormir", "largadinho" = sonolento AFIRMADO
@@ -190,6 +193,8 @@ Diga qual é a resposta LITERAL à pergunta, como se a pessoa respondesse só "s
 - NAO: a resposta à pergunta é não ("não", "nada disso", "acho que não", "que eu saiba não").
   Ex.: "Está conseguindo mamar?" "não quis as últimas mamadas" -> NAO.
 - NAO_SEI: não sabe, não reparou, ou a resposta não responde à pergunta.
+- Pergunta se algo foi HOJE (ou é agora): resposta que diz que foi em outro dia ("ontem", "semana passada", "há 5 dias",
+  "entre segunda e sexta") -> NAO. Ex.: "Esse desmaio foi hoje?" "isso foi na semana passada, hoje ela está em casa" -> NAO.
 Responda só com uma palavra: SIM, NAO ou NAO_SEI."""
 
 # ------------------------------------------------------------------------------------------------ 5 sinais claros
@@ -491,7 +496,8 @@ def avaliar(f: dict[str, Any], estado: dict[str, Any], pub: str) -> tuple[dict[s
         )
         if pub in ("idoso", "gestante"):
             aplicar(f"{pub}._todas", R[pub]["_todas"], 1, q, perguntavel=(pub == "gestante" or not tem_bloco))
-        if info.get("vaga") and "_queixa" not in feitos:
+        if info.get("vaga") and "_queixa" not in feitos and not estado.get("detalhado"):
+            # teste do dono (01/11/2026): "o que está sentindo?" so' quando a pessoa ainda nao contou
             cands.append(
                 (
                     SEV["192"],
@@ -572,13 +578,13 @@ def _feito(tok: str, feitos: list[str]) -> bool:
 CONF192 = {
     "falta_ar_forte": None,
     "inchaco_boca_com_falta_ar": None,
-    "idoso_desmaio_ou_engasgo": None,
+    "idoso_desmaio_ou_engasgo": "Esse desmaio (perder os sentidos de verdade) foi hoje, ou ela(e) está engasgada sem conseguir respirar?",
     "ingeriu_remedio_ou_produto": "Engoliu remédio acima da dose, remédio de outra pessoa ou algum produto tóxico?",
 }
 ITEM_SINAL = {f"lista_192.item{x['item']}": x["sinal"] for x in TAB["lista_192"]}
 # rodada 6 (ajuste 3): palavra solta dos 5 sinais vira aviso -> pergunta direta antes do 192 (só os que mais erram)
 REGEX_CONFIRMA = {
-    "desmaiou": ("desmaio", "Chegou a desmaiar de verdade, perdendo os sentidos?"),
+    "desmaiou": ("desmaio", "Perdeu os sentidos de verdade, e isso foi hoje?"),
     "ficou_roxo": (
         "falta_ar_forte",
         "Está com os lábios roxos ou com tanta falta de ar que não consegue falar uma frase inteira?",
@@ -738,8 +744,12 @@ Calibre (erros comuns de exagero):
 - Uma palavra que soa grave fora do contexto ("desmaiei de sono", "roxo" de pancada ou de coleta, "infartei de rir") não conta.
 - Se o caso parece de 192 mas não está claramente num item da lista, use PS.
 - Coerência: se no motivo você suspeita de um quadro que precisa de pronto-socorro ou atendimento imediato, a saída é PS.
-@@BLOCO_SINAL@@Responda SÓ com JSON:
-{{"saida": "192|PS|HOJE|CONVERSA|EQUIPE|FORA", "item_192": numero ou null, "motivo": "uma frase curta"@@CAMPO_SINAL@@}}"""
+- Quando: um sinal que aconteceu em outro dia e já passou pesa menos que o mesmo sinal hoje; olhe como a pessoa está AGORA.
+@@BLOCO_SINAL@@Em "explica", escreva para a pessoa, em português simples, UMA frase (até 25 palavras) com o que ela contou que levou à
+saída (ex.: "Um desmaio numa pessoa de 70 anos com diabetes precisa ser visto por um médico."). Sem diagnóstico, sem termos técnicos,
+sem dizer para onde ir e sem citar 192 nem SAMU.
+Responda SÓ com JSON:
+{{"saida": "192|PS|HOJE|CONVERSA|EQUIPE|FORA", "item_192": numero ou null, "motivo": "uma frase curta", "explica": "..."@@CAMPO_SINAL@@}}"""
 
 RE_MOTIVO_PS = re.compile(
     r"pronto[- ]?socorro|\bPS\b|emerg[eê]ncia|atendimento imediato|urg[eê]ncia imediata|\bUPA\b|"
@@ -766,6 +776,16 @@ def sinais_atencao(regra: str, saida: str) -> list[str]:
         return []
     sns = regra.rsplit(".", 1)[-1].split("+")
     return sns if all(x in SINAIS and SINAIS[x].get("tipo") != "intensidade" for x in sns) else []
+
+
+def explicacao(bruto: object) -> str | None:
+    """A frase do juiz para a pessoa (teste do dono, 01/11/2026: a saida diz o porque), ou `None`."""
+    if not isinstance(bruto, str):
+        return None
+    frase = " ".join(bruto.split())
+    if not 10 <= len(frase) <= 300 or re.search(r"https?:|www\.|\b192\b|samu", frase, re.I):
+        return None
+    return frase if frase.endswith((".", "!", "?")) else frase + "."
 
 
 # ------------------------------------------------------------------------------------------------ chamadas ao modelo
@@ -796,7 +816,11 @@ async def juiz_pergunta(chamar: Chamar, msgs: list[str], qa: list[dict[str, Any]
 
 
 async def juiz(
-    chamar: Chamar, msgs: list[str], qa: list[dict[str, Any]], sinais_tabela: list[str] | None = None
+    chamar: Chamar,
+    msgs: list[str],
+    qa: list[dict[str, Any]],
+    sinais_tabela: list[str] | None = None,
+    max_tokens: int = 300,
 ) -> dict[str, Any]:
     if sinais_tabela:
         desc = "; ".join(SINAIS[x]["desc"] for x in sinais_tabela)
@@ -814,7 +838,7 @@ async def juiz(
     j: dict[str, Any] | None = None
     for _ in range(2):
         try:
-            lido = _json(await chamar(sistema, transcricao(msgs, qa), 300))
+            lido = _json(await chamar(sistema, transcricao(msgs, qa), max_tokens))
         except (ValueError, json.JSONDecodeError):
             continue
         if lido.get("saida") in SEV:
@@ -899,6 +923,7 @@ async def passo(chamar: Chamar, ctx: dict[str, Any], resposta: str | None) -> di
             f["sinais"][sn] = "duvida"
     ctx["f"] = f
     ctx["pendente"] = None
+    estado["detalhado"] = bool(qa) or len(" ".join(msgs)) > 80
     pre = ctx["pre"]
     aviso = REGEX_CONFIRMA.get(pre) if pre else None
     d = decidir(f, estado)
@@ -940,7 +965,7 @@ async def _final(chamar: Chamar, ctx: dict[str, Any], d: dict[str, Any]) -> dict
     piso = dict(d)
     out: dict[str, Any] = {"tipo": "saida", "piso": piso["saida"], "piso_regra": piso["regra"]}
     atn = sinais_atencao(str(piso["regra"]), str(piso["saida"]))
-    j = await juiz(chamar, msgs, qa, atn)
+    j = await juiz(chamar, msgs, qa, atn, max_tokens=400)
     mot = str(j.get("motivo") or "")
     mt = RE_MOTIVO_PS.search(mot)
     if (
@@ -951,7 +976,7 @@ async def _final(chamar: Chamar, ctx: dict[str, Any], d: dict[str, Any]) -> dict
         j["saida"], j["coerencia_ps"] = "PS", True
     if j["saida"] == "192":
         j["saida"], j["limitado_a_PS"] = "PS", True
-    out.update(juiz=j["saida"], juiz_motivo=mot)
+    out.update(juiz=j["saida"], juiz_motivo=mot, explica=explicacao(j.get("explica")))
     if atn and j.get("sinal_da_tabela_presente") is False:
         for x in atn:
             f["sinais"][x] = "negado"

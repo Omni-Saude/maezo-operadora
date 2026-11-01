@@ -13,7 +13,7 @@
     NAO possui saida de negativa/decisao_nip — nenhuma decisao de merito (manter/conceder) nasce
     aqui. Saidas: classificacao in {ASSISTENCIAL_CONTESTA_NEGATIVA, ASSISTENCIAL_OUTRO,
     NAO_ASSISTENCIAL}, prazo_dias (dias UTEIS — worker converte para ISO conservador, nunca a DMN),
-    grupo_revisor in {regulatorio-ans, nucleo-ans, juridico-regulatorio}.
+    grupo_revisor in {regulatorio-ans, juridico-regulatorio} (nucleo-ans fundido em regulatorio-ans, #1084).
     FAIL-SAFE: tema NIP nao reconhecido OU contesta_negativa=true ambiguo -> a row catch-all
     (ultima) roteia para ASSISTENCIAL_CONTESTA_NEGATIVA + juridico-regulatorio com o MENOR
     prazo_dias (conservador — exposicao a sancao). Tema nao reconhecido NUNCA vira "nao-assistencial
@@ -57,13 +57,13 @@
         <outputEntry id="r_assistencial_outro_o3"><text>"regulatorio-ans"</text></outputEntry>
       </rule>
       <rule id="r_nao_assistencial">
-        <description>NIP nao-assistencial reconhecida (cobranca/cadastro) sem contestacao de negativa -> nucleo-ans (clerical; prazo mais longo)</description>
+        <description>NIP nao-assistencial reconhecida (cobranca/cadastro) sem contestacao de negativa -> regulatorio-ans (clerical; prazo mais longo)</description>
         <inputEntry id="r_nao_assistencial_i1"><text>"nao_assistencial"</text></inputEntry>
         <inputEntry id="r_nao_assistencial_i2"><text>"cobranca","rede","reembolso"</text></inputEntry>
         <inputEntry id="r_nao_assistencial_i3"><text>false</text></inputEntry>
         <outputEntry id="r_nao_assistencial_o1"><text>"NAO_ASSISTENCIAL"</text></outputEntry>
         <outputEntry id="r_nao_assistencial_o2"><text>10</text></outputEntry>
-        <outputEntry id="r_nao_assistencial_o3"><text>"nucleo-ans"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o3"><text>"regulatorio-ans"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
         <description>Catch-all FAIL-SAFE: tema nao reconhecido OU contesta_negativa ambiguo -> revisao juridica com o MENOR prazo (conservador). NUNCA "nao-assistencial respondida automaticamente".</description>
