@@ -585,14 +585,23 @@ def test_nenhum_valor_de_identidade_no_log_de_recusa(ratified_plan: ep.ErasurePl
 # ---------------------------------------------------------------------------
 
 
+#: R-013 (F-008): o UNICO compositor permitido da Ponte A e a cascata DARK, que confirma que o
+#: titular checado no legal-hold e o paciente eliminado sao o mesmo. Ela propria nao tem chamador
+#: de producao (`tests/unit/platform/test_erasure_cascade.py::test_erasure_manager_sem_chamador_de_producao`),
+#: entao nenhum caminho de runtime alcanca a ponte — o invariante desta cerca segue de pe.
+_DARK_COMPOSERS = {_SRC_MAEZO / "platform" / "erasure.py"}
+
+
 def test_as_resolucoes_nao_tem_chamador_de_producao() -> None:
     """`resolve_titular_pseudo_id`/`resolve_thread_id` nao tem NENHUMA referencia de codigo
-    (Name/Attribute) sob `src/maezo` — a definicao (`def`) nao e um chamador, no mesmo
-    idioma do guard de `retention_query`. Se um PR futuro amarrar a ponte sem o pacote de
-    habilitacao (ROLL), este teste falha."""
+    (Name/Attribute) sob `src/maezo` fora do compositor DARK `platform/erasure.py` (R-013) — a
+    definicao (`def`) nao e um chamador, no mesmo idioma do guard de `retention_query`. Se um PR
+    futuro amarrar a ponte sem o pacote de habilitacao (ROLL), este teste falha."""
     offenders: list[str] = []
     names = {"resolve_titular_pseudo_id", "resolve_thread_id"}
     for source in sorted(_SRC_MAEZO.rglob("*.py")):
+        if source in _DARK_COMPOSERS:
+            continue
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             is_name = isinstance(node, ast.Name) and node.id in names
@@ -602,12 +611,26 @@ def test_as_resolucoes_nao_tem_chamador_de_producao() -> None:
     assert offenders == [], f"a ponte de identidade ganhou chamador sem o pacote de habilitacao: {offenders}"
 
 
-def test_erasure_manager_segue_recusando_o_mecanismo_inteiro() -> None:
-    """A ponte NAO abre o mecanismo: erase/verify seguem sempre-raising (T3.4-F3)."""
+def test_compositor_dark_usa_a_ponte_a_e_so_ela() -> None:
+    """O compositor permitido referencia SO a Ponte A (nunca a B, que e do executor da camada)."""
+    (composer,) = _DARK_COMPOSERS
+    tree = ast.parse(composer.read_text(encoding="utf-8"))
+    used = {
+        node.id if isinstance(node, ast.Name) else node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name | ast.Attribute)
+    }
+    assert "resolve_titular_pseudo_id" in used
+    assert "resolve_thread_id" not in used
+
+
+def test_erasure_manager_segue_recusando_o_mecanismo_com_a_flag_off() -> None:
+    """A ponte NAO abre o mecanismo: com `MAEZO_ERASURE_CASCADE` OFF (padrao) erase/verify
+    recusam antes de qualquer efeito (R-013; a recusa segue sendo um `ErasureNotImplementedError`)."""
     from maezo.platform.erasure import ErasureManager, ErasureNotImplementedError
 
     manager = ErasureManager()
     with pytest.raises(ErasureNotImplementedError):
-        manager.erase(_TENANT, _PATIENT_SENTINEL)
+        manager.erase(_TENANT, _PATIENT_SENTINEL, titular_pseudo_id=_PSEUDO_SENTINEL)
     with pytest.raises(ErasureNotImplementedError):
         manager.verify(_TENANT, _PATIENT_SENTINEL)
