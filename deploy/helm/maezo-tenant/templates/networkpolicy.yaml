@@ -118,7 +118,7 @@ spec:
 {{- /* DNS (<svc>.<ns>.svc...) without an explicit namespace, or without a   */}}
 {{- /* port, ABORTS rendering (fail-closed). PHI-zone pods are included: the */}}
 {{- /* collector is in-cluster; keeping PHI out of telemetry relies on the  */}}
-{{- /* collector scrub - OPEN: docs/review-queue.md R-061-OTEL-PHI-EGRESS.   */}}
+{{- /* collector scrub - owner (a) 2026-10-31; test_otel_collector_phi_scrub */}}
 {{- /* Rendered INSIDE the defaultDenyEgress gate: an Egress policy with     */}}
 {{- /* podSelector {} would otherwise isolate every pod as a side effect.    */}}
 {{- /* ------------------------------------------------------------------- */}}
@@ -145,7 +145,7 @@ metadata:
     {{- include "maezo-tenant.labels" . | nindent 4 }}
   annotations:
     maezo.io/adr: "ADR-0006"
-    maezo.io/note: "OTLP egress -> in-cluster OTel collector namespace ONLY (R-061/F-069). PHI-zone pods included; PHI scrub is the collector's responsibility; review OPEN: docs/review-queue.md R-061-OTEL-PHI-EGRESS."
+    maezo.io/note: "OTLP egress -> in-cluster OTel collector namespace ONLY (R-061/F-069). PHI-zone pods included (owner decision (a) 2026-10-31). PHI scrub proven ONLY for ConfigMap otel-collector-config (transform/phi_safety_net; tests/unit/deploy/test_otel_collector_phi_scrub.py), which renders in the tenant namespace and is gated by observability.collector.enabled; binding to the collector that receives this egress is OPEN: docs/review-queue.md R-061-OTEL-PHI-EGRESS."
 spec:
   podSelector: {}
   policyTypes:

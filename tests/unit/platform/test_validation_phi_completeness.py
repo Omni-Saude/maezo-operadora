@@ -140,7 +140,8 @@ class TestNonVacuity:
         # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
         # 65 -> 66 com `auth_junta_admissibility.dmn` (R-064) — ver as entradas do CORPUS_DELTA_LOG.
         # 66 -> 65: DL-0161 (reembolso v2) -2 +1.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 65  # VW4/GP11: +suppression_routing
+        # 65 -> 67 com `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5).
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 67  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2168,6 +2169,181 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "`meses_vencidos` substitui `atraso_critico`; o limiar `> 30` mora na tabela. Sem identificador."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="f1_ordens_decididas",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova (scorecard, motivos e tier): "
+            "contagem de ordens PAGTO decididas por humano na janela, agregada por prestador. Agregado "
+            "por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="f1_taxa_liberacao_humana",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova (scorecard, motivos e tier): taxa "
+            "0..1 de liberacao humana sem alteracao, agregada por prestador. Agregado por prestador, sem "
+            "dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="f2_lotes_janela",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova (scorecard e motivos): contagem "
+            "de lotes CONTAS na janela, por prestador. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="f2_percentil_glosa_liquida_pares_tenant",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova (scorecard e motivos): percentil "
+            "0..100 da glosa liquida vs pares do MESMO tenant (CADE). Agregado por prestador, sem dado de "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="f5_meses_relacionamento",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova (scorecard, motivos e tier): "
+            "meses de relacionamento do prestador. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="fraude_monitorar_12m",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova do tier: booleano de caso FRAUDE "
+            "encerrado em MONITORAR nos ultimos 12 meses (red flag; nao e acusacao). Agregado por "
+            "prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="pagamentos_liberados_humanos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova do tier: contagem de pagamentos "
+            "ja liberados por humano ao prestador (D3-B). Agregado por prestador, sem dado de "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="red_flag_pico_faturamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): ENTRADA nova do tier: booleano F6 de pico de "
+            "faturamento vs mediana propria. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="pontuacao_confianca",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): SAIDA inteira (COLLECT SUM) do scorecard e "
+            "ENTRADA do tier: pontos 0..85. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="motivo_codigo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): SAIDA nova de `prestador_trust_motivos`: "
+            "codigo fixo de motivo por faixa. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="pontos_perdidos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): SAIDA nova de `prestador_trust_motivos`: "
+            "inteiro, peso da feature menos pontos da faixa. Agregado por prestador, sem dado de "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="prestador_tier",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): SAIDA nova do tier: dominio fechado "
+            "TRUSTED/STANDARD/WATCH. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1171",
+        name="motivo_tier",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. MPTT P5 (DMN nova, DRAFT, nao ligada): SAIDA nova do tier: codigo fixo de motivo da "
+            "regra que casou. Agregado por prestador, sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_lotes_janela",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (contagem de lotes CONTAS) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1174",
+        name="f2_percentil_glosa_liquida_pares_tenant",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Reparo B1 do MPTT P5 (prestador_tier v0.1.1): +1 inputExpression no tier, que "
+            "agora valida a entrada F2 bruta (percentil 0..100 vs pares do MESMO tenant) e cai em WATCH se "
+            "ausente ou invalida. Nome ja no corpus (scorecard), agregado por prestador, sem dado "
+            "de beneficiario."
+        ),
+    ),
 )
 
 
@@ -2179,10 +2355,10 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 353
+            expected_clean == 366
         )  # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
         assert (
-            expected_clean == 353
+            expected_clean == 366
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
@@ -2223,7 +2399,7 @@ class TestBuckets:
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.names) == expected_names == 374
+        assert len(live_sweep.names) == expected_names == 387
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2239,7 +2415,7 @@ class TestBuckets:
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
         # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.refs) == expected_refs == 1761
+        assert len(live_sweep.refs) == expected_refs == 1785
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2394,13 +2570,14 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (353)" in rendered
+            f"## {CLEAN} (366)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
         # R-005 (#1141): +1 (`prazo_resposta_dias_uteis`).
         # PAGTO PR-A (#1153): +1 (`valor_maximo_aprovavel_cents`).
         # R-047 (#1146): +2 (`meses_vencidos`, `dias_atraso_max`) -1 (`atraso_critico`).
+        # MPTT P5 (#1171): +13 nomes CLEAN (entradas/saidas das DMNs do scorecard e do tier).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

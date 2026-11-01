@@ -158,7 +158,6 @@ from maezo.a2a.outbox_relay import FactBrokerPublisher, OutboxClaimStore
 from maezo.agents.andre.graph import PatientSummaryReader as _AndrePatientSummaryReader
 from maezo.agents.carolina.graph import SummaryReader as _CarolinaSummaryReader
 from maezo.agents.fernando.graph import WhatsAppSender as _FernandoWhatsAppSender
-from maezo.agents.gustavo.graph import FhirReader as _GustavoFhirReader
 from maezo.agents.helena.graph import WhatsAppSender as _HelenaWhatsAppSender
 from maezo.agents.lucas.graph import WhatsAppSender as _LucasWhatsAppSender
 from maezo.agents.rafael.graph import FhirReader as _RafaelFhirReader
@@ -386,7 +385,6 @@ _FAMILIAS: tuple[_Familia, ...] = (
     _Familia("IdempotencyStore", ("NEW-12", "NEW-C1-2"), IdempotencyStore),
     _Familia("TenantKeyset", ("NEW-12", "NEW-C1-2"), TenantKeyset),
     _Familia("FhirSummaryReader", ("NEW-12", "NEW-C1-2"), FhirSummaryReader),
-    _Familia("FhirSummaryReader:gustavo", ("NEW-12", "NEW-C1-2"), _GustavoFhirReader, agente="gustavo"),
     _Familia("FhirSummaryReader:rafael", ("NEW-12", "NEW-C1-2"), _RafaelFhirReader, agente="rafael"),
     _Familia("FhirSummaryReader:carolina", ("NEW-12", "NEW-C1-2"), _CarolinaSummaryReader, agente="carolina"),
     _Familia("FhirSummaryReader:andre", ("NEW-12", "NEW-C1-2"), _AndrePatientSummaryReader, agente="andre"),
@@ -1636,8 +1634,9 @@ def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
     `src/`, o IMPORT do topo do arquivo ja' quebra a colecao (falha alta, nao silenciosa); este
     teste torna a lista fechada tambem uma asserção viva, nao so' um comentario. §Delta-F7:
     17 entradas module-scoped (nao mais 10 agrupadas) -- `WhatsAppSender`/`FhirSummaryReader`/
-    `AuditEmitter` viraram 3/5/2 entradas por (modulo, classe), uma por agente/modulo dono.
-    R-040 (31/10/2026): 18 entradas -- `TransporteDeEmbeddings` (`runtime/inference/embeddings.py`)."""
+    `AuditEmitter` viraram 3/5/2 entradas por (modulo, classe), uma por agente/modulo dono. 16 desde
+    a ADR-0071 (31/10/2026): `FhirSummaryReader:gustavo` saiu com o acesso FHIR do gustavo; 17 com
+    R-040 (31/10/2026): entra `TransporteDeEmbeddings` (`runtime/inference/embeddings.py`)."""
     esperado = {
         "DmnTransport",
         "WhatsAppSender:helena",
@@ -1646,7 +1645,6 @@ def test_lista_fechada_de_protocols_ainda_existe_em_src() -> None:
         "IdempotencyStore",
         "TenantKeyset",
         "FhirSummaryReader",
-        "FhirSummaryReader:gustavo",
         "FhirSummaryReader:rafael",
         "FhirSummaryReader:carolina",
         "FhirSummaryReader:andre",
@@ -1704,9 +1702,10 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
     # paisagem REAL da uniao, nao relaxada: as 4 entradas que declaram `read_patient` continuam
     # obrigadas a concordar entre si, e as 2 que declaram `read_patient_summary` (a generica e a de
     # carolina) ganharam a MESMA obrigacao, que antes ninguem checava.
+    # ADR-0071 I-5 (DEC-11 (i), 31/10/2026): `FhirSummaryReader:gustavo` SAIU — o Protocol
+    # `FhirReader` do gustavo foi removido junto com o acesso FHIR dele; restam 3 em `read_patient`.
     com_read_patient = (
         "FhirSummaryReader",
-        "FhirSummaryReader:gustavo",
         "FhirSummaryReader:rafael",
         "FhirSummaryReader:andre",
     )
@@ -1716,7 +1715,7 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
         assert "read_patient" in metodos, nome
         sig, e_coroutine = metodos["read_patient"]
         formas.add((_forma_assinatura(sig), e_coroutine))
-    assert len(formas) == 1, f"read_patient diverge entre as 4 entradas FhirSummaryReader: {formas}"
+    assert len(formas) == 1, f"read_patient diverge entre as 3 entradas FhirSummaryReader: {formas}"
     assert "read_patient" not in _FAMILIA_POR_NOME["FhirSummaryReader:carolina"].metodos()
 
     formas_resumo = set()
@@ -1730,7 +1729,6 @@ def test_fhirsummaryreader_atomizada_continua_concordando_hoje() -> None:
     assert "search_coverage" in _FAMILIA_POR_NOME["FhirSummaryReader:rafael"].metodos()
     for nome in (
         "FhirSummaryReader",
-        "FhirSummaryReader:gustavo",
         "FhirSummaryReader:carolina",
         "FhirSummaryReader:andre",
     ):

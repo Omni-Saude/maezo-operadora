@@ -42,7 +42,6 @@ from typing import Any
 import pytest
 
 from maezo.agents.carolina.graph import CarolinaGraph, CarolinaState
-from maezo.agents.gustavo.graph import GustavoGraph, GustavoState
 from maezo.agents.marina.graph import MarinaGraph, MarinaState
 from maezo.agents.rafael.graph import RafaelGraph, RafaelState
 from maezo.agents.valentina.graph import ValentinaGraph, ValentinaState
@@ -333,31 +332,6 @@ def _carolina() -> tuple[CarolinaGraph, _RecordingInference, _LeakyReader, Carol
     return graph, inference, fhir, state
 
 
-def _gustavo() -> tuple[GustavoGraph, _RecordingInference, _LeakyReader, GustavoState]:
-    inference, fhir = _RecordingInference(), _LeakyReader()
-    graph = GustavoGraph(
-        inference=inference,
-        dmn=FakeDmnTransport(),
-        cibseven=FakeCibSevenTransport(),
-        audit_sink=FakeStartAuditSink(),
-        fhir=fhir,
-    )
-    state: GustavoState = {
-        "tenant_id": "amh",
-        "fluxo": "nip",
-        "canal": "portal",
-        "numero_nip_ans": "NIP-001",
-        "beneficiario_pseudo_id": "pseudo-123",
-        "classificacao_nip": "assistencial",
-        "tema_nip": "cobertura",
-        "data_recebimento_nip_iso": "2026-07-16",
-        "documentos_refs": [],
-        "patient_ref": "patient-1",
-        "route": "instruct_nip",
-    }
-    return graph, inference, fhir, state
-
-
 def _valentina() -> tuple[ValentinaGraph, _RecordingInference, _LeakyReader, ValentinaState]:
     inference, fhir = _RecordingInference(), _LeakyReader()
     graph = ValentinaGraph(
@@ -386,10 +360,6 @@ async def _dossier_of(graph: Any, state: dict[str, Any]) -> dict[str, Any]:
     if isinstance(graph, ValentinaGraph):
         dossier, _ = await graph._build_dossier(state, route="human_review")
         return dossier
-    if isinstance(graph, GustavoGraph):
-        # Gustavo nao tem a rota `human_review`: o seu vocabulario de rota e' por FLUXO
-        # (`review_submission` | `instruct_nip`), nunca por merito.
-        return await graph._build_dossier(state, route="instruct_nip")
     return await graph._build_dossier(state, route="human_review")
 
 
@@ -402,7 +372,6 @@ _FACTORIES: dict[str, Any] = {
     "marina": _marina,
     "carolina": _carolina,
     "valentina": _valentina,
-    "gustavo": _gustavo,
 }
 
 
@@ -418,7 +387,9 @@ def test_behavioural_coverage_matches_the_ast_walk() -> None:
 
     Agentes deliberadamente FORA, porque a nota deles nao interpola excecao nenhuma (constante
     literal): `andre` e `beatriz`. Sem sink de nota no `gather`: `_template`, `fernando`,
-    `helena`, `lucas`.
+    `helena`, `lucas`. `gustavo` SAIU da parametrizacao em 31/10/2026 (ADR-0071 I-5, decisao do dono
+    DEC-11 (i)): o `gather` dele nao le mais FHIR, entao nao ha `except` nem nota alimentada por
+    excecao — a nota dele e uma constante.
     """
     do_ast: set[str] = set()
     for path in sorted(_AGENTS_ROOT.glob("*/graph.py")):
