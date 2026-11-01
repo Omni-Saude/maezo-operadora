@@ -43,5 +43,8 @@
       "recomendacao_auto": "ANALISE_HUMANA"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:auth_auto_approval=ANALISE_HUMANA"
+  ]
 }
