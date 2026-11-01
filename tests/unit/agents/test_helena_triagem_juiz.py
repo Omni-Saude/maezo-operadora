@@ -280,18 +280,42 @@ async def test_pronto_socorro_diz_o_porque_e_depois_explica_sem_nova_triagem() -
     assert de_novo is not None
 
 
-async def test_fato_novo_logo_depois_da_conclusao_reavalia_a_conversa_inteira() -> None:
-    modelo = _Modelo(juiz="PS", motivo="idosa com sincope", explica=_PORQUE, pergunta=None)
+async def test_caso_novo_depois_da_conclusao_nao_e_juntado_ao_anterior() -> None:
+    # 2o teste do dono (01/11/2026): o caso do irmao foi juntado ao do marido e voltou o PS do rim.
+    modelo = _Modelo(juiz="PS", motivo="colica renal", explica=_PORQUE, pergunta=None)
     grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(modelo)))
-    final = await _concluido(grafo, "minha mae de 70 anos esta fraca")
-    modelo.juiz, modelo.explica = "HOJE", "Ela precisa ser vista hoje."
-    estado = _depois(final, "isso foi semana passada, hoje ela esta bem, so fraca")
+    final = await _concluido(grafo, "meu marido tem dor forte perto do rim e urina escura")
+    modelo.juiz, modelo.explica = "HOJE", "Ele precisa ser visto hoje."
+    estado = _depois(final, "meu irmao de 42 anos esta com tosse seca ha 3 dias e perdeu o paladar")
     novo = await tj.conduzir(grafo, estado, _Decisao(), None, None)
-    assert novo is not None and novo["response_text"].startswith("Ela precisa ser vista hoje.")
-    assert json.loads(novo["coleta_contexto"])["msgs"] == [  # a conversa inteira, nao so' a mensagem nova
-        "minha mae de 70 anos esta fraca",
-        "isso foi semana passada, hoje ela esta bem, so fraca",
-    ]
+    assert novo is not None
+    ctx = json.loads(novo["coleta_contexto"])
+    assert ctx["msgs"] == ["meu irmao de 42 anos esta com tosse seca ha 3 dias e perdeu o paladar"]
+
+
+async def test_outro_assunto_depois_da_conclusao_encerra_e_pede_o_novo() -> None:
+    modelo = _Modelo(juiz="PS", motivo="colica renal", explica=_PORQUE, pergunta=None)
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(modelo)))
+    final = await _concluido(grafo, "meu marido tem dor forte perto do rim e urina escura")
+    chamadas = len(modelo.papeis)
+    troca = tj.troca_de_assunto(grafo, _depois(final, "ok, agora trago outro assunto:"), None)
+    assert troca is not None and troca["response_text"] == tj.TEXTO_PODE_CONTAR
+    assert troca["coleta_contexto"] == "" and troca["coleta_pendente"] is None
+    assert len(modelo.papeis) == chamadas
+    # sem caso em curso, a frase nao e' da triagem
+    assert tj.troca_de_assunto(grafo, _estado("agora trago outro assunto"), None) is None
+
+
+async def test_outro_assunto_com_o_caso_novo_no_meio_da_triagem_comeca_do_zero() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo())))
+    primeiro = await tj.conduzir(
+        grafo, _estado("estou com dor de garganta desde ontem"), _Decisao(), None, None
+    )
+    assert primeiro is not None
+    texto = "mudando de assunto, meu irmao de 42 anos esta com tosse seca ha 3 dias"
+    novo = await tj.conduzir(grafo, _depois(primeiro, texto), _Decisao(), primeiro["coleta_pendente"], None)
+    assert novo is not None
+    assert json.loads(novo["coleta_contexto"])["msgs"] == [texto]
 
 
 async def test_falha_do_modelo_oferece_a_equipe_e_nao_cai_no_protocolo_antigo() -> None:
