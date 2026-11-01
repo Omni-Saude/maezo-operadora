@@ -749,3 +749,14 @@ def test_whatsapp_acesso_store_tabela_e_colunas_literais() -> None:
 
 def test_whatsapp_roteamento_tabela_e_colunas_literais() -> None:
     _tabela_e_colunas_literais("platform/webhooks/whatsapp/roteamento.py", colunas=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# portal/api/commission_policies_postgres.py (`_COLUMNS` constante literal)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_commission_policies_colunas_literais() -> None:
+    colunas = atribuicao_literal_de_modulo("portal/api/commission_policies_postgres.py", "_COLUMNS")
+    nomes = [c.strip() for c in colunas.split(",")]
+    assert len(nomes) == 17 and all(SIMPLES.fullmatch(c) for c in nomes)

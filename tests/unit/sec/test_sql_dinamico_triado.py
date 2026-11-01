@@ -52,6 +52,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "platform/webhooks/whatsapp/acesso_limite_cpf.py": 3,
     "platform/webhooks/whatsapp/acesso_store.py": 3,
     "platform/webhooks/whatsapp/roteamento.py": 4,
+    "portal/api/commission_policies_postgres.py": 2,
 }
 NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/capabilities/authority_postgres.py": 5,
@@ -69,6 +70,7 @@ NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/intake/native_source_lifecycle.py": 10,
     "gateway/intake/recovery_store.py": 2,
     "gateway/staff_cases/case_issuer_sources.py": 7,
+    "portal/api/commission_policies_postgres.py": 2,
 }
 
 
