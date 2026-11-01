@@ -43,17 +43,19 @@ from maezo.platform.prestador_status.ledger import (
     PostgresLedgerStatusPrestador,
 )
 from maezo.platform.prestador_status.reconciliador import (
+    HistoricInstanceResolvingTransport,
     ReconciliadorStatusPrestador,
     Resultado,
     ResultadoReconciliacao,
 )
-from maezo.tools.mcp_cibseven.transport import HistoricInstanceResolvingTransport
 
 SAIDA_OK: Final = 0
 SAIDA_RECUSA: Final = 2
 SAIDA_INDISPONIVEL: Final = 3
 
 FabricaLedger = Callable[[Any], LedgerStatusPrestador]
+# A Protocol da costura do #1167 chega RE-EXPORTADA pelo reconciliador: um unico modulo deste
+# pacote importa `maezo.tools.mcp_cibseven.transport` (fan-in do chokepoint, SC-06 / values.yaml).
 FabricaTransporte = Callable[[Any], HistoricInstanceResolvingTransport]
 
 

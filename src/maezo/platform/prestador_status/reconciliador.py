@@ -292,6 +292,7 @@ class ReconciliadorStatusPrestador:
 
 
 __all__ = [
+    "HistoricInstanceResolvingTransport",
     "NOMES_CRED",
     "NOMES_FRAUDE",
     "ReconciliadorStatusPrestador",
