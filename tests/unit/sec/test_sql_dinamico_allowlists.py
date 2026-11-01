@@ -255,3 +255,48 @@ def test_legitimacy_screen_axis_e_coluna_literal() -> None:
     assert argumentos_literais_de_format(
         "gateway/commercial_legitimacy_screen.py", "_SELECT_LATEST_TEMPLATE"
     ) == [{"axis": "opportunity_ref"}, {"axis": "legal_entity_ref"}]
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/documents/authority.py (`where["clause"]` no candidato de heads)
+# ---------------------------------------------------------------------------------------------
+
+
+def _so_literais(no: ast.expr) -> bool:
+    if isinstance(no, ast.Constant):
+        return isinstance(no.value, str)
+    if isinstance(no, ast.BinOp) and isinstance(no.op, ast.Add):
+        return _so_literais(no.left) and _so_literais(no.right)
+    return False
+
+
+def test_documents_authority_clausulas_sao_literais_de_codigo() -> None:
+    """Toda `"clause"` passada a `_candidate_heads(_in)` e' texto literal; valores so' em `params`.
+
+    O unico nome admitido e' o `clause` local de `_policy`, cujas atribuicoes (`=` e `+=`) tambem
+    sao literais — a prova percorre cada uma.
+    """
+    tree = ast.parse((_SRC / "gateway/documents/authority.py").read_bytes())
+    valores = [
+        v
+        for d in ast.walk(tree)
+        if isinstance(d, ast.Dict)
+        for k, v in zip(d.keys, d.values, strict=True)
+        if isinstance(k, ast.Constant) and k.value == "clause"
+    ]
+    assert len(valores) == 4
+    nomes = {v.id for v in valores if isinstance(v, ast.Name)}
+    assert nomes == {"clause"}
+    assert all(_so_literais(v) for v in valores if not isinstance(v, ast.Name))
+    policy = _funcao("gateway/documents/authority.py", "_policy")
+    atribuicoes = [
+        n.value
+        for n in ast.walk(policy)
+        if isinstance(n, ast.Assign | ast.AugAssign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "clause"
+            for t in getattr(n, "targets", [getattr(n, "target", None)])
+        )
+    ]
+    assert len(atribuicoes) == 2
+    assert all(_so_literais(a) for a in atribuicoes)
