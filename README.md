@@ -135,7 +135,7 @@ O que separa esta base do go-live **não é código** — são ações que só h
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
-| ADRs | 68 (0001–0068; 49 Accepted, 19 Proposed/Proposto) |
+| ADRs | 69 (0001–0069; 49 Accepted, 20 Proposed/Proposto) |
 | Decision log | 159 decisões registradas (DL-0001–DL-0159) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
@@ -198,7 +198,7 @@ src/maezo/
 |-----------|----------|
 | [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 68 ADRs numerados (0001–0068; contagem verificada por teste) |
+| [docs/adr/](docs/adr/) | 69 ADRs numerados (0001–0069; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 17 contratos SP-OP — ~1.000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 159 decisões operacionais (DL-0001–DL-0159) |
