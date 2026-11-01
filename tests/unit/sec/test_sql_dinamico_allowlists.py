@@ -498,3 +498,15 @@ def test_assignment_receipt_search_path_vem_de_schema_for_tenant() -> None:
 
 def test_assignment_transport_search_path_vem_de_schema_for_tenant() -> None:
     _search_path_de_schema_for_tenant("gateway/human/assignment_transport.py", "_active")
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/human/{provider,vendor}_membership_administration_postgres.py
+# ---------------------------------------------------------------------------------------------
+
+
+def test_provider_membership_schema_e_identifier_ancorado() -> None:
+    from maezo.gateway.human import provider_membership_administration_postgres as m
+
+    _recusa_todas(m.Identifier)
+    _campo_validado(m.AdministrationSourceDescriptor, "schema_name")
