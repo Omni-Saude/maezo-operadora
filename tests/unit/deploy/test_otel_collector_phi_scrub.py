@@ -26,7 +26,9 @@ a semantica documentada das funcoes OTTL usadas — e SO delas:
 
 FAIL-CLOSED: qualquer funcao fora dessa lista, qualquer clausula `where`, qualquer escape de
 string OTTL alem de `\\\\`/`\\"`, qualquer regex com construcao em que Go RE2 e Python divergem
-(lookaround, backreference, `\\d`/`\\s`/`\\w` — Unicode em Python, ASCII em RE2) e qualquer
+(lookaround, backreference, `\\d`/`\\s`/`\\w` — Unicode em Python, ASCII em RE2 —, ancoras
+de inicio/fim de texto, propriedades Unicode e quoting, classes POSIX `[[:`, comentario `(?#`
+e flags m/s/x/U) e qualquer
 replacement com `$`/`\\` (expansao de grupo difere) FAZEM O TESTE FALHAR em vez de serem
 ignorados. Assim, se alguem mudar o processor para algo que este interpretador nao reproduz
 fielmente, a prova quebra em vermelho — nunca passa em silencio.
@@ -111,7 +113,7 @@ def collector_config(request: pytest.FixtureRequest) -> dict[str, Any]:
 
 _STATEMENT_RE = re.compile(r"^([a-z_]+)\((.*)\)$")
 #: Construcoes em que Go RE2 e Python `re` divergem (ou que RE2 nem aceita).
-_DIVERGENT_REGEX = re.compile(r"\(\?[=!<]|\\[1-9]|\\[dDsSwW]|\(\?P")
+_DIVERGENT_REGEX = re.compile(r"\(\?[=!<P#]|\\[1-9]|\\[dDsSwWAZzGpPQEC]|\[\[:|\(\?[a-zA-Z]*[msxU]")
 
 
 class UnsupportedOttlError(AssertionError):
@@ -332,6 +334,10 @@ _PHI_VALUE_PATTERNS: dict[str, tuple[str, str, str]] = {
     "telefone": ("error.detail", "destino +55 11 98888-7777 recusado", "98888-7777"),
     "wamid": ("messaging.message.id", "wamid.HBgNNTUxMTk4ODg4Nzc3NxUCABIYFjNFQjBDMEY=", "HBgNNTUxMTk4ODg4"),
     "fhir_ref": ("http.url", "https://hapi.svc/fhir/Patient/pat-0001-synth/_history/2", "pat-0001-synth"),
+    "cns_cru": ("lookup.key", "cns=898001160123456", "898001160123456"[:5]),
+    "cpf_espacos": ("error.detail", "cpf 529 982 247 25", "529 982"),
+    "cnpj_mascarado": ("error.detail", "cnpj 11.222.333/0001-81", "11.222.333"),
+    "celular_sem_ddd": ("error.detail", "ligar 98888-7777", "98888"),
 }
 
 #: atributos operacionais que o scrub NAO pode apagar nem alterar (sem over-redaction cega).
@@ -408,7 +414,7 @@ def test_every_statement_is_inside_the_interpreted_subset(collector_config: dict
             for statement in block["statements"]:
                 compile_statement(statement, block["context"])
                 count += 1
-    assert count >= 7 * 17  # nao-vacuidade: 7 contextos de atributos com o conjunto completo
+    assert count >= 7 * 20  # nao-vacuidade: 7 contextos de atributos com o conjunto completo
 
 
 # ---------------------------------------------------------------------------
@@ -463,8 +469,31 @@ def test_every_canonical_phi_field_name_is_dropped_by_the_collector(collector_co
     """O que o app trata como campo PHI (`PHI_FIELDS`) ou texto livre (`_FREE_TEXT_FIELDS` do
     PhiLogRedactor) tambem e' apagado pelo collector, se escapar como atributo."""
     from maezo.gateway import log_scrubber
+    from maezo.platform.privacy.key_scrubber import PHI_KEY_ANCHOR_LOG_FIELDS
+    from maezo.tools.workers.phi_vars import PHI_FREE_TEXT_VARS, PHI_PROCESS_VARS
 
-    canonical = set(PHI_FIELDS) | set(log_scrubber._FREE_TEXT_FIELDS)
+    # beatriz/graph.py::_PHI_KEYS (privado; espelhado literalmente)
+    beatriz_phi_keys = {
+        "cpf",
+        "cnpj",
+        "nome",
+        "name",
+        "nome_social",
+        "cns",
+        "rg",
+        "telefone",
+        "endereco",
+        "email",
+    }
+    canonical = (
+        set(PHI_FIELDS)
+        | set(log_scrubber._FREE_TEXT_FIELDS)
+        | set(PHI_PROCESS_VARS)
+        | set(PHI_FREE_TEXT_VARS)
+        | set(PHI_KEY_ANCHOR_LOG_FIELDS)
+        | beatriz_phi_keys
+    )
+    canonical |= {f"maezo.{name}" for name in canonical}
     assert canonical >= {"cpf", "nome", "telefone", "email", "body", "mensagem"}
     attrs = {name: "valor-sintetico" for name in canonical}
     out = apply_scrub(collector_config, _telemetry_with(attrs))
@@ -473,17 +502,29 @@ def test_every_canonical_phi_field_name_is_dropped_by_the_collector(collector_co
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "app_redactor"),
     [
-        "cpf 529.982.247-25 negado",
-        "cpf 52998224725 negado",
-        "contato maria.ficticia@example.com",
-        "ligar (11) 98888-7777 hoje",
-        "ligar +55 21 97777-6666 hoje",
+        ("cpf 529.982.247-25 negado", "log"),
+        ("cpf 52998224725 negado", "log"),
+        ("contato maria.ficticia@example.com", "log"),
+        ("ligar (11) 98888-7777 hoje", "log"),
+        ("ligar +55 21 97777-6666 hoje", "log"),
+        # B2: padroes que so' a rede de texto livre dos workers (phi_vars) pega.
+        ("cns=898001160123456", "phi_vars"),
+        ("cpf 529 982 247 25", "phi_vars"),
+        ("cnpj 11.222.333/0001-81", "phi_vars"),
+        ("ligar 98888-7777", "phi_vars"),
     ],
 )
-def test_collector_redacts_what_the_app_redactor_redacts(collector_config: dict[str, Any], text: str) -> None:
-    app_side = PhiLogRedactor()(None, "info", {"detail": text})["detail"]
+def test_collector_redacts_what_the_app_redactor_redacts(
+    collector_config: dict[str, Any], text: str, app_redactor: str
+) -> None:
+    from maezo.tools.workers.phi_vars import redact_free_text
+
+    if app_redactor == "phi_vars":
+        app_side = redact_free_text(text)
+    else:
+        app_side = PhiLogRedactor()(None, "info", {"detail": text})["detail"]
     assert app_side != text  # o corpus e' de fato PHI para a primeira linha
     out = apply_scrub(collector_config, _telemetry_with({"detail": text}))
     for ctx in _ALL_CONTEXTS:
@@ -509,6 +550,9 @@ def test_collector_redacts_what_the_app_redactor_redacts(collector_config: dict[
         'replace_all_patterns(attributes, "key", "cpf", "x")',
         'delete_key(attributes, "a\\tb")',
         'replace_pattern(body, "x", "y")',
+        'delete_matching_keys(attributes, "foo\\\\Z")',
+        'delete_matching_keys(attributes, "[[:alpha:]]x")',
+        'delete_matching_keys(attributes, "(?s)a.b")',
     ],
 )
 def test_interpreter_refuses_anything_it_cannot_reproduce(statement: str) -> None:
