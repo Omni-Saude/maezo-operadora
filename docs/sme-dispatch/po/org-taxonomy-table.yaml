@@ -398,7 +398,7 @@ rows:
   nome_real: ''
 - grupo_declarado: clerical-pagamentos
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 68
+  linha: 81
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
@@ -411,7 +411,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l1
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 78
+  linha: 92
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:278 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
@@ -421,7 +421,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l2
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 88
+  linha: 103
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:278 -> UT_AprovacaoAlcada
@@ -431,7 +431,7 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l3
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 98
+  linha: 114
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:278 -> UT_AprovacaoAlcada
@@ -441,7 +441,7 @@ rows:
   nome_real: ''
 - grupo_declarado: comite-financeiro
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 108
+  linha: 125
   processo: SP-OP-PAGTO-001
   em_escopo: false
   tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:278 -> UT_AprovacaoComite
