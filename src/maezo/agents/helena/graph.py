@@ -4655,6 +4655,7 @@ class HelenaGraph:
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
         helena_protocolos_enabled: bool = False,
+        helena_triagem_juiz_enabled: bool = False,
         modelo_allowlist: str | None = None,
     ) -> None:
         self._llm = inference
@@ -4695,6 +4696,7 @@ class HelenaGraph:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
         # PROTOCOLOS CLINICOS (dono, 25/10/2026): so' no roteador ativo; `None` = o caminho de antes.
         self._protocolos = _pr.catalogo_do_ambiente() if helena_protocolos_enabled is True else None
+        self._triagem_juiz = helena_triagem_juiz_enabled is True  # DL-0161: so' o pacote liga (so' dev)
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -8161,6 +8163,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
         helena_protocolos_enabled=cfg.get("helena_protocolos_enabled", True) is not False,
+        helena_triagem_juiz_enabled=cfg.get("helena_triagem_juiz_enabled") is True,
         modelo_allowlist=_ma.modo_escolhido(cfg.get("helena_modelo_allowlist")),
     ).compile_graph()
 

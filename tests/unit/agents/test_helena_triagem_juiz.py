@@ -1,6 +1,6 @@
 """Triagem com juiz da Helena (experimento do dev, DL-0161): a TABELA e' o piso e o MODELO julga a conversa
 inteira e so' sobe a gravidade; no maximo 3 perguntas; 192 so' pela tabela. So' com a chave
-`MAEZO_HELENA_TRIAGEM_JUIZ` e na allowlist do modelo.
+`triagem_juiz: true` no pacote e na allowlist do modelo.
 
 Modelo falso (respostas por papel do prompt); nenhuma rede. Frases de exemplo sem dado pessoal."""
 
@@ -144,10 +144,19 @@ async def test_falha_do_modelo_vira_excecao_para_quem_chama() -> None:
 
 
 # --- A chave e o turno da Helena --------------------------------------------------------------------------
-def test_a_chave_vem_desligada() -> None:
-    assert not tj.ligada({})
-    assert not tj.ligada({tj.CHAVE: "false"})
-    assert tj.ligada({tj.CHAVE: "true"})
+def test_a_chave_vem_desligada_e_o_pacote_liga() -> None:
+    from maezo.agents.helena import pacote as pc
+
+    grafo = _grafo(_Glm(), _HaikuPorPapel(_Modelo()))  # type: ignore[arg-type]
+    assert not tj.ligada(grafo)
+    saida: dict[str, Any] = {}
+    pc.PacoteDaHelena._aplicar_booleanas(saida, {tj.CHAVE_DO_PACOTE: True})
+    assert saida == {"helena_triagem_juiz_enabled": True}
+
+
+def _ligado(grafo: Any) -> Any:
+    grafo._triagem_juiz = True  # o que o pacote `triagem_juiz: true` faz via `graph.build`
+    return grafo
 
 
 @dataclass(frozen=True)
@@ -172,23 +181,20 @@ class _HaikuPorPapel:
         return RespostaDaRotaGlobal(texto=texto, parada="end_turn", entrada=1, saida=1, latencia_ms=1)
 
 
-async def test_chave_desligada_e_a_helena_de_antes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(tj.CHAVE, raising=False)
+async def test_chave_desligada_e_a_helena_de_antes() -> None:
     grafo = _grafo(_Glm(), _HaikuPorPapel(_Modelo()))  # type: ignore[arg-type]
     estado = _estado("estou com dor de garganta desde ontem")
     assert await tj.conduzir(grafo, estado, _Decisao(), None, None) is None
 
 
-async def test_fora_da_allowlist_e_a_helena_de_antes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(tj.CHAVE, "true")
-    grafo = _grafo(_Glm(), _HaikuPorPapel(_Modelo()))  # type: ignore[arg-type]
+async def test_fora_da_allowlist_e_a_helena_de_antes() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo())))
     estado = _estado("estou com dor de garganta desde ontem", conversa=_OUTRA)
     assert await tj.conduzir(grafo, estado, _Decisao(), None, None) is None
 
 
-async def test_na_allowlist_pergunta_e_depois_oferece_a_equipe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(tj.CHAVE, "true")
-    grafo = _grafo(_Glm(), _HaikuPorPapel(_Modelo(juiz="EQUIPE")))  # type: ignore[arg-type]
+async def test_na_allowlist_pergunta_e_depois_oferece_a_equipe() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo(juiz="EQUIPE"))))
     estado = _estado("estou com dor de garganta desde ontem")
     primeiro = await tj.conduzir(grafo, estado, _Decisao(), None, None)
     assert primeiro is not None
@@ -207,9 +213,8 @@ async def test_na_allowlist_pergunta_e_depois_oferece_a_equipe(monkeypatch: pyte
     assert turno["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE
 
 
-async def test_contexto_perdido_no_meio_oferece_a_equipe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(tj.CHAVE, "true")
-    grafo = _grafo(_Glm(), _HaikuPorPapel(_Modelo()))  # type: ignore[arg-type]
+async def test_contexto_perdido_no_meio_oferece_a_equipe() -> None:
+    grafo = _ligado(_grafo(_Glm(), _HaikuPorPapel(_Modelo())))
     estado = _estado("nao")
     estado["coleta_pendente"] = f"{tj.PENDENTE}1"
     estado["coleta_contexto"] = ""

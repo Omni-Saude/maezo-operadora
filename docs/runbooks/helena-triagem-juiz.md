@@ -8,15 +8,19 @@ Helena conduz a triagem pela habilidade `src/maezo/agents/helena/habilidades/tri
 - o modelo (Haiku 5.5, rota global já autorizada — DL-0155) julga a conversa inteira e **só sobe** a gravidade;
 - no máximo 3 perguntas, uma por turno; 192 só pela lista de 12 itens da tabela.
 
-Chave: `MAEZO_HELENA_TRIAGEM_JUIZ` (variável Terraform `helena_triagem_juiz`, em
-`deploy/aws-ecs/envs/dev-sa-east-1/amh-interop.auto.tfvars`). Fora da allowlist ou com a chave desligada, nada muda.
+Chave: `triagem_juiz` no pacote da Helena (`spec/agents/helena/pacote/configuracao.yaml`), publicado pelo workflow
+`agentes-pacote.yml` no merge na `main` e relido pelos serviços em até 60 s. Ausente ou `false` = a Helena de antes.
+Fora da allowlist, nada muda mesmo ligada.
 
 ## Frases do dono
 | Frase | O que fazer |
 |---|---|
-| "Volte para a tabela original" / "Desliga a triagem com juiz" | `helena_triagem_juiz = false` (PR) + apply direcionado do `webhook_receiver` e do simulador (o agent-helena recebe a mesma env). O código fica. |
-| "Desfaz a triagem com juiz de vez" | Desligar como acima + `git revert` do PR da DL-0161 + build/deploy. |
-| "Religa a triagem com juiz" | `helena_triagem_juiz = true` + o mesmo apply. |
+| "Volte para a tabela original" / "Desliga a triagem com juiz" | PR com `triagem_juiz: false` no `configuracao.yaml` + merge (o pacote é publicado sozinho). Sem deploy. O código fica. |
+| "Desfaz a triagem com juiz de vez" | Desligar como acima + `git revert` do PR da DL-0161 + build/deploy da imagem. |
+| "Religa a triagem com juiz" | `triagem_juiz: true` + merge. |
+
+Ordem de implantação: a imagem com o código precisa estar no ar ANTES do pacote com `triagem_juiz` (chave desconhecida
+faz o pacote ser recusado inteiro; o serviço fica no último pacote bom).
 
 ## Logs (sem conteúdo da conversa)
 `helena_triagem_juiz_pergunta` (motivo, rodada), `helena_triagem_juiz_saida` (saida, regra, piso, juiz, perguntas),

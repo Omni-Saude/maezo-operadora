@@ -2,8 +2,8 @@
 
 A queixa de sintoma (habilidade `sintoma` do roteador, ou alarme incerto) e' conduzida pelo `motor`: a TABELA
 e' o piso e o MODELO julga a conversa inteira e so' SOBE a gravidade; no maximo 3 perguntas, uma por turno
-(pendencia `PROT_JUIZ:`, dona `sintoma`, tipo aberta). So' roda com a chave `MAEZO_HELENA_TRIAGEM_JUIZ`
-ligada E na allowlist do modelo (`modelo_allowlist.na_allowlist`: dono, Tania, time-1, time-2, simulador).
+(pendencia `PROT_JUIZ:`, dona `sintoma`, tipo aberta). So' roda com `triagem_juiz: true` no pacote
+E na allowlist do modelo (`modelo_allowlist.na_allowlist`: dono, Tania, time-1, time-2, simulador).
 Chave desligada = a Helena de antes, sem nenhuma diferenca (os protocolos seguem como hoje).
 
 As saidas usam os caminhos que ja' existem: 192 e CVV pelo escalonamento de sempre; pronto-socorro e
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections import OrderedDict
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final
@@ -43,8 +42,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-#: Chave do dev (variavel Terraform `helena_triagem_juiz`). `1`, `true`, `on`, `sim` ligam; o resto desliga.
-CHAVE: Final[str] = "MAEZO_HELENA_TRIAGEM_JUIZ"
+#: Chave do PACOTE (`spec/agents/helena/pacote/configuracao.yaml`): `triagem_juiz: true` liga.
+CHAVE_DO_PACOTE: Final[str] = "triagem_juiz"
 #: Prefixo `PROT_`: a pendencia ja' e' da habilidade `sintoma` no contrato do roteador e do tipo "aberta".
 PENDENTE: Final[str] = "PROT_JUIZ:"
 #: Teto do turno (ate' 4 chamadas curtas em sequencia; p90 do Haiku ~2 s cada).
@@ -64,9 +63,8 @@ _FINAIS: OrderedDict[str, None] = OrderedDict()
 _MAX_FINAIS: Final[int] = 512
 
 
-def ligada(ambiente: Mapping[str, str] | None = None) -> bool:
-    env = os.environ if ambiente is None else ambiente
-    return str(env.get(CHAVE) or "").strip().lower() in ("1", "true", "on", "sim")
+def ligada(self: HelenaGraph) -> bool:
+    return getattr(self, "_triagem_juiz", False) is True
 
 
 def _final(texto: str) -> str:
@@ -117,7 +115,7 @@ async def conduzir(
     """A queixa de sintoma pela triagem com juiz, ou `None` (o caminho de sempre)."""
     from maezo.agents.helena import graph as _g
 
-    if not ligada() or self._gerativa is None or not _ma.na_allowlist(self, state):
+    if not ligada(self) or self._gerativa is None or not _ma.na_allowlist(self, state):
         return None
     texto = str(state.get("message_body") or "")
     if _g._pedido_explicito_com_verbo(texto) or _g._pedido_explicito_de_pessoa(texto):
@@ -241,4 +239,4 @@ async def _executar(
     return _pf._texto(self, state, _final(f"{corpo}\n\n{linha}"))
 
 
-__all__ = ["CHAVE", "PENDENTE", "conduzir", "ligada"]
+__all__ = ["CHAVE_DO_PACOTE", "PENDENTE", "conduzir", "ligada"]

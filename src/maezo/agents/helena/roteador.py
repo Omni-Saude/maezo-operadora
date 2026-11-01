@@ -572,7 +572,7 @@ async def _classify_ativo_decidido(
             return fixo
     if (juiz := await _triagem_juiz.conduzir(self, state, decisao, antes, alarme)) is not None:
         # Experimento do dev (dono, 01/11/2026): tabela como piso e o modelo julgando a conversa, so' com a
-        # chave `MAEZO_HELENA_TRIAGEM_JUIZ` e na allowlist; desligada, os protocolos abaixo como sempre.
+        # chave `triagem_juiz` do pacote e na allowlist; desligada, os protocolos abaixo como sempre.
         return {**juiz, "habilidade_roteador": "sintoma"}
     if (protocolo := await _protocolo.conduzir(self, state, decisao, antes, alarme)) is not None:
         # PROTOCOLOS: a queixa (protocolo escolhido pelo modelo), o seguimento e o especialista.

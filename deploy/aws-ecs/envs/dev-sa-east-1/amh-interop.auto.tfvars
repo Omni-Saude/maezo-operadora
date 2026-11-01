@@ -43,11 +43,6 @@ helena_historico = true
 // genericas que nao resolviam a necessidade; o desenho sera refeito (catalogo v2) antes de religar.
 helena_triagem_v2 = false
 
-// Triagem com juiz da Helena (DL-0161, 01/11/2026): pedido do dono ("organiza para eu testar de verdade no
-// WhatsApp do dev"). SO' na allowlist do modelo; tabela como piso e o Haiku julgando a conversa (so' sobe).
-// Voltar: false + apply direcionado (webhook_receiver + simulador) — "volte para a tabela original".
-helena_triagem_juiz = true
-
 // Helena v4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono. Especialista e carteirinha com texto
 // fixo; sintoma leve so' com perguntas de alerta antes do caminho. Com ela ligada a nova triagem (v2) fica
 // inerte. EXPERIMENTO so' em dev, decisao do dono; conteudo clinico DRAFT (medico-auditor pendente) e prazo de
