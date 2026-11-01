@@ -1123,7 +1123,8 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     durable business key. That count, and not an argument, is what the owner ratifies against.
 
     CONTENT-FREE. All three labels are closed vocabularies (`family` in {CANCEL, INAD}, `modo`
-    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo}). NEVER pass a
+    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo, ausente} —
+    `ausente` = F-124 refusal, contract required and absent, nothing minted on PHI). NEVER pass a
     tenant id, a business key, or a matricula here — same rule `record_worker_task_outcome` and
     `record_llm_token_usage` document above. A per-instance identifier on this metric would
     recreate, in Prometheus, exactly the leak the metric exists to measure.
