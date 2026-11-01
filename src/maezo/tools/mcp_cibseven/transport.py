@@ -72,6 +72,7 @@ import structlog
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode, parse_json
+from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY, is_contract_anchored_key
 from maezo.tools.workers.engine_var_types import (
     camunda_int_type,
     declared_long_variable,
@@ -119,6 +120,21 @@ class CibSevenTenantError(CibSevenError):
     honesta de start (`process_started: False` + aviso de falha), que e' o desfecho certo — e
     `start_process_idempotent` levanta isto ANTES do claim duravel, entao nenhuma chave fica
     presa (`cibseven_start_claim_orphaned`) por um erro de composicao.
+    """
+
+
+class CibSevenStartKeyError(CibSevenError):
+    """F-124: start com business key NAO ancorada no `numero_contrato` — RECUSADO antes do claim.
+
+    Decisao do DPO de 31/10/2026 (#1082, opcao a): a chave `INAD-{tenant}-{numero_contrato}`
+    exige o numero do contrato; sem ele o start e' recusado (saneamento cadastral), nunca
+    cunhado sobre `matricula_beneficiario` (nome `PHI_PROCESS_VARS`). So' existe quando o
+    chamador pede (`require_contract_key=True`, flag dark `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`).
+
+    Mesma postura de `CibSevenTenantError`: subclasse de `CibSevenError` para cair no caminho
+    honesto ja existente dos grafos (`start_failed_state` -> `notify_start_failure`, ADR-0045),
+    e levantada ANTES do scrub, do claim duravel e do POST — nenhuma chave fica presa. A mensagem
+    e' constante: nunca ecoa a chave nem o valor ofensor (podem carregar a matricula).
     """
 
 
@@ -1155,6 +1171,36 @@ def require_start_tenant(transport: object, tenant_id: str) -> None:
         )
 
 
+#: F-124 (DPO 31/10/2026, #1082 opcao a): processos cuja business key TEM de ser a forma de
+#: contrato `{familia}-{tenant}-{numero_contrato}` quando o chamador liga
+#: `require_contract_key`. Fonte unica da familia: `tools/workers/base.py`.
+_CONTRACT_ANCHORED_START_FAMILIES: Mapping[str, str] = {
+    "SP-OP-INADIMPLENCIA-001": INADIMPLENCIA_KEY_FAMILY,
+}
+
+_START_KEY_REFUSAL = "refusing to start: business key is not anchored on numero_contrato"
+
+
+def require_contract_anchored_start_key(
+    process_key: str, business_key: str, variables: Mapping[str, Any], *, tenant_id: str
+) -> None:
+    """Recusa (`CibSevenStartKeyError`) um start cuja chave nao e' a forma de contrato (F-124).
+
+    Exige `numero_contrato` presente e nao-branco nas variaveis do start E a chave identica a
+    `{familia}-{tenant}-{numero_contrato}` (`base.is_contract_anchored_key`). Pega a chave
+    degenerada `INAD-{tenant}-` e a chave cunhada sobre a matricula quando a variavel
+    `numero_contrato` esta vazia. LIMITE declarado: a guarda confere a chave contra a VARIAVEL;
+    se um chamador copiar a matricula para `numero_contrato`, as duas conferem — por isso o
+    chamador (Fernando, sob a mesma flag) deixa de fazer essa copia. Pedido para um processo
+    fora do mapa e' erro de composicao (`ValueError`), nunca um no-op silencioso.
+    """
+    family = _CONTRACT_ANCHORED_START_FAMILIES.get(process_key)
+    if family is None:
+        raise ValueError(f"require_contract_key nao se aplica a {process_key!r}")
+    if not is_contract_anchored_key(family, tenant_id, business_key, variables.get("numero_contrato")):
+        raise CibSevenStartKeyError(_START_KEY_REFUSAL)
+
+
 def start_dedup_key(tenant_id: str, process_key: str, business_key: str) -> str:
     """The exactly-once dedup key for an agent process start (design SHOULD-FIX 3 / §4.3).
 
@@ -1849,12 +1895,18 @@ async def start_process_idempotent(
     audit_sink: AuditStartSink | PostgresAuthDispatchStore,
     provenance: AgentDecisionProvenance | HumanIntakeProvenance,
     promote_start_dedup: bool = False,
+    require_contract_key: bool = False,
 ) -> ProcessInstance:
     """Idempotent, ADR-0007-audited process start — the SINGLE agent-side effect chokepoint (T-C2).
 
     `promote_start_dedup` (R-101, default False) asks for the DARK posture promotion of
     `_FLAGGED_START_DEDUP_PROMOTIONS`; the caller passes its own default-off flag. It can only
     STRENGTHEN the posture of a key the policy map lists as `NON_STRICT`.
+
+    `require_contract_key` (F-124, default False) asks for the DARK contract-anchor refusal of
+    `require_contract_anchored_start_key`; the caller passes its own default-off flag
+    (`MAEZO_INAD_CHAVE_EXIGE_CONTRATO`). Checked right after the tenant guard, BEFORE the scrub,
+    the durable claim and the POST — a refused start leaves no audit row and no wedged key.
 
     This is the ONE call site agent graphs use to start a BPMN process — never
     `start_process_instance` directly. `audit_sink` and `provenance` are REQUIRED (no defaults):
@@ -1972,6 +2024,11 @@ async def start_process_idempotent(
     #     da conversa ou nao nasce (`require_start_tenant`). Levantado antes do claim, entao um
     #     erro de composicao nunca deixa chave presa.
     require_start_tenant(transport, provenance.tenant_id)
+    # -2b. F-124 (dark): chave ancorada no contrato, ou recusa — mesmo ponto e mesma postura.
+    if require_contract_key is True:
+        require_contract_anchored_start_key(
+            process_key, business_key, variables, tenant_id=provenance.tenant_id
+        )
 
     # -1. CC-06 PHI SCRUB, BEFORE ANYTHING ELSE. `variables` is rebound here and the raw mapping
     #     is never read again in this function, so there is structurally no path on which raw

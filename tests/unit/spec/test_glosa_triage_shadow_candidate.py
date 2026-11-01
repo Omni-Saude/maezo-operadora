@@ -1,7 +1,14 @@
-"""M-4 — `glosa_triage`: the permissive terminal at position 1 (divergence evidence).
+"""M-4 — `glosa_triage`: the permissive terminal that used to sit at position 1.
 
-`spec/processes/dmn/glosa_triage.dmn` row 1 (`r_pagar`) gates `categoria_normalizada` on the
-NEGATIVE set `not("tecnica","clinica")`, which admits `"desconhecida"` — the value the upstream
+STATE SINCE DEC-14 (owner decision 2026-10-31, issue #1084, option (a) "rotear a humano"; R-062 /
+F-033): the live table now IS the candidate — `r_pagar` sits at position 4 and gates
+`categoria_normalizada` on the closed POSITIVE set `{documental, administrativa, valor}`. The tests
+below pin that the live table routes every out-of-domain category to a human, that live and
+candidate are equivalent over the whole grid, and that the PRE-DEC-14 table (reconstructed here
+from the live rules with the old negative cell) still reproduces the defect — so a revert is caught.
+
+Pre-DEC-14 the row 1 (`r_pagar`) gated `categoria_normalizada` on the
+NEGATIVE set `not("tecnica","clinica")`, which admitted `"desconhecida"` — the value the upstream
 table declares must route to a human downstream IN THIS VERY TABLE
 (`glosa_reason_normalization.dmn`) and which this table's own catch-all names. Under
 `hitPolicy=FIRST` the fail-safe is unreachable for the whole {conforme, no divergence, docs}
@@ -30,6 +37,7 @@ from tests.support.dmn_first_hit import (
     DMN_DIR,
     REPO_ROOT,
     DecisionTable,
+    Rule,
     evaluate,
     read_candidate_table,
     read_live_table,
@@ -70,12 +78,49 @@ def _inputs(categoria: str, conforme: bool, divergencia: bool, docs: bool, tipo:
 # =================================================================================================
 
 
-def test_live_row_1_is_the_permissive_rule_with_a_negative_category_set() -> None:
+#: The negative cell the live row carried before DEC-14 — used ONLY to rebuild the old table.
+_PRE_DEC14_CELL = 'not("tecnica","clinica")'
+_LIVE_ORDER = ("r_tecnica_humano", "r_documental_humano", "r_valor_humano", "r_pagar", "r_catchall")
+
+
+def _pre_dec14() -> DecisionTable:
+    """The table as it stood before DEC-14: `r_pagar` at row 1 with the NEGATIVE category set."""
     live = _live()
-    first = live.rules[0]
-    assert first.rule_id == "r_pagar"
-    assert first.inputs[live.input_names.index("categoria_normalizada")] == 'not("tecnica","clinica")'
-    assert first.outputs[0] == "PAGAR"
+    by_id = {rule.rule_id: rule for rule in live.rules}
+    col = live.input_names.index("categoria_normalizada")
+    pagar = by_id["r_pagar"]
+    old_inputs = tuple(_PRE_DEC14_CELL if i == col else v for i, v in enumerate(pagar.inputs))
+    old_pagar = Rule(rule_id="r_pagar", inputs=old_inputs, outputs=pagar.outputs)
+    return DecisionTable(
+        decision_id=live.decision_id,
+        source=live.source,
+        input_names=live.input_names,
+        output_names=live.output_names,
+        rules=(
+            old_pagar,
+            by_id["r_tecnica_humano"],
+            by_id["r_documental_humano"],
+            by_id["r_valor_humano"],
+            by_id["r_catchall"],
+        ),
+    )
+
+
+def test_live_r_pagar_is_row_4_with_the_closed_positive_category_set_dec14() -> None:
+    """DEC-14 applied: specific before permissive, and the permissive row names its categories."""
+    live = _live()
+    assert live.rule_ids() == _LIVE_ORDER
+    pagar = live.rules[3]
+    entry = pagar.inputs[live.input_names.index("categoria_normalizada")]
+    assert "not(" not in entry, "a NEGATIVE set would re-admit `desconhecida` (M-4)"
+    assert set(entry.replace('"', "").split(",")) == {"documental", "administrativa", "valor"}
+    assert pagar.outputs[0] == "PAGAR"
+
+
+def test_the_pre_dec14_reconstruction_still_reproduces_the_defect() -> None:
+    """Non-vacuity of the rebuild: the old table really did adjudicate `desconhecida` as PAGAR."""
+    verdict = evaluate(_pre_dec14(), _inputs("desconhecida", True, False, True))
+    assert (verdict.saidas["roteamento"], verdict.regra) == ("PAGAR", "r_pagar")
 
 
 def test_live_catchall_is_last_and_declares_the_human_fail_safe() -> None:
@@ -155,7 +200,7 @@ def test_pagar_reaches_its_terminal_without_any_user_task() -> None:
 # 2. THE DIVERGENCE CORPUS — the ratification evidence
 # =================================================================================================
 
-#: (label, inputs, live verdict, live rule, candidate verdict, candidate rule).
+#: (label, inputs, PRE-DEC-14 verdict, pre rule, LIVE == candidate verdict, live/candidate rule).
 _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
     (
         "MISSION REPRO — categoria 'desconhecida' with the three favourable facts closes the case",
@@ -163,7 +208,7 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
         "PAGAR",
         "r_pagar",
         "ANALISE_HUMANA",
-        "c_catchall",
+        "catchall",
     ),
     (
         "same, with a non-empty tipo_item — the column is `-` in every rule, so it cannot matter",
@@ -171,7 +216,7 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
         "PAGAR",
         "r_pagar",
         "ANALISE_HUMANA",
-        "c_catchall",
+        "catchall",
     ),
     (
         "empty categoria — an upstream analysis that returns a blank instead of a category",
@@ -179,7 +224,7 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
         "PAGAR",
         "r_pagar",
         "ANALISE_HUMANA",
-        "c_catchall",
+        "catchall",
     ),
     (
         "a literal outside the declared domain entirely",
@@ -187,29 +232,33 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str, str], ...] = (
         "PAGAR",
         "r_pagar",
         "ANALISE_HUMANA",
-        "c_catchall",
+        "catchall",
     ),
 )
 
 
 @pytest.mark.parametrize(
-    ("label", "values", "live_expected", "live_rule", "cand_expected", "cand_rule"),
+    ("label", "values", "pre_expected", "pre_rule", "now_expected", "now_rule"),
     _DIVERGENCIAS,
     ids=[row[0][:60] for row in _DIVERGENCIAS],
 )
-def test_live_closes_the_case_where_the_candidate_routes_to_a_human(
+def test_live_now_routes_to_a_human_where_the_pre_dec14_table_closed_the_case(
     label: str,
     values: dict[str, Any],
-    live_expected: str,
-    live_rule: str,
-    cand_expected: str,
-    cand_rule: str,
+    pre_expected: str,
+    pre_rule: str,
+    now_expected: str,
+    now_rule: str,
 ) -> None:
+    """M-4 closed (DEC-14): every input the old table adjudicated PAGAR now reaches the catch-all in
+    the LIVE table, exactly as in the candidate."""
+    pre_verdict = evaluate(_pre_dec14(), values)
     live_verdict = evaluate(_live(), values)
     cand_verdict = evaluate(_candidate(), values)
 
-    assert (live_verdict.saidas["roteamento"], live_verdict.regra) == (live_expected, live_rule), label
-    assert (cand_verdict.saidas["roteamento"], cand_verdict.regra) == (cand_expected, cand_rule), label
+    assert (pre_verdict.saidas["roteamento"], pre_verdict.regra) == (pre_expected, pre_rule), label
+    assert (live_verdict.saidas["roteamento"], live_verdict.regra) == (now_expected, f"r_{now_rule}"), label
+    assert (cand_verdict.saidas["roteamento"], cand_verdict.regra) == (now_expected, f"c_{now_rule}"), label
 
 
 #: Inputs the corpus must NOT cover — the candidate changes nothing here.
@@ -243,6 +292,7 @@ _INALTERADOS: tuple[tuple[str, dict[str, Any], str], ...] = (
 def test_the_divergence_corpus_is_not_all_of_the_table(
     label: str, values: dict[str, Any], expected: str
 ) -> None:
+    assert evaluate(_pre_dec14(), values).saidas["roteamento"] == expected, label
     assert evaluate(_live(), values).saidas["roteamento"] == expected, label
     assert evaluate(_candidate(), values).saidas["roteamento"] == expected, label
 
@@ -265,9 +315,11 @@ _POSITIVE_SET = frozenset({"documental", "administrativa", "valor"})
 _HUMAN_ROUTED = frozenset({"tecnica", "clinica"})
 
 
-def test_candidate_and_live_diverge_exactly_on_the_declared_subspace() -> None:
-    """`equivalencia_provada` in the manifest, checked over the whole input space."""
-    live, candidate = _live(), _candidate()
+def test_live_and_candidate_agree_everywhere_and_differ_from_pre_dec14_exactly_on_m4() -> None:
+    """`equivalencia_provada` in the manifest, checked over the whole input space: since DEC-14 the
+    live table and the candidate emit the same `roteamento` on EVERY input, and both differ from
+    the pre-DEC-14 table exactly on the M-4 subspace (PAGAR -> ANALISE_HUMANA, never the reverse)."""
+    pre, live, candidate = _pre_dec14(), _live(), _candidate()
     diverged: list[dict[str, Any]] = []
     for tipo in ("", "material", "taxa"):
         for categoria in _CATEGORIES:
@@ -275,8 +327,10 @@ def test_candidate_and_live_diverge_exactly_on_the_declared_subspace() -> None:
                 for divergencia in (True, False):
                     for docs in (True, False):
                         values = _inputs(categoria, conforme, divergencia, docs, tipo=tipo)
+                        pre_out = evaluate(pre, values).saidas["roteamento"]
                         live_out = evaluate(live, values).saidas["roteamento"]
                         cand_out = evaluate(candidate, values).saidas["roteamento"]
+                        assert live_out == cand_out, values
                         expected_divergence = (
                             categoria not in _POSITIVE_SET
                             and categoria not in _HUMAN_ROUTED
@@ -284,34 +338,38 @@ def test_candidate_and_live_diverge_exactly_on_the_declared_subspace() -> None:
                             and not divergencia
                             and docs
                         )
-                        assert (live_out != cand_out) is expected_divergence, values
-                        if live_out != cand_out:
-                            assert (live_out, cand_out) == ("PAGAR", "ANALISE_HUMANA"), values
+                        assert (pre_out != live_out) is expected_divergence, values
+                        if pre_out != live_out:
+                            assert (pre_out, live_out) == ("PAGAR", "ANALISE_HUMANA"), values
                             diverged.append(values)
     # The 3 grid categories outside the declared domain-minus-{tecnica,clinica} x 3 tipo_item values.
     assert len(diverged) == 9
 
 
-def test_reordering_alone_would_not_have_closed_the_hole_achado_1() -> None:
-    """ACHADO-1, proved rather than asserted: with the LIVE negative set, moving `r_pagar` below
-    the three specific rules still emits PAGAR for `desconhecida`."""
+def test_live_never_pays_a_category_outside_the_positive_set() -> None:
+    """The DEC-14 property stated directly on the live table: PAGAR only for the closed set."""
     live = _live()
-    by_id = {rule.rule_id: rule for rule in live.rules}
+    for categoria in _CATEGORIES:
+        out = evaluate(live, _inputs(categoria, True, False, True)).saidas["roteamento"]
+        assert (out == "PAGAR") is (categoria in _POSITIVE_SET), categoria
+
+
+def test_reordering_alone_would_not_have_closed_the_hole_achado_1() -> None:
+    """ACHADO-1, proved rather than asserted: with the OLD negative set, moving `r_pagar` below
+    the three specific rules still emits PAGAR for `desconhecida` — the closed positive set is what
+    fixed M-4, the reorder is defence in depth."""
+    pre = _pre_dec14()
+    by_id = {rule.rule_id: rule for rule in pre.rules}
     reordered = DecisionTable(
-        decision_id=live.decision_id,
-        source=live.source,
-        input_names=live.input_names,
-        output_names=live.output_names,
-        rules=(
-            by_id["r_tecnica_humano"],
-            by_id["r_documental_humano"],
-            by_id["r_valor_humano"],
-            by_id["r_pagar"],
-            by_id["r_catchall"],
-        ),
+        decision_id=pre.decision_id,
+        source=pre.source,
+        input_names=pre.input_names,
+        output_names=pre.output_names,
+        rules=tuple(by_id[rule_id] for rule_id in _LIVE_ORDER),
     )
     values = _inputs("desconhecida", True, False, True)
     assert evaluate(reordered, values).saidas["roteamento"] == "PAGAR"
+    assert evaluate(_live(), values).saidas["roteamento"] == "ANALISE_HUMANA"
     assert evaluate(_candidate(), values).saidas["roteamento"] == "ANALISE_HUMANA"
 
 

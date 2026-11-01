@@ -73,10 +73,12 @@ from maezo.platform.observability import (
     get_metrics_collector,
 )
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
+from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
+from maezo.tools.workers.cancel import CANCEL_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST, PublishLedger
@@ -86,6 +88,7 @@ from maezo.tools.workers.harness import (
     TopicSubscription,
     WorkerHarness,
 )
+from maezo.tools.workers.inadimplencia import INADIMPLENCIA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.nip import NIP_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST
@@ -163,9 +166,24 @@ _DOSSIER_FHIR_AGENT_IDS: tuple[str, ...] = ("carolina", "andre")
 #: 24/07 e o desfecho roteado continua emitindo linha de auditoria. Antes disso a negativa sem
 #: fundamentacao parava como incident — nada transmitido, mas sem volta a mesa do auditor.
 #:
+#: Lote T-E unico (decisao do dono 2026-10-31, registro R-075; roadmap R-050 / R-059 CRED / R-119):
+#: os quatro `*_NOT_HUMAN` — `ERR_CANCEL_MANTER_NOT_HUMAN`, `ERR_DECRED_NOT_HUMAN`,
+#: `ERR_CRED_DENIAL_NOT_HUMAN`, `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` — entram juntos, roteando aos
+#: boundaries ja' modelados para os terminais neutros. O worker continua RECUSANDO o efeito adverso;
+#: muda so' o desfecho da recusa (terminal neutro auditado em vez de incident).
+#:
 #: NAO CONFUNDA com "nao precisa ser auditado": `harness.is_guard_refusal_code` continua
-#: reconhecendo este codigo e continua auditando a recusa. Ver o docstring de `_is_te_gated`.
-_TE_ENABLED_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
+#: reconhecendo estes codigos e continua auditando a recusa. Ver o docstring de `_is_te_gated`.
+#: Identidade com o gate travada por `tests/unit/runtime/test_te_lote_not_human_habilitado.py`.
+_TE_ENABLED_CODES: frozenset[str] = frozenset(
+    {
+        "ERR_AUTH_DENIAL_INCOMPLETE",
+        "ERR_CANCEL_MANTER_NOT_HUMAN",
+        "ERR_DECRED_NOT_HUMAN",
+        "ERR_CRED_DENIAL_NOT_HUMAN",
+        "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    }
+)
 
 
 def _is_te_gated(code: str) -> bool:
@@ -206,10 +224,11 @@ def _is_te_gated(code: str) -> bool:
 #: directly. `CRED_BPMN_ERROR_ALLOWLIST` contributes `ERR_CRED_INVALID_PRESTADOR` (item-9
 #: bucket-3 Class-C, Tier-2) — cred's NON-adverse G2-val origin guard (blank/non-string
 #: `prestador_id` -> End_CredPrestadorInvalido, a neutral "fail-safe, nao adverso" terminal),
-#: NOT `*_NOT_HUMAN`, lands directly; the constant deliberately EXCLUDES cred's two adverse
-#: `*_NOT_HUMAN` guard codes, which stay T-E-deferred. `ERR_CANCEL_MANTER_NOT_HUMAN` is
-#: gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
-#: until T-E), so there is nothing to import. `ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` contributes
+#: NOT `*_NOT_HUMAN`, lands directly; the constant ALSO carries cred's two adverse `*_NOT_HUMAN`
+#: guard codes, and `CANCEL_BPMN_ERROR_ALLOWLIST` / `INADIMPLENCIA_BPMN_ERROR_ALLOWLIST` carry
+#: `ERR_CANCEL_MANTER_NOT_HUMAN` / `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` — the lote T-E unico
+#: (2026-10-31): the four pass the T-E filter below ONLY because they are in `_TE_ENABLED_CODES`,
+#: and their refusals stay audited. `ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` contributes
 #: `ERR_ANS_PROTOCOLO_NACK` and `ERR_ANS_DATASET_INCOMPLETO` (t2-ans-submit, the ANS family's
 #: ADR-0030 migration) — both NON-adverse and routed to human remediation rather than to any
 #: adverse terminal: a NACK enters `SUB_RetryEnvio` (bounded retry) and, if exhausted, reaches
@@ -233,9 +252,11 @@ def _is_te_gated(code: str) -> bool:
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
     | AUTH_BPMN_ERROR_ALLOWLIST
+    | CANCEL_BPMN_ERROR_ALLOWLIST  # lote T-E unico (2026-10-31) — R-050
     | CRED_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
+    | INADIMPLENCIA_BPMN_ERROR_ALLOWLIST  # lote T-E unico (2026-10-31)
     | LGPD_BPMN_ERROR_ALLOWLIST
     | NIP_BPMN_ERROR_ALLOWLIST
     | PAGTO_BPMN_ERROR_ALLOWLIST
@@ -250,11 +271,14 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
 #: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR, ERR_ANS_PROTOCOLO_NACK,
 #: ERR_ANS_DATASET_INCOMPLETO, ERR_AUTH_DENIAL_INCOMPLETE, ERR_PAGTO_ORDEM_INVALIDA,
-#: ERR_REEMBOLSO_INVALID_PROTOCOLO, ERR_SUPP_SUBJECT_UNRESOLVED, ERR_SUPP_ROUTING_UNAVAILABLE}`
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO, ERR_SUPP_SUBJECT_UNRESOLVED, ERR_SUPP_ROUTING_UNAVAILABLE,
+#: ERR_CANCEL_MANTER_NOT_HUMAN, ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN,
+#: ERR_CONTRACT_SUSPENSION_NOT_HUMAN}`
 #: today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
 #: t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val origin/consent
 #: guards + t2-ans-submit's two + the T-E-enabled denial-block code +
-#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards).
+#: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards + the lote T-E unico's
+#: four `*_NOT_HUMAN` guards, Tier-3).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
@@ -278,9 +302,11 @@ def register_default_workers(
     inad_rn593_estrito: bool = False,
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
+    inad_chave_exige_contrato: bool = False,
     contas_sla_risk_entrega: bool = False,
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
+    auth_prazo_dias_uteis: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -378,12 +404,16 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # F-124: INAD sem contrato nao delega ao Fernando (dark; see settings).
+        **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
         **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
         # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
         **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
         junta_rn424_guard=junta_rn424_guard,
+        # R-005 / F-018: prazo de resposta AUTH em dias uteis (dark; see settings).
+        auth_prazo_dias_uteis=auth_prazo_dias_uteis,
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -522,6 +552,10 @@ class WorkerState:
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
+    # R-085 (owner 2026-10-31): the engine-history L1 decision poller. Both `None` unless
+    # `MAEZO_L1_DECISION_POLLER` is on AND the engine transport was built (dark by default).
+    engine_metrics_poller: EngineMetricsPoller | None = None
+    engine_metrics_task: asyncio.Task[None] | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -840,6 +874,22 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         logger.error("worker_transport_build_failed", exc_info=True)
 
     try:
+        # R-085 (owner 2026-10-31, #1084): the L1 human-decision poller READS engine history
+        # through the transport above (`read_history`, closed path set) — no client of its own.
+        # DARK: nothing is read unless the deployment turns `MAEZO_L1_DECISION_POLLER` on.
+        if settings.l1_decision_poller and state.transport is not None:
+            state.engine_metrics_poller = EngineMetricsPoller(
+                state.transport,
+                tenant=settings.tenant_id,
+                interval_s=settings.l1_decision_poller_interval_s,
+            )
+            state.engine_metrics_task = asyncio.create_task(
+                state.engine_metrics_poller.run(), name="engine-metrics-poller"
+            )
+    except Exception:  # observability only: never fails the daemon.
+        logger.error("engine_metrics_poller_build_failed", exc_info=True)
+
+    try:
         # ADR-0028 §1: the DMN seam is built once at daemon boot, against the SAME CIB Seven
         # engine the external-task transport targets (`CIBSEVEN_BASE_URL`) — DMN evaluation and
         # external-task dispatch are on the same failure/retry/incident plane (ADR-0028
@@ -1017,6 +1067,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # Delegation facts ride the no-op FactProducer default (mirrors the auth edge):
                 # the DURABLE T-F record is the injected audit_sink, not a Kafka facts mirror, so
                 # the real events producer is deliberately NOT threaded here.
+                # F-124 (dark): Fernando recusa o start INAD sem `numero_contrato`.
+                inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
             )
             state.dossier_dispatcher_detail = "assembled"
         else:
@@ -1089,6 +1141,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 lgpd_legal_hold_predicate=settings.lgpd_legal_hold_predicate,
                 # R-064 (RN 424/2017 art. 3 I), DARK: a guarda da junta so' roteia quando ligada.
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
+                # R-005 (RN 623/2024 art. 12), DARK: prazo de resposta em dias uteis so' quando ligada.
+                auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url
@@ -1100,6 +1154,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 pagto_valor_invalido_pendente_dados=settings.pagto_valor_invalido_pendente_dados,
                 pagto_fatos_estritos=settings.pagto_fatos_estritos,
                 inad_fatos_estritos=settings.inad_fatos_estritos,
+                inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
             )
             state.harness = harness
@@ -1134,6 +1189,18 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
 
 
 # --- run() — orchestrates STEP A..E -------------------------------------------------------------
+
+
+async def _stop_engine_metrics_poller(state: WorkerState) -> None:
+    """Cancel the R-085 engine-history poller task BEFORE the transport it reads is closed.
+
+    The poller loops forever by design; awaiting it without cancelling would hang the drain.
+    No-op when the poller is dark (task `None`) or already finished."""
+    task = state.engine_metrics_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
 
 async def run(settings: WorkerRuntimeSettings) -> None:
@@ -1216,6 +1283,7 @@ async def run(settings: WorkerRuntimeSettings) -> None:
     if state.harness is not None:
         with contextlib.suppress(Exception):
             await state.harness.drain(settings.drain_deadline_s)
+    await _stop_engine_metrics_poller(state)
     if state.transport is not None:
         with contextlib.suppress(Exception):
             await state.transport.close()

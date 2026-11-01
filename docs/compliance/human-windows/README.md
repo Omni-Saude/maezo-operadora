@@ -12,6 +12,8 @@
 | `ATO-INDICACAO-ENCARREGADO-MINUTA.md` | Minuta do ato formal de indicação do encarregado (Res. CD/ANPD 18/2024, arts. 3º–4º, 8º–9º) + checklist até a janela DPO de 2026-11-10 (DEC-07/PEND-075, issue #1082). Campos humanos em branco. |
 | `ATO-INDICACAO-ENCARREGADO-FILIPE-CARMO.md` | Ato formal de indicação do encarregado/DPO derivado da minuta, com o titular **Filipe Carmo** nomeado pelo dono em 2026-10-31 (DL-0158). Também traz o modelo de declaração de conflito de interesse (arts. 18–21) e o checklist de publicação e onboarding. Controlador, substituto (obrigatório pelo art. 4º), data, assinaturas e URL de divulgação ficam em branco para humanos. |
 | `R-070-dec-teto-d07.md` | Minuta de decisão do teto de auto-aprovação do REEMBOLSO (R-070 / DEC-26, issue #1084): estado medido, moldura regulatória, proposta rígida do orquestrador a pedido do dono (não vinculante), opções A/B/C e bloco de decisão em branco para dono + atuária. |
+| `R-040-dec-bedrock.md` | Registro da decisão do dono DEC-20 (issue #1084, 2026-10-31): opção (a), mover a chamada de embeddings Bedrock (F-051) para `runtime.inference` (AGENTS.md regra 6). Descreve o que foi construído no PR do pacote. Bloco de ratificação em branco para o dono. |
+| `R-033-dec-glosa-m4.md` | Registro da decisão do dono DEC-14 (issue #1084, 2026-10-31): categoria de glosa desconhecida na `glosa_triage` (M-4 / OQ-10) vai a humano, opção (a). Traz a fonte verbatim, o estado medido antes, o que a opção significa no modelo (implementado no R-062) e o bloco de ratificação em branco. |
 
 ## Consumo esperado
 

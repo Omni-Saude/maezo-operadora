@@ -51,7 +51,11 @@ import structlog
 
 from maezo.gateway.audit import AuditRecord
 from maezo.platform.error_types import classify_agent_error_type
-from maezo.platform.observability import record_a2a_guard_refusal, record_a2a_handler_error
+from maezo.platform.observability import (
+    preinit_a2a_guard_refusals,
+    record_a2a_guard_refusal,
+    record_a2a_handler_error,
+)
 from maezo.tools.workers.phi_vars import redact_error_message
 
 from .delegation import (
@@ -425,6 +429,9 @@ class DelegationDispatcher:
     ) -> None:
         self._registry = registry
         self._handlers = dict(handlers)
+        # R-085 ("pre-inicializar contadores raros"): a recusa por guarda e rara por desenho; sem a
+        # serie em 0 o PRIMEIRO incremento de cada (target, guard) fica invisivel a `increase()`.
+        preinit_a2a_guard_refusals(targets=self._handlers)
         self._audit = audit
         self._facts = facts
         self._idempotency = idempotency

@@ -396,3 +396,22 @@ OpenAPI registra "Ratificação do DPO pendente"). Enquanto isso, so' teste em d
   (RN 412 — juridico), data de efeito = data do pedido (juridico), textos ao beneficiario (juridico), nomes
   reais do grupo `cadastro-beneficiarios` e das pessoas (operacao), DPO sobre o uso dos dados de §Dados do
   beneficiario; template aprovado da Meta para avisos fora da janela de 24h.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CANCEL-001` → `maezo-payer-cancel-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - contrato: `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `C-{numero_contrato}`.
+  - matrícula (fallback vigente): `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `M-{matricula_beneficiario}`.
+  - pseudônimo (v0.2.0, Lucas): `{tenant_id}:cancel-001:hk1_<HMAC>` sobre `P-{beneficiario_pseudo_id}`.
+- **Classificação (a confirmar pelo DPO):** pessoal; `matricula_beneficiario` é PHI (`PHI_PROCESS_VARS`) — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `EXCLUSIVE` (inalterada).
+- **Âncora do retorno (DL-0111):** durante a janela o agent-resume aceita `CANCEL-{tenant_id}-` OU `{tenant_id}:cancel-001:` como âncora do evento `agents.events.process_completed`; depois de `so_alvo`, só a segunda.
+- A guarda cruzada do INADIMPLENCIA (`ja_em_rescisao_cancel`) consulta as formas alvo e as vigentes, fail-closed.

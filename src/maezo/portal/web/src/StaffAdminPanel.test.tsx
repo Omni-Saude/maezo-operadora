@@ -1,8 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { StaffAdminPanel } from "./StaffAdminPanel";
+import { maskPrincipalRef, StaffAdminPanel } from "./StaffAdminPanel";
 import { createStaffAdminClient } from "./staffAdminClient";
 
 // D-40: the administration panel is READ-ONLY — one consult gesture, one GET, zero
@@ -65,8 +65,13 @@ it("consulta o roster com um GET sem corpo e renderiza os fatos revisados", asyn
     expect.objectContaining({ method: "GET", redirect: "error", credentials: "same-origin" }),
   );
   expect(JSON.stringify(vi.mocked(fetch).mock.calls[0])).not.toMatch(/"body"|csrf/i);
-  expect(await within(panel).findByText("human-internal-1")).toBeInTheDocument();
-  expect(within(panel).getByText("human-internal-2")).toBeInTheDocument();
+  // F-158 (DPO opção b): só os 4 últimos caracteres do `principal_ref`, nunca o valor inteiro.
+  expect(await within(panel).findByText("2 vínculos revisados.")).toBeInTheDocument();
+  expect(panel).not.toHaveTextContent("human-internal-1");
+  expect(panel).not.toHaveTextContent("human-internal-2");
+  const refs = within(panel).getAllByText("Referência do colaborador").map((term) => term.nextElementSibling);
+  expect(refs[0]).toHaveTextContent(/^••••terminada em al-1$/);
+  expect(refs[1]).toHaveTextContent(/^••••terminada em al-2$/);
   expect(within(panel).getAllByText("Revogado").length).toBeGreaterThan(0);
   expect(within(panel).getByText(/resource-vendor-1/)).toBeInTheDocument();
   expect(within(panel).getByText("2 vínculos revisados.")).toBeInTheDocument();
@@ -99,7 +104,7 @@ it("oferece erro fechado com retry e nenhuma affordance de mutação", async () 
 
   vi.mocked(fetch).mockResolvedValue(json(roster()));
   await userEvent.click(within(panel).getByRole("button", { name: "Consultar novamente" }));
-  expect(await within(panel).findByText("human-internal-1")).toBeInTheDocument();
+  expect(await within(panel).findByText("2 vínculos revisados.")).toBeInTheDocument();
 
   // A tela inteira não carrega nenhum comando administrativo: conceder, revogar, renovar,
   // re-revisar ou criar vínculo não existe aqui — só a consulta e a repetição dela.
@@ -128,4 +133,16 @@ it("resposta fora do contrato é recusada como invalid-response", async () => {
   expect(
     await within(panel).findByText("O portal recusou uma resposta inesperada do serviço de administração. Nada foi exibido."),
   ).toBeInTheDocument();
+});
+
+describe("F-158: maskPrincipalRef (DPO opção b, 4 últimos caracteres)", () => {
+  it.each([
+    ["human-internal-1", "al-1"],
+    ["abcde", "bcde"],
+    ["abcd", ""],
+    ["ab", ""],
+    ["", ""],
+  ])("%s -> %s", (ref, tail) => {
+    expect(maskPrincipalRef(ref)).toBe(tail);
+  });
 });

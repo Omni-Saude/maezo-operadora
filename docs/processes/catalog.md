@@ -9,7 +9,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-ESCALATION-001 | Escalonamento humano universal | Seguranca assistencial | 0 | modelado FINAL v1.1.0 (emenda DL-0118: encerramento a pedido do beneficiario; SLAs em review-queue) |
 | SP-OP-AUTH-001 | Autorizacao previa | RN 259; negativa = medico auditor (L0 hard) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-LGPD-DSR-001 | Direitos do titular | LGPD art. 18 (15 dias) | 1 | DRAFT — requires human review before any deploy |
-| SP-OP-CONTAS-001 | Análise e adjudicação de conta médica (glosa) | Padrão TISS (RN 501/2022 — DRAFT/verify); prazo contratual; Lei 9.656 art. 18 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-CONTAS-001 | Análise e adjudicação de conta médica (glosa) | Padrão TISS (RN 501/2022, art. 3º, I — DRAFT/verify); prazo contratual (RN 503/2022, art. 14, II e parágrafo único; Lei 9.656, art. 17-A, § 2º, II — DRAFT/verify: âncora proposta em `docs/compliance/legal/R-054-RATIFICACAO-CITACOES-POR-LINHA.md` L4, ratificação do jurídico pendente) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-RECURSO-001 | Análise de recurso de glosa (resposta ao recurso) | Prazo contratual de resposta; Padrão TISS (RN 501/2022 — DRAFT/verify) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |

@@ -34,8 +34,8 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "DLQ backlog proxy (MaezoDeadLetterBacklog > 0 por 10m)",
-      "description": "Recording rule maezo_dead_letter_derived (kafka_topic_partition_current_offset somado por particao). HONESTY LIMIT: offset monotonico, proxy grosseiro — ver o comentario da recording rule em alert-rules.yml.",
+      "title": "DLQ chegadas novas em 10m (MaezoDeadLetterBacklog > 0)",
+      "description": "Mesma expressao de MaezoDeadLetterBacklog (R-085, 2026-10-31): increase() por particao do offset do kafka_exporter nos topicos .dlq, somado — chegadas NOVAS na janela, nunca o offset monotonico (que nao zera).",
       "maezo_mirrors_alert": "MaezoDeadLetterBacklog",
       "datasource": {
         "type": "prometheus",
@@ -75,7 +75,7 @@
       },
       "targets": [
         {
-          "expr": "maezo_dead_letter_queue_size",
+          "expr": "sum by (topic, environment) (increase(kafka_topic_partition_current_offset{topic=~\".*\\\\.dlq\"}[10m]))",
           "legendFormat": "{{topic}} ({{environment}})",
           "refId": "A",
           "datasource": {

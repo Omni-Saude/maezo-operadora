@@ -33,9 +33,8 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Agent error rate (SLA: 1% — MaezoSLAAgentErrorRateHigh)",
-      "description": "Mesma expressao de MaezoSLAAgentErrorRateHigh (ALERT-COUNTER-LABELS/R-063).",
-      "maezo_mirrors_alert": "MaezoSLAAgentErrorRateHigh",
+      "title": "Agent failed-turn ratio (base de MaezoSLAAgentErrorRateHigh, limiar 1%)",
+      "description": "Turnos falhos / todos os turnos (falhos + com desfecho), a razao que MaezoSLAAgentErrorRateHigh avalia (R-085, 2026-10-31). Nao espelha o alerta byte a byte: o alerta acrescenta a guarda de volume minimo (parametro TODO-OWNER P2 em alert-rules.yml).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -74,7 +73,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (agent) (rate(maezo_agent_errors_total[5m])) / sum by (agent) (rate(maezo_tool_calls_total[5m]))",
+          "expr": "sum by (agent) (increase(maezo_agent_errors_total[5m])) / sum by (agent) (increase(maezo_agent_errors_total[5m]) or label_replace(increase(maezo_agent_desfecho_total[5m]), \"agent\", \"$1\", \"agent_id\", \"(.+)\"))",
           "legendFormat": "{{agent}}",
           "refId": "A",
           "datasource": {
@@ -87,8 +86,8 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Agent crash-loop proxy (MaezoAgentCrashLoop > 0/s por 2m)",
-      "description": "Mesma expressao de MaezoAgentCrashLoop.",
+      "title": "Agent container restarts em 15m (MaezoAgentCrashLoop >= 3)",
+      "description": "Mesma expressao de MaezoAgentCrashLoop, rebaseado em reinicio do container agent-runtime (kube-state-metrics; R-085, 2026-10-31). Sem serie fora de Kubernetes.",
       "maezo_mirrors_alert": "MaezoAgentCrashLoop",
       "datasource": {
         "type": "prometheus",
@@ -128,8 +127,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (agent) (rate(maezo_agent_errors_total[1m]))",
-          "legendFormat": "{{agent}}",
+          "expr": "sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{container=\"agent-runtime\"}[15m])) >= 3",
+          "legendFormat": "{{namespace}}/{{pod}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",

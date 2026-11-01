@@ -417,10 +417,14 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         inad_rn593_estrito: bool = False,
         pagto_fatos_estritos: bool = False,
         inad_fatos_estritos: bool = False,
+        inad_chave_exige_contrato: bool = False,
         contas_sla_risk_entrega: bool = False,
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
+        auth_prazo_dias_uteis: bool = False,
     ) -> None:
+        captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
+        captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
         captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
         captured["pagto_fatos_estritos"] = pagto_fatos_estritos
         captured["inad_fatos_estritos"] = inad_fatos_estritos
@@ -472,6 +476,8 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
         assert captured["pagto_fatos_estritos"] is False
         assert captured["inad_fatos_estritos"] is False
+        # F-124: a chave INAD so' sobre o contrato ships dark (MAEZO_INAD_CHAVE_EXIGE_CONTRATO).
+        assert captured["inad_chave_exige_contrato"] is False
         # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
         assert settings.contas_sla_risk_entrega is False
         assert captured["contas_sla_risk_entrega"] is False
@@ -479,6 +485,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         assert settings.lgpd_legal_hold_predicate is False
         assert captured["lgpd_legal_hold_predicate"] is False
         assert captured["junta_rn424_guard"] is False  # R-064 ships dark (MAEZO_AUTH_JUNTA_RN424_GUARD)
+        # R-005 / F-018: prazo de resposta AUTH em dias uteis ships dark (MAEZO_AUTH_PRAZO_DIAS_UTEIS).
+        assert settings.auth_prazo_dias_uteis is False
+        assert captured["auth_prazo_dias_uteis"] is False
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
@@ -752,6 +761,48 @@ async def test_bring_up_threads_the_junta_rn424_guard_when_the_deployment_turns_
             await state.audit_sink.aclose()
 
 
+async def test_bring_up_threads_the_business_day_deadline_flag_when_the_deployment_turns_it_on(
+    monkeypatch: Any,
+) -> None:
+    """R-005 / F-018 (RN 623/2024 art. 12): `MAEZO_AUTH_PRAZO_DIAS_UTEIS=true` reaches the bootstrap.
+
+    Mutation guard for the wiring: a hard-coded `auth_prazo_dias_uteis=False` (or the kwarg
+    dropped) in the live composition would pass the default bring-up test above and fail here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_AUTH_PRAZO_DIAS_UTEIS=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["auth_prazo_dias_uteis"] is True
+        assert isinstance(state.harness, _SpyHarness)
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
 async def test_bring_up_refuses_to_register_when_the_retired_second_owner_is_requested(
     monkeypatch: Any,
 ) -> None:
@@ -998,3 +1049,151 @@ def test_register_default_workers_inad_fatos_flag_on_nao_ecoa() -> None:
         "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, inad_fatos_estritos=True
     )
     assert out["dentro_janela_purga"] is True
+
+
+# ---------------------------------------------------------------------------
+# R-085 (owner 2026-10-31, #1084): the engine-history L1 decision poller ships DARK
+# ---------------------------------------------------------------------------
+
+
+def test_l1_decision_poller_settings_alias_and_dark_default() -> None:
+    assert WorkerRuntimeSettings().l1_decision_poller is False
+    on = WorkerRuntimeSettings(MAEZO_L1_DECISION_POLLER=True, MAEZO_L1_DECISION_POLLER_INTERVAL_S=5)
+    assert on.l1_decision_poller is True
+    assert on.l1_decision_poller_interval_s == 5.0
+    with pytest.raises(ValueError):
+        WorkerRuntimeSettings(MAEZO_L1_DECISION_POLLER_INTERVAL_S=0)
+
+
+async def _bring_up_with(monkeypatch: Any, settings: WorkerRuntimeSettings) -> WorkerState:
+    import maezo.runtime.worker_runtime.service as svc
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", lambda harness, **kwargs: None)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+    state = WorkerState(settings=settings)
+    await svc._bring_up_dependencies(state)
+    return state
+
+
+async def _teardown(state: WorkerState) -> None:
+    for task in (state.harness_task, state.engine_metrics_task):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+    if state.transport is not None:
+        await state.transport.close()
+    if state.audit_sink is not None:
+        await state.audit_sink.aclose()
+
+
+async def test_bring_up_does_not_build_the_l1_poller_by_default(monkeypatch: Any) -> None:
+    state = await _bring_up_with(
+        monkeypatch, WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        assert state.engine_metrics_poller is None
+        assert state.engine_metrics_task is None
+    finally:
+        await _teardown(state)
+
+
+async def test_bring_up_skips_the_l1_poller_when_the_engine_transport_failed(monkeypatch: Any) -> None:
+    """Flag ON but the engine transport did not build: no poller is built on `None` (it would
+    crash every round and report `erro` forever instead of leaving `engine_reachable` to speak)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("transport build failed")
+
+    built: list[Any] = []
+
+    class _SpyPoller:
+        def __init__(self, reader: Any, *, tenant: str, interval_s: float) -> None:
+            built.append(reader)
+
+        async def run(self) -> None:
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "CibSevenWorkerTransport", _boom)
+    monkeypatch.setattr(svc, "EngineMetricsPoller", _SpyPoller)
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_L1_DECISION_POLLER=True
+    )
+    state = await _bring_up_with(monkeypatch, settings)
+    try:
+        assert state.transport is None
+        assert built == []
+        assert state.engine_metrics_poller is None
+        assert state.engine_metrics_task is None
+    finally:
+        await _teardown(state)
+
+
+async def test_drain_cancels_the_running_l1_poller_task() -> None:
+    """The poller loops forever: the drain must CANCEL it, not just await it (that would hang)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    loop = asyncio.get_running_loop()
+    state = WorkerState(settings=WorkerRuntimeSettings())
+    state.engine_metrics_task = asyncio.create_task(asyncio.sleep(3600))
+    started = loop.time()
+    # Without `cancel()` the await only returns when `wait_for` cancels it at the 2 s timeout,
+    # and the helper's `suppress` then hides that timeout: elapsed time is the real witness.
+    await asyncio.wait_for(svc._stop_engine_metrics_poller(state), timeout=2.0)
+    assert loop.time() - started < 1.0
+    assert state.engine_metrics_task.cancelled()
+    # dark (no task) is a no-op
+    await svc._stop_engine_metrics_poller(WorkerState(settings=WorkerRuntimeSettings()))
+
+
+def test_run_drain_stops_the_l1_poller_before_closing_the_engine_transport() -> None:
+    """Structural fence: `run()` drains the poller BEFORE closing the transport it reads (the
+    daemon's `run()` binds signals and a health server, so it is fenced by source order here)."""
+    import inspect
+
+    import maezo.runtime.worker_runtime.service as svc
+
+    body = inspect.getsource(svc.run)
+    stop = body.find("await _stop_engine_metrics_poller(state)")
+    close = body.find("await state.transport.close()")
+    assert stop != -1 and close != -1 and stop < close
+
+
+async def test_bring_up_runs_the_l1_poller_on_the_engine_transport_when_turned_on(monkeypatch: Any) -> None:
+    """Mutation guard for the wiring: a hard-coded `False`, a dropped `create_task`, or a poller
+    built on anything other than the daemon's own engine transport fails here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    built: dict[str, Any] = {}
+
+    class _SpyPoller:
+        def __init__(self, reader: Any, *, tenant: str, interval_s: float) -> None:
+            built.update(reader=reader, tenant=tenant, interval_s=interval_s)
+
+        async def run(self) -> None:
+            built["ran"] = True
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "EngineMetricsPoller", _SpyPoller)
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_L1_DECISION_POLLER=True,
+        MAEZO_L1_DECISION_POLLER_INTERVAL_S=7,
+    )
+    state = await _bring_up_with(monkeypatch, settings)
+    try:
+        assert isinstance(state.engine_metrics_poller, _SpyPoller)
+        assert built["reader"] is state.transport and state.transport is not None
+        assert built["tenant"] == settings.tenant_id
+        assert built["interval_s"] == 7.0
+        assert state.engine_metrics_task is not None
+        await asyncio.sleep(0)
+        assert built.get("ran") is True
+    finally:
+        await _teardown(state)
