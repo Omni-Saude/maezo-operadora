@@ -929,3 +929,21 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: cumprimento de obrigacao regulatoria de verificacao de legitimidade da contratante (RN 489/2022, art. 23-A - redacao dada pela RN 659/2025; RN 557/2022), sem dado de titular na relacao e sem decisao ratificada"
     retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — o prazo da verificacao (reconfirmacao anual, RN 557/2022 art. 10) e dado da relacao, nao do plano; prazo de eliminacao passa a existir no ato de habilitacao do dono, com revisao do DPO"
+  - camada: status_prestador
+    tabela: prestador_status_ledger
+    migracao: "0032_prestador_status_ledger.py::upgrade (prestador_status_ledger; append-only triggers)"
+    identificacao: "tenant + chave_evento (o evento de origem: id da instancia do motor + evento final, ou sha256 da baseline AMH + prestador_id); a linha guarda so' o STATUS LEGAL de um PRESTADOR (MPTT P3): prestador_id (id cadastral/pseudonimo do prestador, Zona Geral pelo SP-OP-CRED-001), os enums fechados de origem/dimensao/valor, a data de efeito, o id da instancia do motor ou o digest da baseline, a business key ou a referencia ao documento da baseline assinado pela AMH, e os atributos cadastrais do prestador (tipo_prestador/especialidade/regiao_saude). Beneficiario nao e' titular aqui: sem CPF, nome, dado de saude, texto livre ou `beneficiario_pseudo_id`. PERGUNTA ABERTA AO DPO (nao decidida aqui): prestador pessoa fisica e' ele mesmo titular (LGPD art. 5 V) e `prestador_id` pode identifica-lo; a tabela e' DARK atras de MAEZO_PRESTADOR_STATUS_LEDGER e nasce vazia"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 44
+    tensao: null
+    notas: >-
+      MPTT P3 (analise PROVIDER-trust-tiers §2; decisao do dono D-T1(A): ledger = baseline AMH assinada +
+      deltas de CRED/FRAUDE): ledger append-only (triggers recusam UPDATE/DELETE/TRUNCATE), idempotente por
+      evento de origem, escrito so' pela importacao da baseline atestada e pelo reconciliador dos terminais
+      do motor, ambos atras da bandeira MAEZO_PRESTADOR_STATUS_LEDGER (desligada). Sem dado de beneficiario.
+      O historico do motor expira em 1825 dias; a retencao desta projecao e' decisao do DPO (status legal de
+      longa vida do prestador vs. LGPD do prestador PF). Segue marcada PENDENTE porque este artefato e' o
+      DRAFT do DPO e so' a ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao do contrato com o prestador e cumprimento de obrigacao regulatoria de pagamento/rede (Lei 9.656/1998 art. 17; RN 503/2022), sem dado de beneficiario na relacao e sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — prazo passa a existir no ato de habilitacao do dono, com revisao do DPO"

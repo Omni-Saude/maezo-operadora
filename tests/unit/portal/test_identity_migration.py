@@ -43,7 +43,10 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # O limite de falhas por CPF (D-04, 15/10/2026) adds `acesso_falhas_por_cpf` as 0028.
     # D-36 (dono, 25/10/2026) adds the dark commission adjustment DRAFT structures as 0029.
     # OP21/REG-1.1 (26/10/2026) adds the dark legitimacy-screen substrate as 0030.
-    assert heads == {"0030"}, f"expected 0030 to be the sole head, got {heads}"
+    # MPTT P3 (01/11/2026) adds the dark append-only provider status ledger as 0032 after 0030
+    # (re-pointed to 0031 if PR #1074's 0031 merges first).
+    assert heads == {"0032"}, f"expected 0032 to be the sole head, got {heads}"
+    assert revisions["0032"] == "0030"
     assert revisions["0030"] == "0029"
     assert revisions["0028"] == "0027"
     assert revisions["0027"] == "0026"
@@ -63,7 +66,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0030"
+    current = "0032"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)
