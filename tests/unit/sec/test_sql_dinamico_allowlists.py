@@ -227,3 +227,31 @@ def test_provider_notice_identifier_recusa_injecao() -> None:
 
     _recusa_todas(provider_notice.Identifier)
     _campo_validado(provider_notice.ProviderNoticeInstallation, "schema_name")
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/commercial_legitimacy_screen.py (_SELECT_LATEST_TEMPLATE.format(axis=...))
+# ---------------------------------------------------------------------------------------------
+
+
+def argumentos_literais_de_format(modulo: str, template: str) -> list[dict[str, Any]]:
+    """Kwargs de cada `<template>.format(...)` do modulo; `literal_eval` falha se nao for literal."""
+    tree = ast.parse((_SRC / modulo).read_bytes())
+    chamadas = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "format"
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == template
+    ]
+    for c in chamadas:
+        assert not c.args, "format posicional nao e' admitido"
+    return [{k.arg: ast.literal_eval(k.value) for k in c.keywords} for c in chamadas]
+
+
+def test_legitimacy_screen_axis_e_coluna_literal() -> None:
+    assert argumentos_literais_de_format(
+        "gateway/commercial_legitimacy_screen.py", "_SELECT_LATEST_TEMPLATE"
+    ) == [{"axis": "opportunity_ref"}, {"axis": "legal_entity_ref"}]
