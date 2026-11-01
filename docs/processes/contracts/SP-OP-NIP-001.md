@@ -338,3 +338,18 @@ taxonomia da operadora (`regulatorio-ans`/`juridico-regulatorio`/`medico-auditor
 `coordenacao-regulatorio`); detalhamento do handoff `NIP → ANS-SUBMIT-001` (correlacao de
 protocolo); politica de suspensao/recontagem de prazo durante `SOLICITAR_INFO`; anexos
 obrigatorios por classificacao de NIP.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-NIP-001` → `maezo-payer-nip-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - protocolo NIP: `{tenant_id}:nip-001:hk1_<HMAC>` sobre `N-{numero_nip_ans}`.
+- **Classificação (a confirmar pelo DPO):** pessoal (reclamação de beneficiário) — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

@@ -1254,28 +1254,21 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     )
 
 
-async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
+async def test_m4_categoria_desconhecida_roteia_a_analista_de_contas(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
-    pagto_drain: PagtoDrainProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """OQ-10 / M-4: a DIVULGACAO OBRIGATORIA de ADR-0040, tornada um fato verificavel.
+    """M-4 / F-033 FECHADO por DEC-14 (dono, 2026-10-31, #1084, opcao (a) "rotear a humano"; R-062).
 
-    O achado M-4 NAO foi fechado por este redesenho — a row permissiva da `glosa_triage` continua
-    com o conjunto negativo que admite `categoria_normalizada="desconhecida"`, e fecha-lo e ato do
-    dono da tabela. O que MUDOU e a CONSEQUENCIA, e ela tem de ser dita nos dois sentidos:
-
-      ANTES: o input defeituoso terminava num terminal sem efeito e sem revisor.
-      DEPOIS: ele emite um demonstrativo ao prestador E cria uma ordem em SP-OP-PAGTO-001 —
-              que PARA na fila humana de `UT_AnaliseAdmissibilidade`.
-
-    Ou seja o raio vai de zero-efeito-e-invisivel para ordem-visivel-e-humano-gated: MAIS
-    exposicao de artefato, MAIS visibilidade humana, NENHUM dinheiro automatico. O que NAO melhora
-    e o lado da operadora — a conta e adjudicada "pagar integralmente" sem que um analista de
-    contas a veja. Esse residuo e OQ-10, e este teste o deixa medido em vez de argumentado.
+    Antes, `r_pagar` (row 1) gateava `categoria_normalizada` em `not("tecnica","clinica")`, que
+    admitia `"desconhecida"`: a conta era adjudicada PAGAR sem analista de contas (o residuo OQ-10
+    que a versao anterior deste teste MEDIA). Agora `r_pagar` usa o conjunto POSITIVO fechado
+    `{documental, administrativa, valor}` e a categoria desconhecida desce ao catch-all ->
+    `ANALISE_HUMANA` -> fluxo default de `GW_Triagem` -> `ST_PrepareTriageDossier` ->
+    `UT_AnalistaContas`. Prova no motor: a instancia PARA na User Task humana; nenhum demonstrativo
+    integral, nenhum terminal de aprovacao integral, nenhuma ordem em SP-OP-PAGTO-001.
     """
-    await _deploy_pagto(engine)
     inst = await start_contas(
         categoria_normalizada="desconhecida",
         item_conforme_tabela=True,
@@ -1286,30 +1279,15 @@ async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
     iid = inst["id"]
 
     await contas_probe.drain()
-    ended = await _await_end(engine, iid)
+    task = await engine.await_user_task(iid, _UT_ANALISTA)
+    assert task is not None, "M-4: categoria desconhecida tem de parar no analista de contas"
 
-    # O RESIDUO, medido: nenhum analista de contas viu esta conta.
-    assert _END_APROVADA_INTEGRAL in ended, (
-        f"M-4: a categoria fora do dominio declarado ainda e adjudicada como PAGAR. ended={ended}"
-    )
-    assert not await engine.list_user_tasks(iid), (
-        "M-4 (OQ-10): o residuo E este — nenhuma User Task de contas foi criada"
-    )
-
-    # O QUE MELHOROU: existe artefato, e ele para num humano.
-    assert "ST_EmitirDemonstrativoIntegral" in ended, "o prestador passa a ser comunicado"
-    # `get_history_variable` pelo mesmo motivo do teste anterior: a instancia de CONTAS ja
-    # terminou em `End_ContaAprovadaIntegral` e o endpoint de runtime devolve 500.
-    lote = await engine.get_history_variable(iid, "numero_lote_tiss")
-    pagto = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
-    assert len(pagto) == 1
-    await pagto_drain.drain()
-    pagto_ut = await engine.await_user_task(pagto[0]["id"], _UT_PAGTO_ADMISSIBILIDADE)
-    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"})
-    pagto_ended = await engine.activity_instances_ended(pagto[0]["id"])
-    assert "End_PagamentoLiberadoAutomatico" not in pagto_ended, (
-        "o input defeituoso de M-4 produz uma ordem PENDENTE de humano, nunca uma liberacao"
-    )
+    ended = await engine.activity_instances_ended(iid)
+    assert "BRT_TriagemGlosa" in ended
+    assert "ST_PrepareTriageDossier" in ended, "o fluxo default (humano) de GW_Triagem foi tomado"
+    assert _END_APROVADA_INTEGRAL not in ended, f"M-4 reaberto: PAGAR sem analista. ended={ended}"
+    assert "ST_EmitirDemonstrativoIntegral" not in ended, ended
+    assert "ST_HandoffPagamentoAuto" not in ended, ended
 
 
 async def test_happy_path_encaminhar_fraude_handoff_fraude(

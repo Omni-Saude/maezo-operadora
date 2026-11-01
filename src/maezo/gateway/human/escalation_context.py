@@ -10,7 +10,7 @@ DL-0050 takes the same shortcut DL-0049 already took for completion, for the sam
 behind the same gate: read the handful of facts straight over the engine's REST surface, from a
 fixed server-owned client. It is fenced to `dev-sa-east-1` by
 `scripts/ci/check_portal_direct_completion.py` and it is not the destination — the destination
-is the durable, signed read model (issue #427's family of work). Read DL-0049 and DL-0050 before
+is the durable, signed read model (issue #1145's family of work). Read DL-0049 and DL-0050 before
 extending anything here.
 
 Nothing in this module is a capability: no key, no connection and no HTTP client. It holds the

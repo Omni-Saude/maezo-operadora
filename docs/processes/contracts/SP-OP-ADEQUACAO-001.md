@@ -364,3 +364,18 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
   fallback gerar pagamento, interacao com SP-OP-REEMBOLSO-001 no reembolso garantido) — **DRAFT**.
 - Taxonomia de especialidade (TUSS/CBO) e granularidade geografica (regiao de saude vs municipio
   IBGE) — alinhar com a base de rede e a RN.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-ADEQUACAO-001` → `maezo-payer-adequacao-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - célula: `{tenant_id}:adequacao-001:A-{regiao_saude}-{especialidade}[-{ciclo_avaliacao}]` (em claro no motor).
+- **Classificação (a confirmar pelo DPO):** não pessoal.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

@@ -200,13 +200,25 @@ def test_validate_cred_padded_prestador_id_still_passes() -> None:
     assert result["documentacao_completa"] is True
 
 
-def test_cred_allowlist_constant_is_exactly_the_origin_guard() -> None:
-    """CRED_BPMN_ERROR_ALLOWLIST carries ONLY the G2-val origin guard — the two adverse
-    *_NOT_HUMAN codes stay T-E-deferred out of it (ADR-0030 §4; L0: never enable a *_NOT_HUMAN
-    code outside the T-E enablement)."""
-    assert frozenset({ERR_CRED_INVALID_PRESTADOR}) == CRED_BPMN_ERROR_ALLOWLIST
-    assert ERR_DECRED_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
-    assert ERR_CRED_DENIAL_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
+def test_cred_allowlist_constant_is_the_gate_proven_set_and_te_is_the_switch() -> None:
+    """CRED_BPMN_ERROR_ALLOWLIST declares what is GATE-PROVEN (as auth's does): the G2-val origin
+    guard plus the two adverse *_NOT_HUMAN guards. Enabling is NOT this constant's job — the two
+    guards reach production only through the explicit T-E enablement (`TE_ENABLED_CODES`, lote T-E
+    unico 2026-10-31), and their refusals stay audited (ADR-0030 §4; L0)."""
+    from scripts.ci.check_bpmn_error_allowlist import TE_ENABLED_CODES
+
+    from maezo.runtime.worker_runtime.service import PRODUCTION_BPMN_ERROR_ALLOWLIST, _is_te_gated
+    from maezo.tools.workers.harness import is_guard_refusal_code
+
+    assert (
+        frozenset({ERR_CRED_INVALID_PRESTADOR, ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN})
+        == CRED_BPMN_ERROR_ALLOWLIST
+    )
+    for code in (ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN):
+        assert code in TE_ENABLED_CODES, code  # sem isto, a constante sozinha NAO habilita
+        assert not _is_te_gated(code), code
+        assert code in PRODUCTION_BPMN_ERROR_ALLOWLIST, code
+        assert is_guard_refusal_code(code), code
 
 
 def test_validate_cred_guard_reaches_boundary_when_allowlisted() -> None:
@@ -1131,7 +1143,7 @@ def test_cred_denial_guard_reaches_boundary_when_allowlisted() -> None:
 
 
 def test_decred_guard_fails_closed_to_incident_when_not_allowlisted() -> None:
-    """MUTATION: with the code NOT in the allowlist (today's T-E-deferred production posture), the
+    """MUTATION: with the code NOT in the allowlist (the pre-2026-10-31 T-E-deferred posture), the
     guard fails CLOSED to a retries=0 incident (handle_failure) — never a silent unmodeled bpmnError.
     Pins that the boundary is gated on the allowlist, and that pre-T-E the effect is still incident."""
     bpmn_errors, failures = _drive_guard_failure(

@@ -320,3 +320,20 @@ O passo aplica-se ao ramo da **direção A** (`End_PrestadorDescredenciado`) qua
 ## Registro de topicos exigido (REPORTE — nao editar `topic_registry.yaml` aqui)
 
 Adicionar a `config/topic_registry.yaml` (dono: W0.2/orquestrador) — Kafka `agents.events.cred.*`: `received`, `pended`, `sla_breached`, `network_changed`, `completed`. External-task `operadora.cred.*`: `verify_credentials`, `check_network_criteria`, `check_prior_notice`, `prepare_dossier`, `register_cred_denial`, `register_descredenciamento`, `register_credenciamento`, `notify_sla_risk`. Message BPMN `msg.cred.notification_ack`, `msg.cred.info_received`. (`operadora.events.publish` ja registrado.) Process key `SP-OP-CRED-001` a adicionar a `KNOWN_PROCESS_KEYS` (ADR-0016) via **PR humano CODEOWNERS** (fail-closed; nao habilitado em main ate o merge).
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-CRED-001` → `maezo-payer-cred-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - prestador: `{tenant_id}:cred-001:hk1_<HMAC>` sobre `P-{prestador_id}`.
+  - prestador+protocolo: `{tenant_id}:cred-001:hk1_<HMAC>` sobre `R-{prestador_id}-{protocolo_cred}`.
+- **Classificação (a confirmar pelo DPO):** dado pessoal quando o prestador é PF; ID cru de fonte — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- Os três sítios que cunham CRED hoje (worker de adequação, worker de fraude e a ponte de notificações) e os da Carolina passam a usar o compositor único.

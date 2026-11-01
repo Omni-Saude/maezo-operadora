@@ -46,6 +46,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -683,6 +684,78 @@ def record_a2a_guard_refusal(*, target: str, guard: str) -> None:
         _get_metrics_collector().a2a_guard_refusal.labels(target=target, guard=rotulo).inc()
     except Exception:  # never mask the delegation rejection this is counting.
         logger.debug("a2a_guard_refusal_metric_emit_failed", exc_info=True)
+
+
+def preinit_a2a_guard_refusals(*, targets: Iterable[str]) -> None:
+    """Pre-initialise `maezo_a2a_guard_refusal_total` at 0 for every registered target x guard.
+
+    R-085 (decisao do dono 2026-10-31, "pre-inicializar contadores raros"). Um contador rotulado
+    so nasce no primeiro `.inc()`, e `increase()`/`rate()` nao enxergam esse primeiro incremento
+    — para um evento RARO por desenho (a recusa por orcamento A2A) isso esconde justamente o
+    unico evento que `MaezoA2ABudgetExhausted` existe para ver. Chamado UMA vez pelo construtor de
+    `a2a.dispatcher.DelegationDispatcher` com os targets que ele registra (conjunto limitado) e o
+    vocabulario fechado `A2A_GUARDS`. Best-effort: nunca impede a construcao do dispatcher.
+    """
+    try:
+        counter = _get_metrics_collector().a2a_guard_refusal
+        for target in targets:
+            for guard in A2A_GUARDS:
+                counter.labels(target=target, guard=guard)
+    except Exception:  # telemetry must never break dispatcher construction.
+        logger.debug("a2a_guard_refusal_preinit_failed", exc_info=True)
+
+
+#: R-085: tokens SENTINELA de `decisao` em `maezo_l1_decision_total`, minusculos para nunca
+#: colidirem com um token BPMN (todos MAIUSCULOS). `sem_decisao`: a User Task terminou sem ser
+#: concluida (timer interruptivo, cancelamento da instancia — `deleteReason != completed`).
+#: `desconhecido`: o valor lido esta fora do vocabulario declarado da tarefa (ou ausente) — o
+#: valor cru NUNCA vira rotulo.
+L1_DECISAO_SEM_DECISAO: Final[str] = "sem_decisao"
+L1_DECISAO_DESCONHECIDA: Final[str] = "desconhecido"
+
+
+def record_l1_decision(*, tenant: str, agent_id: str, action_class: str, decisao: str) -> None:
+    """Count ONE human decision at an L1 approval User Task — `maezo_l1_decision_total` (R-085).
+
+    O proxy de "taxa de aprovacao humana de propostas L1" de ADR-0010, decidido pelo dono em
+    2026-10-31 (#1084, Rodada 2): poller do historico do engine, um campo de decisao por tarefa,
+    rotulos fechados. UNICO sitio de chamada: `worker_runtime.engine_metrics.EngineMetricsPoller`,
+    que ja normalizou `decisao` para o vocabulario declarado da tarefa ou um dos dois sentinelas
+    acima. Best-effort: telemetria nunca derruba o poller.
+    """
+    try:
+        _get_metrics_collector().l1_decision_total.labels(
+            tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("l1_decision_metric_emit_failed", exc_info=True)
+
+
+def preinit_l1_decisions(*, tenant: str, label_sets: Iterable[tuple[str, str, str]]) -> None:
+    """Pre-initialise `maezo_l1_decision_total` at 0 for every closed (agent_id, action_class,
+    decisao) the poller can emit, so the FIRST decision of each class is visible to `increase()`.
+    Same rationale as :func:`preinit_a2a_guard_refusals`; L1 volume is low by nature."""
+    try:
+        counter = _get_metrics_collector().l1_decision_total
+        for agent_id, action_class, decisao in label_sets:
+            counter.labels(tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao)
+    except Exception:  # telemetry must never break the poller's construction.
+        logger.debug("l1_decision_preinit_failed", exc_info=True)
+
+
+#: R-085: desfechos fechados de `maezo_engine_metrics_poll_total`.
+ENGINE_POLL_OK: Final[str] = "ok"
+ENGINE_POLL_ERRO: Final[str] = "erro"
+
+
+def record_engine_metrics_poll(*, ok: bool) -> None:
+    """Count ONE engine-history poller round — `maezo_engine_metrics_poll_total{outcome}` (R-085)."""
+    try:
+        _get_metrics_collector().engine_metrics_poll_total.labels(
+            outcome=ENGINE_POLL_OK if ok else ENGINE_POLL_ERRO
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("engine_metrics_poll_metric_emit_failed", exc_info=True)
 
 
 #: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.

@@ -262,10 +262,12 @@ def test_the_four_repointed_composers_now_feed_the_shadow_counter(tmp_path: Path
 def test_no_cancel_inad_key_is_minted_outside_the_shared_mint_composer() -> None:
     """The claim "the single composer every CANCEL/INAD key is minted through", made checkable.
 
-    `base.contract_business_key` is the bare formatter — it mints without counting. Exactly two
-    call sites in `src/` may use it, both inside `base.py` itself: `mint_contract_business_key`
-    (which counts) and `contract_business_key_forms` (which QUERIES for pre-existing instances
-    and must NOT count — inflating the mint series would corrupt the owner's evidence). Any other
+    `base.contract_business_key` is the bare formatter — it mints without counting. Exactly three
+    call sites in `src/` may use it, all inside `base.py` itself: `mint_contract_business_key`
+    (which counts), `contract_business_key_forms` (which QUERIES for pre-existing instances
+    and must NOT count — inflating the mint series would corrupt the owner's evidence) and
+    `is_contract_anchored_key` (F-124: COMPARES a key against its contract form for the start
+    refusal, and must not count either). Any other
     module reaching for it is a silently uncounted mint, which is precisely how the
     `anchor="contrato"` series came to under-count before this repair.
     """

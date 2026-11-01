@@ -156,7 +156,9 @@ async def _turno(estado: LucasState, rascunho: str) -> tuple[dict[str, Any], _En
 async def _dmn(**entrada: Any) -> dict[str, Any]:
     entrada.setdefault("valores_com_atraso", False)
     entrada.setdefault("pagador_empresa", False)
-    entrada.setdefault("atraso_critico", False)
+    # R-047: os FATOS do atraso; o limiar (>= 2 meses / > 30 dias) mora na tabela.
+    entrada.setdefault("meses_vencidos", 0)
+    entrada.setdefault("dias_atraso_max", None)
     linhas, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", entrada)
     return linhas[0]
 
@@ -191,15 +193,15 @@ async def test_dmn_consulta_valores_sem_fatos_escala_por_ambiguidade() -> None:
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "ambiguidade")
 
 
-@pytest.mark.parametrize("ciclos", [1, 3])
+@pytest.mark.parametrize("ciclos", [2, 3])
 async def test_dmn_atraso_critico_perguntando_valor_escala(ciclos: int) -> None:
-    """Decisao do dono (14/10/2026): so' o atraso CRITICO escala (`atraso_critico`, apurado pelo grafo)."""
+    """Decisao do dono (14/10/2026): so' o atraso CRITICO escala (R-047: limiar `>= 2` meses na tabela)."""
     linha = await _dmn(
         tipo_solicitacao="consulta_valores",
         status_conciliado=False,
         ciclos_sem_conciliacao=ciclos,
         valores_disponiveis=True,
-        atraso_critico=True,
+        meses_vencidos=ciclos,
     )
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "inadimplencia")
 
