@@ -599,7 +599,7 @@ acoes:
           Via GatedHistoryReadingCibSevenTransport, construído SÓ quando o inner tem as duas
           pernas de histórico"
         choked: true
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:753"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:757"
         detalhe: "resolve_historic_instance (PAGTO PR-C / MPTT P2) — UMA instância do HISTÓRICO
           por chave de negócio e/ou filtro de variável: estado, endActivityId e variáveis por
           nome, falha fechada (padrão DL-0050; nomes PHI recusados antes da rede). Via

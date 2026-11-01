@@ -49,6 +49,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
@@ -305,9 +306,12 @@ class HistoryPayloadMalformedError(CibSevenError):
 class HistoricInstanceRecord:
     """A UNICA instancia historica que casou com o seletor de `resolve_historic_instance`.
 
-    `state` e `end_activity_id` vem verbatim de `/history/process-instance` (`endActivityId` e'
-    `None` enquanto a instancia nao terminou). `variables` traz SO' os nomes pedidos em `names`
-    que o historico tinha; nome ausente fica ausente (nunca `None` inventado).
+    `state` vem verbatim de `/history/process-instance`. `end_activity_id` e' o evento final de
+    nivel de processo que encerrou a instancia: o `endActivityId` do motor quando ele o informa, e
+    senao o derivado do historico de atividades (ver `resolve_historic_instance`). `None` enquanto
+    a instancia nao terminou, ou quando ela terminou sem passar por evento final (cancelada).
+    `variables` traz SO' os nomes pedidos em `names` que o historico tinha; nome ausente fica
+    ausente (nunca `None` inventado).
     """
 
     instance_id: str
@@ -769,6 +773,14 @@ class CibSevenHttpTransport:
              linhas para provar unicidade sem baixar o historico inteiro.
           2. `GET /history/variable-instance` filtrado pela instancia e por `variableNameIn` — so'
              os nomes pedidos (+ os do filtro, para conferir que o filtro foi aplicado).
+          3. SO' quando a instancia terminou e o motor nao informou `endActivityId`:
+             `GET /history/activity-instance` da instancia (`finished=true`). Observado no motor do
+             CI (CIB Seven, 01/11/2026): instancia `COMPLETED` pelo evento final com
+             `endActivityId: null` na linha de `/history/process-instance`. O fato entao vem do
+             historico de atividades: o evento final (`activityType` terminado em `EndEvent`) de
+             NIVEL DE PROCESSO (`parentActivityInstanceId` == id da instancia; o fim de um
+             subprocesso nao encerra a instancia) que terminou por ultimo — o mesmo significado do
+             `endActivityId` do motor. Empate no ultimo instante e' ambiguo, nunca escolhido.
 
         Tenant OBRIGATORIO (`CibSevenTenantError` sem ele): um filtro so' por variavel nao carrega
         o tenant na chave, entao a consulta vai com `tenantIdIn` e cada linha e' conferida.
@@ -837,6 +849,9 @@ class CibSevenHttpTransport:
                 f"CIB Seven history instance row of {where} contradicts the query or is malformed"
             )
 
+        if end_activity_id is None and state.strip().upper() in _FINISHED_HISTORIC_STATES:
+            end_activity_id = await self._read_process_end_activity(instance_id)
+
         values: dict[str, Any] = {}
         wanted = (*filters, *(n for n in names if n not in filters))
         if wanted:
@@ -856,6 +871,72 @@ class CibSevenHttpTransport:
             end_activity_id=end_activity_id,
             variables={n: values[n] for n in names if n in values},
         )
+
+    async def _read_process_end_activity(self, instance_id: str) -> str | None:
+        """O evento final de nivel de processo que encerrou `instance_id`, pelo historico de
+        atividades; `None` se a instancia terminou sem evento final. Falha fechada em tudo."""
+        try:
+            resp = await self._client.get(
+                "/history/activity-instance",
+                params={"processInstanceId": instance_id, "finished": "true"},
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven history activity read failed [{exc.response.status_code}] for `{instance_id}`"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise HistoryReadUnavailableError(
+                f"CIB Seven unreachable reading history activities of `{instance_id}`: {type(exc).__name__}"
+            ) from exc
+        except ValueError as exc:
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history activity read of `{instance_id}` returned non-JSON"
+            ) from exc
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise HistoryPayloadMalformedError(
+                f"CIB Seven history activity read of `{instance_id}` returned an unexpected shape"
+            )
+        ends: list[tuple[datetime, str]] = []
+        for row in rows:
+            activity_type = row.get("activityType")
+            if not (isinstance(activity_type, str) and activity_type.endswith("EndEvent")):
+                continue
+            if row.get("parentActivityInstanceId") != instance_id:
+                continue  # fim de subprocesso: nao encerra a instancia
+            owner = row.get("processInstanceId")
+            activity_id = row.get("activityId")
+            end_time = row.get("endTime")
+            if (
+                (owner is not None and owner != instance_id)
+                or not isinstance(activity_id, str)
+                or not activity_id
+            ):
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven history activity read of `{instance_id}` returned a malformed end-event row"
+                )
+            try:
+                ended_at = datetime.fromisoformat(str(end_time))
+            except ValueError as exc:
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven history activity read of `{instance_id}` returned an unparseable endTime"
+                ) from exc
+            if ended_at.tzinfo is None:
+                # Sem fuso o instante nao e' comparavel com os outros: nao se escolhe "o ultimo".
+                raise HistoryPayloadMalformedError(
+                    f"CIB Seven history activity read of `{instance_id}` returned an endTime without offset"
+                )
+            ends.append((ended_at, activity_id))
+        if not ends:
+            return None
+        last = max(when for when, _ in ends)
+        at_last = {activity for when, activity in ends if when == last}
+        if len(at_last) > 1:
+            raise HistoricInstanceAmbiguousError(
+                f"CIB Seven history of `{instance_id}` has several process-level end events at one instant"
+            )
+        return at_last.pop()
 
     async def _read_named_historic_values(self, instance_id: str, wanted: tuple[str, ...]) -> dict[str, Any]:
         """`GET /history/variable-instance` por instancia e por nome; falha fechada em tudo."""

@@ -75,8 +75,20 @@ def _transport(
     return transport, seen
 
 
-def _engine(instances: Any, variables: Any = (), *, inst_status: int = 200, var_status: int = 200) -> Handler:
+def _engine(
+    instances: Any,
+    variables: Any = (),
+    *,
+    inst_status: int = 200,
+    var_status: int = 200,
+    activities: Any = None,
+    act_status: int = 200,
+) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/history/activity-instance") and activities is not None:
+            if isinstance(activities, bytes):
+                return httpx.Response(act_status, content=activities)
+            return httpx.Response(act_status, json=activities)
         if request.url.path.endswith("/history/process-instance"):
             if isinstance(instances, bytes):
                 return httpx.Response(inst_status, content=instances)
@@ -402,3 +414,128 @@ async def test_fake_mirrors_not_found_ambiguous_and_named_projection() -> None:
         await fake.resolve_historic_instance(_PK, variable_equals={"prestador_id": "P1"})
     with pytest.raises(ValueError, match="PHI"):
         await fake.resolve_historic_instance(_PK, business_key="BK-a", names=("notas_resolucao",))
+
+
+# --- endActivityId ausente no motor: derivado do historico de atividades ----------------------
+#
+# Observado no motor do CI (CIB Seven, PR #1167, 01/11/2026): instancia COMPLETED pelo evento final
+# com `endActivityId: null` em `/history/process-instance`. A costura deriva o fato do historico de
+# atividades, com o mesmo significado (o evento final de nivel de processo que terminou por ultimo).
+
+
+def _act(
+    activity_id: str, activity_type: str, end_time: Any, *, parent: str = "pi-1", **over: Any
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": f"{activity_id}:ai",
+        "activityId": activity_id,
+        "activityType": activity_type,
+        "parentActivityInstanceId": parent,
+        "processInstanceId": "pi-1",
+        "endTime": end_time,
+    }
+    out.update(over)
+    return out
+
+
+_T0 = "2026-11-01T10:00:00.000-0300"
+_T1 = "2026-11-01T10:00:01.000-0300"
+_T2 = "2026-11-01T10:00:02.000-0300"
+
+
+async def test_completed_without_engine_end_activity_derives_the_process_level_end_event() -> None:
+    activities = [
+        _act("StartEvent_1", "startEvent", _T0),
+        _act("Task_Adjudicar", "serviceTask", _T1),
+        _act("End_SubprocessoInterno", "noneEndEvent", _T2, parent="Sub_1:ai"),  # fim de subprocesso
+        _act("End_ContaAprovadaIntegral", "noneEndEvent", _T1),
+    ]
+    transport, seen = _transport(_engine([_row(endActivityId=None)], activities=activities))
+    record = await transport.resolve_historic_instance(_PK, business_key=_BK)
+    assert record.end_activity_id == "End_ContaAprovadaIntegral", (
+        "o fim do subprocesso nao encerra a instancia"
+    )
+    act_read = seen[1]
+    assert act_read.method == "GET"
+    assert act_read.url.path.endswith("/history/activity-instance")
+    assert act_read.url.params["processInstanceId"] == "pi-1"
+    assert act_read.url.params["finished"] == "true"
+
+
+async def test_engine_reported_end_activity_is_used_verbatim_without_activity_read() -> None:
+    transport, seen = _transport(_engine([_row()], activities=[_act("End_Outro", "noneEndEvent", _T0)]))
+    record = await transport.resolve_historic_instance(_PK, business_key=_BK)
+    assert record.end_activity_id == "End_ContaAprovadaIntegral"
+    assert len(seen) == 1
+
+
+async def test_parallel_process_level_ends_pick_the_one_that_ended_last() -> None:
+    activities = [_act("End_RamoA", "noneEndEvent", _T2), _act("End_RamoB", "terminateEndEvent", _T1)]
+    transport, _ = _transport(_engine([_row(endActivityId=None)], activities=activities))
+    record = await transport.resolve_historic_instance(_PK, business_key=_BK)
+    assert record.end_activity_id == "End_RamoA"
+
+
+async def test_two_process_level_ends_at_the_same_last_instant_are_ambiguous() -> None:
+    activities = [_act("End_RamoA", "noneEndEvent", _T1), _act("End_RamoB", "noneEndEvent", _T1)]
+    transport, _ = _transport(_engine([_row(endActivityId=None)], activities=activities))
+    with pytest.raises(HistoricInstanceAmbiguousError):
+        await transport.resolve_historic_instance(_PK, business_key=_BK)
+
+
+async def test_terminated_instance_without_end_event_has_no_end_activity() -> None:
+    activities = [_act("StartEvent_1", "startEvent", _T0), _act("Task_Adjudicar", "serviceTask", _T1)]
+    transport, _ = _transport(
+        _engine([_row(state="EXTERNALLY_TERMINATED", endActivityId=None)], activities=activities)
+    )
+    record = await transport.resolve_historic_instance(_PK, business_key=_BK)
+    assert record.end_activity_id is None
+
+
+@pytest.mark.parametrize("status", [404, 500])
+async def test_http_error_on_activity_read_is_unavailable(status: int) -> None:
+    transport, _ = _transport(_engine([_row(endActivityId=None)], activities=[], act_status=status))
+    with pytest.raises(HistoryReadUnavailableError):
+        await transport.resolve_historic_instance(_PK, business_key=_BK)
+
+
+async def test_timeout_on_activity_read_is_unavailable() -> None:
+    base = _engine([_row(endActivityId=None)])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/history/activity-instance"):
+            raise httpx.ReadTimeout("t")
+        return base(request)
+
+    transport, _ = _transport(handler)
+    with pytest.raises(HistoryReadUnavailableError):
+        await transport.resolve_historic_instance(_PK, business_key=_BK)
+
+
+@pytest.mark.parametrize(
+    "activities",
+    [
+        b"nope",
+        {"activityId": "End_X"},
+        ["End_X"],
+        [_act("", "noneEndEvent", _T0)],
+        [_act("End_X", "noneEndEvent", "ontem")],
+        [_act("End_X", "noneEndEvent", None)],
+        [_act("End_X", "noneEndEvent", "2026-11-01T10:00:00")],
+        [_act("End_X", "noneEndEvent", _T0, processInstanceId="pi-OUTRA")],
+    ],
+    ids=[
+        "non-json",
+        "dict-not-list",
+        "list-of-str",
+        "activity-id-empty",
+        "end-time-unparseable",
+        "end-time-absent",
+        "end-time-without-offset",
+        "other-instance-row",
+    ],
+)
+async def test_malformed_activity_payload_fails_closed(activities: Any) -> None:
+    transport, _ = _transport(_engine([_row(endActivityId=None)], activities=activities))
+    with pytest.raises(HistoryPayloadMalformedError):
+        await transport.resolve_historic_instance(_PK, business_key=_BK)

@@ -5,8 +5,9 @@ motor simulado neste arquivo) o que os testes unitarios so' podem afirmar sobre 
 
   1. a consulta `POST /history/process-instance` com filtro de variavel `eq` e `tenantIdIn` e'
      aceita pelo motor e devolve so' a instancia que casa;
-  2. `endActivityId` vem preenchido para a instancia que terminou (o evento final do processo) e
-     ausente para a que segue ativa;
+  2. o evento final (`end_activity_id`) vem preenchido para a instancia que terminou — mesmo
+     quando o motor devolve `endActivityId: null`, caso em que a costura o deriva do historico de
+     atividades — e ausente para a que segue ativa;
   3. as variaveis nomeadas voltam do historico com o tipo certo;
   4. nenhuma / duas instancias casando viram `HistoricInstanceNotFoundError` /
      `HistoricInstanceAmbiguousError` — nunca a primeira linha.
@@ -89,6 +90,12 @@ async def test_resolve_historic_instance_against_real_engine(
         )
         assert by_key.instance_id == done.instance_id
         assert by_key.state == "COMPLETED"
+        # O motor do CI devolve `endActivityId: null` nesta linha (PR #1167, 01/11/2026); a costura
+        # deriva o evento final do historico de atividades. Aceita os dois estados do motor para
+        # que a prova nao dependa dessa particularidade — o que se prova e' o valor da costura.
+        raw = await engine_client.get(f"/history/process-instance/{done.instance_id}")
+        raw.raise_for_status()
+        assert raw.json().get("endActivityId") in (None, "EndEvent_1")
         assert by_key.end_activity_id == "EndEvent_1"
         assert by_key.variables == {"valor_liberado_centavos": 150000, "numero_lote_tiss": "L1"}
 
