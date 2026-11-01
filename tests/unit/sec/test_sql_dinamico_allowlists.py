@@ -676,3 +676,39 @@ def test_is_native_schema_recusa_injecao(carga: str) -> None:
 
     assert is_native_schema(carga) is False
     assert is_native_schema("maezo_native") is True
+
+
+# ---------------------------------------------------------------------------------------------
+# Constantes de modulo usadas como lista de colunas (INSERT com placeholders gerados)
+# ---------------------------------------------------------------------------------------------
+
+
+def atribuicao_literal_de_modulo(modulo: str, nome: str) -> Any:
+    """Valor literal da UNICA atribuicao de topo a `nome` (falha se computado ou reatribuido)."""
+    tree = ast.parse((_SRC / modulo).read_bytes())
+    atribs = [
+        n.value
+        for n in tree.body
+        if isinstance(n, ast.Assign | ast.AnnAssign)
+        and n.value is not None
+        and any(
+            isinstance(t, ast.Name) and t.id == nome
+            for t in getattr(n, "targets", [getattr(n, "target", None)])
+        )
+    ]
+    assert len(atribs) == 1, (modulo, nome, len(atribs))
+    return ast.literal_eval(atribs[0])
+
+
+def test_amh_inbox_insert_so_interpola_colunas_literais() -> None:
+    from maezo.platform.integrations import amh_inbox
+
+    colunas = atribuicao_literal_de_modulo("platform/integrations/amh_inbox.py", "_INSERT_COLUMNS")
+    assert colunas == amh_inbox._INSERT_COLUMNS and all(SIMPLES.fullmatch(c) for c in colunas)
+    n = len(colunas)
+    assert (
+        f"INSERT INTO amh_inbox ({', '.join(colunas)}) "
+        f"VALUES ({', '.join(f'${i}' for i in range(1, n + 1))}) "
+        "ON CONFLICT (contract_manifest_digest, event_id) DO NOTHING "
+        "RETURNING status, redelivery_count"
+    ) == amh_inbox._INSERT_SQL
