@@ -316,6 +316,20 @@ async def _admit_without_wamid(
         record_mensagem_sem_wamid(tenant=tenant, desfecho="nao_registrada")
         return True, None
 
+    if not message.timestamp:
+        # Sem `timestamp` da Meta a identidade de fallback nao distingue uma reentrega de uma
+        # repeticao REAL do beneficiario ("sim" duas vezes no TTL): reivindicar slot aqui
+        # suprimiria em silencio uma mensagem legitima. Despacha sem protecao, anunciado e contado.
+        logger.error(
+            "whatsapp_webhook_message_without_wamid",
+            tenant=tenant,
+            conversation_id=f"wa:{tenant}:{hash_phone(message.from_number, tenant, dedup.pseudonymizer)}",
+            detail="inbound message carries neither wamid nor Meta timestamp — dispatched WITHOUT "
+            "duplicate protection (fallback identity would merge distinct repeats)",
+        )
+        record_mensagem_sem_wamid(tenant=tenant, desfecho="sem_timestamp")
+        return True, None
+
     identity = dedup.fallback_identity(message)
     conversation_id = f"wa:{tenant}:{hash_phone(message.from_number, tenant, dedup.pseudonymizer)}"
     try:

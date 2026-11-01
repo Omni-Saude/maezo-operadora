@@ -251,6 +251,20 @@ async def test_a_failed_turn_releases_its_slot() -> None:
     assert len(dispatcher.dispatched) == 2, "o slot devolvido foi reaproveitado; a 4a entrega e' a suprimida"
 
 
+async def test_without_a_meta_timestamp_no_slot_is_claimed_and_every_delivery_dispatches() -> None:
+    registry = FakeDedupRegistry()
+    dispatcher = _FakeDispatcher()
+    app = _app(registry, dispatcher)
+    before = _metric("sem_timestamp")
+
+    for _ in range(3):
+        await _post(app, _envelope(_sem_wamid(body="sim", timestamp=None)))
+
+    assert len(dispatcher.dispatched) == 3, "sem timestamp, repeticao real nao pode ser suprimida"
+    assert registry.calls == []
+    assert _metric("sem_timestamp") == before + 3
+
+
 async def test_an_unreachable_registry_keeps_dispatching_and_says_so() -> None:
     registry = FakeDedupRegistry(unavailable=True)
     dispatcher = _FakeDispatcher()
@@ -309,7 +323,16 @@ async def test_no_raw_phi_in_keys_logs_or_metric_labels() -> None:
 
 def test_desfecho_label_is_a_closed_vocabulary() -> None:
     assert (
-        frozenset({"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "desconhecido"})
+        frozenset(
+            {
+                "nao_registrada",
+                "registrada",
+                "suprimida",
+                "registro_indisponivel",
+                "sem_timestamp",
+                "desconhecido",
+            }
+        )
         == MENSAGEM_SEM_WAMID_DESFECHOS
     )
     before = _metric("desconhecido")

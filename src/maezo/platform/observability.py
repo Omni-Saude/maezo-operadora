@@ -1005,8 +1005,10 @@ def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
 #:   * `suprimida`             — flag ligada: 3a entrega em diante, suprimida em silencio;
 #:   * `registro_indisponivel` — flag ligada, registro fora: despachada mesmo assim (decisao do dono:
 #:                               manter despacho), sem protecao.
+#:   * `sem_timestamp`         — flag ligada, mas a mensagem nao traz o `timestamp` da Meta: despachada
+#:                               sem protecao (a identidade nao separaria repeticoes reais).
 MENSAGEM_SEM_WAMID_DESFECHOS: frozenset[str] = frozenset(
-    {"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "desconhecido"}
+    {"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "sem_timestamp", "desconhecido"}
 )
 
 
