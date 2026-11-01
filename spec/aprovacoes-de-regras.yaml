@@ -217,6 +217,7 @@ pendentes:
   - artefato: spec/processes/dmn/pagto_alcada.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_alcada v0.1.0 — status: DRAFT (escada de alcada / threshold_brl / mapeamento"
+    nota: "R-092 (2026-11-01): saida quorum_comite (catch-all comite-financeiro = 2) e VALOR DRAFT — quorum/composicao do comite NAO decididos pelo dono (docs/review-queue.md, secao R-092)."
   - artefato: spec/processes/dmn/pagto_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify com financas:"

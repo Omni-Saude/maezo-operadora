@@ -400,11 +400,11 @@ rows:
   nome_real: ''
 - grupo_declarado: clerical-pagamentos
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 81
+  linha: 95
   processo: SP-OP-PAGTO-001
   em_escopo: true
   tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
-  sla_ato: contrato nao lista este valor na tabela Sec.Papeis (linha 199-207) -- caminho clerical sem
+  sla_ato: contrato nao lista este valor na tabela Sec.Papeis (linha 204-212) -- caminho clerical sem
     grupo aprovador adverso
   proposto: true
   notas: NAO e um candidateGroups real (nao aparece em nenhuma User Task) -- literal de DMN para o caminho
@@ -413,43 +413,43 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l1
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 92
+  linha: 107
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:281 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 202 -- tier 1, faixa ALCADA_L1
+  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:284 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 207 -- tier 1, faixa ALCADA_L1
   proposto: true
-  notas: caveat PROPOSTO contrato linha 195-197 (binding value-driven)
+  notas: caveat PROPOSTO contrato linha 200-202 (binding value-driven)
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l2
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 103
+  linha: 119
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:281 -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 203 -- tier 2, faixa ALCADA_L2
+  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:284 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 208 -- tier 2, faixa ALCADA_L2
   proposto: true
-  notas: caveat PROPOSTO contrato linha 195-197
+  notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l3
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 114
+  linha: 131
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:281 -> UT_AprovacaoAlcada
-  sla_ato: contrato Sec.Papeis linha 204 -- tier 3, faixa ALCADA_L3
+  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:284 -> UT_AprovacaoAlcada
+  sla_ato: contrato Sec.Papeis linha 209 -- tier 3, faixa ALCADA_L3
   proposto: true
-  notas: caveat PROPOSTO contrato linha 195-197
+  notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
 - grupo_declarado: comite-financeiro
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 125
+  linha: 143
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:281 -> UT_AprovacaoComite
-  sla_ato: contrato Sec.Papeis linha 205 -- catch-all conservador, aprovacao colegiada DRAFT
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:284 -> UT_AprovacaoAlcada (flag desligada); bpmn:427 -> UT_AprovacaoComite (R-092, dark)
+  sla_ato: contrato Sec.Papeis linha 210 -- catch-all conservador, aprovacao colegiada DRAFT
   proposto: true
-  notas: caveat PROPOSTO contrato linha 195-197
+  notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
 - grupo_declarado: analise-contas-pagar
   arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
@@ -457,18 +457,18 @@ rows:
   processo: SP-OP-PAGTO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_AnaliseAdmissibilidade (checker -- nunca aprovador)
-  sla_ato: contrato Sec.Papeis linha 207 -- admissibilidade da ordem (PROSSEGUIR/DEVOLVER)
+  sla_ato: contrato Sec.Papeis linha 212 -- admissibilidade da ordem (PROSSEGUIR/DEVOLVER)
   proposto: true
   notas: 'NOVO: divisao de coordenacao-financeira em admissibilidade x aprovacao (#1084 (rodadas 2 e 3,
     2026-10-31))'
   nome_real: ''
 - grupo_declarado: coordenacao-financeira
   arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
-  linha: 347
+  linha: 351
   processo: SP-OP-PAGTO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoAlcada (SLA de alcada estourado)
-  sla_ato: contrato Sec.Papeis linha 206 -- humano de tier >= faixa assume
+  sla_ato: contrato Sec.Papeis linha 211 -- humano de tier >= faixa assume
   proposto: true
   notas: so aprovacao apos a divisao (#1084 (rodadas 2 e 3, 2026-10-31))
   nome_real: ''

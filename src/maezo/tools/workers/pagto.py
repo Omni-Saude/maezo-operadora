@@ -147,6 +147,7 @@ PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
         "prestador_conhecido",
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
+        "votos_comite",
     }
 )
 
@@ -171,6 +172,33 @@ DECISAO_ADMISSIBILIDADE_DEVOLVER = "DEVOLVER"
 # no tier mais alto (4)", pagto_alcada.dmn) — the comite tier of the table's own catch-all row
 # (`r_catchall`), never a band of the ladder.
 _TIER_COMITE_FAIL_CLOSED = 4
+
+# R-092 (F-081/F-042) — aprovacao colegiada do comite (UT_AprovacaoComite, multi-instancia).
+#: Fato que `operadora.pagto.calculate_facts` escreve em TODO caminho com a posicao da IMPLANTACAO
+#: (`MAEZO_PAGTO_COMITE_COLEGIADO`, DARK por padrao). `GW_TipoAprovacao` so abre o comite com ele
+#: `true` (e `quorum_comite > 1`, saida da DMN `pagto_alcada`). Escrito sempre: uma semente de start
+#: com o mesmo nome e sobrescrita (mesmo idioma de `junta_guarda_rn424_ativa`, R-064).
+PAGTO_COMITE_COLEGIADO_VAR = "pagto_comite_colegiado_ativo"
+#: Livro de votos do comite (lista Json de `{membro, voto, tier, valor_aprovado_cents}`), escrito SO
+#: por `register_committee_vote` e lido SO pelo guard colegiado de `release_high_value_payment`.
+VOTOS_COMITE_VAR = "votos_comite"
+#: Eco do voto do membro que acabou de votar — lido pela `completionCondition` de
+#: `SP_AprovacaoComite` (`${comite_ultimo_voto != 'APROVAR'}`): o comite encerra no primeiro voto
+#: que nao aprova. Plumbing do voto humano, nunca decisao deste worker.
+COMITE_ULTIMO_VOTO_VAR = "comite_ultimo_voto"
+#: Escopo de leitura EXPLICITO de `operadora.pagto.register_committee_vote` (menor privilegio —
+#: nunca `variables=all`): os campos do voto (ja no escopo do processo — os outputParameter de
+#: `UT_AprovacaoComite` os achataram ao concluir a tarefa), o contador da multi-instancia e o livro
+#: corrente.
+COMITE_VOTO_VARIABLES: tuple[str, ...] = (
+    "loopCounter",
+    "decisao_pagamento",
+    "aprovador_id",
+    "aprovador_tier",
+    "valor_aprovado_cents",
+    VOTOS_COMITE_VAR,
+    "ordem_pagamento_id",
+)
 
 
 # ---------------------------------------------------------------
@@ -374,6 +402,7 @@ def route_aprovacao(
     *,
     dmn: DmnTransport | None = None,
     valor_invalido_pendente_dados: bool = False,
+    comite_colegiado: bool = False,
 ) -> dict[str, Any]:
     """Route payment to correct approval tier based on value.
 
@@ -553,6 +582,13 @@ def route_aprovacao(
         # calculate_facts design intent (design T1.9 §1.4/§2.4): the engine receives the
         # policy-computed fact, never the inbound boolean.
         "dentro_teto_l2": dentro_teto,
+        # R-092 (DARK — `MAEZO_PAGTO_COMITE_COLEGIADO`): posicao da implantacao, escrita em TODO
+        # caminho (`is True`: valor-lixo nunca liga). `GW_TipoAprovacao` le este fato; o quorum
+        # vem da DMN (`quorum_comite`), nunca daqui.
+        PAGTO_COMITE_COLEGIADO_VAR: comite_colegiado is True,
+        # R-092: o livro nasce vazio a cada calculo de fatos — semente de start/rodada anterior
+        # nunca conta votos (coordenacao assumindo um comite interrompido antes do 1o voto)
+        VOTOS_COMITE_VAR: [],
         **extra_facts,
     }
 
@@ -674,7 +710,79 @@ def _violacoes_sod(variables: Mapping[str, Any], *, aprovador_id: str) -> list[s
     return violacoes
 
 
-def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
+def _quorum_comite_or_none(value: Any) -> int | None:
+    """`quorum_comite` emitido pela DMN `pagto_alcada` — `int` (nao `bool`) >= 1, senao `None`."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return int(value)
+    return None
+
+
+def _tier_or_none(value: Any) -> int | None:
+    """Tier de um voto: `int` (nao `bool`) >= 0, senao `None` (sem coercao de string)."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return int(value)
+    return None
+
+
+def _violacoes_colegiado(
+    variables: Mapping[str, Any],
+    *,
+    quorum: int,
+    aprovador_id: str,
+    tier_requerido: int,
+    valor_aprovado: int | None,
+) -> tuple[list[str], list[str]]:
+    """Guard colegiado (R-092) sobre o livro `votos_comite` — devolve (erros, violacoes_sod).
+
+    So roda com a flag ligada e `quorum_comite > 1`. O quorum e da DMN; aqui so se confere que o
+    livro o cumpre. Fail-closed em tudo: livro ausente/mal-formado, voto que nao seja APROVAR,
+    tier abaixo do `tier_minimo` da DMN, valor aprovado diferente do que vai ser liberado, menos
+    membros distintos que o quorum, ou o aprovador final fora do livro (ex.: a coordenacao assumiu
+    sozinha um caso de comite) -> recusa `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Membro repetido, ou membro
+    igual ao decisor do lastro / ao analista de admissibilidade -> `ERR_PAYMENT_SOD_NOT_HUMAN`.
+    Mensagens so com tokens — nenhuma identidade nem valor no texto do incidente.
+    """
+    erros: list[str] = []
+    sod: list[str] = []
+    livro = variables.get(VOTOS_COMITE_VAR)
+    if not isinstance(livro, list) or not livro:
+        return ["votos_comite ausente ou vazio (aprovacao colegiada sem livro de votos)"], sod
+    decisor = _identidade(variables.get("lastro_decisor_id"))
+    analista = _identidade(variables.get("analista_admissibilidade_id"))
+    membros: list[str] = []
+    for voto in livro:
+        if not isinstance(voto, dict):
+            erros.append("votos_comite: entrada mal-formada")
+            continue
+        membro = _identidade(voto.get("membro"))
+        if not membro:
+            erros.append("votos_comite: membro ausente")
+            continue
+        if _norm_str(voto.get("voto")) != DECISAO_APROVAR:
+            erros.append(f"votos_comite: voto != {DECISAO_APROVAR}")
+        tier = _tier_or_none(voto.get("tier"))
+        if tier is None or tier < tier_requerido:
+            erros.append("votos_comite: tier do membro abaixo do requerido pela DMN")
+        valor, _motivo = _valor_pagamento_cents_or_none(voto.get("valor_aprovado_cents"))
+        if valor is None or valor_aprovado is None or valor != valor_aprovado:
+            erros.append("votos_comite: valor aprovado do membro difere do valor a liberar")
+        if membro in membros:
+            sod.append("segregacao: membro do comite votou mais de uma vez")
+        if decisor and membro == decisor:
+            sod.append("segregacao: membro do comite == lastro_decisor_id")
+        if analista and membro == analista:
+            sod.append("segregacao: membro do comite == analista_admissibilidade_id")
+        membros.append(membro)
+    if len(set(membros)) < quorum:
+        erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
+    if _identidade(aprovador_id) not in membros:
+        erros.append("aprovador_id fora do livro de votos do comite")
+    return erros, sod
+
+
+def release_high_value_payment(
+    variables: dict[str, Any], *, comite_colegiado: bool = False
+) -> dict[str, Any]:
     """Release high-value payment — GATED with tier-match.
 
     GUARDED: ERR_PAYMENT_RELEASE_NOT_HUMAN.
@@ -690,6 +798,11 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
       - segregation of duties (`_violacoes_sod`): aprovador_id != lastro_decisor_id and !=
         analista_admissibilidade_id; analista != lastro_decisor_id. Code: ERR_PAYMENT_SOD_NOT_HUMAN
         (wins over the generic code when both apply — a SoD breach is never masked).
+      - R-092 (DARK, `comite_colegiado` <- `MAEZO_PAGTO_COMITE_COLEGIADO`): when ON, the
+        `quorum_comite` the DMN `pagto_alcada` emitted is required (absent/malformed -> refusal);
+        when it is > 1 the committee ledger `votos_comite` must carry that many DISTINCT members,
+        every vote APROVAR with tier >= `tier_minimo` and the SAME approved amount, the final
+        `aprovador_id` among them (`_violacoes_colegiado`). OFF = the historical guard, unchanged.
 
     NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
     #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
@@ -759,6 +872,22 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     # Guard 4: segregation of duties.
     violacoes_sod = _violacoes_sod(variables, aprovador_id=aprovador_id)
 
+    # Guard 5 (R-092, DARK): collegiate approval — quorum from the DMN, ledger from the votes.
+    if comite_colegiado is True:
+        quorum = _quorum_comite_or_none(variables.get("quorum_comite"))
+        if quorum is None:
+            errors.append("quorum_comite invalido (fato da DMN pagto_alcada ausente/mal-formado)")
+        elif quorum > 1:
+            erros_comite, sod_comite = _violacoes_colegiado(
+                variables,
+                quorum=quorum,
+                aprovador_id=aprovador_id,
+                tier_requerido=tier_requerido,
+                valor_aprovado=valor_aprovado,
+            )
+            errors.extend(erros_comite)
+            violacoes_sod.extend(sod_comite)
+
     if errors or violacoes_sod:
         todos = violacoes_sod + errors
         logger.error(
@@ -781,6 +910,66 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
         "pagamento_liberado": True,
         "tipo_liberacao": "humano_alcada",
     }
+
+
+# ---------------------------------------------------------------
+# register_committee_vote — committee ledger (FACT, never decides)
+# ---------------------------------------------------------------
+
+
+def register_committee_vote(variables: dict[str, Any]) -> dict[str, Any]:
+    """Registra o voto de UM membro do comite no livro `votos_comite` — FATO, nunca decide.
+
+    Serve `ST_RegistrarVotoComite` (topico `operadora.pagto.register_committee_vote`), dentro de
+    `SP_AprovacaoComite` (multi-instancia sequencial, cardinalidade `quorum_comite` da DMN
+    `pagto_alcada`; R-092 / F-081). Le os campos do voto que `UT_AprovacaoComite` acabou de gravar
+    (achatados no escopo do processo pelos outputParameter da tarefa) e devolve:
+
+    - `votos_comite`: o livro com este voto acrescentado. Na PRIMEIRA instancia de uma rodada
+      (`loopCounter == 0`, variavel nativa da multi-instancia) o livro recomeca vazio — uma rodada
+      anterior (SOLICITAR_INFO, prorrogacao, estouro de SLA) nunca empresta votos a esta.
+      `loopCounter` ausente/mal-formado -> recusa (`PagtoError`, incidente): sem saber a rodada,
+      o livro nao e confiavel.
+    - `comite_ultimo_voto`: eco do voto normalizado, para a `completionCondition` encerrar o comite
+      no primeiro voto que nao seja APROVAR.
+
+    Nao valida nem decide nada do merito: quorum, membros distintos, SoD, tier e valor sao conferidos
+    por quem libera (`release_high_value_payment`, guard colegiado). Identidade e voto ficam como o
+    humano os gravou (strip); o livro nunca vai para log.
+    """
+    rodada = variables.get("loopCounter")
+    if not isinstance(rodada, int) or isinstance(rodada, bool) or rodada < 0:
+        logger.error(
+            "pagto_committee_vote_loop_counter_invalido",
+            ordem_id=variables.get("ordem_pagamento_id"),
+        )
+        raise PagtoError(
+            ERR_PAYMENT_RELEASE_NOT_HUMAN,
+            "loopCounter ausente/mal-formado — livro de votos do comite sem rodada conhecida",
+        )
+    anterior = variables.get(VOTOS_COMITE_VAR)
+    votos: list[dict[str, Any]] = (
+        [] if rodada == 0 or not isinstance(anterior, list) else [v for v in anterior if isinstance(v, dict)]
+    )
+    voto = _norm_str(variables.get("decisao_pagamento"))
+    valor = variables.get("valor_aprovado_cents")
+    tier = variables.get("aprovador_tier")
+    votos.append(
+        {
+            "membro": _norm_str(variables.get("aprovador_id")),
+            "voto": voto,
+            "tier": tier if isinstance(tier, int) and not isinstance(tier, bool) else None,
+            "valor_aprovado_cents": valor if isinstance(valor, int) and not isinstance(valor, bool) else None,
+        }
+    )
+    logger.info(
+        "pagto_committee_vote_registered",
+        ordem_id=variables.get("ordem_pagamento_id"),
+        rodada=rodada,
+        votos_registrados=len(votos),
+        voto=voto,
+    )
+    return {VOTOS_COMITE_VAR: votos, COMITE_ULTIMO_VOTO_VAR: voto}
 
 
 # ---------------------------------------------------------------
@@ -1289,17 +1478,33 @@ def register_pagto_workers(
     )
     # R-053 / F-142 dark seam (settings `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS`, default off).
     valor_invalido_pendente_dados = bool(seams.get("pagto_valor_invalido_pendente_dados", False))
+    # R-092 / F-081 dark seam (settings `MAEZO_PAGTO_COMITE_COLEGIADO`, default off; ABSENT == OFF,
+    # `is True` — valor-lixo nunca liga). Vai SEMPRE explicito aos dois consumidores: o fato do
+    # gateway (calculate_facts) e o guard colegiado (release_high_value_payment).
+    comite_colegiado = seams.get("pagto_comite_colegiado") is True
     harness.register_worker(
         FunctionWorker(
             "operadora.pagto.calculate_facts",
             functools.partial(
-                route_aprovacao, dmn=dmn, valor_invalido_pendente_dados=valor_invalido_pendente_dados
+                route_aprovacao,
+                dmn=dmn,
+                valor_invalido_pendente_dados=valor_invalido_pendente_dados,
+                comite_colegiado=comite_colegiado,
             ),
         )
     )
     harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
     harness.register_worker(
-        FunctionWorker("operadora.pagto.release_high_value_payment", release_high_value_payment)
+        FunctionWorker(
+            "operadora.pagto.release_high_value_payment",
+            functools.partial(release_high_value_payment, comite_colegiado=comite_colegiado),
+        )
+    )
+    # R-092: livro de votos do comite (FATO). Registrado sempre (o topico existe no BPMN); escopo de
+    # leitura explicito (menor privilegio).
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.register_committee_vote", register_committee_vote),
+        variables=COMITE_VOTO_VARIABLES,
     )
     harness.register_worker(FunctionWorker("operadora.pagto.notify_sla_risk", notify_sla_risk))
     harness.register_worker(

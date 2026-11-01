@@ -303,6 +303,7 @@ def register_default_workers(
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
     inad_chave_exige_contrato: bool = False,
+    pagto_comite_colegiado: bool = False,
     contas_sla_risk_entrega: bool = False,
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
@@ -404,6 +405,8 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # R-092 / F-081: aprovacao colegiada do comite em PAGTO (dark; see settings).
+        **({"pagto_comite_colegiado": True} if pagto_comite_colegiado is True else {}),
         # F-124: INAD sem contrato nao delega ao Fernando (dark; see settings).
         **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
@@ -1155,6 +1158,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 pagto_fatos_estritos=settings.pagto_fatos_estritos,
                 inad_fatos_estritos=settings.inad_fatos_estritos,
                 inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
+                pagto_comite_colegiado=settings.pagto_comite_colegiado,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
             )
             state.harness = harness

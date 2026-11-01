@@ -37,7 +37,7 @@ alcada** — nem por DMN, nem por timeout (inversao do anti-padrao `Task_AutoApp
 | `End_PagamentoLiberadoHumano` | **ADVERSO (risco financeiro L1)** — liberacao de pagamento de alto valor | `UT_AprovacaoAlcada` / `UT_AprovacaoComite` com `decisao_pagamento=APROVAR` humano **e** tier do aprovador >= faixa do valor |
 | `End_PagamentoRecusadoHumano` | neutro→prestador-adjacente — recusa/devolucao do pagamento para revisao (NAO e glosa; glosa nasce em CONTAS-001) | `UT_AprovacaoAlcada` com `decisao_pagamento=RECUSAR` humano (registra `justificativa_recusa`) |
 | `End_PagamentoLiberadoAutomatico` | neutro — pagamento **abaixo do teto L2** liberado por caminho clerical (L2) | `pagto_alcada` favoravel (`faixa_valor=DENTRO_TETO_L2`) + admissibilidade clerical |
-| `End_PagamentoCancelado` | neutro — solicitacao cancelada/duplicada/sem lastro (sem liberacao) | `UT_AprovacaoAlcada` / `UT_CoordenacaoAlcada` com `decisao_pagamento=CANCELAR` humano (GAP-PAGTO-2; registra `justificativa_recusa`) |
+| `End_PagamentoCancelado` | neutro — solicitacao cancelada/duplicada/sem lastro (sem liberacao) | `UT_AprovacaoAlcada` / `UT_CoordenacaoAlcada` com `decisao_pagamento=CANCELAR` humano (GAP-PAGTO-2; registra `justificativa_recusa`), ou voto `CANCELAR` de QUALQUER membro em `UT_AprovacaoComite` (o comite encerra no primeiro voto que nao aprova — R-092) |
 | `End_PagtoOrdemInvalida` | neutro/tecnico — guard de validacao de origem (`ERR_PAGTO_ORDEM_INVALIDA`), NAO e decisao de liberacao/negativa (GAP-PAGTO-4) | boundary error em `ST_ValidatePaymentData` (qualquer caminho; sem efeito adverso) |
 
 O terminal ADVERSO `End_PagamentoLiberadoHumano` NUNCA aparece na history do engine sem uma
@@ -107,6 +107,10 @@ pagamento**, risco financeiro direto).
 | `valor_maximo_aprovavel_cents` | long | **Teto do aprovado** emitido pela DMN `pagto_alcada` (= `valor_pagamento_cents` da ordem — decisao do dono R-053 (a), pacote PAGTO PR-A) e achatado por `BRT_AlcadaRouting`; o worker gated recusa `valor_aprovado_cents` acima dele e recusa se ausente/mal-formado. Fato de PAGTO — **nunca semeado por origem** (I-PAGTO-1) |
 | `analista_admissibilidade_id` | string | Identidade do humano que concluiu `UT_AnaliseAdmissibilidade` (PROSSEGUIR/DEVOLVER). Lida pela guarda de segregacao de funcoes (`ERR_PAYMENT_SOD_NOT_HUMAN`). **Binding pendente**: nenhuma superficie de conclusao de tarefa de PAGTO grava esta variavel hoje (o portal so conclui ESCALATION/CANCEL) — ate o binding (pacote PAGTO PR-F, contratos de formulario), a comparacao com o analista e inerte; a comparacao `aprovador_id` × `lastro_decisor_id` ja e efetiva. **Nunca semeada por origem** (I-PAGTO-1) |
 | `decisao_coordenacao` | string | `assumir_aprovacao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano de tier >= faixa assume) |
+| `quorum_comite` | integer | **R-092 (F-081).** Quantos membros DISTINTOS do grupo aprovador precisam votar `APROVAR` — saida da DMN `pagto_alcada` (v0.1.2), achatada por `BRT_AlcadaRouting`. `1` nas faixas L1..L3/clerical (aprovador singular); `2` no catch-all `comite-financeiro` — **valor DRAFT, NAO decidido pelo dono** (docs/review-queue.md, secao R-092). Fato de PAGTO, nunca decisao |
+| `pagto_comite_colegiado_ativo` | boolean | **R-092, DARK.** Posicao da implantacao (`MAEZO_PAGTO_COMITE_COLEGIADO`, default off), escrita por `operadora.pagto.calculate_facts` em TODO caminho (uma semente de start com o mesmo nome e sobrescrita). `GW_TipoAprovacao` so abre o comite com ela `true` E `quorum_comite > 1`; senao, `UT_AprovacaoAlcada` como sempre |
+| `votos_comite` | json (list) | **R-092.** Livro de votos do comite: uma entrada `{membro, voto, tier, valor_aprovado_cents}` por voto de `UT_AprovacaoComite`, escrita SO por `operadora.pagto.register_committee_vote`; zerado por operadora.pagto.calculate_facts em todo caminho e na primeira instancia de cada rodada (`loopCounter == 0`) — semente de start nunca conta votos; nunca semeado por origem (`PAGTO_FATOS_PROIBIDOS_NA_SEMENTE`). Lido SO pelo guard colegiado de `release_high_value_payment` |
+| `comite_ultimo_voto` | string | **R-092.** Eco do voto do membro que acabou de votar (plumbing do voto humano) — lido pela `completionCondition` de `SP_AprovacaoComite` para encerrar o comite no primeiro voto que nao seja `APROVAR` |
 
 ## Variaveis de proveniencia do agente (Andre — ADR-0007/ADR-0015)
 
@@ -121,8 +125,8 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 `_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
 `dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
-`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents` e
-`analista_admissibilidade_id`. O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
+`analista_admissibilidade_id` e o livro `votos_comite` (R-092). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
@@ -155,6 +159,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.pagto.release_high_value_payment` | consome (worker) | **efeito adverso gated** — libera o pagamento; recusa sem decisao humana **e** sem tier-match (`ERR_PAYMENT_RELEASE_NOT_HUMAN`); carrega `aprovador_id` + `aprovador_tier` |
 | External task | `operadora.pagto.release_low_value_payment` | consome (worker) | libera pagamento **abaixo do teto L2** (caminho clerical L2; sem efeito adverso de alcada) |
 | External task | `operadora.pagto.register_payment_refusal` | consome (worker) | registra recusa/devolucao para revisao quando `RECUSAR` (sem liberar) |
+| External task | `operadora.pagto.register_committee_vote` | consome (worker) | **R-092.** `ST_RegistrarVotoComite`, dentro de `SP_AprovacaoComite`: acrescenta o voto do membro ao livro `votos_comite` e ecoa `comite_ultimo_voto` — **FATO, nunca decide nem libera**; escopo de leitura explicito (sem `variables=all`) |
 | Message BPMN | `msg.pagto.dados_corrigidos` | recebe | correlacao por business key — correcao de dados de pagamento chegou, destrava reavaliacao |
 
 ## DMN referenciadas
@@ -168,7 +173,7 @@ out: `roteamento: string` (`SEGUE_ROTEAMENTO` | `PENDENTE_DADOS` | `ANALISE_HUMA
 
 ### `pagto_alcada` (hitPolicy FIRST — DRAFT; coracao value-driven; **escada de alcada DRAFT/verify financas**)
 in: `valor_pagamento_cents: integer`, `tipo_pagamento: string`, `dentro_teto_l2: boolean`
-out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `tier_minimo: integer`, `motivo: string`, `valor_maximo_aprovavel_cents: long` (teto do aprovado = `valor_pagamento_cents` em toda regra; v0.1.1, R-053 (a))
+out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `tier_minimo: integer`, `motivo: string`, `valor_maximo_aprovavel_cents: long` (teto do aprovado = `valor_pagamento_cents` em toda regra; v0.1.1, R-053 (a)), `quorum_comite: integer` (membros distintos que precisam aprovar; 1 nas faixas L1..L3/clerical, 2 DRAFT no catch-all comite; v0.1.2, R-092)
 **Apenas classifica a faixa e roteia para o grupo aprovador — sem saida que libere.** Mapeia o valor para a faixa da escada (DRAFT) e a faixa para o candidate-group de tier correspondente.
 
 Escada de alcada (**DRAFT/verify — sign-off financas obrigatorio; valores ilustrativos, nao reais**), `hitPolicy=FIRST` (a primeira faixa que casa vence; ordem do menor para o maior):
@@ -202,7 +207,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 | `aprovacao-financeira-l1` | 1 | `UT_AprovacaoAlcada` (`decisao_pagamento ∈ {APROVAR, RECUSAR, SOLICITAR_INFO, CANCELAR}`) | `ALCADA_L1` |
 | `aprovacao-financeira-l2` | 2 | `UT_AprovacaoAlcada` | `ALCADA_L2` |
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
-| `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada DRAFT**) | `ANALISE_HUMANA` |
+| `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada** — R-092: multi-instancia sequencial `SP_AprovacaoComite` com `quorum_comite` membros DISTINTOS votando `APROVAR`, DARK atras de `MAEZO_PAGTO_COMITE_COLEGIADO`; com a flag desligada a faixa segue em `UT_AprovacaoAlcada` com este mesmo grupo; **quorum DRAFT**) | `ANALISE_HUMANA` |
 | `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada) | (qualquer, respeitando tier-match) |
 | `analise-contas-pagar` | — (checker, nunca aprovador) | `UT_AnaliseAdmissibilidade` (`decisao_admissibilidade ∈ {PROSSEGUIR, DEVOLVER}`) — divisao de `coordenacao-financeira` em admissibilidade x aprovacao (R-041 / #1084); nunca membro de grupo aprovador (SoD S5) | ordem nao-admissivel (antes da escada) |
 
@@ -266,6 +271,7 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 | `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents` (este **sem default**: ausente, nao-inteiro, booleano, `<= 0` ou acima do `long` = recusa — R-053), OU (c) **tier-match falhar** — `aprovador_tier` < `tier_minimo` emitido pela DMN `pagto_alcada` para a faixa (ausente/mal-formado → tier mais alto, comite; o worker nao guarda copia Python da escada) (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
 | `ERR_PAYMENT_RELEASE_NOT_HUMAN` (d) | idem | (d) **teto do aprovado** (pacote PAGTO PR-A, R-053 (a)): `valor_aprovado_cents > valor_maximo_aprovavel_cents` (saida da DMN `pagto_alcada`), ou `valor_maximo_aprovavel_cents` ausente/mal-formado → recusa. O worker nao recompara com `valor_pagamento_cents` (a regra vive na DMN) |
 | `ERR_PAYMENT_SOD_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` e `operadora.pagto.release_low_value_payment` | **Segregacao de funcoes** (pacote PAGTO PR-A; analise §3 (a)/(b)): recusa se `aprovador_id` == `lastro_decisor_id`, `aprovador_id` == `analista_admissibilidade_id` ou `analista_admissibilidade_id` == `lastro_decisor_id` (comparacao com strip + casefold; identidade ausente/vazia nao e violacao — perna automatica de CONTAS e ordem sem analise humana). Prevalece sobre o codigo generico quando ambos se aplicam. Sufixo `_NOT_HUMAN` deliberado: entra na trilha de recusa auditada T-E (ADR-0030 F4). Sem boundary modelado → incidente (fail-closed a humano). Mensagem so com tokens — nenhuma identidade no texto |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` / `ERR_PAYMENT_SOD_NOT_HUMAN` (e) | idem (**R-092, DARK** — `MAEZO_PAGTO_COMITE_COLEGIADO`) | **Aprovacao colegiada**: com a flag, `quorum_comite` ausente/mal-formado recusa; com `quorum_comite > 1` o livro `votos_comite` precisa ter `quorum_comite` membros DISTINTOS, todo voto `APROVAR`, tier de cada membro `>= tier_minimo`, o MESMO `valor_aprovado_cents` que sera liberado, e o `aprovador_id` final dentro do livro (a coordenacao que assume sozinha um caso de comite apos estouro de SLA NAO libera) — senao `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Membro que votou duas vezes, ou membro igual a `lastro_decisor_id`/`analista_admissibilidade_id` -> `ERR_PAYMENT_SOD_NOT_HUMAN` (prevalece). Mensagens so com tokens. `operadora.pagto.register_committee_vote` recusa (`ERR_PAYMENT_RELEASE_NOT_HUMAN`, incidente) quando `loopCounter` esta ausente/mal-formado (livro sem rodada conhecida) |
 | `ERR_PAGTO_ORDEM_INVALIDA` | declarado (`Error_PagtoOrdemInvalida`) para uso dos workers | worker `validate_payment_data` lanca BPMN error se a ordem de pagamento for inconsistente/sem lastro na origem (ex.: `ordem_pagamento_id` ausente); capturado por boundary event `BE_PagtoOrdemInvalida` em `ST_ValidatePaymentData` -> `End_PagtoOrdemInvalida` (GAP-PAGTO-4; fail-safe tecnico, NAO decisao de liberacao/negativa) |
 
 > **Tier-match — extensao do guard no-adverse (parte 4 de 5 do padrao §4-bis-F/ADR-0018):**
@@ -304,10 +310,14 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   teto de auto-liberacao L2 por tenant) e do **mapeamento faixa→grupo→tier** — todos DRAFT.
 - **Confirmacao dos candidate groups** (`aprovacao-financeira-l1/l2/l3`, `comite-financeiro`,
   `coordenacao-financeira`) contra a taxonomia organizacional / IdP da operadora (PO + financas).
-- Politica de **segregacao de funcoes**: o aprovador nao pode ser o solicitante da ordem; comite
-  pode exigir aprovacao colegiada (multiplas User Tasks / quorum) — a detalhar.
-- Confirmacao de que `aprovacao colegiada` do comite e modelada como quorum (parallel/multi-instance
-  User Task) vs aprovador unico de tier maximo.
+- Politica de **segregacao de funcoes**: o aprovador nao pode ser o solicitante da ordem — feito
+  como guarda (`ERR_PAYMENT_SOD_NOT_HUMAN`: aprovador/analista x `lastro_decisor_id`, pacote PAGTO
+  PR-A; membros do comite distintos entre si e dos dois, R-092).
+- Aprovacao colegiada do comite: **modelada** (R-092) como multi-instancia sequencial
+  (`SP_AprovacaoComite`/`UT_AprovacaoComite`, cardinalidade `quorum_comite` da DMN), DARK atras de
+  `MAEZO_PAGTO_COMITE_COLEGIADO`. **Pendente humano:** o quorum (`2` DRAFT) e a composicao do comite
+  (financas/dono), o contrato de formulario do portal para `UT_AprovacaoComite` (pacote PAGTO PR-F)
+  e se a coordenacao pode assumir sozinha um caso de comite apos estouro de SLA.
 - Interacao com SP-OP-CONTAS-001 (conta adjudicada → ordem de pagamento, via `operadora.contas.handoff_pagamento` desde ADR-0040) e prazos de pagamento a
   prestador (contratuais — **DRAFT/verify**).
 - Politica de duplicidade/idempotencia de tesouraria (evitar dupla liberacao) e reconciliacao
