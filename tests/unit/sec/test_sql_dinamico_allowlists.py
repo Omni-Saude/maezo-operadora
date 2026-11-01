@@ -579,3 +579,30 @@ def test_auth_source_lifecycle_table_so_admite_dois_nomes() -> None:
         with pytest.raises(m.AuthUnavailableError):
             m.PostgresAuthSourceLifecycle.table(falso, nome)
     _campo_validado(m.IdentitySourceBinding, "source_schema_name")
+
+
+# ---------------------------------------------------------------------------------------------
+# gateway/intake/recovery_store.py (`_CANDIDATES` + `boundary`)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_recovery_store_candidates_e_boundary_sao_literais() -> None:
+    from maezo.gateway.intake import recovery_store as m
+
+    assert isinstance(m._CANDIDATES, str) and ":" in m._CANDIDATES
+    fn = _funcao("gateway/intake/recovery_store.py", "scan")
+    atribs = [
+        n.value
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "boundary" for t in n.targets)
+    ]
+    assert len(atribs) == 2 and all(_so_literais(a) for a in atribs)
+    tree = ast.parse((_SRC / "gateway/intake/recovery_store.py").read_bytes())
+    (atrib,) = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_CANDIDATES" for t in n.targets)
+    ]
+    assert _so_literais(atrib.value)

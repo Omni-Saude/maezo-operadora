@@ -61,6 +61,7 @@ NOSEMGREP_SQL_TEXT: Final[dict[str, int]] = {
     "gateway/human/vendor_membership_administration_postgres.py": 1,
     "gateway/intake/native_authority.py": 6,
     "gateway/intake/native_source_lifecycle.py": 10,
+    "gateway/intake/recovery_store.py": 2,
 }
 
 
