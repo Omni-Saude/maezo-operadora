@@ -446,7 +446,7 @@ rows:
   linha: 143
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:284 -> UT_AprovacaoAlcada (flag desligada); bpmn:438 -> UT_AprovacaoComite (R-092, dark)
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:284 -> UT_AprovacaoAlcada (flag desligada); bpmn:427 -> UT_AprovacaoComite (R-092, dark)
   sla_ato: contrato Sec.Papeis linha 210 -- catch-all conservador, aprovacao colegiada DRAFT
   proposto: true
   notas: caveat PROPOSTO contrato linha 200-202

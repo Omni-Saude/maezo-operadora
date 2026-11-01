@@ -89,7 +89,10 @@ def test_cada_voto_passa_pelo_livro_antes_de_encerrar_a_instancia() -> None:
 
 
 def test_campos_do_voto_sao_locais_e_achatados_ao_fim_de_cada_instancia() -> None:
-    io = _por_id("SP_AprovacaoComite").find(f"{_B}extensionElements/{_C}inputOutput")
+    # O engine recusa camunda:outputParameter no construto multi-instancia (ENGINE-09005): o mapeamento
+    # mora na UT interna, nunca no subprocesso.
+    assert _por_id("SP_AprovacaoComite").find(f"{_B}extensionElements/{_C}inputOutput") is None
+    io = _por_id("UT_AprovacaoComite").find(f"{_B}extensionElements/{_C}inputOutput")
     assert io is not None
     entradas = {p.get("name"): (p.text or "").strip() for p in io.findall(f"{_C}inputParameter")}
     saidas = {p.get("name"): (p.text or "").strip() for p in io.findall(f"{_C}outputParameter")}
