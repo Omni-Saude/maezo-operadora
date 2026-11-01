@@ -123,6 +123,8 @@ locals {
       { name = "MAEZO_HELENA_HISTORICO", value = tostring(var.helena_historico) },
       # DL-0104: nova triagem da Helena (default `false`; so' dev, ver `helena_triagem_v2`).
       { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
+      # DL-0161: triagem com juiz (default `false`; so' dev e so' na allowlist, ver `helena_triagem_juiz`).
+      { name = "MAEZO_HELENA_TRIAGEM_JUIZ", value = tostring(var.helena_triagem_juiz) },
       # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
       { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
       # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver

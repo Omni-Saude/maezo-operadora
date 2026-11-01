@@ -792,6 +792,20 @@ variable "helena_historico" {
   nullable    = false
 }
 
+variable "helena_triagem_juiz" {
+  description = <<-EOT
+    Triagem com juiz da Helena (DL-0161, 01/11/2026): `MAEZO_HELENA_TRIAGEM_JUIZ`. Default `false` = a
+    Helena de antes. Ligada, SO' nas conversas da allowlist do modelo (dono, Tania, time-1, time-2,
+    simulador), a queixa de sintoma e' conduzida pela tabela `spec/agents/helena/triagem_juiz/tabela.yaml`
+    como PISO e o modelo (Haiku 5.5, rota global ja' autorizada) julga a conversa e so' sobe a gravidade.
+    EXPERIMENTO SO' EM DEV (teste de mesa, 7 rodadas); conteudo clinico sem revisao medica.
+    Voltar: false (o dono diz "volte para a tabela original").
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_triagem_v2" {
   description = <<-EOT
     Nova triagem da Helena (DL-0104, 14/10/2026): `MAEZO_HELENA_TRIAGEM_V2`. Default `false` = a Helena
