@@ -639,7 +639,7 @@ _INSERT_COLUMNS: Final[tuple[str, ...]] = (
 )
 
 _INSERT_SQL: Final[str] = (
-    f"INSERT INTO amh_inbox ({', '.join(_INSERT_COLUMNS)}) "
+    f"INSERT INTO amh_inbox ({', '.join(_INSERT_COLUMNS)}) "  # nosec B608 # fonte: _INSERT_COLUMNS (tupla literal)
     f"VALUES ({', '.join(f'${i}' for i in range(1, len(_INSERT_COLUMNS) + 1))}) "
     "ON CONFLICT (contract_manifest_digest, event_id) DO NOTHING "
     "RETURNING status, redelivery_count"

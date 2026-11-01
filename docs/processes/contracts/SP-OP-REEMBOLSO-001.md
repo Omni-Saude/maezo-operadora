@@ -262,3 +262,19 @@ extrato ao prestador — **nao** e adjudicacao ao beneficiario) e stubs
 processo e **greenfield**. O padrao a evitar (presente no reference glosa/recurso) e
 auto-aplicar efeito adverso por timeout ou por regra — **INVERTIDO** aqui: a DMN so calcula e
 roteia; toda negativa/reducao e User Task humana.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-REEMBOLSO-001` → `maezo-payer-reembolso-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - protocolo: `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `P-{protocolo_reembolso}`.
+  - guia (alternativa): `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}`.
+- **Classificação (a confirmar pelo DPO):** pseudônimo ligado a beneficiário; guia é ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` no mapa (R-077, decisão do dono: `EXCLUSIVE`, em pacote próprio).

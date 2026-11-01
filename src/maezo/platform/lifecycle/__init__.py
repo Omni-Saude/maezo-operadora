@@ -117,13 +117,17 @@ _ADR_POINTERS = (
 # look, never treated as a usable matrix itself (the loader refuses it explicitly).
 _MATRIX_TEMPLATE_PATH = "spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml"
 
-# `verify-erasure` has a second, independent blocker beyond the matrix: erasure.py's
-# per-layer `_erase_*`/`_verify_*` helpers key on `thread_id`, not `fhir_patient_id` —
-# there is no mapping from one to the other today (erasure.py:196-206). This is a code
-# gap, not a human-ratification gap, and stays true regardless of matrix state.
+# `verify-erasure` has a second, independent blocker beyond the matrix: the ErasureManager
+# cascade (erasure.py, R-013) is DARK — `MAEZO_ERASURE_CASCADE` OFF, no per-relation executor
+# and no surrogate store bound, no production caller — and the working layer is keyed by
+# `thread_id`, reachable only through the DARK bridge `identity_bridges.resolve_thread_id`
+# inside a per-relation executor that does not exist. This is a code gap, not a
+# human-ratification gap, and stays true regardless of matrix state.
 _VERIFY_ERASURE_EXTRA = (
-    " verify-erasure is additionally blocked, independent of the matrix, on the "
-    "thread_id→fhir_patient_id mapping design gap in ErasureManager (see erasure.py)."
+    " verify-erasure is additionally blocked, independent of the matrix: the ErasureManager "
+    "cascade is DARK (MAEZO_ERASURE_CASCADE OFF, no executor/surrogate store bound, no "
+    "production caller; see erasure.py). The working layer is keyed by thread_id and reaches "
+    "fhir_patient_id only through the DARK bridge identity_bridges.resolve_thread_id."
 )
 
 

@@ -230,7 +230,8 @@ _ROTEAMENTO_NIP_ALLOW: frozenset[str] = frozenset({"ELABORAR_RESPOSTA", "PENDENT
 # Human groups the NIP DMNs may route to (closed set, mirrors the DMN outputs). A value outside
 # this set fail-safes to `juridico-regulatorio` — the SAME conservative fallback the BPMN's own
 # `BRT_Roteamento` outputParameter applies (GAP-NIP-2). Never an invented group.
-_GRUPO_HUMANO_ALLOW: frozenset[str] = frozenset({"nucleo-ans", "regulatorio-ans", "juridico-regulatorio"})
+# R-041 / #1084: `nucleo-ans` foi fundido em `regulatorio-ans` (nip_routing/nip_classification).
+_GRUPO_HUMANO_ALLOW: frozenset[str] = frozenset({"regulatorio-ans", "juridico-regulatorio"})
 _GRUPO_HUMANO_FAILSAFE = "juridico-regulatorio"
 
 # Reason the case went to the human route. NONE of these is an adverse outcome — they are

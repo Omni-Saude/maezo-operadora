@@ -179,6 +179,22 @@ def inbound_dedup_key(*, tenant: str, message_pseudonym: str) -> str:
     return f"wa:inbound:{tenant}:{message_pseudonym}"
 
 
+def inbound_fallback_dedup_key(*, tenant: str, identity_pseudonym: str, occurrence: int) -> str:
+    """Dedup key for the Nth delivery of ONE inbound message that carries NO `wamid` (F-147).
+
+    Decisao do dono de 2026-10-31 (#1084): a mensagem sem `wamid` continua despachada, mas deixa
+    uma identidade de fallback neste registro, e ate N entregas iguais passam — cada entrega
+    reivindica um SLOT (`occurrence`, 1-based) e, com todos os slots tomados, a entrega e'
+    suprimida. Mesmo padrao de ocorrencia de :func:`outbound_dedup_key`, num espaco de chave
+    PROPRIO (`wa:inbound-sem-wamid:`) para que nunca colida com a chave de um `wamid`.
+
+    `identity_pseudonym` MUST already be the keyed `hk1_` fallback identity
+    (`webhooks/whatsapp/dedup.py::WhatsAppDedupGuard.fallback_identity`) — this function does no
+    hashing, pela mesma razao de :func:`inbound_dedup_key`.
+    """
+    return f"wa:inbound-sem-wamid:{tenant}:{identity_pseudonym}:{occurrence}"
+
+
 def outbound_dedup_key(*, tenant: str, message_pseudonym: str, occurrence: int) -> str:
     """Dedup key for the Nth outbound send caused by ONE inbound message (the `send` leg).
 

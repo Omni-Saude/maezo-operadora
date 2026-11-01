@@ -181,6 +181,8 @@ def _matches(entry: str, value: int) -> bool:
         return True
     if entry.startswith("<="):
         return value <= int(entry[2:].strip())
+    if entry.startswith(">") and not entry.startswith(">="):
+        return value > int(entry[1:].strip())
     if entry.startswith("(") and entry.endswith("]") and ".." in entry:
         low, _, high = entry[1:-1].partition("..")
         return int(low) < value <= int(high)
@@ -246,7 +248,7 @@ def test_conservative_amount_token_lands_on_the_tables_own_catch_all(alcada_tabl
 
     assert winner is not None, "no rule matches the conservative token — the table lost its catch-all"
     assert winner.get("id") == "r_catchall"
-    faixa, grupo, tier, _motivo = _entry_texts(winner, "outputEntry")
+    faixa, grupo, tier = _entry_texts(winner, "outputEntry")[:3]
     assert faixa == '"ANALISE_HUMANA"'
     assert grupo == '"comite-financeiro"'
     assert tier == "4", "the conservative route must demand the HIGHEST approver tier"
@@ -337,3 +339,84 @@ def test_no_rule_can_yield_dentro_teto_l2_across_the_full_value_domain_when_pinn
         winner = _first_hit(alcada_table, valor=valor, dentro_teto=False)
         faixa = _entry_texts(winner, "outputEntry")[0]
         assert faixa != f'"{_AUTO_BAND}"', (valor, winner.get("id"), faixa)
+
+
+# ---------------------------------------------------------------------------------------------
+# 4. Pacote PAGTO PR-A (analyses/PAGTO-balanced-classification.md §9; dono 2026-10-31, #1084):
+#    (i) o teto clerical tem UMA fonte — a politica (`high_value_payment.threshold_brl`, via
+#    `dentro_teto_l2`); a DMN nao repete o literal; (ii) a DMN emite o teto do aprovado
+#    (`valor_maximo_aprovavel_cents` = valor da ordem, decisao R-053 (a)) que o guard le.
+# ---------------------------------------------------------------------------------------------
+
+_TETO_DO_APROVADO = "valor_maximo_aprovavel_cents"
+
+
+def test_faixa_clerical_nao_repete_o_literal_do_teto_da_politica(alcada_table: ET.Element) -> None:
+    """A unica coluna de valor da faixa clerical e um teste de DOMINIO (`> 0`), nunca um teto.
+
+    Pre-fix a regra exigia `<= 10000000` alem de `dentro_teto_l2=true` — o mesmo R$ 100k de
+    `L0-core.yaml:high_value_payment.threshold_brl` escrito duas vezes; uma sobreposicao de tenant
+    divergiria em silencio. Agora o teto vem SO da politica (o resolver calcula `dentro_teto_l2`).
+    `> 0` mantem fora da faixa clerical o valor nulo/zero/negativo (defesa de dominio, nao alcada).
+    """
+    auto_rules = [r for r in _rules(alcada_table) if _AUTO_BAND in _entry_texts(r, "outputEntry")[0]]
+    assert len(auto_rules) == 1
+    valor_entry = _entry_texts(auto_rules[0], "inputEntry")[0]
+    assert valor_entry == "> 0", valor_entry
+    assert "10000000" not in "".join(_entry_texts(auto_rules[0], "inputEntry"))
+
+
+@pytest.mark.parametrize("valor", [-10_000_000, -1, 0])
+def test_faixa_clerical_nunca_casa_valor_nao_positivo_mesmo_com_teto_true(
+    alcada_table: ET.Element, valor: int
+) -> None:
+    winner = _first_hit(alcada_table, valor=valor, dentro_teto=True)
+    assert _entry_texts(winner, "outputEntry")[0] != f'"{_AUTO_BAND}"', (valor, winner.get("id"))
+
+
+@pytest.mark.parametrize("valor", [1, 85_000, 10_000_000, 15_000_000])
+def test_faixa_clerical_e_decidida_pelo_fato_da_politica(alcada_table: ET.Element, valor: int) -> None:
+    """Com `dentro_teto_l2=true` (o resolver disse "dentro do teto da politica") a faixa clerical
+    vence para qualquer valor positivo — inclusive acima de R$ 100k se a politica um dia subir."""
+    winner = _first_hit(alcada_table, valor=valor, dentro_teto=True)
+    assert _entry_texts(winner, "outputEntry")[0] == f'"{_AUTO_BAND}"', (valor, winner.get("id"))
+
+
+def test_teto_clerical_da_politica_continua_r_100k() -> None:
+    """Q3 do dono (2026-10-31): manter o teto clerical de R$ 100k. Com o literal fora da DMN, esta
+    e a unica ancora do valor — subir o teto passa a ser um ato deliberado na politica."""
+    import yaml
+
+    core = yaml.safe_load((_REPO_ROOT / "spec/policies/autonomy/L0-core.yaml").read_text(encoding="utf-8"))
+    actions = core.get("actions", core)
+    assert actions["high_value_payment"]["params"]["threshold_brl"] == 100000
+
+
+def test_toda_regra_emite_o_teto_do_aprovado_igual_ao_valor_da_ordem(alcada_table: ET.Element) -> None:
+    outputs = [el for el in alcada_table if _local(el.tag) == "output"]
+    by_name = {el.get("name"): el for el in outputs}
+    assert _TETO_DO_APROVADO in by_name, "pagto_alcada nao emite o teto do aprovado"
+    assert by_name[_TETO_DO_APROVADO].get("typeRef") == "long"
+    pos = [el.get("name") for el in outputs].index(_TETO_DO_APROVADO)
+    for rule in _rules(alcada_table):
+        assert _entry_texts(rule, "outputEntry")[pos] == "valor_pagamento_cents", rule.get("id")
+
+
+def test_brt_alcada_achata_o_teto_do_aprovado_para_o_guard(bpmn_process: ET.Element) -> None:
+    brt = next(el for el in bpmn_process.iter() if el.get("id") == "BRT_AlcadaRouting")
+    params = {
+        el.get("name"): (el.text or "").strip() for el in brt.iter() if _local(el.tag) == "outputParameter"
+    }
+    assert params.get(_TETO_DO_APROVADO) == "${pagto_alcada.valor_maximo_aprovavel_cents}"
+
+
+def test_guard_le_o_teto_do_aprovado_e_nao_o_valor_da_ordem() -> None:
+    source = Path(pagto.__file__).read_text(encoding="utf-8")
+    func = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "release_high_value_payment"
+    )
+    literais = {n.value for n in ast.walk(func) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert _TETO_DO_APROVADO in literais
+    assert "valor_pagamento_cents" not in literais, "o guard nao recompara com a ordem em Python"

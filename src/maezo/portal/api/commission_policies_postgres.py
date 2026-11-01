@@ -45,21 +45,23 @@ _INSERT = text(
     """
 )
 
+# nosemgrep: avoid-sqlalchemy-text # fonte: _COLUMNS (constante literal)
 _SELECT_ONE = text(
     f"""
     SELECT {_COLUMNS}
       FROM commission_adjustment_policies
      WHERE tenant = :tenant AND policy_ref = :policy_ref
-    """
+    """  # nosec B608 # fonte: _COLUMNS (constante literal)
 )
 
+# nosemgrep: avoid-sqlalchemy-text # fonte: _COLUMNS (constante literal)
 _SELECT_ALL = text(
     f"""
     SELECT {_COLUMNS}
       FROM commission_adjustment_policies
      WHERE tenant = :tenant
      ORDER BY precedencia, dimensao, policy_ref
-    """
+    """  # nosec B608 # fonte: _COLUMNS (constante literal)
 )
 
 # Optimistic replace: identity (policy_ref) and creation audit are never in the SET list;

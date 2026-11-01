@@ -252,9 +252,10 @@ class ExecuteRequestWorker(WorkerBase):
     `WorkerFailureError(retries_left=0)` — um incidente imediato, nao-retentado. Isto NAO e
     excesso de zelo, e a unica postura honesta disponivel, por duas razoes MEDIDAS:
 
-    1. **Nada esta implementado.** A cascata de delecao (`platform.erasure.ErasureManager`)
-       levanta `ErasureNotImplementedError`, nao ha resolucao `titular_pseudo_id`->
-       `fhir_patient_id` nas process_vars, e nao existe seam de retificacao nem de exportacao
+    1. **Nada esta ligado.** A cascata de delecao (`platform.erasure.ErasureManager`, R-013)
+       e DARK (`MAEZO_ERASURE_CASCADE` OFF, sem executores vinculados, sem chamador) e recusa
+       com `ErasureNotImplementedError`; a ponte `titular_pseudo_id`->`fhir_patient_id` tambem e
+       DARK, e nao existe seam de retificacao nem de exportacao
        neste modulo. Os dois workers aposentados MENTIAM nesse ponto: `ExecuteExportWorker`
        devolvia `status="export_compiled"` com um `package_ref` cunhado por `uuid4()` e
        `ExecuteRectificationWorker` devolvia `status="rectification_completed"` — ambos sem
@@ -468,8 +469,8 @@ class ExecuteRequestWorker(WorkerBase):
             _RECUSA_PREFIXO + f"Ambos os guards humanos estao satisfeitos (human_approved is True "
             f"+ decisao_dsr='EXECUTAR_E_ENVIAR') e o direito pedido e '{direito}' "
             f"(tipo_requisicao='{tipo_requisicao}'), mas nao existe seam de execucao: a cascata "
-            "de delecao (platform.erasure.ErasureManager) levanta ErasureNotImplementedError, "
-            "nao ha resolucao titular_pseudo_id->fhir_patient_id nas process_vars e nao existe "
+            "de delecao (platform.erasure.ErasureManager) e DARK e sem chamador (recusa com "
+            "ErasureNotImplementedError), a ponte titular_pseudo_id->fhir_patient_id e DARK e nao existe "
             "seam de retificacao nem de exportacao neste modulo. Recusando a reportar execucao "
             "concluida sem executar SQL (LGPD art. 18) — incidente fail-closed, NAO retentar, "
             "NAO avancar para o envio de confirmacao ao titular.",

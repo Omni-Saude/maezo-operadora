@@ -271,7 +271,9 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "sonda de prontidao: qualquer falha significa 'not ready' (False), nunca propaga",
     ),
     "src/maezo/runtime/worker_runtime/service.py::_bring_up_dependencies": (
-        10,
+        # 11 = 10 + o bloco do poller do historico do engine (R-085, dark): observabilidade so',
+        # uma falha ao construi-lo nunca derruba o daemon.
+        11,
         "isolamento de bring-up do daemon de workers: cada construcao que falha deixa o SEU "
         "health-check vermelho; nenhum turno de negocio roda aqui",
     ),

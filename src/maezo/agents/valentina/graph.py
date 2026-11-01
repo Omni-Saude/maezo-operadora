@@ -207,8 +207,8 @@ DMN_PROGRAMA_SLA = "programa_sla"
 # Consent scope required by this flow (fixed — contract §input variables).
 CONSENT_SCOPE_PROGRAMA = "programa_cuidado"
 
-# Default human destination (candidate group of UT_DecisaoClinica; `equipe-cuidado` is the
-# other declared group — coordenacao-clinica coordinates and is the conservative default).
+# Default human destination: the ONLY candidate group of UT_DecisaoClinica since R-041 / #1084
+# (`equipe-cuidado` was removed — sole clinical decider).
 GRUPO_COORDENACAO_CLINICA = "coordenacao-clinica"
 
 # Class token for `receive`'s missing-context guard (`error` is internal state — it is still a
