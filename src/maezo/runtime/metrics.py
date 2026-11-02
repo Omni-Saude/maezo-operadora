@@ -509,6 +509,22 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DEC-30 D11 (decisao do dono 2026-11-02, issue #1084): a recusa do handoff CONTAS->PAGTO
+        # quando a ordem que ja' existe sob a chave NAO e' comprovadamente desta conta
+        # (`contas._recusar_ordem_de_outra_conta`, ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO). Na fase
+        # padrao `legado` e' a 2a conta do mesmo prestador no mesmo lote, que fica sem ordem ate a
+        # janela de chaves — o sinal de `MaezoContasPagtoOrdemDeOutraConta`. Uma contagem por
+        # RECUSA (o `WorkerBase` repete a tentativa; o incidente no motor e' a conta). Rotulos
+        # FECHADOS (ADR-0006): `veredito` (outra | indeterminada | outro) e `fase` (legado |
+        # leitura_dupla | escrita_alvo | outro). Nunca tenant, lote, guia, conta, chave ou instancia.
+        self._contas_pagto_ordem_recusada = Counter(
+            "maezo_contas_pagto_ordem_recusada_total",
+            "CONTAS->PAGTO handoffs refused because the existing PAGTO order is not provably this "
+            "conta's (COUNTS ONLY; veredito and fase are closed vocabularies)",
+            labelnames=["veredito", "fase"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -771,3 +787,12 @@ class MetricsCollector:
     def engine_metrics_poll_total(self) -> Counter:
         """Counter for engine-history poller rounds (R-085). Label: outcome (ok | erro)."""
         return self._engine_metrics_poll_total
+
+    @property
+    def contas_pagto_ordem_recusada(self) -> Counter:
+        """Counter for CONTAS->PAGTO handoffs refused for an order of another conta (DEC-30 D11).
+
+        Labels: veredito (outra | indeterminada | outro), fase (legado | leitura_dupla |
+        escrita_alvo | outro). COUNTS ONLY.
+        """
+        return self._contas_pagto_ordem_recusada

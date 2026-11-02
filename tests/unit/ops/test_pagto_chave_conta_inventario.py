@@ -2,8 +2,9 @@
 
 Decisao do dono de 2026-11-01 (opcao A): plano de migracao das ordens criadas sob a forma lote.
 Sem rede, sem motor: o script le dois exports JSON e classifica. Fixa cada disposicao, a chave de
-alias proposta (o MESMO compositor do worker), a recusa R-101 (guia com '-'), o cruzamento que acha
-os pagamentos perdidos e o codigo de saida de `--estrito`.
+alias proposta (o MESMO compositor do worker, com o prestador — DEC-30 D13), as recusas R-101/D13
+(guia ou prestador com '-'), o cruzamento que acha os pagamentos perdidos (inclusive de outro
+prestador) e o codigo de saida de `--estrito`.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 import pytest
 from scripts.ops.pagto_chave_conta_inventario import (
     ALIAS_BLOQUEADO_GUIA_COM_HIFEN,
+    ALIAS_BLOQUEADO_PRESTADOR_COM_HIFEN,
     ALIAS_POR_CONTA,
     FORA_DE_ESCOPO,
     FORMA_LOTE,
@@ -42,8 +44,8 @@ def test_a_chave_lote_recomposta_e_a_mesma_do_worker() -> None:
 def test_ordem_lote_de_conta_conhecida_propoe_alias_com_o_compositor_do_worker() -> None:
     linha = classificar_ordem(_ordem(_CHAVE_LOTE, numero_guia_tiss="G1", numero_conta="C1"))
     assert linha["disposicao"] == ALIAS_POR_CONTA
-    assert linha["chave_por_conta"] == "PAGTO-amh-C-G1-C1"
-    assert linha["chave_por_conta"] == _pagto_business_key_por_conta("amh", "G1", "C1")
+    assert linha["chave_por_conta"] == "PAGTO-amh-C-P1-G1-C1"
+    assert linha["chave_por_conta"] == _pagto_business_key_por_conta("amh", "P1", "G1", "C1")
 
 
 def test_ordem_da_forma_lote_fica() -> None:
@@ -62,13 +64,30 @@ def test_guia_com_hifen_bloqueia_o_alias() -> None:
     assert "numero_guia_tiss" in linha["motivo"]
 
 
+def test_prestador_com_hifen_bloqueia_o_alias() -> None:
+    """DEC-30 D13: o prestador e' segmento do meio da chave `C`; com '-' ela recusa — humano decide."""
+    chave_lote = "PAGTO-amh-LOTE-9-prov:teste-0001"
+    linha = classificar_ordem(
+        _ordem(chave_lote, prestador_id="prov:teste-0001", numero_guia_tiss="G1", numero_conta="C1")
+    )
+    assert linha["disposicao"] == ALIAS_BLOQUEADO_PRESTADOR_COM_HIFEN
+    assert "prestador_id" in linha["motivo"]
+    assert linha["chave_por_conta"] is None
+    assert (
+        inventariar(
+            [_ordem(chave_lote, prestador_id="prov:teste-0001", numero_guia_tiss="G1", numero_conta="C1")]
+        )["exige_humano"]
+        == 1
+    )
+
+
 @pytest.mark.parametrize("chave", ["PAGTO-amh-ORDEM-77", "PAGTO-amh-GUIA1-GLOSA-1", ""])
 def test_formas_de_andre_e_recurso_ficam_fora_de_escopo(chave: str) -> None:
     assert classificar_ordem(_ordem(chave, numero_guia_tiss="G1"))["disposicao"] == FORA_DE_ESCOPO
 
 
 def test_ordem_ja_na_forma_por_conta() -> None:
-    linha = classificar_ordem(_ordem("PAGTO-amh-C-G1-C1", numero_guia_tiss="G1", numero_conta="C1"))
+    linha = classificar_ordem(_ordem("PAGTO-amh-C-P1-G1-C1", numero_guia_tiss="G1", numero_conta="C1"))
     assert linha["disposicao"] == JA_POR_CONTA
 
 
@@ -141,6 +160,40 @@ def test_cruzamento_motivos(variaveis_da_ordem: dict[str, str], motivo: str) -> 
     assert contas_sem_ordem(contas, ordens)[0]["motivo"] == motivo
     contas[0]["variables"]["pagto_instance_id"] = "fora"  # type: ignore[index]
     assert contas_sem_ordem(contas, ordens)[0]["motivo"] == "ordem_fora_do_export"
+
+
+def test_cruzamento_acha_a_conta_de_outro_prestador_com_a_mesma_guia_e_conta() -> None:
+    """DEC-30 D13: a ordem e' da MESMA guia/conta mas de OUTRO prestador — pagamento perdido."""
+    ordens = [_ordem(_CHAVE_LOTE, "pagto-x", numero_guia_tiss="G1", numero_conta="C1")]
+    contas = [
+        {
+            "id": "c-outro",
+            "variables": {
+                "prestador_id": "P2",
+                "numero_guia_tiss": "G1",
+                "numero_conta": "C1",
+                "pagto_instance_id": "pagto-x",
+                "pagto_already_existed": True,
+            },
+        },
+        {
+            "id": "c-mesmo",
+            "variables": {
+                "prestador_id": " P1 ",
+                "numero_guia_tiss": "G1",
+                "numero_conta": "C1",
+                "pagto_instance_id": "pagto-x",
+                "pagto_already_existed": True,
+            },
+        },
+    ]
+    assert contas_sem_ordem(contas, ordens) == [
+        {
+            "contas_instance_id": "c-outro",
+            "pagto_instance_id": "pagto-x",
+            "motivo": "ordem_de_outro_prestador",
+        }
+    ]
 
 
 def test_relatorio_conta_o_que_exige_humano_e_se_declara_somente_leitura() -> None:

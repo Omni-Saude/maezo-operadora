@@ -1052,11 +1052,16 @@ def _ordem_pagamento_id(tenant_id: str, numero_lote_tiss: str, prestador_id: str
 # ficava SEM ordem de pagamento.
 #
 # A CORRECAO (opcao A do dono): a chave fica PRECISA — ganha a identidade da conta quando CONTAS
-# rodou na forma guia/conta — e o dedup continua ESTRITO e PERMANENTE. Como e' mudanca de FORMATO
-# de chave, ela pertence a janela unica de migracao do ADR-0068 (Proposed): por isso entra atras de
-# `MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao `legado` (byte-identico na chave). Com o padrao o defeito
-# PERSISTE ate a janela abrir — mas deixa de ser silencioso: `_conferir_identidade_da_ordem` recusa
-# (incidente auditado) a 2a conta em vez de registrar sucesso.
+# rodou na forma guia/conta — e o dedup continua ESTRITO e PERMANENTE. DEC-30 D13 (2026-11-02): a
+# identidade da conta inclui o PRESTADOR (`PAGTO-{t}-C-{prestador}-{guia}-{conta}`). Como e' mudanca
+# de FORMATO de chave, ela pertence a janela unica de migracao do ADR-0068 (Accepted, DEC-29; a
+# forma `C` entra na tabela dele pelo ADR-0074, Proposed, DEC-30 D12): por isso entra atras de
+# `MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao `legado` (byte-identico na chave). O ADR-0074 absorve esta
+# fase em `MAEZO_CHAVES_JANELA` no pacote da janela; ate la ela e' a unica chave desta forma. Com o
+# padrao o defeito PERSISTE ate a janela abrir — mas deixa de ser silencioso (DEC-30 D11):
+# `_conferir_identidade_da_ordem` recusa (incidente auditado + contador
+# `maezo_contas_pagto_ordem_recusada_total` + alerta `MaezoContasPagtoOrdemDeOutraConta`) a 2a
+# conta em vez de registrar sucesso.
 #
 # As fases espelham as do ADR-0068 (leitor antes de escritor):
 #   legado         escreve a chave legada; le so' a legada (+ conferencia de identidade).
@@ -1075,8 +1080,9 @@ FASES_CHAVE_CONTA: frozenset[str] = frozenset(
 )
 
 #: As variaveis (nao-PHI, `phi_vars.PHI_PROCESS_VARS`) que identificam a conta de uma ordem PAGTO
-#: no historico do motor — lidas POR NOME pela costura de #1167 (DL-0050), nunca "todas".
-_IDENTIDADE_DA_CONTA: tuple[str, ...] = ("numero_guia_tiss", "numero_conta")
+#: no historico do motor — lidas POR NOME pela costura de #1167 (DL-0050), nunca "todas". O
+#: prestador entra por DEC-30 D13 (a identidade da conta e' o trio prestador/guia/conta).
+_IDENTIDADE_DA_CONTA: tuple[str, ...] = ("prestador_id", "numero_guia_tiss", "numero_conta")
 
 _MESMA_CONTA = "mesma"
 _OUTRA_CONTA = "outra"
@@ -1103,14 +1109,20 @@ def _validar_fase_chave_conta(fase: str) -> str:
     return fase
 
 
-def _pagto_business_key_por_conta(tenant_id: str, numero_guia_tiss: str, numero_conta: str) -> str:
+def _pagto_business_key_por_conta(
+    tenant_id: str, prestador_id: str, numero_guia_tiss: str, numero_conta: str
+) -> str:
     """O compositor UNICO da forma por conta (`maezo.domain.chave_de_negocio`), com a recusa
-    re-tipada para o erro da familia (incidente auditado, mesmo codigo)."""
+    re-tipada para o erro da familia (incidente auditado, mesmo codigo). DEC-30 D13: o prestador
+    entra na chave e, como a guia, e' recusado com `-` (segmento do meio)."""
     from maezo.domain.chave_de_negocio import BusinessKeyComponentError, pagto_business_key_por_conta
 
     try:
         return pagto_business_key_por_conta(
-            tenant_id=tenant_id, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+            tenant_id=tenant_id,
+            prestador_id=prestador_id,
+            numero_guia_tiss=numero_guia_tiss,
+            numero_conta=numero_conta,
         )
     except BusinessKeyComponentError as exc:
         raise ContasHandoffPagamentoInvalidoError(
@@ -1118,22 +1130,33 @@ def _pagto_business_key_por_conta(tenant_id: str, numero_guia_tiss: str, numero_
         ) from exc
 
 
-def _ordem_pagamento_id_por_conta(tenant_id: str, numero_guia_tiss: str, numero_conta: str) -> str:
+def _ordem_pagamento_id_por_conta(
+    tenant_id: str, prestador_id: str, numero_guia_tiss: str, numero_conta: str
+) -> str:
     """O id da ordem acompanha a FORMA da chave: na forma por conta, duas contas do mesmo lote
-    nunca dividem `ordem_pagamento_id` (o que dividiriam com `_ordem_pagamento_id`)."""
-    return f"ORDEM-CONTA-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}"
+    nunca dividem `ordem_pagamento_id` (o que dividiriam com `_ordem_pagamento_id`). DEC-30 D13:
+    `ORDEM-CONTA-{t}-C-{prestador}-{guia}-{conta}`, os mesmos componentes da chave."""
+    return f"ORDEM-CONTA-{tenant_id}-C-{prestador_id}-{numero_guia_tiss}-{numero_conta}"
 
 
 def _comparar_identidade_da_conta(
-    variaveis_da_ordem: Mapping[str, Any], *, numero_guia_tiss: str, numero_conta: str
+    variaveis_da_ordem: Mapping[str, Any], *, prestador_id: str, numero_guia_tiss: str, numero_conta: str
 ) -> str:
     """`mesma` / `outra` / `indeterminada` — a ordem existente e' desta conta?
 
-    `numero_conta` AUSENTE no historico = ordem semeada antes deste pacote (a semente nao tinha a
+    Prestador (DEC-30 D13) primeiro: de OUTRO prestador e' `outra`; `prestador_id` AUSENTE no
+    historico nao prova nada — `indeterminada` (toda ordem que o handoff CONTAS semeou carrega o
+    prestador, desde antes de #1180; ausencia e' ordem de outra origem ou historico incompleto).
+
+    `numero_conta` AUSENTE no historico = ordem semeada antes de #1180 (a semente nao tinha a
     conta). Ela so' e' `mesma` para um pedido sem conta (forma lote, cuja identidade a chave ja'
     prova); para um pedido com conta e a mesma guia a identidade NAO e' comprovavel —
     `indeterminada`, nunca "presumivelmente a mesma".
     """
+    if "prestador_id" not in variaveis_da_ordem:
+        return _CONTA_INDETERMINADA
+    if key_segment(variaveis_da_ordem.get("prestador_id")) != prestador_id:
+        return _OUTRA_CONTA
     guia_existente = key_segment(variaveis_da_ordem.get("numero_guia_tiss"))
     if guia_existente != numero_guia_tiss:
         return _OUTRA_CONTA
@@ -1177,8 +1200,10 @@ def _conferir_identidade_da_ordem(
     business_key: str,
     instance_id: str,
     numero_lote_tiss: str,
+    prestador_id: str,
     numero_guia_tiss: str,
     numero_conta: str,
+    fase: str,
 ) -> None:
     """Depois de um `ALREADY_*` do chokepoint: a ordem existente e' desta conta, ou RECUSA.
 
@@ -1191,7 +1216,10 @@ def _conferir_identidade_da_ordem(
         _CONTA_INDETERMINADA
         if ordem is None
         else _comparar_identidade_da_conta(
-            ordem.variables, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+            ordem.variables,
+            prestador_id=prestador_id,
+            numero_guia_tiss=numero_guia_tiss,
+            numero_conta=numero_conta,
         )
     )
     if veredito == _MESMA_CONTA:
@@ -1202,6 +1230,7 @@ def _conferir_identidade_da_ordem(
         numero_lote_tiss=numero_lote_tiss,
         veredito=veredito,
         historico_encontrado=ordem is not None,
+        fase=fase,
     )
 
 
@@ -1212,9 +1241,19 @@ def _recusar_ordem_de_outra_conta(
     numero_lote_tiss: str,
     veredito: str,
     historico_encontrado: bool,
+    fase: str,
 ) -> NoReturn:
-    """Log de ERRO + `ContasHandoffPagamentoOrdemDeOutraContaError` (incidente). Sem guia/conta no
-    log: a forma guia/conta e' dado pessoal (ADR-0068, linha 2 — a confirmar pelo DPO)."""
+    """Contador + log de ERRO + `ContasHandoffPagamentoOrdemDeOutraContaError` (incidente). Sem
+    guia/conta no log: a forma guia/conta e' dado pessoal (ADR-0068, linha 2 — a confirmar pelo DPO).
+
+    DEC-30 D11: o incidente fica visivel no `legado` E alerta. O contador
+    `maezo_contas_pagto_ordem_recusada_total{veredito,fase}` (rotulos FECHADOS, nunca guia, conta,
+    chave, lote ou tenant) e' o sinal de `MaezoContasPagtoOrdemDeOutraConta`
+    (`deploy/observability/alert-rules.yml`). Emitido ANTES do raise, best-effort: telemetria nunca
+    impede a recusa."""
+    from maezo.platform.observability import record_contas_pagto_ordem_recusada
+
+    record_contas_pagto_ordem_recusada(veredito=veredito, fase=fase)
     logger.error(
         "contas_handoff_pagamento_ordem_de_outra_conta",
         numero_lote_tiss=numero_lote_tiss,
@@ -1228,8 +1267,8 @@ def _recusar_ordem_de_outra_conta(
         f"{instance_id!r}) e ela NAO e' comprovadamente desta conta (veredito={veredito}) — "
         "recusado em vez de registrar sucesso: esta conta ficaria SEM ordem de pagamento. Chave "
         "PAGTO sem a conta (decisao do dono 2026-11-01, opcao A; corrigida na janela de chaves do "
-        "ADR-0068, MAEZO_PAGTO_CHAVE_CONTA_FASE). Resolucao humana: ver "
-        "docs/runbooks/pagto-chave-por-conta-migracao.md"
+        "ADR-0068/ADR-0074, MAEZO_PAGTO_CHAVE_CONTA_FASE). Resolucao humana: ver "
+        "docs/runbooks/pagto-chave-por-conta-migracao.md §3"
     )
 
 
@@ -1246,10 +1285,11 @@ def handoff_pagamento(
     **Chave PAGTO por conta (decisao do dono de 2026-11-01, opcao A).** `fase_chave_conta`
     (`MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao `legado`) decide a chave quando CONTAS rodou na forma
     guia/conta: `legado`/`leitura_dupla` escrevem `PAGTO-{t}-{lote}-{prestador}`; `escrita_alvo`
-    escreve `PAGTO-{t}-C-{guia}-{conta}` (`chave_de_negocio.pagto_business_key_por_conta`, guia com
-    `-` recusada). A forma lote nunca muda. Em TODA fase, um `ALREADY_*` do chokepoint e' conferido
-    contra a identidade da conta da ordem existente (`_conferir_identidade_da_ordem`): de outra
-    conta, ou nao comprovavel, RECUSA — nunca o sucesso silencioso que deixava a conta sem ordem.
+    escreve `PAGTO-{t}-C-{prestador}-{guia}-{conta}` (`chave_de_negocio.pagto_business_key_por_conta`;
+    DEC-30 D13; prestador ou guia com `-` recusados). A forma lote nunca muda. Em TODA fase, um
+    `ALREADY_*` do chokepoint e' conferido contra a identidade da conta da ordem existente
+    (`_conferir_identidade_da_ordem`: prestador, guia e conta): de outra conta, ou nao comprovavel,
+    RECUSA — nunca o sucesso silencioso que deixava a conta sem ordem.
 
     NOT an adverse effect and NOT a release of money — SP-OP-PAGTO-001 owns the release, behind
     its own alcada ladder AND (invariant **I-PAGTO-1**) behind the mandatory human
@@ -1424,7 +1464,7 @@ def handoff_pagamento(
     # por conta e' composta (e a guia com `-` recusada) ANTES de qualquer efeito, inclusive na
     # `leitura_dupla`, que a usa so' para ler — a recusa R-101 vale nas duas gramaticas da janela.
     chave_por_conta = (
-        _pagto_business_key_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+        _pagto_business_key_por_conta(tenant_id, prestador_id, numero_guia_tiss, numero_conta)
         if fase != FASE_CHAVE_LEGADO
         and contas_adjudica_por_conta(numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta)
         else None
@@ -1432,7 +1472,7 @@ def handoff_pagamento(
     escreve_por_conta = chave_por_conta is not None and fase == FASE_CHAVE_ESCRITA_ALVO
     business_key = chave_por_conta if escreve_por_conta and chave_por_conta else chave_legada
     ordem_pagamento_id = (
-        _ordem_pagamento_id_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+        _ordem_pagamento_id_por_conta(tenant_id, prestador_id, numero_guia_tiss, numero_conta)
         if escreve_por_conta
         else _ordem_pagamento_id(tenant_id, numero_lote_tiss, prestador_id)
     )
@@ -1488,7 +1528,10 @@ def handoff_pagamento(
     existente = _ordem_existente(engine, outra_forma) if outra_forma is not None else None
     if outra_forma is not None and existente is not None:
         veredito = _comparar_identidade_da_conta(
-            existente.variables, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+            existente.variables,
+            prestador_id=prestador_id,
+            numero_guia_tiss=numero_guia_tiss,
+            numero_conta=numero_conta,
         )
         segue_para_a_chave_por_conta = escreve_por_conta and veredito == _OUTRA_CONTA
         if veredito != _MESMA_CONTA and not segue_para_a_chave_por_conta:
@@ -1498,6 +1541,7 @@ def handoff_pagamento(
                 numero_lote_tiss=numero_lote_tiss,
                 veredito=veredito,
                 historico_encontrado=True,
+                fase=fase,
             )
         if veredito == _MESMA_CONTA:
             logger.info(
@@ -1513,7 +1557,7 @@ def handoff_pagamento(
             ordem_da_outra_forma = (
                 _ordem_pagamento_id(tenant_id, numero_lote_tiss, prestador_id)
                 if escreve_por_conta
-                else _ordem_pagamento_id_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+                else _ordem_pagamento_id_por_conta(tenant_id, prestador_id, numero_guia_tiss, numero_conta)
             )
             return _resultado_handoff(
                 payload,
@@ -1542,8 +1586,10 @@ def handoff_pagamento(
             business_key=business_key,
             instance_id=instance.instance_id,
             numero_lote_tiss=numero_lote_tiss,
+            prestador_id=prestador_id,
             numero_guia_tiss=numero_guia_tiss,
             numero_conta=numero_conta,
+            fase=fase,
         )
     logger.info(
         "contas.handoff_pagamento",
@@ -2328,6 +2374,11 @@ def register_contas_workers(
     fase_chave_conta = _validar_fase_chave_conta(
         str(seams.get(PAGTO_CHAVE_CONTA_FASE_SEAM) or FASE_CHAVE_LEGADO)
     )
+    # DEC-30 D11: a recusa da ordem de outra conta e' rara por desenho — pre-inicializa o contador
+    # em 0 (vocabularios fechados) para o PRIMEIRO incidente ser visivel a `increase()`.
+    from maezo.platform.observability import preinit_contas_pagto_ordem_recusada
+
+    preinit_contas_pagto_ordem_recusada()
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)

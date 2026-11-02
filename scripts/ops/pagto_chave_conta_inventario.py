@@ -2,8 +2,9 @@
 """Inventario SOMENTE-LEITURA das ordens PAGTO sob a chave lote do handoff CONTAS (opcao A, 2026-11-01).
 
 Decisao do dono de 2026-11-01: a chave PAGTO cunhada por `operadora.contas.handoff_pagamento` passa a
-carregar a conta quando CONTAS rodou na forma guia/conta (`PAGTO-{t}-C-{guia}-{conta}`), dentro da
-janela unica de migracao de chaves do ADR-0068. As ordens ja' criadas sob a forma lote
+carregar a conta quando CONTAS rodou na forma guia/conta — com o prestador, DEC-30 D13:
+`PAGTO-{t}-C-{prestador}-{guia}-{conta}` —, dentro da janela unica de migracao de chaves do ADR-0068
+(forma registrada pelo ADR-0074). As ordens ja' criadas sob a forma lote
 (`PAGTO-{t}-{lote}-{prestador}`) precisam de um plano — este script e' a parte mecanica dele:
 
 * classifica cada ordem PAGTO exportada do historico do motor (`--pagto`);
@@ -20,11 +21,12 @@ Executar o plano pertence a janela do ADR-0068 (`docs/runbooks/pagto-chave-por-c
 Formato de entrada (lista JSON; gerada por leitura do historico do motor, ver o runbook):
   --pagto  [{"id", "businessKey", "state", "variables": {"tenant_id", "numero_lote_tiss",
              "prestador_id", "numero_guia_tiss", "numero_conta"?}}]
-  --contas [{"id", "businessKey", "variables": {"tenant_id", "numero_guia_tiss", "numero_conta",
-             "pagto_instance_id", "pagto_already_existed"}}]
+  --contas [{"id", "businessKey", "variables": {"tenant_id", "prestador_id", "numero_guia_tiss",
+             "numero_conta", "pagto_instance_id", "pagto_already_existed"}}]
 
 Uso: python scripts/ops/pagto_chave_conta_inventario.py --pagto pagto.json [--contas contas.json] [--estrito]
-`--estrito` sai 2 quando ha item que exige humano (indeterminada, guia com '-', pagamento perdido).
+`--estrito` sai 2 quando ha item que exige humano (indeterminada, prestador ou guia com '-',
+pagamento perdido).
 """
 
 from __future__ import annotations
@@ -49,9 +51,12 @@ JA_POR_CONTA = "ja_por_conta"  # nasceu na forma por conta (fase escrita_alvo)
 FORMA_LOTE = "forma_lote"  # CONTAS rodou na forma lote: a chave lote E' a identidade; fica
 ALIAS_POR_CONTA = "alias_por_conta"  # ordem lote de UMA conta conhecida: alias insert-only na janela
 ALIAS_BLOQUEADO_GUIA_COM_HIFEN = "alias_bloqueado_guia_com_hifen"  # R-101: a chave por conta recusa
+ALIAS_BLOQUEADO_PRESTADOR_COM_HIFEN = "alias_bloqueado_prestador_com_hifen"  # DEC-30 D13: idem
 INDETERMINADA = "indeterminada"  # semeada antes da conta entrar na semente: reconciliacao humana
 
-EXIGE_HUMANO: frozenset[str] = frozenset({ALIAS_BLOQUEADO_GUIA_COM_HIFEN, INDETERMINADA})
+EXIGE_HUMANO: frozenset[str] = frozenset(
+    {ALIAS_BLOQUEADO_GUIA_COM_HIFEN, ALIAS_BLOQUEADO_PRESTADOR_COM_HIFEN, INDETERMINADA}
+)
 
 
 def _chave_lote(variaveis: Mapping[str, Any]) -> str:
@@ -69,6 +74,7 @@ def classificar_ordem(ordem: Mapping[str, Any]) -> dict[str, Any]:
     variaveis: Mapping[str, Any] = ordem.get("variables") or {}
     chave = str(ordem.get("businessKey") or "")
     tenant = key_segment(variaveis.get("tenant_id"))
+    prestador = key_segment(variaveis.get("prestador_id"))
     guia = key_segment(variaveis.get("numero_guia_tiss"))
     conta = key_segment(variaveis.get("numero_conta"))
     linha: dict[str, Any] = {
@@ -86,9 +92,13 @@ def classificar_ordem(ordem: Mapping[str, Any]) -> dict[str, Any]:
     if not contas_adjudica_por_conta(numero_guia_tiss=guia, numero_conta=conta):
         return {**linha, "disposicao": FORMA_LOTE}
     try:
-        alvo = pagto_business_key_por_conta(tenant_id=tenant, numero_guia_tiss=guia, numero_conta=conta)
+        alvo = pagto_business_key_por_conta(
+            tenant_id=tenant, prestador_id=prestador, numero_guia_tiss=guia, numero_conta=conta
+        )
     except BusinessKeyComponentError as exc:
-        return {**linha, "disposicao": ALIAS_BLOQUEADO_GUIA_COM_HIFEN, "motivo": str(exc)}
+        # O compositor confere o prestador ANTES da guia; o motivo exato vai em `motivo`.
+        bloqueio = ALIAS_BLOQUEADO_PRESTADOR_COM_HIFEN if "-" in prestador else ALIAS_BLOQUEADO_GUIA_COM_HIFEN
+        return {**linha, "disposicao": bloqueio, "motivo": str(exc)}
     return {**linha, "disposicao": ALIAS_POR_CONTA, "chave_por_conta": alvo}
 
 
@@ -100,6 +110,7 @@ def contas_sem_ordem(
     perdidas: list[dict[str, Any]] = []
     for instancia in contas:
         variaveis: Mapping[str, Any] = instancia.get("variables") or {}
+        prestador = key_segment(variaveis.get("prestador_id"))
         guia = key_segment(variaveis.get("numero_guia_tiss"))
         conta = key_segment(variaveis.get("numero_conta"))
         if not contas_adjudica_por_conta(numero_guia_tiss=guia, numero_conta=conta):
@@ -110,6 +121,9 @@ def contas_sem_ordem(
         da_ordem = por_instancia.get(ordem_id)
         if da_ordem is None:
             motivo = "ordem_fora_do_export"
+        elif "prestador_id" in variaveis and key_segment(da_ordem.get("prestador_id")) != prestador:
+            # DEC-30 D13: a identidade da conta inclui o prestador.
+            motivo = "ordem_de_outro_prestador"
         elif key_segment(da_ordem.get("numero_guia_tiss")) != guia:
             motivo = "ordem_de_outra_guia"
         elif "numero_conta" not in da_ordem:

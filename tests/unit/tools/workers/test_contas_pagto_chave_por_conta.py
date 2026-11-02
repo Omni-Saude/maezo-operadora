@@ -50,8 +50,26 @@ from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 from tests.support.audit_fakes import FakeStartAuditSink
 
 _LOTE = "LOTE-9"
-_PRESTADOR = "prov:teste-0001"
+#: Sem `-`: na forma por conta o prestador e' segmento do meio e `-` nele e' recusado (DEC-30 D13).
+_PRESTADOR = "prov:teste0001"
 _CHAVE_LEGADA = f"PAGTO-amh-{_LOTE}-{_PRESTADOR}"
+
+
+def _c(guia: str = "G1", conta: str = "C1", prestador: str = _PRESTADOR) -> str:
+    """A chave por conta esperada: `PAGTO-{t}-C-{prestador}-{guia}-{conta}` (DEC-30 D13)."""
+    return f"PAGTO-amh-C-{prestador}-{guia}-{conta}"
+
+
+def _ordem_c(guia: str = "G1", conta: str = "C1", prestador: str = _PRESTADOR) -> str:
+    return f"ORDEM-CONTA-amh-C-{prestador}-{guia}-{conta}"
+
+
+def _ident(guia: str = "G1", conta: str | None = "C1", prestador: str = _PRESTADOR) -> dict[str, Any]:
+    """As variaveis de identidade que o handoff semeia na ordem (prestador SEMPRE semeado)."""
+    variaveis: dict[str, Any] = {"prestador_id": prestador, "numero_guia_tiss": guia}
+    if conta is not None:
+        variaveis["numero_conta"] = conta
+    return variaveis
 
 
 class _MotorComHistorico(FakeCibSevenTransport):
@@ -144,15 +162,15 @@ def test_duas_contas_mesmo_prestador_mesmo_lote_geram_duas_ordens_distintas() ->
     primeira = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1")
     segunda = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C2")
 
-    assert primeira["pagto_business_key"] == "PAGTO-amh-C-G1-C1"
-    assert segunda["pagto_business_key"] == "PAGTO-amh-C-G1-C2"
+    assert primeira["pagto_business_key"] == _c("G1", "C1")
+    assert segunda["pagto_business_key"] == _c("G1", "C2")
     assert primeira["pagto_already_existed"] is False
     assert segunda["pagto_already_existed"] is False
     assert primeira["pagto_instance_id"] != segunda["pagto_instance_id"]
-    assert [chave for chave, _ in motor.starts] == ["PAGTO-amh-C-G1-C1", "PAGTO-amh-C-G1-C2"]
+    assert [chave for chave, _ in motor.starts] == [_c("G1", "C1"), _c("G1", "C2")]
     # Duas contas nunca dividem `ordem_pagamento_id` na forma por conta.
-    assert primeira["ordem_pagamento_id"] == "ORDEM-CONTA-amh-C-G1-C1"
-    assert segunda["ordem_pagamento_id"] == "ORDEM-CONTA-amh-C-G1-C2"
+    assert primeira["ordem_pagamento_id"] == _ordem_c("G1", "C1")
+    assert segunda["ordem_pagamento_id"] == _ordem_c("G1", "C2")
     assert _ordens_ativas(motor, _CHAVE_LEGADA) is None, "nenhuma ordem nasce na chave legada"
 
 
@@ -166,7 +184,7 @@ def test_reenvio_da_mesma_conta_continua_deduplicado_numa_ordem_so() -> None:
     assert len(motor.starts) == 1, "um unico start para a mesma conta"
     assert reenvio["pagto_already_existed"] is True
     assert reenvio["pagto_instance_id"] == primeira["pagto_instance_id"]
-    assert reenvio["pagto_business_key"] == "PAGTO-amh-C-G1-C1"
+    assert reenvio["pagto_business_key"] == _c("G1", "C1")
 
 
 def test_reenvio_de_conta_ja_paga_concluida_e_recusado_pelo_gate_permanente() -> None:
@@ -176,7 +194,7 @@ def test_reenvio_de_conta_ja_paga_concluida_e_recusado_pelo_gate_permanente() ->
     concluida = ProcessInstance(
         instance_id=primeira["pagto_instance_id"],
         process_key=PAGTO_PROCESS_KEY,
-        business_key="PAGTO-amh-C-G1-C1",
+        business_key=_c("G1", "C1"),
         state="COMPLETED",
     )
     motor.seed_instance(concluida)
@@ -221,9 +239,7 @@ def test_escrita_alvo_devolve_a_ordem_legada_desta_conta_sem_novo_start() -> Non
     """Leitura dupla: a ordem desta conta nasceu sob a chave legada (com a conta semeada) -> e' ela,
     nunca uma segunda ordem atravessando a virada."""
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(
-        _CHAVE_LEGADA, {"numero_guia_tiss": "G1", "numero_conta": "C1"}, instance_id="pagto-legado-c1"
-    )
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G1", "C1"), instance_id="pagto-legado-c1")
 
     resultado = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1")
 
@@ -238,13 +254,11 @@ def test_escrita_alvo_devolve_a_ordem_legada_desta_conta_sem_novo_start() -> Non
 def test_escrita_alvo_destrava_a_conta_cuja_chave_legada_e_de_outra_conta() -> None:
     """A conta que hoje ficaria sem ordem: a legada e' PROVADAMENTE de outra conta -> ordem propria."""
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(
-        _CHAVE_LEGADA, {"numero_guia_tiss": "G1", "numero_conta": "C1"}, instance_id="pagto-legado-c1"
-    )
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G1", "C1"), instance_id="pagto-legado-c1")
 
     resultado = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C2")
 
-    assert [chave for chave, _ in motor.starts] == ["PAGTO-amh-C-G1-C2"]
+    assert [chave for chave, _ in motor.starts] == [_c("G1", "C2")]
     assert resultado["pagto_already_existed"] is False
 
 
@@ -252,7 +266,7 @@ def test_escrita_alvo_recusa_quando_a_ordem_legada_nao_tem_conta_semeada_e_a_gui
     """Ordem anterior a este pacote (sem `numero_conta`) e mesma guia: pode ser DESTA conta. Seguir
     para a chave por conta seria arriscar pagamento em dobro -> recusa (humano reconcilia)."""
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(_CHAVE_LEGADA, {"numero_guia_tiss": "G1"}, instance_id="pagto-pre-pacote")
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G1", None), instance_id="pagto-pre-pacote")
 
     with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError, match="indeterminada"):
         _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1")
@@ -262,11 +276,11 @@ def test_escrita_alvo_recusa_quando_a_ordem_legada_nao_tem_conta_semeada_e_a_gui
 
 def test_escrita_alvo_ordem_legada_sem_conta_de_outra_guia_destrava() -> None:
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(_CHAVE_LEGADA, {"numero_guia_tiss": "G9"}, instance_id="pagto-pre-pacote")
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G9", None), instance_id="pagto-pre-pacote")
 
     resultado = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1")
 
-    assert resultado["pagto_business_key"] == "PAGTO-amh-C-G1-C1"
+    assert resultado["pagto_business_key"] == _c("G1", "C1")
     assert len(motor.starts) == 1
 
 
@@ -355,7 +369,7 @@ def test_legado_ordem_pre_pacote_forma_lote_mesma_guia_segue_sucesso() -> None:
     """Forma lote: a chave ja' prova a identidade (lote+prestador); ordem sem conta semeada e'
     `mesma` quando o pedido tambem nao tem conta."""
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(_CHAVE_LEGADA, {"numero_guia_tiss": "G1"}, instance_id="pagto-pre-pacote")
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G1", None), instance_id="pagto-pre-pacote")
 
     resultado = _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="")
 
@@ -451,15 +465,13 @@ def test_leitura_dupla_ve_a_ordem_por_conta_de_uma_replica_em_escrita_alvo() -> 
     assert len(motor.starts) == 1
     assert reenvio["pagto_already_existed"] is True
     assert reenvio["pagto_instance_id"] == criada["pagto_instance_id"]
-    assert reenvio["pagto_business_key"] == "PAGTO-amh-C-G1-C1"
-    assert reenvio["ordem_pagamento_id"] == "ORDEM-CONTA-amh-C-G1-C1"
+    assert reenvio["pagto_business_key"] == _c("G1", "C1")
+    assert reenvio["ordem_pagamento_id"] == _ordem_c("G1", "C1")
 
 
 def test_leitura_dupla_recusa_ordem_por_conta_com_identidade_divergente() -> None:
     motor, sink = _MotorComHistorico(), FakeStartAuditSink()
-    motor.semear_ordem(
-        "PAGTO-amh-C-G1-C1", {"numero_guia_tiss": "G1", "numero_conta": "OUTRA"}, instance_id="pagto-colisao"
-    )
+    motor.semear_ordem(_c("G1", "C1"), _ident("G1", "OUTRA"), instance_id="pagto-colisao")
     with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError):
         _handoff(motor, sink, FASE_CHAVE_LEITURA_DUPLA, guia="G1", conta="C1")
     assert motor.starts == []
@@ -498,7 +510,7 @@ def test_fase_fora_do_dominio_e_recusada_no_registro() -> None:
         ({}, _CHAVE_LEGADA),
         ({PAGTO_CHAVE_CONTA_FASE_SEAM: FASE_CHAVE_LEGADO}, _CHAVE_LEGADA),
         ({PAGTO_CHAVE_CONTA_FASE_SEAM: FASE_CHAVE_LEITURA_DUPLA}, _CHAVE_LEGADA),
-        ({PAGTO_CHAVE_CONTA_FASE_SEAM: FASE_CHAVE_ESCRITA_ALVO}, "PAGTO-amh-C-G1-C1"),
+        ({PAGTO_CHAVE_CONTA_FASE_SEAM: FASE_CHAVE_ESCRITA_ALVO}, _c("G1", "C1")),
     ],
 )
 def test_register_contas_workers_repassa_a_fase_ao_handoff(
@@ -527,19 +539,19 @@ def test_numero_conta_nao_e_variavel_phi_lida_pela_costura() -> None:
     """A costura de #1167 recusa nomes PHI antes da rede; a identidade da conta tem de passar."""
     from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 
-    assert not ({"numero_guia_tiss", "numero_conta"} & PHI_PROCESS_VARS)
-    assert contas._IDENTIDADE_DA_CONTA == ("numero_guia_tiss", "numero_conta")
+    assert not ({"prestador_id", "numero_guia_tiss", "numero_conta"} & PHI_PROCESS_VARS)
+    assert contas._IDENTIDADE_DA_CONTA == ("prestador_id", "numero_guia_tiss", "numero_conta")
 
 
 def test_historico_variavel_conta_vazia_e_forma_lote() -> None:
     """Ordem semeada por este pacote na forma lote carrega `numero_conta=""` (presente, vazio)."""
     veredito = contas._comparar_identidade_da_conta(
-        {"numero_guia_tiss": "G1", "numero_conta": ""}, numero_guia_tiss="G1", numero_conta=""
+        _ident("G1", ""), prestador_id=_PRESTADOR, numero_guia_tiss="G1", numero_conta=""
     )
     assert veredito == "mesma"
     assert (
         contas._comparar_identidade_da_conta(
-            {"numero_guia_tiss": "G1", "numero_conta": ""}, numero_guia_tiss="G1", numero_conta="C1"
+            _ident("G1", ""), prestador_id=_PRESTADOR, numero_guia_tiss="G1", numero_conta="C1"
         )
         == "outra"
     )
@@ -547,3 +559,198 @@ def test_historico_variavel_conta_vazia_e_forma_lote() -> None:
         instance_id="i", business_key="k", process_key=PAGTO_PROCESS_KEY, state="ACTIVE", end_activity_id=None
     )
     assert replace(record, variables={}).variables == {}
+
+
+# ---------------------------------------------------------------------------
+# DEC-30 D13 — o prestador na chave por conta e na conferencia de identidade
+# ---------------------------------------------------------------------------
+
+
+def test_escrita_alvo_mesma_guia_e_conta_de_prestadores_distintos_geram_duas_ordens() -> None:
+    """D13 (opcao B): o prestador separa duas contas com a mesma guia/conta — antes de D13 a 2a
+    bateria na ordem da 1a (`PAGTO-{t}-C-{guia}-{conta}`)."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+
+    primeira = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1", prestador_id="PA")
+    segunda = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1", prestador_id="PB")
+
+    assert [chave for chave, _ in motor.starts] == [_c("G1", "C1", "PA"), _c("G1", "C1", "PB")]
+    assert primeira["ordem_pagamento_id"] == _ordem_c("G1", "C1", "PA")
+    assert segunda["ordem_pagamento_id"] == _ordem_c("G1", "C1", "PB")
+    assert segunda["pagto_already_existed"] is False
+
+
+@pytest.mark.parametrize("fase", [FASE_CHAVE_ESCRITA_ALVO, FASE_CHAVE_LEITURA_DUPLA])
+@pytest.mark.parametrize("prestador", ["prov:teste-0001", "A-B", "P1-"])
+def test_prestador_com_hifen_e_recusado_antes_de_qualquer_efeito(fase: str, prestador: str) -> None:
+    """D13 + R-101 no segmento do meio, nas duas fases da janela: nenhum claim, nenhuma leitura,
+    nenhum start — incidente da familia (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`)."""
+
+    class _ContaLeituras(_MotorComHistorico):
+        def __init__(self) -> None:
+            super().__init__()
+            self.leituras = 0
+
+        async def resolve_historic_instance(self, *args: Any, **kwargs: Any) -> HistoricInstanceRecord:
+            self.leituras += 1
+            return await super().resolve_historic_instance(*args, **kwargs)
+
+    motor, sink = _ContaLeituras(), FakeStartAuditSink()
+    with pytest.raises(ContasHandoffPagamentoInvalidoError, match="prestador_id") as caught:
+        _handoff(motor, sink, fase, guia="G1", conta="C1", prestador_id=prestador)
+
+    assert str(caught.value).startswith("ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO")
+    assert sink.dedup_keys == []
+    assert motor.starts == []
+    assert motor.leituras == 0
+
+
+def test_prestador_com_hifen_segue_aceito_no_legado_e_na_forma_lote() -> None:
+    """O padrao e' byte-identico na chave: a recusa D13 so' vale na forma por conta, dentro da janela."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    legado = _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1", prestador_id="prov:teste-0001")
+    assert legado["pagto_business_key"] == f"PAGTO-amh-{_LOTE}-prov:teste-0001"
+
+    lote = _handoff(
+        _MotorComHistorico(),
+        FakeStartAuditSink(),
+        FASE_CHAVE_ESCRITA_ALVO,
+        conta="",
+        prestador_id="prov:teste-0001",
+    )
+    assert lote["pagto_business_key"] == f"PAGTO-amh-{_LOTE}-prov:teste-0001"
+
+
+def test_prestador_e_normalizado_como_os_outros_segmentos() -> None:
+    """A MESMA normalizacao (`key_segment`) do lote: o prestador com espaco nas pontas compoe a
+    mesma chave que o sem espaco — um reenvio acolchoado nao vira uma 2a ordem."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    primeira = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, prestador_id=f"  {_PRESTADOR} ")
+    reenvio = _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, prestador_id=_PRESTADOR)
+    assert primeira["pagto_business_key"] == _c("G1", "C1")
+    assert len(motor.starts) == 1
+    assert reenvio["pagto_instance_id"] == primeira["pagto_instance_id"]
+
+
+def test_legado_ordem_de_outro_prestador_sob_a_chave_e_recusada_como_outra() -> None:
+    """Conferencia de identidade (D13): a ordem sob a chave e' de OUTRO prestador -> `outra`."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    motor.semear_ordem(_CHAVE_LEGADA, _ident("G1", "C1", prestador="OUTRO"), instance_id="pagto-outro")
+    with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError, match="veredito=outra"):
+        _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1")
+    assert motor.starts == []
+
+
+def test_legado_ordem_sem_prestador_no_historico_e_indeterminada() -> None:
+    """Prestador AUSENTE no historico nao prova nada: `indeterminada`, nunca "presumivelmente a mesma"."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    motor.semear_ordem(
+        _CHAVE_LEGADA, {"numero_guia_tiss": "G1", "numero_conta": "C1"}, instance_id="pagto-sem-prestador"
+    )
+    with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError, match="veredito=indeterminada"):
+        _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1")
+
+
+@pytest.mark.parametrize(
+    ("variaveis", "esperado"),
+    [
+        ({"prestador_id": "P1", "numero_guia_tiss": "G1", "numero_conta": "C1"}, "mesma"),
+        ({"prestador_id": " P1 ", "numero_guia_tiss": "G1", "numero_conta": "C1"}, "mesma"),
+        ({"prestador_id": "P2", "numero_guia_tiss": "G1", "numero_conta": "C1"}, "outra"),
+        ({"numero_guia_tiss": "G1", "numero_conta": "C1"}, "indeterminada"),
+        ({"prestador_id": "P1", "numero_guia_tiss": "G2", "numero_conta": "C1"}, "outra"),
+        ({"prestador_id": "P1", "numero_guia_tiss": "G1"}, "indeterminada"),
+    ],
+)
+def test_comparar_identidade_inclui_o_prestador(variaveis: dict[str, Any], esperado: str) -> None:
+    assert (
+        contas._comparar_identidade_da_conta(
+            variaveis, prestador_id="P1", numero_guia_tiss="G1", numero_conta="C1"
+        )
+        == esperado
+    )
+
+
+# ---------------------------------------------------------------------------
+# DEC-30 D11 — o incidente visivel ganha contador (sinal do alerta) pre-inicializado
+# ---------------------------------------------------------------------------
+
+
+def _amostra(veredito: str, fase: str) -> float | None:
+    from maezo.platform.observability import get_metrics_collector
+
+    return get_metrics_collector().registry.get_sample_value(
+        "maezo_contas_pagto_ordem_recusada_total", {"veredito": veredito, "fase": fase}
+    )
+
+
+def test_recusa_no_legado_conta_uma_vez_com_rotulos_fechados() -> None:
+    """O sinal do alerta `MaezoContasPagtoOrdemDeOutraConta`: UMA contagem por recusa, rotulada
+    so' por veredito/fase (nunca guia, conta, chave, lote ou tenant)."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1")
+    antes = _amostra("outra", "legado") or 0.0
+
+    with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError):
+        _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C2")
+
+    assert (_amostra("outra", "legado") or 0.0) == antes + 1.0
+
+
+def test_recusa_da_leitura_dupla_tambem_conta() -> None:
+    """O MESMO sitio (`_recusar_ordem_de_outra_conta`) serve a recusa da leitura dupla."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    motor.semear_ordem(_c("G1", "C1"), _ident("G1", "OUTRA"), instance_id="pagto-colisao")
+    antes = _amostra("outra", "leitura_dupla") or 0.0
+    with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError):
+        _handoff(motor, sink, FASE_CHAVE_LEITURA_DUPLA, guia="G1", conta="C1")
+    assert (_amostra("outra", "leitura_dupla") or 0.0) == antes + 1.0
+
+
+def test_sucesso_idempotente_nao_conta_recusa() -> None:
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1")
+    antes = {(v, f): _amostra(v, f) or 0.0 for v in ("outra", "indeterminada") for f in ("legado",)}
+    _handoff(motor, sink, FASE_CHAVE_LEGADO, guia="G1", conta="C1")
+    assert {(v, f): _amostra(v, f) or 0.0 for (v, f) in antes} == antes
+
+
+def test_registro_pre_inicializa_o_contador_em_zero_para_todo_rotulo_fechado() -> None:
+    """Contador raro: sem a serie em 0 o PRIMEIRO incremento fica invisivel a `increase()`."""
+    from maezo.platform.observability import CONTAS_PAGTO_FASES, CONTAS_PAGTO_VEREDITOS, get_metrics_collector
+
+    registry = get_metrics_collector().registry
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="pagto-chave-probe")
+    register_contas_workers(harness, None)
+    for veredito in CONTAS_PAGTO_VEREDITOS:
+        for fase in CONTAS_PAGTO_FASES:
+            assert (
+                registry.get_sample_value(
+                    "maezo_contas_pagto_ordem_recusada_total", {"veredito": veredito, "fase": fase}
+                )
+                is not None
+            ), (veredito, fase)
+
+
+def test_vocabularios_do_contador_espelham_os_de_contas() -> None:
+    """Paridade: o contador nao pode inventar nem perder um veredito/fase de `contas`."""
+    from maezo.platform.observability import CONTAS_PAGTO_FASES, CONTAS_PAGTO_VEREDITOS
+
+    assert frozenset(CONTAS_PAGTO_FASES) == contas.FASES_CHAVE_CONTA
+    assert frozenset(CONTAS_PAGTO_VEREDITOS) == {contas._OUTRA_CONTA, contas._CONTA_INDETERMINADA}
+
+
+def test_rotulo_fora_do_vocabulario_vira_outro_nunca_o_valor_cru() -> None:
+    from maezo.platform.observability import record_contas_pagto_ordem_recusada
+
+    antes = _amostra("outro", "outro") or 0.0
+    record_contas_pagto_ordem_recusada(veredito="G1-C1", fase="PAGTO-amh-C-x")
+    assert (_amostra("outro", "outro") or 0.0) == antes + 1.0
+    assert _amostra("G1-C1", "PAGTO-amh-C-x") is None
+
+
+def test_contador_sem_rotulo_de_identificador() -> None:
+    from maezo.runtime.metrics import MetricsCollector
+
+    counter = MetricsCollector().contas_pagto_ordem_recusada
+    assert tuple(counter._labelnames) == ("veredito", "fase")
