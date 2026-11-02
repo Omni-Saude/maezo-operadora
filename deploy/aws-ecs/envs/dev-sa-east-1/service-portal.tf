@@ -274,7 +274,7 @@ resource "aws_ecs_task_definition" "portal" {
       { name = "MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN", value = "http://cibseven.maezo-operadora-dev.internal:8080/engine-rest" },
       { name = "MAEZO_PORTAL_DIRECT_COMPLETION_TIMEOUT_SECONDS", value = "15" },
       { name = "MAEZO_PORTAL_CORS_ORIGINS", value = "https://maezo-teste-dev.austa.com.br" },
-      ], lookup(local.portal_staff_environment, each.key, []), lookup(local.portal_human_environment, each.key, []), each.value.staff == null ? [] : [
+      ], local.reembolso_anexos_env_portal, lookup(local.portal_staff_environment, each.key, []), lookup(local.portal_human_environment, each.key, []), each.value.staff == null ? [] : [
       { name = "TMPDIR", value = "/run/maezo-staff-scratch" }
     ])
     secrets = [{ name = "MAEZO_PORTAL_DATABASE_URL", valueFrom = each.value.database_secret_arn }]

@@ -983,11 +983,12 @@ def test_mapeamento_topicos_is_byte_unchanged_in_content(shipped: dict[str, Any]
         `handoff_pagamento` (`inicio_processo_regulatorio`).
     No EXISTING entry was touched or reclassified, and no class was invented.
 
-    32 entries as of DL-0150: ADDED `operadora.escalation.notify_team` and
+    31 entries as of DL-0161 (REMOVED `operadora.reembolso.issue_payment`: o pagamento deixou de ser do
+    sistema); 32 as of DL-0150: ADDED `operadora.escalation.notify_team` and
     `operadora.escalation.notify_supervisor` (`notificacao_interna_equipe`, declared and UNAPPROVED in
     the same PR). Still no existing entry touched; `operadora.events.publish` deliberately unmapped.
     """
-    assert len(shipped[TOPIC_MAP_KEY]) == 32
+    assert len(shipped[TOPIC_MAP_KEY]) == 31
     assert "operadora.events.publish" not in shipped[TOPIC_MAP_KEY]
     assert not set(shipped[TOPIC_MAP_KEY]) & set(shipped[ACTION_MAP_KEY])
 

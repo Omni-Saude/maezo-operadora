@@ -25,8 +25,9 @@ Fontes rastreadas (as ÚNICAS; cada linha do artefato cita arquivo:linha)
    gate `scripts/ci/check_deviation_expiry.py` usam — o dashboard não pode divergir da leitura
    que o gateway faz do próprio registro.
 2. `docs/plans/w5-5-1-flags-reancoragem.md` §3 — inventário rastreado das flags de
-   habilitação dark (6 grupos; 33 interruptores ENUMERADOS linha a linha — o headline do doc
-   diz 31, a soma dos parciais declarados por ele é 5+3+3+1+19+2 = 33; a divergência é
+   habilitação dark (6 grupos; 32 interruptores ENUMERADOS linha a linha — o headline do doc
+   diz 31, a soma dos parciais declarados por ele é 5+3+3+1+19+2 = 33, e a linha B-F1
+   (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com DL-0161, que removeu o interruptor; a divergência é
    registrada no painel, não reproduzida). Cada linha cita a linha da tabela do doc E a âncora
    de código da flag (verificada viva contra a árvore).
 3. `docs/review-queue.md` — as linhas da fila que nomeiam interruptor + revisor + janela
@@ -426,7 +427,7 @@ def build_secao_gateway(approvals: ActionApprovals, hoje: date) -> tuple[list[Sh
 
 # ---------------------------------------------------------------------------------------------
 # Seção B — as flags de habilitação dark (inventário rastreado, `w5-5-1-flags-reancoragem.md`
-# §3, base `dc544a0e`): 33 interruptores ENUMERADOS em 6 grupos. Cada linha: âncora na tabela
+# §3, base `dc544a0e`): 32 interruptores ENUMERADOS em 6 grupos. Cada linha: âncora na tabela
 # do doc + âncora de código da flag. (O headline do doc diz 31 — divergência registrada viva.)
 # ---------------------------------------------------------------------------------------------
 
@@ -754,7 +755,7 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
         "E",
         "`lucas_v4`",
         "default `False`",
-        Anchor(WA_SETTINGS, "lucas_v4: bool = Field(", 558),
+        Anchor(WA_SETTINGS, "lucas_v4: bool = Field(", 577),
         None,
         "DL-0114",
         "idem",
@@ -781,19 +782,6 @@ FLAG_ROWS: Final[tuple[FlagRow, ...]] = (
     ),
     # Grupo F — par (flag, revisor, janela) COMPLETO na review-queue (doc :90-95)
     FlagRow(
-        "B-F1",
-        "F",
-        "`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`",
-        "default `False`; build dark merged (bloqueio fail-closed no `Flow_GW_AutoAprovar`)",
-        Anchor(
-            "src/maezo/tools/workers/reembolso.py", "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO: bool = False", 214
-        ),
-        Anchor(FLAGS_DOC, "REEMBOLSO-AUTO-OVERPAY", 94),
-        "R-058/R-059",
-        "revisor/janela COMPLETOS em `docs/review-queue.md:1750`; ordem R-157: assinatura "
-        "de atuária ANTES do teto D-07 subir de zero",
-    ),
-    FlagRow(
         "B-F2",
         "F",
         "pin TISS T2.6-2 (`spec/policies/ans/tiss-schema-pin.yaml`)",
@@ -817,9 +805,10 @@ _FLAGS_DOC_GRUPO_ANCHORS: Final[tuple[Anchor, ...]] = (
 
 #: O headline do doc §3 ("soma checada: 31 interruptores em 6 grupos") diverge da SOMA DOS
 #: PRÓPRIOS PARCIAIS que ele declara no fechamento (`TOTAL GERAL: 5+3+3+1+19+2`), que dá 33:
-#: A(5) + B(3) + C(3) + D(1) + E(19 = 17 default-False + 2 exceções default-True) + F(2) = 33.
+#: A(5) + B(3) + C(3) + D(1) + E(19 = 17 default-False + 2 exceções default-True) + F(2) = 33 no doc; o
+#: painel enumera 32 (B-F1 removida por DL-0161).
 #: O `31` do headline é o subtotal A..E (5+3+3+1+19) que ficou congelado no fechamento. O
-#: dashboard segue o INVENTÁRIO ENUMERADO (33 — é o que existe linha a linha no doc) e
+#: dashboard segue o INVENTÁRIO ENUMERADO (32 — é o que existe linha a linha no doc) e
 #: REGISTRA a divergência no título da seção com o número extraído VIVO do headline — sem
 #: editar `docs/plans` (ato do orquestrador) e sem reproduzir o número que não fecha.
 _FLAGS_DOC_HEADLINE_ANCHOR: Final[Anchor] = Anchor(FLAGS_DOC, "interruptores em 6 grupos", 28)
@@ -843,10 +832,10 @@ def flags_doc_headline() -> tuple[str, AnchorVerdict]:
 
 
 def build_secao_flags(hoje: date) -> tuple[list[ShadowItem], list[AnchorVerdict]]:
-    """Seção B: o inventário ENUMERADO de flags dark (33 linhas, 6 grupos).
+    """Seção B: o inventário ENUMERADO de flags dark (32 linhas, 6 grupos).
 
     Prazo = muro herdado (D-10: pacotes de flip até 2027-01-26; muro 2027-02-09 sem 2ª
-    renovação). O headline do doc diz 31; a soma dos parciais declarados é 33 — a divergência
+    renovação). O headline do doc diz 31; a soma dos parciais declarados é 33 (32 enumerados) — a divergência
     é registrada no título da seção com o número lido VIVO do doc.
     """
     items: list[ShadowItem] = []
@@ -1627,12 +1616,13 @@ def self_check() -> list[str]:
 
     # (5) O inventário congelado de flags: soma dos parciais declarados pelo doc §3
     # (A5+B3+C3+D1+E19+F2 = 33) — e a DIVERGÊNCIA registrada com o headline do doc (31).
-    soma_esperada = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 2}
+    # DL-0161: o doc §3 ainda lista F=2; B-F1 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`) saiu com o interruptor.
+    soma_esperada = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 1}
     soma = {g: sum(1 for r in FLAG_ROWS if r.grupo == g) for g in soma_esperada}
     if soma != soma_esperada:
         defects.append(f"inventário de flags divergiu do doc §3: {soma} ≠ {soma_esperada}")
-    if sum(soma.values()) != 33:
-        defects.append(f"inventário enumerado deveria ser 33 (5+3+3+1+19+2), é {sum(soma.values())}")
+    if sum(soma.values()) != 32:
+        defects.append(f"inventário enumerado deveria ser 32 (5+3+3+1+19+1), é {sum(soma.values())}")
     headline, headline_verdict = flags_doc_headline()
     if headline == "31 interruptores em 6 grupos" and not headline_verdict.ok:
         defects.append("headline do doc §3 não pôde ser lido vivo para registrar a divergência")

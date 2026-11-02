@@ -83,6 +83,7 @@ if TYPE_CHECKING:
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
+    from .whatsapp.reembolso_turno import CustodiaDeArquivo, ReembolsoTurno
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
 #: "kubernetes") is PRODUCTION, where a checkpointer that fails to provision makes the receiver
@@ -470,6 +471,73 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
+
+
+def _custodia_de_arquivo(settings: WhatsAppWebhookSettings) -> CustodiaDeArquivo | None:
+    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0162/DL-0163).
+
+    S3 com SSE-KMS (`gateway/reembolso_anexos.py`), so' com o bucket E a chave configurados
+    (`MAEZO_REEMBOLSO_ANEXOS_BUCKET`/`MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN`, `reembolso-anexos.tf`). O plano de
+    documentos do portal (`gateway/documents/`) nao serve aqui: aceita so' upload de pessoa da equipe
+    sobre caso
+    ja' existente e ate' 256 KiB. Sem as duas variaveis: `None`, e o receptor sobe sem o reembolso."""
+    bucket = settings.reembolso_anexos_bucket.strip()
+    chave = settings.reembolso_anexos_kms_key_arn.strip()
+    if not bucket or not chave:
+        return None
+    from maezo.gateway.reembolso_anexos import CustodiaDeAnexosS3
+
+    return CustodiaDeAnexosS3(bucket=bucket, kms_key_arn=chave, tenant=settings.tenant_id)
+
+
+def _build_reembolso_turno(
+    settings: WhatsAppWebhookSettings,
+    dispatcher: HelenaDispatcher,
+    lucas_turno: LucasTurno | None,
+    *,
+    custodia: CustodiaDeArquivo | None = None,
+) -> ReembolsoTurno | None:
+    """`MAEZO_REEMBOLSO_V1`: o turno do reembolso, com as costuras cercadas do Lucas (principal `lucas`).
+
+    Pre-condicoes: a chave, o Lucas (o motor e a auditoria que ele ja' tem cercados), o acesso do
+    beneficiario (so' conversa verificada) e a custodia de arquivo. Sem alguma, `None` e um aviso."""
+    if settings.reembolso_v1 is not True:
+        return None
+    from maezo.platform.webhooks.whatsapp.reembolso_store import PostgresColetaReembolsoStore
+    from maezo.platform.webhooks.whatsapp.reembolso_turno import ReembolsoTurno
+    from maezo.tools.mcp_whatsapp.server import WhatsAppMediaClient, WhatsAppSettings
+
+    custodia = custodia if custodia is not None else _custodia_de_arquivo(settings)
+    faltando = [
+        nome
+        for nome, presente in (
+            ("lucas", lucas_turno is not None),
+            ("acesso_beneficiario", dispatcher.acesso is not None),
+            ("custodia_de_arquivo", custodia is not None),
+            ("database_url", bool(settings.database_url)),
+        )
+        if not presente
+    ]
+    if faltando or lucas_turno is None or custodia is None or not settings.database_url:
+        logger.error(
+            "reembolso_v1_sem_pre_condicoes",
+            tenant_id=settings.tenant_id,
+            faltando=faltando,
+            detail="MAEZO_REEMBOLSO_V1 ligada, mas o reembolso NAO foi construido",
+        )
+        return None
+    whatsapp = WhatsAppSettings()
+    turno = ReembolsoTurno(
+        tenant_id=settings.tenant_id,
+        store=PostgresColetaReembolsoStore(dsn=settings.database_url, tenant=settings.tenant_id),
+        cibseven=lucas_turno.cibseven,
+        audit_sink=lucas_turno.audit_sink,
+        custodia=custodia,
+        baixador=WhatsAppMediaClient(base_url=whatsapp.base_url, token=whatsapp.whatsapp_token),
+        agent_version=_LUCAS_AGENT_VERSION,
+    )
+    logger.warning("reembolso_turno_construido", tenant_id=settings.tenant_id)
+    return turno
 
 
 def _build_fonte_cobranca_amh(
@@ -1090,6 +1158,21 @@ async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = Fal
         return
     if state.acesso is not None:
         state.dispatcher.acesso = state.acesso
+
+    # DL-0161/DL-0162: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
+    # pre-condicoes (Lucas, acesso verificado, custodia de arquivo) = o receptor sobe SEM o reembolso e
+    # diz por que (nunca aceita um arquivo que nao sabe onde guardar).
+    try:
+        state.dispatcher.reembolso = (
+            None
+            if so_o_agente
+            else _build_reembolso_turno(state.settings, state.dispatcher, state.lucas_turno)
+        )
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = f"reembolso build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        logger.error("webhook_reembolso_build_failed", exc_info=True)
+        return
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.

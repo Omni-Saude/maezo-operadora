@@ -140,6 +140,8 @@ run "enabled_consumer" {
       MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN   = "http://cibseven.maezo-operadora-dev.internal:8080/engine-rest"
       MAEZO_PORTAL_DIRECT_COMPLETION_TIMEOUT_SECONDS = "15"
       MAEZO_PORTAL_CORS_ORIGINS                      = "https://maezo-teste-dev.austa.com.br"
+      # DL-0163: so' leitura dos anexos do reembolso (`reembolso_anexos_enabled = true` em lucas.auto.tfvars).
+      MAEZO_PORTAL_REEMBOLSO_ANEXOS_BUCKET = aws_s3_bucket.reembolso_anexos[0].bucket
     }
     error_message = "All identity settings must feed the real consumer with production mode and fixed tenant."
   }

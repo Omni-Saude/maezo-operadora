@@ -945,6 +945,26 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         count_statement=None,
     ),
     PersistenceLayer(
+        camada="coleta_reembolso",
+        tabela="reembolso_coleta",
+        migracao="0033_reembolso_coleta.py::upgrade (reembolso_coleta; expira_em index)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds"
+            " only the stage of the reimbursement collection (closed enum), the CLOSED answers (relation to "
+            "the holder, procedure category, reimbursement type, reason for not using the network), the "
+            "service date, the requested amount in cents and the list of {type, document_ref} where the ref "
+            "is OPAQUE (the file lives in the PHI custody, ADR-0006) - no phone, no free text. After the "
+            "process opens it also holds the protocol (`REE-XXXX-XXXX`, no PII). The DSR reference "
+            "(`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so "
+            "the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=45,
+        subject_column="conversation_id",
+        # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
+    PersistenceLayer(
         camada="razao_obrigacoes_pagamento",
         tabela="pagto_obrigacao_ledger",
         migracao="0034_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)",
@@ -960,7 +980,7 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "hind MAEZO_PAGTO_DETECT_DUPLICIDADE and empty by default"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
-        ordem=45,
+        ordem=46,
         subject_column=None,
         # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
         # would be a fabricated zero until the owner turns the flag on.

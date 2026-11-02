@@ -45,10 +45,11 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # OP21/REG-1.1 (26/10/2026) adds the dark legitimacy-screen substrate as 0030.
     # MPTT P3 (01/11/2026) adds the dark append-only provider status ledger as 0032 after 0030
     # (re-pointed to 0031 if PR #1074's 0031 merges first).
-    # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0032
-    # (re-pointed to 0033 by the orchestrator if PR #1074 merges first).
+    # DL-0162 (reembolso pelo WhatsApp) adds `reembolso_coleta` as 0033 after 0032.
+    # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0033.
     assert heads == {"0034"}, f"expected 0034 to be the sole head, got {heads}"
-    assert revisions["0034"] == "0032"
+    assert revisions["0034"] == "0033"
+    assert revisions["0033"] == "0032"
     assert revisions["0032"] == "0030"
     assert revisions["0030"] == "0029"
     assert revisions["0028"] == "0027"

@@ -453,6 +453,8 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         # Lembrete de cobranca (0027): idempotencia e opt-out, keyed by conversation_id.
         "lembrete_cobranca_enviado",
         "lembrete_cobranca_optout",
+        # DL-0161: a coleta do pedido de reembolso pelo WhatsApp, keyed by conversation_id.
+        "reembolso_coleta",
     ]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
@@ -832,13 +834,15 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # append-only legal STATUS of a PROVIDER, `SEM_COLUNA_DE_TITULAR`: no beneficiary column
     # exists (provider id + closed enums + engine/baseline refs); the PF-provider question is
     # left OPEN for the DPO in the row itself; DARK behind a flag and empty by default.
+    # DL-0162 (reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1 desligada) grew it by one
+    # (`reembolso_coleta`, migration 0033) - `PONTE_AUSENTE`: keyed conversation pseudonym only.
     # PAGTO PR-E (01/11/2026) grew it by one (`pagto_obrigacao_ledger`, migration 0034) — the
     # append-only payment-obligation ledger, `SEM_COLUNA_DE_TITULAR`: no beneficiary column exists
     # (order/provider ids, lote, competencia, cents, closed enums; guia/glosa only inside the key
     # digest); the PF-provider question is left OPEN for the DPO; DARK behind a flag, empty by default.
-    assert len(camadas) == 45, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 46, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 45, pendentes
+    assert len(pendentes) == 46, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

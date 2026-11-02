@@ -103,7 +103,6 @@ HUMAN_CEILING_CLASSES: frozenset[str] = frozenset(
         "LGPD_DPO",
         "CRED_GUARD_SHAPE_TE",
         "AUTH_D07",
-        "REEMBOLSO_D07",
         "ADEQUACAO_RN259",
     }
 )
@@ -118,7 +117,6 @@ DISPLAY_LABEL: dict[str, str] = {
     "LGPD_DPO": "LGPD/DPO",
     "CRED_GUARD_SHAPE_TE": "cred guard-shape T-E",
     "AUTH_D07": "auth D-07",
-    "REEMBOLSO_D07": "reembolso D-07",
     "ADEQUACAO_RN259": "adequacao RN259",
     "P0": "P0 (automatable)",
     "P1": "P1 (automatable)",
@@ -132,7 +130,6 @@ CLASS_ORDER: tuple[str, ...] = (
     "LGPD_DPO",
     "CRED_GUARD_SHAPE_TE",
     "AUTH_D07",
-    "REEMBOLSO_D07",
     "ADEQUACAO_RN259",
     "P0",
     "P1",
@@ -148,7 +145,6 @@ REASON_CLASSIFICATION: dict[str, str] = {
     "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON": "LGPD_DPO",
     "_CRED_GUARD_SHAPE_MISMATCH_REASON": "CRED_GUARD_SHAPE_TE",
     "_AUTH_CEILING_D07_REASON": "AUTH_D07",
-    "_REEMBOLSO_CEILING_D07_REASON": "REEMBOLSO_D07",
     "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON": "ADEQUACAO_RN259",
 }
 

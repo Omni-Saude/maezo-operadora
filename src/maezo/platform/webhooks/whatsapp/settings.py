@@ -546,6 +546,25 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
     )
+    # REEMBOLSO PELO WHATSAPP (DL-0161/DL-0162; rascunho para dev, revisao juridica, DPO e operacao antes de
+    # producao). DESLIGADA por padrao, e desligada e' o canal de antes byte a byte (nenhuma coleta, nenhum
+    # arquivo recebido). Ligada: o pedido de reembolso e' conduzido pelo Lucas (perguntas fechadas, laco de
+    # documentos, confirmacao), o processo SP-OP-REEMBOLSO-001 nasce com `aviso_beneficiario_whatsapp=true`
+    # e devolve o resultado pela retomada (`agent_resume`). 100% dos pedidos vao a analise humana.
+    reembolso_v1: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_V1", "reembolso_v1"),
+    )
+    # DL-0163: a custodia dos anexos do reembolso (S3 com SSE-KMS, `deploy/.../reembolso-anexos.tf`). As duas
+    # vem juntas ou nenhuma; sem elas o reembolso nao e' construido (nunca se aceita um arquivo sem custodia).
+    reembolso_anexos_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_ANEXOS_BUCKET", "reembolso_anexos_bucket"),
+    )
+    reembolso_anexos_kms_key_arn: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN", "reembolso_anexos_kms_key_arn"),
+    )
 
     # LUCAS V4 (DL-0114, catalogo v4, aprovado pelo dono em 16/10/2026 para uso em dev; revisao juridica e do
     # DPO antes de producao). DESLIGADA por padrao, e desligada e' o Lucas de antes byte a byte. Ligada: so' o

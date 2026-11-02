@@ -229,6 +229,97 @@ class LucasRetomada:
         self._emitir(desfecho, enviada=True)
         return {"desfecho": desfecho}
 
+    async def retomar_reembolso(
+        self,
+        *,
+        conversation_id: str,
+        resultado: str,
+        protocolo: str,
+        texto_da_equipe: str,
+        data_pagamento_iso: object,
+        raw_to: str,
+        resume_ref: str,
+    ) -> dict[str, Any]:
+        """DL-0161/DL-0162 (`MAEZO_REEMBOLSO_V1`): o RETORNO do pedido de reembolso (SP-OP-REEMBOLSO-001).
+
+        A moldura e' FIXA (`domain/reembolso/pedido.py::texto_do_retorno`); o texto que a equipe escreveu
+        (negativa, reducao, pedido de informacao) entra ENTRE ASPAS, como escrito, e SO' ele passa pelas
+        cercas de saida
+        do Lucas e da retomada (a moldura diz "nao aprovou" por fato registrado por humano e nao se submete a
+        elas, como no cancelamento). Barrado, o aviso sai sem o texto e diz isso. O `ResumeHandler` ja'
+        conferiu no HISTORICO do motor que a decisao aconteceu. Chave de saida propria
+        (`lucas-reembolso:{resume_ref}`, instancia + resultado). Levanta `ValueError` (destino, ou fato que o
+        texto afirmaria ausente) ANTES de qualquer envio e `RetomadaDoLucasEnvioFalhouError` quando o envio
+        falha (o offset nao anda)."""
+        from maezo.domain.reembolso import pedido as rp
+
+        phone_hash = self._conferir_destino(conversation_id, raw_to)
+        equipe = " ".join((texto_da_equipe or "").split()).replace("\u201c", '"').replace("\u201d", '"')
+        barrado = False
+        com_texto = (rp.RESULTADO_PARCIAL, rp.RESULTADO_NEGADO, rp.RESULTADO_INFO_SOLICITADA)
+        if equipe and resultado in com_texto:
+            if len(equipe) > RETOMADA_MAX_INSTRUCOES:
+                barrado = True
+            else:
+                recusa = motivo_de_recusa(equipe, RESPONSE_KIND_RETOMADA, {}) or motivo_de_recusa_da_retomada(
+                    equipe
+                )
+                if recusa is not None:
+                    # Grupo e padrao vao para o log; o TEXTO barrado nunca.
+                    logger.warning(
+                        "lucas_retorno_reembolso_texto_barrado",
+                        tenant_id=self.tenant_id,
+                        conversation_id=conversation_id,
+                        grupo=recusa[0],
+                    )
+                    barrado = True
+        if barrado:
+            if not rp.protocolo_valido(protocolo):
+                raise ValueError("lucas reembolso: protocolo fora da forma")
+            texto = rp.TEXTO_RETORNO_TEXTO_BARRADO.format(protocolo=protocolo)
+        else:
+            texto = rp.texto_do_retorno(
+                resultado,
+                protocolo=protocolo,
+                texto_da_equipe=equipe,
+                data_pagamento_iso=data_pagamento_iso,
+            )
+        inicio = time.monotonic()
+
+        from .dispatch import _ScopedWhatsAppSender
+
+        chave = self._dedup.outbound_key(f"lucas-reembolso:{resume_ref}", occurrence=1)
+        remetente = gate_whatsapp(
+            _RemetenteDaRetomada(
+                inner=_ScopedWhatsAppSender(raw_to=raw_to, expected_hash=phone_hash, client=self._client),
+                chave=chave,
+            ),
+            self._seam_context,
+        )
+        try:
+            await remetente.send(phone_hash, texto, idempotency_key=chave)
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:
+            from maezo.platform.observability import record_agent_error
+
+            record_agent_error(agent=AGENT_ID, error_type=classify_agent_error_type(exc))
+            self._emitir(DESFECHO_RETOMADA_FALHA_ENVIO, enviada=False)
+            raise RetomadaDoLucasEnvioFalhouError(
+                f"lucas resume: falha ao enviar o retorno do reembolso ({type(exc).__name__})"
+            ) from exc
+        logger.info(
+            "lucas_retorno_reembolso_enviado",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            resultado=resultado,
+            texto_barrado=barrado,
+            ms=int((time.monotonic() - inicio) * 1000),
+        )
+        desfecho = DESFECHO_RETOMADA_RECUSADA if barrado else DESFECHO_RETOMADA_ENVIADA
+        self._emitir(desfecho, enviada=True)
+        return {"desfecho": desfecho, "resultado": resultado}
+
     async def retomar_cancelamento(
         self,
         *,

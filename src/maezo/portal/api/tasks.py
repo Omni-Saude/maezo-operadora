@@ -40,13 +40,19 @@ from maezo.portal.contracts.completions import (
     TaskCompletionSubmission,
 )
 from maezo.portal.contracts.context import ContextErrorCode, PortalContextError, TaskContextResponse
-from maezo.portal.contracts.models import OpaqueRef
+from maezo.portal.contracts.models import Centavos, OpaqueRef
 from maezo.portal.contracts.queues import (
     PortalReadError,
     ReadErrorCode,
     TaskQueuePage,
     TaskQueueRequest,
     TaskReadResponse,
+)
+from maezo.portal.contracts.reembolso import (
+    ReembolsoCompletionSubmission,
+    ReembolsoPagamentoCompletionSubmission,
+    ReembolsoPendenciaCompletionSubmission,
+    TaskReembolsoContextResponse,
 )
 
 ReadServiceFactory = Callable[[HumanSessionResolver], HumanGateway]
@@ -303,7 +309,9 @@ def _policy(request: Request) -> CompletionPolicy:
     responses=_COMPLETION_ERRORS,
 )
 async def complete_task(
-    request: Request, task_id: str, body: TaskCompletionSubmission | CancelExecucaoCompletionSubmission
+    request: Request,
+    task_id: str,
+    body: TaskCompletionSubmission | CancelExecucaoCompletionSubmission | ReembolsoCompletionSubmission,
 ) -> Response:
     """INTERIM (DL-0049): close an ESCALATION task from the portal.
 
@@ -335,10 +343,14 @@ async def complete_task(
         secret = _secret(request)
         service = _service(request)
         resultado: str
+        extras: dict[str, object] | None = None
         if isinstance(body, CancelExecucaoCompletionSubmission):
             resultado, notas, form_key = body.execucao_cadastro, "", "cancel_execucao"
-        else:
+        elif isinstance(body, TaskCompletionSubmission):
             resultado, notas, form_key = body.resultado, body.notas_resolucao, "escalation"
+        else:
+            # DL-0163: um dos quatro formularios do reembolso (o corpo ja' revalidou pelo contrato canonico).
+            resultado, notas, form_key, extras = _reembolso(body)
         result = await service.complete_task(
             session_secret=secret,
             csrf_token=request.headers["x-csrf-token"],
@@ -346,6 +358,7 @@ async def complete_task(
             resultado=resultado,
             notas_resolucao=notas,
             form_key=form_key,
+            **({} if extras is None else {"extras": extras}),
         )
         snapshot = result.snapshot
         value = TaskCompletionResponse(
@@ -379,6 +392,23 @@ async def complete_task(
     except Exception:
         # Never leak an upstream narrative, and never report a completion we cannot prove.
         return completion_error("completion_dependency_unavailable")
+
+
+def _reembolso(body: ReembolsoCompletionSubmission) -> tuple[str, str, str, dict[str, object]]:
+    """(resultado, nota vazia, form_key, extras) de um corpo do reembolso. Centavos viram int; o resto,
+    como veio."""
+    campos = body.model_dump(mode="python", exclude_none=True)
+    kind = campos.pop("kind")
+    if isinstance(body, ReembolsoPagamentoCompletionSubmission):
+        return "PAGO", "", kind, {"data_pagamento": body.data_pagamento}
+    if isinstance(body, ReembolsoPendenciaCompletionSubmission):
+        return body.decisao_pendencia, "", kind, {}
+    resultado = str(campos.pop("decisao_reembolso"))
+    valor = campos.pop("valor_reembolso_aprovado_cents", None)
+    extras: dict[str, object] = dict(campos)
+    if valor is not None:
+        extras["valor_reembolso_aprovado_cents"] = Centavos.model_validate(valor).as_int()
+    return resultado, "", kind, extras
 
 
 # ---------------------------------------------------------------------------------------
@@ -443,6 +473,76 @@ async def read_task_context(request: Request, task_id: str) -> Response:
         service = _service(request)
         return await service.read_escalation_context(
             session_secret=secret, task_id=task_id, render=_render_context
+        )
+    except ReadRefusalError as exc:
+        return context_error(exc.code)
+    except Exception:
+        return context_error("read_dependency_unavailable")
+
+
+# ---------------------------------------------------------------------------------------
+# INTERIM reembolso (DL-0163): o contexto do pedido e os anexos. Mesmo portao da conclusao.
+# ---------------------------------------------------------------------------------------
+_REEMBOLSO_PATH = _PREFIX + "/{task_id}/reembolso"
+_ANEXO_PATH = _PREFIX + "/{task_id}/reembolso/anexos/{document_ref}"
+_DOC_REF = re.compile(r"^rdoc_[0-9a-f]{32}$")
+
+
+def _render_reembolso(value: TaskReembolsoContextResponse) -> Response:
+    return Response(content=value.model_dump_json(by_alias=True), media_type="application/json")
+
+
+@context_router.get(_REEMBOLSO_PATH, response_model=TaskReembolsoContextResponse, responses=_CONTEXT_ERRORS)
+async def read_task_reembolso(request: Request, task_id: str) -> Response:
+    """INTERIM (DL-0163): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+
+    Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
+    a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
+    fechado, o mapa de erros e `no-store` (o middleware do app)."""
+    if not _policy(request).enabled:
+        return context_error("context_unavailable")
+    try:
+        await _request(request, detail=True)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        return await _service(request).read_reembolso_context(
+            session_secret=_secret(request), task_id=task_id, render=_render_reembolso
+        )
+    except ReadRefusalError as exc:
+        return context_error(exc.code)
+    except Exception:
+        return context_error("read_dependency_unavailable")
+
+
+@context_router.get(_ANEXO_PATH, responses=_CONTEXT_ERRORS)
+async def read_task_reembolso_anexo(request: Request, task_id: str, document_ref: str) -> Response:
+    """INTERIM (DL-0163): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+    `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
+    da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo."""
+    if not _policy(request).enabled:
+        return context_error("context_unavailable")
+    try:
+        await _request(request, detail=True)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        if _DOC_REF.fullmatch(document_ref) is None:
+            raise ReadRefusalError("invalid_request")
+        anexo = await _service(request).read_reembolso_anexo(
+            session_secret=_secret(request), task_id=task_id, document_ref=document_ref
+        )
+        extensao = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}.get(anexo.mime, "bin")
+        return Response(
+            content=anexo.conteudo,
+            media_type=anexo.mime,
+            headers={
+                "Content-Disposition": f'attachment; filename="anexo.{extensao}"',
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
         )
     except ReadRefusalError as exc:
         return context_error(exc.code)

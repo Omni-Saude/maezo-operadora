@@ -12,6 +12,8 @@ function sample(raw: Schema): unknown {
   if (s.type === "boolean") return false;
   if (s.type === "array") return [];
   if (s.type === "object") return Object.fromEntries(Object.entries(s.properties ?? {}).map(([key, value]) => [key, sample(value)]));
+  // DL-0163: um campo de data ISO (o registro de pagamento do reembolso) precisa de uma data de verdade.
+  if (s.pattern?.includes("\\d{4}-")) return "2026-10-27";
   return s.pattern ? "1" : "Texto sintético de teste";
 }
 it.each(taskReadBindings)("deriva campos fechados do contrato existente: $process/$task", (binding) => {

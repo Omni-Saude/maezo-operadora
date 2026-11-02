@@ -103,9 +103,10 @@ def test_every_routable_group_is_created_by_the_bootstrap() -> None:
     assert not missing, f"grupos roteaveis sem criacao no bootstrap: {sorted(missing)}"
 
 
-def test_bootstrap_registers_the_38_groups_of_the_owner_model_once() -> None:
+def test_bootstrap_registers_the_39_groups_of_the_owner_model_once() -> None:
     ids = _bootstrap_ids()
-    assert len(ids) == len(set(ids)) == 38
+    # 38 do modelo do dono (R-041, #1084) + `financeiro-reembolso` (DL-0161, #1074: UT_RegistrarPagamento).
+    assert len(ids) == len(set(ids)) == 39
     assert {gid for gid, _ in b.GRUPOS_DE_ATENDIMENTO} <= set(ids)
     # Novos (#1084): divisao de coordenacao-financeira, escalacao NIP, ouvidoria (RN 623 art. 16).
     assert {"analise-contas-pagar", "gerencia-regulatoria", "ouvidoria"} <= set(ids)

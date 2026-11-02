@@ -57,8 +57,8 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0034_revisando_0032() -> None:
-    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0034 revisa 0032
+def test_a_cadeia_local_e_head_linear_0034_revisando_0033() -> None:
+    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0034 revisa 0033
     (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083;
     0023 = CHECKs da 0022; 0024 = `consulta_valores` no CHECK do roteador, DL-0086; 0025 = memoria curta
     do Lucas no roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal no acesso;
@@ -66,10 +66,11 @@ def test_a_cadeia_local_e_head_linear_0034_revisando_0032() -> None:
     0030 = registro da verificacao de legitimidade da PJ contratante, OP21/REG-1.1, escura no
     substrato, 26/10/2026; 0032 = ledger append-only do status do prestador, MPTT P3, escuro,
     01/11/2026 — revisa 0030; 0034 = razao append-only das obrigacoes de pagamento, PAGTO PR-E,
-    escura, 01/11/2026 — revisa 0032; re-apontada para 0033 se o PR #1074 entrar antes)."""
+    escura, 01/11/2026 — revisa 0033, a coleta do reembolso do PR #1074, DL-0162)."""
     heads, edges = local_migration_chain()
     assert heads == ("0034",)
-    assert edges["0034"] == "0032"
+    assert edges["0034"] == "0033"
+    assert edges["0033"] == "0032"
     assert edges["0032"] == "0030"
     assert edges["0030"] == "0029"
     assert edges["0027"] == "0026"

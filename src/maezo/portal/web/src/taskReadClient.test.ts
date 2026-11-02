@@ -288,17 +288,18 @@ describe("validação fechada do snapshot público", () => {
     expect(result?.task.read_only_evidence?.valor_pagamento_cents).toBe(cents);
   });
 
-  it("deriva exatamente os 46 bindings e 32 mapas de inputs do registro Q1 atual", () => {
+  it("deriva exatamente os 47 bindings e 33 mapas de inputs do registro Q1 atual", () => {
     // R-092: +UT_AprovacaoComite (mesmo formulario pagto_aprovacao; nenhum mapa de inputs novo).
-    expect(taskReadBindings).toHaveLength(46);
-    expect(Object.keys(taskReadInputs)).toHaveLength(32);
-    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(46);
-    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(8);
+    // DL-0161/DL-0163: +UT_RegistrarPagamento (+reembolso_pagamento) e os 5 formularios do reembolso em BPMN_FORMDATA.
+    expect(taskReadBindings).toHaveLength(47);
+    expect(Object.keys(taskReadInputs)).toHaveLength(33);
+    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(47);
+    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(13);
     expect(
       taskReadBindings.filter(
         ({ source }) => source === "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
       ),
-    ).toHaveLength(38);
+    ).toHaveLength(34);
     for (const binding of taskReadBindings) {
       expect(taskReadInputs[binding.form]).toBeDefined();
     }
