@@ -273,6 +273,10 @@ class PersistenceLayer:
         subject_column: The column a subject reference binds to, or None.
         count_statement: A `SELECT count(*)` probe with named parameters, or None when no
             honest per-titular count exists. Values are NEVER interpolated into this text.
+        proposta_dono: The OWNER'S retention proposal for this relation, verbatim as the
+            artifact's `proposta_dono`, or None. Documentation for the DPO, never a decision:
+            the loader never reads it and `decisao_dpo`/`base_legal`/`retencao` stay PENDENTE
+            until the DPO ratifies (anti-drift in tests/unit/platform/test_erasure_plan.py).
     """
 
     camada: str
@@ -283,6 +287,7 @@ class PersistenceLayer:
     ordem: int
     subject_column: str | None
     count_statement: str | None
+    proposta_dono: str | None = None
 
 
 # ---------------------------------------------------------------------------------------
@@ -985,6 +990,13 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
         # would be a fabricated zero until the owner turns the flag on.
         count_statement=None,
+        proposta_dono=(
+            "PROPOSTA DO DONO (DEC-31 D31-5, #1084, 2026-11-02), NAO e' decisao do DPO: reter a razao por"
+            " 5 anos (1825 dias), alinhada a retencao do historico do motor (historyTimeToLive 1825 dias "
+            "do SP-OP-PAGTO-001) e ao Codigo Civil art. 206 par. 5, I; ao fim do prazo, as linhas de pres"
+            "tador pessoa fisica (PF) sao eliminadas. O DPO formaliza: decisao_dpo, base_legal, retencao "
+            "e assinatura seguem PENDENTE."
+        ),
     ),
 )
 

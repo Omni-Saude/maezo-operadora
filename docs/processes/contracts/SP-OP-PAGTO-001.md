@@ -149,8 +149,8 @@ Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem 
 acrescenta ao escopo os fatos abaixo, produzidos por `tools/workers/pagto_duplicidade.py` (analise
 PAGTO §4 niveis 1-3; §8 D6(A), aceita pelo dono: razao append-only de pagamentos). A ordem e'
 conferida contra a razao `pagto_obrigacao_ledger` (migracao 0034) e a classificacao e' da DMN
-`pagto_duplicidade`, avaliada no motor pela costura `dmn=` (ADR-0028) — janela W = 90 dias e classes
-por nivel DECIDIDAS pelo dono em DEC-30 D9/D10 (#1084, 2026-11-02; N1 = CONFIRMADA, N2/N3 = SUSPEITA). **Quem escreve a razao:** o detector grava a linha `REGISTRADA` da ordem nesta validacao
+`pagto_duplicidade`, avaliada no motor pela costura `dmn=` (ADR-0028) — janela W = 180 dias RATIFICADA pelo dono em DEC-31 D31-4 (revoga a DEC-30 D9 = 90; o financeiro ainda pode calibrar na sombra) e classes
+por nivel DECIDIDAS pelo dono em DEC-30 D10 (#1084, 2026-11-02; N1 = CONFIRMADA, N2/N3 = SUSPEITA). **Quem escreve a razao:** o detector grava a linha `REGISTRADA` da ordem nesta validacao
 (na mesma transacao em que le os indicios); os workers `release_low_value_payment` e
 `release_high_value_payment` gravam a `LIBERADA` SO' depois que o guard de sempre devolveu a
 liberacao (recusa do guard = nada gravado; retorno do guard inalterado). **Nao muda rota:**

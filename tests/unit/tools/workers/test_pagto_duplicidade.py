@@ -135,7 +135,7 @@ def test_o_detector_nao_le_relogio_nem_cliente_de_rede() -> None:
 
 def test_a_janela_do_nivel_3_nao_mora_no_python() -> None:
     fonte = Path(inspect.getfile(dup)).read_text(encoding="utf-8")
-    # W vive so' na DMN (90 dias desde DEC-30 D9; 180 antes) — nenhum dos dois no Python.
+    # W vive so' na DMN (180 dias, DEC-31 D31-4; 90 na DEC-30 D9 revogada) — nenhum dos dois no Python.
     assert not re.search(r"\b(?:90|180)\b", fonte)
 
 
