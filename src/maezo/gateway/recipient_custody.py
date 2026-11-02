@@ -234,6 +234,12 @@ class PostgresRecipientVault:
             status = await conn.execute(_PURGE_SQL)
         return int(str(status).rsplit(" ", 1)[-1] or 0)
 
+    async def aclose(self) -> None:
+        """Fecha o pool, se este cofre o criou ou recebeu. Idempotente (a limpeza agendada chama no fim)."""
+        pool, self._pool = self._pool, None
+        if pool is not None:
+            await pool.close()
+
 
 def dentro_da_janela(last_inbound_at: datetime, *, agora: datetime | None = None) -> bool:
     """`True` se a ultima mensagem do beneficiario tem MENOS de 24h (janela da Meta)."""
