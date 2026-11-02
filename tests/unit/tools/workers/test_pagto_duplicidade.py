@@ -473,3 +473,17 @@ def test_erro_de_programacao_na_liberacao_sobe() -> None:
         dup.registrar_liberacao(
             _baixo_valor(), liberar=execute_pagto, ledger=_RazaoFalsa(erro=TypeError("bug"))
         )
+
+
+def test_handler_composto_nunca_sobrescreve_chave_que_a_etapa_anterior_ja_escreveu() -> None:
+    def _validar(variables: dict[str, Any]) -> dict[str, Any]:
+        return {"duplicidade_status": "VALOR_DA_ETAPA_ANTERIOR"}
+
+    out = dup.validar_com_duplicidade(
+        _ordem_contas(),
+        validar=_validar,
+        ledger=_RazaoFalsa(),
+        dmn=_dmn("CONFIRMADA", "DUP_OBRIGACAO_EM_CURSO"),
+    )
+    assert out["duplicidade_status"] == "VALOR_DA_ETAPA_ANTERIOR"
+    assert out["duplicidade_motivo_codigo"] == "DUP_OBRIGACAO_EM_CURSO"
