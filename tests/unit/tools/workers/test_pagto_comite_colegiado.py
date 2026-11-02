@@ -13,18 +13,30 @@ historico fica byte-a-byte (provado).
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
 
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
-from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness, is_guard_refusal_code
+from maezo.tools.workers.harness import (
+    FakeWorkerTransport,
+    WorkerHarness,
+    build_decision_basis,
+    is_guard_refusal_code,
+)
 from maezo.tools.workers.pagto import (
+    ASSUNCAO_COMITE_PERMITIDA,
+    ASSUNCAO_COMITE_VAR,
+    ASSUNCAO_COORDENACAO_REGISTRO_VAR,
+    COMITE_SLA_ESTOURADO_EM_VAR,
     COMITE_ULTIMO_VOTO_VAR,
     COMITE_VOTO_VARIABLES,
     ERR_PAYMENT_RELEASE_NOT_HUMAN,
     ERR_PAYMENT_SOD_NOT_HUMAN,
+    MOTIVO_ASSUNCAO_COMITE_VAR,
     PAGTO_COMITE_COLEGIADO_VAR,
+    PAGTO_FATOS_PROIBIDOS_NA_SEMENTE,
     VOTOS_COMITE_VAR,
     PagtoError,
     register_committee_vote,
@@ -398,16 +410,24 @@ def test_livro_esta_no_conjunto_proibido_na_semente() -> None:
 # ---------------------------------------------------------------------------------------------
 
 _COORD = "coord-fin-sintetico-009"
+_SLA_EM = "2026-11-02T12:00:00.000+0000"
+_MOTIVO_PERMITIDA = "SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA"
 
 
 def _coordenacao_assume(**overrides: Any) -> dict[str, Any]:
     """Escopo no `ST_ReleaseHighValue` quando a coordenacao assume (`assumir_aprovacao` + APROVAR)
-    um comite interrompido pelo SLA depois de UM voto APROVAR do membro A."""
+    um comite interrompido pelo SLA depois de UM voto APROVAR do membro A. `assuncao_comite` e a
+    saida que a DMN `pagto_comite_coordenacao` emite no motor para esse caso (DEC-31 D31-2)."""
     base = _liberacao(
         aprovador_id=_COORD,
         decisao_coordenacao="assumir_aprovacao",
         votos_minimos_coordenacao=1,
-        **{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A)]},
+        **{
+            VOTOS_COMITE_VAR: [_voto(_MEMBRO_A)],
+            ASSUNCAO_COMITE_VAR: ASSUNCAO_COMITE_PERMITIDA,
+            MOTIVO_ASSUNCAO_COMITE_VAR: _MOTIVO_PERMITIDA,
+            COMITE_SLA_ESTOURADO_EM_VAR: _SLA_EM,
+        },
     )
     for key, value in overrides.items():
         if value is _ABSENT:
@@ -419,7 +439,9 @@ def _coordenacao_assume(**overrides: Any) -> dict[str, Any]:
 
 def test_d3_um_aprovar_de_membro_distinto_coordenacao_completa_e_libera() -> None:
     out = release_high_value_payment(_coordenacao_assume(), comite_colegiado=True)
-    assert out == {"pagamento_liberado": True, "tipo_liberacao": "humano_alcada"}
+    assert out["pagamento_liberado"] is True
+    assert out["tipo_liberacao"] == "humano_alcada"
+    assert out["coordenacao_assumiu_comite"] is True
 
 
 def test_d3_zero_votos_coordenacao_nunca_libera() -> None:
@@ -473,6 +495,7 @@ def test_d3_minimo_vem_da_dmn_nao_do_python() -> None:
     erro = _recusa(_coordenacao_assume(votos_minimos_coordenacao=2, quorum_comite=3))
     assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
     assert "abaixo do minimo da DMN" in erro.message
+    # Com a DMN de assuncao permitindo (o worker nao re-decide a contagem de votos dela).
     out = release_high_value_payment(
         _coordenacao_assume(
             votos_minimos_coordenacao=2,
@@ -526,3 +549,140 @@ def test_d3_coordenacao_sem_identidade_nunca_conta_como_membro() -> None:
     assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
     assert "aprovador_id ausente" in erro.message
     assert "quorum_comite nao atingido" in erro.message
+
+
+# ---------------------------------------------------------------------------------------------
+# 6. DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): "a coordinator can take over if
+#    one member voted yes and the other did not answer before deadline". A regra (SLA do comite
+#    estourado + EXATAMENTE 1 APROVAR + nenhum voto que nao aprove) mora na DMN
+#    `pagto_comite_coordenacao` (motor, BRT_AssuncaoComite); o worker so exige a saida PERMITIDA
+#    (igualdade exata), mantem SoD/tier/livro e AUDITA a assuncao com o motivo.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_d31_2_um_aprovar_sla_estourado_coordenacao_distinta_com_tier_libera() -> None:
+    out = release_high_value_payment(_coordenacao_assume(), comite_colegiado=True)
+    assert out["pagamento_liberado"] is True
+
+
+@pytest.mark.parametrize(
+    "motivo",
+    [
+        "NENHUM_VOTO_APROVAR",  # 0 votos
+        "VOTO_NAO_APROVAR_NA_RODADA",  # 1 APROVAR + 1 recusa
+        "SLA_COMITE_NAO_ESTOURADO",  # SLA nao estourou
+        "MAIS_DE_UM_VOTO_APROVAR",  # 2 APROVAR: caminho do comite, nao a assuncao
+        "FATOS_DA_RODADA_AUSENTES",
+    ],
+)
+def test_d31_2_dmn_recusou_a_assuncao_coordenacao_nao_libera(motivo: str) -> None:
+    """Toda recusa da DMN mantem a recusa fail-closed de hoje, mesmo com livro, SoD e tier OK."""
+    erro = _recusa(
+        _coordenacao_assume(**{ASSUNCAO_COMITE_VAR: "RECUSADA", MOTIVO_ASSUNCAO_COMITE_VAR: motivo})
+    )
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "assuncao do comite nao permitida pela DMN pagto_comite_coordenacao" in erro.message
+
+
+@pytest.mark.parametrize("assuncao", [_ABSENT, None, "", "permitida", " PERMITIDA", "PERMITIDA ", True, 1])
+def test_d31_2_saida_da_dmn_ausente_ou_fora_do_vocabulario_recusa(assuncao: Any) -> None:
+    """Igualdade EXATA com o vocabulario fechado: sem a saida da DMN a coordenacao nunca libera."""
+    erro = _recusa(_coordenacao_assume(**{ASSUNCAO_COMITE_VAR: assuncao}))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "assuncao do comite nao permitida" in erro.message
+
+
+def test_d31_2_zero_votos_continua_recusando_mesmo_com_dmn_permitindo() -> None:
+    """Defesa em profundidade: o livro vazio recusa independentemente da saida da DMN."""
+    erro = _recusa(_coordenacao_assume(**{VOTOS_COMITE_VAR: []}))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+
+
+def test_d31_2_recusa_no_livro_continua_recusando_mesmo_com_dmn_permitindo() -> None:
+    erro = _recusa(
+        _coordenacao_assume(**{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A), _voto(_MEMBRO_B, voto="RECUSAR")]})
+    )
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "voto != APROVAR" in erro.message
+
+
+def test_d31_2_coordenacao_igual_ao_membro_votante_e_sod() -> None:
+    erro = _recusa(_coordenacao_assume(aprovador_id=_MEMBRO_A))
+    assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
+
+
+@pytest.mark.parametrize("campo", ["lastro_decisor_id", "analista_admissibilidade_id"])
+def test_d31_2_coordenacao_igual_ao_solicitante_ou_analista_e_sod(campo: str) -> None:
+    erro = _recusa(_coordenacao_assume(**{campo: f" {_COORD.upper()} "}))
+    assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
+
+
+@pytest.mark.parametrize("tier", [3, 0, "abc", None])
+def test_d31_2_coordenacao_com_tier_abaixo_do_minimo_recusa(tier: Any) -> None:
+    erro = _recusa(_coordenacao_assume(aprovador_tier=tier))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "tier-match falhou" in erro.message
+
+
+def test_d31_2_assuncao_auditada_com_motivo_quem_quando_qual_voto() -> None:
+    variaveis = _coordenacao_assume()
+    out = release_high_value_payment(variaveis, comite_colegiado=True)
+    assert out["coordenacao_assumiu_comite"] is True
+    assert out[MOTIVO_ASSUNCAO_COMITE_VAR] == _MOTIVO_PERMITIDA
+    registro = out[ASSUNCAO_COORDENACAO_REGISTRO_VAR]
+    assert registro == {
+        "coordenador_id": _COORD,
+        "membro_votante_id": _MEMBRO_A,
+        "voto_membro": "APROVAR",
+        "comite_sla_estourado_em": _SLA_EM,
+        "motivo_assuncao_comite": _MOTIVO_PERMITIDA,
+        "justificativa_sha256": hashlib.sha256(b"Fundamentacao sintetica do comite").hexdigest(),
+    }
+    # O texto livre da justificativa nunca e copiado para o registro.
+    assert "Fundamentacao" not in str(registro)
+    # Trilha ADR-0007: o motivo e a marca de assuncao entram em claro (tokens limitados); as
+    # identidades e a justificativa so pelo hash da entrada.
+    basis = build_decision_basis(variaveis, out)
+    assert basis["coordenacao_assumiu_comite"] is True
+    assert basis[MOTIVO_ASSUNCAO_COMITE_VAR] == _MOTIVO_PERMITIDA
+    assert basis["pagamento_liberado"] is True
+    assert ASSUNCAO_COORDENACAO_REGISTRO_VAR not in basis
+    assert _COORD not in str(basis) and _MEMBRO_A not in str(basis)
+
+
+def test_d31_2_comite_completo_nao_registra_assuncao() -> None:
+    """O caminho normal do comite (2 APROVAR, sem coordenacao) nao fabrica registro de assuncao."""
+    out = release_high_value_payment(_liberacao(decisao_coordenacao=""), comite_colegiado=True)
+    assert out == {"pagamento_liberado": True, "tipo_liberacao": "humano_alcada"}
+
+
+def test_d31_2_aprovacao_singular_nao_registra_assuncao_nem_le_a_dmn() -> None:
+    """Quorum 1 (aprovacao singular, inclusive assumida pela coordenacao): sem DMN de assuncao."""
+    variaveis = _coordenacao_assume(quorum_comite=1, **{ASSUNCAO_COMITE_VAR: _ABSENT})
+    out = release_high_value_payment(variaveis, comite_colegiado=True)
+    assert out == {"pagamento_liberado": True, "tipo_liberacao": "humano_alcada"}
+
+
+def test_d31_2_flag_desligada_inalterada() -> None:
+    out = release_high_value_payment(_coordenacao_assume(**{ASSUNCAO_COMITE_VAR: "RECUSADA"}))
+    assert out == {"pagamento_liberado": True, "tipo_liberacao": "humano_alcada"}
+
+
+def test_d31_2_fatos_da_rodada_proibidos_na_semente() -> None:
+    assert {
+        "comite_votos_aprovar",
+        "comite_votos_nao_aprovar",
+        "comite_sla_estourado",
+        COMITE_SLA_ESTOURADO_EM_VAR,
+        ASSUNCAO_COMITE_VAR,
+        MOTIVO_ASSUNCAO_COMITE_VAR,
+    } <= PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
+
+
+def test_d31_2_motivo_mal_tipado_nunca_vira_token_de_auditoria() -> None:
+    out = release_high_value_payment(
+        _coordenacao_assume(**{MOTIVO_ASSUNCAO_COMITE_VAR: {"x": 1}, COMITE_SLA_ESTOURADO_EM_VAR: 7}),
+        comite_colegiado=True,
+    )
+    assert out[MOTIVO_ASSUNCAO_COMITE_VAR] == ""
+    assert out[ASSUNCAO_COORDENACAO_REGISTRO_VAR]["comite_sla_estourado_em"] is None

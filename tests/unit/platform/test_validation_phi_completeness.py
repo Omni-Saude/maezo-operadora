@@ -143,7 +143,8 @@ class TestNonVacuity:
         # 65 -> 67 com `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5).
         # 67 -> 68 com `pagto_duplicidade.dmn` (PAGTO PR-E, #1179) — ver as entradas do CORPUS_DELTA_LOG.
         # 68 -> 69 com `reembolso_auto_approval.dmn` (faixa B dormente, R-076, #1149).
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 69  # VW4/GP11: +suppression_routing
+        # 69 -> 70 com `pagto_comite_coordenacao.dmn` (DEC-31 D31-2, #1198) — ver o CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 70  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2880,6 +2881,100 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "+1 inputParameter de ST_PublishAprovadoAutomatico. Nome ja no corpus."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="pagto_comite_coordenacao",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2 (dono, #1084): nome da DMN nova e do resultVariable de BRT_AssuncaoComite "
+            "(+1 bpmn_result_variable) lido nos dois outputParameter que achatam as saidas (+2 juel_root). "
+            "Mapa de classificacao da assuncao do comite, sem identificador nem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="assuncao_comite",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2: saida PERMITIDA|RECUSADA da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_output_name), achatada por BRT_AssuncaoComite (+1 bpmn_output_parameter, +1 juel_segment). "
+            "Vocabulario fechado, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="motivo_assuncao_comite",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2: token fechado do motivo da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_output_name, +1 bpmn_output_parameter, +1 juel_segment); vai para a trilha ADR-0007. "
+            "Codigo fixo, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_sla_estourado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. DEC-31 D31-2: entrada boolean da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_input_expression); fato do motor escrito so pelos listeners de Flow_GWTipo_Comite/"
+            "Flow_SlaComite_Pub. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_votos_aprovar",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. DEC-31 D31-2: contagem de votos APROVAR concluidos na rodada — entrada da DMN (+1 "
+            "dmn_input_expression) e leitura no listener de Flow_UTComite_Registrar (+1 juel_root). "
+            "Inteiro, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_votos_nao_aprovar",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. DEC-31 D31-2: contagem de votos que nao aprovam concluidos na rodada — entrada da DMN "
+            "(+1 dmn_input_expression) e leitura no listener de Flow_UTComite_Registrar (+1 juel_root). "
+            "Inteiro, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="decisao_pagamento",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "DEC-31 D31-2: +2 leituras (juel_root) nos dois listeners de contagem de "
+            "Flow_UTComite_Registrar. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="quorum_comite",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DEC-31 D31-2: +1 leitura (juel_root) na condicao de Flow_GWAssuncao_Comite (mesma condicao "
+            "de Flow_GWTipo_Comite). Nome ja no corpus."
+        ),
+    ),
 )
 
 
@@ -2891,7 +2986,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 394
+            expected_clean == 400
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
@@ -2905,6 +3000,8 @@ class TestBuckets:
         # PAGTO PR-E (#1179): +6 (nivel1_situacao, nivel2_situacao, nivel3_avaliado,
         #   nivel3_similar_idade_dias, duplicidade_status, duplicidade_motivo_codigo)
         # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
+        # DEC-31 D31-2 (#1198): +6 (pagto_comite_coordenacao, assuncao_comite, motivo_assuncao_comite,
+        #   comite_sla_estourado, comite_votos_aprovar, comite_votos_nao_aprovar)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 15,
@@ -2945,7 +3042,8 @@ class TestBuckets:
         # PAGTO PR-E (#1179): +6 (as 4 entradas e as 2 saidas de `pagto_duplicidade`)
         # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
         # R-076 faixa B dormente (#1149): +16 nomes
-        assert len(live_sweep.names) == expected_names == 415
+        # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
+        assert len(live_sweep.names) == expected_names == 421
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2968,7 +3066,8 @@ class TestBuckets:
         # PAGTO PR-E (#1179): +6 (uma ocorrencia por nome novo em `pagto_duplicidade.dmn`); nomes: +6
         # DEC-30 D3 (#1181): +4 (votos_minimos_coordenacao +3, pagto_alcada +1); nomes: +1
         # R-076 faixa B dormente (#1149): +35 ocorrencias (DMN reembolso_auto_approval + 6 elementos BPMN)
-        assert len(live_sweep.refs) == expected_refs == 1855
+        # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
+        assert len(live_sweep.refs) == expected_refs == 1872
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -3123,7 +3222,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (394)" in rendered
+            f"## {CLEAN} (400)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
@@ -3133,6 +3232,7 @@ class TestBuckets:
         # MPTT P5 (#1171): +13 nomes CLEAN (entradas/saidas das DMNs do scorecard e do tier).
         # PAGTO PR-E (#1179): +6 nomes CLEAN (entradas/saidas de `pagto_duplicidade`).
         # DEC-30 D3 (#1181): +1 nome CLEAN (`votos_minimos_coordenacao`).
+        # DEC-31 D31-2 (#1198): +6 nomes CLEAN (DMN `pagto_comite_coordenacao` e fatos da rodada).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

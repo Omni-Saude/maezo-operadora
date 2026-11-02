@@ -2543,3 +2543,19 @@ como checado por este pacote.
 
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
 REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.
+
+## DEC-31 D31-2 — coordenacao assume o comite de pagamentos apos o SLA (2026-11-02)
+
+Decisao do dono (#1084, comentario 6582531580; refina a DEC-30 D3): "a coordinator can take over if
+one member voted yes and the other did not answer before deadline". A regra mora na DMN
+`pagto_comite_coordenacao` (avaliada no motor por `BRT_AssuncaoComite`), sobre fatos que o proprio
+BPMN escreve; o worker so exige a saida `PERMITIDA`, mantem SoD/tier/livro e audita a assuncao.
+Tudo segue atras de `MAEZO_PAGTO_COMITE_COLEGIADO` (desligada).
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/dmn/pagto_comite_coordenacao.dmn` v0.1.0 | Regra DECIDIDA pelo dono: `PERMITIDA` so com SLA do comite estourado, EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove na rodada; recusa, zero votos, SLA nao estourado, mais de um APROVAR ou fato ausente = `RECUSADA` (fail-closed). Pendente humano: aprovacao amarrada aos bytes (financas) em `spec/aprovacoes-de-regras.yaml`; nenhum bloco de assinatura foi preenchido | financas + dono | `DECIDIDO (DEC-31 D31-2, #1084, 2026-11-02) — aprovacao formal pendente; flag segue desligada` |
+| `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn` — `GW_AssuncaoComite` + `BRT_AssuncaoComite`; listeners de `Flow_GWTipo_Comite`/`Flow_UTComite_Registrar`/`Flow_SlaComite_Pub` | Contagem dos votos concluidos no motor (fecha a janela em que um RECUSAR concluido ainda nao estava no livro quando o SLA estourava) e marca do SLA do comite. Antes de ligar a flag: o formulario `pagto_coordenacao` do portal ja exige `justificativa_aprovacao` em APROVAR — ela e o motivo da assuncao (registrado por hash no historico; texto livre nao copiado). Se o dono quiser um campo de motivo PROPRIO da assuncao, distinto da fundamentacao da aprovacao, e decisao de formulario (pacote PAGTO PR-F) | PO + financas | `DRAFT — requires human review before any deploy` |
+
+Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo das secoes
+acima — tokens deste arquivo sao ancorados por numero de linha.

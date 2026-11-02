@@ -44,6 +44,15 @@ _FATOS_NOVOS = frozenset(
         "tier_minimo",
         # R-092: o livro de votos do comite (zerado por calculate_facts; nunca semeado por origem).
         "votos_comite",
+        # DEC-31 D31-2 (#1198): fatos da rodada do comite que SO o BPMN escreve (contadores de votos
+        # concluidos, SLA do comite estourado e o instante) e a saida da DMN `pagto_comite_coordenacao`
+        # — semeados, uma origem fabricaria a assuncao do comite pela coordenacao.
+        "comite_votos_aprovar",
+        "comite_votos_nao_aprovar",
+        "comite_sla_estourado",
+        "comite_sla_estourado_em",
+        "assuncao_comite",
+        "motivo_assuncao_comite",
         # Evidencia do detector de duplicidade (pacote PAGTO PR-E): nenhuma origem a semeia.
         "duplicidade_motivo_codigo",
         "duplicidade_chave_obrigacao",

@@ -139,7 +139,9 @@ class TestCollectArtifacts:
         # 67 -> 68: `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de duplicidade, so' pela
         # costura dmn= do detector, dark atras de `MAEZO_PAGTO_DETECT_DUPLICIDADE`; W DRAFT).
         # 68 -> 69: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
-        assert len(dmn) == 69  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        # 69 -> 70: `pagto_comite_coordenacao.dmn` (DEC-31 D31-2 — assuncao do comite pela
+        # coordenacao apos SLA; avaliada so por BRT_AssuncaoComite, dark atras do comite colegiado).
+        assert len(dmn) == 70  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

@@ -374,12 +374,42 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
     </bpmn:userTask>
 
     <bpmn:exclusiveGateway id="GW_DecisaoCoordenacao" name="Decisao da coordenacao financeira (estouro de SLA)" default="Flow_GWCoord_SeguirAnalise">
-      <bpmn:documentation>GAP-PAGTO-5: roteia decisao_coordenacao (saida de UT_CoordenacaoAlcada, so setada no caminho de estouro de SLA — a propria estrutura do grafo garante que este gateway so e alcancado apos UT_CoordenacaoAlcada completar, logo o identificador esta sempre SET aqui — ENGINE-16004). Hardening: ST_PublishSlaBreach (unico task predecessor da UT) default-inicializa decisao_coordenacao=`""`, entao ate uma completude da UT que OMITA decisao_coordenacao avalia contra "" e cai no default (seguir_analise) — nunca "Unknown property"/500. assumir_aprovacao -> GW_DecisaoPagamento (decisao_pagamento, ja preenchida na mesma UT, roteia como se fosse UT_AprovacaoAlcada). prorrogar_prazo -> UT_AprovacaoAlcada (reabre com prazo estendido). seguir_analise (default, inclui "" e qualquer outro valor) -> ST_PrepareApprovalDossier (dossie refeito antes de reabrir a decisao).</bpmn:documentation>
+      <bpmn:documentation>GAP-PAGTO-5: roteia decisao_coordenacao (saida de UT_CoordenacaoAlcada, so setada no caminho de estouro de SLA — a propria estrutura do grafo garante que este gateway so e alcancado apos UT_CoordenacaoAlcada completar, logo o identificador esta sempre SET aqui — ENGINE-16004). Hardening: ST_PublishSlaBreach (unico task predecessor da UT) default-inicializa decisao_coordenacao=`""`, entao ate uma completude da UT que OMITA decisao_coordenacao avalia contra "" e cai no default (seguir_analise) — nunca "Unknown property"/500. assumir_aprovacao -> GW_AssuncaoComite (DEC-31 D31-2: caso de comite passa antes pela DMN pagto_comite_coordenacao; aprovacao singular segue direto) -> GW_DecisaoPagamento (decisao_pagamento, ja preenchida na mesma UT, roteia como se fosse UT_AprovacaoAlcada). prorrogar_prazo -> UT_AprovacaoAlcada (reabre com prazo estendido). seguir_analise (default, inclui "" e qualquer outro valor) -> ST_PrepareApprovalDossier (dossie refeito antes de reabrir a decisao).</bpmn:documentation>
       <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
       <bpmn:outgoing>Flow_GWCoord_Assumir</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWCoord_Prorrogar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWCoord_SeguirAnalise</bpmn:outgoing>
     </bpmn:exclusiveGateway>
+
+    <!-- DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): "a coordinator can take over if one
+         member voted yes and the other did not answer before deadline". Quando a coordenacao assume um
+         caso de COMITE (mesma condicao de Flow_GWTipo_Comite), a regra deterministica de assuncao e
+         avaliada no MOTOR pela DMN pagto_comite_coordenacao sobre os fatos da rodada que o proprio BPMN
+         escreveu (SLA do comite estourado; votos APROVAR / nao-APROVAR concluidos). A saida
+         `assuncao_comite` (PERMITIDA | RECUSADA) e `motivo_assuncao_comite` sao achatadas para o guard
+         de release_high_value_payment, que so libera com PERMITIDA (e com SoD, tier-match e livro). Nao
+         ha saida de liberacao: RECUSADA mantem a recusa fail-closed de hoje (o guard recusa ->
+         incidente a humano). A aprovacao singular (default) segue direto para GW_DecisaoPagamento. -->
+    <bpmn:exclusiveGateway id="GW_AssuncaoComite" name="Assuncao de caso de comite?" default="Flow_GWAssuncao_Singular">
+      <bpmn:documentation>DEC-31 D31-2: roteia a assuncao da coordenacao. Caso de comite (flag dark MAEZO_PAGTO_COMITE_COLEGIADO + quorum_comite maior que 1, a mesma condicao de Flow_GWTipo_Comite) -> BRT_AssuncaoComite (DMN pagto_comite_coordenacao). Qualquer outro caso (aprovacao singular) segue o default, direto para GW_DecisaoPagamento, inalterado. execution.getVariable: variavel ausente cai no default, nunca lanca (ENGINE-16004).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWCoord_Assumir</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWAssuncao_Singular</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWAssuncao_Comite</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:businessRuleTask id="BRT_AssuncaoComite" name="Assuncao do comite pela coordenacao (DMN pagto_comite_coordenacao)"
+                           camunda:decisionRef="pagto_comite_coordenacao"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="pagto_comite_coordenacao">
+      <bpmn:documentation>DEC-31 D31-2: a coordenacao so completa um caso de comite apos estouro de SLA com EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove (regra na DMN, nunca no worker). Entradas: comite_sla_estourado, comite_votos_aprovar, comite_votos_nao_aprovar (fatos do motor desta rodada). Saidas achatadas: assuncao_comite (PERMITIDA | RECUSADA) e motivo_assuncao_comite (token da trilha de auditoria). Classifica, nunca libera.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="assuncao_comite">${pagto_comite_coordenacao.assuncao_comite}</camunda:outputParameter>
+          <camunda:outputParameter name="motivo_assuncao_comite">${pagto_comite_coordenacao.motivo_assuncao_comite}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWAssuncao_Comite</bpmn:incoming>
+      <bpmn:outgoing>Flow_BRTAssuncao_GWDecisao</bpmn:outgoing>
+    </bpmn:businessRuleTask>
 
     <!-- R-092 (F-081/F-042): tipo de aprovacao — singular (UT_AprovacaoAlcada) ou colegiada
          (UT_AprovacaoComite). DARK: o ramo colegiado so e tomado com a flag da implantacao
@@ -418,7 +448,10 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
          SLA (BT_SlaComite) a coordenacao financeira que assume (assumir_aprovacao) so COMPLETA o
          quorum se o livro ja tiver votos_minimos_coordenacao (DMN) votos APROVAR de membros distintos
          dela; o listener de Flow_GWTipo_Comite zera o livro e decisao_coordenacao a cada rodada do
-         comite, entao um voto de rodada anterior (prorrogar_prazo/seguir_analise) nunca conta. -->
+         comite, entao um voto de rodada anterior (prorrogar_prazo/seguir_analise) nunca conta.
+         DEC-31 D31-2 (refina D3): a assuncao so vale com SLA do comite estourado, EXATAMENTE 1 voto
+         APROVAR e nenhum voto que nao aprove na rodada — regra na DMN pagto_comite_coordenacao
+         (BRT_AssuncaoComite), sobre fatos contados pelo motor no fluxo de saida de UT_AprovacaoComite. -->
     <bpmn:subProcess id="SP_AprovacaoComite" name="Aprovacao colegiada do comite financeiro (quorum da DMN pagto_alcada)">
       <bpmn:documentation>HITL L1 hard (high_value_payment): aprovacao colegiada (contrato SP-OP-PAGTO-001 §Papeis: comite-financeiro, tier 4, UT_AprovacaoComite). Quorum = quorum_comite (DMN pagto_alcada; DEC-30 D1: comite = CFO + Gerente Financeiro, 2 de 2, todo voto APROVAR). Nenhuma decisao automatica: cada voto e humano; o worker do livro so registra. Sem auto-liberacao por timeout: os boundary timers levam a coordenacao humana (mesmo caminho de UT_AprovacaoAlcada).</bpmn:documentation>
       <bpmn:incoming>Flow_GWTipo_Comite</bpmn:incoming>
@@ -470,7 +503,17 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
         <bpmn:incoming>Flow_Registrar_FimVoto</bpmn:incoming>
       </bpmn:endEvent>
       <bpmn:sequenceFlow id="Flow_VotoComite_UT" sourceRef="Start_VotoComite" targetRef="UT_AprovacaoComite"/>
-      <bpmn:sequenceFlow id="Flow_UTComite_Registrar" sourceRef="UT_AprovacaoComite" targetRef="ST_RegistrarVotoComite"/>
+      <!-- DEC-31 D31-2: conta o voto que o humano ACABOU de concluir (decisao_pagamento ja achatada
+           pelo outputParameter de UT_AprovacaoComite) no MESMO passo do motor — antes da tarefa externa
+           ST_RegistrarVotoComite existir. Assim um RECUSAR concluido conta como voto que nao aprova
+           mesmo se o BT_SlaComite estourar antes de o worker registrar o livro. So o literal exato
+           'APROVAR' conta como aprovacao; qualquer outro valor (inclusive vazio) conta como nao-APROVAR. -->
+      <bpmn:sequenceFlow id="Flow_UTComite_Registrar" sourceRef="UT_AprovacaoComite" targetRef="ST_RegistrarVotoComite">
+        <bpmn:extensionElements>
+          <camunda:executionListener event="take" expression="${execution.setVariable('comite_votos_aprovar', decisao_pagamento == 'APROVAR' ? comite_votos_aprovar + 1 : comite_votos_aprovar)}"/>
+          <camunda:executionListener event="take" expression="${execution.setVariable('comite_votos_nao_aprovar', decisao_pagamento == 'APROVAR' ? comite_votos_nao_aprovar : comite_votos_nao_aprovar + 1)}"/>
+        </bpmn:extensionElements>
+      </bpmn:sequenceFlow>
       <bpmn:sequenceFlow id="Flow_Registrar_FimVoto" sourceRef="ST_RegistrarVotoComite" targetRef="End_VotoComiteRegistrado"/>
     </bpmn:subProcess>
 
@@ -499,7 +542,8 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
 
     <bpmn:exclusiveGateway id="GW_DecisaoPagamento" name="Decisao de pagamento" default="Flow_GWDec_Recusar">
       <bpmn:incoming>Flow_UTAprovacao_GW</bpmn:incoming>
-      <bpmn:incoming>Flow_GWCoord_Assumir</bpmn:incoming>
+      <bpmn:incoming>Flow_GWAssuncao_Singular</bpmn:incoming>
+      <bpmn:incoming>Flow_BRTAssuncao_GWDecisao</bpmn:incoming>
       <bpmn:incoming>Flow_Comite_GWDecisao</bpmn:incoming>
       <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
@@ -605,17 +649,33 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
     <bpmn:sequenceFlow id="Flow_GWTipo_Alcada" name="aprovacao singular (default)" sourceRef="GW_TipoAprovacao" targetRef="UT_AprovacaoAlcada"/>
     <!-- DEC-30 D3: cada rodada do comite comeca sem livro e sem decisao da coordenacao — um voto de
          rodada anterior (antes de prorrogar_prazo/seguir_analise) nunca e contado quando a coordenacao
-         assume apos novo estouro de SLA, e um assumir_aprovacao antigo nunca vale para esta rodada. -->
+         assume apos novo estouro de SLA, e um assumir_aprovacao antigo nunca vale para esta rodada.
+         DEC-31 D31-2: a rodada tambem comeca com os FATOS DO MOTOR que a DMN pagto_comite_coordenacao
+         le zerados (votos APROVAR / nao-APROVAR concluidos = 0, SLA do comite nao estourado) e sem
+         resultado de assuncao anterior — nenhum deles vem de semente de start nem de rodada antiga. -->
     <bpmn:sequenceFlow id="Flow_GWTipo_Comite" name="comite colegiado (flag + quorum &gt; 1)" sourceRef="GW_TipoAprovacao" targetRef="SP_AprovacaoComite">
       <bpmn:extensionElements>
         <camunda:executionListener event="take" expression="${execution.removeVariable('votos_comite')}"/>
         <camunda:executionListener event="take" expression="${execution.setVariable('decisao_coordenacao', '')}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('comite_votos_aprovar', 0)}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('comite_votos_nao_aprovar', 0)}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('comite_sla_estourado', false)}"/>
+        <camunda:executionListener event="take" expression="${execution.removeVariable('comite_sla_estourado_em')}"/>
+        <camunda:executionListener event="take" expression="${execution.removeVariable('assuncao_comite')}"/>
+        <camunda:executionListener event="take" expression="${execution.removeVariable('motivo_assuncao_comite')}"/>
       </bpmn:extensionElements>
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('pagto_comite_colegiado_ativo') == true and execution.getVariable('quorum_comite') != null and quorum_comite &gt; 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Comite_GWDecisao" sourceRef="SP_AprovacaoComite" targetRef="GW_DecisaoPagamento"/>
     <bpmn:sequenceFlow id="Flow_AlertaComite_Notify" sourceRef="BT_AlertaSlaComite" targetRef="ST_NotificarRiscoSla"/>
-    <bpmn:sequenceFlow id="Flow_SlaComite_Pub" sourceRef="BT_SlaComite" targetRef="ST_PublishSlaBreach"/>
+    <!-- DEC-31 D31-2: o estouro do SLA do COMITE vira fato do motor (e o instante dele, para a trilha
+         de auditoria da assuncao) — so este fluxo o escreve; Flow_GWTipo_Comite o zera a cada rodada. -->
+    <bpmn:sequenceFlow id="Flow_SlaComite_Pub" sourceRef="BT_SlaComite" targetRef="ST_PublishSlaBreach">
+      <bpmn:extensionElements>
+        <camunda:executionListener event="take" expression="${execution.setVariable('comite_sla_estourado', true)}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('comite_sla_estourado_em', now())}"/>
+      </bpmn:extensionElements>
+    </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaPagto" targetRef="ST_NotificarRiscoSla"/>
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
     <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAprovacao" targetRef="ST_PublishSlaBreach"/>
@@ -625,9 +685,16 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
     <!-- GAP-PAGTO-5: GW_DecisaoCoordenacao roteia decisao_coordenacao (saida de UT_CoordenacaoAlcada,
          so setada no caminho de estouro de SLA -> este gateway so e alcancavel apos
          UT_CoordenacaoAlcada completar, logo o identificador esta sempre SET aqui, ENGINE-16004). -->
-    <bpmn:sequenceFlow id="Flow_GWCoord_Assumir" name="assumir_aprovacao" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_DecisaoPagamento">
+    <bpmn:sequenceFlow id="Flow_GWCoord_Assumir" name="assumir_aprovacao" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_AssuncaoComite">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'assumir_aprovacao'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+    <!-- DEC-31 D31-2: num caso de comite a assuncao passa pela DMN pagto_comite_coordenacao antes da
+         decisao de pagamento; a aprovacao singular segue direto (default, inalterado). -->
+    <bpmn:sequenceFlow id="Flow_GWAssuncao_Singular" name="aprovacao singular (default)" sourceRef="GW_AssuncaoComite" targetRef="GW_DecisaoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_GWAssuncao_Comite" name="caso de comite (flag + quorum &gt; 1)" sourceRef="GW_AssuncaoComite" targetRef="BRT_AssuncaoComite">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('pagto_comite_colegiado_ativo') == true and execution.getVariable('quorum_comite') != null and quorum_comite &gt; 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_BRTAssuncao_GWDecisao" sourceRef="BRT_AssuncaoComite" targetRef="GW_DecisaoPagamento"/>
     <bpmn:sequenceFlow id="Flow_GWCoord_Prorrogar" name="prorrogar_prazo" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_TipoAprovacao">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'prorrogar_prazo'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
@@ -870,9 +937,30 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Assumir" bpmnElement="Flow_GWCoord_Assumir">
         <di:waypoint x="475" y="488"/>
-        <di:waypoint x="1442" y="488"/>
+        <di:waypoint x="1417" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_AssuncaoComite" bpmnElement="GW_AssuncaoComite" isMarkerVisible="true">
+        <dc:Bounds x="1417" y="463" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AssuncaoComite" bpmnElement="BRT_AssuncaoComite">
+        <dc:Bounds x="1600" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWAssuncao_Singular" bpmnElement="Flow_GWAssuncao_Singular">
+        <di:waypoint x="1442" y="463"/>
         <di:waypoint x="1442" y="356"/>
         <di:waypoint x="2410" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWAssuncao_Comite" bpmnElement="Flow_GWAssuncao_Comite">
+        <di:waypoint x="1442" y="513"/>
+        <di:waypoint x="1442" y="600"/>
+        <di:waypoint x="1600" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BRTAssuncao_GWDecisao" bpmnElement="Flow_BRTAssuncao_GWDecisao">
+        <di:waypoint x="1700" y="600"/>
+        <di:waypoint x="1800" y="600"/>
+        <di:waypoint x="1800" y="420"/>
+        <di:waypoint x="2435" y="420"/>
+        <di:waypoint x="2435" y="381"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Prorrogar" bpmnElement="Flow_GWCoord_Prorrogar">
         <di:waypoint x="475" y="488"/>
