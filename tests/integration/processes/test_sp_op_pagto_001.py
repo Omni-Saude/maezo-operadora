@@ -1652,3 +1652,134 @@ async def test_comite_livro_semeado_e_sla_antes_do_1o_voto_coordenacao_nao_liber
     assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
         incidentes
     )
+
+
+# ===========================================================================
+# DEC-30 D3 (dono, #1084, 2026-11-02): a coordenacao completa o quorum de um caso de comite apos
+# estouro de SLA SO se ja houver o minimo de votos APROVAR da DMN (`votos_minimos_coordenacao`,
+# 1 no catch-all) de membro DISTINTO dela. Fluxo real: voto(s) humanos -> BT_SlaComite (job) ->
+# UT_CoordenacaoAlcada -> assumir_aprovacao + APROVAR.
+# ===========================================================================
+
+_COORD_D3 = "coord-fin-sintetico-d3-001"
+
+
+async def _estoura_sla_do_comite(engine: EngineRest, probe: PagtoEngineProbe, iid: str) -> Any:
+    job = await engine.await_timer_job(iid, "BT_SlaComite")
+    await engine.execute_job(job.id)
+    await probe.drain()
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-financeira" in ut_coord.candidate_groups
+    return ut_coord
+
+
+async def test_d3_um_voto_aprovar_e_sla_coordenacao_distinta_completa_o_quorum_e_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    # O minimo vem da DMN pagto_alcada (v0.1.3), achatado por BRT_AlcadaRouting.
+    assert await engine.get_variable(iid, "votos_minimos_coordenacao") == 1
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_LIBERADO_HUMANO in ended, f"1 voto APROVAR + coordenacao distinta => liberacao. ended={ended}"
+    assert await engine.activity_instance_count(iid, "ST_RegistrarVotoComite") == 1
+    assert pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano", aprovador_id=_COORD_D3)
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_d3_zero_votos_e_sla_coordenacao_nunca_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    await _drive_to_comite(engine, pagto_probe_comite, iid)
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "sem voto do comite a coordenacao nunca libera (D3)"
+    assert not pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_d3_coordenacao_igual_ao_membro_que_votou_nao_libera_sod(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_MEMBRO_A, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_SOD_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_d3_voto_de_rodada_anterior_nunca_conta_para_a_coordenacao(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """Rodada 1: A vota APROVAR, SLA estoura, a coordenacao PRORROGA (o comite volta a votar
+    inteiro). Rodada 2: o SLA estoura antes de qualquer voto e a coordenacao assume com APROVAR —
+    o voto de A (rodada 1) NAO conta: `Flow_GWTipo_Comite` zerou o livro ao reabrir o comite."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(ut_coord.id, {"decisao_coordenacao": "prorrogar_prazo"})
+    await pagto_probe_comite.drain()
+
+    reaberta = await engine.await_user_task(iid, _UT_COMITE)
+    assert reaberta.id != ut_a.id
+    assert await engine.get_variable_or_none(iid, "votos_comite") is None, "rodada nova comeca sem livro"
+    assert await engine.get_variable(iid, "decisao_coordenacao") == ""
+
+    ut_coord_2 = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    assert ut_coord_2.id != ut_coord.id
+    await engine.complete_task_as_human(
+        ut_coord_2.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "voto de rodada anterior nunca completa o quorum (D3)"
+    assert not pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
