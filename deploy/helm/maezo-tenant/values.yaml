@@ -1024,6 +1024,11 @@ lifecycle:
 #     `qa/simulador/composicao.py` importa `ProcessInstance`/`ProcessStatus`/`CibSevenError` para
 #     fingir SP-OP-ESCALATION-001 por tras do gate (nenhum start chega ao motor); os outros 39
 #     importadores permanecem.
+#     Recontado por AST em 41 no MPTT P3 (ledger de status do prestador, dark):
+#     `platform/prestador_status/reconciliador.py` importa `HistoricInstanceResolvingTransport` e
+#     os erros tipados da costura do #1167 (le terminais de CRED/FRAUDE do historico, falha
+#     fechada); a CLI do pacote recebe a Protocol re-exportada, sem importar o transporte; os
+#     outros 40 importadores permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -1050,5 +1055,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 40
+  transportFanIn: 41
   harnessFanIn: 23
