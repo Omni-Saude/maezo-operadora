@@ -233,12 +233,46 @@ pendentes:
     marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
   - artefato: spec/processes/dmn/prestador_tier.dmn
     responsavel: a definir
-    marca_no_arquivo: "prestador_tier v0.1.1 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos"
-    nota: "MPTT P5, nao ligada (P6 liga). DEC-30 D5 (dono, #1084, 2026-11-02): valores DRAFT aprovados como PROVISORIOS SO para a sombra — recalibrar pela sombra antes de ativar (valores inalterados). Valores provisorios (financas + medico-auditor): corte_watch=40, corte_trusted=70, N=10 pagamentos liberados por humano, T=12 meses, gold-card >= 90% em >= 10 ordens (patamar do dono 2026-10-31). docs/review-queue.md secao MPTT P5."
+    marca_no_arquivo: "prestador_tier v0.1.2 — status: DECIDIDO PARA A SOMBRA (DEC-31 D31-3) — corte_watch=50,"
+    nota: "MPTT P5, nao ligada (P6 liga). DECIDIDO PARA A SOMBRA pelo dono em DEC-31 D31-3 (#1084, 2026-11-02; altera a DEC-30 D5): valores INICIAIS DE SOMBRA — corte_watch=50 (era 40), corte_trusted=75 (era 70) sobre a escala de maximo 85; N=10 pagamentos liberados por humano, T=12 meses e gold-card >= 90% em >= 10 ordens mantidos; NOVA red flag nao compensatoria F1 < 0.80 com volume suficiente (>= 10 ordens) -> WATCH (com volume insuficiente nao e red flag); portoes TRUSTED explicitos na linha r_trusted (F5 >= T, F1 >= 0.90 em >= 10 ordens, sem red flag). Na v0.2.0 (F3=15, maximo 100) os cortes exigem nova ratificacao (proporcional ~59/88). Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista: a ATIVACAO segue pendente das quatro assinaturas abaixo. docs/review-queue.md secao MPTT P5."
+    assinaturas_para_ativacao:  # DEC-31 D31-3: ativacao pendente — campos EM BRANCO ate o ato humano (ADR-0007)
+      - papel: financas
+        objeto: "calibracao dos valores de sombra (cortes, pesos, faixas, pisos) contra a distribuicao observada"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: medico-auditor
+        objeto: "calibracao conjunta com financas (TRUSTED contido em prestadores sem DEVOLVER/CANCELAR humano)"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: dpo
+        objeto: "RIPD/LIA do perfilamento do prestador (LGPD art. 20: criterios publicados, revisao humana)"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: juridico
+        objeto: "clausula aditiva RN 503 (art. 12) no contrato do prestador para o roteamento por tier"
+        assinado_por: ""
+        assinado_em: ""
   - artefato: spec/processes/dmn/prestador_trust_scorecard.dmn
     responsavel: a definir
-    marca_no_arquivo: "prestador_trust_scorecard v0.1.0 — status: DRAFT — todos os pontos, faixas, pisos de volume e T"
-    nota: "MPTT P5, nao ligada (P4 produz as features, P6 liga). DEC-30 D5 (dono, #1084, 2026-11-02): valores DRAFT aprovados como PROVISORIOS SO para a sombra — recalibrar pela sombra antes de ativar (valores inalterados). Valores provisorios a calibrar em sombra (financas + medico-auditor + DPO): pesos F1 40 / F2 30 / F5 15; faixas F1 [0.90..1]=40, [0.80..0.90)=20, <0.80=0; F2 percentil <=50=30, (50..75]=15, >75=0; pisos 10 ordens / 10 lotes; neutro = metade do peso; T=12 meses. F3 (peso 15) fora ate o PAGTO PR-E. docs/review-queue.md secao MPTT P5."
+    marca_no_arquivo: "prestador_trust_scorecard v0.1.1 — status: DECIDIDO PARA A SOMBRA (DEC-31 D31-3) — pesos,"
+    nota: "MPTT P5, nao ligada (P4 produz as features, P6 liga). DECIDIDO PARA A SOMBRA pelo dono em DEC-31 D31-3 (#1084, 2026-11-02; altera a DEC-30 D5): valores INICIAIS DE SOMBRA MANTIDOS — pesos F1 40 / F2 30 / F5 15 (maximo 85); faixas F1 [0.90..1]=40, [0.80..0.90)=20, <0.80=0; F2 percentil <=50=30, (50..75]=15, >75=0; pisos 10 ordens / 10 lotes; volume insuficiente = metade do peso; T=12 meses. v0.1.1 so muda a descricao. F3 (peso 15) fora ate o PAGTO PR-E; com ele o maximo vira 100 e os cortes do tier exigem nova ratificacao. Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista: a ATIVACAO segue pendente das quatro assinaturas abaixo. docs/review-queue.md secao MPTT P5."
+    assinaturas_para_ativacao:  # DEC-31 D31-3: ativacao pendente — campos EM BRANCO ate o ato humano (ADR-0007)
+      - papel: financas
+        objeto: "calibracao dos valores de sombra (cortes, pesos, faixas, pisos) contra a distribuicao observada"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: medico-auditor
+        objeto: "calibracao conjunta com financas (TRUSTED contido em prestadores sem DEVOLVER/CANCELAR humano)"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: dpo
+        objeto: "RIPD/LIA do perfilamento do prestador (LGPD art. 20: criterios publicados, revisao humana)"
+        assinado_por: ""
+        assinado_em: ""
+      - papel: juridico
+        objeto: "clausula aditiva RN 503 (art. 12) no contrato do prestador para o roteamento por tier"
+        assinado_por: ""
+        assinado_em: ""
   - artefato: spec/processes/dmn/programa_routing.dmn
     responsavel: a definir
     marca_no_arquivo: "programa_routing v0.1.0 — status: DRAFT (criterios de estratificacao/elegibilidade requerem"

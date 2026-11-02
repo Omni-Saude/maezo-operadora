@@ -50,6 +50,17 @@ _NS: Final = {"d": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
 _PESOS: Final = {"f1": 40, "f2": 30, "f5": 15}
 _PONTUACAO_MAXIMA: Final = sum(_PESOS.values())
 
+#: Cortes do tier DECIDIDOS PARA A SOMBRA pelo dono (DEC-31 D31-3, #1084, 2026-11-02): corte_watch
+#: 40 -> 50 e corte_trusted 70 -> 75 sobre a escala de maximo 85. Chave = maximo da escala: os cortes
+#: so valem para o maximo sob o qual foram ratificados. Na v0.2.0 (F3=15 entra, maximo 100) os cortes
+#: precisam de NOVA ratificacao (proporcional ~59/88) — ate la, este pin reprova.
+_CORTES_RATIFICADOS_POR_MAXIMO: Final = {85: (50, 75)}
+_CORTE_WATCH, _CORTE_TRUSTED = _CORTES_RATIFICADOS_POR_MAXIMO[_PONTUACAO_MAXIMA]
+#: Portoes TRUSTED explicitos (DEC-31 D31-3): F5 >= T meses; F1 >= 90% em >= 10 ordens; sem red flag.
+_T_MESES: Final = 12
+_GOLD_CARD_TAXA: Final = 0.90
+_GOLD_CARD_ORDENS: Final = 10
+
 _ENTRADAS_SCORECARD: Final = (
     ("f1_ordens_decididas", "integer"),
     ("f1_taxa_liberacao_humana", "double"),
@@ -265,11 +276,17 @@ def test_tier_e_first_com_entradas_e_saidas_exatas() -> None:
 
 
 @pytest.mark.parametrize("path", [_SCORECARD, _TIER], ids=lambda p: p.name)
-def test_status_draft_declarado_no_arquivo(path: Path) -> None:
+def test_status_decidido_para_a_sombra_declarado_no_arquivo(path: Path) -> None:
+    """DEC-31 D31-3: valores INICIAIS DE SOMBRA ratificados pelo dono; ativacao segue pendente."""
     texto = path.read_text(encoding="utf-8")
-    versao = "v0.1.1" if path == _TIER else "v0.1.0"  # tier: reparo B1 (fail-closed em entrada invalida)
-    assert f"{versao} — status: DRAFT" in texto
+    # tier v0.1.2: v0.1.1 = reparo B1; v0.1.2 = cortes 50/75 + red flag F1 (DEC-31). Scorecard v0.1.1:
+    # so a descricao muda (valores mantidos). A v0.2.0 de ambos fica reservada para a entrada do F3.
+    versao = "v0.1.2" if path == _TIER else "v0.1.1"
+    assert f"{versao} — status: DECIDIDO PARA A SOMBRA (DEC-31 D31-3)" in texto
+    assert "status: DRAFT" not in texto
     assert "NAO LIGADA a BPMN nem a worker" in texto
+    for pendencia in ("financas + medico-auditor", "RIPD/LIA", "LGPD art. 20", "RN 503"):
+        assert pendencia in texto, pendencia
 
 
 # -------------------------------------------------------------------------------------------------
@@ -442,11 +459,13 @@ def test_fronteiras_do_percentil(valor: float, invalido: bool) -> None:
     [
         ({"red_flag_pico_faturamento": True}, "RED_FLAG_PICO_FATURAMENTO"),
         ({"fraude_monitorar_12m": True}, "RED_FLAG_FRAUDE_MONITORAR_12M"),
+        ({"f1_taxa_liberacao_humana": 0.7999}, "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80"),
+        ({"f1_taxa_liberacao_humana": 0.0, "f1_ordens_decididas": 10}, "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80"),
         ({"pagamentos_liberados_humanos": 9}, "PRESTADOR_NOVO_OU_BAIXO_VOLUME"),
         ({"pagamentos_liberados_humanos": 0}, "PRESTADOR_NOVO_OU_BAIXO_VOLUME"),
         ({"pontuacao_confianca": 86}, "PONTUACAO_FORA_DA_ESCALA"),
         ({"pontuacao_confianca": -1}, "PONTUACAO_FORA_DA_ESCALA"),
-        ({"pontuacao_confianca": 39}, "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        ({"pontuacao_confianca": 49}, "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
     ],
 )
 def test_red_flags_e_novos_sao_nao_compensatorios(sobrescritas: dict[str, Any], motivo: str) -> None:
@@ -454,26 +473,182 @@ def test_red_flags_e_novos_sao_nao_compensatorios(sobrescritas: dict[str, Any], 
     assert tier(**_ti(**sobrescritas)) == ("WATCH", motivo)
 
 
+# -------------------------------------------------------------------------------------------------
+# 4b. Red flag F1 (DEC-31 D31-3): F1 < 0.80 com volume SUFICIENTE e nao compensatoria
+# -------------------------------------------------------------------------------------------------
+
+
 @pytest.mark.parametrize(
-    "sobrescritas",
+    ("ordens", "taxa", "red_flag"),
     [
-        {"f1_ordens_decididas": 9, "f1_taxa_liberacao_humana": 1.0},  # 100% em 9 ordens nao e gold-card
-        {"f1_taxa_liberacao_humana": 0.8999},
-        {"f5_meses_relacionamento": 11},
-        {"pontuacao_confianca": 69},
+        (10, 0.7999, True),  # piso de volume inclusivo: 10 ordens ja e volume suficiente
+        (500, 0.0, True),
+        (10, 0.80, False),  # fronteira: 0.80 e faixa media, nao red flag
+        (10, 0.85, False),
+        (9, 0.7999, False),  # volume insuficiente: neutro, NUNCA red flag
+        (9, 0.0, False),
+        (0, 0.0, False),
     ],
 )
-def test_sem_portao_completo_nunca_trusted(sobrescritas: dict[str, Any]) -> None:
-    assert tier(**_ti(**sobrescritas)) == ("STANDARD", "PONTUACAO_STANDARD")
+def test_red_flag_f1_so_com_volume_suficiente(ordens: int, taxa: float, red_flag: bool) -> None:
+    """Com a pontuacao no maximo da escala, so a red flag F1 pode levar a WATCH."""
+    resultado = tier(**_ti(f1_ordens_decididas=ordens, f1_taxa_liberacao_humana=taxa))
+    assert (resultado == ("WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80")) is red_flag, resultado
+    if not red_flag:
+        assert resultado == ("STANDARD", "PONTUACAO_STANDARD"), resultado
 
 
-def test_fronteiras_dos_cortes() -> None:
-    assert tier(**_ti(pontuacao_confianca=70))[0] == "TRUSTED"
-    assert tier(**_ti(pontuacao_confianca=40, f1_taxa_liberacao_humana=0.5)) == (
-        "STANDARD",
-        "PONTUACAO_STANDARD",
+@pytest.mark.parametrize("pontos", [85, 75, 50])
+def test_red_flag_f1_vence_novos_e_qualquer_pontuacao(pontos: int) -> None:
+    """Precedencia FIRST: a red flag F1 responde antes de 'prestador novo' e de STANDARD/TRUSTED."""
+    f1_baixo = {"f1_ordens_decididas": 10, "f1_taxa_liberacao_humana": 0.5}
+    assert tier(**_ti(pontuacao_confianca=pontos, **f1_baixo)) == (
+        "WATCH",
+        "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80",
     )
+    assert tier(**_ti(pontuacao_confianca=pontos, pagamentos_liberados_humanos=3, **f1_baixo)) == (
+        "WATCH",
+        "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80",
+    )
+
+
+def test_red_flag_f1_mora_com_as_outras_red_flags() -> None:
+    """Posicao na tabela FIRST: depois da validade das entradas, junto das red flags, antes de novos."""
+    ids = [r.rid for r in _TIER_T.regras]
+    i = ids.index("r_red_flag_f1_liberacao_baixa")
+    assert ids[i - 2 : i + 2] == [
+        "r_red_flag_pico",
+        "r_fraude_monitorar",
+        "r_red_flag_f1_liberacao_baixa",
+        "r_prestador_novo",
+    ]
+    regra = _TIER_T.regras[i]
+    nomes = [n for n, _ in _ENTRADAS_TIER]
+    restritas = {n: e for n, e in zip(nomes, regra.entradas, strict=True) if e != "-"}
+    assert restritas == {"f1_ordens_decididas": ">= 10", "f1_taxa_liberacao_humana": "[0..0.80)"}
+    assert regra.saidas == ("WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80")
+
+
+# -------------------------------------------------------------------------------------------------
+# 4c. Portoes TRUSTED explicitos e cortes (DEC-31 D31-3)
+# -------------------------------------------------------------------------------------------------
+
+
+def _limite(texto: str, padrao: str) -> int:
+    achado = re.fullmatch(padrao, texto)
+    assert achado is not None, (padrao, texto)
+    return int(achado[1])
+
+
+def _cortes_na_tabela() -> tuple[int, int, int]:
+    """(corte_watch, corte_trusted, maximo) LIDOS da tabela de tier, linha a linha."""
+    por_id = {r.rid: r.entradas[0] for r in _TIER_T.regras}
+    maximo = _limite(por_id["r_pontuacao_invalida"], r"< 0, > (\d+)")
+    watch = _limite(por_id["r_standard"], rf"\[(\d+)\.\.{maximo}\]")
+    assert _limite(por_id["r_watch_pontuacao"], r"\[0\.\.(\d+)\)") == watch
+    trusted = _limite(por_id["r_trusted"], rf"\[(\d+)\.\.{maximo}\]")
+    return watch, trusted, maximo
+
+
+def _maximo_do_scorecard() -> int:
+    """Soma do maior ponto de cada feature, LIDA da tabela de pontos (nao do pin _PESOS)."""
+    maior: dict[str, int] = {}
+    for regra in _PONTOS.regras:
+        feature = regra.rid.removeprefix("r_").split("_")[0]
+        maior[feature] = max(maior.get(feature, 0), int(regra.saidas[0]))
+    return sum(maior.values())
+
+
+def test_pin_maximo_do_scorecard_amarrado_aos_cortes() -> None:
+    """Mudou o maximo do scorecard (ex.: F3=15 na v0.2.0 -> 100) sem mudar os cortes? REPROVA.
+
+    Os cortes 50/75 foram ratificados (DEC-31 D31-3) para a escala de maximo 85. Com outra escala
+    os cortes tem de ser RE-RATIFICADOS pelo dono (proporcional ~59/88 para maximo 100) e so entao
+    entram em _CORTES_RATIFICADOS_POR_MAXIMO junto com a tabela.
+    """
+    maximo = _maximo_do_scorecard()
+    assert maximo == _PONTUACAO_MAXIMA == 85
+    assert maximo in _CORTES_RATIFICADOS_POR_MAXIMO, (
+        f"maximo do scorecard mudou para {maximo}: cortes do tier precisam de re-ratificacao "
+        f"(proporcional ~{round(50 * maximo / 85)}/{round(75 * maximo / 85)}) — DEC-31 D31-3"
+    )
+    watch, trusted, maximo_tier = _cortes_na_tabela()
+    assert maximo_tier == maximo, "escala do tier (PONTUACAO_FORA_DA_ESCALA) diverge do scorecard"
+    assert (watch, trusted) == _CORTES_RATIFICADOS_POR_MAXIMO[maximo] == (50, 75)
+
+
+def test_portoes_trusted_explicitos_na_linha_trusted() -> None:
+    """TRUSTED exige os portoes NA PROPRIA LINHA, nao so pela pontuacao (DEC-31 D31-3)."""
+    regra = next(r for r in _TIER_T.regras if r.rid == "r_trusted")
+    nomes = [n for n, _ in _ENTRADAS_TIER]
+    restritas = {n: e for n, e in zip(nomes, regra.entradas, strict=True) if e != "-"}
+    assert restritas == {
+        "pontuacao_confianca": f"[{_CORTE_TRUSTED}..{_PONTUACAO_MAXIMA}]",
+        "f1_ordens_decididas": f">= {_GOLD_CARD_ORDENS}",
+        "f1_taxa_liberacao_humana": f"[{_GOLD_CARD_TAXA:.2f}..1]",
+        "f5_meses_relacionamento": f">= {_T_MESES}",
+    }
+    # "sem red flags": toda linha de red flag vem ANTES da linha TRUSTED (FIRST).
+    ids = [r.rid for r in _TIER_T.regras]
+    for red_flag in ("r_red_flag_pico", "r_fraude_monitorar", "r_red_flag_f1_liberacao_baixa"):
+        assert ids.index(red_flag) < ids.index("r_trusted"), red_flag
+
+
+@pytest.mark.parametrize(
+    ("sobrescritas", "esperado"),
+    [
+        # Cada portao, SOZINHO, com todo o resto no maximo, impede TRUSTED.
+        ({"f5_meses_relacionamento": 11}, ("STANDARD", "PONTUACAO_STANDARD")),  # F5 < T
+        ({"f1_ordens_decididas": 9, "f1_taxa_liberacao_humana": 1.0}, ("STANDARD", "PONTUACAO_STANDARD")),
+        ({"f1_taxa_liberacao_humana": 0.8999}, ("STANDARD", "PONTUACAO_STANDARD")),  # F1 < 90%
+        ({"pontuacao_confianca": 74}, ("STANDARD", "PONTUACAO_STANDARD")),  # abaixo de corte_trusted
+        ({"red_flag_pico_faturamento": True}, ("WATCH", "RED_FLAG_PICO_FATURAMENTO")),
+        ({"fraude_monitorar_12m": True}, ("WATCH", "RED_FLAG_FRAUDE_MONITORAR_12M")),
+        ({"f1_taxa_liberacao_humana": 0.79}, ("WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80")),
+    ],
+)
+def test_cada_portao_trusted_bloqueia_sozinho(
+    sobrescritas: dict[str, Any], esperado: tuple[str, str]
+) -> None:
+    assert tier(**_ti()) == ("TRUSTED", "GOLD_CARD_ATINGIDO")
+    assert tier(**_ti(**sobrescritas)) == esperado
+
+
+@pytest.mark.parametrize(
+    ("sobrescritas", "trusted"),
+    [
+        ({"f5_meses_relacionamento": 12}, True),
+        ({"f5_meses_relacionamento": 11}, False),
+        ({"f1_ordens_decididas": 10, "f1_taxa_liberacao_humana": 0.90}, True),
+        ({"f1_ordens_decididas": 9, "f1_taxa_liberacao_humana": 0.90}, False),
+        ({"f1_taxa_liberacao_humana": 0.8999}, False),
+    ],
+)
+def test_fronteiras_dos_portoes_trusted(sobrescritas: dict[str, Any], trusted: bool) -> None:
+    assert (tier(**_ti(**sobrescritas))[0] == "TRUSTED") is trusted
+
+
+@pytest.mark.parametrize(
+    ("pontos", "esperado"),
+    [
+        (85, "TRUSTED"),
+        (75, "TRUSTED"),  # corte_trusted inclusivo
+        (74, "STANDARD"),
+        (70, "STANDARD"),  # era TRUSTED com corte_trusted=70
+        (50, "STANDARD"),  # corte_watch inclusivo
+        (49, "WATCH"),
+        (45, "WATCH"),  # era STANDARD com corte_watch=40
+        (40, "WATCH"),  # era STANDARD com corte_watch=40
+        (0, "WATCH"),
+    ],
+)
+def test_fronteiras_dos_cortes(pontos: int, esperado: str) -> None:
+    assert tier(**_ti(pontuacao_confianca=pontos))[0] == esperado
+
+
+def test_piso_de_novos_n10() -> None:
     assert tier(**_ti(pagamentos_liberados_humanos=10))[0] == "TRUSTED"
+    assert tier(**_ti(pagamentos_liberados_humanos=9))[0] == "WATCH"
 
 
 def test_catch_all_e_a_ultima_linha_e_e_watch() -> None:
@@ -482,46 +657,113 @@ def test_catch_all_e_a_ultima_linha_e_e_watch() -> None:
     assert ultima.saidas == ("WATCH", "COMBINACAO_NAO_MAPEADA")
 
 
+def _tier_composto(scorecard: dict[str, Any]) -> tuple[int, tuple[str, str]]:
+    """Composicao scorecard -> tier com as MESMAS entradas brutas (o que o P6 fara)."""
+    pontos = pontuacao(**scorecard)
+    compartilhadas = {k: v for k, v in scorecard.items() if k in dict(_ENTRADAS_TIER)}
+    return pontos, tier(**_ti(pontuacao_confianca=pontos, **compartilhadas))
+
+
 @pytest.mark.parametrize(
-    ("scorecard", "tier_extra", "esperado"),
+    ("scorecard", "pontos_esperados", "esperado"),
     [
-        (_sc(), {}, "TRUSTED"),
-        (_sc(0, None, 0, None, 0), {"f1_ordens_decididas": 0, "f5_meses_relacionamento": 0}, "WATCH"),
-        (_sc(ordens=9, taxa=1.0), {"f1_ordens_decididas": 9, "f1_taxa_liberacao_humana": 1.0}, "STANDARD"),
-        (_sc(None, None, None, None, None), {}, "WATCH"),
+        (_sc(), 85, ("TRUSTED", "GOLD_CARD_ATINGIDO")),
+        (_sc(0, None, 0, None, 0), 35, ("WATCH", "ENTRADA_AUSENTE_F1_TAXA")),
+        (_sc(0, 0.5, 0, None, 0), 35, ("WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH")),
+        (_sc(ordens=9, taxa=1.0), 65, ("STANDARD", "PONTUACAO_STANDARD")),
+        (_sc(ordens=9, taxa=0.10), 65, ("STANDARD", "PONTUACAO_STANDARD")),  # sem volume: sem red flag
+        (_sc(None, None, None, None, None), 0, ("WATCH", "ENTRADA_AUSENTE_F1_ORDENS")),
+        (_sc(percentil=90.0), 55, ("STANDARD", "PONTUACAO_STANDARD")),
+        (_sc(meses=11), 70, ("STANDARD", "PONTUACAO_STANDARD")),
+        (_sc(taxa=0.85, percentil=60.0), 50, ("STANDARD", "PONTUACAO_STANDARD")),
     ],
 )
 def test_composicao_scorecard_tier(
-    scorecard: dict[str, Any], tier_extra: dict[str, Any], esperado: str
+    scorecard: dict[str, Any], pontos_esperados: int, esperado: tuple[str, str]
 ) -> None:
-    resultado, _ = tier(**_ti(pontuacao_confianca=pontuacao(**scorecard), **tier_extra))
-    assert resultado == esperado
+    assert _tier_composto(scorecard) == (pontos_esperados, esperado)
+
+
+#: Perfis (todas as entradas validas, sem F6/FRAUDE, >= 10 pagamentos) que MUDAM de tier com os
+#: valores da DEC-31 D31-3. "antes" = v0.1.1 (corte_watch=40, corte_trusted=70, sem red flag F1).
+_PERFIS_QUE_MUDAM: Final = (
+    # F1=40 + F2=15 (P50..P75) + F5=15 = 70: TRUSTED -> STANDARD (fecha o aviso A1 do #1171)
+    (_sc(percentil=60.0), 70, "TRUSTED", ("STANDARD", "PONTUACAO_STANDARD")),
+    # idem com F2 NEUTRO (menos de 10 lotes): o neutro sozinho nao basta mais para TRUSTED
+    (_sc(lotes=5, percentil=None), 70, "TRUSTED", ("STANDARD", "PONTUACAO_STANDARD")),
+    # F1=40 + F2=0 (> P75) + F5=0 (< 12 meses) = 40: STANDARD -> WATCH
+    (_sc(percentil=90.0, meses=11), 40, "STANDARD", ("WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH")),
+    # F1=0 (< 80% em >= 10 ordens) + F2=30 + F5=15 = 45: STANDARD -> WATCH (red flag E abaixo do corte)
+    (_sc(taxa=0.79), 45, "STANDARD", ("WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80")),
+    (_sc(ordens=10, taxa=0.0), 45, "STANDARD", ("WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80")),
+)
 
 
 @pytest.mark.parametrize(
-    ("scorecard", "pontos_esperados", "motivo"),
+    ("scorecard", "pontos_esperados", "antes", "depois"), _PERFIS_QUE_MUDAM, ids=lambda v: str(v)[:40]
+)
+def test_perfis_que_mudam_de_tier_com_a_dec31(
+    scorecard: dict[str, Any], pontos_esperados: int, antes: str, depois: tuple[str, str]
+) -> None:
+    pontos, resultado = _tier_composto(scorecard)
+    assert pontos == pontos_esperados
+    assert resultado == depois
+    assert resultado[0] != antes
+
+
+def test_enumeracao_completa_dos_perfis_validos_bate_com_a_lista_dos_que_mudam() -> None:
+    """Varre a grade de perfis validos e compara com a regra ANTIGA (v0.1.1), escrita aqui so como
+    oraculo de teste: so os perfis de _PERFIS_QUE_MUDAM (por classe de pontos) mudam de tier."""
+
+    def antigo(pontos: int, ordens: int, taxa: float, meses: int) -> str:
+        if ordens >= 10 and taxa >= 0.90 and meses >= 12 and pontos >= 70:
+            return "TRUSTED"
+        return "STANDARD" if pontos >= 40 else "WATCH"
+
+    mudancas: set[tuple[int, int, int, str, str]] = set()
+    for ordens, taxa, lotes, percentil, meses in itertools.product(
+        (5, 10, 50), (0.5, 0.79, 0.8, 0.85, 0.9, 1.0), (5, 50), (30.0, 60.0, 90.0), (6, 12, 24)
+    ):
+        sc = _sc(ordens, taxa, lotes, percentil, meses)
+        f1 = pontuacao(**_sc(ordens, taxa, 50, 30.0, 0)) - 30
+        f2 = pontuacao(**_sc(5, 0.5, lotes, percentil, 0)) - 20
+        f5 = pontuacao(**_sc(5, 0.5, 5, None, meses)) - 35
+        pontos, (novo, _) = _tier_composto(sc)
+        velho = antigo(pontos, ordens, taxa, meses)
+        if novo != velho:
+            mudancas.add((f1, f2, f5, velho, novo))
+    assert mudancas == {
+        (40, 15, 15, "TRUSTED", "STANDARD"),
+        (40, 0, 0, "STANDARD", "WATCH"),
+        (0, 30, 15, "STANDARD", "WATCH"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("scorecard", "pontos_esperados", "motivo", "chegaria_a_standard"),
     [
-        (_sc(lotes=None), 55, "ENTRADA_AUSENTE_F2_LOTES"),
-        (_sc(lotes=50, percentil=None), 55, "ENTRADA_AUSENTE_F2_PERCENTIL"),
-        (_sc(percentil=150.0), 55, "ENTRADA_INVALIDA_F2_PERCENTIL"),
-        (_sc(lotes=-3), 55, "ENTRADA_INVALIDA_F2_LOTES"),
-        (_sc(taxa=1.2), 45, "ENTRADA_INVALIDA_F1_TAXA"),
-        (_sc(ordens=-5), 45, "ENTRADA_INVALIDA_F1_ORDENS"),
-        (_sc(meses=-1), 70, "ENTRADA_INVALIDA_F5_MESES"),
+        (_sc(lotes=None), 55, "ENTRADA_AUSENTE_F2_LOTES", True),
+        (_sc(lotes=50, percentil=None), 55, "ENTRADA_AUSENTE_F2_PERCENTIL", True),
+        (_sc(percentil=150.0), 55, "ENTRADA_INVALIDA_F2_PERCENTIL", True),
+        (_sc(lotes=-3), 55, "ENTRADA_INVALIDA_F2_LOTES", True),
+        # F1 invalido soma 45: com corte_watch=50 ja nao chegaria a STANDARD; a linha de validade
+        # continua respondendo PRIMEIRO (motivo especifico, nao "abaixo do corte").
+        (_sc(taxa=1.2), 45, "ENTRADA_INVALIDA_F1_TAXA", False),
+        (_sc(ordens=-5), 45, "ENTRADA_INVALIDA_F1_ORDENS", False),
+        (_sc(meses=-1), 70, "ENTRADA_INVALIDA_F5_MESES", True),
     ],
 )
 def test_composicao_b1_dado_faltante_ou_invalido_nunca_chega_a_standard(
-    scorecard: dict[str, Any], pontos_esperados: int, motivo: str
+    scorecard: dict[str, Any], pontos_esperados: int, motivo: str, chegaria_a_standard: bool
 ) -> None:
     """B1 do gate cego: o scorecard da 0 a feature ruim, mas as OUTRAS ainda passam de corte_watch.
 
     O tier recebe as MESMAS entradas brutas que o scorecard recebeu e as valida por si.
     """
-    pontos = pontuacao(**scorecard)
+    pontos, resultado = _tier_composto(scorecard)
     assert pontos == pontos_esperados
-    assert pontos >= 40, "sem o reparo esta combinacao chegaria a STANDARD"
-    compartilhadas = {k: v for k, v in scorecard.items() if k in dict(_ENTRADAS_TIER)}
-    assert tier(**_ti(pontuacao_confianca=pontos, **compartilhadas)) == ("WATCH", motivo)
+    assert (pontos >= _CORTE_WATCH) is chegaria_a_standard, "sem o reparo esta combinacao chegaria a STANDARD"
+    assert resultado == ("WATCH", motivo)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -573,7 +815,7 @@ def test_benchmark_de_pares_e_do_tenant() -> None:
 
 
 # -------------------------------------------------------------------------------------------------
-# 6. DRAFT e nao ligado
+# 6. Decidido para a sombra (DEC-31), ativacao pendente e nao ligado
 # -------------------------------------------------------------------------------------------------
 
 _ARQUIVOS: Final = (
@@ -594,10 +836,36 @@ def test_registrados_como_pendentes_nunca_aprovados() -> None:
         assert marca in (_ROOT / arquivo).read_text(encoding="utf-8"), arquivo
 
 
+#: Ativacao (DEC-31 D31-3) segue exigindo: calibracao financas + medico-auditor, RIPD/LIA do DPO
+#: (LGPD art. 20) e clausula aditiva RN 503 do juridico. Os campos de assinatura ficam EM BRANCO
+#: (ADR-0007: nenhum agente preenche bloco de aprovacao).
+_PAPEIS_DA_ATIVACAO: Final = ("financas", "medico-auditor", "dpo", "juridico")
+
+
+@pytest.mark.parametrize("arquivo", _ARQUIVOS)
+def test_decidido_para_a_sombra_com_ativacao_pendente_e_assinaturas_em_branco(arquivo: str) -> None:
+    registro = yaml.safe_load((_ROOT / "spec" / "aprovacoes-de-regras.yaml").read_text(encoding="utf-8"))
+    entrada = {p["artefato"]: p for p in registro["pendentes"]}[arquivo]
+    assert "DEC-31 D31-3" in entrada["nota"]
+    assert "DECIDIDO PARA A SOMBRA" in entrada["nota"]
+    assinaturas = entrada["assinaturas_para_ativacao"]
+    assert tuple(a["papel"] for a in assinaturas) == _PAPEIS_DA_ATIVACAO
+    for assinatura in assinaturas:
+        assert assinatura["objeto"].strip(), assinatura["papel"]
+        assert assinatura["assinado_por"] == "", assinatura["papel"]
+        assert assinatura["assinado_em"] == "", assinatura["papel"]
+
+
 def test_na_fila_de_revisao() -> None:
     fila = (_ROOT / "docs" / "review-queue.md").read_text(encoding="utf-8")
     for arquivo in _ARQUIVOS:
         assert f"`{arquivo}`" in fila, arquivo
+    linhas = [linha for linha in fila.splitlines() if any(f"`{a}`" in linha for a in _ARQUIVOS)]
+    linhas = [linha for linha in linhas if linha.startswith("| `spec/processes/dmn/prestador_t")]
+    assert len(linhas) == 2
+    for linha in linhas:
+        assert "DECIDIDO PARA A SOMBRA (DEC-31 D31-3" in linha, linha[:80]
+        assert "assinaturas em branco" in linha, linha[:80]
 
 
 def test_sem_consumidor_ate_o_p6() -> None:
