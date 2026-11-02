@@ -228,14 +228,16 @@ async def test_leitura_que_falha_com_o_roteador_dizendo_sintoma_vai_a_equipe() -
     assert whatsapp.enviados[-1] == RESPOSTA_HANDOFF_SAUDE
 
 
-async def test_duvida_geral_de_saude_so_com_texto_revisado_da_base() -> None:
+async def test_duvida_geral_de_saude_vai_para_a_equipe_sem_a_base_de_conhecimento() -> None:
+    # Dono, 02/11/2026: a base de conhecimento saiu (textos sem revisao medica); "o que e' PSA?" e' assunto
+    # que a base tinha, e mesmo assim vai a equipe.
     leitor = _Leitor(_leitura(assunto="duvida_saude"))
-    modelo = _Modelo(decisao_v7("saude"))
-    grafo, whatsapp, cib, dmn = _grafo(modelo, leitor)
+    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("saude")), leitor)
     await grafo.ainvoke(_entrada("o que é PSA?"))
     assert leitor.chamadas == 1  # so' a leitura: nenhum texto de saude escrito pelo modelo
-    assert cib._history == {} and dmn.chamadas == []
-    assert "psa" in whatsapp.enviados[-1].lower()
+    assert whatsapp.enviados[-1] == RESPOSTA_HANDOFF_SAUDE
+    assert "psa" not in whatsapp.enviados[-1].lower()
+    assert _casos(cib)[0]["motivo_categoria"] == "intencao_clinica"
 
 
 async def test_assunto_que_nao_e_saude_segue_o_caminho_de_sempre_sem_leitura() -> None:

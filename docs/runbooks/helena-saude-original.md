@@ -11,7 +11,7 @@ só pela habilidade `src/maezo/agents/helena/habilidades/saude_original/`, que s
 | Tabela DMN dá P1 (emergência) | Texto de emergência (192) e caso **grave** para a equipe |
 | Tabela DMN dá P2 (enfermagem) | Caso **moderado** e o aviso da equipe de saúde, sem "Ligue 192 agora" |
 | Sintoma sem alarme, pergunta clínica ("pode ser covid?", "qual remédio?") | Caso `intencao_clinica` moderado para a equipe |
-| Dúvida geral de saúde ("o que é PSA?") | Só o texto revisado da base de saúde; sem assunto na base, a equipe |
+| Dúvida geral de saúde ("o que é PSA?") | Caso `intencao_clinica` moderado para a equipe (a base de conhecimento saiu em 02/11/2026: os textos nunca tiveram revisão médica) |
 | Caso de saúde já aberto e sem emergência nova | Texto fixo: a pessoa conta ao profissional (o portal não mostra a conversa) |
 | Leitura do modelo ou tabela fora do ar | Caso para a equipe (na dúvida, uma pessoa assume) |
 
@@ -42,7 +42,7 @@ A triagem com juiz (DL-0159) foi **removida** (código, tabela e testes): não h
 
 ## Logs (sem conteúdo da conversa)
 `helena_saude_original_leitura` (assunto, populacao, sintoma_codigo, intensidade), `helena_saude_original` (via:
-`tabela_alarme` com conduta e severidade, `tabela_sem_alarme`, `base_revisada`, `risco_pelo_texto`, `leitura_falhou`,
+`tabela_alarme` com conduta e severidade, `tabela_sem_alarme`, `risco_pelo_texto`, `leitura_falhou`,
 `tabela_fora`), `helena_saude_original_leitura_falhou` (falha).
 
 ## Etapa 2 (depois do teste do dono)

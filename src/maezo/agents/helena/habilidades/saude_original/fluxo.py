@@ -5,14 +5,14 @@ Nas conversas da allowlist, com `saude_original: true` no pacote, TODA mensagem 
 1. risco de suicidio/autolesao pelo texto: o caminho de sempre (`_risco_pelo_texto`: tabela de saude mental,
    CVV 188 e 192, caso para a equipe);
 2. o modelo LE a conversa (`leitura`) — nao conversa, nao pergunta, nao julga;
-3. duvida geral de saude: so' o texto REVISADO da base de saude (nada escrito na hora); sem texto revisado,
-   a equipe;
-4. sintoma ou pergunta clinica: a tabela DMN decide (ADR-0012). P1 = caso grave e o texto de emergencia;
-   P2 = caso moderado e o aviso da equipe de saude; sem alarme = caso para a equipe (`intencao_clinica`).
+3. sintoma, pergunta clinica ou duvida geral de saude: a tabela DMN decide (ADR-0012). P1 = caso grave e o
+   texto de emergencia; P2 = caso moderado e o aviso da equipe de saude; sem alarme = caso para a equipe
+   (`intencao_clinica`).
    Na duvida (leitura ou tabela fora do ar), uma pessoa assume: caso para a equipe.
 
-Nenhuma camada antiga de saude (protocolos, triagem com juiz, perguntas de alerta, saude gerativa, palavras
-de alarme) responde nestas conversas.
+Nenhuma camada antiga de saude (protocolos, triagem com juiz, perguntas de alerta, saude gerativa, base de
+conhecimento, palavras de alarme) responde nestas conversas. A base de conhecimento saiu em 02/11/2026 (dono:
+"retirar"; os textos nunca tiveram revisao medica): a duvida geral de saude vai a equipe como as outras.
 """
 
 from __future__ import annotations
@@ -159,9 +159,6 @@ async def atender(
     )
     if lida.assunto == "outro" and not alarme:
         return None
-    if lida.assunto == "duvida_saude" and (texto := await _texto_revisado(self, state)) is not None:
-        logger.info("helena_saude_original", via="base_revisada")
-        return texto
     return await _pela_tabela(self, state, lida)
 
 
@@ -181,23 +178,6 @@ def _leitura_falhou(
     if not (saude_pelo_roteador or alarme):
         return None
     return _para_a_equipe(self, state, None, motivo="leitura_falhou")
-
-
-async def _texto_revisado(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | None:
-    """A resposta REVISADA da base de saude (texto fixo do arquivo), ou `None` sem assunto na base."""
-    from maezo.agents.helena.habilidades.saude.informar import _com_o_fecho_da_duvida
-    from maezo.agents.helena.habilidades.saude.textos import CHAVE_FECHO
-    from maezo.conhecimento import base_saude as _bs
-
-    if not getattr(self, "_base_saude", False):
-        return None
-    assunto = await self._base_achar_assunto(state, self._base_hoje())  # type: ignore[arg-type]
-    if assunto is None:
-        return None
-    update = self._update_sem_modelo(state)
-    self._expirar_pendencias_do_turno(state, update)
-    texto = _com_o_fecho_da_duvida(_bs.resposta_informativa(assunto), self._textos[CHAVE_FECHO])
-    return dict(self._base_texto_fixo(update, texto))
 
 
 async def _pela_tabela(self: HelenaGraph, state: Mapping[str, Any], lida: _l.Leitura) -> dict[str, Any]:
