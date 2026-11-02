@@ -434,6 +434,8 @@ def test_d3_coordenacao_igual_ao_membro_que_votou_e_violacao_de_sod() -> None:
         erro = _recusa(_coordenacao_assume(aprovador_id=coord))
         assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
         assert "segregacao: coordenacao == membro do comite que votou" in erro.message
+        # A mesma pessoa nunca soma: livro + coordenacao continua com 1 membro distinto.
+        assert "quorum_comite nao atingido" in erro.message
         assert _MEMBRO_A not in erro.message
 
 
@@ -490,7 +492,8 @@ def test_d3_coordenacao_so_acrescenta_um_membro_ao_quorum() -> None:
 
 
 @pytest.mark.parametrize(
-    "decisao_coordenacao", [_ABSENT, "", "prorrogar_prazo", "seguir_analise", "ASSUMIR_APROVACAO"]
+    "decisao_coordenacao",
+    [_ABSENT, "", "prorrogar_prazo", "seguir_analise", "ASSUMIR_APROVACAO", " assumir_aprovacao ", 1],
 )
 def test_d3_sem_assumir_aprovacao_o_aprovador_fora_do_livro_continua_recusado(
     decisao_coordenacao: Any,
@@ -516,3 +519,10 @@ def test_d3_votos_previos_completos_pelo_comite_continuam_liberando_sem_a_coorde
     """O caminho normal do comite (2 membros, o ultimo e o aprovador final) nao muda."""
     out = release_high_value_payment(_liberacao(decisao_coordenacao=""), comite_colegiado=True)
     assert out["pagamento_liberado"] is True
+
+
+def test_d3_coordenacao_sem_identidade_nunca_conta_como_membro() -> None:
+    erro = _recusa(_coordenacao_assume(aprovador_id="   "))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "aprovador_id ausente" in erro.message
+    assert "quorum_comite nao atingido" in erro.message

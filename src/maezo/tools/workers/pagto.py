@@ -807,7 +807,9 @@ def _violacoes_colegiado(
         membros.append(membro)
     aprovador = _identidade(aprovador_id)
     distintos = set(membros)
-    if _norm_str(variables.get("decisao_coordenacao")) != DECISAO_COORDENACAO_ASSUMIR:
+    # Igualdade EXATA, como o gateway `GW_DecisaoCoordenacao` (`== 'assumir_aprovacao'`): qualquer
+    # outra grafia nunca abre o ramo da coordenacao (fail-closed: cai no caminho do comite).
+    if variables.get("decisao_coordenacao") != DECISAO_COORDENACAO_ASSUMIR:
         if len(distintos) < quorum:
             erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
         if aprovador not in distintos:
