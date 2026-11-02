@@ -141,7 +141,10 @@ async def _reconciliar(
     args: argparse.Namespace, settings: Any, ledger: LedgerStatusPrestador, transport: Any
 ) -> int:
     reconciliador = ReconciliadorStatusPrestador(
-        transport=transport, ledger=ledger, tenant=settings.tenant_id
+        transport=transport,
+        ledger=ledger,
+        tenant=settings.tenant_id,
+        habilitado=settings.prestador_status_ledger is True,
     )
     resultados: list[ResultadoReconciliacao] = []
     for chave in args.cred_chave:
@@ -208,7 +211,9 @@ def main(
             return SAIDA_RECUSA
         try:
             ledger = (fabrica_ledger or ledger_padrao)(settings)
-            relatorio = asyncio.run(importar_baseline(baseline, ledger))
+            relatorio = asyncio.run(
+                importar_baseline(baseline, ledger, habilitado=settings.prestador_status_ledger is True)
+            )
         except BandeiraDesligadaError as exc:
             print(str(exc), file=sys.stderr)
             return SAIDA_RECUSA

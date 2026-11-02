@@ -54,11 +54,12 @@ def test_so_a_acusacao_humana_e_seus_referrals_produzem_fraude_confirmada() -> N
         "End_FraudeConfirmadaHumano",
         "End_EncaminhadoCredenciamento",
         "End_EncaminhadoJuridico",
-        "End_EncaminhadoContratual",
     }
+    # Handoff contratual = beneficiario/contrato, nunca prestador (SP-OP-FRAUDE-001).
+    assert pj.PROJECAO_FRAUDE["End_EncaminhadoContratual"].classe is pj.ClasseTerminal.SEM_DELTA
     assert pj.PROJECAO_FRAUDE["End_MonitorarSemAcao"].valor == pj.ValorFraude.MONITORAR
     assert pj.PROJECAO_FRAUDE["End_ArquivadoSemIndicio"].valor == pj.ValorFraude.ARQUIVADA
-    assert pj.PROJECAO_FRAUDE["End_CustodiaNaoSelada"].valor == pj.ValorFraude.ENCERRADA_SEM_DECISAO
+    assert pj.PROJECAO_FRAUDE["End_CustodiaNaoSelada"].classe is pj.ClasseTerminal.SEM_DELTA
 
 
 def test_terminais_de_guarda_e_mantido_nao_mudam_status() -> None:

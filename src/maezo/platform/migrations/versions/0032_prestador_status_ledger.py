@@ -70,7 +70,7 @@ CREATE TABLE prestador_status_ledger (
         (dimensao = 'situacao' AND origem IN ('BASELINE_AMH', 'CRED')
             AND valor IN ('CREDENCIADO', 'DESCREDENCIADO'))
         OR (dimensao = 'fraude' AND origem = 'FRAUDE'
-            AND valor IN ('CONFIRMADA', 'MONITORAR', 'ARQUIVADA', 'ENCERRADA_SEM_DECISAO'))
+            AND valor IN ('CONFIRMADA', 'MONITORAR', 'ARQUIVADA'))
     ),
     -- Data em que o status passou a valer (inicio do credenciamento / efeito do
     -- descredenciamento). Nula quando a fonte nao a informa — nunca inventada.

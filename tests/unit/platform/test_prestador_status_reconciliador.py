@@ -17,7 +17,9 @@ import pytest
 from maezo.platform.prestador_status.ledger import (
     EntradaLedger,
     LedgerConflitoError,
+    LedgerDesligadoError,
     LedgerIndisponivelError,
+    PostgresLedgerStatusPrestador,
     SituacaoLida,
     ler_situacao,
 )
@@ -127,7 +129,7 @@ def _rec(
     for r in registros:
         transport.seed_historic_instance_record(r)
     led = ledger or LedgerMemoria()
-    return ReconciliadorStatusPrestador(transport=transport, ledger=led, tenant=T), led
+    return ReconciliadorStatusPrestador(transport=transport, ledger=led, tenant=T, habilitado=True), led
 
 
 # -- projecao feliz e idempotencia --------------------------------------------------------------
@@ -210,7 +212,9 @@ async def test_nao_encontrado_so_quando_o_motor_responde_que_nao_ha() -> None:
 )
 async def test_historico_ilegivel_nao_grava_e_sinaliza_indisponivel(erro: Exception) -> None:
     led = LedgerMemoria()
-    rec = ReconciliadorStatusPrestador(transport=TransporteQuebrado(erro), ledger=led, tenant=T)
+    rec = ReconciliadorStatusPrestador(
+        transport=TransporteQuebrado(erro), ledger=led, tenant=T, habilitado=True
+    )
     r = await rec.reconciliar_cred_por_chave(f"CRED-{T}-P-001")
     assert r.resultado is Resultado.INDISPONIVEL
     assert r.motivo == f"historico:{type(erro).__name__}"
@@ -309,7 +313,7 @@ async def test_chave_de_outro_tenant_e_erro_de_programacao() -> None:
 
 def test_sem_a_costura_do_1167_o_reconciliador_nao_nasce() -> None:
     with pytest.raises(TypeError):
-        ReconciliadorStatusPrestador(transport=object(), ledger=LedgerMemoria(), tenant=T)  # type: ignore[arg-type]
+        ReconciliadorStatusPrestador(transport=object(), ledger=LedgerMemoria(), tenant=T, habilitado=True)  # type: ignore[arg-type]
 
 
 def test_nomes_lidos_sao_cadastrais_nunca_phi() -> None:
@@ -317,3 +321,58 @@ def test_nomes_lidos_sao_cadastrais_nunca_phi() -> None:
         assert nome not in PHI_PROCESS_VARS and nome not in PHI_FREE_TEXT_VARS
         assert not nome.startswith("dossie_")
     assert "beneficiario_pseudo_id" not in NOMES_FRAUDE
+
+
+async def test_custodia_nao_selada_sem_decisao_humana_nao_grava() -> None:
+    rec, led = _rec(_fraude(fim="End_CustodiaNaoSelada"))
+    r = await rec.reconciliar_fraude_por_chave(f"FRAUDE-{T}-CASO-9")
+    assert (r.resultado, r.motivo) == (Resultado.SEM_DELTA, "End_CustodiaNaoSelada")
+    assert led.linhas == []
+
+
+async def test_handoff_contratual_nao_vira_fraude_do_prestador() -> None:
+    rec, led = _rec(_fraude(fim="End_EncaminhadoContratual"))
+    r = await rec.reconciliar_fraude_por_chave(f"FRAUDE-{T}-CASO-9")
+    assert (r.resultado, r.motivo) == (Resultado.SEM_DELTA, "End_EncaminhadoContratual")
+    assert led.linhas == []
+
+
+@pytest.mark.parametrize("habilitado", [False, None, "true", 1])
+def test_bandeira_desligada_nenhum_reconciliador_nasce(habilitado: object) -> None:
+    transport = FakeCibSevenTransport()
+    transport.seed_historic_instance_record(_cred())
+    with pytest.raises(LedgerDesligadoError):
+        ReconciliadorStatusPrestador(
+            transport=transport,
+            ledger=LedgerMemoria(),
+            tenant=T,
+            habilitado=habilitado,  # type: ignore[arg-type]
+        )
+
+
+async def test_store_recusa_linha_de_outro_tenant_antes_de_abrir_conexao() -> None:
+    conexoes: list[str] = []
+
+    async def conectar() -> Any:
+        conexoes.append("aberta")
+        raise AssertionError("nenhuma conexao pode ser aberta para outro tenant")
+
+    store = PostgresLedgerStatusPrestador(dsn="postgresql://x@db.invalid/x", tenant=T, conectar=conectar)
+    outra = EntradaLedger(
+        tenant="outro",
+        prestador_id="P-001",
+        origem=Origem.CRED,
+        dimensao=Dimensao.SITUACAO,
+        valor="CREDENCIADO",
+        chave_evento="CRED:i:End_PrestadorCredenciado",
+        fonte_ref="i",
+        evidencia_ref="CRED-outro-P-001",
+        versao_projecao="mptt-p3-projecao/v1",
+    )
+    with pytest.raises(ValueError, match="tenant"):
+        await store.registrar(outra)
+    with pytest.raises(ValueError, match="tenant"):
+        await store.historico("outro", "P-001")
+    with pytest.raises(ValueError, match="tenant"):
+        await store.prestadores("outro")
+    assert conexoes == []

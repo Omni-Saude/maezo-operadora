@@ -57,6 +57,7 @@ from maezo.platform.prestador_status.ledger import (
     PRESTADOR_ID_RE,
     EntradaLedger,
     LedgerStatusPrestador,
+    exige_ledger_habilitado,
 )
 from maezo.platform.prestador_status.projecao import (
     VERSAO_PROJECAO,
@@ -262,11 +263,15 @@ class RelatorioImportacao:
         return saida
 
 
-async def importar_baseline(baseline: BaselineAtestada, ledger: LedgerStatusPrestador) -> RelatorioImportacao:
+async def importar_baseline(
+    baseline: BaselineAtestada, ledger: LedgerStatusPrestador, *, habilitado: bool
+) -> RelatorioImportacao:
     """Grava a baseline JA validada. Idempotente: reimportar o mesmo arquivo da `JA_REGISTRADO`.
 
     Erros do ledger (`LedgerIndisponivelError`, `LedgerConflitoError`) propagam — quem chama
-    reporta a falha; as linhas ja gravadas ficam (cada uma e' um fato atestado e idempotente)."""
+    reporta a falha; as linhas ja gravadas ficam (cada uma e' um fato atestado e idempotente).
+    `habilitado` e' a bandeira `MAEZO_PRESTADOR_STATUS_LEDGER`: desligada, recusa antes do ledger."""
+    exige_ledger_habilitado(habilitado)
     resultados: list[tuple[str, ResultadoLinha]] = []
     for linha in baseline.linhas:
         entrada = entrada_baseline(baseline, linha)

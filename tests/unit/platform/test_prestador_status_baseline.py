@@ -18,7 +18,12 @@ from maezo.platform.prestador_status.baseline import (
     importar_baseline,
     validar_baseline,
 )
-from maezo.platform.prestador_status.ledger import EntradaLedger, SituacaoLida, ler_situacao
+from maezo.platform.prestador_status.ledger import (
+    EntradaLedger,
+    LedgerDesligadoError,
+    SituacaoLida,
+    ler_situacao,
+)
 from maezo.platform.prestador_status.projecao import Dimensao, Origem
 from tests.unit.platform.test_prestador_status_reconciliador import LedgerMemoria
 
@@ -174,12 +179,12 @@ async def test_importacao_e_idempotente_e_nao_sobrescreve_delta_do_cred() -> Non
         )
     )
     baseline = validar_baseline(baseline_atestada(), tenant=T)
-    primeira = await importar_baseline(baseline, led)
+    primeira = await importar_baseline(baseline, led, habilitado=True)
     assert dict(primeira.resultados) == {
         "SINT-0001": ResultadoLinha.CONFLITO,
         "SINT-0002": ResultadoLinha.GRAVADO,
     }
-    segunda = await importar_baseline(baseline, led)
+    segunda = await importar_baseline(baseline, led, habilitado=True)
     assert dict(segunda.resultados) == {
         "SINT-0001": ResultadoLinha.CONFLITO,
         "SINT-0002": ResultadoLinha.JA_REGISTRADO,
@@ -195,3 +200,10 @@ def test_digest_e_canonico_independe_da_ordem_das_chaves() -> None:
     prestadores = _prestadores()
     invertido = [dict(reversed(list(linha.items()))) for linha in copy.deepcopy(prestadores)]
     assert digest_conteudo(T, "2026-11-01", prestadores) == digest_conteudo(T, "2026-11-01", invertido)
+
+
+async def test_importacao_com_bandeira_desligada_recusa_antes_do_ledger() -> None:
+    led = LedgerMemoria(falhar=True)  # se o ledger fosse tocado, o erro seria outro
+    baseline = validar_baseline(baseline_atestada(), tenant=T)
+    with pytest.raises(LedgerDesligadoError):
+        await importar_baseline(baseline, led, habilitado=False)

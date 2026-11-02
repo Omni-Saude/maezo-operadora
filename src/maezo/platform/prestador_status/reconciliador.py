@@ -42,6 +42,7 @@ from maezo.platform.prestador_status.ledger import (
     LedgerConflitoError,
     LedgerIndisponivelError,
     LedgerStatusPrestador,
+    exige_ledger_habilitado,
 )
 from maezo.platform.prestador_status.projecao import (
     ESTADO_CONCLUIDO,
@@ -111,8 +112,11 @@ class ReconciliadorStatusPrestador:
         transport: HistoricInstanceResolvingTransport,
         ledger: LedgerStatusPrestador,
         tenant: str,
+        habilitado: bool,
         processos: Mapping[Origem, str] | None = None,
     ) -> None:
+        # A bandeira e' conferida ANTES de tudo: desligada, nenhum reconciliador nasce.
+        exige_ledger_habilitado(habilitado)
         if not isinstance(transport, HistoricInstanceResolvingTransport):
             # Sem a costura do #1167 nao ha leitura honesta: recusa na construcao.
             raise TypeError("reconciliador exige um HistoricInstanceResolvingTransport (PR #1167)")

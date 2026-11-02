@@ -186,4 +186,4 @@ def test_raiz_de_producao_monta_o_seam_gated_com_a_leitura_do_1167() -> None:
     assert is_gated_seam(transport)
     assert isinstance(transport, GatedHistoryResolvingCibSevenTransport)
     # E o reconciliador aceita exatamente esse objeto.
-    ReconciliadorStatusPrestador(transport=transport, ledger=LedgerMemoria(), tenant=T)
+    ReconciliadorStatusPrestador(transport=transport, ledger=LedgerMemoria(), tenant=T, habilitado=True)

@@ -148,6 +148,7 @@ async def test_reconciliador_le_terminais_do_motor_real(
         transport=transport,
         ledger=ledger,
         tenant=_TENANT,
+        habilitado=True,
         processos={Origem.CRED: cred_key, Origem.FRAUDE: fraude_key},
     )
     try:
@@ -233,7 +234,9 @@ async def test_reconciliador_le_terminais_do_motor_real(
     # (6) motor inalcancavel: falha fechada real.
     morto = CibSevenHttpTransport("http://127.0.0.1:9/engine-rest", tenant_id=_TENANT, timeout=2.0)
     try:
-        rec_morto = ReconciliadorStatusPrestador(transport=morto, ledger=LedgerMemoria(), tenant=_TENANT)
+        rec_morto = ReconciliadorStatusPrestador(
+            transport=morto, ledger=LedgerMemoria(), tenant=_TENANT, habilitado=True
+        )
         r = await rec_morto.reconciliar_cred_por_chave(f"CRED-{_TENANT}-{p_descred}")
         assert (r.resultado, r.motivo) == (Resultado.INDISPONIVEL, "historico:HistoryReadUnavailableError")
     finally:

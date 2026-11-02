@@ -15,14 +15,17 @@ acusar fraude, monitorar, arquivar) foi tomada ANTES, por um humano numa User Ta
   ("Ambos os terminais sao ADVERSOS (o prestador foi descredenciado nos dois)", linha
   `tem_plano_substituicao`); `End_VinculoMantido` = descredenciamento nao prosseguiu;
   `End_CredenciamentoNegado` = candidato nao entrou na rede.
-* `SP-OP-FRAUDE-001.md` §"Terminais humano-gated": `End_FraudeConfirmadaHumano` e os tres
-  referrals a jusante dela = acusacao humana; `End_MonitorarSemAcao` = monitorar;
-  `End_ArquivadoSemIndicio` = arquivar.
+* `SP-OP-FRAUDE-001.md` §"Terminais humano-gated": `End_FraudeConfirmadaHumano` e os referrals
+  a jusante dela que referenciam prestador (`End_EncaminhadoCredenciamento`,
+  `End_EncaminhadoJuridico`) = acusacao humana; `End_MonitorarSemAcao` = monitorar;
+  `End_ArquivadoSemIndicio` = arquivar. `End_EncaminhadoContratual` e' o handoff a
+  CANCEL/INADIMPLENCIA quando o caso referencia BENEFICIARIO/CONTRATO — nao fala de prestador:
+  `SEM_DELTA`.
 
 Os terminais de guarda (erro de prestador invalido, descredenciamento/negativa barrados por
 falta de decisao humana) nao mudam status: `SEM_DELTA`. O erro de custodia do FRAUDE
-(`End_CustodiaNaoSelada`) encerra o caso SEM decisao humana: registra `ENCERRADA_SEM_DECISAO`
-(fato, nao veredito — o consumidor P6 o trata como caso nao resolvido). O alerta de SLA
+(`End_CustodiaNaoSelada`) encerra o caso SEM decisao humana: `SEM_DELTA` — sem decisao humana nao
+ha linha de fraude para o prestador (mesma regra dos terminais de guarda do CRED). O alerta de SLA
 (`End_RiscoSlaNotificado`) nao encerra instancia (ramo de borda nao-interruptivo): se a costura o
 devolver como evento final, a leitura e' recusada (`NAO_TERMINAL` -> INDISPONIVEL).
 
@@ -83,7 +86,6 @@ class ValorFraude(StrEnum):
     CONFIRMADA = "CONFIRMADA"
     MONITORAR = "MONITORAR"
     ARQUIVADA = "ARQUIVADA"
-    ENCERRADA_SEM_DECISAO = "ENCERRADA_SEM_DECISAO"
 
 
 class ClasseTerminal(StrEnum):
@@ -135,10 +137,10 @@ PROJECAO_FRAUDE: Final[Mapping[str, Projecao]] = MappingProxyType(
         "End_FraudeConfirmadaHumano": _delta(Dimensao.FRAUDE, ValorFraude.CONFIRMADA),
         "End_EncaminhadoCredenciamento": _delta(Dimensao.FRAUDE, ValorFraude.CONFIRMADA),
         "End_EncaminhadoJuridico": _delta(Dimensao.FRAUDE, ValorFraude.CONFIRMADA),
-        "End_EncaminhadoContratual": _delta(Dimensao.FRAUDE, ValorFraude.CONFIRMADA),
+        "End_EncaminhadoContratual": _SEM_DELTA,
         "End_MonitorarSemAcao": _delta(Dimensao.FRAUDE, ValorFraude.MONITORAR),
         "End_ArquivadoSemIndicio": _delta(Dimensao.FRAUDE, ValorFraude.ARQUIVADA),
-        "End_CustodiaNaoSelada": _delta(Dimensao.FRAUDE, ValorFraude.ENCERRADA_SEM_DECISAO),
+        "End_CustodiaNaoSelada": _SEM_DELTA,
         "End_RiscoSlaNotificado": _NAO_TERMINAL,
     }
 )

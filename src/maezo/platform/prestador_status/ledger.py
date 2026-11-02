@@ -50,6 +50,19 @@ class LedgerIndisponivelError(RuntimeError):
     """O ledger nao respondeu (conexao, timeout, SQL). Sempre "nao sei", nunca "nao ha nada"."""
 
 
+class LedgerDesligadoError(RuntimeError):
+    """`MAEZO_PRESTADOR_STATUS_LEDGER` desligada: nenhum escritor do ledger pode ser montado."""
+
+
+def exige_ledger_habilitado(habilitado: bool) -> None:
+    """Defesa em profundidade da bandeira DARK, nos proprios escritores (reconciliador e importacao
+    da baseline) e nao so' na CLI: quem montar um escritor por outro caminho tambem e' recusado."""
+    if habilitado is not True:
+        raise LedgerDesligadoError(
+            "MAEZO_PRESTADOR_STATUS_LEDGER desligada: ledger de status do prestador e' DARK — nada gravado"
+        )
+
+
 class LedgerConflitoError(RuntimeError):
     """A mesma `chave_evento` ja existe com OUTRO conteudo: a fonte se contradisse. Nunca e'
     resolvido escolhendo uma das duas linhas."""
@@ -316,11 +329,13 @@ __all__ = [
     "PRESTADOR_ID_RE",
     "EntradaLedger",
     "LedgerConflitoError",
+    "LedgerDesligadoError",
     "LedgerIndisponivelError",
     "LedgerStatusPrestador",
     "LeituraSituacao",
     "PostgresLedgerStatusPrestador",
     "SituacaoLida",
+    "exige_ledger_habilitado",
     "ler_situacao",
     "situacao_registrada",
 ]

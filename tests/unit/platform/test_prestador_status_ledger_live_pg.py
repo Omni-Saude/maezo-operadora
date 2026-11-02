@@ -200,6 +200,7 @@ async def test_append_only_idempotente_e_fechado_ao_vivo() -> None:
             await recusado("FRAUDE", "situacao", "CREDENCIADO")
             await recusado("CRED", "fraude", "CONFIRMADA")
             await recusado("FRAUDE", "fraude", "ABERTA")
+            await recusado("FRAUDE", "fraude", "ENCERRADA_SEM_DECISAO")
             assert await raw.fetchval("SELECT count(*) FROM prestador_status_ledger") == 3
         finally:
             await raw.close()
