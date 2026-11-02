@@ -382,3 +382,17 @@ def test_d31_2_dmn_registrada_pendente_de_aprovacao_sem_assinatura() -> None:
     assert "artefato: spec/processes/dmn/pagto_comite_coordenacao.dmn" in pendentes
     assert "D31-2" in pendentes
     assert "pagto_comite_coordenacao.dmn" not in registro.split("pendentes:")[0]
+
+
+def test_d31_2_voto_e_contado_na_mesma_transacao_da_ut() -> None:
+    """Uma continuacao assincrona depois do voto poria os listeners de contagem num job separado e o
+    BT_SlaComite poderia disparar antes deles — reabrindo o buraco do RECUSAR-nao-registrado fechado
+    pela DEC-31 D31-2. Por isso nenhum dos tres elementos carrega `asyncAfter`/`asyncBefore` e
+    `Flow_UTComite_Registrar` (o fluxo dos listeners) e a UNICA saida de UT_AprovacaoComite."""
+    for elemento in ("UT_AprovacaoComite", "Start_VotoComite", "SP_AprovacaoComite"):
+        assert _por_id(elemento).get(f"{_C}asyncAfter") in (None, "false"), elemento
+        assert _por_id(elemento).get(f"{_C}asyncBefore") in (None, "false"), elemento
+    saidas = [
+        f.get("id") for f in _PROCESS.iter(f"{_B}sequenceFlow") if f.get("sourceRef") == "UT_AprovacaoComite"
+    ]
+    assert saidas == ["Flow_UTComite_Registrar"]
