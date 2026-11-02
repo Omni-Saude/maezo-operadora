@@ -305,6 +305,7 @@ def register_default_workers(
     inad_chave_exige_contrato: bool = False,
     pagto_comite_colegiado: bool = False,
     contas_sla_risk_entrega: bool = False,
+    pagto_chave_conta_fase: str = "legado",
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
@@ -412,6 +413,8 @@ def register_default_workers(
         **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
         **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
+        # Decisao do dono 2026-11-01 (opcao A): fase da chave PAGTO por conta (dark: `legado`).
+        **({"pagto_chave_conta_fase": pagto_chave_conta_fase} if pagto_chave_conta_fase != "legado" else {}),
         # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
         **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
@@ -1165,6 +1168,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
                 pagto_comite_colegiado=settings.pagto_comite_colegiado,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
+                pagto_chave_conta_fase=settings.pagto_chave_conta_fase,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)

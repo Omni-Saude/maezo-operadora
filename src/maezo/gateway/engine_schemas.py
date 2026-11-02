@@ -247,7 +247,8 @@ _PAGTO_INPUT = (
     )
     + _fields("valor_pagamento_cents", ValueKind.INTEGER, required=True)
     + _fields(
-        "numero_lote_tiss numero_guia_tiss glosa_id",
+        # `numero_conta`: identidade da conta na ordem (handoff CONTAS, decisao do dono 2026-11-01).
+        "numero_lote_tiss numero_guia_tiss numero_conta glosa_id",
     )
     + _fields("lastro_decisor_id", required=True, origin=FieldOrigin.PRIOR_HUMAN)
 )
