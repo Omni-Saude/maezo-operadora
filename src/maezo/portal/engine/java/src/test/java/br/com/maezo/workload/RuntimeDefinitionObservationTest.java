@@ -52,8 +52,8 @@ class RuntimeDefinitionObservationTest {
     var r=request();var p=new TreeMap<>(Json.object(r.get("parameters")));p.put("caller_deadline",1L);r.put("parameters",p);assertThrows(Refused.class,()->ingress(Json.bytes(r)));
     assertThrows(Refused.class,()->ingress(s.replace("false","9223372036854775808").getBytes(StandardCharsets.UTF_8)));
   }
-  @Test void schemaRowDoesNotChangeProduction47Rows() {
-    assertEquals(47,Capability.schemas().size());assertFalse(Capability.schemas().containsKey("provider.native.definition.observe.v1"));
+  @Test void schemaRowDoesNotChangeProduction62Rows() {
+    assertEquals(62,Capability.schemas().size());assertFalse(Capability.schemas().containsKey("provider.native.definition.observe.v1"));
     assertEquals("read_runtime_definition",RuntimeObservationAdmission.schemaRow().get("operation"));
   }
   static Map<String,Object> session(String pid,String xid,String observed) {
