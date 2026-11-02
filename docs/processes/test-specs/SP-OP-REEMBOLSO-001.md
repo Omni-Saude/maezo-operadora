@@ -4,9 +4,14 @@ Testes de integracao (pytest, marker `integration`) contra **CIB Seven real** (d
 a stack docker o teste fica marcado e o CI o roda). Arquivo: `tests/integration/processes/test_sp_op_reembolso_001.py`.
 Unitarios (worker + cercas estruturais que leem o BPMN/DMN): `tests/unit/tools/workers/test_reembolso.py`.
 
-**v0.2.0 (DL-0161): 100% analise humana.** Nao ha calculo, tabela, teto, aprovacao automatica nem pagamento emitido pelo
-sistema; o financeiro paga fora e registra `data_pagamento`. Os testes de calculo, de teto D-07, do bloqueio R-058 e da
-aprovacao automatica L2 da v0.1.0 **foram removidos** com o caminho que cobriam — e ha testes que provam que ele nao voltou.
+**v0.2.0 (DL-0161): analise humana; faixa B pretendida com ativacao desligada (DL-0164).** Nao ha calculo, tabela nem
+pagamento emitido pelo sistema; o financeiro paga fora e registra `data_pagamento`. Os testes de calculo e de teto D-07 da
+v0.1.0 **foram removidos** com o caminho que cobriam. A faixa B do R-070 (aprovacao automatica L2 INTEGRAL dentro do teto)
+voltou no #1149 e e' o comportamento pretendido desde a DL-0164, com a ativacao desligada (R-058 `False`, teto 0,
+kill-switch fechado) ate o R-070 §6: seus testes ficam em `tests/unit/tools/workers/test_reembolso_faixa_auto_r070.py`
+(relay, guarda, cercas de politica, `teto_duro_brl` e a cerca de ativacao amarrada as assinaturas do §6) e na secao
+"R-076 / R-070 opcao B" de `tests/integration/processes/test_sp_op_reembolso_001.py` (desligada com defaults; aberta so'
+no probe; cada violacao — inclusive teto acima do `teto_duro_brl` e `teto_duro_brl` ausente — vai a humano).
 
 Dados sinteticos: protocolo `REEMB-TESTE-NNNN`, beneficiario pseudonimizado `benef-TESTE-001`, matricula `MAT-TESTE-001`,
 tenant `amh`. Business key `REEMB-amh-{protocolo}`. Valores em **centavos inteiros** (`valor_solicitado_cents=12000` = R$120,00).

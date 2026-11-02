@@ -3,12 +3,14 @@
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_reembolso_auto_approval"
-             name="Faixa automatica L2 do reembolso (R-070 opcao B) — DORMENTE"
+             name="Faixa automatica L2 do reembolso (R-070 opcao B) — pretendida, ativacao desligada"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    reembolso_auto_approval v0.2.0 — status: DRAFT, DORMENTE (R-070 opcao B; R-076; decisao do dono de
-    2026-11-01 no PR #1149: "manter as duas coisas" — a v2 100% humana (DL-0161) e o modelo vivo e esta faixa
-    existe DORMENTE). Consumida por SP-OP-REEMBOLSO-001 (BRT_FaixaAuto). Saidas {AUTO_APROVAR, ANALISE_HUMANA};
+    reembolso_auto_approval v0.2.1 — status: DRAFT, PRETENDIDA COM ATIVACAO DESLIGADA (R-070 opcao B; R-076;
+    DL-0164, DEC-31 D31-1 do dono de 2026-11-02, #1084: "respect R-070's auto-approval ceiling and do not send 100%
+    of reimbursement requests to human review" — revisa a DL-0161: a faixa B e' o comportamento pretendido, nao
+    mais dormente permanente; ate a ativacao, a analise humana segue recebendo todo pedido).
+    Consumida por SP-OP-REEMBOLSO-001 (BRT_FaixaAuto). Saidas {AUTO_APROVAR, ANALISE_HUMANA};
     NUNCA negativa/reducao (L0 hard: negar/reduzir so nasce na User Task humana).
     As comparacoes NOVAS da opcao B (limite contratual, teto sobre o solicitado, exposicao, orcamento) vivem
     nesta DMN; o worker `validate_auto_criteria` as RELAIA sem comparar. Na v1, `dentro_tabela` e
@@ -17,16 +19,20 @@
     Todo input que nao e' fato da partida (`tipo_reembolso`, `categoria_procedimento`, `valor_solicitado_cents`, informados pela beneficiaria) e' escrito pelo worker `validate_auto_criteria` no escopo do processo com nome NAO sombreado
     (nenhum inputParameter local homonimo; reparo B1 da revisao independente): uma semente homonima da partida e'
     sobrescrita antes de ser lida. Fato nulo nao casa com nenhuma entrada -&gt; catch-all humano.
-    DORMENTE por construcao: com teto de politica 0 (L0-core e tenants-amh) nenhum pedido positivo satisfaz a celula de teto de r_auto
+    ATIVACAO DESLIGADA por construcao: com teto de politica 0 (L0-core e tenants-amh) nenhum pedido positivo satisfaz a celula de teto de r_auto
     (r_acima_teto_humano decide quando nenhuma regra anterior casou); kill-switch de politica `faixa_auto_desligada: true`; nenhuma fonte de tabela, limite
-    contratual, NF, merito clinico ou contadores existe (tudo nulo/false). Mesmo um AUTO_APROVAR ainda exige,
-    no gateway GW_FaixaAuto, `reembolso_auto_liberado` (constante R-058 = false) e o worker
+    contratual, NF, merito clinico ou contadores existe (tudo nulo/false). Politica com teto acima do TETO_DURO
+    da opcao B (`teto_duro_brl`, R$ 300) e' invalida e chega aqui como kill-switch fechado (DL-0164). Mesmo um
+    AUTO_APROVAR ainda exige, no gateway GW_FaixaAuto, `reembolso_auto_liberado` (constante R-058 = false, o
+    interruptor unico de ativacao) e o worker
     `register_auto_approval` recusa a origem automatica (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO).
-    Valores DRAFT; teto &gt; 0 e qualquer outro valor so com a assinatura do dono + atuaria no
-    docs/compliance/human-windows/R-070-dec-teto-d07.md §6 (em branco).
+    Exposicao (2 aprovacoes e R$ 600 por beneficiario/30d; R$ 3.000/dia por tenant) e' DRAFT; teto &gt; 0, a
+    virada do R-058 e a abertura do kill-switch so com a assinatura do dono + atuaria no
+    docs/compliance/human-windows/R-070-dec-teto-d07.md §6 (em branco), alem das fontes de fatos (§3.7), da
+    sombra (§3.6) e dos disparos automaticos de desligamento (§3.5), ainda nao construidos.
     hitPolicy FIRST (catch-all conservador como ultima row).
   </description>
-  <decision id="reembolso_auto_approval" name="Auto-aprovacao de reembolso (L2, faixa B dormente)" camunda:historyTimeToLive="P180D">
+  <decision id="reembolso_auto_approval" name="Auto-aprovacao de reembolso (L2, faixa B — ativacao desligada)" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_reembolso_auto_approval" hitPolicy="FIRST">
       <input id="in_desligada" label="Kill-switch de politica (faixa_auto_desligada; true/ausente/invalido = fechada)">
         <inputExpression id="ie_desligada" typeRef="boolean"><text>faixa_auto_desligada</text></inputExpression>
