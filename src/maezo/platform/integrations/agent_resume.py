@@ -114,6 +114,9 @@ from maezo.agents.lucas.cancelamento_pf import (
 )
 from maezo.domain.conversa.caso_clinico import chave_e_da_conversa
 from maezo.domain.reembolso.pedido import (
+    RESULTADO_APROVADO as RESULTADO_REEMBOLSO_APROVADO,
+)
+from maezo.domain.reembolso.pedido import (
     RESULTADO_INFO_SOLICITADA as RESULTADO_REEMBOLSO_INFO_SOLICITADA,
 )
 from maezo.domain.reembolso.pedido import (
@@ -197,6 +200,7 @@ _REEMBOLSO_HISTORY_NAMES: Final[tuple[str, ...]] = (
     "texto_ao_beneficiario",
     "info_solicitada",
     "data_pagamento",
+    "valor_reembolso_aprovado_cents",
 )
 AGENT_ID_REEMBOLSO: Final[str] = "lucas"
 #: Os dois textos que o analista escreve nunca viajam no EVENTO (so' o historico os traz, por nome): um evento
@@ -543,6 +547,8 @@ class AvisoDeReembolso:
     protocolo: str
     texto_da_equipe: str = field(repr=False, default="")
     data_pagamento_iso: str | None = None
+    #: O valor aprovado (centavos), so' para os avisos de aprovado e de parcial.
+    valor_aprovado_cents: int | None = None
 
 
 class ReembolsoSource(Protocol):
@@ -623,11 +629,20 @@ class EngineHistoryReembolsoSource:
                 {},
                 code=REASON_RESUME_HISTORY_MISMATCH,
             )
+        valor = variaveis.get("valor_reembolso_aprovado_cents")
+        valor_ok = isinstance(valor, int) and not isinstance(valor, bool) and valor > 0
+        if event.resultado in (RESULTADO_REEMBOLSO_APROVADO, RESULTADO_REEMBOLSO_PARCIAL) and not valor_ok:
+            raise ResumeUndeliverableError(
+                "reembolso aprovado sem valor aprovado valido no historico",
+                {},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
         return AvisoDeReembolso(
             resultado=event.resultado,
             protocolo=protocolo,
             texto_da_equipe=texto if precisa_do_texto and isinstance(texto, str) else "",
             data_pagamento_iso=data if isinstance(data, str) else None,
+            valor_aprovado_cents=valor if valor_ok and isinstance(valor, int) else None,
         )
 
 
@@ -660,6 +675,7 @@ class ReembolsoResumer(Protocol):
         data_pagamento_iso: object,
         raw_to: str,
         resume_ref: str,
+        valor_aprovado_cents: object = None,
     ) -> Mapping[str, Any]: ...
 
 
@@ -1089,6 +1105,7 @@ class ResumeHandler:
                 protocolo=aviso.protocolo,
                 texto_da_equipe=aviso.texto_da_equipe,
                 data_pagamento_iso=aviso.data_pagamento_iso,
+                valor_aprovado_cents=aviso.valor_aprovado_cents,
                 raw_to=contato.phone,
                 resume_ref=f"{event.process_instance_id}:{aviso.resultado}",
             )

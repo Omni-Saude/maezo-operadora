@@ -351,6 +351,10 @@ async def complete_task(
         else:
             # DL-0163: um dos quatro formularios do reembolso (o corpo ja' revalidou pelo contrato canonico).
             resultado, notas, form_key, extras = _reembolso(body)
+            if resultado in ("APROVAR", "APROVAR_PARCIAL") and not await _valor_coerente(
+                service, secret, task_id, resultado, extras.get("valor_reembolso_aprovado_cents")
+            ):
+                return completion_error("invalid_completion")
         result = await service.complete_task(
             session_secret=secret,
             csrf_token=request.headers["x-csrf-token"],
@@ -392,6 +396,25 @@ async def complete_task(
     except Exception:
         # Never leak an upstream narrative, and never report a completion we cannot prove.
         return completion_error("completion_dependency_unavailable")
+
+
+async def _valor_coerente(service: Any, secret: str, task_id: str, decisao: str, valor: object) -> bool:
+    """Teste do dono (02/11/2026): "Aprovar" com R$ 200,00 num pedido de R$ 250,00 virou aprovacao INTEGRAL,
+    sem a trava da reducao (invariante L0 do contrato). Aprovar = exatamente o valor pedido; reduzir so' por
+    APROVAR_PARCIAL (0 < valor < pedido). O valor pedido vem do MOTOR (contexto da tarefa), nunca do
+    navegador; sem ele, recusa."""
+    lido: list[TaskReembolsoContextResponse] = []
+
+    def capturar(value: TaskReembolsoContextResponse) -> Response:
+        lido.append(value)
+        return Response(status_code=204)
+
+    await service.read_reembolso_context(session_secret=secret, task_id=task_id, render=capturar)
+    pedido = lido[0].valor_solicitado_cents if lido else None
+    if pedido is None or isinstance(valor, bool) or not isinstance(valor, int):
+        return False
+    solicitado = pedido.as_int()
+    return valor == solicitado if decisao == "APROVAR" else 0 < valor < solicitado
 
 
 def _reembolso(body: ReembolsoCompletionSubmission) -> tuple[str, str, str, dict[str, object]]:

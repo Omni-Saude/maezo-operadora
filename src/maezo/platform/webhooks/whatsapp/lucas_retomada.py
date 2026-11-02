@@ -239,6 +239,7 @@ class LucasRetomada:
         data_pagamento_iso: object,
         raw_to: str,
         resume_ref: str,
+        valor_aprovado_cents: object = None,
     ) -> dict[str, Any]:
         """DL-0161/DL-0162 (`MAEZO_REEMBOLSO_V1`): o RETORNO do pedido de reembolso (SP-OP-REEMBOLSO-001).
 
@@ -283,6 +284,7 @@ class LucasRetomada:
                 protocolo=protocolo,
                 texto_da_equipe=equipe,
                 data_pagamento_iso=data_pagamento_iso,
+                valor_aprovado_cents=valor_aprovado_cents,
             )
         inicio = time.monotonic()
 
