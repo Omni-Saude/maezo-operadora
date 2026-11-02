@@ -90,6 +90,14 @@
   - o teto em `tenants-amh.yaml` só muda no PR de ativação, depois do §6.
 - **Opção A:** nada.
 
+## 5-bis. Registro da escolha do dono (transcrição; não substitui o §6)
+
+- **Opção escolhida pelo dono:** **B — proposta rígida** (§3).
+- **Data:** 2026-10-31.
+- **Fonte:** issue #1084, Rodada 1, texto do dono: "R-070 teto REEMBOLSO: (B) proposta rígida" — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766
+- **O que o agente construiu em seguida (R-076, PR #1149, adaptado sobre a v2 do #1074 por decisão do dono de 2026-11-01):** a faixa B **dormente** — os invariantes do §3.1 na DMN `reembolso_auto_approval` (`spec/processes/dmn/reembolso_auto_approval.dmn`), o relay `ST_ValidarFaixaAuto` (worker `validate_auto_criteria`, só relaia), o registro guardado `ST_RegistrarAprovacaoAuto` (worker `register_auto_approval`: aprova só o valor solicitado, nunca acima do teto) e os parâmetros DRAFT de exposição e kill-switch em `spec/policies/autonomy/L0-core.yaml`. A v2 (100% análise humana) segue o fluxo vivo; o pagamento continua fora do sistema, registrado pelo financeiro. O teto continua **R$ 0** e a trava de código (R-058) continua desligada, então nada é aprovado automaticamente.
+- **O que esta transcrição NÃO é:** não é assinatura. O bloco do §6 continua em branco. Sem o preenchimento do dono e da atuária no §6, a faixa não vai para o ativo (§3.6, item 2). Nenhum agente preenche o §6 (ADR-0007).
+
 ## 6. Bloco de decisão (preenchimento exclusivo do dono e da atuária; agentes não preenchem)
 
 - **Opção escolhida:** [  ]

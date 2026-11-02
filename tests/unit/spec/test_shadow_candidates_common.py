@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 68
+    assert len(dmns) == 69
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -240,6 +240,10 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     # sao nomeados aqui para o censo nao mudar calado.
     assert "reembolso_prazo.dmn" in dmns
     assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
+    # R-076 (#1149, decisao do dono de 2026-11-01): 68 -> 69 com `reembolso_auto_approval.dmn`
+    # (apos `pagto_duplicidade.dmn`), a faixa B
+    # do R-070 DORMENTE sobre a v2 (teto 0 + R-058); nomeada aqui para o censo nao mudar calado.
+    assert "reembolso_auto_approval.dmn" in dmns
     assert "auth_junta_admissibility.dmn" in dmns, (
         "o censo subiu para 66 por causa de `auth_junta_admissibility.dmn` (R-064, #1121 — RN 424/2017 "
         "art. 3 I, junta medica vedada em urgencia/emergencia; dark atras de "

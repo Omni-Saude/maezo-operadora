@@ -462,13 +462,14 @@ def test_the_removed_workers_never_come_back_without_a_dl() -> None:
         "issue_payment_entry",
         "validate_reembolso",
         "check_prazo_entry",
-        "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO",
         "require_pagamento_autorizado",
         "ReembolsoCalculoDmn",
-        "_CEILING_ACTION",
     ],
 )
 def test_the_automatic_money_path_is_gone_from_the_module(nome: str) -> None:
+    """O calculo e o pagamento pelo sistema seguem fora (DL-0161). A faixa B dormente (R-076, dono
+    2026-11-01, PR #1149) traz de volta SO' o interruptor R-058 e a leitura do teto — cercados em
+    `test_reembolso_faixa_auto_r070.py`."""
     assert not hasattr(reembolso, nome), f"{nome} voltou: o reembolso v2 nao calcula nem paga (DL-0161)"
 
 
@@ -494,36 +495,105 @@ def test_the_automatic_path_elements_are_gone_from_the_bpmn() -> None:
         "ST_IssuePaymentAuto",
         "ST_IssuePaymentAnalista",
         "ST_IssuePaymentParcial",
-        "End_ReembolsoAprovadoAutomatico",
         "ST_CheckPrazo",
     ):
         assert removido not in ids, f"{removido} voltou ao BPMN de reembolso (DL-0161)"
 
 
-def test_every_path_to_a_terminal_crosses_a_human_task() -> None:
-    """O unico caminho de Start ate a analise passa por UT_AnaliseReembolso; nenhum terminal de decisao
-    e alcancavel sem humano."""
+_UTS_DE_DECISAO = frozenset({"UT_AnaliseReembolso", "UT_RevisaoAuditorMedico", "UT_CoordenacaoReembolso"})
+_TERMINAIS_DE_DECISAO_HUMANA = frozenset(
+    {"End_ReembolsoAprovadoAnalista", "End_ReembolsoParcial", "End_ReembolsoNegado"}
+)
+#: O UNICO fluxo que sai da regiao pre-decisao rumo a uma aprovacao sem User Task de decisao: o desvio da
+#: faixa B, DORMENTE (R-058 + teto 0). Com ele fechado, vale a invariante da v2 sem excecao.
+_FLUXO_FAIXA_B = "Flow_GWFaixa_Auto"
+
+
+def _grafo() -> tuple[ET.Element, dict[str, set[str]], dict[str, ET.Element]]:
     root = ET.parse(_BPMN_PATH).getroot()
-    flows = [(f.get("sourceRef"), f.get("targetRef")) for f in root.iter(f"{_BPMN_NS}sequenceFlow")]
+    flows = {f.get("id", ""): f for f in root.iter(f"{_BPMN_NS}sequenceFlow")}
     adj: dict[str, set[str]] = {}
-    for src, dst in flows:
-        adj.setdefault(src or "", set()).add(dst or "")
-    human = {el.get("id") for el in root.iter(f"{_BPMN_NS}userTask")}
-    terminais_de_decisao = {"End_ReembolsoAprovadoAnalista", "End_ReembolsoParcial", "End_ReembolsoNegado"}
+    for f in flows.values():
+        adj.setdefault(f.get("sourceRef") or "", set()).add(f.get("targetRef") or "")
+    return root, adj, flows
 
-    def alcanca(sem_humano: bool) -> set[str]:
-        seen: set[str] = set()
-        stack = ["Start_SolicitacaoReembolso"]
-        while stack:
-            n = stack.pop()
-            if n in seen or (sem_humano and n in human):
-                continue
-            seen.add(n)
-            stack.extend(adj.get(n, ()))
-        return seen
 
-    assert not terminais_de_decisao & alcanca(sem_humano=True)
-    assert terminais_de_decisao <= alcanca(sem_humano=False)
+def _alcanca(
+    adj: dict[str, set[str]], *, barreiras: frozenset[str], sem: frozenset[str] = frozenset()
+) -> set[str]:
+    seen: set[str] = set()
+    stack = ["Start_SolicitacaoReembolso"]
+    while stack:
+        n = stack.pop()
+        if n in seen or n in barreiras:
+            continue
+        seen.add(n)
+        stack.extend(d for d in adj.get(n, ()) if (n, d) not in sem)
+    return seen
+
+
+def test_every_path_to_a_terminal_crosses_a_human_task() -> None:
+    """Com a faixa B fechada (o default), nenhum terminal de decisao e' alcancavel sem uma User Task
+    humana DE DECISAO (analista/auditor/coordenacao) — a invariante da v2 (DL-0161), agora sem contar o
+    registro do financeiro como "decisao"."""
+    _root, adj, flows = _grafo()
+    gated = flows[_FLUXO_FAIXA_B]
+    corte = frozenset({(gated.get("sourceRef") or "", gated.get("targetRef") or "")})
+    terminais = _TERMINAIS_DE_DECISAO_HUMANA | {"End_ReembolsoAprovadoAutomatico"}
+    assert not terminais & _alcanca(adj, barreiras=_UTS_DE_DECISAO, sem=corte)
+    alcancavel_com_humano = _alcanca(adj, barreiras=frozenset())
+    assert alcancavel_com_humano >= _TERMINAIS_DE_DECISAO_HUMANA
+
+
+def test_the_only_machine_route_to_an_approval_is_the_dormant_band_b_flow() -> None:
+    """Sem passar por User Task de decisao, o UNICO jeito de sair da regiao pre-decisao rumo a qualquer
+    terminal de decisao e' `Flow_GWFaixa_Auto`, cuja condicao exige AUTO_APROVAR da DMN E o R-058."""
+    _root, adj, flows = _grafo()
+    alcancavel = _alcanca(adj, barreiras=_UTS_DE_DECISAO)
+    gated = flows[_FLUXO_FAIXA_B]
+    assert gated.get("sourceRef") == "GW_FaixaAuto"
+    assert gated.get("targetRef") == "ST_RegistrarAprovacaoAuto"
+    cond = (gated.findtext(f"{_BPMN_NS}conditionExpression") or "").replace(" ", "")
+    assert "auto_aprovacao.recomendacao=='AUTO_APROVAR'" in cond
+    assert f"{reembolso.VAR_REEMBOLSO_AUTO_LIBERADO}==true" in cond
+    assert "&&" in cond, "as duas condicoes sao exigidas JUNTAS"
+    # O desvio e' o unico fluxo condicional que sai do GW da faixa; o default e' a analise humana.
+    gw = _bpmn_ids()["GW_FaixaAuto"]
+    default = flows[gw.get("default") or ""]
+    assert default.get("targetRef") == "ST_PrepararDossie"
+    # ST_ValidarFaixaAuto domina o gateway: nao ha caminho de Start ate GW_FaixaAuto sem ele (e' ele que
+    # escreve reembolso_auto_liberado e origem_aprovacao em TODA instancia, sobrescrevendo semente).
+    assert "GW_FaixaAuto" in alcancavel
+    assert "GW_FaixaAuto" not in _alcanca(adj, barreiras=frozenset({"ST_ValidarFaixaAuto"}))
+
+
+def test_the_automatic_approval_never_reaches_an_adverse_terminal() -> None:
+    """Mesmo aberta, a faixa B nunca nega nem reduz: `End_ReembolsoNegado` e' inalcancavel a partir dela e
+    o ramo parcial de `GW_DesfechoPagamento` exige origem HUMANA."""
+    _root, adj, flows = _grafo()
+    a_partir_da_faixa: set[str] = set()
+    stack = ["ST_RegistrarAprovacaoAuto"]
+    while stack:
+        n = stack.pop()
+        if n in a_partir_da_faixa:
+            continue
+        a_partir_da_faixa.add(n)
+        stack.extend(adj.get(n, ()))
+    assert "End_ReembolsoNegado" not in a_partir_da_faixa
+    assert not _UTS_DE_DECISAO & a_partir_da_faixa
+    parcial = (flows["Flow_Desfecho_Parcial"].findtext(f"{_BPMN_NS}conditionExpression") or "").replace(
+        " ", ""
+    )
+    assert f"{reembolso.VAR_ORIGEM_APROVACAO}=='{reembolso.ORIGEM_HUMANA}'" in parcial
+    auto = (flows["Flow_Desfecho_Automatico"].findtext(f"{_BPMN_NS}conditionExpression") or "").replace(
+        " ", ""
+    )
+    assert auto == f"${{{reembolso.VAR_ORIGEM_APROVACAO}=='{reembolso.ORIGEM_AUTO_L2}'}}"
+    assert flows["Flow_Desfecho_Automatico"].get("targetRef") == "ST_PublishAprovadoAutomatico"
+    # O ramo automatico e' avaliado ANTES do parcial (o motor segue a ordem dos outgoing).
+    gw = _bpmn_ids()["GW_DesfechoPagamento"]
+    outs = [o.text for o in gw.iter(f"{_BPMN_NS}outgoing")]
+    assert outs.index("Flow_Desfecho_Automatico") < outs.index("Flow_Desfecho_Parcial")
 
 
 def test_the_decision_gateway_has_no_default_so_an_unknown_decision_is_an_incident() -> None:

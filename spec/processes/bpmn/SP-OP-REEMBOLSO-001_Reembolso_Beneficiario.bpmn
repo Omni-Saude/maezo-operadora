@@ -24,7 +24,7 @@ Requer revisao humana (juridico + analista de reembolso + financeiro) antes de q
 v0.2.0 (DL-0161): o sistema so ORGANIZA o pedido, os documentos e a resposta; uma pessoa da analise decide direito e
 valor (como hoje, de forma manual). NAO ha calculo, tabela, aprovacao automatica nem pagamento emitido pelo sistema:
 o financeiro paga FORA e registra `data_pagamento` em UT_RegistrarPagamento. Foram removidos BRT_Admissibilidade,
-BRT_Calculo, ST_CalculateAmount, BRT_AutoApproval, o caminho automatico (R-058) e o worker issue_payment (CNAB).
+BRT_Calculo, ST_CalculateAmount, BRT_AutoApproval, o caminho automatico v1 e o worker issue_payment (CNAB); a faixa B do R-070 volta DORMENTE (ST_ValidarFaixaAuto, R-076, dono 2026-11-01, PR #1149).
 
 INVARIANTE L0 HARD (ADR-0005/0008): a NEGATIVA ou REDUCAO de reembolso so nasce nas User Tasks humanas
 UT_AnaliseReembolso (analise-reembolso), UT_RevisaoAuditorMedico (medico-auditor, merito clinico) e
@@ -48,7 +48,7 @@ cid10 (opc), aviso_beneficiario_whatsapp, agent_id, conversation_id. Nenhuma e p
 dias_desde_atendimento (worker) e situacao_prazo (DMN informativa).
 
 EVENTOS DE DOMINIO: received, pended, sla_breached, completed (desfecho = aprovado_analista | negado_analista |
-aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
+aprovado_parcial | cancelado_pendencia | aprovado_automatico — so' com a faixa B aberta, hoje inalcancavel). Contrato completo: docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
 ]]></bpmn:documentation>
 
     <bpmn:startEvent id="Start_SolicitacaoReembolso" name="Solicitacao de reembolso recebida">
@@ -84,7 +84,7 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
     </bpmn:businessRuleTask>
     <bpmn:businessRuleTask id="BRT_SlaAnalise" name="Determinar SLA de analise (DMN reembolso_sla)" camunda:decisionRef="reembolso_sla" camunda:mapDecisionResult="singleResult" camunda:resultVariable="sla">
       <bpmn:incoming>Flow_Prazo_Sla</bpmn:incoming>
-      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Sla_ValidarFaixaAuto</bpmn:outgoing>
     </bpmn:businessRuleTask>
     <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie de analise (agente analista)" camunda:type="external" camunda:topic="operadora.reembolso.analyze_request">
       <bpmn:documentation>Convoca o agente analista (Marina-classe) via A2A: evidencias + situacao do prazo. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005).</bpmn:documentation>
@@ -97,7 +97,7 @@ aprovado_parcial | cancelado_pendencia). Contrato completo: docs/processes/contr
           <camunda:outputParameter name="aguardando_resposta">${false}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
+      <bpmn:incoming>Flow_GWFaixa_Humano</bpmn:incoming>
       <bpmn:incoming>Flow_DocsOk_Dossie</bpmn:incoming>
       <bpmn:incoming>Flow_GWPend_SegueAnalise</bpmn:incoming>
       <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
@@ -216,7 +216,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:outgoing>Flow_ST_ComunicarReducao_AvisoParcial</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_RegistrarPagamento" name="Registrar pagamento do reembolso (pago em DD/MM)" camunda:candidateGroups="financeiro-reembolso">
-      <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0161: o worker issue_payment/CNAB e o caminho automatico R-058 foram removidos).</bpmn:documentation>
+      <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0161: o worker issue_payment/CNAB foi removido). Tambem recebe, so' com a faixa B aberta (hoje dormente), a aprovacao automatica integral registrada por ST_RegistrarAprovacaoAuto: o financeiro paga o mesmo valor_reembolso_aprovado_cents.</bpmn:documentation>
       <bpmn:extensionElements>
         <!-- Formulario fechado do portal (DL-0163, BPMN_FORMDATA). Sem `required` de proposito: quem garante
              as regras condicionais e' o contrato do portal e o worker refaz a guarda L0 (ERR_REEMBOLSO_DENIAL_NOT_HUMAN);
@@ -233,11 +233,11 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:incoming>Flow_BEAvisoParcial_Next</bpmn:incoming>
       <bpmn:outgoing>Flow_UT_RegistrarPagamento_AvisoPago</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:exclusiveGateway id="GW_DesfechoPagamento" name="Desfecho (integral ou parcial)?" default="Flow_Desfecho_Integral">
+    <bpmn:exclusiveGateway id="GW_DesfechoPagamento" name="Desfecho (automatico, integral ou parcial)?" default="Flow_Desfecho_Integral">
       <bpmn:incoming>Flow_AvisoPago_Nao</bpmn:incoming>
       <bpmn:incoming>Flow_AvisarPago_Next</bpmn:incoming>
       <bpmn:incoming>Flow_BEAvisoPago_Next</bpmn:incoming>
-      <bpmn:outgoing>Flow_Desfecho_Parcial</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Desfecho_Automatico</bpmn:outgoing><bpmn:outgoing>Flow_Desfecho_Parcial</bpmn:outgoing>
       <bpmn:outgoing>Flow_Desfecho_Integral</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="ST_PublishAprovadoAnalista" name="Publicar evento: reembolso.completed (aprovado_analista)" camunda:type="external" camunda:topic="operadora.events.publish">
@@ -269,7 +269,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:incoming>Flow_PubParcial_End</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:exclusiveGateway id="GW_AvisoAprovado" name="Avisar o beneficiario?" default="Flow_AvisoAprovado_Nao">
-      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming><bpmn:incoming>Flow_RegistrarAuto_AvisoAprovado</bpmn:incoming>
       <bpmn:outgoing>Flow_AvisoAprovado_Sim</bpmn:outgoing>
       <bpmn:outgoing>Flow_AvisoAprovado_Nao</bpmn:outgoing>
     </bpmn:exclusiveGateway>
@@ -468,7 +468,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_Validar_Prazo" sourceRef="ST_ValidarSolicitacao" targetRef="BRT_PrazoInformativo"/>
     <bpmn:sequenceFlow id="Flow_ProtocoloInvalido_End" sourceRef="BE_ReembolsoProtocoloInvalido" targetRef="End_ReembolsoProtocoloInvalido"/>
     <bpmn:sequenceFlow id="Flow_Prazo_Sla" sourceRef="BRT_PrazoInformativo" targetRef="BRT_SlaAnalise"/>
-    <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_SlaAnalise" targetRef="ST_PrepararDossie"/>
+    <bpmn:sequenceFlow id="Flow_Sla_ValidarFaixaAuto" sourceRef="BRT_SlaAnalise" targetRef="ST_ValidarFaixaAuto"/>
     <bpmn:sequenceFlow id="Flow_Dossie_UTAnalista" sourceRef="ST_PrepararDossie" targetRef="UT_AnaliseReembolso"/>
     <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
@@ -507,7 +507,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_AvisarPago_Next" sourceRef="ST_AvisarPago" targetRef="GW_DesfechoPagamento"/>
     <bpmn:sequenceFlow id="Flow_BEAvisoPago_Next" sourceRef="BE_AvisoPagoFalhou" targetRef="GW_DesfechoPagamento"/>
     <bpmn:sequenceFlow id="Flow_Desfecho_Parcial" name="APROVAR_PARCIAL" sourceRef="GW_DesfechoPagamento" targetRef="ST_PublishParcial">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'APROVAR_PARCIAL'}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origem_aprovacao == 'HUMANA' &amp;&amp; decisao_reembolso == 'APROVAR_PARCIAL'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Desfecho_Integral" name="integral (default)" sourceRef="GW_DesfechoPagamento" targetRef="ST_PublishAprovadoAnalista"/>
     <bpmn:sequenceFlow id="Flow_PubAnalista_End" sourceRef="ST_PublishAprovadoAnalista" targetRef="End_ReembolsoAprovadoAnalista"/>
@@ -547,6 +547,72 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWPend_SegueAnalise" name="seguir_analise (default)" sourceRef="GW_PendenciaExpirada" targetRef="ST_PrepararDossie"/>
     <bpmn:sequenceFlow id="Flow_PubCancelada_End" sourceRef="ST_PublishCancelada" targetRef="End_ReembolsoCancelado"/>
+    <!-- ===== Faixa B DORMENTE (R-070 opcao B, R-076; decisao do dono de 2026-11-01 no PR #1149) =====
+         Antes do dossie, toda instancia passa por ST_ValidarFaixaAuto (RELAIA fatos; nao compara) -> BRT_FaixaAuto
+         (DMN reembolso_auto_approval: so' aprovacao INTEGRAL do valor solicitado; nunca negativa/reducao) ->
+         GW_FaixaAuto. O default e' a analise humana de sempre; o desvio Flow_GWFaixa_Auto exige AUTO_APROVAR E
+         reembolso_auto_liberado (constante R-058 = false), e ST_RegistrarAprovacaoAuto refaz a guarda
+         (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO). Com os defaults (teto 0 na politica, kill-switch de politica
+         fechado, R-058 false, nenhuma fonte de fatos) TODO pedido segue para a analise humana. Mesmo aberta, a faixa
+         nao paga: o valor aprovado (= solicitado, <= tabela, <= limite contratual, <= teto) vai ao financeiro em
+         UT_RegistrarPagamento. Ativacao so' com a assinatura do dono + atuaria no R-070 §6 (em branco).
+         Elementos no FIM do processo de proposito: nao deslocam as citacoes arquivo:linha da v2. -->
+    <bpmn:serviceTask id="ST_ValidarFaixaAuto" name="Relaiar fatos da faixa automatica B (dormente)" camunda:type="external" camunda:topic="operadora.reembolso.validate_auto_criteria">
+      <bpmn:documentation>R-070 opcao B / R-076 (decisao do dono de 2026-11-01, PR #1149: faixa B DORMENTE sobre a v2). O worker RELAIA, sem comparar nada (ADR-0012): reembolso_auto_liberado (constante R-058, false), origem_aprovacao=HUMANA, teto_l2_cents e os limites DRAFT de exposicao e o kill-switch faixa_auto_desligada (politica reembolso_auto_approval, mesma matriz do PEP), e os fatos da fonte injetavel (avaliacao_clinica_requerida, valor_tabela_dmn_cents, limite_contratual_cents, valor_nf_verificado, contadores de exposicao; sem fonte = nulo/false = humano). SEM camunda:inputOutput DE PROPOSITO (reparo B1 da revisao independente): todo fato e' escrito no escopo do PROCESSO com o nome que a DMN le, entao uma semente homonima da partida e' sobrescrita antes de BRT_FaixaAuto — nenhuma entrada da tabela le variavel sombreada.</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_ValidarFaixaAuto</bpmn:incoming>
+      <bpmn:outgoing>Flow_ValidarFaixaAuto_Brt</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:businessRuleTask id="BRT_FaixaAuto" name="Faixa automatica B (DMN reembolso_auto_approval — dormente)" camunda:decisionRef="reembolso_auto_approval" camunda:mapDecisionResult="singleResult" camunda:resultVariable="auto_aprovacao">
+      <bpmn:documentation>L2 (ADR-0008), R-070 opcao B: so AUTO_APROVAR com kill-switch de politica aberto, sem merito clinico, fase 1 (livre_escolha + consulta; art. 10-B fora por lista fechada), NF verificada, solicitado &gt; 0, &lt;= tabela, &lt;= limite contratual, &lt;= teto e dentro da exposicao (beneficiario 30d e orcamento diario do tenant). Saida valor_aprovado_auto_cents = valor_solicitado_cents so na regra r_auto. Qualquer fato nulo/ausente cai no catch-all = ANALISE_HUMANA. Negativa/reducao NAO e saida possivel.</bpmn:documentation>
+      <bpmn:incoming>Flow_ValidarFaixaAuto_Brt</bpmn:incoming>
+      <bpmn:outgoing>Flow_BrtFaixa_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="GW_FaixaAuto" name="Faixa automatica B liberada?" default="Flow_GWFaixa_Humano">
+      <bpmn:documentation>Default = analise humana (o fluxo de sempre da v2). O desvio automatico exige AUTO_APROVAR da DMN E reembolso_auto_liberado (R-058, escrito por ST_ValidarFaixaAuto em toda instancia a partir da constante do worker, hoje false): subir o teto da politica NAO reabre o caminho; so' quem virar a constante, ato que materializa a assinatura do dono + atuaria no R-070 §6.</bpmn:documentation>
+      <bpmn:incoming>Flow_BrtFaixa_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWFaixa_Humano</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWFaixa_Auto</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="ST_RegistrarAprovacaoAuto" name="Registrar aprovacao automatica integral (faixa B — guardado, R-058)" camunda:type="external" camunda:topic="operadora.reembolso.register_auto_approval">
+      <bpmn:documentation>Segunda barreira independente: o worker RECUSA (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO, incidente, nada aprovado) com R-058 false, kill-switch de politica nao-false, origem local diferente de AUTO_L2, valor da DMN nao inteiro positivo IGUAL ao solicitado ou fora do teto do tenant (CeilingResolver, fail-closed em teto 0). Aprovado, escreve valor_reembolso_aprovado_cents (o valor que o financeiro paga FORA, em UT_RegistrarPagamento) e origem_aprovacao=AUTO_L2. Nenhum caminho paga acima do teto nem "ate o teto": acima dele a DMN ja mandou a humano. Os dois inputParameter sao LOCAIS e vem da DMN (valor) e do modelo (origem), nunca de semente do processo; os outputParameter sobem o resultado ao escopo do processo.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="valor_aprovado_auto_cents">${auto_aprovacao.valor_aprovado_auto_cents}</camunda:inputParameter>
+          <camunda:inputParameter name="origem_pagamento">AUTO_L2</camunda:inputParameter>
+          <camunda:outputParameter name="valor_reembolso_aprovado_cents">${valor_reembolso_aprovado_cents}</camunda:outputParameter>
+          <camunda:outputParameter name="origem_aprovacao">${origem_aprovacao}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWFaixa_Auto</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegistrarAuto_AvisoAprovado</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAprovadoAutomatico" name="Publicar evento: reembolso.completed (aprovado_automatico)" camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovado_automatico</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Desfecho_Automatico</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAutomatico_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoAprovadoAutomatico" name="Reembolso aprovado automaticamente (faixa B L2 — integral, dormente) e pago">
+      <bpmn:documentation>So' alcancavel com a faixa B aberta (R-058 true + teto &gt; 0 + kill-switch de politica false + fatos com fonte), o que exige a assinatura do dono + atuaria no R-070 §6. Aprovacao INTEGRAL do valor solicitado, nunca parcial; o pagamento foi registrado por pessoa do financeiro.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubAutomatico_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_ValidarFaixaAuto_Brt" sourceRef="ST_ValidarFaixaAuto" targetRef="BRT_FaixaAuto"/>
+    <bpmn:sequenceFlow id="Flow_BrtFaixa_GW" sourceRef="BRT_FaixaAuto" targetRef="GW_FaixaAuto"/>
+    <bpmn:sequenceFlow id="Flow_GWFaixa_Humano" name="ANALISE_HUMANA (default)" sourceRef="GW_FaixaAuto" targetRef="ST_PrepararDossie"/>
+    <bpmn:sequenceFlow id="Flow_GWFaixa_Auto" name="AUTO_APROVAR (L2 — integral; dormente: R-058)" sourceRef="GW_FaixaAuto" targetRef="ST_RegistrarAprovacaoAuto">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR' &amp;&amp; reembolso_auto_liberado == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_RegistrarAuto_AvisoAprovado" sourceRef="ST_RegistrarAprovacaoAuto" targetRef="GW_AvisoAprovado"/>
+    <bpmn:sequenceFlow id="Flow_Desfecho_Automatico" name="AUTO_L2 (faixa B)" sourceRef="GW_DesfechoPagamento" targetRef="ST_PublishAprovadoAutomatico">
+      <bpmn:documentation>origem_aprovacao e' escrita por ST_ValidarFaixaAuto (HUMANA) em TODA instancia antes de qualquer decisao, e so' ST_RegistrarAprovacaoAuto a troca por AUTO_L2: uma semente da partida nao sobrevive. A aprovacao automatica (faixa B, dormente) so' termina no terminal automatico e NUNCA alcanca o terminal adverso End_ReembolsoParcial (a condicao de Flow_Desfecho_Parcial exige origem HUMANA).</bpmn:documentation>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origem_aprovacao == 'AUTO_L2'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_PubAutomatico_End" sourceRef="ST_PublishAprovadoAutomatico" targetRef="End_ReembolsoAprovadoAutomatico"/>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-REEMBOLSO-001">
@@ -724,9 +790,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
         <di:waypoint x="580" y="240"/>
         <di:waypoint x="640" y="240"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
-        <di:waypoint x="740" y="240"/>
-        <di:waypoint x="800" y="240"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_ValidarFaixaAuto" bpmnElement="Flow_Sla_ValidarFaixaAuto">
+        <di:waypoint x="690" y="280"/>
+        <di:waypoint x="690" y="760"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalista" bpmnElement="Flow_Dossie_UTAnalista">
         <di:waypoint x="900" y="240"/>
@@ -997,6 +1063,56 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End">
         <di:waypoint x="2620" y="680"/>
         <di:waypoint x="2680" y="680"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_ST_ValidarFaixaAuto" bpmnElement="ST_ValidarFaixaAuto">
+        <dc:Bounds x="640" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_FaixaAuto" bpmnElement="BRT_FaixaAuto">
+        <dc:Bounds x="800" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_FaixaAuto" bpmnElement="GW_FaixaAuto" isMarkerVisible="true">
+        <dc:Bounds x="960" y="775" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegistrarAprovacaoAuto" bpmnElement="ST_RegistrarAprovacaoAuto">
+        <dc:Bounds x="1100" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadoAutomatico" bpmnElement="ST_PublishAprovadoAutomatico">
+        <dc:Bounds x="2400" y="760" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoAprovadoAutomatico" bpmnElement="End_ReembolsoAprovadoAutomatico">
+        <dc:Bounds x="2560" y="782" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_ValidarFaixaAuto_Brt" bpmnElement="Flow_ValidarFaixaAuto_Brt">
+        <di:waypoint x="740" y="800"/>
+        <di:waypoint x="800" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtFaixa_GW" bpmnElement="Flow_BrtFaixa_GW">
+        <di:waypoint x="900" y="800"/>
+        <di:waypoint x="960" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWFaixa_Humano" bpmnElement="Flow_GWFaixa_Humano">
+        <di:waypoint x="985" y="775"/>
+        <di:waypoint x="985" y="720"/>
+        <di:waypoint x="850" y="720"/>
+        <di:waypoint x="850" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWFaixa_Auto" bpmnElement="Flow_GWFaixa_Auto">
+        <di:waypoint x="1010" y="800"/>
+        <di:waypoint x="1100" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegistrarAuto_AvisoAprovado" bpmnElement="Flow_RegistrarAuto_AvisoAprovado">
+        <di:waypoint x="1200" y="800"/>
+        <di:waypoint x="1385" y="800"/>
+        <di:waypoint x="1385" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Desfecho_Automatico" bpmnElement="Flow_Desfecho_Automatico">
+        <di:waypoint x="2325" y="225"/>
+        <di:waypoint x="2325" y="800"/>
+        <di:waypoint x="2400" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAutomatico_End" bpmnElement="Flow_PubAutomatico_End">
+        <di:waypoint x="2500" y="800"/>
+        <di:waypoint x="2560" y="800"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

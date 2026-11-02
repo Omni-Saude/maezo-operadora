@@ -71,7 +71,9 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
     assert not stale, [v.render() for v in stale]
 
     census = build_census(records, DEFAULT_TESTS_DIR)
-    assert census["total"] == 5  # DL-0161: o xfail D-07 do reembolso saiu com o caminho automatico
+    # DL-0161 + R-076 (#1149): o strict-xfail REEMBOLSO_D07 saiu; a faixa B dormente tem prova positiva so' no
+    # probe (teto/fonte/R-058 abertos so' no teste), sem xfail — 6 -> 5.
+    assert census["total"] == 5
     assert census["per_suite"] == {
         "adequacao": 1,
         "auth": 1,
