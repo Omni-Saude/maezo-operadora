@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 67
+    assert len(dmns) == 68
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -252,6 +252,11 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
             "prestador, DRAFT e nao ligados ate o P6) — se ele nao esta mais ai, quem subiu o numero "
             "foi outra coisa, e essa outra coisa precisa se nomear aqui"
         )
+    assert "pagto_duplicidade.dmn" in dmns, (
+        "o censo subiu para 68 por causa de `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de "
+        "duplicidade da ordem, avaliada so' pela costura dmn= do detector dark; W DRAFT) — se ele nao "
+        "esta mais ai, quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
     bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
     assert len(bpmn_names) == 17
     assert "SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn" in bpmn_names, (

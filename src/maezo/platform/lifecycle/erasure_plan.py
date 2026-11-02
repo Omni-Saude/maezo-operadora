@@ -964,6 +964,28 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="razao_obrigacoes_pagamento",
+        tabela="pagto_obrigacao_ledger",
+        migracao="0034_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)",
+        identificacao=(
+            "tenant + chave_obrigacao (`OBRIG-{origem}-{sha256}` over tenant/origin/obligation components) +"
+            " ordem_pagamento_id + evento; the row holds only what a PAGTO payment order already carries as "
+            "Zona Geral (SP-OP-PAGTO-001 input variables): the order id, `prestador_id`, the TISS lote, `com"
+            "petencia` (YYYY-MM), the amount in cents, the closed origin/event enums and the engine id of th"
+            "e source instance resolved by PR-D. Guia/glosa numbers only enter INSIDE the key digest. A bene"
+            "ficiary is not a subject here: no CPF, no name, no health data, no free text, no `beneficiario_"
+            "pseudo_id`. OPEN DPO QUESTION (not decided here, same as 0032): an individual (PF) provider is "
+            "itself a data subject (LGPD art. 5 V) and `prestador_id` may identify one; the table is DARK be"
+            "hind MAEZO_PAGTO_DETECT_DUPLICIDADE and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=46,
+        subject_column=None,
+        # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
+        # would be a fabricated zero until the owner turns the flag on.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

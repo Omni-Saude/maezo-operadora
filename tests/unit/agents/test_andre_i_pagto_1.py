@@ -44,6 +44,13 @@ _FATOS_NOVOS = frozenset(
         "tier_minimo",
         # R-092: o livro de votos do comite (zerado por calculate_facts; nunca semeado por origem).
         "votos_comite",
+        # Evidencia do detector de duplicidade (pacote PAGTO PR-E): nenhuma origem a semeia.
+        "duplicidade_motivo_codigo",
+        "duplicidade_chave_obrigacao",
+        "duplicidade_ordem_conflitante_id",
+        "duplicidade_nivel1_situacao",
+        "duplicidade_nivel2_situacao",
+        "duplicidade_nivel3_similar_idade_dias",
     }
 )
 

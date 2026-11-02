@@ -31,8 +31,9 @@ def test_cadeia_0032_revisa_a_head_da_main() -> None:
     assert rev is not None
     # Se a 0031 do PR #1074 entrar antes, o orquestrador re-aponta para "0031" (docstring da 0032).
     assert rev.down_revision == "0030"
-    # DL-0162 (#1074) entrou DEPOIS: a coleta do reembolso e' a 0033 e revisa esta 0032.
-    assert script.get_heads() == ["0033"]
+    # DL-0162 (#1074) entrou DEPOIS: a coleta do reembolso e' a 0033 e revisa esta 0032; o PAGTO
+    # PR-E (#1179) empilhou a 0034 sobre a 0033. A 0032 segue revisando a 0030.
+    assert script.get_heads() == ["0034"]
 
 
 @pytest.mark.parametrize(

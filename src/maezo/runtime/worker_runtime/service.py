@@ -72,6 +72,7 @@ from maezo.platform.observability import (
     bootstrap_observability,
     get_metrics_collector,
 )
+from maezo.platform.pagto_obrigacao.ledger import PostgresRazaoObrigacoesPagamento, RazaoObrigacoesPagamento
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
 from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -310,6 +311,8 @@ def register_default_workers(
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
     pagto_resolve_lastro: bool = False,
+    pagto_detect_duplicidade: bool = False,
+    pagto_obrigacao_ledger: RazaoObrigacoesPagamento | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -423,6 +426,13 @@ def register_default_workers(
         auth_prazo_dias_uteis=auth_prazo_dias_uteis,
         # PAGTO PR-D: fatos do lastro conferidos no historico do motor (dark; see settings).
         **({"pagto_resolve_lastro": True} if pagto_resolve_lastro is True else {}),
+        # PAGTO PR-E: detector de duplicidade + razao append-only (dark; see settings). A razao so'
+        # viaja junto com a flag ligada — desligada, nenhum worker recebe a costura.
+        **(
+            {"pagto_detect_duplicidade": True, "pagto_obrigacao_ledger": pagto_obrigacao_ledger}
+            if pagto_detect_duplicidade is True
+            else {}
+        ),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1154,6 +1164,15 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
                 # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
                 pagto_resolve_lastro=settings.pagto_resolve_lastro,
+                # PAGTO PR-E (analise PAGTO §4), DARK: detector de duplicidade so' quando ligada; a
+                # razao (migracao 0034) so' e' montada com a flag E DATABASE_URL — sem ela o
+                # detector emite INDETERMINADA (falha fechada), nunca NENHUMA.
+                pagto_detect_duplicidade=settings.pagto_detect_duplicidade,
+                pagto_obrigacao_ledger=(
+                    PostgresRazaoObrigacoesPagamento(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.pagto_detect_duplicidade and settings.database_url
+                    else None
+                ),
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url

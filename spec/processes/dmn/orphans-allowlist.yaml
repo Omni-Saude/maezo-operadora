@@ -271,3 +271,14 @@ orphans:
     Pending wiring (MPTT P5; P6 consumes it before pagto_admissibility v0.3).
     FIRST, fail-closed to WATCH; domain exactly TRUSTED/STANDARD/WATCH — routes
     only, never refuses/reduces payment. Cutoffs/N/T DRAFT (financas).
+  # --- PAGTO PR-E (detector de duplicidade) — DMN-SEAM ONLY -----------------------------
+  # Evaluated engine-side by tools/workers/pagto_duplicidade.py through the ADR-0028 dmn=
+  # seam inside operadora.pagto.validate_payment_data, behind MAEZO_PAGTO_DETECT_DUPLICIDADE
+  # (default off) — never via a BPMN businessRuleTask, so PERMANENT orphan from crossref's
+  # decisionRef-only perspective. Window W=180 days DRAFT (spec/aprovacoes-de-regras.yaml
+  # pendentes; docs/review-queue.md section PAGTO PR-E).
+  pagto_duplicidade: >-
+    DMN-seam only (PAGTO PR-E; operadora.pagto.detect_duplicidade evaluates it via the
+    ADR-0028 dmn= seam). FIRST, fail-closed to INDETERMINADA; classifies ledger facts
+    (levels 1-3) into NENHUMA/SUSPEITA/CONFIRMADA/INDETERMINADA — a FACT, never a route,
+    release or cancel. W and level classes DRAFT (financas + controladoria).
