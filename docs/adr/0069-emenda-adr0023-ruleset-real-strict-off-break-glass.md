@@ -1,6 +1,6 @@
 # ADR-0069: Emenda ao ADR-0023 — o ruleset 20775655 e o mecanismo real de protecao do `main`; strict desligado; bypass so por break-glass auditado
 
-**Status:** Proposed — redigido por AGENTE a partir das decisoes do dono DEC-19 (2026-10-29, emendar o ADR-0023 a realidade) e R-039 (2026-10-31, manter strict=false e restringir o bypass a break-glass auditado), ambas no issue #1085; ratificacao pela revisao independente por ADR (DEC-27) PENDENTE; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente
+**Status:** Accepted — decisao do dono DEC-29 (issue #1084), 2026-11-01 (ver "Decisao de aceite" ao final). Redigido por AGENTE a partir das decisoes do dono DEC-19 (2026-10-29, emendar o ADR-0023 a realidade) e R-039 (2026-10-31, manter strict=false e restringir o bypass a break-glass auditado), ambas no issue #1085; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente nem por este aceite
 **Data:** 2026-10-31
 **Area:** DevOps / CI / Governanca de merge
 
@@ -90,3 +90,31 @@ O DoD do R-039 (`length` dos contextos requeridos entre 6 e 9) ja passa hoje com
 ## Supersedes
 
 — (Emenda; nao supersede o ADR-0023 inteiro.) **Amends ADR-0023:** substitui as decisoes 1, 2, 4, 5, 9 e 11; amplia a decisao 3 (mais quatro contextos viram sinal); mantem as decisoes 6 (em espirito), 7, 8 e 10. Pela convencao do repositorio (ADR-0040, ADR-0041), o arquivo do ADR-0023 NAO e editado. Interage com o DL-0023 (a revalidacao manual volta a valer enquanto strict estiver desligado) e com o DL-0003 (commits de estado seguem por PR). Achado relacionado fora desta emenda: F-050 (o gate de golden datasets do ADR-0009 §4 nao e contexto requerido) continua aberto.
+
+## Decisao de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; historico preservado.** Acima desta secao so o paragrafo de Status mudou, com o
+> mesmo numero de linhas. O Status anterior, vigente de 2026-10-31 ate 2026-11-01, era: "Proposed — redigido por AGENTE a partir das decisoes do dono DEC-19 (2026-10-29, emendar o ADR-0023 a realidade) e R-039 (2026-10-31, manter strict=false e restringir o bypass a break-glass auditado), ambas no issue #1085; ratificacao pela revisao independente por ADR (DEC-27) PENDENTE; a mudanca do ruleset e ato administrativo do security-team/dono, NAO executado por agente"
+
+**O ato.** Decisao do dono **DEC-29**, 2026-11-01, issue **#1084**, comentario de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentario: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentario diz que o status passa a
+Accepted por PR que cite o comentario e que o texto do ADR nao e reescrito alem do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisao.** A DEC-29 nao pede revisao independente por ADR (a DEC-27 pedia). Este registro nao alega
+revisao desse tipo. O pacote esta em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**O que fica aceito.** A emenda ao ADR-0023 como esta escrita: o ruleset `20775655` e o mecanismo; os 6
+contextos requeridos sao os da decisao 2; `strict` desligado (R-039, opcao (b)); bypass so por
+break-glass auditado; decisoes 6, 7, 8 e 10 do ADR-0023 mantidas.
+
+**O que o aceite NAO faz.**
+- **Nao executa a mudanca do ruleset.** A secao "Proposta de mudanca do ruleset" continua sendo ato
+  administrativo do security-team/dono, nao executado. Ninguem rodou os comandos `gh api` dela por causa
+  deste aceite. O comentario da DEC-29 diz isso: os itens que dependem de ato administrativo do
+  security-team (ruleset `20775655`) continuam como escritos, e ratificar o ADR nao executa esses atos.
+- Por isso a frase das Negativas continua verdadeira: ate o passo 1 da proposta ser executado, o bypass
+  `always` do dono continua ativo no servidor.
+- O registro do ADR-0069 e no issue #1084 (DEC-29); as decisoes de origem (DEC-19, R-039) seguem no
+  issue #1085.

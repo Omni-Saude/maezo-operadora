@@ -864,6 +864,8 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
           List.of("nip_decisao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_nip", "fundamentacao_regulatoria", "referencia_negativa_original", "texto_resposta_nip")),
       Map.entry("SP-OP-PAGTO-001/UT_AprovacaoAlcada",
           List.of("pagto_aprovacao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_pagamento", "valor_aprovado_cents", "justificativa_aprovacao", "justificativa_recusa")),
+      Map.entry("SP-OP-PAGTO-001/UT_AprovacaoComite",
+          List.of("pagto_aprovacao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_pagamento", "valor_aprovado_cents", "justificativa_aprovacao", "justificativa_recusa")),
       Map.entry("SP-OP-PAGTO-001/UT_CoordenacaoAlcada",
           List.of("pagto_coordenacao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_coordenacao", "decisao_pagamento", "valor_aprovado_cents", "justificativa_aprovacao", "justificativa_recusa")),
       Map.entry("SP-OP-AUTH-001/UT_DecidirPendenciaExpirada",

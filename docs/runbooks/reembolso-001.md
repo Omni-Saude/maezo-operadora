@@ -77,7 +77,7 @@ o plugin não conhece as tarefas novas e **todas as filas do portal caem com 503
 
 1. **Terraform** (`deploy/aws-ecs/envs/dev-sa-east-1`): `reembolso_anexos_enabled = true` cria bucket, chave KMS
    e as duas políticas (receptor grava, portal lê). Rodar `terraform fmt`/`validate`/`plan` (não rodados localmente).
-2. **Banco:** migration `0031_reembolso_coleta`.
+2. **Banco:** migration `0033_reembolso_coleta`.
 3. **BPMN/DMN:**
    - publicar o BPMN v2, que agora traz `camunda:formData` nas cinco tarefas e `aguardando_resposta`, e `reembolso_prazo.dmn`;
    - `reembolso_calculo` e `reembolso_coverage` deixam de existir;
@@ -166,7 +166,7 @@ Conclua cada passo dentro de 24 h da última mensagem da pessoa. Conferir o moto
 |---|---|
 | Máquina de estados, textos, protocolo | `src/maezo/domain/reembolso/pedido.py` |
 | Turno (coleta, arquivo, abertura, resposta) | `src/maezo/platform/webhooks/whatsapp/reembolso_turno.py` |
-| Coleta (CAS) | `src/maezo/platform/webhooks/whatsapp/reembolso_store.py` + migration `0031_reembolso_coleta.py` |
+| Coleta (CAS) | `src/maezo/platform/webhooks/whatsapp/reembolso_store.py` + migration `0033_reembolso_coleta.py` |
 | Custódia dos anexos | `src/maezo/gateway/reembolso_anexos.py` + `deploy/aws-ecs/envs/dev-sa-east-1/reembolso-anexos.tf` |
 | Download da mídia da Meta | `src/maezo/tools/mcp_whatsapp/server.py::WhatsAppMediaClient` |
 | Retorno (histórico, janela, cercas) | `platform/integrations/agent_resume.py`, `webhooks/whatsapp/lucas_retomada.py::retomar_reembolso` |

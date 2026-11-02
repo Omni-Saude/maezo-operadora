@@ -7,10 +7,13 @@ Seven ADRs asserted a mechanism or a file that never existed, or that became obs
 `## Convencao seguida` (`0032:119-128`) already litigated exactly that question. This module is the
 fence that keeps that ADR HONEST, in four independent directions:
 
-  1. **The correction exists and does not claim ratification.** An ADR authored by an agent stays
-     `Proposto — DRAFT/verify` until a human signs it (`/docs/adr/` is CODEOWNED —
-     `.github/CODEOWNERS:61`). A future edit that silently promotes it to "Accepted"/"Ratificado"
-     without changing this fence turns red here.
+  1. **The correction exists, and its acceptance is the OWNER'S recorded act.** ADR-0041 stayed
+     `Proposto — DRAFT/verify` until the owner accepted it: decision DEC-27, issue #1084,
+     2026-10-31 (item R-079). The agent that recorded the act fills no signature block (ADR-0007;
+     `/docs/adr/` is CODEOWNED — `.github/CODEOWNERS:61`). The fence now pins that the Status
+     names the decision, the issue and the date, keeps disclosing the agent author, and stays a
+     single line — so an acceptance that cites no owner act, or a second contradicting Status,
+     turns red here.
 
   2. **THE GOVERNANCE RULE ITSELF.** The seven `Accepted` ADRs must be BYTE-IDENTICAL to the base
      commit `71dd4da`. This is the invariant the first attempt at this work package violated (it
@@ -56,7 +59,10 @@ _ADR_DIR = _REPO_ROOT / "docs" / "adr"
 #: The correction of record. A NEW ADR, per `docs/adr/README.md:8`.
 _ADR_0041 = "0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md"
 
-_DRAFT_STATUS = "**Status:** **Proposto — DRAFT/verify"
+#: The Status ADR-0041 carries since the owner accepted it (DEC-27, issue #1084, 2026-10-31).
+_ACCEPTED_STATUS = "**Status:** **Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31**"
+#: The Status it carried before; the acceptance record must quote it (history preserved).
+_PRIOR_DRAFT_STATUS = "Proposto — DRAFT/verify"
 _MARKERS = ("amended-by", "superseded-by", "obsolete-section")
 
 #: The base commit whose bytes the seven `Accepted` ADRs must still carry.
@@ -164,12 +170,19 @@ def test_the_reconciliation_adr_exists_and_names_all_seven_gaps() -> None:
     assert not unnamed, f"{_ADR_0041} does not name reconciled ADR(s) {unnamed}"
 
 
-def test_the_reconciliation_adr_is_draft_and_discloses_its_agent_author() -> None:
-    """No agent-authored ADR may read as ratified while a human signature is pending."""
+def test_the_reconciliation_adr_acceptance_cites_the_owner_act_and_discloses_its_agent_author() -> None:
+    """Accepted ONLY as the owner's recorded act (DEC-27, #1084, 2026-10-31), never by an agent."""
     text = _adr0041()
-    assert _DRAFT_STATUS in text, f"{_ADR_0041}: must stay `Proposto — DRAFT/verify` until a human signs"
+    assert _ACCEPTED_STATUS in text, (
+        f"{_ADR_0041}: the Status must name the owner decision, issue and date it rests on"
+    )
     assert "AGENTE" in text, f"{_ADR_0041}: must disclose that its author is an agent"
-    assert ".github/CODEOWNERS:61" in text, f"{_ADR_0041}: must name the owner gate it is pending on"
+    assert ".github/CODEOWNERS:61" in text, f"{_ADR_0041}: must name the owner gate"
+    record = text[text.index("## Decisao de aceite (DEC-27, 2026-10-31)") :]
+    assert _PRIOR_DRAFT_STATUS in record, f"{_ADR_0041}: the acceptance record must quote the prior Status"
+    assert "#1084" in record and "ADR-0007" in record, (
+        f"{_ADR_0041}: the acceptance record must cite the issue and the no-signature rule (ADR-0007)"
+    )
 
 
 def test_the_reconciliation_adr_carries_the_status_markers() -> None:
@@ -179,11 +192,12 @@ def test_the_reconciliation_adr_carries_the_status_markers() -> None:
     assert found, f"{_ADR_0041}: carries none of {_MARKERS}"
 
 
-def test_the_reconciliation_adr_does_not_claim_ratification() -> None:
+def test_the_reconciliation_adr_does_not_claim_an_agent_signature() -> None:
     text = _adr0041()
-    forbidden = ("Ratificado", "ratificada pelo dono", "Status:** Accepted")
+    # The acceptance is recorded by date and issue; no agent signs or "ratifies" on anyone's behalf.
+    forbidden = ("Ratificado", "ratificada pelo dono", "ASSINADO")
     hits = [word for word in forbidden if word in text]
-    assert not hits, f"{_ADR_0041}: an agent-authored ADR may not claim ratification ({hits})"
+    assert not hits, f"{_ADR_0041}: an agent-recorded acceptance may not claim a signature ({hits})"
     # Closes the "add a second Status line and leave the DRAFT one in place" hole: exactly one.
     assert text.count("**Status:**") == 1, (
         f"{_ADR_0041}: expected exactly one `**Status:**` line, found {text.count('**Status:**')} — "
