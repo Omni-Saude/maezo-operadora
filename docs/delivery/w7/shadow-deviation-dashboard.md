@@ -9,10 +9,10 @@
 
 | Status | Itens |
 |---|---|
-| `NO-PRAZO` | 61 |
+| `NO-PRAZO` | 60 |
 | `VENCIDO` | 0 |
 | `SEM-DATA` | 8 |
-| **Total** | **69** |
+| **Total** | **68** |
 
 Legenda: `NO-PRAZO` = dentro do prazo (coluna `Aviso` marca `≤14 dias` na janela do gate `check_deviation_expiry.py`) · `VENCIDO` = hoje > prazo · `SEM-DATA` = sem prazo próprio e sem muro herdado. `Checkpoint vencido` é anotação, não gate (conversa, não expiração — docstring do `DeviationRecord`).
 
@@ -40,7 +40,7 @@ Legenda: `NO-PRAZO` = dentro do prazo (coluna `Aviso` marca `≤14 dias` na jane
 | A-classe-submissao_regulatoria_ans | classe `submissao_regulatoria_ans` | enforcement: shadow | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | spec/policies/autonomy/action-approvals.yaml (loader tipado `load_action_approvals`) | dono (flip por classe é ato humano ratificado, Q-1) | declarar classe NÃO é aprová-la — aprovações `PENDENTE` por domínio |
 | A-classe-vinculo_contratual_mudanca | classe `vinculo_contratual_mudanca` | enforcement: shadow | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | spec/policies/autonomy/action-approvals.yaml (loader tipado `load_action_approvals`) | dono (flip por classe é ato humano ratificado, Q-1) | declarar classe NÃO é aprová-la — aprovações `PENDENTE` por domínio |
 
-## Seção B — Flags de habilitação dark — inventário ENUMERADO: 33 interruptores / 6 grupos (`w5-5-1-flags-reancoragem.md` §3; divergência de soma REGISTRADA: doc headline `31 interruptores em 6 grupos` × enumerados aqui 33 (parciais do doc: 5+3+3+1+19+2))
+## Seção B — Flags de habilitação dark — inventário ENUMERADO: 33 interruptores / 6 grupos (`w5-5-1-flags-reancoragem.md` §3; divergência de soma REGISTRADA: doc headline `31 interruptores em 6 grupos` × enumerados aqui 32 (parciais do doc: 5+3+3+1+19+2))
 
 | ID | Item | Flag/Estado | Prazo | Campo | Base do prazo | Dias | Status | Aviso | Checkpoint | Fonte | Dono | Obs |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -72,10 +72,9 @@ Legenda: `NO-PRAZO` = dentro do prazo (coluna `Aviso` marca `≤14 dias` na jane
 | B-E14 | [grupo E] `acesso_beneficiario` | default `False` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:497 | ROLL / revisor da habilitação (DL-*) | idem |
 | B-E15 | [grupo E] `lucas_consulta_valores` | default `False` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:535 | ROLL / revisor da habilitação (DL-*) | dependências: `_lucas_v4_exige_valores`/`_valores_exigem_verificacao` |
 | B-E16 | [grupo E] `cancel_pf_v1` | default `False` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:545 | ROLL / revisor da habilitação (DL-*) | idem |
-| B-E17 | [grupo E] `lucas_v4` | default `False` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:558 | ROLL / revisor da habilitação (DL-0114) | idem |
+| B-E17 | [grupo E] `lucas_v4` | default `False` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:577 | ROLL / revisor da habilitação (DL-0114) | idem |
 | B-E18 | [grupo E] `memoria_clinica_enabled` | default `True` — EXCEÇÃO por decisão (ratificações pendentes: médico-auditor/DPO) | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:195 | ROLL / revisor da habilitação (DL-*) | uma das 2 exceções default-True declaradas no inventário |
 | B-E19 | [grupo E] `acesso_limite_cpf` | default `True` — EXCEÇÃO por decisão (ratificações pendentes: médico-auditor/DPO) | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | src/maezo/platform/webhooks/whatsapp/settings.py + src/maezo/platform/webhooks/whatsapp/settings.py:513 | ROLL / revisor da habilitação (DL-*) | a outra exceção default-True |
-| B-F1 | [grupo F] `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` | default `False`; build dark merged (bloqueio fail-closed no `Flow_GW_AutoAprovar`) | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | docs/plans/w5-5-1-flags-reancoragem.md (linha da tabela §3) + src/maezo/tools/workers/reembolso.py:214 | ROLL / revisor da habilitação (R-058/R-059) | revisor/janela COMPLETOS em `docs/review-queue.md:1750`; ordem R-157: assinatura de atuária ANTES do teto D-07 subir de zero |
 | B-F2 | [grupo F] pin TISS T2.6-2 (`spec/policies/ans/tiss-schema-pin.yaml`) | `status: DRAFT`, `ratificado: false`; data-gated, NÃO wired em `ans_submit.py` | 2027-02-09 | — | muro-2027-02-09 (herdado — D-10, sem 2ª renovação) | 104 | `NO-PRAZO` | — | — | docs/plans/w5-5-1-flags-reancoragem.md (linha da tabela §3) + spec/policies/ans/tiss-schema-pin.yaml:95 | ROLL / revisor da habilitação (T2.6-2) | revisor/janela COMPLETOS em `docs/review-queue.md:690`; ativação = 4 campos independentes (loader recusa ratificação forjada) |
 
 ## Seção C — Sombras de regras/tabelas — manifestos candidatos DRAFT + matriz auth-criteria

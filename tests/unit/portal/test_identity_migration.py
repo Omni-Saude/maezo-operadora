@@ -45,7 +45,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # OP21/REG-1.1 (26/10/2026) adds the dark legitimacy-screen substrate as 0030.
     # MPTT P3 (01/11/2026) adds the dark append-only provider status ledger as 0032 after 0030
     # (re-pointed to 0031 if PR #1074's 0031 merges first).
-    assert heads == {"0032"}, f"expected 0032 to be the sole head, got {heads}"
+    # DL-0162 (reembolso pelo WhatsApp) adds `reembolso_coleta` as 0033 after 0032.
+    assert heads == {"0033"}, f"expected 0033 to be the sole head, got {heads}"
+    assert revisions["0033"] == "0032"
     assert revisions["0032"] == "0030"
     assert revisions["0030"] == "0029"
     assert revisions["0028"] == "0027"
@@ -66,7 +68,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0032"
+    current = "0033"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

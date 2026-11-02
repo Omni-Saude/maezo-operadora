@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 68
+    assert len(dmns) == 67
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -235,6 +235,11 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
         "DL-0104, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
+    # DL-0161 (reembolso v2): sairam `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e entrou
+    # `reembolso_prazo.dmn` (66 -> 65, ja' contando `auth_junta_admissibility.dmn`). Os tres de reembolso
+    # sao nomeados aqui para o censo nao mudar calado.
+    assert "reembolso_prazo.dmn" in dmns
+    assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
     assert "auth_junta_admissibility.dmn" in dmns, (
         "o censo subiu para 66 por causa de `auth_junta_admissibility.dmn` (R-064, #1121 — RN 424/2017 "
         "art. 3 I, junta medica vedada em urgencia/emergencia; dark atras de "

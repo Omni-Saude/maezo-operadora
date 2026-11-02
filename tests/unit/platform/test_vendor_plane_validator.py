@@ -67,7 +67,8 @@ def test_a_cadeia_local_e_head_linear_0032_revisando_0030() -> None:
     substrato, 26/10/2026; 0032 = ledger append-only do status do prestador, MPTT P3, escuro,
     01/11/2026 — revisa 0030; se a 0031 do PR #1074 entrar antes, passa a revisar a 0031)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0032",)
+    assert heads == ("0033",)
+    assert edges["0033"] == "0032"
     assert edges["0032"] == "0030"
     assert edges["0030"] == "0029"
     assert edges["0027"] == "0026"
@@ -95,7 +96,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0032",),
+        "migration_heads": ("0033",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -313,7 +314,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0032",
+        "0033",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

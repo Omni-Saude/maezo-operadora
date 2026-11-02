@@ -10,8 +10,8 @@ sabe ficar vermelho quando a fonte se move ou o prazo passa.** Tudo aqui é uma 
   (c) âncora desalinhada (linha movida, token ausente, arquivo ilegível) é DEFECT NOMEADO, não
       silêncio — a citação `arquivo:linha` é verificada, não decorada;
   (d) a saída é DETERMINÍSTICA: mesmas entradas ⇒ mesmos bytes (markdown e JSON), sem relógio;
-  (e) a árvore REAL segue íntegra: as 33 flags enumeradas estão de pé, os grupos batem com o
-      doc §3 e a divergência de soma do headline (31 × 33) está registrada, não reproduzida;
+  (e) a árvore REAL segue íntegra: as 32 flags enumeradas estão de pé, os grupos batem com o
+      doc §3 e a divergência de soma do headline (31 × 32) está registrada, não reproduzida;
   (f) `main()` devolve os exit codes do contrato (0/2/3/4) contra a árvore real.
 
 Datas HARDCODED de propósito nas provas de status (pinam o comportamento, não o YAML — a mesma
@@ -312,26 +312,28 @@ def test_pipe_de_celula_e_escapado_e_checkpoint_vencido_anotado() -> None:
 
 
 def test_inventario_de_flags_bate_com_os_parciais_do_doc() -> None:
-    soma = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 2}
+    soma = {"A": 5, "B": 3, "C": 3, "D": 1, "E": 19, "F": 1}
     atual = {g: sum(1 for r in dash.FLAG_ROWS if r.grupo == g) for g in soma}
     assert atual == soma
-    assert sum(atual.values()) == 33
+    assert sum(atual.values()) == 32
 
 
 def test_divergencia_do_headline_do_doc_esta_registrada_viva() -> None:
     headline, verdict = dash.flags_doc_headline()
     assert verdict.ok
     assert headline == "31 interruptores em 6 grupos"  # o número do headline…
-    assert len(dash.FLAG_ROWS) == 33  # …não é o tamanho do inventário enumerado (5+3+3+1+19+2)
+    assert (
+        len(dash.FLAG_ROWS) == 32
+    )  # …não é o tamanho do inventário enumerado (5+3+3+1+19+1; DL-0161 removeu B-F1)
 
 
 def test_secao_b_na_arvore_real_rende_muro_herdado_e_ancoras_ok() -> None:
     items, verdicts, divergencia = dash.build_secao_flags(_HOJE)
-    assert len(items) == 33
+    assert len(items) == 32
     assert all(i.status == dash.STATUS_NO_PRAZO for i in items)
     assert all(i.effective_deadline == _MURO and i.muro_bound for i in items)
     assert all(v.ok for v in verdicts), [v.note for v in verdicts if not v.ok]
-    assert "33" in divergencia and "31" in divergencia
+    assert "32" in divergencia and "31" in divergencia
 
 
 def test_secao_c_e_lacuna_declarada_sem_data_inventada() -> None:
@@ -378,7 +380,7 @@ def test_dashboard_completo_da_arvore_real_e_integro() -> None:
     contagem = d.counts()
     assert contagem[dash.STATUS_SEM_DATA] == 8  # 6 candidatos + 2 derivas — lacunas declaradas
     assert contagem[dash.STATUS_VENCIDO] == 0
-    assert sum(contagem.values()) == 69
+    assert sum(contagem.values()) == 68
     md = d.to_markdown()
     assert "SÓ dados rastreados" in md
     assert "OP-REGISTRY" in md  # a lacuna da fonte gitignored está declarada no próprio artefato

@@ -32,7 +32,7 @@
 6. **Não importar SDK de LLM fora do pacote `runtime.inference`** nem credencial fora do gateway.
 7. **Itens `hard` da matriz de autonomia são intocáveis** — os 5 itens congelados em `spec/policies/autonomy/_hard_frozen.yaml`: `clinical_decision` (decisão clínica), `authorization_denial` (negativa de cobertura), `nip_manter_negativa` (manutenção de negativa em NIP), `fraud_accusation` (acusação de fraude) e `contract_termination` (rescisão contratual).
 8. **Os 78 registros da auditoria pré-deploy (60 confirmados + 18 refutados) são checklist "não repetir".** Consulte `docs/reports/predeploy-findings.json` antes de implementar qualquer componente — gerado de `docs/reports/predeploy-audit-report.md` (§3–§4) por `python -m scripts.docs.gerar_predeploy_findings`; registro refutado documenta o que o refutador derrubou, não é defeito vigente.
-9. **As 160 entradas DL (`DL-0001`–`DL-0160`) são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.
+9. **As 163 entradas DL (`DL-0001`–`DL-0163`) são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.
 10. Geração em massa (swarm): cada lote termina com `make lint type test validate-artifacts` verde **e poda do que não é usado**.
 11. **Todo merge encerra com manutenção segura do repositório.** Depois de atualizar e verificar `main`, execute integralmente a rotina de inventário, preservação, remoção conservadora e verificação final em `CONTRIBUTING.md`. Nunca use `prune`, `reset`, `clean`, remoção forçada de worktree ou `git branch -D` como atalho.
 

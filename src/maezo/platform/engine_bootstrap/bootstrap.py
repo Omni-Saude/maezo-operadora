@@ -78,6 +78,8 @@ GRUPOS_DE_DECISAO: Final[tuple[tuple[str, str], ...]] = (
     ("coordenacao-recurso", "Coordenacao de recursos de glosa"),
     ("analise-reembolso", "Analise de reembolso"),
     ("coordenacao-reembolso", "Coordenacao de reembolso"),
+    # DL-0161 (#1074, so' dev): SP-OP-REEMBOLSO-001 v0.2.0 UT_RegistrarPagamento (PROPOSTO).
+    ("financeiro-reembolso", "Financeiro do reembolso (registro do pagamento)"),
     ("coordenacao-clinica", "Coordenacao medica de programas"),
     ("investigacao-fraude", "Investigacao de fraude"),
     ("coordenacao-investigacao", "Coordenacao de prevencao a fraudes"),

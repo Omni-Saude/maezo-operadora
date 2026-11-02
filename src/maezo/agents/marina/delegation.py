@@ -181,18 +181,16 @@ _RECURSO_STRING_META_KEYS = (
 _RECURSO_FLOAT_META_KEYS = ("valor_glosado_brl",)
 _RECURSO_BOOLEAN_META_KEYS = ("glosa_existe", "dentro_prazo_recurso", "documentacao_recurso_completa")
 
-_REEMBOLSO_STRING_META_KEYS = ("protocolo_reembolso", "tipo_reembolso", "categoria_procedimento")
-_REEMBOLSO_INT_META_KEYS = ("valor_solicitado_cents", "valor_calculado_tabela_cents")
-_REEMBOLSO_BOOLEAN_META_KEYS = (
-    "cobertura_prevista",
-    "documentacao_completa",
-    "dentro_prazo",
-    "beneficiario_ativo",
-    "carencia_cumprida",
-    "dentro_tabela",
-    "dentro_teto_l2",
-    "requer_avaliacao_clinica",
+_REEMBOLSO_STRING_META_KEYS = (
+    "protocolo_reembolso",
+    "tipo_reembolso",
+    "categoria_procedimento",
+    "situacao_prazo",
+    "relacao_com_titular",
+    "motivo_nao_rede",
 )
+_REEMBOLSO_INT_META_KEYS = ("valor_solicitado_cents",)
+_REEMBOLSO_BOOLEAN_META_KEYS: tuple[str, ...] = ()  # v0.2.0 (DL-0161): nenhum fato booleano pre-resolvido
 
 #: The PRINCIPAL TISS reason code, carried as a scalar and re-expanded into the list-shaped
 #: `reason_codes_tiss` state field (module docstring's disclosed fidelity residual).

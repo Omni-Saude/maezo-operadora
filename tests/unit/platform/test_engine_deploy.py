@@ -133,9 +133,10 @@ class TestCollectArtifacts:
         # em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — publicada pelo deploy-processes como as demais.
         # 65 -> 66: `auth_junta_admissibility.dmn` (R-064, #1121 — vedacao da junta medica em
         # urgencia/emergencia, RN 424 art. 3 I; dark atras de `MAEZO_AUTH_JUNTA_RN424_GUARD`).
-        # 66 -> 68: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5 — scorecard e tier de
+        # 66 -> 65: DL-0161 (reembolso v2) -reembolso_calculo -reembolso_coverage +reembolso_prazo.
+        # 65 -> 67: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5 — scorecard e tier de
         # confianca do prestador, DRAFT e nao ligados; P6 liga). Publicados pelo deploy como os demais.
-        assert len(dmn) == 68  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        assert len(dmn) == 67  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):
