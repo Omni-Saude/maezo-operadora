@@ -602,9 +602,10 @@ def test_the_decision_gateway_has_no_default_so_an_unknown_decision_is_an_incide
 
 
 def test_the_payment_is_a_human_task_of_the_finance_group() -> None:
+    """DEC-30 D14 (#1084): sem grupo proprio -- o contas a pagar registra o pagamento."""
     ut = _bpmn_ids()["UT_RegistrarPagamento"]
     assert ut.tag == f"{_BPMN_NS}userTask"
-    assert ut.get(f"{_CAMUNDA_NS}candidateGroups") == "financeiro-reembolso"
+    assert ut.get(f"{_CAMUNDA_NS}candidateGroups") == "analise-contas-pagar"
 
 
 def test_every_beneficiary_notice_is_gated_on_the_whatsapp_flag_and_carries_no_text() -> None:

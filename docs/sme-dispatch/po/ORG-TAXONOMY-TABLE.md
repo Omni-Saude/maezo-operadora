@@ -2,7 +2,7 @@
 
 **Origem:** ROW R-034 (UNLOCK-LEDGER, sessao unica de taxonomia organizacional), estendida por **R-041 / DEC-21** (decisoes do dono em #1084, rodada 2 "Grupos" + rodada 3 Q1-Q6, 2026-10-31) · **Decisor:** dono organizacional da operadora · **Teto herdado:** 2026-09-19 (via R-137) · **Status:** recomendacao -- pendente de nomeacao pelo dono.
 
-Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a leitura humana dela. Desde R-041 a sessao cobre TODOS os processos com User Task (o dono pediu "Criar TODOS os grupos no bootstrap do engine e atualizar a tabela de taxonomia"), o registro dos 39 grupos que o bootstrap do engine cria (`src/maezo/platform/engine_bootstrap/bootstrap.py`, `GRUPOS_CANONICOS`) e o cargo PROPOSTO para cada um.
+Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a leitura humana dela. Desde R-041 a sessao cobre TODOS os processos com User Task (o dono pediu "Criar TODOS os grupos no bootstrap do engine e atualizar a tabela de taxonomia"), o registro dos 38 grupos que o bootstrap do engine cria (`src/maezo/platform/engine_bootstrap/bootstrap.py`, `GRUPOS_CANONICOS`) e o cargo PROPOSTO para cada um.
 
 **Nao ratifica nada:** o cargo mapeado e PROPOSTO (analise de cargos do tenant + escolhas do dono em #1084). `nome_real` fica VAZIO ate o dono assinar a nomeacao abaixo. Nenhum agente preenche esta linha (ADR-0007).
 
@@ -16,7 +16,7 @@ Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a l
 - Processos BPMN inventariados -> **17** (`ls spec/processes/bpmn/*.bpmn | wc -l`)
 - DMN com coluna de saida `grupo*` -> **9** arquivos: `cancel_routing`, `escalation_routing`, `fraude_routing`, `lgpd_dsr_routing`, `nip_routing`, `nip_classification`, `pagto_alcada`, `recurso_eligibility`, `suppression_routing`
 
-## Grupos registrados no engine (39) -> cargo PROPOSTO -> tarefas
+## Grupos registrados no engine (38) -> cargo PROPOSTO -> tarefas
 
 | # | Grupo (id) | Decisao | Cargo mapeado (PROPOSTO) | Qualificacao | User Tasks | SoD |
 |---|---|---|---|---|---|---|
@@ -46,19 +46,18 @@ Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a l
 | 24 | `coordenacao-recurso` | CONFIRMAR | Gerente de Controle de Sinistros -- Operadora | nenhuma | RECURSO UT_CoordenacaoRecursoAssume, UT_EscalonamentoPrazo | S2 |
 | 25 | `analise-reembolso` | CONFIRMAR | Analista de Reembolso (cargo de staff a descrever (Q5, #1084)) sob o Coordenador de Regulacao -- Operadora | negativa clinica via medico-auditor | REEMBOLSO UT_DecidirPendenciaExpirada, UT_AnaliseReembolso | P2 |
 | 26 | `coordenacao-reembolso` | CONFIRMAR | Coordenador de Regulacao -- Operadora | nenhuma | REEMBOLSO UT_CoordenacaoReembolso | P9 |
-| 27 | `financeiro-reembolso` | NOVO | Analista financeiro (cargo de staff a descrever) -- CSC; paga fora do sistema e registra data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0161) | nenhuma | REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor) | nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto) |
-| 28 | `coordenacao-clinica` | CONFIRMAR | Coordenacao Medica (cargo a descrever) + Gerente Medico Plano de Saude -- Operadora | CRM | PROGRAMA UT_DecisaoClinica (decisor unico), UT_CoordenacaoDecisao | P9; Q1: DESLIGAR_CLINICO na escalacao so pelo decisor (guarda a entregar) |
-| 29 | `investigacao-fraude` | CONFIRMAR | Analista de Prevencao a Fraudes (cargo de staff a descrever (Q5, #1084)) em Compliance -- CSC, fora do contencioso | apoio CRM quando clinica | FRAUDE UT_DecisaoInvestigador | S3, S4 |
-| 30 | `coordenacao-investigacao` | CONFIRMAR | Coordenador de Controladoria -- CSC (interino; cargo dedicado a criar) | nenhuma | FRAUDE UT_CoordenacaoInvestigacao | S3, S4 |
-| 31 | `juridico-fraude` | CONFIRMAR | Gerente Juridico e de Compliance -- CSC | OAB | FRAUDE UT_RevisaoReferral | S3 |
-| 32 | `dpo` | CONFIRMAR | Encarregado indicado pelo dono (LGPD art. 41; ato de indicacao em docs/compliance/human-windows/) | nenhuma | LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing); SUPP UT_RotearEncarregado (via suppression_routing) | - |
-| 33 | `juridico-privacidade` | CONFIRMAR | Gerente Juridico e de Compliance -- CSC; incidente: consulta ao Diretor de Tecnologia e Inovacao | OAB recomendada | LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing) | - |
-| 34 | `analise-contas-pagar` | NOVO | Analista de Contas a Pagar (cargo de staff a descrever (Q5, #1084)) sob o Gerente Financeiro / Coordenador de Tesouraria -- CSC | nenhuma | PAGTO UT_AnaliseAdmissibilidade | S5, S6: nunca aprovador; P5: nunca o solicitante |
-| 35 | `coordenacao-financeira` | CONFIRMAR | Coordenador Financeiro (reporta ao Gerente Financeiro; cargo distinto do Gerente -- esclarecimento do dono 2026-11-02) -- CSC | nenhuma | PAGTO UT_CoordenacaoAlcada | S5; nunca quem deixou o SLA estourar; pessoa distinta dos membros do comite-financeiro (CFO + Gerente Financeiro, DEC-30 D1/D3) |
-| 36 | `aprovacao-financeira-l1` | CONFIRMAR | Gerente Financeiro -- CSC | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L1 via pagto_alcada) | S5, S6, P6 |
-| 37 | `aprovacao-financeira-l2` | CONFIRMAR | VP de CSC e Financas (CFO) -- CSC | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L2) | S5, S6, P6 |
-| 38 | `aprovacao-financeira-l3` | CONFIRMAR | CEO (sem descricao de cargo -- dono confirma) | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L3) | S5, S6, P6 |
-| 39 | `comite-financeiro` | CONFIRMAR | Colegiado DECIDIDO (DEC-30 D1, #1084, 2026-11-02): CFO (VP de CSC e Financas) + Gerente Financeiro, os dois aprovam (2 de 2) -- CSC; pertinencia real no IdP = ato humano | nenhuma | PAGTO UT_AprovacaoAlcada (catch-all/acima de L3 via pagto_alcada) | S5, S6, P7 |
+| 27 | `coordenacao-clinica` | CONFIRMAR | Coordenacao Medica (cargo a descrever) + Gerente Medico Plano de Saude -- Operadora | CRM | PROGRAMA UT_DecisaoClinica (decisor unico), UT_CoordenacaoDecisao | P9; Q1: DESLIGAR_CLINICO na escalacao so pelo decisor (guarda a entregar) |
+| 28 | `investigacao-fraude` | CONFIRMAR | Analista de Prevencao a Fraudes (cargo de staff a descrever (Q5, #1084)) em Compliance -- CSC, fora do contencioso | apoio CRM quando clinica | FRAUDE UT_DecisaoInvestigador | S3, S4 |
+| 29 | `coordenacao-investigacao` | CONFIRMAR | Coordenador de Controladoria -- CSC (interino; cargo dedicado a criar) | nenhuma | FRAUDE UT_CoordenacaoInvestigacao | S3, S4 |
+| 30 | `juridico-fraude` | CONFIRMAR | Gerente Juridico e de Compliance -- CSC | OAB | FRAUDE UT_RevisaoReferral | S3 |
+| 31 | `dpo` | CONFIRMAR | Encarregado indicado pelo dono (LGPD art. 41; ato de indicacao em docs/compliance/human-windows/) | nenhuma | LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing); SUPP UT_RotearEncarregado (via suppression_routing) | - |
+| 32 | `juridico-privacidade` | CONFIRMAR | Gerente Juridico e de Compliance -- CSC; incidente: consulta ao Diretor de Tecnologia e Inovacao | OAB recomendada | LGPD-DSR UT_RevisaoDpo (via lgpd_dsr_routing) | - |
+| 33 | `analise-contas-pagar` | NOVO | Analista de Contas a Pagar (cargo de staff a descrever (Q5, #1084)) sob o Gerente Financeiro / Coordenador de Tesouraria -- CSC | nenhuma | PAGTO UT_AnaliseAdmissibilidade; REEMBOLSO UT_RegistrarPagamento (paga fora do sistema e registra data_pagamento; nunca decide direito nem valor -- DEC-30 D14, #1084) | S5, S6: nunca aprovador; P5: nunca o solicitante; REEMBOLSO: nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto) |
+| 34 | `coordenacao-financeira` | CONFIRMAR | Coordenador Financeiro (reporta ao Gerente Financeiro; cargo distinto do Gerente -- esclarecimento do dono 2026-11-02) -- CSC | nenhuma | PAGTO UT_CoordenacaoAlcada | S5; nunca quem deixou o SLA estourar; pessoa distinta dos membros do comite-financeiro (CFO + Gerente Financeiro, DEC-30 D1/D3) |
+| 35 | `aprovacao-financeira-l1` | CONFIRMAR | Gerente Financeiro -- CSC | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L1 via pagto_alcada) | S5, S6, P6 |
+| 36 | `aprovacao-financeira-l2` | CONFIRMAR | VP de CSC e Financas (CFO) -- CSC | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L2) | S5, S6, P6 |
+| 37 | `aprovacao-financeira-l3` | CONFIRMAR | CEO (sem descricao de cargo -- dono confirma) | nenhuma | PAGTO UT_AprovacaoAlcada (faixa L3) | S5, S6, P6 |
+| 38 | `comite-financeiro` | CONFIRMAR | Colegiado DECIDIDO (DEC-30 D1, #1084, 2026-11-02): CFO (VP de CSC e Financas) + Gerente Financeiro, os dois aprovam (2 de 2) -- CSC; pertinencia real no IdP = ato humano | nenhuma | PAGTO UT_AprovacaoAlcada (catch-all/acima de L3 via pagto_alcada) | S5, S6, P7 |
 
 ## Nao registrados (de proposito)
 
@@ -66,6 +65,7 @@ Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a l
 - `equipe-cuidado` -- removido de UT_DecisaoClinica (#1084 (rodadas 2 e 3, 2026-10-31)); consultivo, sem fila -- o insumo multiprofissional chega pelo dossie
 - `gestao-cobranca` -- removido de UT_AnaliseInadimplencia (#1084 (rodadas 2 e 3, 2026-10-31)); consultivo, sem fila -- fatos de cobranca chegam pelo dossie
 - `clerical-pagamentos` -- rotulo de DMN da faixa sem aprovador humano (pagto_alcada); nunca vira fila. Teto clerical R$ 100k MANTIDO (Q3, #1084): o dono emenda a descricao do Coordenador de Tesouraria
+- `financeiro-reembolso` -- REMOVIDO -- DEC-30 D14 (#1084, 2026-11-02): sem 39o grupo; REEMBOLSO UT_RegistrarPagamento usa analise-contas-pagar (o grupo entrara pela DL-0161/#1074 e sai antes de ter pessoas)
 
 ## Segregacao de funcoes estrutural (uma pessoa nunca nos dois lados)
 
@@ -142,7 +142,7 @@ Fonte de maquina: `org-taxonomy-table.yaml` (mesmo diretorio). Esta pagina e a l
 | `analise-reembolso` | `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:408` | SP-OP-REEMBOLSO-001 | Sim | UT_DecidirPendenciaExpirada; UT_AnaliseReembolso (linha 105) — *caveat PROPOSTO contrato linha 149* | contrato Sec.Papeis linha 154 -- negativa/reducao SO aqui | Sim |  |
 | `medico-auditor` | `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:179` | SP-OP-REEMBOLSO-001 | Sim | UT_RevisaoAuditorMedico — *caveat PROPOSTO contrato linha 149; grupo compartilhado com AUTH-001/CONTAS-001/NIP-001/RECURSO-001* | contrato Sec.Papeis linha 155 -- merito clinico (requer_avaliacao_clinica) | Sim |  |
 | `coordenacao-reembolso` | `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:155` | SP-OP-REEMBOLSO-001 | Sim | UT_CoordenacaoReembolso — *caveat PROPOSTO contrato linha 149* | contrato Sec.Papeis linha 156 -- SLA de analise estourado | Sim |  |
-| `financeiro-reembolso` | `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:218` | SP-OP-REEMBOLSO-001 | Sim | UT_RegistrarPagamento — *grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome* | contrato v0.2.0 (DL-0161) -- o financeiro paga fora do sistema e registra data_pagamento | Sim |  |
+| `analise-contas-pagar` | `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:218` | SP-OP-REEMBOLSO-001 | Sim | UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor) — *DEC-30 D14 (#1084, 2026-11-02): sem 39o grupo -- reusa o grupo de PAGTO UT_AnaliseAdmissibilidade; financeiro-reembolso (v0.2.0, DL-0161) REMOVIDO* | contrato v0.2.0 (DL-0161) -- o financeiro paga fora do sistema e registra data_pagamento | Sim |  |
 | `dpo` | `spec/processes/dmn/suppression_routing.dmn:76` | SP-OP-SUPP-001 | Sim | todas as regras de suppression_routing (r_desconhecido + C1-C6); wireado via ${grupo_decisao} -> UT_RotearEncarregado — *linha que faltava no inventario (analise C.3.3; #1084 (rodadas 2 e 3, 2026-10-31))* | contrato SP-OP-SUPP-001 -- decisao do encarregado (honrar / nao-honrar fundamentado / escalar) | Sim |  |
 
 ## Escopo do dono

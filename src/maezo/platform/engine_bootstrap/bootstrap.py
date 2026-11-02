@@ -54,7 +54,9 @@ GRUPOS_DE_ATENDIMENTO: Final[tuple[tuple[str, str], ...]] = (
 #: grant (quem entra em cada grupo e o IdP/dono, com o cargo da taxonomia); nada e apagado
 #: nem renomeado. Fora da lista de proposito: `nucleo-ans` (fundido em `regulatorio-ans`),
 #: `equipe-cuidado` e `gestao-cobranca` (sem User Task — consultivos) e `clerical-pagamentos`
-#: (rotulo de DMN da faixa sem aprovador humano; nunca vira fila).
+#: (rotulo de DMN da faixa sem aprovador humano; nunca vira fila). Tambem fora: `financeiro-reembolso`
+#: (DL-0161, #1074) -- DEC-30 D14 (#1084, 02/11/2026): sem 39o grupo, REEMBOLSO `UT_RegistrarPagamento`
+#: usa `analise-contas-pagar`. Um engine dev que ja o criou o mantem (o bootstrap nao apaga).
 GRUPOS_DE_DECISAO: Final[tuple[tuple[str, str], ...]] = (
     ("gestao-rede", "Gestao de rede (credenciamento)"),
     ("coordenacao-rede", "Coordenacao de rede"),
@@ -78,8 +80,6 @@ GRUPOS_DE_DECISAO: Final[tuple[tuple[str, str], ...]] = (
     ("coordenacao-recurso", "Coordenacao de recursos de glosa"),
     ("analise-reembolso", "Analise de reembolso"),
     ("coordenacao-reembolso", "Coordenacao de reembolso"),
-    # DL-0161 (#1074, so' dev): SP-OP-REEMBOLSO-001 v0.2.0 UT_RegistrarPagamento (PROPOSTO).
-    ("financeiro-reembolso", "Financeiro do reembolso (registro do pagamento)"),
     ("coordenacao-clinica", "Coordenacao medica de programas"),
     ("investigacao-fraude", "Investigacao de fraude"),
     ("coordenacao-investigacao", "Coordenacao de prevencao a fraudes"),

@@ -103,15 +103,18 @@ def test_every_routable_group_is_created_by_the_bootstrap() -> None:
     assert not missing, f"grupos roteaveis sem criacao no bootstrap: {sorted(missing)}"
 
 
-def test_bootstrap_registers_the_39_groups_of_the_owner_model_once() -> None:
+def test_bootstrap_registers_the_38_groups_of_the_owner_model_once() -> None:
     ids = _bootstrap_ids()
-    # 38 do modelo do dono (R-041, #1084) + `financeiro-reembolso` (DL-0161, #1074: UT_RegistrarPagamento).
-    assert len(ids) == len(set(ids)) == 39
+    # 38 do modelo do dono (R-041, #1084). Sem 39o grupo: DEC-30 D14 (#1084, 02/11/2026) retirou
+    # `financeiro-reembolso` (DL-0161, #1074) -- REEMBOLSO UT_RegistrarPagamento usa analise-contas-pagar.
+    assert len(ids) == len(set(ids)) == 38
     assert {gid for gid, _ in b.GRUPOS_DE_ATENDIMENTO} <= set(ids)
     # Novos (#1084): divisao de coordenacao-financeira, escalacao NIP, ouvidoria (RN 623 art. 16).
     assert {"analise-contas-pagar", "gerencia-regulatoria", "ouvidoria"} <= set(ids)
     # Fundido (nucleo-ans -> regulatorio-ans), removidos de candidateGroups e rotulo so de DMN.
     assert not {"nucleo-ans", "equipe-cuidado", "gestao-cobranca", "clerical-pagamentos"} & set(ids)
+    # Retirado por decisao do dono (DEC-30 D14): nao volta ao bootstrap sem nova decisao.
+    assert "financeiro-reembolso" not in set(ids)
     for gid, nome in b.GRUPOS_CANONICOS:
         assert nome.strip(), gid
 
@@ -139,6 +142,25 @@ def test_payment_admissibility_is_segregated_from_every_approval_group() -> None
     assert admissibilidade not in APPROVAL_GROUPS
 
 
+def test_reembolso_payment_record_reuses_the_payables_group_and_never_the_right_decider() -> None:
+    """DEC-30 D14 (#1084, 02/11/2026): sem 39o grupo -- `UT_RegistrarPagamento` usa
+    `analise-contas-pagar`. Quem registra o pagamento nao e quem decide o direito/valor
+    (`analise-reembolso`/`coordenacao-reembolso`/`medico-auditor`) nem um aprovador de alcada (S5)."""
+    tasks = _user_tasks()
+    pagamento = tasks[("SP-OP-REEMBOLSO-001", "UT_RegistrarPagamento")]
+    assert pagamento == "analise-contas-pagar"
+    assert pagamento not in APPROVAL_GROUPS
+    deciders = {
+        g.strip()
+        for (proc, task), value in tasks.items()
+        if proc == "SP-OP-REEMBOLSO-001" and task != "UT_RegistrarPagamento"
+        for g in value.split(",")
+    }
+    assert deciders == {"analise-reembolso", "coordenacao-reembolso", "medico-auditor"}
+    assert pagamento not in deciders
+    assert "financeiro-reembolso" not in {g.strip() for v in tasks.values() for g in v.split(",")}
+
+
 def test_escalation_group_is_not_co_candidate_of_the_first_instance_fallback() -> None:
     tasks = _user_tasks()
     assert tasks[("SP-OP-ADEQUACAO-001", "UT_DecisaoFallback")] == "gestao-rede"
@@ -154,7 +176,14 @@ def test_taxonomy_registry_mirrors_the_bootstrap() -> None:
         assert entry["decisao"] in {"CONFIRMAR", "NOVO"}, entry["id"]
         assert entry["status"].startswith("PROPOSTO"), entry["id"]
     nao = {g["id"] for g in data["grupos_nao_registrados"]}
-    assert nao == {"nucleo-ans", "equipe-cuidado", "gestao-cobranca", "clerical-pagamentos"}
+    assert nao == {
+        "nucleo-ans",
+        "equipe-cuidado",
+        "gestao-cobranca",
+        "clerical-pagamentos",
+        # DEC-30 D14 (#1084, 02/11/2026): REMOVIDO -- UT_RegistrarPagamento usa analise-contas-pagar.
+        "financeiro-reembolso",
+    }
 
 
 #: Estado CONGELADO da 5a tarefa adversa ate o pacote NIP (R-041 sec. 3): MANTER_NEGATIVA clinica

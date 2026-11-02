@@ -22,6 +22,7 @@
 | Q5 | Criar descrições completas dos cargos de staff | Ato do dono/RH; a taxonomia marca "cargo de staff a descrever (Q5)" |
 | Q6 | Plantão clínico P1 = telemedicina externa (só) | `plantao-clinico` mapeado assim na taxonomia |
 | — | Escalação da auditoria médica = cargo de Médico Auditor (CRM), não o Coordenador de Auditoria | `coordenacao-auditoria-medica` mapeado assim na taxonomia |
+| D14 | (DEC-30, #1084, comentário 6575240466, 2026-11-02) Sem 39º grupo: REEMBOLSO `UT_RegistrarPagamento` usa `analise-contas-pagar` | BPMN do SP-OP-REEMBOLSO-001 (`UT_RegistrarPagamento` → `analise-contas-pagar`); `financeiro-reembolso` (DL-0161, #1074) sai do bootstrap e de `grupos_registrados` e entra em `grupos_nao_registrados` como REMOVIDO; o bootstrap volta a 38 grupos |
 
 Além das escolhas literais, a entrega aplica duas consequências do modelo de 38 grupos: `nucleo-ans` fundido em `regulatorio-ans` (`nip_routing`/`nip_classification`), e `coordenacao-rede` removido como co-candidato de ADEQUACAO `UT_DecisaoFallback` (o contrato já dizia "compromisso SO aqui" para `gestao-rede`).
 
@@ -29,7 +30,7 @@ Além das escolhas literais, a entrega aplica duas consequências do modelo de 3
 
 - Antes: o bootstrap criava 4 grupos (as filas de ESCALATION). Os demais candidate groups não existiam no engine.
 - Depois: o bootstrap cria os 38 grupos sem membership e sem grant. Quem entra em cada grupo é o IdP/dono, com o cargo da taxonomia.
-- Prova: `tests/unit/platform/test_engine_bootstrap_canonical_groups.py` (todo grupo para onde uma User Task pode ir existe no bootstrap; decisor único nas 4 tarefas; checker ≠ aprovador; registro da taxonomia = bootstrap).
+- Prova: `tests/unit/platform/test_engine_bootstrap_canonical_groups.py` (todo grupo para onde uma User Task pode ir existe no bootstrap; decisor único nas 4 tarefas; checker ≠ aprovador; registro da taxonomia = bootstrap; D14: o registro do pagamento do reembolso fica com `analise-contas-pagar`, nunca com um decisor do reembolso nem com um aprovador de alçada).
 
 ## 3. Fora desta entrega (cada um é pacote próprio)
 
