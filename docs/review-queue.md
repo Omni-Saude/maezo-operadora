@@ -2530,5 +2530,11 @@ Nenhum bloco de aprovacao foi preenchido.
 | `spec/processes/dmn/pagto_duplicidade.dmn` (decisao `pagto_duplicidade` FIRST) | Janela W=180 dias do nivel 3 (mesmo prestador + competencia + valor, outra obrigacao, outro lote) — valor PROVISORIO sem fonte de financas, escolhido como o horizonte do `historyTimeToLive` P180D e viesado para mais SUSPEITA; classe de cada nivel: obrigacao ja LIBERADA ou EM CURSO em outra ordem = CONFIRMADA (analise §4 "released or in-flight" — uma ordem cancelada continua contando, porque o cancelamento hoje nao passa por worker), soma contra a origem acima do valor da origem = SUSPEITA, nivel nao avaliavel (sem origem conferida pelo PR-D, sem competencia) = INDETERMINADA, nunca NENHUMA | financas + controladoria (RN 518/2022 controles internos) | `DRAFT — valores provisorios; requires human review before any activation` |
 | `src/maezo/platform/migrations/versions/0034_pagto_obrigacao_ledger.py` (`pagto_obrigacao_ledger`) | Retencao da razao (append-only; sem dado de beneficiario; `prestador_id` pode identificar prestador PF — mesma pergunta aberta ao DPO da 0032) | DPO | `DRAFT — retencao PENDENTE-RATIFICACAO-DPO` |
 
+Fora desta entrega (declarado, nao coberto pelo detector): nivel 2 ENTRE familias — pagamento
+parcial de CONTAS + reversao de RECURSO na MESMA guia (exige o valor apresentado da guia, que PAGTO
+nao recebe; o nivel 2 so' soma ordens contra a MESMA instancia de origem) — e a verificacao
+`valor_deferido <= valor da glosa` do RECURSO (analise §4 nivel 2). Nenhum dos dois e' afirmado
+como checado por este pacote.
+
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
 REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.

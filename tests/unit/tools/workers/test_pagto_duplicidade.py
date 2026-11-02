@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +119,7 @@ def test_escopo_de_leitura_e_explicito_e_estende_o_do_lastro() -> None:
     variaveis = dup.VALIDATE_COM_DUPLICIDADE_VARIABLES
     assert variaveis[: len(VALIDATE_COM_LASTRO_VARIABLES)] == VALIDATE_COM_LASTRO_VARIABLES
     assert "competencia" in variaveis
+    assert "numero_conta" in variaveis
     assert len(set(variaveis)) == len(variaveis)
     assert "all" not in variaveis and "*" not in variaveis
 
@@ -133,7 +135,7 @@ def test_o_detector_nao_le_relogio_nem_cliente_de_rede() -> None:
 
 def test_a_janela_do_nivel_3_nao_mora_no_python() -> None:
     fonte = Path(inspect.getfile(dup)).read_text(encoding="utf-8")
-    assert "180" not in fonte
+    assert not re.search(r"\b180\b", fonte)
 
 
 # --- caminho feliz: o que vai para a razao e para a DMN ---------------------------------------
@@ -148,7 +150,7 @@ def test_contas_grava_registrada_com_a_chave_da_obrigacao_e_avalia_a_dmn() -> No
     assert entrada.evento == EVENTO_REGISTRADA
     assert entrada.tenant == _TENANT  # o do STORE, nunca o da semente
     assert entrada.origem == "contas"
-    assert entrada.chave_obrigacao == chave_obrigacao(_TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1"))
+    assert entrada.chave_obrigacao == chave_obrigacao(_TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1", "-"))
     assert entrada.origem_instancia_id == "pi-contas-1"
     assert out["duplicidade_chave_obrigacao"] == entrada.chave_obrigacao
     assert dmn.calls == [
@@ -417,7 +419,7 @@ def test_liberacao_de_baixo_valor_grava_liberada_e_devolve_o_retorno_do_guard() 
     assert out == execute_pagto(_baixo_valor())
     (entrada,) = razao.liberadas
     assert entrada.evento == EVENTO_LIBERADA
-    assert entrada.chave_obrigacao == chave_obrigacao(_TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1"))
+    assert entrada.chave_obrigacao == chave_obrigacao(_TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1", "-"))
 
 
 def test_liberacao_de_alto_valor_grava_liberada() -> None:
@@ -487,3 +489,16 @@ def test_handler_composto_nunca_sobrescreve_chave_que_a_etapa_anterior_ja_escrev
     )
     assert out["duplicidade_status"] == "VALOR_DA_ETAPA_ANTERIOR"
     assert out["duplicidade_motivo_codigo"] == "DUP_OBRIGACAO_EM_CURSO"
+
+
+def test_mesma_guia_conta_diferente_e_outra_obrigacao_mesma_conta_e_a_mesma() -> None:
+    a, b, c = _RazaoFalsa(), _RazaoFalsa(), _RazaoFalsa()
+    dup.detect_duplicidade(_ordem_contas(numero_conta="C-1"), ledger=a, dmn=_dmn())
+    dup.detect_duplicidade(
+        _ordem_contas(numero_conta="C-1", ordem_pagamento_id="ORDEM-2"), ledger=b, dmn=_dmn()
+    )
+    dup.detect_duplicidade(
+        _ordem_contas(numero_conta="C-2", ordem_pagamento_id="ORDEM-3"), ledger=c, dmn=_dmn()
+    )
+    assert a.registradas[0].chave_obrigacao == b.registradas[0].chave_obrigacao
+    assert a.registradas[0].chave_obrigacao != c.registradas[0].chave_obrigacao

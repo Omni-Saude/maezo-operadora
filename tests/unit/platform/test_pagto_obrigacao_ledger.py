@@ -127,6 +127,7 @@ class _Conn:
         self._gravado = gravado
         self._erro = erro
         self.fechada = False
+        self.isolamentos: list[str | None] = []
 
     async def execute(self, sql: str, *args: Any) -> None:
         self.chamadas.append((sql, args))
@@ -148,7 +149,8 @@ class _Conn:
         return self._similar
 
     @asynccontextmanager
-    async def transaction(self) -> Any:
+    async def transaction(self, *, isolation: str | None = None) -> Any:
+        self.isolamentos.append(isolation)
         yield
 
     async def close(self) -> None:
@@ -177,6 +179,8 @@ def test_registrar_e_ler_trava_prestador_depois_obrigacao_le_e_so_entao_grava() 
         f"pagto-obrigacao|amh|{_entrada().chave_obrigacao}",
     ]
     assert sqls[-1].startswith("INSERT INTO pagto_obrigacao_ledger")
+    # Isolamento pinado: o lock serializa e cada SELECT ve o que a transacao anterior COMMITOU.
+    assert conn.isolamentos == ["read_committed"]
     assert "ON CONFLICT (tenant, chave_obrigacao, ordem_pagamento_id, evento) DO NOTHING" in sqls[-1]
     assert conn.fechada
 

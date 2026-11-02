@@ -301,7 +301,7 @@ class PostgresRazaoObrigacoesPagamento:
         try:
             conn = await self._abrir()
             try:
-                async with conn.transaction():
+                async with conn.transaction(isolation="read_committed"):
                     # Ordem FIXA (prestador, depois obrigacao): nenhum ciclo de espera possivel.
                     await conn.execute(_LOCK_SQL, f"pagto-prestador|{entrada.tenant}|{entrada.prestador_id}")
                     await conn.execute(_LOCK_SQL, _lock_obrigacao(entrada))

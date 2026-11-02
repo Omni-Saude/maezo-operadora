@@ -9,7 +9,8 @@ O QUE FAZ. No MESMO topico `operadora.pagto.validate_payment_data` (sem tarefa n
 da validacao de sempre (e dos fatos do lastro do PR-D quando a flag dele tambem esta ligada):
 
   1. monta a CHAVE DA OBRIGACAO da ordem (`OBRIG-{origem}-{sha256}`; componentes da analise §4
-     nivel 1 — CONTAS: lote + prestador + guia; RECURSO: `glosa_id`; outro: a propria ordem);
+     nivel 1 — CONTAS: lote + prestador + guia + conta (`numero_conta`, semeado pelo handoff
+     de CONTAS a partir do PR #1180; ausente = "-"); RECURSO: `glosa_id`; outro: a propria ordem);
   2. numa UNICA transacao da razao (`pagto_obrigacao_ledger`, migracao 0034), serializada por lock
      de prestador e de obrigacao, le os INDICIOS (nivel 1: a mesma obrigacao em outra ordem;
      nivel 2: o que outras ordens ja comprometeram contra a mesma instancia de origem; nivel 3: a
@@ -133,7 +134,7 @@ NIVEL2_NAO_EXCEDE: Final[str] = "NAO_EXCEDE"
 NIVEL2_SITUACOES: Final[frozenset[str]] = frozenset({NIVEL2_EXCEDE, NIVEL2_NAO_EXCEDE, NIVEL_NAO_AVALIAVEL})
 
 #: O que o detector le alem do que a validacao (+ lastro) ja le. `competencia` alimenta o nivel 3.
-_LEITURAS_DO_DETECTOR: Final[tuple[str, ...]] = ("competencia",)
+_LEITURAS_DO_DETECTOR: Final[tuple[str, ...]] = ("competencia", "numero_conta")
 
 #: Escopo de leitura EXPLICITO do topico `validate_payment_data` quando a flag liga (menor
 #: privilegio; nunca "todas"): o escopo do PR-D (validacao + lastro, cercado por teste contra o
@@ -185,9 +186,14 @@ def _componentes(origem: str, variables: Mapping[str, Any]) -> tuple[str, ...] |
         prestador = key_segment(variables.get("prestador_id"))
         if not (lote and prestador):
             return None
-        # Guia vazia = conta no nivel do lote, marcada "-" (uma guia literalmente "-" cai na mesma
-        # obrigacao do lote: colisao conservadora — vira indicio, nunca esconde um).
-        return (lote, prestador, key_segment(variables.get("numero_guia_tiss")) or "-")
+        # Guia/conta vazias = marcadas "-" (uma guia/conta literalmente "-" cai na mesma obrigacao:
+        # colisao conservadora — vira indicio, nunca esconde um).
+        return (
+            lote,
+            prestador,
+            key_segment(variables.get("numero_guia_tiss")) or "-",
+            key_segment(variables.get("numero_conta")) or "-",
+        )
     if origem == ORIGEM_RECURSO:
         glosa = key_segment(variables.get("glosa_id"))
         return (glosa,) if glosa else None

@@ -29,7 +29,8 @@ obrigacao se serializam e a segunda ve a primeira.
 
 `chave_obrigacao` = `OBRIG-{origem}-{sha256}` sobre `[tenant, origem, componentes...]`
 (`maezo.platform.pagto_obrigacao.ledger.chave_obrigacao`): componentes por origem conforme a
-analise §4 nivel 1 — CONTAS: lote + prestador + guia (a identidade de que o protocolo do
+analise §4 nivel 1 — CONTAS: lote + prestador + guia + conta (`numero_conta`, semeado pelo
+handoff de CONTAS a partir do PR #1180; ausente = "-") (a identidade de que o protocolo do
 demonstrativo deriva; o protocolo nao chega a PAGTO); RECURSO: `glosa_id`; outro:
 `ordem_pagamento_id`. Digest em vez de concatenacao: sem ambiguidade de separador.
 
