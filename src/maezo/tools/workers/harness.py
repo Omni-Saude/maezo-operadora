@@ -231,6 +231,13 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         "criterio_contratual_ok",
         "auto_criteria_verificado",
         "motivo_bloqueio_criterios",
+        # DEC-31 D31-2 (PAGTO): a assuncao de um caso de comite pela coordenacao financeira apos
+        # estouro de SLA e AUDITADA com o motivo. Sem estas chaves a linha nao-repudiavel de uma
+        # liberacao assim diria so `pagamento_liberado=True`, igual a um comite que votou inteiro.
+        # Booleano + token fechado da DMN `pagto_comite_coordenacao` — nao-PHI; identidades,
+        # livro, instante do SLA e justificativa ficam amarrados pelo `input_sha256`.
+        "coordenacao_assumiu_comite",
+        "motivo_assuncao_comite",
     }
 )
 

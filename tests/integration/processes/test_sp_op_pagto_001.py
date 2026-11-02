@@ -242,6 +242,8 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
 _DMN_ADMISSIBILITY = _REPO / "spec/processes/dmn/pagto_admissibility.dmn"
 _DMN_ALCADA = _REPO / "spec/processes/dmn/pagto_alcada.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/pagto_sla.dmn"
+# DEC-31 D31-2: regra de assuncao do comite pela coordenacao (BRT_AssuncaoComite).
+_DMN_ASSUNCAO = _REPO / "spec/processes/dmn/pagto_comite_coordenacao.dmn"
 
 # External task topics do contrato SP-OP-PAGTO-001 (§Topicos) — cross-checked against
 # `camunda:topic` grep on the BPMN (module docstring FINDING 2).
@@ -431,8 +433,11 @@ class PagtoEngineProbe:
 
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
-    """Deploya BPMN + as 3 DMN de processo (pagto_admissibility + pagto_alcada + pagto_sla)."""
-    return await engine.deploy(_BPMN, _DMN_ADMISSIBILITY, _DMN_ALCADA, _DMN_SLA, name="SP-OP-PAGTO-001-qa")
+    """Deploya BPMN + as 4 DMN de processo (pagto_admissibility + pagto_alcada + pagto_sla +
+    pagto_comite_coordenacao, DEC-31 D31-2)."""
+    return await engine.deploy(
+        _BPMN, _DMN_ADMISSIBILITY, _DMN_ALCADA, _DMN_SLA, _DMN_ASSUNCAO, name="SP-OP-PAGTO-001-qa"
+    )
 
 
 @contextlib.asynccontextmanager
@@ -1783,3 +1788,200 @@ async def test_d3_voto_de_rodada_anterior_nunca_conta_para_a_coordenacao(
     assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
         incidentes
     )
+
+
+# ===========================================================================
+# DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): "a coordinator can take over if one
+# member voted yes and the other did not answer before deadline". Apos BT_SlaComite a coordenacao
+# so completa o caso com EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove — DMN
+# `pagto_comite_coordenacao` avaliada pelo motor em BRT_AssuncaoComite, sobre fatos que o BPMN conta.
+# ===========================================================================
+
+_BRT_ASSUNCAO = "BRT_AssuncaoComite"
+
+
+async def test_d31_2_um_aprovar_outro_sem_resposta_coordenacao_assume_libera_e_audita(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    assert await engine.get_variable(iid, "comite_votos_aprovar") == 0
+    assert await engine.get_variable(iid, "comite_sla_estourado") is False
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    assert await engine.get_variable(iid, "comite_votos_aprovar") == 1
+    assert await engine.get_variable(iid, "comite_votos_nao_aprovar") == 0
+
+    # O membro B nao responde ate o prazo: SLA do comite estoura.
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    assert await engine.get_variable(iid, "comite_sla_estourado") is True
+    assert await engine.get_variable_or_none(iid, "comite_sla_estourado_em") is not None
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_LIBERADO_HUMANO in ended, (
+        f"1 APROVAR + SLA + coordenacao distinta => liberacao. ended={ended}"
+    )
+    assert _BRT_ASSUNCAO in ended, "a assuncao de comite passa pela DMN pagto_comite_coordenacao"
+    assert await engine.get_history_variable(iid, "assuncao_comite") == "PERMITIDA"
+    assert (
+        await engine.get_history_variable(iid, "motivo_assuncao_comite")
+        == "SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA"
+    )
+    # Auditoria da assuncao: a liberacao devolveu a marca e o registro (quem/qual voto/quando/motivo).
+    assert await engine.get_history_variable(iid, "coordenacao_assumiu_comite") is True
+    # Variavel Json: o historico so devolve os dados com deserializeValues=false (o REST serializa o
+    # bean SpinJsonNode no modo padrao — ver EngineRest.get_variable).
+    resp = await engine._client.get(
+        "/history/variable-instance",
+        params={
+            "processInstanceIdIn": iid,
+            "variableName": "assuncao_coordenacao_comite",
+            "deserializeValues": "false",
+        },
+    )
+    resp.raise_for_status()
+    registro = json.loads(resp.json()[0]["value"])
+    assert registro["coordenador_id"] == _COORD_D3
+    assert (registro["membro_votante_id"], registro["voto_membro"]) == (_MEMBRO_A, "APROVAR")
+    assert registro["motivo_assuncao_comite"] == "SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA"
+    assert registro["comite_sla_estourado_em"], "quando o SLA do comite estourou"
+    assert len(registro["justificativa_sha256"]) == 64
+    assert pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano", aprovador_id=_COORD_D3)
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_d31_2_recusa_concluida_antes_do_registro_e_sla_coordenacao_nunca_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """A recusa do membro B foi CONCLUIDA na UT, mas o SLA do comite estoura antes de o worker
+    registrar o voto no livro (ST_RegistrarVotoComite pendente). O livro so tem o APROVAR de A — o
+    motor, porem, contou o RECUSAR no fluxo de saida da UT: a DMN recusa a assuncao e nada e liberado."""
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    # B recusa e conclui a UT; o registro no livro NAO roda (sem drain) antes do estouro do SLA.
+    await engine.complete_task_as_human(
+        ut_b.id,
+        {
+            "decisao_pagamento": "RECUSAR",
+            "justificativa_recusa": "Recusa sintetica do membro B (teste D31-2)",
+            "aprovador_id": _MEMBRO_B,
+        },
+    )
+    assert await engine.get_variable(iid, "comite_votos_nao_aprovar") == 1
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    assert await engine.activity_instance_count(iid, "ST_RegistrarVotoComite") == 2
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_LIBERADO_HUMANO not in ended, "uma recusa na rodada nunca deixa a coordenacao liberar (D31-2)"
+    assert not pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano")
+    assert await engine.get_variable(iid, "assuncao_comite") == "RECUSADA"
+    assert await engine.get_variable(iid, "motivo_assuncao_comite") == "VOTO_NAO_APROVAR_NA_RODADA"
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_d31_2_zero_votos_sla_coordenacao_recusada_pela_dmn(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    await _drive_to_comite(engine, pagto_probe_comite, iid)
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao")
+    )
+    await pagto_probe_comite.drain()
+
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+    assert await engine.get_variable(iid, "assuncao_comite") == "RECUSADA"
+    assert await engine.get_variable(iid, "motivo_assuncao_comite") == "NENHUM_VOTO_APROVAR"
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_d31_2_coordenacao_com_tier_abaixo_do_minimo_nao_libera(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_coord = await _estoura_sla_do_comite(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(
+        ut_coord.id, _voto_comite(_COORD_D3, decisao_coordenacao="assumir_aprovacao", aprovador_tier=3)
+    )
+    await pagto_probe_comite.drain()
+
+    assert _END_LIBERADO_HUMANO not in await engine.activity_instances_ended(iid)
+    # A DMN permitiu a assuncao; quem barra e o tier-match do guard.
+    assert await engine.get_variable(iid, "assuncao_comite") == "PERMITIDA"
+    incidentes = await engine.incidents(iid)
+    assert any("ERR_PAYMENT_RELEASE_NOT_HUMAN" in str(i.get("incidentMessage", "")) for i in incidentes), (
+        incidentes
+    )
+
+
+async def test_d31_2_dois_aprovar_seguem_o_caminho_do_comite_sem_assuncao(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    inst = await start_pagto(valor_pagamento_cents=_VALOR_COMITE, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_a = await _drive_to_comite(engine, pagto_probe_comite, iid)
+    await _votar(engine, pagto_probe_comite, ut_a.id, _voto_comite(_MEMBRO_A))
+    ut_b = await engine.await_user_task(iid, _UT_COMITE)
+    await _votar(engine, pagto_probe_comite, ut_b.id, _voto_comite(_MEMBRO_B))
+
+    ended = await _await_end(engine, iid)
+    assert _END_LIBERADO_HUMANO in ended
+    assert _BRT_ASSUNCAO not in ended and _UT_COORDENACAO not in ended
+    assert await engine.get_history_variable(iid, "comite_votos_aprovar") == 2
+    assert pagto_probe_comite.has_event(_PAGTO_COMPLETED, desfecho="liberado_humano", aprovador_id=_MEMBRO_B)
+
+
+async def test_d31_2_aprovacao_singular_assumida_pela_coordenacao_nao_passa_pela_dmn_de_assuncao(
+    engine: EngineRest,
+    pagto_probe_comite: PagtoEngineProbe,
+    start_pagto: Callable[..., Any],
+) -> None:
+    """Com a flag ligada, uma faixa singular (ALCADA_L2, quorum 1) continua no caminho de sempre: a
+    coordenacao assume apos BT_SlaAprovacao e GW_AssuncaoComite segue o default."""
+    inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
+    iid = inst["id"]
+
+    ut_coord = await _drive_to_coordenacao(engine, pagto_probe_comite, iid)
+    await engine.complete_task_as_human(ut_coord.id, _aprovacao_vars(decisao_coordenacao="assumir_aprovacao"))
+    await pagto_probe_comite.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_LIBERADO_HUMANO in ended, ended
+    assert "GW_AssuncaoComite" in ended and _BRT_ASSUNCAO not in ended

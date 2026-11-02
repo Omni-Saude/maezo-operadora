@@ -14,17 +14,26 @@ o desenho colegiado contra regressao silenciosa:
    o worker gated; CANCELAR -> `End_PagamentoCancelado`); timers vao ao caminho humano;
 5. o quorum vem SO da DMN, cada regra emite `quorum_comite`, e o valor do comite (2) e o decidido pelo
    dono em DEC-30 D1; DEC-30 D3: o minimo de votos para a coordenacao completar o quorum tambem vem
-   so da DMN e cada rodada do comite comeca sem livro.
+   so da DMN e cada rodada do comite comeca sem livro;
+6. DEC-31 D31-2: a assuncao de um caso de comite pela coordenacao passa pela DMN
+   `pagto_comite_coordenacao` (BRT_AssuncaoComite) sobre fatos que SO o BPMN escreve (votos
+   concluidos contados no fluxo de saida de cada voto, SLA do comite estourado), zerados a cada
+   rodada; a aprovacao singular segue direto.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from maezo.platform.xml_safe import parse_xml_without_dtd
 from maezo.tools.workers.pagto import (
+    ASSUNCAO_COMITE_PERMITIDA,
+    ASSUNCAO_COMITE_VAR,
+    COMITE_SLA_ESTOURADO_EM_VAR,
     COMITE_ULTIMO_VOTO_VAR,
+    MOTIVO_ASSUNCAO_COMITE_VAR,
     PAGTO_COMITE_COLEGIADO_VAR,
     VOTOS_COMITE_VAR,
     VOTOS_MINIMOS_COORDENACAO_VAR,
@@ -33,6 +42,7 @@ from maezo.tools.workers.pagto import (
 _ROOT = Path(__file__).resolve().parents[3]
 _BPMN = _ROOT / "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn"
 _DMN = _ROOT / "spec/processes/dmn/pagto_alcada.dmn"
+_DMN_ASSUNCAO = _ROOT / "spec/processes/dmn/pagto_comite_coordenacao.dmn"
 _B = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
 _C = "{http://camunda.org/schema/1.0/bpmn}"
 _D = {"dmn": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
@@ -238,7 +248,137 @@ def test_cada_rodada_do_comite_zera_livro_e_decisao_da_coordenacao() -> None:
     assert {(x.get("event"), x.get("expression")) for x in listeners} == {
         ("take", f"${{execution.removeVariable('{VOTOS_COMITE_VAR}')}}"),
         ("take", "${execution.setVariable('decisao_coordenacao', '')}"),
+        # DEC-31 D31-2: fatos da rodada que a DMN de assuncao le — zerados a cada rodada.
+        ("take", "${execution.setVariable('comite_votos_aprovar', 0)}"),
+        ("take", "${execution.setVariable('comite_votos_nao_aprovar', 0)}"),
+        ("take", "${execution.setVariable('comite_sla_estourado', false)}"),
+        ("take", f"${{execution.removeVariable('{COMITE_SLA_ESTOURADO_EM_VAR}')}}"),
+        ("take", f"${{execution.removeVariable('{ASSUNCAO_COMITE_VAR}')}}"),
+        ("take", f"${{execution.removeVariable('{MOTIVO_ASSUNCAO_COMITE_VAR}')}}"),
     }
     # O livro nunca e zerado em outro ponto do BPMN (so a entrada no comite o faz).
     todos = [x.get("expression", "") for x in _PROCESS.iter(f"{_C}executionListener")]
     assert sum(VOTOS_COMITE_VAR in e for e in todos) == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): a coordenacao so completa um caso
+# de comite apos estouro de SLA com EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove — regra
+# na DMN `pagto_comite_coordenacao`, fatos escritos so pelo BPMN.
+# ---------------------------------------------------------------------------------------------
+
+
+def _listeners(fluxo_id: str) -> list[str]:
+    fluxo = next(f for f in _PROCESS.iter(f"{_B}sequenceFlow") if f.get("id") == fluxo_id)
+    return [
+        x.get("expression", "")
+        for x in fluxo.findall(f"{_B}extensionElements/{_C}executionListener")
+        if x.get("event") == "take"
+    ]
+
+
+def test_d31_2_cada_voto_concluido_e_contado_no_mesmo_passo_do_humano() -> None:
+    """O fluxo de saida de UT_AprovacaoComite (antes da tarefa externa do livro) conta o voto: so o
+    literal exato 'APROVAR' soma em aprovar; QUALQUER outro valor soma em nao-aprovar."""
+    assert _listeners("Flow_UTComite_Registrar") == [
+        "${execution.setVariable('comite_votos_aprovar', decisao_pagamento == 'APROVAR' "
+        "? comite_votos_aprovar + 1 : comite_votos_aprovar)}",
+        "${execution.setVariable('comite_votos_nao_aprovar', decisao_pagamento == 'APROVAR' "
+        "? comite_votos_nao_aprovar : comite_votos_nao_aprovar + 1)}",
+    ]
+    fluxo = _flows()["Flow_UTComite_Registrar"]
+    assert (fluxo.get("sourceRef"), fluxo.get("targetRef")) == (
+        "UT_AprovacaoComite",
+        "ST_RegistrarVotoComite",
+    )
+
+
+def test_d31_2_so_o_fluxo_do_sla_do_comite_marca_o_estouro() -> None:
+    assert _listeners("Flow_SlaComite_Pub") == [
+        "${execution.setVariable('comite_sla_estourado', true)}",
+        f"${{execution.setVariable('{COMITE_SLA_ESTOURADO_EM_VAR}', now())}}",
+    ]
+    todos = [x.get("expression", "") for x in _PROCESS.iter(f"{_C}executionListener")]
+    escritas_true = [e for e in todos if "'comite_sla_estourado', true" in e]
+    assert len(escritas_true) == 1
+    # Os contadores so sao escritos na abertura da rodada e na saida de cada voto.
+    assert sum("'comite_votos_aprovar'" in e for e in todos) == 2
+    assert sum("'comite_votos_nao_aprovar'" in e for e in todos) == 2
+
+
+def test_d31_2_assumir_passa_pela_dmn_de_assuncao_so_no_caso_de_comite() -> None:
+    flows = _flows()
+    assert flows["Flow_GWCoord_Assumir"].get("targetRef") == "GW_AssuncaoComite"
+    gw = _por_id("GW_AssuncaoComite")
+    assert gw.tag == f"{_B}exclusiveGateway"
+    default = flows[gw.get("default", "")]
+    assert default.get("targetRef") == "GW_DecisaoPagamento"
+    assert default.find(f"{_B}conditionExpression") is None
+    comite = flows["Flow_GWAssuncao_Comite"]
+    assert comite.get("targetRef") == "BRT_AssuncaoComite"
+    # Mesma condicao que abre o comite: so um caso de comite passa pela DMN de assuncao.
+    assert (comite.findtext(f"{_B}conditionExpression") or "").strip() == (
+        flows["Flow_GWTipo_Comite"].findtext(f"{_B}conditionExpression") or ""
+    ).strip()
+    assert [f.get("targetRef") for f in _flows_de("BRT_AssuncaoComite")] == ["GW_DecisaoPagamento"]
+    # Nenhum caminho novo de liberacao: so GW_DecisaoPagamento leva ao worker gated.
+    entradas = {f.get("sourceRef") for f in flows.values() if f.get("targetRef") == "ST_ReleaseHighValue"}
+    assert entradas == {"GW_DecisaoPagamento"}
+
+
+def test_d31_2_brt_assuncao_avalia_a_dmn_e_achata_as_saidas() -> None:
+    brt = _por_id("BRT_AssuncaoComite")
+    assert brt.tag == f"{_B}businessRuleTask"
+    assert brt.get(f"{_C}decisionRef") == "pagto_comite_coordenacao"
+    assert brt.get(f"{_C}mapDecisionResult") == "singleResult"
+    io = brt.find(f"{_B}extensionElements/{_C}inputOutput")
+    assert io is not None
+    saidas = {p.get("name"): (p.text or "").strip() for p in io.findall(f"{_C}outputParameter")}
+    assert saidas == {
+        ASSUNCAO_COMITE_VAR: f"${{pagto_comite_coordenacao.{ASSUNCAO_COMITE_VAR}}}",
+        MOTIVO_ASSUNCAO_COMITE_VAR: f"${{pagto_comite_coordenacao.{MOTIVO_ASSUNCAO_COMITE_VAR}}}",
+    }
+
+
+def _regras_assuncao() -> list[tuple[str, list[str], list[str]]]:
+    root = parse_xml_without_dtd(_DMN_ASSUNCAO.read_bytes())
+    decision = root.find("dmn:decision", _D)
+    assert decision is not None and decision.get("id") == "pagto_comite_coordenacao"
+    table = decision.find("dmn:decisionTable", _D)
+    assert table is not None and table.get("hitPolicy") == "FIRST"
+    entradas = [
+        (i.findtext("dmn:inputExpression/dmn:text", "", _D) or "").strip()
+        for i in table.findall("dmn:input", _D)
+    ]
+    assert entradas == ["comite_sla_estourado", "comite_votos_aprovar", "comite_votos_nao_aprovar"]
+    assert [o.get("name") for o in table.findall("dmn:output", _D)] == [
+        ASSUNCAO_COMITE_VAR,
+        MOTIVO_ASSUNCAO_COMITE_VAR,
+    ]
+    out = []
+    for rule in table.findall("dmn:rule", _D):
+        ins = [(e.findtext("dmn:text", "", _D) or "").strip() for e in rule.findall("dmn:inputEntry", _D)]
+        outs = [(e.findtext("dmn:text", "", _D) or "").strip() for e in rule.findall("dmn:outputEntry", _D)]
+        out.append((rule.get("id", ""), ins, outs))
+    return out
+
+
+def test_d31_2_dmn_so_permite_exatamente_um_aprovar_sem_recusa_apos_o_sla() -> None:
+    regras = _regras_assuncao()
+    permitidas = [r for r in regras if r[2][0] == f'"{ASSUNCAO_COMITE_PERMITIDA}"']
+    assert permitidas == [
+        ("r_permitida", ["true", "1", "0"], ['"PERMITIDA"', '"SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA"'])
+    ]
+    # Toda outra regra recusa; a ultima e o catch-all fail-closed.
+    assert {r[2][0] for r in regras if r[0] != "r_permitida"} == {'"RECUSADA"'}
+    assert regras[-1][0] == "r_catchall" and regras[-1][1] == ["-", "-", "-"]
+    # Motivos sao tokens limitados (vao em claro para a trilha de auditoria ADR-0007).
+    assert all(re.fullmatch(r'"[A-Z0-9_]+"', r[2][1]) for r in regras)
+
+
+def test_d31_2_dmn_registrada_pendente_de_aprovacao_sem_assinatura() -> None:
+    registro = (_ROOT / "spec/aprovacoes-de-regras.yaml").read_text(encoding="utf-8")
+    pendentes = registro.split("pendentes:")[1]
+    assert "artefato: spec/processes/dmn/pagto_comite_coordenacao.dmn" in pendentes
+    assert "D31-2" in pendentes
+    assert "pagto_comite_coordenacao.dmn" not in registro.split("pendentes:")[0]

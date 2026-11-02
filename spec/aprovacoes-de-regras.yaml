@@ -218,6 +218,10 @@ pendentes:
     responsavel: a definir
     marca_no_arquivo: "pagto_alcada v0.1.0 — status: DRAFT (escada de alcada / threshold_brl / mapeamento"
     nota: "R-092 (2026-11-01) + DEC-30 (dono, #1084, 2026-11-02): saida quorum_comite (catch-all comite-financeiro = 2) DECIDIDA — D1 comite = CFO + Gerente Financeiro, os dois aprovam (2 de 2); D2 todo voto exigido = APROVAR; D3 (v0.1.3) saida votos_minimos_coordenacao = 1 no catch-all: a coordenacao so completa o quorum apos estouro de SLA com 1 voto APROVAR de membro distinto ja registrado; a coordenacao-financeira e o Coordenador Financeiro, cargo distinto do Gerente Financeiro e fora do comite (esclarecimento do dono 2026-11-02) — por construcao pessoa diferente dos membros, e o guard confere mesmo assim. Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista: a escada de alcada/threshold/faixa->grupo->tier seguem DRAFT e a pertinencia dos membros no IdP e ato humano (docs/review-queue.md, secao R-092)."
+  - artefato: spec/processes/dmn/pagto_comite_coordenacao.dmn
+    responsavel: a definir
+    marca_no_arquivo: "pagto_comite_coordenacao v0.1.0 — status: DECIDIDO (DEC-31 D31-2, dono, #1084, 2026-11-02) —"
+    nota: "DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): apos o SLA do comite estourar, a coordenacao financeira so completa o caso com EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove na rodada; qualquer recusa ou zero votos mantem a recusa fail-closed. Avaliada so por BRT_AssuncaoComite (SP-OP-PAGTO-001), atras da flag MAEZO_PAGTO_COMITE_COLEGIADO (desligada). Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista (financas assina)."
   - artefato: spec/processes/dmn/pagto_duplicidade.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_duplicidade v0.1.1 — status: DECIDIDO (DEC-30 D9/D10) — janela W=90 dias do nivel 3 e a"
