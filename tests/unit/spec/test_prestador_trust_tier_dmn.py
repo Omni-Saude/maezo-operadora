@@ -498,6 +498,20 @@ def test_red_flag_f1_so_com_volume_suficiente(ordens: int, taxa: float, red_flag
         assert resultado == ("STANDARD", "PONTUACAO_STANDARD"), resultado
 
 
+@pytest.mark.parametrize("pontos", [85, 75, 50])
+def test_red_flag_f1_vence_novos_e_qualquer_pontuacao(pontos: int) -> None:
+    """Precedencia FIRST: a red flag F1 responde antes de 'prestador novo' e de STANDARD/TRUSTED."""
+    f1_baixo = {"f1_ordens_decididas": 10, "f1_taxa_liberacao_humana": 0.5}
+    assert tier(**_ti(pontuacao_confianca=pontos, **f1_baixo)) == (
+        "WATCH",
+        "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80",
+    )
+    assert tier(**_ti(pontuacao_confianca=pontos, pagamentos_liberados_humanos=3, **f1_baixo)) == (
+        "WATCH",
+        "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80",
+    )
+
+
 def test_red_flag_f1_mora_com_as_outras_red_flags() -> None:
     """Posicao na tabela FIRST: depois da validade das entradas, junto das red flags, antes de novos."""
     ids = [r.rid for r in _TIER_T.regras]
