@@ -544,15 +544,16 @@ rows:
   proposto: true
   notas: caveat PROPOSTO contrato linha 149
   nome_real: ''
-- grupo_declarado: financeiro-reembolso
+- grupo_declarado: analise-contas-pagar
   arquivo: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
   linha: 218
   processo: SP-OP-REEMBOLSO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_RegistrarPagamento
+  tarefa_ou_regra_dmn: UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor)
   sla_ato: contrato v0.2.0 (DL-0161) -- o financeiro paga fora do sistema e registra data_pagamento
   proposto: true
-  notas: grupo NOVO da v0.2.0; PROPOSTO ate a taxonomia organizacional do operador confirmar o nome
+  notas: 'DEC-30 D14 (#1084, 2026-11-02): sem 39o grupo -- reusa o grupo de PAGTO UT_AnaliseAdmissibilidade;
+    financeiro-reembolso (v0.2.0, DL-0161) REMOVIDO'
   nome_real: ''
 - grupo_declarado: dpo
   arquivo: spec/processes/dmn/suppression_routing.dmn
@@ -794,15 +795,6 @@ grupos_registrados:
   qualificacao: nenhuma
   tarefas: REEMBOLSO UT_CoordenacaoReembolso
   sod: P9
-- id: financeiro-reembolso
-  nome_exibicao: Financeiro do reembolso (registro do pagamento)
-  decisao: NOVO
-  status: PROPOSTO -- aguarda Nomeacao do dono
-  cargo_mapeado: 'Analista financeiro (cargo de staff a descrever) -- CSC; paga fora do sistema e registra
-    data_pagamento (SP-OP-REEMBOLSO-001 v0.2.0, DL-0161)'
-  qualificacao: nenhuma
-  tarefas: REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide direito nem valor)
-  sod: nunca analise-reembolso/coordenacao-reembolso no mesmo pedido (proposto)
 - id: coordenacao-clinica
   nome_exibicao: Coordenacao medica de programas
   decisao: CONFIRMAR
@@ -858,10 +850,13 @@ grupos_registrados:
   decisao: NOVO
   status: PROPOSTO -- aguarda Nomeacao do dono
   cargo_mapeado: 'Analista de Contas a Pagar (cargo de staff a descrever (Q5, #1084)) sob o Gerente Financeiro
-    / Coordenador de Tesouraria -- CSC'
+    / Coordenador de Tesouraria -- CSC; tambem paga fora do sistema o reembolso aprovado e registra data_pagamento
+    (DEC-30 D14, #1084)'
   qualificacao: nenhuma
-  tarefas: PAGTO UT_AnaliseAdmissibilidade
-  sod: 'S5, S6: nunca aprovador; P5: nunca o solicitante'
+  tarefas: PAGTO UT_AnaliseAdmissibilidade; REEMBOLSO UT_RegistrarPagamento (registra o pagamento; nunca decide
+    direito nem valor -- DEC-30 D14)
+  sod: 'S5, S6: nunca aprovador; P5: nunca o solicitante; REEMBOLSO: nunca analise-reembolso/coordenacao-reembolso
+    no mesmo pedido (proposto)'
 - id: coordenacao-financeira
   nome_exibicao: Coordenacao financeira (aprovacao por SLA)
   decisao: CONFIRMAR
@@ -916,6 +911,9 @@ grupos_nao_registrados:
 - id: clerical-pagamentos
   motivo: 'rotulo de DMN da faixa sem aprovador humano (pagto_alcada); nunca vira fila. Teto clerical
     R$ 100k MANTIDO (Q3, #1084): o dono emenda a descricao do Coordenador de Tesouraria'
+- id: financeiro-reembolso
+  motivo: 'REMOVIDO -- DEC-30 D14 (#1084, 2026-11-02): sem 39o grupo; REEMBOLSO UT_RegistrarPagamento usa
+    analise-contas-pagar (o grupo entrara pela DL-0161/#1074 e sai antes de ter pessoas)'
 sod_estrutural:
 - S1 auditoria-contas x analista-recurso-glosa
 - S2 coordenacao-contas x coordenacao-recurso

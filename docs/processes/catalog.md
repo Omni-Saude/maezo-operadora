@@ -352,7 +352,7 @@ Fonte: [SP-OP-RECURSO-001_Recurso_Glosa.bpmn](../../spec/processes/bpmn/SP-OP-RE
 Fonte: [SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn](../../spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-REEMBOLSO-001.md).
 
 - Gatilhos: `Start_SolicitacaoReembolso` (contract start).
-- Humanos (5): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`; `UT_RegistrarPagamento` → `financeiro-reembolso` (paga fora do sistema e registra `data_pagamento`).
+- Humanos (5): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`; `UT_RegistrarPagamento` → `analise-contas-pagar` (paga fora do sistema e registra `data_pagamento`; DEC-30 D14, #1084).
 - DMNs: `reembolso_prazo` (informativa), `reembolso_sla`. Workers: `operadora.events.publish`, `operadora.reembolso.analyze_request`, `operadora.reembolso.check_coverage`, `operadora.reembolso.notify_sla_risk`, `operadora.reembolso.request_documents`, `operadora.reembolso.send_reembolso_denial`.
 - Esperas/timers: `TD_PrazoPendencia` = `P5D`; `TD_AlertaSla` = `${sla.sla_alerta}`; `TD_SlaAnalise` = `${sla.sla_analise}`. Mensagens: `msg.reembolso.docs_received`.
 - Eventos: `agents.events.reembolso.completed`, `agents.events.reembolso.pended`, `agents.events.reembolso.received`, `agents.events.reembolso.sla_breached`. Call activities: —.

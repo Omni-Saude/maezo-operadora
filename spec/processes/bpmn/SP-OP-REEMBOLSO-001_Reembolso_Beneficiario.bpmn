@@ -215,7 +215,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:incoming>Flow_GWDec_Parcial</bpmn:incoming>
       <bpmn:outgoing>Flow_ST_ComunicarReducao_AvisoParcial</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="UT_RegistrarPagamento" name="Registrar pagamento do reembolso (pago em DD/MM)" camunda:candidateGroups="financeiro-reembolso">
+    <bpmn:userTask id="UT_RegistrarPagamento" name="Registrar pagamento do reembolso (pago em DD/MM)" camunda:candidateGroups="analise-contas-pagar">
       <bpmn:documentation>O financeiro paga FORA do sistema (como hoje) e registra aqui `data_pagamento`. Nenhum pagamento e emitido por este processo (v0.2.0, DL-0161: o worker issue_payment/CNAB foi removido). Tambem recebe, so' com a faixa B aberta (hoje dormente), a aprovacao automatica integral registrada por ST_RegistrarAprovacaoAuto: o financeiro paga o mesmo valor_reembolso_aprovado_cents.</bpmn:documentation>
       <bpmn:extensionElements>
         <!-- Formulario fechado do portal (DL-0163, BPMN_FORMDATA). Sem `required` de proposito: quem garante

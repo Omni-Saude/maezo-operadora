@@ -34,7 +34,7 @@ produção.** Contrato: `docs/processes/contracts/SP-OP-REEMBOLSO-001.md` v0.2.0
    - o Lucas avisa a beneficiária com o texto do analista;
    - ela responde por texto e/ou arquivos e termina com **TERMINEI**;
    - o pedido volta à análise com a resposta e os arquivos novos visíveis no portal.
-6. Aprovado: o **financeiro** (`UT_RegistrarPagamento`, grupo `financeiro-reembolso`) paga **fora do sistema** e
+6. Aprovado: o **financeiro** (`UT_RegistrarPagamento`, grupo `analise-contas-pagar` — DEC-30 D14, #1084) paga **fora do sistema** e
    registra **"Pago em"**. A beneficiária recebe "o pagamento foi feito em DD/MM/AAAA".
 7. **Avisos à beneficiária** (retomada `agent-resume`, histórico do motor conferido):
    - os cinco avisos são aprovado, parcial, negado, pedido de informação e pago;
@@ -64,7 +64,7 @@ pelo WhatsApp (precisaria de template aprovado) e a equipe recebe o aviso para c
 | analista | `analise-reembolso` | `reembolso-analisar` |
 | coordenação | `coordenacao-reembolso` | `reembolso-analisar` |
 | médico auditor | `medico-auditor` | `reembolso-auditar` |
-| financeiro | `financeiro-reembolso` | `reembolso-pagar` |
+| financeiro (contas a pagar) | `analise-contas-pagar` | `reembolso-pagar` |
 
 Criação: `docs/runbooks/portal-dev-provisionamento.md` §3.8 e `scripts/ops/portal_semear_membership.py`
 (`PESSOAS='[{"subject":"<sub>","groups":["analise-reembolso"],"roles":["reembolso-analisar"]}]'`). Um usuário de

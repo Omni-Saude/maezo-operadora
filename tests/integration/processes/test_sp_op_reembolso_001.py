@@ -223,7 +223,7 @@ async def _decidir(
 
 async def _registrar_pagamento(engine: EngineRest, probe: ReembolsoEngineProbe, iid: str) -> Any:
     ut = await engine.await_user_task(iid, _UT_PAGAMENTO)
-    assert "financeiro-reembolso" in ut.candidate_groups
+    assert "analise-contas-pagar" in ut.candidate_groups  # DEC-30 D14 (#1084)
     await engine.complete_task_as_human(ut.id, {"data_pagamento": "2026-10-30"})
     await probe.drain()
     return ut
@@ -736,7 +736,7 @@ async def test_conclusao_tipada_do_portal_passa_pela_guarda_l0(
     await reembolso_probe.drain()
     assert await engine.incidents(iid) == []
     pagamento = await engine.await_user_task(iid, _UT_PAGAMENTO)
-    assert "financeiro-reembolso" in pagamento.candidate_groups
+    assert "analise-contas-pagar" in pagamento.candidate_groups  # DEC-30 D14 (#1084)
 
 
 # ===========================================================================

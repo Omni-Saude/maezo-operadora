@@ -133,6 +133,10 @@ Acrescido em 31/10/2026 (R-041 / DEC-21, decisao do dono em #1084, rodadas 2 e 3
 `gestao-contratos` deixam de ser candidate-group de User Task (decisor unico nas tarefas adversas) — os
 identificadores nao sao renomeados nem reutilizados.
 
+Retirado em 02/11/2026 (DEC-30 D14, decisao do dono em #1084): `financeiro-reembolso` deixa de ser
+grupo canonico (sem 39o grupo). `UT_RegistrarPagamento` do SP-OP-REEMBOLSO-001 passa a
+`analise-contas-pagar`. O bootstrap nao cria mais o grupo e nao apaga quem ja o tem num engine dev.
+
 As expressões `${grupo_humano}`, `${pagto_alcada.grupo_aprovador}`,
 `${roteamento.grupo_atendimento}` e `${roteamento_dsr.grupo_revisor}` são resolvidas no servidor
 a partir do estado autoritativo do engine e intersectadas com membership autenticado. Não se

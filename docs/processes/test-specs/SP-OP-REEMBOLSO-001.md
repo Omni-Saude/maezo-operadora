@@ -26,7 +26,7 @@ tenant `amh`. Business key `REEMB-amh-{protocolo}`. Valores em **centavos inteir
 
 | Teste | Garante |
 |---|---|
-| `test_aprovado_pelo_analista_passa_pelo_pagamento_humano` | `APROVAR` → aviso `reembolso_aprovado` → `UT_RegistrarPagamento` (grupo `financeiro-reembolso`, `data_pagamento`) → aviso `reembolso_pago` → `End_ReembolsoAprovadoAnalista`; desfecho `aprovado_analista` |
+| `test_aprovado_pelo_analista_passa_pelo_pagamento_humano` | `APROVAR` → aviso `reembolso_aprovado` → `UT_RegistrarPagamento` (grupo `analise-contas-pagar` — DEC-30 D14, `data_pagamento`) → aviso `reembolso_pago` → `End_ReembolsoAprovadoAnalista`; desfecho `aprovado_analista` |
 | `test_aprovado_parcial_comunica_a_reducao_e_depois_paga` | `APROVAR_PARCIAL` → `ST_ComunicarReducao` (guard) → aviso `reembolso_parcial` → pagamento humano → `End_ReembolsoParcial` |
 | `test_negado_pelo_analista` | `NEGAR` → aviso `reembolso_negado` → `End_ReembolsoNegado`; sem pagamento; a negativa so nasce na User Task |
 | `test_escalar_para_o_medico_auditor` | `SOLICITAR_AUDITOR` (botao "escalar") → `UT_RevisaoAuditorMedico` (`medico-auditor`) → decide |
@@ -65,7 +65,7 @@ tenant `amh`. Business key `REEMB-amh-{protocolo}`. Valores em **centavos inteir
 
 - Os topicos registrados sao **exatamente** os topicos `operadora.reembolso.*` do BPMN + `publish_completed` (convencao); `calculate_amount`, `issue_payment` e `check_prazo` nao voltam.
 - O modulo nao tem mais `calculate_value`, `process_payment`, `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` etc.
-- Os elementos do caminho automatico nao existem no BPMN; o pagamento e `userTask` do grupo `financeiro-reembolso`.
+- Os elementos do caminho automatico nao existem no BPMN; o pagamento e `userTask` do grupo `analise-contas-pagar` (DEC-30 D14, #1084; sem grupo proprio).
 - Todo aviso e `agents.events.process_completed` com so `tenant_id,agent_id,conversation_id,resultado`; os cinco `resultado` esperados.
 - `reembolso_prazo.dmn` so tem o catch-all `NAO_AVALIADO`; `reembolso_calculo.dmn` e `reembolso_coverage.dmn` nao existem.
 

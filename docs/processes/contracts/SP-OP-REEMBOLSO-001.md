@@ -150,7 +150,7 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 | `analise-reembolso` | Analista de reembolso | `UT_AnaliseReembolso` (todo pedido passa aqui), `UT_DecidirPendenciaExpirada` |
 | `medico-auditor` | Medico auditor | `UT_RevisaoAuditorMedico` (merito clinico — `SOLICITAR_AUDITOR`) |
 | `coordenacao-reembolso` | Coordenacao de reembolso | `UT_CoordenacaoReembolso` (SLA de analise estourado — assume e decide) |
-| `financeiro-reembolso` | Financeiro | `UT_RegistrarPagamento` (paga fora do sistema e registra `data_pagamento`) — **grupo novo na v0.2.0** |
+| `analise-contas-pagar` | Financeiro (contas a pagar) | `UT_RegistrarPagamento` (paga fora do sistema e registra `data_pagamento`; nunca decide direito nem valor) — **DEC-30 D14 (#1084, 02/11/2026): sem 39º grupo, reusa o grupo da admissibilidade do SP-OP-PAGTO-001; o `financeiro-reembolso` da v0.2.0 saiu** |
 
 Campos obrigatorios por decisao (validacao do formulario do portal e do guard do worker — sem eles a task nao completa):
 - `APROVAR` → `valor_reembolso_aprovado_cents` (> 0).
@@ -208,7 +208,7 @@ Texto livre do analista numa comunicacao adversa exige **revisao juridica antes 
 - Revisao do juridico dos textos de "nao aprovado" e "parcial" e das condicoes dos casos legais (urgencia fora da rede, falta de prestador no prazo).
 - Definicao do prazo de reembolso (preencher `reembolso_prazo.dmn`) e confirmacao dos prazos de `reembolso_sla.dmn`; base RN 566/2022.
 - Template Meta para aviso fora da janela de 24h.
-- Pessoas reais nos grupos `analise-reembolso`, `medico-auditor`, `coordenacao-reembolso` e `financeiro-reembolso`; confirmacao dos nomes contra a taxonomia organizacional.
+- Pessoas reais nos grupos `analise-reembolso`, `medico-auditor`, `coordenacao-reembolso` e `analise-contas-pagar` (DEC-30 D14); confirmacao dos nomes contra a taxonomia organizacional.
 - Zona PHI para os comprovantes (foto/PDF): custodia em S3 com SSE-KMS implementada para dev (DL-0163; JPG/PNG/PDF ate' 10 MiB); a retencao de 5 anos (decisao do dono — DL-0162) e a disposicao dos cinco textos humanos (`phi_completeness.py::DISPOSITIONS`) sao do DPO.
 - Politica de suspensao de prazo em pendencia.
 - Faixa B (dormente): assinatura do dono + atuaria no R-070 §6 antes de qualquer teto > 0, de virar o R-058 ou de abrir o kill-switch de politica; fontes reais de tabela, limite contratual, NF verificada, merito clinico e contadores de exposicao (R-070 §3.7); sombra (R-070 §3.6).
