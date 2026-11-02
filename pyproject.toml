@@ -14,7 +14,7 @@ classifiers = [
 dependencies = [
     # --- Agent runtime (cidadaos de primeira classe desde o commit 1) ---
     "langgraph>=0.4,<2.0",
-    "langgraph-sdk==0.4.8",         # GHSA-fvww-7h3r-vfhp: corrected resource-scoped auth actions
+    "langgraph-sdk==0.4.10",         # GHSA-fvww-7h3r-vfhp: corrected resource-scoped auth actions
     "langgraph-checkpoint-postgres>=3.1.1,<4.0",
     "a2a-sdk>=1.0,<2.0",            # Agent2Agent v1.0 (Linux Foundation)
     "mcp>=1.9,<3.0",                # Model Context Protocol (tools)
@@ -203,8 +203,10 @@ exclude-newer = "2026-08-05T00:00:00Z"
 #   GHSA-gh4c-6fx4-qh6g loop infinito no deflate, GHSA-vxq7-64xx-v4gw chunk-size sem limite), fix
 #   2.8.0 de 15/09 (transitiva via botocore/requests). Janela ate' 16/09.
 # - langgraph-sdk: GHSA-fvww-7h3r-vfhp affects resource-scoped auth action filtering.
-#   Fixed 0.4.4 was published 27/08/2026. Dependabot #833 pins 0.4.8 (16/10/2026);
-#   admit only this package through 17/10 so the explicit pin can resolve.
+#   Fixed 0.4.4 was published 27/08/2026. Dependabot #833 pinned 0.4.8 (16/10/2026);
+#   Dependabot #1185 (02/11/2026) pins 0.4.10 (26/10/2026, bugfix de SSE/runs.wait, sem GHSA);
+#   admit only this package through 27/10 so the explicit pin can resolve (0.4.11 de 30/10 segue
+#   em quarentena).
 # - mcp (15/10/2026): 1.28.1 tem GHSA-84m7-p3x7-pcfv (CVSS 7.5, DoS no transporte StreamableHTTP
 #   stateful), fix 1.30.0 de 07/09. Declarado mas nao importado em src. Janela ate' 08/09.
 # - certifi (20/10/2026): 2026.6.17 recebeu GHSA-6q48-6c7w-9gw2 (CRITICAL, raizes emSign com chave de CA
@@ -229,7 +231,7 @@ exclude-newer = "2026-08-05T00:00:00Z"
 #   drive no TemplateLookup no Windows), fix 1.4.2 publicado em 22/09 20:40 UTC (transitiva via
 #   alembic). Janela ate' 22/09 20:45 UTC, e nao ate' o dia seguinte: 1.4.3 saiu 14 min depois
 #   (20:54, so' ajuste de testes no Windows) e continua em quarentena.
-exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph = "2026-10-07T00:00:00Z", langgraph-checkpoint = "2026-10-13T00:00:00Z", langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z", langgraph-sdk = "2026-10-17T00:00:00Z", mako = "2026-09-22T20:45:00Z", mcp = "2026-09-08T00:00:00Z", opentelemetry-api = "2026-10-07T00:00:00Z", opentelemetry-sdk = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-common = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-common = "2026-10-07T00:00:00Z", opentelemetry-proto = "2026-10-07T00:00:00Z", opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z", pyasn1 = "2026-10-28T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph = "2026-10-07T00:00:00Z", langgraph-checkpoint = "2026-10-13T00:00:00Z", langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z", langgraph-sdk = "2026-10-27T00:00:00Z", mako = "2026-09-22T20:45:00Z", mcp = "2026-09-08T00:00:00Z", opentelemetry-api = "2026-10-07T00:00:00Z", opentelemetry-sdk = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-common = "2026-10-07T00:00:00Z", opentelemetry-exporter-otlp-proto-common = "2026-10-07T00:00:00Z", opentelemetry-proto = "2026-10-07T00:00:00Z", opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z", pyasn1 = "2026-10-28T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
