@@ -62,28 +62,34 @@ consultar a business key antes de iniciar (start idempotente — **evita liberac
 pagamento**, risco financeiro direto).
 
 **Forma por conta do handoff CONTAS (decisao do dono de 2026-11-01, opcao A — "conta na chave de
-pagamento").** Quando CONTAS-001 adjudicou na forma guia/conta (`numero_guia_tiss` E `numero_conta`
-presentes — a MESMA regra de `chave_de_negocio.contas_adjudica_por_conta`), a forma lote acima nao
-distingue duas contas do mesmo prestador no mesmo lote: com a postura `PERMANENT`, a segunda conta
-batia na ordem da primeira e ficava sem pagamento. A chave precisa e'
-`PAGTO-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}` (compositor unico
-`maezo.domain.chave_de_negocio.pagto_business_key_por_conta`; etiqueta `C`; `numero_guia_tiss` com
-`-` RECUSADO, decisao do dono R-101), e o `ordem_pagamento_id` acompanha a forma
-(`ORDEM-CONTA-{tenant_id}-C-{guia}-{conta}`). Mudanca de FORMATO de chave: so' vale dentro da janela
-unica de migracao do ADR-0068, pela fase `MAEZO_PAGTO_CHAVE_CONTA_FASE` do worker-daemon:
+pagamento"; DEC-30 D13, 2026-11-02 — com o prestador).** Quando CONTAS-001 adjudicou na forma
+guia/conta (`numero_guia_tiss` E `numero_conta` presentes — a MESMA regra de
+`chave_de_negocio.contas_adjudica_por_conta`), a forma lote acima nao distingue duas contas do mesmo
+prestador no mesmo lote: com a postura `PERMANENT`, a segunda conta batia na ordem da primeira e
+ficava sem pagamento. A chave precisa e'
+`PAGTO-{tenant_id}-C-{prestador_id}-{numero_guia_tiss}-{numero_conta}` (compositor unico
+`maezo.domain.chave_de_negocio.pagto_business_key_por_conta`; etiqueta `C`; mesma normalizacao dos
+demais segmentos; `prestador_id` e `numero_guia_tiss` com `-` RECUSADOS — segmentos do meio, decisao
+do dono R-101 estendida por DEC-30 D13), e o `ordem_pagamento_id` acompanha a forma
+(`ORDEM-CONTA-{tenant_id}-C-{prestador}-{guia}-{conta}`). Mudanca de FORMATO de chave: so' vale dentro
+da janela unica de migracao do ADR-0068 (Accepted, DEC-29), emendado pelo ADR-0074 (Proposed, DEC-30
+D12: forma `C` na tabela da janela; `MAEZO_PAGTO_CHAVE_CONTA_FASE` absorvida em `MAEZO_CHAVES_JANELA`
+no pacote da janela), pela fase `MAEZO_PAGTO_CHAVE_CONTA_FASE` do worker-daemon:
 
 | Fase | Escreve | Le antes (leitura dupla) |
 |---|---|---|
 | `legado` (padrao) | `PAGTO-{t}-{lote}-{prestador}` | — |
 | `leitura_dupla` | `PAGTO-{t}-{lote}-{prestador}` | a forma por conta desta conta |
-| `escrita_alvo` | `PAGTO-{t}-C-{guia}-{conta}` | a forma lote; ordem de OUTRA conta comprovada destrava, identidade indeterminada recusa |
+| `escrita_alvo` | `PAGTO-{t}-C-{prestador}-{guia}-{conta}` | a forma lote; ordem de OUTRA conta comprovada destrava, identidade indeterminada recusa |
 
 A forma lote nunca muda de chave. **Com o padrao `legado` o defeito persiste ate a janela**, mas nao
 em silencio: em toda fase, um `ALREADY_*` do start idempotente so' e' sucesso quando a ordem existente
-e' DESTA conta (conferido no historico do motor por `numero_guia_tiss`/`numero_conta`); senao o
-handoff RECUSA (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`, incidente auditado). A postura de dedup do
-start segue `PERMANENT` (DL-0046). Plano de migracao das ordens ja' criadas sob a forma lote:
-`docs/runbooks/pagto-chave-por-conta-migracao.md`.
+e' DESTA conta (conferido no historico do motor por `prestador_id`/`numero_guia_tiss`/`numero_conta`;
+prestador ausente = nao comprovavel); senao o handoff RECUSA (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`,
+incidente auditado, contador `maezo_contas_pagto_ordem_recusada_total` e alerta
+`MaezoContasPagtoOrdemDeOutraConta` — DEC-30 D11). A postura de dedup do start segue `PERMANENT`
+(DL-0046). Plano de migracao das ordens ja' criadas sob a forma lote e procedimento do financeiro
+antes da janela: `docs/runbooks/pagto-chave-por-conta-migracao.md`.
 
 ## Variaveis de entrada
 
@@ -413,11 +419,11 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
   - ordem: `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `O-{ordem_pagamento_id}`.
   - lote+prestador (CONTAS): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `L-{numero_lote_tiss}-{prestador_id}`.
-  - guia+conta (CONTAS forma guia/conta — decisao do dono de 2026-11-01, opcao A; **forma ainda nao listada no ADR-0068, emenda proposta no PR que a introduziu**): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `C-{numero_guia_tiss}-{numero_conta}`.
+  - prestador+guia+conta (CONTAS forma guia/conta — decisao do dono de 2026-11-01, opcao A; DEC-30 D13; forma registrada pelo ADR-0074, Proposed, emenda ao ADR-0068 §2 linha 4): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `C-{prestador_id}-{numero_guia_tiss}-{numero_conta}` = `H(C,prestador,guia,conta)`.
   - guia+glosa (RECURSO): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}-{glosa_id}`.
-- **Classificação (a confirmar pelo DPO):** forma `G` pessoal; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
+- **Classificação (a confirmar pelo DPO):** formas `G` e `C` pessoais; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
 - **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
 - **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
 - **Postura de dedup do start:** `PERMANENT` (inalterada).
-- As etiquetas `O`/`L`/`G` separam as três formas da família, que hoje só se distinguem pela contagem de `-`.
+- As etiquetas `O`/`L`/`G`/`C` separam as quatro formas da família, que hoje só se distinguem pela contagem de `-` (e, na `C`, pela etiqueta em claro).
 - **Gate permanente na janela:** um pagamento legado CONCLUÍDO continua recusando o start na forma alvo — o filtro de histórico aceita as duas process keys e a reivindicação legada ganha uma linha de alias na forma alvo (só inserção; nenhuma linha apagada). O predicado de retenção dos claims `PERMANENT` ganha o segmento `maezo-payer-pagto-001`. Risco direto: pagamento duplicado — teste negativo obrigatório no pacote da janela.

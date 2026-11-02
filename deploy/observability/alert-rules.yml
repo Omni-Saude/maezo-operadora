@@ -8,6 +8,7 @@
 #   2. Crash-loop — frequent worker/agent CONTAINER RESTARTS (kube-state-metrics)
 #   3. Dead-letter — NEW messages arriving at a DLQ topic
 #   4. Governanca de agentes / HITL L1 / Kafka consumidor parado
+#   5. Pagamento de contas — ordem PAGTO de outra conta (DEC-30 D11)
 #
 # ROTEAMENTO (R-085, decisao do dono 2026-10-31, #1084 Rodada 2): `severity` passa a ter efeito —
 # `deploy/observability/alertmanager-amp.yml.tftpl` roteia `critical` -> receptor `page` e
@@ -736,3 +737,39 @@ groups:
             {{ $labels.topic }} and its committed offset did not advance in the last 15 minutes
             (backlog with zero progress). Check the consuming service's health and logs.
           runbook_url: "docs/runbooks/alerts/MaezoKafkaConsumerStalled.md"
+
+  # ---------------------------------------------------------------------------
+  # Pagamento de contas — ordem PAGTO de outra conta (DEC-30 D11, decisao do dono 2026-11-02,
+  # issue #1084: "manter o incidente visivel + alerta e procedimento no runbook antes da janela
+  # ADR-0068")
+  # ---------------------------------------------------------------------------
+  - name: maezo_pagamento_contas
+    rules:
+      # O EVENTO e o alerta (D11 nomeia o incidente, nao uma taxa): qualquer recusa na janela
+      # dispara (`> 0`), como `MaezoA2ABudgetExhausted`. Emissor unico:
+      # `tools/workers/contas.py::_recusar_ordem_de_outra_conta` (ERR_CONTAS_HANDOFF_PAGAMENTO_
+      # INVALIDO, log `contas_handoff_pagamento_ordem_de_outra_conta`), pre-inicializado em 0 por
+      # `register_contas_workers` para o primeiro incidente ser visivel a `increase()`. Na fase
+      # padrao `legado` cada disparo e' uma conta que ficou SEM ordem de pagamento ate a janela de
+      # chaves (ADR-0068/ADR-0074). Conta TENTATIVAS de recusa (o worker repete), nao contas: a
+      # lista de contas e' a de incidentes no motor. JANELA [5m] = convencao deste arquivo, nao
+      # fonte de negocio. SEVERIDADE `warning` (ticket): nenhuma fonte manda paginar. TODO-OWNER.
+      - alert: MaezoContasPagtoOrdemDeOutraConta
+        expr: |
+          sum by (veredito, fase) (
+            increase(maezo_contas_pagto_ordem_recusada_total[5m])
+          ) > 0
+        labels:
+          severity: warning
+          category: pagamento
+          component: workers
+        annotations:
+          summary: "CONTAS->PAGTO handoff refused: existing payment order is not this conta's ({{ $labels.veredito }}, fase {{ $labels.fase }})"
+          description: >
+            {{ $value }} CONTAS->PAGTO handoff attempt(s) in the last 5 minutes were refused
+            (ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO) because the SP-OP-PAGTO-001 order already
+            under the key is not provably this conta's (veredito {{ $labels.veredito }}, key
+            phase {{ $labels.fase }}). The conta has NO payment order: an incident is open at
+            ST_HandoffPagamento* in SP-OP-CONTAS-001. Do not pay outside the system; follow the
+            runbook (identify the conta, record it in the inventory, retry only after escrita_alvo).
+          runbook_url: "docs/runbooks/alerts/MaezoContasPagtoOrdemDeOutraConta.md"

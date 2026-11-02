@@ -1,0 +1,38 @@
+# promtool rule unit test for MaezoContasPagtoOrdemDeOutraConta (DEC-30 D11, owner decision
+# 2026-11-02, issue #1084). The counter is pre-initialised at 0 by `register_contas_workers`, so the
+# FIRST refusal is visible to `increase()`. Synthetic series only.
+rule_files:
+  - ../../../../deploy/observability/alert-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # One refusal in `legado` (the 2nd conta of the same lote) -> fires once, then clears.
+  - interval: 1m
+    input_series:
+      - series: 'maezo_contas_pagto_ordem_recusada_total{veredito="outra", fase="legado"}'
+        values: '0x10 1x20'
+      - series: 'maezo_contas_pagto_ordem_recusada_total{veredito="indeterminada", fase="legado"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MaezoContasPagtoOrdemDeOutraConta
+        exp_alerts:
+          - exp_labels: {veredito: outra, fase: legado, severity: warning, category: pagamento, component: workers}
+            exp_annotations:
+              summary: "CONTAS->PAGTO handoff refused: existing payment order is not this conta's (outra, fase legado)"
+              description: "1 CONTAS->PAGTO handoff attempt(s) in the last 5 minutes were refused (ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO) because the SP-OP-PAGTO-001 order already under the key is not provably this conta's (veredito outra, key phase legado). The conta has NO payment order: an incident is open at ST_HandoffPagamento* in SP-OP-CONTAS-001. Do not pay outside the system; follow the runbook (identify the conta, record it in the inventory, retry only after escrita_alvo).\n"
+              runbook_url: "docs/runbooks/alerts/MaezoContasPagtoOrdemDeOutraConta.md"
+      - eval_time: 25m
+        alertname: MaezoContasPagtoOrdemDeOutraConta
+        exp_alerts: []
+
+  # No refusal -> no alert (the pre-initialised zero series never fires on its own).
+  - interval: 1m
+    input_series:
+      - series: 'maezo_contas_pagto_ordem_recusada_total{veredito="outra", fase="escrita_alvo"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MaezoContasPagtoOrdemDeOutraConta
+        exp_alerts: []
