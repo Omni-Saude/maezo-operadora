@@ -280,3 +280,17 @@ def e_recusa_de_contato(texto: str) -> bool:
     """A mensagem RECUSA contato/atendimento? (Sem conferir pedido de pessoa no resto da frase: isso e' de
     `habilidades.atendimento_humano.recusa`.)"""
     return sem_recusa_de_contato(texto) != normalizar(texto)
+
+
+# Limpeza da saude, etapa 1 (02/11/2026): movido de `protocolo/especialista.py` (conversa, nao saude).
+#: A pessoa CONTESTA o assunto que a Helena escolheu ("Quem disse que e' depressao? Eu disse que estou
+#: sentindo...", "nao e' isso", "de onde tirou isso?"). Teste do dono de 27/10/2026.
+_CONTESTA: Final[re.Pattern[str]] = re.compile(
+    r"\bquem (?:disse|falou) que\b|\b(?:eu )?nao (?:disse|falei) (?:que|de|nada)\b|\bnao e (?:isso|nada "
+    r"disso)\b"
+    r"|\bnao tem nada a ver\b|\bentendeu errado\b|\bde onde (?:voce |vc )?tirou\b"
+)
+
+
+def contesta_o_assunto(texto: str) -> bool:
+    return _CONTESTA.search(normalizar(texto)) is not None

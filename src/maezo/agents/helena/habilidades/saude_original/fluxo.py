@@ -87,7 +87,7 @@ def ligada(self: HelenaGraph) -> bool:
 
 def assume(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     """A porta unica conduz a saude desta conversa (chave ligada, rota do modelo e allowlist)."""
-    return ligada(self) and self._gerativa is not None and _ma.na_allowlist(self, state)
+    return ligada(self) and _ma.na_allowlist(self, state)
 
 
 def alarme_pela_palavra(self: HelenaGraph, state: Mapping[str, Any], antes: str | None) -> bool:
@@ -103,10 +103,10 @@ def alarme_pela_palavra(self: HelenaGraph, state: Mapping[str, Any], antes: str 
 
 
 def _chamador(self: HelenaGraph) -> _l.Chamar:
-    gerativa = self._gerativa
-    if gerativa is None:
+    rota = self._rota_global
+    if rota is None:
         raise AssertionError("saude_original exige a rota do modelo da allowlist")
-    transporte: Any = gerativa.transporte
+    transporte: Any = rota.transporte
     derivar = getattr(transporte, "com_campos", None)
     if callable(derivar):
         transporte = derivar(CAMPOS_SEM_PENSAMENTO)

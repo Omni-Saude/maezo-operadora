@@ -48,13 +48,6 @@ _SUGESTAO: Final[re.Pattern[str]] = re.compile(
     r"|faz sentido|vale a pena|discordo|nao concordo|por que nao|porque nao|pq nao|nao me orientou"
     r"|nao me indicou)\b"
 )
-#: A pessoa CONTESTA o assunto que a Helena escolheu ("Quem disse que e' depressao? Eu disse que estou
-#: sentindo...", "nao e' isso", "de onde tirou isso?"). Teste do dono de 27/10/2026.
-_CONTESTA: Final[re.Pattern[str]] = re.compile(
-    r"\bquem (?:disse|falou) que\b|\b(?:eu )?nao (?:disse|falei) (?:que|de|nada)\b|\bnao e (?:isso|nada "
-    r"disso)\b"
-    r"|\bnao tem nada a ver\b|\bentendeu errado\b|\bde onde (?:voce |vc )?tirou\b"
-)
 #: Os nomes leigos que NAO sao uma sugestao de especialista (areas de atuacao genericas).
 _NAO_SUGESTAO: Final[frozenset[str]] = frozenset({"tratamento da dor", "medicina do sono"})
 
@@ -115,10 +108,6 @@ def relata_queixa(texto: str) -> bool:
     """A mensagem RELATA uma queixa atual ("estou sentindo palpitacoes", "ela esta' com febre")? Pergunta
     informativa ("que medico trata enxaqueca?", "para um homem com PSA alterado") nao relata."""
     return _RELATO.search(normalizar(texto)) is not None
-
-
-def contesta_o_assunto(texto: str) -> bool:
-    return _CONTESTA.search(normalizar(texto)) is not None
 
 
 def cita_especialista(texto: str, textos: _p.TextosDoEspecialista) -> bool:

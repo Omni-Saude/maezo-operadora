@@ -33,15 +33,18 @@ import asyncio
 import hashlib
 import re
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol
 
 import structlog
 
 from maezo.conhecimento import base_saude as bs
+from maezo.domain.comunicacao.lexico import RISCO_NA_MENSAGEM as _RISCO_NA_MENSAGEM
+from maezo.domain.comunicacao.lexico import sem_abertura_repetida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA
+from maezo.runtime.inference.rota_global import conversas_autorizadas  # noqa: F401  (reexportado)
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.tools.workers.phi_vars import redact_free_text
 
@@ -79,19 +82,7 @@ MODO_SINTOMA_SEM_ALARME: Final[str] = "sintoma_sem_alarme"
 MODO_SINTOMA_CONTEXTO: Final[str] = "sintoma_contexto"
 _MODOS_DE_SINTOMA: Final[frozenset[str]] = frozenset({MODO_SINTOMA_SEM_ALARME, MODO_SINTOMA_CONTEXTO})
 
-# --- A allowlist -------------------------------------------------------------------------------------------
-#: O formato de um `conversation_id` keyed do receptor (`wa:{tenant}:hk1_<hmac-sha256>`).
-_ID_DE_CONVERSA: Final[re.Pattern[str]] = re.compile(r"^wa:[a-z0-9][a-z0-9_-]{0,31}:hk1_[0-9a-f]{64}$")
-
-
-def conversas_autorizadas(bruto: str | Iterable[str] | None) -> frozenset[str]:
-    """A allowlist lida da env (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`: ids separados por virgula/espaco).
-    So' entra id no formato keyed; qualquer outra coisa e' DESCARTADA (nunca um curinga, nunca um
-    telefone)."""
-    if bruto is None:
-        return frozenset()
-    itens = re.split(r"[\s,;]+", bruto) if isinstance(bruto, str) else list(bruto)
-    return frozenset(i.strip() for i in itens if isinstance(i, str) and _ID_DE_CONVERSA.fullmatch(i.strip()))
+# --- A allowlist: `conversas_autorizadas` mora em `runtime/inference/rota_global.py` (etapa 1)
 
 
 # --- Minimizacao -------------------------------------------------------------------------------------------
@@ -114,11 +105,6 @@ _NOME_DITO: Final[re.Pattern[str]] = re.compile(
 )
 _TOKENS_DO_REDATOR: Final[re.Pattern[str]] = re.compile(r"\[REDACTED_[A-Z]+\]")
 _LIMITE_POR_MENSAGEM: Final[int] = 500
-
-
-def tem_risco(plano: str) -> bool:
-    """A mensagem (normalizada) fala em autolesao ou em nao querer viver? (os portoes de sempre decidem)."""
-    return bool(_RISCO_NA_MENSAGEM.search(plano))
 
 
 def minimizar(texto: str) -> str:
@@ -720,14 +706,6 @@ _DIAGNOSTICO: Final[re.Pattern[str]] = re.compile(
     r"|\bseu diagnostico\b|\bdeve ser (?:uma?|o|a) (?:infeccao|virose|gastrite|enxaqueca|sinusite|infarto|avc"
     r"|dengue|ansiedade|depressao|alergia|apendicite|crise)\b"
 )
-_RISCO_NA_MENSAGEM: Final[re.Pattern[str]] = re.compile(
-    r"suicid|\bme matar\b|\bquero morrer\b|\btirar (?:a )?minha (?:propria )?vida\b"
-    r"|\bnao (?:quero|aguento) mais viver\b|\bmelhor (?:nao acordar|morrer|sumir)\b|\bnao acordar mais\b"
-    r"|\bme cortar\b|\bme cortado\b|\bme cortando\b|\bme machucar\b|\bautolesao\b"
-    # Dossie de seguranca (18/10/2026): formas que o classificador deixou passar.
-    r"|\bacabar com (?:tudo|a minha vida|minha vida|a vida)\b|\bsumir de vez\b|\bme cortei\b"
-    r"|\bme machuquei de proposito\b|\bqueria (?:simplesmente )?desaparecer\b|\bnao quero mais estar aqui\b"
-)
 #: Adjetivo de genero referido a pessoa ("voce nao esta sozinho", "fico feliz que voce esteja tranquila").
 _GENERO: Final[re.Pattern[str]] = re.compile(
     r"\bvoce\b(?:\s+\w+){0,3}?\s+((?:sozinh|preocupad|cansad|assustad|nervos|tranquil|querid|obrigad|"
@@ -1071,45 +1049,7 @@ def traz_contexto_da_queixa(plano: str) -> bool:
     return len(plano.split()) >= _MIN_PALAVRAS_DO_CONTEXTO and bool(_CONTEXTO_DA_QUEIXA.search(plano))
 
 
-# --- Higiene do texto final
-# ----------------------------------------------------------------------------------
-_ABERTURA_REPETIDA: Final[re.Pattern[str]] = re.compile(
-    r"^(entendi|certo|ok|claro|oi|ola|olá)[.!,:]?\s+(?=\1\b)", re.IGNORECASE
-)
-
-
-#: DOSSIE DE SEGURANCA (18/10/2026): o PREAMBULO de reescrita que vazou para a pessoa ("Claro, vou reescrever
-#: sem essas palavras.", "Aqui esta' a versao reescrita:"). Tirado do comeco; se sobrar metatexto no meio, a
-#: checagem (`metatexto`) reprova.
-_PREAMBULO: Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?:(?:claro|certo|ok|entendido|perfeito|sem problemas?)[,.!]?\s*)?"
-    r"(?:(?:vou|irei|posso) (?:reescrever|refazer|corrigir|ajustar)[^.:!\n]*[.:!]"
-    r"|(?:aqui (?:esta|está|vai)|segue)[^.:!\n]{0,60}"
-    r"(?:reescrit|corrigid|nova vers|versao|versão|texto)[^.:!\n]*[.:!]"
-    r"|(?:versao|versão) (?:reescrita|corrigida)[^.:!\n]*[.:!])\s*",
-    re.IGNORECASE,
-)
-
-
-def sem_preambulo(texto: str) -> str:
-    """Tira o preambulo de reescrita do comeco do texto ("Claro, vou reescrever sem essas palavras.")."""
-    t = texto.strip()
-    for _ in range(2):
-        novo = _PREAMBULO.sub("", t, count=1).strip()
-        if novo == t:
-            break
-        t = novo
-    return t
-
-
-def sem_abertura_repetida(texto: str) -> str:
-    """ "Entendi. Entendi: ..." / "Oi! Oi!" -> uma vez so' (a ultima, com a pontuacao dela)."""
-    t = sem_preambulo(texto)
-    while True:
-        novo = _ABERTURA_REPETIDA.sub("", t, count=1)
-        if novo == t:
-            return t
-        t = novo
+# --- Higiene do texto final: `sem_preambulo` e `sem_abertura_repetida` moram em `domain/comunicacao/lexico`
 
 
 # --- O redator

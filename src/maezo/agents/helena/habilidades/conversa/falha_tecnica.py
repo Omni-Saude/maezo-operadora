@@ -43,7 +43,7 @@ def sem_caso(self: HelenaGraph, state: Mapping[str, Any], resultado: dict[str, A
     de repetir (a pendencia do turno fica). Qualquer outro resultado volta como veio."""
     from maezo.agents.helena import graph as _g
     from maezo.agents.helena.travas_entrada import alarme_afirmado
-    from maezo.conhecimento import saude_gerativa as _sg
+    from maezo.domain.comunicacao.lexico import tem_risco
 
     if resultado.get("next_kind") != "escalate" or resultado.get("escalation_motivo") != "falha_tecnica":
         return resultado
@@ -55,7 +55,7 @@ def sem_caso(self: HelenaGraph, state: Mapping[str, Any], resultado: dict[str, A
         resultado.get("psychosocial_risk") is True
         or alarme_afirmado(state) is not None
         or _g._sinal_forte_de_emergencia(texto)
-        or _sg.tem_risco(_g._plano(texto))
+        or tem_risco(_g._plano(texto))
         or _g._pedido_explicito_com_verbo(texto)
         or _g._pedido_explicito_de_pessoa(texto)
     ):

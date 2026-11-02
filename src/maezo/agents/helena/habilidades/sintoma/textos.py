@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from maezo.agents.helena.habilidades.atendimento_humano.textos import CHAVE_CASO_MANTIDO as CHAVE_CASO_MANTIDO
+from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTO_CASO_MANTIDO as TEXTO_CASO_MANTIDO
 from maezo.agents.helena.helena_v4 import TEXTO_DA_REPERGUNTA
 
 #: Resposta sem clareza a pergunta de alerta: a pergunta de novo, UMA vez, com outras palavras (`{sinais}`).
@@ -25,14 +27,12 @@ TEXTO_AVALIAR_CAUSA: Final[str] = (
     "Quem pode avaliar a causa é o médico. Quer que eu te mostre onde marcar a consulta ou prefere falar "
     "com a equipe de saúde?"
 )
-#: Alarme JA' tratado e a pessoa diz que foi engano / nao sente aquilo (texto do dono, palavra por palavra).
-CHAVE_CASO_MANTIDO: Final[str] = "caso_mantido_para_a_equipe"
-TEXTO_CASO_MANTIDO: Final[str] = "Entendi. Mantive o seu caso para a equipe de saúde confirmar com você."
+#: O caso mantido (`caso_mantido_para_a_equipe`) mora em `atendimento_humano.textos` desde a etapa 1 da
+#: limpeza da saude (a porta unica e o "sem segundo 192" usam); reexportado aqui.
 
 PADRAO: Final[dict[str, str]] = {
     CHAVE_REPERGUNTA: TEXTO_DA_REPERGUNTA,
     CHAVE_OFERTA_EQUIPE: TEXTO_OFERTA_EQUIPE,
     CHAVE_OFERTA_RECUSADA: TEXTO_OFERTA_RECUSADA,
     CHAVE_AVALIAR_CAUSA: TEXTO_AVALIAR_CAUSA,
-    CHAVE_CASO_MANTIDO: TEXTO_CASO_MANTIDO,
 }

@@ -29,6 +29,7 @@ import structlog
 from maezo.agents.helena import modelo_allowlist as _ma
 from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from maezo.agents.helena.habilidades.conversa.leitura_curta import contesta_o_assunto
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
 from maezo.agents.helena.habilidades.sintoma.textos import CHAVE_OFERTA_EQUIPE
 from maezo.agents.helena.historico import historico_em_texto
@@ -80,7 +81,7 @@ def _texto(
 ) -> dict[str, Any]:
     update = self._update_sem_modelo(state)
     update.update({"coleta_pendente": None, "coleta_contexto": ""})
-    return self._base_texto_fixo(update, _emitir(texto), pendente=pendente)
+    return self._texto_fixo(update, _emitir(texto), pendente=pendente)
 
 
 def _blocos(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str, str]:
@@ -352,7 +353,7 @@ async def responder_alerta(
         return neonatal
     n = len(protocolo.perguntas_de_alerta)
     indices = tuple(i for i in pend.indices if 1 <= i <= n) or tuple(range(1, n + 1))
-    if _esp.contesta_o_assunto(texto):
+    if contesta_o_assunto(texto):
         # Teste do dono de 27/10/2026: "Quem disse que e' depressao? Eu disse que estou sentindo cansaco..."
         # foi lido como resposta sem clareza (re-pergunta + CVV). A contestacao do assunto: a desculpa curta e
         # a orientacao para a queixa repetida (a pendencia cai).
@@ -597,7 +598,7 @@ async def conduzir(
         alarme != "claro"
         and antes != _n.PENDENTE_IDADE
         and not _esp.quer_marcar(texto)
-        and _esp.contesta_o_assunto(texto)
+        and contesta_o_assunto(texto)
         and _g._falas_da_helena(state)
     ):
         # Teste do dono de 27/10/2026 ("Quem disse que e' depressao? Eu disse que estou sentindo..."): a
@@ -968,7 +969,7 @@ async def sem_roteador(
             _esp.pergunta_qual_especialista(texto)
             or _esp.sugere_especialista(texto, catalogo.textos)
             or _esp.cita_especialista(texto, catalogo.textos)
-            or _esp.contesta_o_assunto(texto)
+            or contesta_o_assunto(texto)
         ):
             logger.info("helena_protocolo_sem_roteador", etapa="especialista")
             return await conduzir(self, state, _SemRoteador(), None, None)

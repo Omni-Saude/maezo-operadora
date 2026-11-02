@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -39,6 +38,16 @@ from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from maezo.domain.comunicacao.lexico import (  # noqa: F401  (reexportados ate' a base sair)
+    CORTE_DE_TRECHO,
+    LIGACOES_DA_NEGATIVA,
+    NEGATIVAS_DE_SINAL,
+    mencao_afirmada,
+    negado,
+    normalizar,
+    normalizar_com_cortes,
+)
 
 # --- Schema --------------------------------------------------------------------------------------------
 #: Categoria -> prefixo do id. A lista e' FECHADA: categoria nova entra por PR, com ADR/DL.
@@ -214,12 +223,7 @@ class Assunto(_Modelo):
         return self
 
 
-# --- Normalizacao --------------------------------------------------------------------------------------
-def normalizar(texto: str) -> str:
-    """Minusculas, sem acento, sem caractere de formato, pontuacao virando espaco, espacos colapsados."""
-    decomposto = unicodedata.normalize("NFKD", texto or "")
-    sem_marca = "".join(c for c in decomposto if unicodedata.category(c) not in ("Mn", "Cf"))
-    return " ".join(re.sub(r"[^\w\s]", " ", sem_marca.lower()).split())
+# --- Normalizacao: `normalizar` mora em `domain/comunicacao/lexico.py` (etapa 1 da limpeza) ------
 
 
 # --- As fontes: a lista FECHADA ------------------------------------------------------------------------
@@ -878,48 +882,8 @@ def _contem(plano: str, termo: str) -> bool:
     return bool(termo) and re.search(rf"(?<!\w){re.escape(termo)}(?!\w)", plano) is not None
 
 
-#: TRAVA DE SEGURANCA (r4 de 22/10/2026; ADR-0066, trava de alarme): a NEGACAO de um sinal de alarme e'
-#: lida como negacao. "Nao, sem falta de ar, sem febre alta" respondia 192 e abria caso clinico. Um termo
-#: so' e' NEGADO quando a palavra logo antes dele (pulando no maximo `_MAX_LIGACOES` palavras de ligacao) e'
-#: uma negativa, na mesma frase. Do lado seguro: "nao para de vomitar", "sem conseguir respirar" e
-#: "nao, mas vomitou" continuam alarme (a negativa nao esta' colada ao termo).
-NEGATIVAS_DE_SINAL: Final[frozenset[str]] = frozenset({"sem", "nao", "nem", "nenhum", "nenhuma", "nada"})
-LIGACOES_DA_NEGATIVA: Final[frozenset[str]] = frozenset(
-    {"tem", "teve", "tinha", "ha", "houve", "apresentou", "apresenta", "sentiu", "sente", "senti", "sinto",
-     "esta", "ta", "estou", "to", "com", "de", "o", "a", "os", "as", "um", "uma", "qualquer", "sinal",
-     "sinais", "foi", "deu", "notei", "percebi", "vi", "tenho", "tive", "estava", "tava", "sentindo"}
-)  # fmt: skip
-#: (25/10/2026, caso b do teste do dono: "nao tenho dor no peito" e' negacao; tenho/tive/sentindo ligam.)
-_MAX_LIGACOES: Final[int] = 3
-
-
-#: A pontuacao que separa trechos vira esta marca no texto normalizado: a negativa nunca atravessa uma virgula
-#: ("nao, falta de ar sim" e' alarme).
-CORTE_DE_TRECHO: Final[str] = "xcortedetrechox"
-_SEPARADORES: Final[re.Pattern[str]] = re.compile(r"[,.;:!?]")
-_FIM_DO_ALCANCE: Final[re.Pattern[str]] = re.compile(rf"[,.;:!?]|\b(?:mas|porem|{CORTE_DE_TRECHO})\b")
-
-
-def normalizar_com_cortes(texto: str) -> str:
-    """Como `normalizar`, com a pontuacao que separa trechos virando `CORTE_DE_TRECHO`."""
-    return normalizar(_SEPARADORES.sub(f" {CORTE_DE_TRECHO} ", texto or ""))
-
-
-def negado(plano: str, inicio: int) -> bool:
-    """O trecho que comeca em `inicio` esta' NEGADO pela palavra logo antes dele (mesmo trecho da frase)?"""
-    antes = _FIM_DO_ALCANCE.split(plano[:inicio])[-1].split()
-    for puladas, palavra in enumerate(reversed(antes)):
-        if palavra in NEGATIVAS_DE_SINAL:
-            return True
-        if palavra not in LIGACOES_DA_NEGATIVA or puladas >= _MAX_LIGACOES:
-            return False
-    return False
-
-
-def mencao_afirmada(padrao: re.Pattern[str], plano: str) -> bool:
-    """Algum trecho do `padrao` aparece no texto (normalizado, com a pontuacao ou os cortes) SEM estar negado.
-    Sem nenhuma ocorrencia, `False`."""
-    return any(not negado(plano, m.start()) for m in padrao.finditer(plano))
+# A negacao de um trecho (`negado`, `mencao_afirmada`, `normalizar_com_cortes` e as listas) mora em
+# `domain/comunicacao/lexico.py` desde a etapa 1 da limpeza da saude (as travas de entrada e a porta usam).
 
 
 def _alarme_afirmado(texto: str, termo: str) -> bool:

@@ -41,7 +41,7 @@ from maezo.agents.helena.historico import historico_em_texto
 from maezo.agents.helena.roteador_contrato import (
     DUVIDA,
 )
-from maezo.conhecimento import saude_gerativa as _sg
+from maezo.domain.comunicacao import lexico as _lexico
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import render_untrusted_block
 
@@ -390,7 +390,7 @@ def _roteador_entrada(
                 t, antes, self._falas_da_pessoa(state), ultima_fala(_falas_da_helena(state))
             )
         ),
-        risco=lambda t: _sg.tem_risco(_plano(t)),
+        risco=lambda t: _lexico.tem_risco(_plano(t)),
     )
     return antes, pendente, trava
 
@@ -414,14 +414,14 @@ async def _classify_com_sombra(self: HelenaGraph, state: HelenaState) -> dict[st
 
 
 async def _classify_com_roteador(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
-    """F2: `ativo` decide pelo roteador SO' nas conversas da allowlist dele (e da saude gerativa);
-    fora dela, sombra."""
+    """F2: `ativo` decide pelo roteador SO' nas conversas da allowlist dele (e da rota global do modelo,
+    `rota_global`); fora dela, sombra."""
     conversa = state.get("conversation_id")
     if (
         self._roteador_modo == "ativo"
         and isinstance(conversa, str)
         and conversa in self._roteador_conversas
-        and self._gerativa_para(state)
+        and self._conversa_autorizada(state)
     ):
         # Teste do dono (26/10/2026): falha TECNICA do modelo ou da tabela nunca abre caso sozinha.
         return _falha_tecnica.sem_caso(self, state, await self._classify_ativo(state))
@@ -536,7 +536,7 @@ def _com_assuntos_abertos(
         if topico is not None:
             logger.info("helena_assunto_retomado", topico=topico)
             saida = {
-                **self._base_texto_fixo(
+                **self._texto_fixo(
                     self._update_sem_modelo(state), _assuntos.texto_de_retomada(modelo, topico)
                 ),
                 "habilidade_roteador": "conversa",
@@ -612,7 +612,7 @@ async def _classify_ativo_decidido(
             x=self._roteador_contrato.habilidade(x).titulo, y=self._roteador_contrato.habilidade(y).titulo
         )
         logger.info("helena_roteador_duvida", x=x, y=y)
-        return self._base_texto_fixo(
+        return self._texto_fixo(
             self._update_sem_modelo(state), pergunta, pendente=f"{_rt.PREFIXO_DUVIDA}{x}:{y}"
         )
     habilidade = decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
@@ -683,7 +683,7 @@ async def _classify_ativo_decidido(
     if habilidade == "cobertura" and _lc.ler_resposta(texto) in ("nao", "encerrar"):
         # Avaliacao r5 (25/10/2026): "esquece, nao precisa mais" depois do aviso da cobertura ia para a
         # cobertura e repetia o aviso (e o loop abria caso). A recusa curta do assunto so' e' reconhecida.
-        cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
+        cortesia = self._texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
         return {**cortesia, "habilidade_roteador": "conversa"}
     if habilidade == "cobertura":
         # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
@@ -699,7 +699,7 @@ async def _classify_ativo_decidido(
             or (len(_plano(texto).split()) <= 2 and bool(_falas_da_helena(state)))
         )
     ):
-        cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
+        cortesia = self._texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
         return {**cortesia, "habilidade_roteador": habilidade}
     if porta and habilidade in _saude_original.HABILIDADES_DE_SAUDE:
         # DL-0160: a porta unica leu que NAO e' saude: nunca o caminho antigo de saude.
@@ -712,7 +712,7 @@ async def _classify_ativo_decidido(
         # DL-0160: fora da saude, `conversa` com texto FIXO (a redacao antiga do modelo nao fala por ela).
         fixo_da_porta = _saude_original.texto_de_conversa(texto)
         return {
-            **self._base_texto_fixo(self._update_sem_modelo(state), fixo_da_porta),
+            **self._texto_fixo(self._update_sem_modelo(state), fixo_da_porta),
             "habilidade_roteador": "conversa",
         }
     marca = _HABILIDADE_DO_TURNO.set(habilidade)
@@ -739,9 +739,7 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
         # modelo (que confirmou "e' possivel pedir reembolso").
         logger.info("helena_texto_do_reembolso", node="classify")
         return {
-            **self._base_texto_fixo(
-                self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA]
-            ),
+            **self._texto_fixo(self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA]),
             "habilidade_roteador": "conversa",
         }
     if _agendar.pergunta_de_agendamento(texto) and not (
@@ -751,7 +749,7 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
         # cadastro do plano, ainda que o roteador diga `plano`: a orientacao dos canais (o texto do pacote).
         logger.info("helena_texto_de_agendamento", node="classify")
         return {
-            **self._base_texto_fixo(
+            **self._texto_fixo(
                 self._update_sem_modelo(state), _agendar.texto_do_agendamento(self._textos, texto)
             ),
             "habilidade_roteador": "conversa",
@@ -760,7 +758,7 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
         logger.info("helena_texto_do_app", node="classify")
         texto_app = self._textos[_app.CHAVE_APP_ONDE_BAIXAR]
         return {
-            **self._base_texto_fixo(self._update_sem_modelo(state), texto_app),
+            **self._texto_fixo(self._update_sem_modelo(state), texto_app),
             "habilidade_roteador": "conversa",
         }
     if not _rx.pede_reexplicacao(texto):
@@ -770,7 +768,7 @@ async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: 
         return None
     tipo = reexplicado.pop("tipo", None)
     logger.info("helena_reexplicacao", node="classify", tipo=tipo)
-    saida = self._base_texto_fixo(self._update_sem_modelo(state), str(reexplicado.pop("response_text")))
+    saida = self._texto_fixo(self._update_sem_modelo(state), str(reexplicado.pop("response_text")))
     return {**saida, **reexplicado, "habilidade_roteador": "conversa"}
 
 
@@ -805,7 +803,7 @@ async def _escalar_alarme_do_modelo(
 ) -> dict[str, Any]:
     """O alarme claro dito pelo modelo e validado na tabela: o mesmo escalonamento do alarme da tabela
     (`red_flag_clinico` grave, 192), ou `risco_psicossocial` grave (CVV 188, 192) para o sinal de risco."""
-    risco = any(_sg.tem_risco(_plano(s.sinal)) for s in v7.sinais_atuais())
+    risco = any(_lexico.tem_risco(_plano(s.sinal)) for s in v7.sinais_atuais())
     populacao = str(state.get("population") or "")
     update: dict[str, Any] = {
         "intent": "symptom",
@@ -829,11 +827,11 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
     """A recusa da equipe lida pelo roteador: casos P2/P3 abertos se encerram e a pessoa le' a confirmacao;
     caso grave aberto -> o texto do caso grave (nunca se encerra); sem caso -> o "combinado" curto."""
     update = self._update_sem_modelo(state)
-    abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
+    abertos = await self._casos_abertos_da_conversa(state)  # sem chave (limpeza da saude, etapa 1)
     graves = [c for c in abertos if caso_grave_para_encerrar(*await self._motivo_e_severidade(c))]
     logger.info("helena_recusa_de_equipe_pelo_roteador", caso_aberto=bool(abertos), grave=bool(graves))
     if graves:
-        return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
+        return self._texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
     if abertos:
         encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim", leitura="sim")
         if encerrado is not None:
@@ -842,7 +840,7 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
     # reconhecimento (antes, o paragrafo longo da recusa saia fora de contexto).
     texto = _oferta.texto_da_recusa(state, caso_aberto=bool(abertos))
     update.update({"coleta_pendente": None, "coleta_contexto": ""})
-    return self._base_texto_fixo(update, texto)
+    return self._texto_fixo(update, texto)
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:

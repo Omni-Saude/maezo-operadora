@@ -175,16 +175,81 @@ def texto_final(state: Mapping[str, Any], texto: str) -> str:
     return limpo
 
 
+# --- (d) o caso a pedido, sem chave (limpeza da saude, etapa 1, 02/11/2026) ------------------------------
+# Antes, atras da chave da base de saude (`_base_saude`). Encerrar o caso e listar os casos abertos e'
+# atendimento, nao saude: vale sempre. No dev a base estava ligada: o mesmo comportamento.
+
+
+async def encerrar_a_pedido(
+    self: HelenaGraph, state: HelenaState, update: dict[str, Any]
+) -> tuple[dict[str, Any] | None, bool]:
+    """RECUSA explicita / pedido de encerrar com caso aberto (`classify`). Avaliacao r4 de 22/10/2026 (regra
+    do dono): a recusa depois da oferta/abertura do caso ("nao quero falar com ninguem", "nao, deixa,
+    desisto") ENCERRA o caso P2/P3. A recusa e' a do leitor de encerrar (`pede_para_encerrar_o_atendimento`)
+    ou a resposta curta de recusa (`leitura_curta.ler_resposta` = encerrar).
+
+    Devolve `(decisao, parar)`: `parar` = o turno era sobre o caso (a decisao pode ser `None`: o de sempre),
+    ou um pedido de encerrar sem caso aberto; quem chama nao informa mais nada neste turno."""
+    texto = str(state.get("message_body") or "")
+    plano = _plano(texto)
+    pede_encerrar = pede_para_encerrar_o_atendimento(texto)
+    desiste = _lc.ler_resposta(texto) == "encerrar"
+    if not (pede_encerrar or desiste) or _pedido_explicito_com_verbo(
+        _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
+    ):
+        return None, False
+    if await self._casos_abertos_da_conversa(state):
+        if self._conversa_autorizada(state):
+            # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
+            return await self._base_confirmacao_de_encerramento(state, update, "sim"), True
+        logger.info("helena_base_saude_confirma_encerramento", node="classify")
+        return self._texto_fixo(update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO), True
+    return None, pede_encerrar
+
+
+async def recusa_sem_modelo(self: HelenaGraph, state: HelenaState) -> dict[str, Any] | None:
+    """A recusa da equipe lida sem modelo (`_decidir_sem_modelo`): com caso P2/P3 aberto, a allowlist encerra
+    direto (DL-0131) e as outras conversas recebem a pergunta de confirmacao; caso P1/grave aberto, o texto do
+    caso grave com 192 (nunca se oferece encerrar); sem caso, a recusa curta (avaliacao r5, 25/10)."""
+    from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta
+
+    update = self._update_sem_modelo(state)
+    abertos = await self._casos_abertos_da_conversa(state)
+    if abertos:
+        graves = [
+            chave for chave in abertos if caso_grave_para_encerrar(*await self._motivo_e_severidade(chave))
+        ]
+        logger.info(
+            "helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=True, grave=bool(graves)
+        )
+        if graves:
+            return self._texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
+        if self._conversa_autorizada(state):
+            return await self._base_confirmacao_de_encerramento(state, update, "sim")
+        return self._texto_fixo(update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO)
+    caso = bool(await self._motivo_do_caso_aberto(_business_key(state)))
+    logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=caso)
+    return self._texto_fixo(update, _oferta.texto_da_recusa(state, caso_aberto=caso))
+
+
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _ASSUNTO_DE_SAUDE,
+    _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO,
     _RECUSA_DE_EQUIPE,
+    PENDENTE_ENCERRAR_CASO,
+    RESPOSTA_CASO_GRAVE_NAO_ENCERRA,
+    RESPOSTA_CONFIRMA_ENCERRAMENTO,
     RESPOSTA_INFORM_CASO_ABERTO,
+    _business_key,
     _falas_da_helena,
     _pedido_explicito_com_verbo,
     _pedido_explicito_de_pessoa,
     _pergunta_de_navegacao,
     _pergunta_do_plano,
     _pergunta_sobre_caso_aberto,
+    _plano,
+    caso_grave_para_encerrar,
     logger,
+    pede_para_encerrar_o_atendimento,
 )
