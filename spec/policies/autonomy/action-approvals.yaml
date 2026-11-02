@@ -233,7 +233,7 @@ acoes:
       - referencia: "src/maezo/tools/workers/auth.py:1369"
         detalhe: "SendDenialNoticeWorker — topic operadora.auth.send_denial_notice"
         choked: true
-      - referencia: "src/maezo/tools/workers/reembolso.py:403"
+      - referencia: "src/maezo/tools/workers/reembolso.py:653"
         detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1488"
