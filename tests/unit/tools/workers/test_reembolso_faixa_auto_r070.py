@@ -91,7 +91,7 @@ def _request(**overrides: Any) -> ReembolsoInput:
 
 def _fonte_completa(_: ReembolsoInput) -> FatosFaixaAuto:
     return FatosFaixaAuto(
-        requer_avaliacao_clinica=False,
+        avaliacao_clinica_requerida=False,
         valor_tabela_cents=12000,
         limite_contratual_cents=20000,
         valor_nf_verificado=True,
@@ -109,7 +109,7 @@ def test_defaults_sao_a_forma_desconhecida_com_a_politica_real() -> None:
     out = validate_auto_criteria(_request())
     assert out.reembolso_auto_liberado is False  # R-058
     assert out.origem_aprovacao == "HUMANA"
-    assert out.requer_avaliacao_clinica is None
+    assert out.avaliacao_clinica_requerida is None
     assert out.valor_tabela_dmn_cents is None
     assert out.teto_l2_cents == 0
     assert out.faixa_auto_desligada is True
@@ -132,7 +132,7 @@ def test_relaia_politica_e_fonte_injetadas(tmp_path: Path) -> None:
     )
     assert out.teto_l2_cents == 30000
     assert out.faixa_auto_desligada is False
-    assert out.requer_avaliacao_clinica is False
+    assert out.avaliacao_clinica_requerida is False
     assert out.valor_tabela_dmn_cents == 12000
     assert out.limite_contratual_cents == 20000
     assert out.valor_nf_verificado is True
@@ -168,7 +168,7 @@ def test_fonte_forjada_vira_desconhecido() -> None:
 
     def _forjada(_: ReembolsoInput) -> FatosFaixaAuto:
         return FatosFaixaAuto(
-            requer_avaliacao_clinica=0,  # type: ignore[arg-type]
+            avaliacao_clinica_requerida=0,  # type: ignore[arg-type]
             valor_tabela_cents=-5,
             limite_contratual_cents=True,
             valor_nf_verificado=1,  # type: ignore[arg-type]
@@ -178,7 +178,7 @@ def test_fonte_forjada_vira_desconhecido() -> None:
         )
 
     out = validate_auto_criteria(_request(), fonte_faixa_auto=_forjada)
-    assert out.requer_avaliacao_clinica is None
+    assert out.avaliacao_clinica_requerida is None
     assert out.valor_tabela_dmn_cents is None
     assert out.limite_contratual_cents is None
     assert out.valor_nf_verificado is False
@@ -286,7 +286,7 @@ def test_register_encaminha_os_seams_ao_worker_registrado(tmp_path: Path) -> Non
     assert out["teto_l2_cents"] == 30000
     assert out["valor_nf_verificado"] is True
     assert out["limite_contratual_cents"] == 20000
-    assert out["requer_avaliacao_clinica"] is None or out["requer_avaliacao_clinica"] is False
+    assert out["avaliacao_clinica_requerida"] is None or out["avaliacao_clinica_requerida"] is False
 
 
 # --- register_auto_approval: segunda barreira (testes NEGATIVOS da guarda de alcada) ------------
@@ -445,7 +445,7 @@ def test_dmn_regra_auto_exige_todas_as_condicoes_da_opcao_b() -> None:
     por_expr = dict(zip(exprs, ins, strict=True))
     assert "-" not in ins, "r_auto nao pode ter don't-care: toda condicao e' obrigatoria"
     assert por_expr["faixa_auto_desligada"] == "false"
-    assert por_expr["requer_avaliacao_clinica"] == "false"
+    assert por_expr["avaliacao_clinica_requerida"] == "false"
     assert por_expr["tipo_reembolso"] == '"livre_escolha"'
     assert por_expr["categoria_procedimento"] == '"consulta"'  # lista fechada: art. 10-B fica fora
     assert por_expr["valor_nf_verificado"] == "true"

@@ -185,7 +185,7 @@ class FatosFaixaAuto:
     producao nao passa nenhuma, entao a faixa segue fechada mesmo com teto positivo.
     """
 
-    requer_avaliacao_clinica: bool | None = None
+    avaliacao_clinica_requerida: bool | None = None
     valor_tabela_cents: int | None = None
     limite_contratual_cents: int | None = None
     valor_nf_verificado: bool = False
@@ -230,7 +230,7 @@ class ReembolsoFaixaAutoResult:
     limite_valor_auto_benef_30d_cents: int = 0
     orcamento_auto_tenant_dia_cents: int = 0
     #: Lado da fonte (:class:`FatosFaixaAuto`): None/False = desconhecido = humano.
-    requer_avaliacao_clinica: bool | None = None
+    avaliacao_clinica_requerida: bool | None = None
     valor_tabela_dmn_cents: int | None = None
     limite_contratual_cents: int | None = None
     valor_nf_verificado: bool = False
@@ -264,7 +264,7 @@ def validate_auto_criteria(
         fatos = FatosFaixaAuto()
     if not isinstance(fatos, FatosFaixaAuto):
         fatos = FatosFaixaAuto()
-    clinica = fatos.requer_avaliacao_clinica
+    clinica = fatos.avaliacao_clinica_requerida
     result = ReembolsoFaixaAutoResult(
         # R-058: RELAIA a constante; nenhum dado do pedido, do tenant ou do teto entra aqui.
         reembolso_auto_liberado=REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
@@ -282,7 +282,7 @@ def validate_auto_criteria(
             tenant=tenant, action=_CEILING_ACTION, param=_PARAM_ORCAMENTO_TENANT_BRL
         )
         * 100,
-        requer_avaliacao_clinica=clinica if isinstance(clinica, bool) else None,
+        avaliacao_clinica_requerida=clinica if isinstance(clinica, bool) else None,
         valor_tabela_dmn_cents=_contagem_ou_none(fatos.valor_tabela_cents),
         limite_contratual_cents=_contagem_ou_none(fatos.limite_contratual_cents),
         valor_nf_verificado=fatos.valor_nf_verificado is True,

@@ -141,7 +141,8 @@ class TestNonVacuity:
         # 65 -> 66 com `auth_junta_admissibility.dmn` (R-064) — ver as entradas do CORPUS_DELTA_LOG.
         # 66 -> 65: DL-0161 (reembolso v2) -2 +1.
         # 65 -> 67 com `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5).
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 67  # VW4/GP11: +suppression_routing
+        # R-076 (#1149): +reembolso_auto_approval.dmn (faixa B dormente) -> 68.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 68  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2344,6 +2345,314 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "de beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "contador de aprovacoes automaticas do beneficiario em 30 dias relaiado por "
+            "validate_auto_criteria (sem fonte hoje = nulo); contagem agregada, sem identificador, lida por "
+            "uma coluna da DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="avaliacao_clinica_requerida",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "fato booleano NOVO 'requer avaliacao clinica' relaiado de fonte injetavel (sem fonte hoje = "
+            "nulo = humano); nao carrega CID nem dado clinico, so' o booleano. Nome distinto do "
+            "requer_avaliacao_clinica que saiu com o #1074."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="faixa_auto_desligada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "kill-switch de politica (bool) relaiado pelo worker validate_auto_criteria e lido por uma "
+            "coluna da DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite DRAFT de politica (contagem) relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_contratual_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite contratual do beneficiario em centavos (sem fonte hoje = nulo) lido pela DMN "
+            "reembolso_auto_approval; valor monetario, nao identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite DRAFT de politica em centavos relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="orcamento_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "orcamento DRAFT diario do tenant em centavos relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="origem_aprovacao",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "origem da aprovacao (HUMANA | AUTO_L2): outputParameter de ST_RegistrarAprovacaoAuto (+2: nome "
+            "e raiz JUEL) e as duas condicoes de GW_DesfechoPagamento (+2). Enum tecnico, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="origem_pagamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "inputParameter LOCAL constante AUTO_L2 de ST_RegistrarAprovacaoAuto (guarda do worker "
+            "register_auto_approval)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="reembolso_auto_liberado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "copia da constante R-058 relaiada por validate_auto_criteria e lida pela condicao de "
+            "Flow_GWFaixa_Auto."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="teto_l2_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "teto de politica em centavos (max_value_brl x 100) relaiado e lido pela DMN "
+            "reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_aprovado_auto_cents",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "saida integer da DMN reembolso_auto_approval (= valor_solicitado_cents so na regra r_auto) "
+            "(+1), o inputParameter local de ST_RegistrarAprovacaoAuto (+1) e o segmento JUEL "
+            "`auto_aprovacao.valor_aprovado_auto_cents` (+1)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor automatico acumulado do beneficiario em 30 dias (sem fonte hoje = nulo); agregado "
+            "monetario, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor automatico do tenant no dia (sem fonte hoje = nulo); agregado do tenant."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_nf_verificado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "fato booleano 'valor da NF verificado' (sem fonte hoje = false) lido pela DMN "
+            "reembolso_auto_approval; nao carrega a NF nem o valor."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_tabela_dmn_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor de tabela relaiado pelo worker com nome NAO sombreado (reparo B1 da revisao independente;"
+            " sem fonte hoje = nulo) lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="auto_aprovacao",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+3 raizes JUEL: inputParameter de ST_RegistrarAprovacaoAuto e a condicao de Flow_GWFaixa_Auto "
+            "(recomendacao) e o resultVariable de BRT_FaixaAuto. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="categoria_procedimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so consulta; art. 10-B fora). Nome"
+            " ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="tipo_reembolso",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so livre_escolha). Nome ja no "
+            "corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_solicitado_cents",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (valor > 0 e comparacoes). Nome ja no "
+            "corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="recomendacao",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 saida da DMN reembolso_auto_approval e +1 segmento JUEL `auto_aprovacao.recomendacao` na "
+            "condicao de Flow_GWFaixa_Auto. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 saida da DMN reembolso_auto_approval. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_reembolso_aprovado_cents",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+2 no outputParameter de ST_RegistrarAprovacaoAuto (nome e raiz JUEL): o valor aprovado "
+            "automatico sobe ao escopo do processo. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico (reembolso.completed aprovado_automatico). "
+            "Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico. Nome ja no corpus."
+        ),
+    ),
 )
 
 
@@ -2355,10 +2664,11 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 366
+            expected_clean == 382
         )  # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
+        # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         assert (
-            expected_clean == 366
+            expected_clean == 382
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
@@ -2399,7 +2709,8 @@ class TestBuckets:
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.names) == expected_names == 387
+        # R-076 faixa B dormente (#1149): +16 nomes
+        assert len(live_sweep.names) == expected_names == 403
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2415,7 +2726,8 @@ class TestBuckets:
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
         # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.refs) == expected_refs == 1785
+        # R-076 faixa B dormente (#1149): +35 ocorrencias (DMN reembolso_auto_approval + 6 elementos BPMN)
+        assert len(live_sweep.refs) == expected_refs == 1820
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2570,7 +2882,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (366)" in rendered
+            f"## {CLEAN} (382)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).

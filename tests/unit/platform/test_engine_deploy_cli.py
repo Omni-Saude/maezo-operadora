@@ -268,7 +268,8 @@ class TestMainEndToEnd:
         # R-064 (#1121): +auth_junta_admissibility.dmn (RN 424 art. 3 I) -> 66 DMN;
         # DL-0161: reembolso -2 +1 -> 65.
         # MPTT P5: +prestador_trust_scorecard.dmn +prestador_tier.dmn (DRAFT, nao ligados) -> 67 DMN.
-        assert "17 BPMN, 67 DMN" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
+        # R-076 (#1149): +reembolso_auto_approval.dmn (faixa B dormente) -> 68 DMN.
+        assert "17 BPMN, 68 DMN" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

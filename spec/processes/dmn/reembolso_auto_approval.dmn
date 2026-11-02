@@ -32,7 +32,7 @@
         <inputExpression id="ie_desligada" typeRef="boolean"><text>faixa_auto_desligada</text></inputExpression>
       </input>
       <input id="in_clinica" label="Requer avaliacao clinica (fonte injetavel; sem fonte = nulo = humano)">
-        <inputExpression id="ie_clinica" typeRef="boolean"><text>requer_avaliacao_clinica</text></inputExpression>
+        <inputExpression id="ie_clinica" typeRef="boolean"><text>avaliacao_clinica_requerida</text></inputExpression>
       </input>
       <input id="in_tipo" label="Tipo de reembolso (fase 1: so livre_escolha)">
         <inputExpression id="ie_tipo" typeRef="string"><text>tipo_reembolso</text></inputExpression>

@@ -767,7 +767,7 @@ _LANE_POLITICA: dict[str, Any] = {
 }
 
 _LANE_FATOS = FatosFaixaAuto(
-    requer_avaliacao_clinica=False,
+    avaliacao_clinica_requerida=False,
     valor_tabela_cents=12000,
     limite_contratual_cents=20000,
     valor_nf_verificado=True,
@@ -866,7 +866,7 @@ async def test_faixa_b_dormente_com_defaults_mesmo_com_sementes_hostis(
         valor_tabela_dmn_cents=999999,
         limite_contratual_cents=999999,
         valor_nf_verificado=True,
-        requer_avaliacao_clinica=False,
+        avaliacao_clinica_requerida=False,
         aprovacoes_auto_benef_30d=0,
         limite_aprovacoes_auto_benef_30d=9,
         valor_auto_benef_30d_cents=0,
@@ -1059,7 +1059,7 @@ _CASOS_HUMANOS: list[tuple[str, dict[str, Any], FatosFaixaAuto, bool, dict[str, 
     (
         "merito_clinico",
         _LANE_POLITICA,
-        _FATOS(_LANE_FATOS, requer_avaliacao_clinica=True),
+        _FATOS(_LANE_FATOS, avaliacao_clinica_requerida=True),
         True,
         {},
         "r_clinica_humano",
