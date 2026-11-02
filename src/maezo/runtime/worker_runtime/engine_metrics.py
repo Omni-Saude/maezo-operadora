@@ -112,6 +112,17 @@ L1_DECISION_TASKS: Final[tuple[L1DecisionTask, ...]] = (
         action_class="high_value_payment",
         vocabulary=frozenset({"APROVAR", "RECUSAR", "SOLICITAR_INFO", "CANCELAR"}),
     ),
+    # R-092: o voto de cada membro do comite (UT_AprovacaoComite, multi-instancia — uma linha de
+    # historia por voto). Mesmo campo e vocabulario da aprovacao de alcada; so existe atras da flag
+    # dark MAEZO_PAGTO_COMITE_COLEGIADO.
+    L1DecisionTask(
+        process_key="SP-OP-PAGTO-001",
+        task_key="UT_AprovacaoComite",
+        decision_variable="decisao_pagamento",
+        agent_id="andre",
+        action_class="high_value_payment",
+        vocabulary=frozenset({"APROVAR", "RECUSAR", "SOLICITAR_INFO", "CANCELAR"}),
+    ),
     L1DecisionTask(
         process_key="SP-OP-ANS-SUBMIT-001",
         task_key="UT_RevisarEnvio",

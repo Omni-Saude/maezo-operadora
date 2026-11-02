@@ -1393,6 +1393,13 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
         "pagto_aprovacao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
+    # R-092 (F-081): o voto de cada membro do comite usa o MESMO formulario fechado da aprovacao
+    # de alcada (mesmos campos; a UT_AprovacaoComite so existe atras da flag dark
+    # MAEZO_PAGTO_COMITE_COLEGIADO). Validar o formulario nao aprova nem libera nada.
+    ("SP-OP-PAGTO-001", "UT_AprovacaoComite"): (
+        "pagto_aprovacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
     ("SP-OP-PAGTO-001", "UT_CoordenacaoAlcada"): (
         "pagto_coordenacao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",

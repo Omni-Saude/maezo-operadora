@@ -169,6 +169,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
     pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
     inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+    # Forensic audit R-092 (F-081/F-042): aprovacao colegiada do comite em SP-OP-PAGTO-001.
+    # Ligada, `calculate_facts` escreve `pagto_comite_colegiado_ativo=true` e `GW_TipoAprovacao` leva
+    # as faixas cujo `quorum_comite` (DMN `pagto_alcada`, valor DRAFT) passa de 1 a
+    # `SP_AprovacaoComite` (UT_AprovacaoComite multi-instancia); `release_high_value_payment` passa a
+    # exigir o livro de votos (quorum, membros distintos, SoD). DARK by default: a UT_AprovacaoComite
+    # usa o formulario existente `pagto_aprovacao`, mas o quorum/composicao do comite nao foram
+    # decididos pelo dono (DRAFT na DMN), e ligar e' ato humano (ROLL), nunca de agente.
+    pagto_comite_colegiado: bool = Field(default=False, alias="MAEZO_PAGTO_COMITE_COLEGIADO")
     # Forensic audit F-124 (roadmap R-027; decisao do DPO de 31/10/2026, #1082 opcao a): a business
     # key `INAD-{tenant}-{numero_contrato}` exige o numero do contrato — sem fallback para
     # `matricula_beneficiario` — e o start sem ele e' RECUSADO no chokepoint (fail-notify ADR-0045);
