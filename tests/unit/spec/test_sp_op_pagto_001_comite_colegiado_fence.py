@@ -12,7 +12,9 @@ o desenho colegiado contra regressao silenciosa:
    default continua `UT_AprovacaoAlcada`; a prorrogacao de SLA volta ao MESMO gateway;
 4. nenhum caminho novo de liberacao: o comite desemboca em `GW_DecisaoPagamento` (APROVAR so via
    o worker gated; CANCELAR -> `End_PagamentoCancelado`); timers vao ao caminho humano;
-5. o quorum vem SO da DMN, cada regra emite `quorum_comite`, e o valor do comite e DRAFT declarado.
+5. o quorum vem SO da DMN, cada regra emite `quorum_comite`, e o valor do comite (2) e o decidido pelo
+   dono em DEC-30 D1; DEC-30 D3: o minimo de votos para a coordenacao completar o quorum tambem vem
+   so da DMN e cada rodada do comite comeca sem livro.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from maezo.platform.xml_safe import parse_xml_without_dtd
 from maezo.tools.workers.pagto import (
     COMITE_ULTIMO_VOTO_VAR,
     PAGTO_COMITE_COLEGIADO_VAR,
+    VOTOS_COMITE_VAR,
+    VOTOS_MINIMOS_COORDENACAO_VAR,
 )
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -179,10 +183,62 @@ def test_toda_regra_da_dmn_emite_quorum_e_so_o_comite_passa_de_1() -> None:
     assert set(quoruns.values()) == {"1"}
 
 
-def test_quorum_do_comite_e_draft_declarado_para_humano() -> None:
-    """O valor do quorum nao foi decidido pelo dono: DRAFT na DMN, no registro e na fila humana."""
-    assert "VALOR DRAFT, NAO DECIDIDO" in _DMN.read_text(encoding="utf-8")
+def test_quorum_do_comite_decidido_pelo_dono_e_registrado_sem_assinatura() -> None:
+    """DEC-30 D1 (dono, #1084, 2026-11-02): comite = CFO + Gerente Financeiro, 2 de 2. A decisao
+    esta citada na DMN, no registro e na fila humana — e o artefato continua em `pendentes` (a
+    aprovacao amarrada aos bytes e assinatura humana; nenhum agente a preenche)."""
+    dmn = _DMN.read_text(encoding="utf-8")
+    assert "VALOR DRAFT, NAO DECIDIDO" not in dmn
+    assert "DEC-30 D1" in dmn and "CFO + Gerente Financeiro" in dmn
     registro = (_ROOT / "spec/aprovacoes-de-regras.yaml").read_text(encoding="utf-8")
-    assert "quorum_comite" in registro
+    pendentes = registro.split("pendentes:")[1]
+    assert "artefato: spec/processes/dmn/pagto_alcada.dmn" in pendentes
+    assert "quorum_comite" in pendentes and "DEC-30" in pendentes
     fila = (_ROOT / "docs/review-queue.md").read_text(encoding="utf-8")
-    assert "quorum_comite" in fila and "R-092" in fila
+    assert "quorum_comite" in fila and "R-092" in fila and "DEC-30 D1/D2/D3" in fila
+
+
+# ---------------------------------------------------------------------------------------------
+# DEC-30 D3: o minimo de votos para a coordenacao completar o quorum vem SO da DMN, e cada rodada
+# do comite comeca sem livro e sem decisao da coordenacao (voto de rodada anterior nunca conta).
+# ---------------------------------------------------------------------------------------------
+
+
+def _saida_por_regra(nome: str) -> dict[str, str]:
+    table = parse_xml_without_dtd(_DMN.read_bytes()).find(".//dmn:decisionTable", _D)
+    assert table is not None
+    nomes = [o.get("name", "") for o in table.findall("dmn:output", _D)]
+    out = {}
+    for rule in table.findall("dmn:rule", _D):
+        textos = [(e.findtext("dmn:text", "", _D) or "").strip() for e in rule.findall("dmn:outputEntry", _D)]
+        out[rule.get("id", "")] = dict(zip(nomes, textos, strict=True))[nome]
+    return out
+
+
+def test_toda_regra_da_dmn_emite_votos_minimos_coordenacao_1() -> None:
+    table = parse_xml_without_dtd(_DMN.read_bytes()).find(".//dmn:decisionTable", _D)
+    assert table is not None
+    saida = next(o for o in table.findall("dmn:output", _D) if o.get("name") == VOTOS_MINIMOS_COORDENACAO_VAR)
+    assert saida.get("typeRef") == "integer"
+    minimos = _saida_por_regra(VOTOS_MINIMOS_COORDENACAO_VAR)
+    assert minimos["r_catchall"] == "1"  # o "1 voto APROVAR" de DEC-30 D3
+    assert set(minimos.values()) == {"1"}
+
+
+def test_brt_alcada_achata_o_minimo_da_coordenacao() -> None:
+    io = _por_id("BRT_AlcadaRouting").find(f"{_B}extensionElements/{_C}inputOutput")
+    assert io is not None
+    saidas = {p.get("name"): (p.text or "").strip() for p in io.findall(f"{_C}outputParameter")}
+    assert saidas[VOTOS_MINIMOS_COORDENACAO_VAR] == f"${{pagto_alcada.{VOTOS_MINIMOS_COORDENACAO_VAR}}}"
+
+
+def test_cada_rodada_do_comite_zera_livro_e_decisao_da_coordenacao() -> None:
+    fluxo = _flows()["Flow_GWTipo_Comite"]
+    listeners = fluxo.findall(f"{_B}extensionElements/{_C}executionListener")
+    assert {(x.get("event"), x.get("expression")) for x in listeners} == {
+        ("take", f"${{execution.removeVariable('{VOTOS_COMITE_VAR}')}}"),
+        ("take", "${execution.setVariable('decisao_coordenacao', '')}"),
+    }
+    # O livro nunca e zerado em outro ponto do BPMN (so a entrada no comite o faz).
+    todos = [x.get("expression", "") for x in _PROCESS.iter(f"{_C}executionListener")]
+    assert sum(VOTOS_COMITE_VAR in e for e in todos) == 1
