@@ -1,4 +1,4 @@
-"""R-070 opcao B + R-076 — faixa automatica do REEMBOLSO, DORMENTE sobre a v2 (dono 2026-11-01, #1149).
+"""R-070 opcao B + R-076 + DL-0164 — faixa automatica do REEMBOLSO: PRETENDIDA, ativacao DESLIGADA.
 
 O que este arquivo prova SEM motor (o comportamento da DMN e' provado contra o CIB Seven real em
 tests/integration/processes/test_sp_op_reembolso_001.py — nada aqui avalia FEEL localmente):
@@ -13,13 +13,18 @@ tests/integration/processes/test_sp_op_reembolso_001.py — nada aqui avalia FEE
   no caminho automatico vem da DMN (nunca de tabela); so' `r_auto` emite valor e ela exige todas as
   condicoes da opcao B;
 - cercas de politica: teto do REEMBOLSO = 0 ate a assinatura do §6 e nunca > R$ 500 sem novo ADR;
-  kill-switch de politica fechado no L0-core.
+  kill-switch de politica fechado no L0-core; TETO_DURO da opcao B (R$ 300) e nenhum teto de tenant acima
+  dele; politica com teto acima do TETO_DURO fecha a faixa (R-070 §3.1 item 5 / §3.5 "configuracao
+  invalida") e a guarda recusa (DL-0164);
+- cerca de ATIVACAO (DL-0164): o interruptor unico de ativacao (R-058) e os freios de politica so' abrem
+  com as assinaturas do dono E da atuaria no R-070 §6.
 """
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +51,7 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.
 _DMN = _REPO / "spec/processes/dmn/reembolso_auto_approval.dmn"
 _CORE = _REPO / "spec/policies/autonomy/L0-core.yaml"
 _AMH = _REPO / "spec/policies/autonomy/tenants-amh.yaml"
+_R070 = _REPO / "docs/compliance/human-windows/R-070-dec-teto-d07.md"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 _CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
 _DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
@@ -71,7 +77,8 @@ def _resolver(tmp_path: Path, params: str) -> CeilingResolver:
 
 
 _PARAMS_ABERTOS = (
-    "max_value_brl: 300, faixa_auto_desligada: false, exposicao_max_aprovacoes_beneficiario_30d: 2, "
+    "max_value_brl: 300, teto_duro_brl: 300, faixa_auto_desligada: false, "
+    "exposicao_max_aprovacoes_beneficiario_30d: 2, "
     "exposicao_max_valor_beneficiario_30d_brl: 600, orcamento_diario_tenant_brl: 3000"
 )
 
@@ -342,6 +349,13 @@ def test_register_auto_approval_so_aprova_com_tudo_liberado(
             "faixa_auto_desligada",
         ),
         ("kill_switch_ausente", {}, "max_value_brl: 300", "faixa_auto_desligada"),
+        (
+            "teto_acima_do_teto_duro",
+            {},
+            "max_value_brl: 400, teto_duro_brl: 300, faixa_auto_desligada: false",
+            "teto_duro",
+        ),
+        ("teto_duro_ausente", {}, "max_value_brl: 300, faixa_auto_desligada: false", "teto_duro"),
     ],
 )
 def test_register_auto_approval_recusa_cada_violacao_mesmo_com_r058_aberto(
@@ -525,3 +539,109 @@ def test_int_param_clampa_invalido_em_zero(tmp_path: Path) -> None:
     assert r.int_param(**kw, param="c") == 0
     assert r.int_param(**kw, param="d") == 0
     assert r.int_param(**kw, param="ausente") == 0
+
+
+# --- DL-0164 (DEC-31 D31-1): TETO_DURO da opcao B e configuracao invalida fecha a faixa -----------
+
+
+@pytest.mark.parametrize(
+    ("params", "fechada"),
+    [
+        ("max_value_brl: 300, teto_duro_brl: 300, faixa_auto_desligada: false", False),
+        ("max_value_brl: 0, teto_duro_brl: 300, faixa_auto_desligada: false", False),
+        ("max_value_brl: 301, teto_duro_brl: 300, faixa_auto_desligada: false", True),
+        ("max_value_brl: 300, faixa_auto_desligada: false", True),
+        ("max_value_brl: 300, teto_duro_brl: x, faixa_auto_desligada: false", True),
+    ],
+)
+def test_teto_acima_do_teto_duro_fecha_a_faixa(tmp_path: Path, params: str, *, fechada: bool) -> None:
+    """R-070 §3.1 item 5 / §3.5: politica invalida (teto acima do TETO_DURO, ou TETO_DURO ausente com
+    teto positivo) FECHA a faixa — relaiada como kill-switch fechado, nunca como "paga ate o TETO_DURO"."""
+    out = validate_auto_criteria(_request(), resolver=_resolver(tmp_path, params))
+    assert out.faixa_auto_desligada is fechada
+    # O teto relaiado e' o da politica, sem clamp: a DMN nunca ve um teto "corrigido" em Python.
+    assert out.teto_l2_cents == int(params.split(",")[0].split(":")[1]) * 100
+
+
+def test_teto_duro_da_opcao_b_e_nenhum_tenant_passa_dele() -> None:
+    """DL-0164: o TETO_DURO da fase 1 e' o da opcao B escolhida pelo dono (R-070 §4 linha B, §5-bis): R$ 300;
+    nunca > R$ 500 sem novo ADR (§3.6 item 3); nenhum overlay de tenant sobe o teto acima dele nem o
+    proprio TETO_DURO acima do core."""
+    core = _reembolso_params(_CORE, overlay=False)
+    teto_duro = core["teto_duro_brl"]
+    assert teto_duro == 300
+    assert teto_duro <= 500
+    assert core["max_value_brl"] <= teto_duro
+    overlays = sorted((_REPO / "spec/policies/autonomy").glob("tenants-*.yaml"))
+    assert _AMH in overlays
+    for path in overlays:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        node = (data.get("overrides") or {}).get("reembolso_auto_approval")
+        if node is None:
+            continue
+        params = dict(node.get("params") or {})
+        assert params.get("teto_duro_brl", teto_duro) <= teto_duro, f"{path.name}: TETO_DURO acima do core"
+        assert params.get("max_value_brl", 0) <= teto_duro, f"{path.name}: teto acima do TETO_DURO"
+
+
+# --- DL-0164: interruptor unico de ativacao (R-058) amarrado as assinaturas do R-070 §6 ------------
+
+_PLACEHOLDER = re.compile(r"^\[\s*(nome)?\s*\]$")
+_PAPEIS_S6 = ("Decisor (dono)", "Atuária")
+
+
+def _assinaturas_s6(texto: str) -> dict[str, bool]:
+    """Para cada papel do §6 do R-070: True so' com nome, data E assinatura preenchidos.
+
+    Le' o bloco ``## 6.`` ate a proxima secao. Linha de papel ausente = erro (a cerca nunca e' vacua).
+    """
+    inicio = texto.index("## 6.")
+    fim = texto.find("\n## ", inicio + 1)
+    bloco = texto[inicio : fim if fim != -1 else len(texto)]
+    out: dict[str, bool] = {}
+    for papel in _PAPEIS_S6:
+        m = re.search(
+            rf"^- \*\*{re.escape(papel)}:\*\* (?P<nome>.*?)\s+\*\*Data:\*\* (?P<data>.*?)\s+"
+            r"\*\*Assinatura:\*\* (?P<assinatura>.*?)\s*$",
+            bloco,
+            flags=re.MULTILINE,
+        )
+        assert m is not None, f"R-070 §6 sem a linha de {papel!r}: a cerca de ativacao ficaria vacua"
+        out[papel] = all(v.strip() and not _PLACEHOLDER.match(v.strip()) for v in m.groupdict().values())
+    return out
+
+
+def test_parser_do_s6_le_os_dois_papeis_e_reconhece_preenchimento() -> None:
+    hoje = _assinaturas_s6(_R070.read_text(encoding="utf-8"))
+    assert set(hoje) == set(_PAPEIS_S6)
+    sintetico = (
+        "## 6. Bloco\n"
+        "- **Decisor (dono):** Fulano   **Data:** 2027-01-01   **Assinatura:** Fulano\n"
+        "- **Atuária:** [nome]   **Data:** [  ]   **Assinatura:** [  ]\n"
+        "\n## 7. Outra\n"
+    )
+    assert _assinaturas_s6(sintetico) == {"Decisor (dono)": True, "Atuária": False}
+
+
+def test_ativacao_da_faixa_b_so_com_o_s6_assinado_pelo_dono_e_pela_atuaria() -> None:
+    """DL-0164 (DEC-31 D31-1): a faixa B e' o comportamento PRETENDIDO, mas a ATIVACAO fica desligada ate o
+    R-070 §6 ter as assinaturas do dono E da atuaria (§3.6 item 2). O interruptor unico de ativacao e' a
+    constante R-058; os freios de politica (kill-switch `faixa_auto_desligada`, teto do tenant) seguem
+    independentes e tambem nao abrem sem o §6. Nenhum agente preenche o §6 (ADR-0007)."""
+    assinado = all(_assinaturas_s6(_R070.read_text(encoding="utf-8")).values())
+    core = _reembolso_params(_CORE, overlay=False)
+    r058 = reembolso_module.REEMBOLSO_AUTO_PAGAMENTO_LIBERADO
+    pedidos = {
+        "R-058 REEMBOLSO_AUTO_PAGAMENTO_LIBERADO": r058 is not False,
+        "L0-core faixa_auto_desligada": core.get("faixa_auto_desligada") is not True,
+        "L0-core max_value_brl": core.get("max_value_brl", 0) != 0,
+    }
+    for path in sorted((_REPO / "spec/policies/autonomy").glob("tenants-*.yaml")):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        node = (data.get("overrides") or {}).get("reembolso_auto_approval") or {}
+        params = dict(node.get("params") or {})
+        pedidos[f"{path.name} max_value_brl"] = params.get("max_value_brl", 0) != 0
+        pedidos[f"{path.name} faixa_auto_desligada"] = params.get("faixa_auto_desligada", True) is not True
+    abertos = sorted(k for k, v in pedidos.items() if v)
+    if not assinado:
+        assert not abertos, f"ativacao da faixa B sem as assinaturas do R-070 §6 (dono + atuaria): {abertos}"

@@ -740,10 +740,11 @@ async def test_conclusao_tipada_do_portal_passa_pela_guarda_l0(
 
 
 # ===========================================================================
-# R-076 / R-070 opcao B — faixa B DORMENTE sobre a v2 (decisao do dono de 2026-11-01, PR #1149)
+# R-076 / R-070 opcao B — faixa B PRETENDIDA, ATIVACAO DESLIGADA (DL-0164, DEC-31 D31-1; dormente no #1149)
 # ===========================================================================
 #
-# Producao: teto 0 (L0-core e amh), kill-switch de politica fechado, R-058 False, nenhuma fonte de fatos.
+# Producao (ate o R-070 §6 assinado): teto 0 (L0-core e amh), kill-switch de politica fechado, R-058 False
+# (interruptor unico de ativacao), nenhuma fonte de fatos. TETO_DURO da opcao B = R$ 300 (`teto_duro_brl`).
 # `test_faixa_b_dormente_com_defaults_mesmo_com_sementes_hostis` prova isso contra o motor. Nos demais
 # testes cada trava e' aberta APENAS no probe — teto/kill-switch/exposicao por uma matriz sintetica (seam
 # `reembolso_ceiling_resolver`), os fatos por uma fonte fixa (seam `reembolso_fonte_faixa_auto`) e o R-058
@@ -760,6 +761,7 @@ _HARD_BLOCK_LANE = """\
 
 _LANE_POLITICA: dict[str, Any] = {
     "max_value_brl": 300,
+    "teto_duro_brl": 300,
     "faixa_auto_desligada": "false",
     "exposicao_max_aprovacoes_beneficiario_30d": 2,
     "exposicao_max_valor_beneficiario_30d_brl": 600,
@@ -954,6 +956,24 @@ _CASOS_HUMANOS: list[tuple[str, dict[str, Any], FatosFaixaAuto, bool, dict[str, 
     (
         "kill_switch_ausente",
         {k: v for k, v in _LANE_POLITICA.items() if k != "faixa_auto_desligada"},
+        _LANE_FATOS,
+        True,
+        {},
+        "r_desligada_humano",
+    ),
+    # DL-0164 (R-070 §3.1 item 5 / §3.5): politica invalida (teto acima do TETO_DURO, ou TETO_DURO
+    # ausente) chega a DMN como kill-switch fechado — decide `r_desligada_humano`, nunca "paga ate o teto".
+    (
+        "teto_acima_do_teto_duro_fecha_a_faixa",
+        {**_LANE_POLITICA, "max_value_brl": 400},
+        _LANE_FATOS,
+        True,
+        {},
+        "r_desligada_humano",
+    ),
+    (
+        "teto_duro_ausente_fecha_a_faixa",
+        {k: v for k, v in _LANE_POLITICA.items() if k != "teto_duro_brl"},
         _LANE_FATOS,
         True,
         {},
