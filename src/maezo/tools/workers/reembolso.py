@@ -6,11 +6,11 @@ emite pagamento (o financeiro paga fora e registra `data_pagamento` em `UT_Regis
 removidos em DL-0161: `calculate_value`, `calculate_amount_entry`, `process_payment`,
 `issue_payment_entry`, `validate_reembolso`/`check_prazo` e os erros de dinheiro associados.
 
-Faixa B DORMENTE (R-070 opcao B, R-076; decisao do dono de 2026-11-01 no PR #1149): o interruptor R-058
-(`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`, `False`) volta como metade "codigo" do kill-switch duplo, junto com
+Faixa B PRETENDIDA, ATIVACAO DESLIGADA (R-070 opcao B, R-076; DL-0164, DEC-31 D31-1 de 2026-11-02): o
+interruptor R-058 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`, `False`) e' o interruptor unico de ativacao, junto com
 `validate_auto_criteria` (RELAIA fatos para a DMN `reembolso_auto_approval`; nao compara) e
-`register_auto_approval` (guarda de efeito da aprovacao automatica integral). Com os defaults (R-058
-`False`, teto 0, kill-switch de politica fechado, nenhuma fonte de fatos) nenhum pedido sai da analise
+`register_auto_approval` (guarda de efeito da aprovacao automatica integral). Ate o R-070 §6 ser assinado
+(R-058 `False`, teto 0, kill-switch de politica fechado, nenhuma fonte de fatos) nenhum pedido sai da analise
 humana.
 
 Negativa-like L0 hard: `send_reembolso_denial` e GUARDADO por ERR_REEMBOLSO_DENIAL_NOT_HUMAN — negar ou
@@ -129,9 +129,9 @@ class ReembolsoDenialInput:
 
 
 # ---------------------------------------------------------------------------
-# R-070 opcao B — faixa automatica L2 DORMENTE (R-076; decisao do dono de 2026-11-01 no PR #1149:
-# "manter as duas coisas" — a v2 100% humana de DL-0161 e' o modelo vivo; esta faixa existe DORMENTE,
-# fechada pelo R-058 abaixo E pelo teto 0 da politica, e so' abre com a assinatura do dono + atuaria no
+# R-070 opcao B — faixa automatica L2 PRETENDIDA (DL-0164, DEC-31 D31-1: "respect R-070's auto-approval
+# ceiling and do not send 100% of reimbursement requests to human review"); ATIVACAO DESLIGADA: fechada pelo
+# R-058 abaixo E pelo teto 0 + kill-switch da politica, e so' abre com a assinatura do dono + atuaria no
 # bloco §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md`, hoje EM BRANCO).
 #
 # Este modulo NAO decide nada da faixa: `validate_auto_criteria` RELAIA fatos (politica + fonte
@@ -146,7 +146,7 @@ class ReembolsoDenialInput:
 # `validate_auto_criteria` relaia desta constante, e `register_auto_approval` recusa a origem automatica
 # enquanto ela for `False`. NAO le teto, politica de tenant nem variavel de processo: so' vira por mudanca
 # revisavel e nomeada, junto com a assinatura do R-070 §6 — nunca como efeito colateral de subir o teto.
-#: Kill-switch de codigo (R-058). `False` ate a assinatura do dono + atuaria no R-070 §6.
+#: Interruptor unico de ATIVACAO (R-058, DL-0164). `False` ate a assinatura do dono + atuaria no R-070 §6.
 REEMBOLSO_AUTO_PAGAMENTO_LIBERADO: bool = False
 
 #: Nome da variavel que `validate_auto_criteria` escreve a partir da constante acima e que a condicao de
@@ -172,6 +172,21 @@ _PARAM_FAIXA_DESLIGADA = "faixa_auto_desligada"
 _PARAM_EXPO_QTD_BENEF = "exposicao_max_aprovacoes_beneficiario_30d"
 _PARAM_EXPO_VALOR_BENEF_BRL = "exposicao_max_valor_beneficiario_30d_brl"
 _PARAM_ORCAMENTO_TENANT_BRL = "orcamento_diario_tenant_brl"
+#: TETO_DURO da fase 1 (R-070 §3.3; opcao B escolhida pelo dono: R$ 300; DL-0164). O teto do tenant nunca
+#: passa dele: politica com teto > TETO_DURO (ou TETO_DURO ausente com teto > 0) e' INVALIDA e fecha a faixa.
+_PARAM_TETO_DURO_BRL = "teto_duro_brl"
+
+
+def _politica_faixa_valida(resolver: CeilingResolver, tenant: str) -> bool:
+    """Validade de CONFIGURACAO da faixa (R-070 §3.1 item 5; §3.5 "configuracao invalida ou ausente").
+
+    Nao e' regra de roteamento (ADR-0012; a DMN compara o pedido com o teto): so' confere que a propria
+    politica respeita o TETO_DURO. Invalida => a faixa e' relaiada FECHADA e a guarda recusa. Teto 0 e'
+    valido (fecha pela DMN). Nunca corrige o teto em Python ("paga ate o TETO_DURO" nao existe).
+    """
+    teto = resolver.ceiling_brl(tenant=tenant, action=_CEILING_ACTION, param=_CEILING_PARAM)
+    teto_duro = resolver.int_param(tenant=tenant, action=_CEILING_ACTION, param=_PARAM_TETO_DURO_BRL)
+    return teto <= teto_duro
 
 
 @dataclass(frozen=True)
@@ -270,7 +285,7 @@ def validate_auto_criteria(
         reembolso_auto_liberado=REEMBOLSO_AUTO_PAGAMENTO_LIBERADO,
         origem_aprovacao=ORIGEM_HUMANA,
         teto_l2_cents=resolver.ceiling_brl(tenant=tenant, action=_CEILING_ACTION, param=_CEILING_PARAM) * 100,
-        faixa_auto_desligada=desligada is not False,
+        faixa_auto_desligada=desligada is not False or not _politica_faixa_valida(resolver, tenant),
         limite_aprovacoes_auto_benef_30d=resolver.int_param(
             tenant=tenant, action=_CEILING_ACTION, param=_PARAM_EXPO_QTD_BENEF
         ),
@@ -338,6 +353,8 @@ def register_auto_approval(
     desligada = resolver.bool_param(tenant=tenant_id, action=_CEILING_ACTION, param=_PARAM_FAIXA_DESLIGADA)
     if desligada is not False:
         motivos.append("faixa_auto_desligada (politica) nao e' false")
+    if not _politica_faixa_valida(resolver, tenant_id):
+        motivos.append("politica invalida: teto acima do teto_duro_brl (R-070 §3.3) ou teto_duro ausente")
     if origem_pagamento != ORIGEM_AUTO_L2:
         motivos.append("origem_pagamento nao e' AUTO_L2")
     aprovado, solicitado = valor_aprovado_auto_cents, valor_solicitado_cents
