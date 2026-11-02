@@ -1,8 +1,8 @@
-"""A razao append-only `pagto_obrigacao_ledger` (migracao 0033): forma da linha, porta e store.
+"""A razao append-only `pagto_obrigacao_ledger` (migracao 0034): forma da linha, porta e store.
 
 Garantias, cada uma com o seu dono:
 
-* **Append-only** — o banco (triggers da 0033). Esta classe nao tem metodo que faca UPDATE ou
+* **Append-only** — o banco (triggers da 0034). Esta classe nao tem metodo que faca UPDATE ou
   DELETE; mudanca de estado de uma ordem e' uma nova linha (`evento`).
 * **Idempotencia por (ordem, evento)** — `UNIQUE (tenant, chave_obrigacao, ordem_pagamento_id,
   evento)` + `ON CONFLICT DO NOTHING`: a re-entrega da mesma tarefa externa nao duplica nada.
@@ -47,7 +47,7 @@ NIVEL1_SEM_OUTRA_ORDEM: Final[str] = "SEM_OUTRA_ORDEM"
 NIVEL1_REGISTRADA_OUTRA_ORDEM: Final[str] = "REGISTRADA_OUTRA_ORDEM"
 NIVEL1_LIBERADA_OUTRA_ORDEM: Final[str] = "LIBERADA_OUTRA_ORDEM"
 
-#: Espelhos byte a byte dos CHECKs da 0033.
+#: Espelhos byte a byte dos CHECKs da 0034.
 _TENANT_PROIBIDO_RE: Final = re.compile(r"[\s\x00-\x1f\x7f/?#]")
 _SEM_ESPACO_RE: Final = re.compile(r"[\s\x00-\x1f\x7f]")
 _CHAVE_RE: Final = re.compile(r"OBRIG-(contas|recurso|outro)-[0-9a-f]{64}")
@@ -84,7 +84,7 @@ def _texto_sem_espaco(campo: str, valor: str, teto: int) -> None:
 
 @dataclass(frozen=True, slots=True)
 class EntradaObrigacao:
-    """Uma linha da razao. Validada no construtor com os MESMOS limites dos CHECKs da 0033, para
+    """Uma linha da razao. Validada no construtor com os MESMOS limites dos CHECKs da 0034, para
     que um valor invalido seja recusado antes de qualquer rede."""
 
     tenant: str
@@ -255,7 +255,7 @@ Conectar = Callable[[], Awaitable[Any]]
 
 
 class PostgresRazaoObrigacoesPagamento:
-    """`RazaoObrigacoesPagamento` sobre a 0033, via asyncpg, no schema do tenant (DL-0017).
+    """`RazaoObrigacoesPagamento` sobre a 0034, via asyncpg, no schema do tenant (DL-0017).
 
     Uma conexao por operacao: o worker sincrono roda cada tarefa numa thread com `asyncio.run`
     proprio (loop novo por despacho), e uma conexao/pool asyncpg fica presa ao loop que a criou

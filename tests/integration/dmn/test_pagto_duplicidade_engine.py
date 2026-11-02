@@ -6,7 +6,7 @@ entrada presente e nula (sem ordem similar), os limites fechados da janela `[0..
 o catch-all fail-closed (nivel nao avaliavel nunca vira NENHUMA).
 
 E um caso PONTA A PONTA quando o Postgres do job tambem esta' de pe: o detector REAL
-(`detect_duplicidade`) com a razao REAL (migracao 0033 num schema descartavel) e a DMN REAL no motor
+(`detect_duplicidade`) com a razao REAL (migracao 0034 num schema descartavel) e a DMN REAL no motor
 — duas ordens da mesma conta: a primeira sai NENHUMA, a segunda CONFIRMADA.
 
 Os esperados sao DERIVADOS da tabela, nao de uma corrida anterior do motor: se o motor discordar, a

@@ -1162,7 +1162,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
                 pagto_resolve_lastro=settings.pagto_resolve_lastro,
                 # PAGTO PR-E (analise PAGTO §4), DARK: detector de duplicidade so' quando ligada; a
-                # razao (migracao 0033) so' e' montada com a flag E DATABASE_URL — sem ela o
+                # razao (migracao 0034) so' e' montada com a flag E DATABASE_URL — sem ela o
                 # detector emite INDETERMINADA (falha fechada), nunca NENHUMA.
                 pagto_detect_duplicidade=settings.pagto_detect_duplicidade,
                 pagto_obrigacao_ledger=(

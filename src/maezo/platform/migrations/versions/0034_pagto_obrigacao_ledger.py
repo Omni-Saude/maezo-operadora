@@ -42,12 +42,13 @@ competencia (`YYYY-MM`), valor em centavos, a origem (enum fechado) e o id da in
 origem resolvida pelo PR-D. Guia e glosa so' entram DENTRO do digest da chave. Nenhum texto
 livre.
 
-**Cadeia alembic.** `down_revision = "0030"` (head da main em 01/11/2026). O PR #1074 (aberto)
-traz a 0031 e o PR #1175 (aberto) traz a 0032; o orquestrador re-aponta `down_revision` desta
-migracao para a head vigente no merge (e os pins de head acompanham).
+**Cadeia alembic.** `down_revision = "0032"` (head da main em 01/11/2026, ledger de status do
+prestador do PR #1175). O PR #1074 (aberto) passa a trazer a 0033 revisando a 0032; se ele entrar
+antes, o orquestrador re-aponta `down_revision` desta migracao para "0033" (e os pins de head ja dizem
+0034).
 
-Revision ID: 0033
-Revises: 0030
+Revision ID: 0034
+Revises: 0032
 Create Date: 2026-11-01
 """
 
@@ -55,8 +56,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0033"
-down_revision: str | None = "0030"
+revision: str = "0034"
+down_revision: str | None = "0032"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

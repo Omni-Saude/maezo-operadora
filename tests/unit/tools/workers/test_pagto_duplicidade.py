@@ -322,7 +322,7 @@ def test_saida_da_dmn_fora_do_vocabulario_e_indeterminada(row: dict[str, Any]) -
         {"valor_pagamento_cents": "500"},
         {"numero_lote_tiss": ""},  # CONTAS sem lote: sem identidade de obrigacao
         {"lastro_origem": "recurso_deferimento_humano", "glosa_id": ""},
-        {"prestador_id": "prestador com espaco"},  # fora do formato da 0033
+        {"prestador_id": "prestador com espaco"},  # fora do formato da 0034
         {"competencia": "06/2026"},
     ],
 )

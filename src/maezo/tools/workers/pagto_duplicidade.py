@@ -10,7 +10,7 @@ da validacao de sempre (e dos fatos do lastro do PR-D quando a flag dele tambem 
 
   1. monta a CHAVE DA OBRIGACAO da ordem (`OBRIG-{origem}-{sha256}`; componentes da analise §4
      nivel 1 — CONTAS: lote + prestador + guia; RECURSO: `glosa_id`; outro: a propria ordem);
-  2. numa UNICA transacao da razao (`pagto_obrigacao_ledger`, migracao 0033), serializada por lock
+  2. numa UNICA transacao da razao (`pagto_obrigacao_ledger`, migracao 0034), serializada por lock
      de prestador e de obrigacao, le os INDICIOS (nivel 1: a mesma obrigacao em outra ordem;
      nivel 2: o que outras ordens ja comprometeram contra a mesma instancia de origem; nivel 3: a
      ordem similar mais recente — mesmo prestador + competencia + valor, outra obrigacao, outro
@@ -211,7 +211,7 @@ def _entrada(
     tenant: str, evento: str, variables: Mapping[str, Any], *, origem_instancia_id: str | None
 ) -> EntradaObrigacao | None:
     """A linha da razao para esta ordem, ou `None` quando a ordem nao tem identidade suficiente
-    ou um campo esta fora do formato da 0033 (nunca gravado, nunca adivinhado)."""
+    ou um campo esta fora do formato da 0034 (nunca gravado, nunca adivinhado)."""
     origem = _origem_da_ordem(variables)
     componentes = _componentes(origem, variables)
     ordem = key_segment(variables.get("ordem_pagamento_id"))
@@ -233,7 +233,7 @@ def _entrada(
             origem_instancia_id=origem_instancia_id,
         )
     except ValueError:
-        # Recusa do PROPRIO construtor (formato da 0033): dado que a razao nao aceitaria.
+        # Recusa do PROPRIO construtor (formato da 0034): dado que a razao nao aceitaria.
         return None
 
 

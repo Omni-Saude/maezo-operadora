@@ -26,7 +26,7 @@ from maezo.platform.pagto_obrigacao.ledger import (
 
 _MIGRACAO = (
     Path(__file__).resolve().parents[3]
-    / "src/maezo/platform/migrations/versions/0033_pagto_obrigacao_ledger.py"
+    / "src/maezo/platform/migrations/versions/0034_pagto_obrigacao_ledger.py"
 )
 
 
@@ -91,7 +91,7 @@ def test_entrada_valida() -> None:
         {"versao_detector": "V1"},
     ],
 )
-def test_entrada_fora_dos_checks_da_0033_e_recusada_antes_da_rede(campos: dict[str, Any]) -> None:
+def test_entrada_fora_dos_checks_da_0034_e_recusada_antes_da_rede(campos: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         _entrada(**campos)
 

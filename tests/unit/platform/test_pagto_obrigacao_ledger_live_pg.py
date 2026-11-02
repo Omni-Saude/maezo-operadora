@@ -1,9 +1,9 @@
-"""Pacote PAGTO PR-E — migracao 0033 e o store AO VIVO (Postgres real, nunca DDL simulado).
+"""Pacote PAGTO PR-E — migracao 0034 e o store AO VIVO (Postgres real, nunca DDL simulado).
 
 Cadeia alembic REAL sobre um schema de tenant descartavel no Postgres do compose/CI (molde
 `test_legitimacy_screens_migration_live_pg.py`). Provas:
 
-- `upgrade head` aplica a 0033; o store grava a `REGISTRADA` e devolve os indicios dos tres niveis
+- `upgrade head` aplica a 0034; o store grava a `REGISTRADA` e devolve os indicios dos tres niveis
   (nivel 1 mesma obrigacao em outra ordem, nivel 2 soma contra a instancia de origem, nivel 3 a
   ordem similar com a idade contada pelo relogio do banco);
 - IDEMPOTENCIA: a re-entrega da mesma ordem nao cria segunda linha e nao se ve como duplicata;
@@ -13,7 +13,7 @@ Cadeia alembic REAL sobre um schema de tenant descartavel no Postgres do compose
 - APPEND-ONLY: UPDATE, DELETE e TRUNCATE direto no banco levantam a excecao do trigger; CHECKs
   fechados recusam evento/origem/chave fora do vocabulario;
 - banco fora -> `RazaoIndisponivelError` (o detector a traduz em INDETERMINADA);
-- `downgrade 0030` apaga tabela e funcao, e um segundo `upgrade head` as restaura.
+- `downgrade -1` (so' a 0034, qualquer que seja o pai no merge) apaga tabela e funcao, e um segundo `upgrade head` as restaura.
 """
 
 from __future__ import annotations
@@ -229,7 +229,7 @@ async def test_niveis_idempotencia_e_append_only_ao_vivo() -> None:
         finally:
             await raw.close()
 
-        await _migrate(dsn, tenant, "downgrade", "0030")
+        await _migrate(dsn, tenant, "downgrade", "-1")
         raw = await asyncpg.connect(dsn)
         try:
             existe = await raw.fetchval("SELECT to_regclass($1)", f'"{tenant}".pagto_obrigacao_ledger')

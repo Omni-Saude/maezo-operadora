@@ -1436,7 +1436,8 @@ class TestLiveTree:
         # 71 -> 72 pela mesma razao: `triage_sufficiency.dmn` nao e' artefato de cadeia.
         # 75 -> 76: `auth_junta_admissibility.dmn` (R-064, #1121) tambem fica fora da cadeia.
         # 76 -> 78: as duas DMNs do MPTT P5 tambem ficam fora da cadeia.
-        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 78  # idem; DL-0104: +1
+        # 78 -> 79: `pagto_duplicidade.dmn` (PAGTO PR-E) tambem fica fora da cadeia.
+        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 79  # idem; DL-0104: +1
 
     def test_tier_b_hit_lines_are_pinned(self) -> None:
         """The gate's own Tier-B re-measurement, line by line — now EMPTY.

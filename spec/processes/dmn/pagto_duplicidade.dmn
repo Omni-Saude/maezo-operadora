@@ -15,7 +15,7 @@
     MAEZO_PAGTO_DETECT_DUPLICIDADE ligada (desligada por padrao). NAO e' lida por BPMN nenhum e NAO
     roteia: duplicidade_status e' FATO; quem o le para rotear e' pagto_admissibility v0.2 (PR-F).
 
-    Entradas (todas FATOS da razao append-only pagto_obrigacao_ledger, migracao 0033):
+    Entradas (todas FATOS da razao append-only pagto_obrigacao_ledger, migracao 0034):
       nivel1_situacao — a MESMA obrigacao em OUTRA ordem: SEM_OUTRA_ORDEM | REGISTRADA_OUTRA_ORDEM |
         LIBERADA_OUTRA_ORDEM | NAO_AVALIAVEL;
       nivel2_situacao — soma das ordens contra a MESMA instancia de origem + esta ordem vs o valor
