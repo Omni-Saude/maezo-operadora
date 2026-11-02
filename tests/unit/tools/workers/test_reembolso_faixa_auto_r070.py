@@ -1,15 +1,17 @@
-"""R-070 opcao B (dono, 2026-10-31, #1084) + R-076 — faixa automatica do REEMBOLSO.
+"""R-070 opcao B + R-076 — faixa automatica do REEMBOLSO, DORMENTE sobre a v2 (dono 2026-11-01, #1149).
 
 O que este arquivo prova SEM motor (o comportamento da DMN e' provado contra o CIB Seven real em
 tests/integration/processes/test_sp_op_reembolso_001.py — nada aqui avalia FEEL localmente):
 
-- o worker `calculate_amount` RELAIA os fatos da faixa (politica + fonte) e NAO compara nada;
-- defaults = forma "desconhecido" (teto 0, kill-switch fechado, sem limite contratual, NF nao
-  verificada, sem contadores), e fonte quebrada/forjada vira "desconhecido";
-- os seams de `register_reembolso_workers` chegam ao worker registrado (mata a mutacao "seam
-  ignorado");
-- cercas estruturais do modelo: o valor pago no caminho automatico vem da DMN (nunca da tabela),
-  a regra AUTO e' unica, so' ela emite valor, e exige a lista fechada da fase 1;
+- o worker `validate_auto_criteria` RELAIA os fatos da faixa (politica + fonte) e NAO compara nada;
+- defaults = forma "desconhecido" (teto 0, kill-switch fechado, R-058 False, sem tabela, sem limite
+  contratual, NF nao verificada, sem merito clinico conhecido, sem contadores); fonte quebrada/forjada
+  vira "desconhecido";
+- `register_auto_approval` (segunda barreira) recusa cada violacao — testes NEGATIVOS da guarda de alcada;
+- os seams de `register_reembolso_workers` chegam aos workers registrados (mata a mutacao "seam ignorado");
+- cercas estruturais (B1): nenhuma entrada da DMN e' sombreada por inputParameter local; o valor aprovado
+  no caminho automatico vem da DMN (nunca de tabela); so' `r_auto` emite valor e ela exige todas as
+  condicoes da opcao B;
 - cercas de politica: teto do REEMBOLSO = 0 ate a assinatura do §6 e nunca > R$ 500 sem novo ADR;
   kill-switch de politica fechado no L0-core.
 """
@@ -17,6 +19,7 @@ tests/integration/processes/test_sp_op_reembolso_001.py — nada aqui avalia FEE
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -24,20 +27,23 @@ import pytest
 import yaml
 
 from maezo.platform.xml_safe import parse_xml_without_dtd
+from maezo.tools.workers import reembolso as reembolso_module
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.harness import ExternalTask, FakeAuditSink, FakeWorkerTransport, WorkerHarness
 from maezo.tools.workers.reembolso import (
+    ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO,
     FatosFaixaAuto,
-    ReembolsoCalculoDmn,
+    ReembolsoAutoPagamentoBloqueadoError,
     ReembolsoInput,
-    calculate_amount_entry,
-    calculate_value,
+    register_auto_approval_entry,
     register_reembolso_workers,
+    validate_auto_criteria,
+    validate_auto_criteria_entry,
 )
 
 _REPO = Path(__file__).resolve().parents[4]
 _BPMN = _REPO / "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn"
-_DMN = _REPO / "spec/processes/dmn/reembolso_coverage.dmn"
+_DMN = _REPO / "spec/processes/dmn/reembolso_auto_approval.dmn"
 _CORE = _REPO / "spec/policies/autonomy/L0-core.yaml"
 _AMH = _REPO / "spec/policies/autonomy/tenants-amh.yaml"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -51,12 +57,6 @@ _HARD_BLOCK = """\
   fraud_accusation:       { level: L0, hard: true }
   contract_termination:   { level: L0, hard: true }
 """
-
-_CONSULTA = ReembolsoCalculoDmn(
-    valor_calculado_tabela_cents=12000,
-    multiplo_tabela_aplicado=1.0,
-    fonte_tabela="TABELA_REFERENCIA_CONSULTA",
-)
 
 
 def _resolver(tmp_path: Path, params: str) -> CeilingResolver:
@@ -91,6 +91,8 @@ def _request(**overrides: Any) -> ReembolsoInput:
 
 def _fonte_completa(_: ReembolsoInput) -> FatosFaixaAuto:
     return FatosFaixaAuto(
+        requer_avaliacao_clinica=False,
+        valor_tabela_cents=12000,
         limite_contratual_cents=20000,
         valor_nf_verificado=True,
         aprovacoes_auto_benef_30d=0,
@@ -104,7 +106,11 @@ def _fonte_completa(_: ReembolsoInput) -> FatosFaixaAuto:
 
 def test_defaults_sao_a_forma_desconhecida_com_a_politica_real() -> None:
     """Sem seam: matriz REAL (teto 0, kill-switch fechado) e nenhuma fonte => tudo desconhecido."""
-    out = calculate_value(_request(), _CONSULTA)
+    out = validate_auto_criteria(_request())
+    assert out.reembolso_auto_liberado is False  # R-058
+    assert out.origem_aprovacao == "HUMANA"
+    assert out.requer_avaliacao_clinica is None
+    assert out.valor_tabela_dmn_cents is None
     assert out.teto_l2_cents == 0
     assert out.faixa_auto_desligada is True
     assert out.limite_contratual_cents is None
@@ -119,14 +125,15 @@ def test_defaults_sao_a_forma_desconhecida_com_a_politica_real() -> None:
 
 
 def test_relaia_politica_e_fonte_injetadas(tmp_path: Path) -> None:
-    out = calculate_value(
+    out = validate_auto_criteria(
         _request(),
-        _CONSULTA,
         resolver=_resolver(tmp_path, _PARAMS_ABERTOS),
         fonte_faixa_auto=_fonte_completa,
     )
     assert out.teto_l2_cents == 30000
     assert out.faixa_auto_desligada is False
+    assert out.requer_avaliacao_clinica is False
+    assert out.valor_tabela_dmn_cents == 12000
     assert out.limite_contratual_cents == 20000
     assert out.valor_nf_verificado is True
     assert (
@@ -143,16 +150,15 @@ def test_relaia_politica_e_fonte_injetadas(tmp_path: Path) -> None:
 @pytest.mark.parametrize("valor", ["true", "1", "nao", "null"])
 def test_kill_switch_invalido_ou_ausente_fica_fechado(tmp_path: Path, valor: str) -> None:
     """So' um `false` YAML real abre o kill-switch de politica; qualquer outra coisa = fechado."""
-    out = calculate_value(
+    out = validate_auto_criteria(
         _request(),
-        _CONSULTA,
         resolver=_resolver(tmp_path, f"max_value_brl: 300, faixa_auto_desligada: {valor}"),
     )
     assert out.faixa_auto_desligada is True
 
 
 def test_kill_switch_ausente_fica_fechado(tmp_path: Path) -> None:
-    out = calculate_value(_request(), _CONSULTA, resolver=_resolver(tmp_path, "max_value_brl: 300"))
+    out = validate_auto_criteria(_request(), resolver=_resolver(tmp_path, "max_value_brl: 300"))
     assert out.faixa_auto_desligada is True
     assert out.limite_aprovacoes_auto_benef_30d == 0  # limite ausente = 0 = nada admitido
 
@@ -162,6 +168,8 @@ def test_fonte_forjada_vira_desconhecido() -> None:
 
     def _forjada(_: ReembolsoInput) -> FatosFaixaAuto:
         return FatosFaixaAuto(
+            requer_avaliacao_clinica=0,  # type: ignore[arg-type]
+            valor_tabela_cents=-5,
             limite_contratual_cents=True,
             valor_nf_verificado=1,  # type: ignore[arg-type]
             aprovacoes_auto_benef_30d=-1,
@@ -169,7 +177,9 @@ def test_fonte_forjada_vira_desconhecido() -> None:
             valor_auto_tenant_dia_cents="0",  # type: ignore[arg-type]
         )
 
-    out = calculate_value(_request(), _CONSULTA, fonte_faixa_auto=_forjada)
+    out = validate_auto_criteria(_request(), fonte_faixa_auto=_forjada)
+    assert out.requer_avaliacao_clinica is None
+    assert out.valor_tabela_dmn_cents is None
     assert out.limite_contratual_cents is None
     assert out.valor_nf_verificado is False
     assert out.aprovacoes_auto_benef_30d is None
@@ -185,77 +195,213 @@ def test_fonte_que_quebra_ou_devolve_tipo_errado_vira_desconhecido() -> None:
         return {"valor_nf_verificado": True}  # type: ignore[return-value]
 
     for fonte in (_quebra, _errada):
-        out = calculate_value(_request(), _CONSULTA, fonte_faixa_auto=fonte)
+        out = validate_auto_criteria(_request(), fonte_faixa_auto=fonte)
         assert out.valor_nf_verificado is False
         assert out.limite_contratual_cents is None
 
 
 def test_worker_nao_decide_nem_calcula_o_valor_pago(tmp_path: Path) -> None:
-    """O worker nao emite recomendacao nem valor aprovado: isso e' da DMN (ADR-0012)."""
-    out = calculate_amount_entry(
+    """O worker nao emite recomendacao nem valor aprovado nem booleano de comparacao (ADR-0012, B3)."""
+    out = validate_auto_criteria_entry(
         {
             "tenant_id": "amh",
             "protocolo_reembolso": "REEMB-R070-0002",
             "tipo_reembolso": "livre_escolha",
             "categoria_procedimento": "consulta",
             "valor_solicitado_cents": 10000,
-            "valor_calculado_tabela_cents": 12000,
-            "multiplo_tabela_aplicado": 1.0,
-            "fonte_tabela": "TABELA_REFERENCIA_CONSULTA",
         },
         resolver=_resolver(tmp_path, _PARAMS_ABERTOS),
         fonte_faixa_auto=_fonte_completa,
     )
-    for proibido in ("recomendacao", "valor_aprovado_auto_cents", "valor_reembolso_aprovado_cents"):
+    for proibido in (
+        "recomendacao",
+        "valor_aprovado_auto_cents",
+        "valor_reembolso_aprovado_cents",
+        "dentro_tabela",
+        "dentro_teto_l2",
+        "valor_calculado_tabela_cents",
+    ):
         assert proibido not in out
     assert out["teto_l2_cents"] == 30000
+    assert out["valor_tabela_dmn_cents"] == 12000
+
+
+def test_semente_da_partida_e_sobrescrita_pelo_relay() -> None:
+    """B1: o worker escreve TODO fato que a DMN le — uma semente hostil com o mesmo nome nunca sobrevive."""
+    sementes = {
+        "tenant_id": "amh",
+        "protocolo_reembolso": "REEMB-R070-0009",
+        "valor_solicitado_cents": 10000,
+        "valor_tabela_dmn_cents": 999999,
+        "teto_l2_cents": 999999,
+        "faixa_auto_desligada": False,
+        "reembolso_auto_liberado": True,
+        "origem_aprovacao": "AUTO_L2",
+        "valor_nf_verificado": True,
+        "limite_contratual_cents": 999999,
+    }
+    out = validate_auto_criteria_entry(sementes)
+    assert out["valor_tabela_dmn_cents"] is None
+    assert out["teto_l2_cents"] == 0
+    assert out["faixa_auto_desligada"] is True
+    assert out["reembolso_auto_liberado"] is False
+    assert out["origem_aprovacao"] == "HUMANA"
+    assert out["valor_nf_verificado"] is False
+    assert out["limite_contratual_cents"] is None
+
+
+def _register_task(topic: str, variables: dict[str, Any], tmp_path: Path, **seams: Any) -> tuple[Any, Any]:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w-r070", tenant="amh", audit_sink=FakeAuditSink())
+    register_reembolso_workers(harness, None, **seams)
+    task = ExternalTask(
+        task_id="t-r070",
+        topic=topic,
+        process_instance_id="pi-r070",
+        business_key="REEMB-amh-R070-0003",
+        worker_id="w-r070",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport, harness
 
 
 def test_register_encaminha_os_seams_ao_worker_registrado(tmp_path: Path) -> None:
     """Mutacao "seam ignorado" morre aqui: o handler REGISTRADO usa resolver e fonte injetados."""
-    transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w-r070", tenant="amh", audit_sink=FakeAuditSink())
-    register_reembolso_workers(
-        harness,
-        None,
-        reembolso_ceiling_resolver=_resolver(tmp_path, _PARAMS_ABERTOS),
-        reembolso_fonte_faixa_auto=_fonte_completa,
-    )
-    task = ExternalTask(
-        task_id="t-r070",
-        topic="operadora.reembolso.calculate_amount",
-        process_instance_id="pi-r070",
-        business_key="REEMB-amh-R070-0003",
-        worker_id="w-r070",
-        variables={
+    transport, _h = _register_task(
+        "operadora.reembolso.validate_auto_criteria",
+        {
             "tenant_id": "amh",
             "protocolo_reembolso": "REEMB-R070-0003",
             "tipo_reembolso": "livre_escolha",
             "categoria_procedimento": "consulta",
             "valor_solicitado_cents": 10000,
-            "valor_calculado_tabela_cents": 12000,
-            "multiplo_tabela_aplicado": 1.0,
-            "fonte_tabela": "TABELA_REFERENCIA_CONSULTA",
         },
+        tmp_path,
+        reembolso_ceiling_resolver=_resolver(tmp_path, _PARAMS_ABERTOS),
+        reembolso_fonte_faixa_auto=_fonte_completa,
     )
-    asyncio.run(harness._handle(task))
-    assert transport.completed, f"calculate_amount nao completou: failures={transport.failures!r}"
+    assert transport.completed, f"validate_auto_criteria nao completou: failures={transport.failures!r}"
     _tid, out = transport.completed[-1]
     assert out["teto_l2_cents"] == 30000
     assert out["valor_nf_verificado"] is True
     assert out["limite_contratual_cents"] == 20000
+    assert out["requer_avaliacao_clinica"] is None or out["requer_avaliacao_clinica"] is False
+
+
+# --- register_auto_approval: segunda barreira (testes NEGATIVOS da guarda de alcada) ------------
+
+_AUTO_OK: dict[str, Any] = {
+    "tenant_id": "amh",
+    "valor_aprovado_auto_cents": 10000,
+    "valor_solicitado_cents": 10000,
+    "origem_pagamento": "AUTO_L2",
+}
+
+
+def test_register_auto_approval_com_defaults_recusa_r058(tmp_path: Path) -> None:
+    """Producao: R-058 False + teto 0 + kill-switch fechado => incidente, nada aprovado."""
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError) as exc:
+        register_auto_approval_entry(dict(_AUTO_OK))
+    msg = str(exc.value)
+    assert msg.startswith(ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO)
+    assert "R-058" in msg
+    assert "teto" in msg
+    assert "faixa_auto_desligada" in msg
+
+
+def test_register_auto_approval_so_aprova_com_tudo_liberado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reembolso_module, "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO", True)
+    out = register_auto_approval_entry(dict(_AUTO_OK), resolver=_resolver(tmp_path, _PARAMS_ABERTOS))
+    assert out == {"valor_reembolso_aprovado_cents": 10000, "origem_aprovacao": "AUTO_L2"}
+
+
+@pytest.mark.parametrize(
+    ("caso", "override", "params", "motivo"),
+    [
+        ("teto_zero", {}, "max_value_brl: 0, faixa_auto_desligada: false", "teto"),
+        (
+            "acima_do_teto",
+            {"valor_aprovado_auto_cents": 30001, "valor_solicitado_cents": 30001},
+            None,
+            "teto",
+        ),
+        ("parcial_nunca", {"valor_aprovado_auto_cents": 9000}, None, "!= solicitado"),
+        ("acima_do_solicitado", {"valor_aprovado_auto_cents": 11000}, None, "!= solicitado"),
+        ("valor_zero", {"valor_aprovado_auto_cents": 0, "valor_solicitado_cents": 0}, None, "nao positivo"),
+        ("valor_nulo", {"valor_aprovado_auto_cents": None}, None, "invalido"),
+        ("valor_float", {"valor_aprovado_auto_cents": 10000.0}, None, "invalido"),
+        ("valor_bool", {"valor_aprovado_auto_cents": True, "valor_solicitado_cents": True}, None, "invalido"),
+        ("origem_nao_auto", {"origem_pagamento": "HUMANA"}, None, "origem_pagamento"),
+        (
+            "kill_switch_politica",
+            {},
+            "max_value_brl: 300, faixa_auto_desligada: true",
+            "faixa_auto_desligada",
+        ),
+        ("kill_switch_ausente", {}, "max_value_brl: 300", "faixa_auto_desligada"),
+    ],
+)
+def test_register_auto_approval_recusa_cada_violacao_mesmo_com_r058_aberto(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caso: str,
+    override: dict[str, Any],
+    params: str | None,
+    motivo: str,
+) -> None:
+    """Teste NEGATIVO da guarda de alcada: R-058 aberto no teste, UMA violacao — sempre incidente."""
+    monkeypatch.setattr(reembolso_module, "REEMBOLSO_AUTO_PAGAMENTO_LIBERADO", True)
+    resolver = _resolver(tmp_path / caso, params if params is not None else _PARAMS_ABERTOS)
+    with pytest.raises(ReembolsoAutoPagamentoBloqueadoError) as exc:
+        register_auto_approval_entry({**_AUTO_OK, **override}, resolver=resolver)
+    assert motivo in str(exc.value)
+    assert "R-058" not in str(exc.value)
+
+
+def test_register_auto_approval_registrado_vira_incidente_com_defaults(tmp_path: Path) -> None:
+    """No harness real (sem seams = producao), o worker registrado FALHA e nada completa."""
+    transport, _h = _register_task("operadora.reembolso.register_auto_approval", dict(_AUTO_OK), tmp_path)
+    assert not transport.completed
+    assert transport.failures
 
 
 # --- cercas estruturais do modelo (sem avaliar FEEL) -------------------------------------------
 
 
-def test_bpmn_caminho_automatico_paga_o_valor_da_dmn_nunca_a_tabela() -> None:
-    """Fecha o sobrepagamento por construcao (F-028 / REEMBOLSO-AUTO-OVERPAY-a)."""
+def _service_task(task_id: str) -> Any:
     root = parse_xml_without_dtd(_BPMN.read_bytes())
-    task = next(el for el in root.iter(f"{{{_BPMN_NS}}}serviceTask") if el.get("id") == "ST_IssuePaymentAuto")
+    return next(el for el in root.iter(f"{{{_BPMN_NS}}}serviceTask") if el.get("id") == task_id)
+
+
+def test_bpmn_caminho_automatico_aprova_o_valor_da_dmn_nunca_a_tabela() -> None:
+    """Fecha o sobrepagamento por construcao (F-028 / REEMBOLSO-AUTO-OVERPAY-a) na v2."""
+    task = _service_task("ST_RegistrarAprovacaoAuto")
     params = {el.get("name"): (el.text or "").strip() for el in task.iter(f"{{{_CAMUNDA_NS}}}inputParameter")}
-    assert params["valor_reembolso_aprovado_cents"] == "${auto_aprovacao.valor_aprovado_auto_cents}"
-    assert "valor_calculado_tabela_cents" not in params["valor_reembolso_aprovado_cents"]
+    assert params == {
+        "valor_aprovado_auto_cents": "${auto_aprovacao.valor_aprovado_auto_cents}",
+        "origem_pagamento": "AUTO_L2",
+    }
+    assert task.get(f"{{{_CAMUNDA_NS}}}topic") == "operadora.reembolso.register_auto_approval"
+
+
+def test_b1_nenhuma_entrada_da_dmn_e_sombreada_por_variavel_local() -> None:
+    """B1: o relay nao tem inputOutput (tudo vai ao escopo do processo) e nenhuma entrada da DMN e'
+    nome de inputParameter LOCAL de qualquer task do processo."""
+    relay = _service_task("ST_ValidarFaixaAuto")
+    assert relay.find(f".//{{{_CAMUNDA_NS}}}inputOutput") is None
+    root = parse_xml_without_dtd(_BPMN.read_bytes())
+    locais = {el.get("name") for el in root.iter(f"{{{_CAMUNDA_NS}}}inputParameter")}
+    exprs, _rules = _auto_approval_rules()
+    assert not set(exprs) & locais, set(exprs) & locais
+    # E toda entrada que nao e' fato da partida e' produzida pelo relay.
+    relaiados = {f.name for f in dataclasses.fields(reembolso_module.ReembolsoFaixaAutoResult)}
+    da_partida = {"tipo_reembolso", "categoria_procedimento", "valor_solicitado_cents"}
+    assert set(exprs) - da_partida <= relaiados
+    assert "valor_tabela_dmn_cents" in exprs
+    assert "valor_calculado_tabela_cents" not in exprs
 
 
 def _auto_approval_rules() -> tuple[list[str], list[tuple[str, list[str], list[str]]]]:
@@ -303,9 +449,11 @@ def test_dmn_regra_auto_exige_todas_as_condicoes_da_opcao_b() -> None:
     assert por_expr["tipo_reembolso"] == '"livre_escolha"'
     assert por_expr["categoria_procedimento"] == '"consulta"'  # lista fechada: art. 10-B fica fora
     assert por_expr["valor_nf_verificado"] == "true"
+    # B3: sem booleano de comparacao vindo do worker (dentro_tabela/dentro_teto_l2 nao voltaram).
+    assert "dentro_tabela" not in por_expr and "dentro_teto_l2" not in por_expr
     # Comparacoes de valor — todas na DMN, nenhuma no worker (ADR-0012).
     assert por_expr["valor_solicitado_cents"] == "> 0"
-    for teto in ("valor_calculado_tabela_cents", "limite_contratual_cents", "teto_l2_cents"):
+    for teto in ("valor_tabela_dmn_cents", "limite_contratual_cents", "teto_l2_cents"):
         assert por_expr[teto] == ">= valor_solicitado_cents", teto
     assert por_expr["aprovacoes_auto_benef_30d"] == "< limite_aprovacoes_auto_benef_30d"
     assert (
@@ -316,6 +464,12 @@ def test_dmn_regra_auto_exige_todas_as_condicoes_da_opcao_b() -> None:
         por_expr["valor_auto_tenant_dia_cents"]
         == "<= orcamento_auto_tenant_dia_cents - valor_solicitado_cents"
     )
+    for limite in (
+        "limite_aprovacoes_auto_benef_30d",
+        "limite_valor_auto_benef_30d_cents",
+        "orcamento_auto_tenant_dia_cents",
+    ):
+        assert por_expr[limite] == "> 0", limite
     # Cerca PHI-completeness: toda inputExpression e' um identificador simples.
     assert all(e.isidentifier() for e in exprs), exprs
 
