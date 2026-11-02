@@ -1173,6 +1173,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         # `agents/helena/` because the gateway and Lucas apply them too.
         "comunicacao/__init__.py",
         "comunicacao/cerca_de_saida.py",
+        "comunicacao/lexico.py",
         "comunicacao/retomada_saida.py",
         # ADR-0067 (saida da fase 2): regras lexicas/de calendario da conversa, compartilhadas pela
         # Helena, pelo Lucas e pelo despachante; moravam em `maezo.runtime`.
@@ -1367,7 +1368,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 19
+    assert len(modules) == 20
 
 
 def test_import_extraction_is_not_vacuous() -> None:
