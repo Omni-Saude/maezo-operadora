@@ -224,8 +224,8 @@ pendentes:
     nota: "DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): apos o SLA do comite estourar, a coordenacao financeira so completa o caso com EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove na rodada; qualquer recusa ou zero votos mantem a recusa fail-closed. Avaliada so por BRT_AssuncaoComite (SP-OP-PAGTO-001), atras da flag MAEZO_PAGTO_COMITE_COLEGIADO (desligada). Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista (financas assina)."
   - artefato: spec/processes/dmn/pagto_duplicidade.dmn
     responsavel: a definir
-    marca_no_arquivo: "pagto_duplicidade v0.1.1 — status: DECIDIDO (DEC-30 D9/D10) — janela W=90 dias do nivel 3 e a"
-    nota: "Pacote PAGTO PR-E, avaliada so' pela costura dmn= do detector (flag MAEZO_PAGTO_DETECT_DUPLICIDADE, desligada). DECIDIDOS pelo dono em DEC-30 (#1084, 2026-11-02): D9 W=90 dias (era 180 DRAFT/provisorio); D10 classes como construidas — N1 = CONFIRMADA (inclusive ordem em curso), N2/N3 = SUSPEITA, nivel nao avaliavel = INDETERMINADA. Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista (financas + controladoria assinam). docs/review-queue.md secao PAGTO PR-E."
+    marca_no_arquivo: "pagto_duplicidade v0.1.2 — status: DECIDIDO (DEC-31 D31-4; DEC-30 D10) — janela W=180 dias do nivel 3 e a"
+    nota: "Pacote PAGTO PR-E, avaliada so' pela costura dmn= do detector (flag MAEZO_PAGTO_DETECT_DUPLICIDADE, desligada). DECIDIDOS pelo dono (#1084, 2026-11-02): DEC-31 D31-4 W=180 dias RATIFICADA, sem rotulo DRAFT (revoga a DEC-30 D9 W=90; o financeiro ainda pode calibrar na sombra); DEC-30 D10 classes como construidas — N1 = CONFIRMADA (inclusive ordem em curso), N2/N3 = SUSPEITA, nivel nao avaliavel = INDETERMINADA. Decisao do dono registrada, NAO e a aprovacao amarrada aos bytes desta lista (financas + controladoria assinam). docs/review-queue.md secao PAGTO PR-E."
   - artefato: spec/processes/dmn/pagto_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify com financas:"

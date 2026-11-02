@@ -95,12 +95,14 @@ def test_nenhuma_so_com_os_tres_niveis_avaliados_e_sem_indicio() -> None:
 
 
 def test_janela_w_e_a_mesma_nas_duas_linhas_e_e_a_decidida_pelo_dono() -> None:
-    """DEC-30 D9 (dono, #1084, 2026-11-02): W = 90 dias nas DUAS linhas (fechado dentro, aberto fora)."""
+    """DEC-31 D31-4 (dono, #1084, 2026-11-02; revoga DEC-30 D9 = 90): W = 180 dias, RATIFICADA, nas
+    DUAS linhas (fechado dentro, aberto fora) — sem rotulo DRAFT/provisorio para W."""
     idades = {r: entradas[3] for r, entradas, _s in _regras() if entradas[3] not in ("-", "null")}
-    assert idades == {"r_dup_similar_na_janela": "[0..90]", "r_dup_nenhuma_similar_fora_da_janela": "> 90"}
+    assert idades == {"r_dup_similar_na_janela": "[0..180]", "r_dup_nenhuma_similar_fora_da_janela": "> 180"}
     texto = _DMN.read_text(encoding="utf-8")
-    assert "status: DECIDIDO (DEC-30 D9/D10)" in texto and "W=90" in texto
-    assert "[0..180]" not in texto and "&gt; 180" not in texto
+    assert "status: DECIDIDO (DEC-31 D31-4; DEC-30 D10)" in texto and "W=180" in texto
+    assert "[0..90]" not in texto and "&gt; 90" not in texto and "W=90 dias (DEC-30 D9)" not in texto
+    assert "DRAFT" not in texto
 
 
 def test_confirmada_vem_antes_de_suspeita_que_vem_antes_de_nenhuma() -> None:

@@ -2,8 +2,8 @@
 
 O teste de unidade (`tests/unit/spec/test_pagto_duplicidade_dmn.py`) prova a forma da tabela; ESTE
 arquivo prova o que so' o motor responde: a precedencia FIRST, o teste unario `null` casando a
-entrada presente e nula (sem ordem similar), os limites fechados da janela `[0..90]` / `> 90` (DEC-30 D9), e
-o catch-all fail-closed (nivel nao avaliavel nunca vira NENHUMA).
+entrada presente e nula (sem ordem similar), os limites fechados da janela `[0..180]` / `> 180`
+(DEC-31 D31-4), e o catch-all fail-closed (nivel nao avaliavel nunca vira NENHUMA).
 
 E um caso PONTA A PONTA quando o Postgres do job tambem esta' de pe: o detector REAL
 (`detect_duplicidade`) com a razao REAL (migracao 0034 num schema descartavel) e a DMN REAL no motor
@@ -55,10 +55,12 @@ def _fatos(
     ("variaveis", "status", "motivo"),
     [
         (_fatos(), "NENHUMA", "SEM_INDICIO"),
-        # DEC-30 D9 (dono, #1084, 2026-11-02): W = 90 dias — limites fechados [0..90] / > 90.
-        (_fatos(idade=91), "NENHUMA", "SEM_INDICIO"),
+        # DEC-31 D31-4 (dono, #1084, 2026-11-02; revoga DEC-30 D9 = 90): W = 180 dias — limites
+        # fechados [0..180] / > 180; 90 (a W revogada) volta a ser SUSPEITA.
+        (_fatos(idade=181), "NENHUMA", "SEM_INDICIO"),
+        (_fatos(idade=180), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
         (_fatos(idade=90), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
-        (_fatos(idade=180), "NENHUMA", "SEM_INDICIO"),
+        (_fatos(idade=91), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
         (_fatos(idade=0), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
         (_fatos(nivel2="EXCEDE"), "SUSPEITA", "DUP_SOMA_EXCEDE_ORIGEM"),
         (_fatos(nivel1="REGISTRADA_OUTRA_ORDEM"), "CONFIRMADA", "DUP_OBRIGACAO_EM_CURSO"),

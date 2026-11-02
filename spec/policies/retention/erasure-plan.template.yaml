@@ -72,7 +72,7 @@
 # quando o conjunto de `tabela` diverge do que o codigo enumera — um plano que nao
 # cobre exatamente as relacoes conhecidas nao e um plano. Os demais campos de cada
 # entrada abaixo (`migracao`, `identificacao`, `resolucao_identidade`, `ordem`,
-# `tensao`, `notas`) sao DOCUMENTACAO para o revisor; o carregador os ignora, e o
+# `tensao`, `notas`, `proposta_dono`) sao DOCUMENTACAO para o revisor; o carregador os ignora, e o
 # codigo carrega a sua propria copia dos fatos estruturais para que os dois nao
 # possam divergir silenciosamente (teste de anti-drift em
 # `tests/unit/platform/test_erasure_plan.py`).
@@ -976,8 +976,10 @@ camadas:
       (ordem, evento), escrita so' pelo detector de duplicidade na validacao (REGISTRADA) e pelo
       envoltorio dos workers de liberacao depois do guard (LIBERADA), ambos atras da bandeira
       MAEZO_PAGTO_DETECT_DUPLICIDADE (desligada). Sem dado de beneficiario. A retencao desta razao e'
-      decisao do DPO (prova de pagamento de longa vida vs. LGPD do prestador PF). Segue marcada PENDENTE
+      decisao do DPO (prova de pagamento de longa vida vs. LGPD do prestador PF). O dono PROPOS o prazo
+      (DEC-31 D31-5, campo `proposta_dono`, espelhado em erasure_plan.py); segue marcada PENDENTE
       porque este artefato e' o DRAFT do DPO e so' a ratificacao dele o torna o plano formal.
+    proposta_dono: "PROPOSTA DO DONO (DEC-31 D31-5, #1084, 2026-11-02), NAO e' decisao do DPO: reter a razao por 5 anos (1825 dias), alinhada a retencao do historico do motor (historyTimeToLive 1825 dias do SP-OP-PAGTO-001) e ao Codigo Civil art. 206 par. 5, I; ao fim do prazo, as linhas de prestador pessoa fisica (PF) sao eliminadas. O DPO formaliza: decisao_dpo, base_legal, retencao e assinatura seguem PENDENTE."
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: execucao do contrato com o prestador e controles internos de pagamento (Lei 9.656/1998 art. 17; RN 503/2022; RN 518/2022), sem dado de beneficiario na relacao e sem decisao ratificada"
-    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — prazo passa a existir no ato de habilitacao do dono, com revisao do DPO"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado (PROPOSTA do dono em DEC-31 D31-5: 5 anos = 1825 dias, linhas de prestador PF eliminadas ao fim — ver proposta_dono); superficie DARK e tabela vazia por padrao; o DPO decide e assina"
