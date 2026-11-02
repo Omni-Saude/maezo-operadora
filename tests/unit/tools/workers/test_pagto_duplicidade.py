@@ -502,3 +502,22 @@ def test_mesma_guia_conta_diferente_e_outra_obrigacao_mesma_conta_e_a_mesma() ->
     )
     assert a.registradas[0].chave_obrigacao == b.registradas[0].chave_obrigacao
     assert a.registradas[0].chave_obrigacao != c.registradas[0].chave_obrigacao
+
+
+def test_numero_conta_semeado_pelo_handoff_de_contas_entra_na_chave_e_nao_e_fato_proibido() -> None:
+    """PR #1180: o handoff de CONTAS semeia `numero_conta` (evidencia de identidade, nao fato). O
+    detector o le (escopo explicito) e o usa na chave; vazio (perna por lote) cai em "-"."""
+    from maezo.tools.workers import contas
+
+    assert "numero_conta" in contas.HANDOFF_PAGTO_SEEDED_KEYS
+    assert "numero_conta" not in pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
+    assert "numero_conta" in dup.VALIDATE_COM_DUPLICIDADE_VARIABLES
+    vazia, semeada = _RazaoFalsa(), _RazaoFalsa()
+    dup.detect_duplicidade(_ordem_contas(numero_conta=""), ledger=vazia, dmn=_dmn())
+    dup.detect_duplicidade(_ordem_contas(numero_conta="C-9"), ledger=semeada, dmn=_dmn())
+    assert vazia.registradas[0].chave_obrigacao == chave_obrigacao(
+        _TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1", "-")
+    )
+    assert semeada.registradas[0].chave_obrigacao == chave_obrigacao(
+        _TENANT, "contas", ("LOTE-1", "prov:1", "GUIA-1", "C-9")
+    )
