@@ -14,11 +14,11 @@
     nesta DMN; o worker `validate_auto_criteria` as RELAIA sem comparar. Na v1, `dentro_tabela` e
     `dentro_teto_l2` eram computados no worker (pre-existentes, GAP F-1/T1.9); sairam com o ST_CalculateAmount
     na DL-0161 e NAO voltam: esta tabela nao le nenhum booleano de comparacao vindo do worker.
-    Todo input e' escrito pelo worker `validate_auto_criteria` no escopo do processo com nome NAO sombreado
-    (nenhum inputParameter local homonimo; reparo B1 da revisao independente): um valor semeado na partida e'
-    sobrescrito antes de ser lido. Fato nulo nao casa com nenhuma entrada -&gt; catch-all humano.
-    DORMENTE por construcao: teto de politica 0 (L0-core e tenants-amh) faz r_acima_teto_humano casar para todo
-    pedido positivo; kill-switch de politica `faixa_auto_desligada: true`; nenhuma fonte de tabela, limite
+    Todo input que nao e' fato da partida (`tipo_reembolso`, `categoria_procedimento`, `valor_solicitado_cents`, informados pela beneficiaria) e' escrito pelo worker `validate_auto_criteria` no escopo do processo com nome NAO sombreado
+    (nenhum inputParameter local homonimo; reparo B1 da revisao independente): uma semente homonima da partida e'
+    sobrescrita antes de ser lida. Fato nulo nao casa com nenhuma entrada -&gt; catch-all humano.
+    DORMENTE por construcao: com teto de politica 0 (L0-core e tenants-amh) nenhum pedido positivo satisfaz a celula de teto de r_auto
+    (r_acima_teto_humano decide quando nenhuma regra anterior casou); kill-switch de politica `faixa_auto_desligada: true`; nenhuma fonte de tabela, limite
     contratual, NF, merito clinico ou contadores existe (tudo nulo/false). Mesmo um AUTO_APROVAR ainda exige,
     no gateway GW_FaixaAuto, `reembolso_auto_liberado` (constante R-058 = false) e o worker
     `register_auto_approval` recusa a origem automatica (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO).
