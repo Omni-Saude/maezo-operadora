@@ -62,6 +62,8 @@ D6-bis diz: "Toda ordem originada em CONTAS ou RECURSO atravessa uma User Task h
 | 0015 | `A2ARegistry`, não `AgentCardRegistry` | ADR-0072 §3 |
 | 0017 | `provision_tenant.py` e o teste negativo citado não existem | ADR-0072 §4 |
 
+**Atualização datada (2026-11-01).** A ADR-0072 foi aceita pela DEC-29 (issue #1084, comentário https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Registro: `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`. O bloco do §5 abaixo não foi preenchido.
+
 **Status pt/en (F-052).** As linhas do índice das seis ADRs aceitas agora dizem "Accepted", como o cabeçalho de cada uma. As ADR-0047 e 0061 continuam "Proposto" no índice e no arquivo, sem divergência.
 
 **DoD do R-072.** O repro F-052 passa a sair 0. O repro F-114 confere a existência de arquivos e símbolos na árvore. Uma errata documental não o deixa verde. Esse DoD não fecha só com documento.

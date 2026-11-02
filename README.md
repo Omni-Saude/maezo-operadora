@@ -135,7 +135,7 @@ O que separa esta base do go-live **não é código** — são ações que só h
 | Testes coletados (pytest) | ≈26.000 (`pytest tests -q --collect-only`) |
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
-| ADRs | 73 (0001–0073; 55 Accepted, 18 Proposed/Proposto) |
+| ADRs | 73 (0001–0073; 61 Accepted, 12 Proposed/Proposto) |
 | Decision log | 160 decisões registradas (DL-0001–DL-0160) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
