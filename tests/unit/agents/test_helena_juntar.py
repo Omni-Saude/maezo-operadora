@@ -60,12 +60,18 @@ class _Costura:
     """A costura que roda o grafo (o despachante ou o servico do agente), com o turno do agente por cima."""
 
     def __init__(
-        self, compilado: _Compilado, juntador: Any, espera_s: float, conversas: frozenset[str]
+        self,
+        compilado: _Compilado,
+        juntador: Any,
+        espera_s: float,
+        conversas: frozenset[str],
+        todas: bool = False,
     ) -> None:
         self.compilado = compilado
         self.juntador = juntador
         self.espera_s = espera_s
         self.conversas = conversas
+        self.todas = todas
 
     async def ainvoke(self, estado: dict[str, Any], config: Any) -> Any:
         async with j.turno_juntado(
@@ -76,17 +82,22 @@ class _Costura:
             conversas=self.conversas,
             urgente=mensagem_urgente,
             juntador=self.juntador,
+            todas=self.todas,
         ) as turno:
             return turno.juntado or turno.concluir(await self.compilado.ainvoke(turno.estado, turno.config))
 
 
 def _montar(
-    *, demora_s: float = 0.0, conversas: frozenset[str] = frozenset({_CONVERSA}), espera_s: float = _ESPERA
+    *,
+    demora_s: float = 0.0,
+    conversas: frozenset[str] = frozenset({_CONVERSA}),
+    espera_s: float = _ESPERA,
+    todas: bool = False,
 ) -> tuple[Any, Any, Any]:
     juntador = j.Juntador()
     remetente = _Remetente()
     compilado = _Compilado(j.remetente_que_junta(remetente, juntador), demora_s=demora_s)
-    return _Costura(compilado, juntador, espera_s, conversas), compilado, remetente
+    return _Costura(compilado, juntador, espera_s, conversas, todas), compilado, remetente
 
 
 def _estado(texto: str, **extra: Any) -> dict[str, Any]:
@@ -184,3 +195,29 @@ def test_dl_0154_espera_de_juntar_e_2_5_s_e_consulta_do_plano_ate_10_s() -> None
     assert p._erros_do_juntar(juntar) == []
     assert graph.CONSULTA_PRAZO_S == 10.0
     assert consulta.CONSULTA_PRAZO_S == 10.0, "o valor que a consulta do plano usa de fato"
+
+
+@pytest.mark.parametrize(("todas", "respostas"), [(True, 1), (False, 2)])
+async def test_todas_as_conversas_junta_fora_da_lista_do_pacote(todas: bool, respostas: int) -> None:
+    """Etapa 2 da limpeza da saude (02/11/2026): com `MAEZO_HELENA_ROTA_GLOBAL_TODAS`, a lista do pacote
+    deixa de limitar; sem ela, conversa fora da lista segue o turno de sempre (cada mensagem responde)."""
+    compilado_que_junta, compilado, remetente = _montar(conversas=frozenset(), todas=todas)
+
+    async def mandar(i: int, texto: str) -> Any:
+        await asyncio.sleep(i * 0.01)
+        return await compilado_que_junta.ainvoke(_estado(texto), _CONFIG)
+
+    await asyncio.gather(*(mandar(i, t) for i, t in enumerate(("oi", "sobre a mensalidade"))))
+    assert len(compilado.chamadas) == respostas
+
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"), [("true", True), ("TRUE", True), ("false", False), ("", False)]
+)
+def test_entrada_le_a_chave_de_todas_as_conversas(
+    monkeypatch: pytest.MonkeyPatch, valor: str, esperado: bool
+) -> None:
+    from maezo.agents.helena import conversa
+
+    monkeypatch.setenv("MAEZO_HELENA_ROTA_GLOBAL_TODAS", valor)
+    assert conversa._todas_as_conversas() is esperado

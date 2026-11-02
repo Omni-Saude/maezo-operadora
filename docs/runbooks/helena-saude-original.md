@@ -49,3 +49,31 @@ A triagem com juiz (DL-0159) foi **removida** (código, tabela e testes): não h
 Remover do código as camadas antigas de saúde que a porta única deixou sem uso nas conversas dela (protocolos,
 perguntas de alerta v4, travas de alarme por palavra, saúde gerativa) e decidir o caminho das conversas fora da
 allowlist.
+
+## Adendo 02/11/2026 — todas as conversas pela porta única (DL-0165, limpeza da saúde, etapa 2)
+Decisão do dono (02/11/2026), com a autorização dele como DPO (27/10/2026) para o Haiku global em todos os números
+do dev. O texto acima continua valendo, com estas mudanças:
+
+- **Interruptor** `MAEZO_HELENA_ROTA_GLOBAL_TODAS` (terraform `helena_rota_global_todas`; `true` só no dev,
+  `amh-interop.auto.tfvars`): a rota global do Haiku, o roteador ativo e a porta única valem para **toda** conversa
+  keyed (`wa:{tenant}:hk1_...`), sem lista. Chega também ao `agent-helena` remoto e ao simulador (mesmo
+  `environment_app`). Desligado = só as conversas das listas, como antes.
+- **A saúde só é decidida pela porta.** O caminho de sempre (`classify`), nessas conversas, nunca decide saúde: com
+  dado pessoal na mensagem, com o roteador sem decisão ou numa habilidade fora da saúde, quando o classificador vê
+  saúde a porta lê (uma leitura por turno) e a tabela decide. Leitura "não é saúde" contra o classificador que afirma
+  saúde, sem decisão do roteador: na dúvida, caso `intencao_clinica` moderado para a equipe (sem 192).
+- **Sem lista de palavras de alarme na porta.** A mensagem chega à porta pela habilidade de saúde do roteador, pelo
+  sinal de alarme dito pelo modelo ou pela própria leitura (a fala de `conversa` é lida antes do texto fixo).
+  Leitura que falha = caso para a equipe (não há mais 192 por palavra sem leitura). Fica a lista de risco do DL-0151
+  (CVV 188 e 192).
+
+| Frase do dono | O que fazer |
+|---|---|
+| "Volta a valer só para a lista" | `helena_rota_global_todas = false` em `amh-interop.auto.tfvars` + apply direcionado da task do receptor e do `agent-helena`. |
+| "Todas as conversas de novo" | `helena_rota_global_todas = true` + o mesmo apply. |
+
+Log novo: `helena_saude_original` com `via=classify_sem_saude` (a leitura disse que não é saúde) e
+`via=classify_diverge_da_leitura` (na dúvida, uma pessoa); `helena_rota_global_ligada` ganha `todas_as_conversas`.
+
+Etapa 3 (a seguir): apagar do código as camadas que ficaram sem uso (base, saúde gerativa, v4, triagem v2,
+protocolos, alarme por palavra, acolhimento por palavra).

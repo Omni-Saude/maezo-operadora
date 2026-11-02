@@ -415,16 +415,17 @@ async def _classify_com_sombra(self: HelenaGraph, state: HelenaState) -> dict[st
 
 async def _classify_com_roteador(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
     """F2: `ativo` decide pelo roteador SO' nas conversas da allowlist dele (e da rota global do modelo,
-    `rota_global`); fora dela, sombra."""
-    conversa = state.get("conversation_id")
-    if (
-        self._roteador_modo == "ativo"
-        and isinstance(conversa, str)
-        and conversa in self._roteador_conversas
-        and self._conversa_autorizada(state)
-    ):
-        # Teste do dono (26/10/2026): falha TECNICA do modelo ou da tabela nunca abre caso sozinha.
-        return _falha_tecnica.sem_caso(self, state, await self._classify_ativo(state))
+    `rota_global`); fora dela, sombra. Com a rota global para todas as conversas (etapa 2 da limpeza da
+    saude), qualquer conversa keyed."""
+    if self._roteador_modo == "ativo" and _ma.na_allowlist(self, state):
+        # Etapa 2 da limpeza da saude: a leitura da porta unica vale o turno inteiro (o `classify` de sempre,
+        # chamado depois, nao le de novo).
+        marca = _saude_original.LEITURA_DO_TURNO.set({})
+        try:
+            # Teste do dono (26/10/2026): falha TECNICA do modelo ou da tabela nunca abre caso sozinha.
+            return _falha_tecnica.sem_caso(self, state, await self._classify_ativo(state))
+        finally:
+            _saude_original.LEITURA_DO_TURNO.reset(marca)
     return await self._classify_com_sombra(state)
 
 
@@ -483,8 +484,10 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         logger.info(
             "helena_roteador_caminho_de_sempre", motivo="trava" if trava else (falha or "sem_decisao")
         )
-        if porta and trava is None:
-            # DL-0160: roteador sem decisao — a porta unica le a mensagem; sem ser saude, o caminho de sempre.
+        if porta and trava in (None, _rt.TRAVA_DADOS):
+            # DL-0160: roteador sem decisao (ou trava de dados pessoais, etapa 2 da limpeza) — a porta le a
+            # mensagem; sem ser saude, o caminho de sempre (que, nestas conversas, nao decide saude). O risco
+            # pelo texto segue no `classify` (o mesmo passo 1 da porta).
             if (saude := await _saude_original.atender(self, state, saude_pelo_roteador=False)) is not None:
                 return {**saude, "habilidade_roteador": "sintoma"}
         elif trava is None and (prot := await _protocolo.sem_roteador(self, state, antes)) is not None:
@@ -564,15 +567,17 @@ async def _classify_ativo_decidido(
     v7 = cast("_rv7.DecisaoV7", decisao.v7)
     duvida_antes = bool(antes and antes.startswith(_rt.PREFIXO_DUVIDA))
     dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
-    alarme = _alarme_do_modelo(self, state, v7)
     porta = _saude_original.assume(self, state)
+    alarme = None if porta else _alarme_do_modelo(self, state, v7)
     if porta:
-        # DL-0160 (dono, 01/11/2026): a PORTA UNICA da saude. Saude pelo roteador, alarme dito pelo modelo ou
-        # palavra de alarme no texto: o turno inteiro e' dela (nenhum protocolo, pergunta de alerta ou
-        # triagem antiga). Nao sendo saude pela leitura dela, segue o caminho das outras habilidades.
+        # DL-0160 (dono, 01/11/2026): a PORTA UNICA da saude. Saude pelo roteador ou sinal de alarme DITO pelo
+        # modelo: o turno inteiro e' dela (nenhum protocolo, pergunta de alerta ou triagem antiga). Nao sendo
+        # saude pela leitura dela, segue o caminho das outras habilidades. Etapa 2 da limpeza (dono,
+        # 02/11/2026): nenhuma lista de palavras de alarme traz a mensagem nem decide o 192 — so' o modelo
+        # le e a tabela DMN decide.
         provavel = decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "")
         pelo_roteador = provavel in _saude_original.HABILIDADES_DE_SAUDE
-        por_alarme = alarme is not None or _saude_original.alarme_pela_palavra(self, state, antes)
+        por_alarme = bool(v7.sinais_atuais())
         if pelo_roteador or por_alarme:
             saude = await _saude_original.atender(
                 self, state, saude_pelo_roteador=pelo_roteador, alarme=por_alarme
@@ -591,8 +596,10 @@ async def _classify_ativo_decidido(
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
         return {**oferta, "habilidade_roteador": "equipe"}
-    agendamento_da_queixa = _agendar.pergunta_de_agendamento(texto) and _protocolo.protocolo_na_conversa(
-        self, state
+    agendamento_da_queixa = (
+        not porta
+        and _agendar.pergunta_de_agendamento(texto)
+        and _protocolo.protocolo_na_conversa(self, state)
     )
     if alarme is None and not antes and not agendamento_da_queixa:
         # Com um protocolo ja' conduzido, o agendamento vai ao protocolo (especialista da queixa + canais).
@@ -710,6 +717,12 @@ async def _classify_ativo_decidido(
         st = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
     if porta and habilidade == "conversa" and not mantem:
         # DL-0160: fora da saude, `conversa` com texto FIXO (a redacao antiga do modelo nao fala por ela).
+        # Etapa 2 da limpeza (dono, 02/11/2026): sem a palavra de alarme, quem confere se a fala e' de saude
+        # e' a LEITURA da porta (o roteador pode errar a saude); sendo, a tabela decide.
+        if not _saude_original.ja_leu() and (
+            saude := await _saude_original.atender(self, state, saude_pelo_roteador=False)
+        ):
+            return {**saude, "habilidade_roteador": "sintoma"}
         fixo_da_porta = _saude_original.texto_de_conversa(texto)
         return {
             **self._texto_fixo(self._update_sem_modelo(state), fixo_da_porta),

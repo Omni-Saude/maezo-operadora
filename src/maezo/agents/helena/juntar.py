@@ -164,10 +164,13 @@ async def turno_juntado(
     conversas: frozenset[str],
     urgente: Callable[[str], bool],
     juntador: Juntador = JUNTADOR,
+    todas: bool = False,
 ) -> AsyncIterator[Turno]:
     conversa = str(estado.get("conversation_id") or "")
     texto = estado.get("message_body")
-    if conversa not in conversas or not isinstance(texto, str) or not texto.strip():
+    # Etapa 2 da limpeza da saude (dono, 02/11/2026): com `MAEZO_HELENA_ROTA_GLOBAL_TODAS`, vale para todas as
+    # conversas, como o roteador e a porta; a lista do pacote deixa de limitar.
+    if (not todas and conversa not in conversas) or not isinstance(texto, str) or not texto.strip():
         yield Turno(estado=estado, config=config)
         return
     geracao = juntador.chegou(

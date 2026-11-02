@@ -13,19 +13,24 @@ Nas conversas da allowlist, com `saude_original: true` no pacote, TODA mensagem 
 Nenhuma camada antiga de saude (protocolos, triagem com juiz, perguntas de alerta, saude gerativa, base de
 conhecimento, palavras de alarme) responde nestas conversas. A base de conhecimento saiu em 02/11/2026 (dono:
 "retirar"; os textos nunca tiveram revisao medica): a duvida geral de saude vai a equipe como as outras.
+
+Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): com `MAEZO_HELENA_ROTA_GLOBAL_TODAS`, TODAS as
+conversas do dev passam por aqui. Nenhuma lista de palavras de alarme traz a mensagem a porta nem da' o 192
+(so' a lista de risco do DL-0151); leitura que falha = caso para a equipe. O `classify` de sempre, nas
+conversas da porta (dados pessoais, roteador sem decisao, habilidade fora da saude), entrega a saude a esta
+porta (`no_classify`) e nao decide nada de saude.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
 from maezo.agents.helena import modelo_allowlist as _ma
-from maezo.agents.helena.frase_afirmada import ultima_fala
-from maezo.agents.helena.travas_entrada import sinal_claro_afirmado
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference.experimento_global import CAMPOS_SEM_PENSAMENTO
 
@@ -79,6 +84,13 @@ _CASO_CLINICO: Final[Mapping[str, str]] = {
     "escalation_motivo": "intencao_clinica",
     "escalation_severidade": "moderada",
 }
+#: A leitura da porta NESTE turno do roteador ativo (`roteador._classify_com_roteador` abre o turno com `{}`):
+#: `{"lida": Leitura}` ou `{"lida": None}` (a leitura falhou). O `classify` de sempre, chamado depois no mesmo
+#: turno, nao le de novo. Fora do turno do roteador (`None`), nada e' guardado.
+LEITURA_DO_TURNO: ContextVar[dict[str, Any] | None] = ContextVar(
+    "helena_porta_leitura_do_turno", default=None
+)
+_INTENCOES_DE_SAUDE: Final[frozenset[str]] = frozenset({"symptom", "clinical_question"})
 
 
 def ligada(self: HelenaGraph) -> bool:
@@ -90,16 +102,16 @@ def assume(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     return ligada(self) and _ma.na_allowlist(self, state)
 
 
-def alarme_pela_palavra(self: HelenaGraph, state: Mapping[str, Any], antes: str | None) -> bool:
-    """A palavra de alarme que a Helena de antes levaria ao 192 (so' para trazer a mensagem a esta porta)."""
-    from maezo.agents.helena import graph as _g
+def ja_leu() -> bool:
+    """A porta ja' leu a mensagem neste turno do roteador (com ou sem sucesso)."""
+    turno = LEITURA_DO_TURNO.get()
+    return turno is not None and "lida" in turno
 
-    texto = str(state.get("message_body") or "")
-    return sinal_claro_afirmado(state) or bool(
-        self._roteador_alarme(
-            texto, antes, self._falas_da_pessoa(state), ultima_fala(_g._falas_da_helena(state))
-        )
-    )
+
+def _anotar(lida: _l.Leitura | None) -> None:
+    turno = LEITURA_DO_TURNO.get()
+    if turno is not None:
+        turno["lida"] = lida
 
 
 def _chamador(self: HelenaGraph) -> _l.Chamar:
@@ -137,8 +149,8 @@ async def atender(
 ) -> dict[str, Any] | None:
     """O turno de saude inteiro, ou `None` quando a mensagem nao e' de saude (o caminho de sempre).
 
-    `alarme`: a mensagem chegou pelo alarme (do modelo do roteador ou da palavra no texto) e nunca vira
-    "nao e' saude"; sem leitura, o sinal CLARO de agora (convulsionando, nao respira) e' o 192 de sempre."""
+    `alarme`: a mensagem chegou pelo sinal de alarme DITO pelo modelo do roteador e nunca vira "nao e' saude";
+    sem leitura, uma pessoa assume (caso para a equipe; nenhuma palavra decide o 192)."""
     if (risco := await self._risco_pelo_texto(state)) is not None:  # type: ignore[arg-type]
         logger.info("helena_saude_original", via="risco_pelo_texto")
         return risco
@@ -147,9 +159,12 @@ async def atender(
     except PROGRAMMING_ERRORS:
         raise
     except ValueError:
+        _anotar(None)
         return _leitura_falhou(self, state, "ValueError", saude_pelo_roteador, alarme)
     except EXTERNAL_DEPENDENCY_FAILURES as exc:
+        _anotar(None)
         return _leitura_falhou(self, state, type(exc).__name__, saude_pelo_roteador, alarme)
+    _anotar(lida)
     logger.info(
         "helena_saude_original_leitura",
         assunto=lida.assunto,
@@ -165,16 +180,9 @@ async def atender(
 def _leitura_falhou(
     self: HelenaGraph, state: Mapping[str, Any], falha: str, saude_pelo_roteador: bool, alarme: bool
 ) -> dict[str, Any] | None:
-    """Sem leitura: sinal claro de agora no texto = o 192 de sempre; saude (roteador ou alarme) = uma pessoa
-    assume; senao, o caminho de sempre."""
+    """Sem leitura: saude (roteador ou alarme do modelo) = uma pessoa assume; senao, o caminho de sempre (que,
+    nas conversas da porta, devolve a saude a ela: `no_classify`)."""
     logger.warning("helena_saude_original_leitura_falhou", falha=falha, alarme=alarme)
-    if alarme and sinal_claro_afirmado(state):
-        update = _base_do_update(self, state, None)
-        update.update(
-            next_kind="escalate", escalation_motivo="red_flag_clinico", escalation_severidade="grave"
-        )
-        logger.info("helena_saude_original", via="sinal_claro_sem_leitura")
-        return update
     if not (saude_pelo_roteador or alarme):
         return None
     return _para_a_equipe(self, state, None, motivo="leitura_falhou")
@@ -207,6 +215,47 @@ async def _pela_tabela(self: HelenaGraph, state: Mapping[str, Any], lida: _l.Lei
     update.update(_CASO_CLINICO)
     logger.info("helena_saude_original", via="tabela_sem_alarme")
     return update
+
+
+def _pede_saude(extracao: Mapping[str, Any]) -> bool:
+    """O classificador AFIRMA saude: sintoma, pergunta clinica ou risco (o codigo sozinho, numa intencao que
+    nao e' de saude, costuma vir do historico)."""
+    return extracao.get("intent") in _INTENCOES_DE_SAUDE or extracao.get("psychosocial_risk") is True
+
+
+async def no_classify(
+    self: HelenaGraph, state: Mapping[str, Any], extracao: dict[str, Any]
+) -> dict[str, Any] | None:
+    """O `classify` de sempre numa conversa da porta (trava de dados pessoais, roteador sem decisao,
+    habilidade fora da saude, seguimento do Lucas): quando o classificador ve saude, quem decide e' ESTA
+    porta — a leitura dela deste turno, ou uma leitura agora. Nada de saude do `classify` antigo roda.
+
+    - leitura de saude: a tabela decide (`_pela_tabela`);
+    - leitura que falhou: uma pessoa assume (caso para a equipe);
+    - leitura "nao e' saude" contra o classificador que AFIRMA saude, sem o roteador ter lido o turno (trava,
+      roteador sem decisao, Lucas): na duvida, uma pessoa assume (caso para a equipe, sem 192). Com o
+      roteador tambem dizendo outra habilidade, vale a leitura: a extracao perde o que era de saude
+      (`extracao` muda no lugar) e o turno segue so' pelas regras que nao sao de saude (`None`)."""
+    from maezo.agents.helena.graph import _HABILIDADE_DO_TURNO
+
+    if not (_pede_saude(extracao) or extracao.get("sintoma_codigo")):
+        return None
+    turno = LEITURA_DO_TURNO.get()
+    if not ja_leu() or turno is None:
+        saude = await atender(self, state, saude_pelo_roteador=True)
+    elif (lida := turno["lida"]) is None:
+        saude = _para_a_equipe(self, state, None, motivo="leitura_falhou")
+    else:
+        saude = None if lida.assunto == "outro" else await _pela_tabela(self, state, lida)
+    if saude is not None:
+        return saude
+    if _pede_saude(extracao) and _HABILIDADE_DO_TURNO.get() is None:
+        return _para_a_equipe(self, state, None, motivo="classify_diverge_da_leitura")
+    logger.info("helena_saude_original", via="classify_sem_saude")
+    if extracao.get("intent") in _INTENCOES_DE_SAUDE:
+        extracao["intent"] = "information"
+    extracao.update(sintoma_codigo=None, intensidade="desconhecida", psychosocial_risk=False)
+    return None
 
 
 def texto_do_caso_aberto(self: HelenaGraph, state: Mapping[str, Any]) -> str | None:
@@ -257,11 +306,13 @@ __all__ = [
     "TEXTO_CONVERSA",
     "TEXTOS_FIXOS",
     "TEXTO_PODE_CONTAR",
-    "alarme_pela_palavra",
+    "LEITURA_DO_TURNO",
     "assume",
+    "ja_leu",
     "texto_do_caso_aberto",
     "atender",
     "conversa_para_leitura",
     "ligada",
+    "no_classify",
     "texto_de_conversa",
 ]

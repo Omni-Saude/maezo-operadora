@@ -11,6 +11,7 @@ grafo da Helena por um dublê com `monkeypatch.setattr(graph, "build", ...)`.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Final, cast
 
@@ -19,6 +20,11 @@ from maezo.contratos.conversa import RespostaDeCadastro
 from . import cadastro, graph
 from . import juntar as _juntar
 from .pacote import PacoteDaHelena, do_ambiente
+
+
+def _todas_as_conversas() -> bool:
+    """Etapa 2 da limpeza da saude: `MAEZO_HELENA_ROTA_GLOBAL_TODAS` (a mesma env da rota global)."""
+    return os.environ.get("MAEZO_HELENA_ROTA_GLOBAL_TODAS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class HelenaDeEntrada:
@@ -52,7 +58,13 @@ class HelenaDeEntrada:
             return _juntar.sem_juntar(estado, config, compilado)
         espera_s, conversas = juntar
         return _juntar.turno_juntado(
-            estado, config, compilado, espera_s=espera_s, conversas=conversas, urgente=graph.mensagem_urgente
+            estado,
+            config,
+            compilado,
+            espera_s=espera_s,
+            conversas=conversas,
+            urgente=graph.mensagem_urgente,
+            todas=_todas_as_conversas(),
         )
 
     def estado_inicial(self, **campos: Any) -> dict[str, Any]:

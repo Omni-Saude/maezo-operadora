@@ -297,15 +297,21 @@ def conversa_autorizada(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     return self._rota_global is not None and self._rota_global.autorizada(state.get("conversation_id"))
 
 
+def todas_as_conversas(self: HelenaGraph) -> bool:
+    """Etapa 2 da limpeza da saude (dono, 02/11/2026; DPO, 27/10/2026): a rota global vale para TODAS as
+    conversas (`MAEZO_HELENA_ROTA_GLOBAL_TODAS`); as listas de conversas deixam de limitar."""
+    return self._rota_global is not None and self._rota_global.todas is True
+
+
+def conversa_do_roteador(self: HelenaGraph, conversa: object) -> bool:
+    """A conversa esta' na lista do roteador ativo (ou a rota global vale para todas)."""
+    return isinstance(conversa, str) and (conversa in self._roteador_conversas or todas_as_conversas(self))
+
+
 def na_allowlist(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     """O predicado UNICO: rota global do modelo (com a conversa na lista dela) E lista de conversas do
-    roteador."""
-    conversa = state.get("conversation_id")
-    return (
-        isinstance(conversa, str)
-        and conversa in self._roteador_conversas
-        and self._conversa_autorizada(state)
-    )
+    roteador (com `todas`, qualquer conversa keyed)."""
+    return conversa_do_roteador(self, state.get("conversation_id")) and self._conversa_autorizada(state)
 
 
 def provedor_para(self: HelenaGraph, state: Mapping[str, Any], papel: str) -> Any:
@@ -341,6 +347,7 @@ __all__ = [
     "PAPEL_PROTOCOLO",
     "PAPEL_ROTEADOR",
     "conversa_autorizada",
+    "conversa_do_roteador",
     "ModeloAllowlistTimeoutError",
     "ProvedorComReserva",
     "ProvedorHaikuGlobal",
@@ -348,4 +355,5 @@ __all__ = [
     "modo_escolhido",
     "na_allowlist",
     "provedor_para",
+    "todas_as_conversas",
 ]
