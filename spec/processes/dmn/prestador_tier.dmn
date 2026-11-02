@@ -6,7 +6,7 @@
              name="Tier de confianca do prestador (MPTT)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    prestador_tier v0.1.0 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos
+    prestador_tier v0.1.1 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos
     liberados por humano, T=12 meses e o patamar gold-card sao DRAFT/calibrar em sombra (financas +
     medico-auditor); pendentes em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. MPTT P5
     (docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md §4; decisao do dono
@@ -14,10 +14,20 @@
     WATCH ate N pagamentos). NAO LIGADA a BPMN nem a worker nesta entrega (P6 liga em
     pagto_admissibility v0.3 / pagto_alcada).
 
-    hitPolicy FIRST, ordem = precedencia: (1) qualquer entrada ausente -> WATCH; (2) pontuacao fora
-    da escala -> WATCH; (3) red flags NAO compensatorias -> WATCH; (4) prestador novo/baixo volume
-    -> WATCH; (5) TRUSTED so com gold-card + T + corte_trusted; (6) STANDARD; (7) WATCH por
-    pontuacao; (8) catch-all WATCH. FAIL-CLOSED: na duvida, WATCH (rota humana).
+    hitPolicy FIRST, ordem = precedencia: (1) qualquer entrada ausente -> WATCH; (2) qualquer
+    entrada invalida (negativa ou fora de faixa) -> WATCH; (3) pontuacao fora da escala -> WATCH;
+    (4) red flags NAO compensatorias -> WATCH; (5) prestador novo/baixo volume -> WATCH;
+    (6) TRUSTED so com gold-card + T + corte_trusted; (7) STANDARD; (8) WATCH por pontuacao;
+    (9) catch-all WATCH. FAIL-CLOSED: na duvida, WATCH (rota humana).
+
+    v0.1.1 (reparo do gate cego, B1): o scorecard da 0 ponto a feature ausente/invalida, mas a
+    soma das OUTRAS features ainda podia passar de corte_watch e chegar a STANDARD (ex.: F2 nulo ->
+    55). Por isso o tier recebe tambem as entradas brutas de F2 e checa AQUI a validade de TODAS as
+    features que alimentaram a pontuacao: dado faltante ou invalido nunca vira auto-liberacao.
+    Contrato com o produtor (P4, aviso A2): f1_taxa_liberacao_humana deve SEMPRE ser emitida
+    (inclusive com f1_ordens_decididas &lt; 10, quando ela e so informativa) — nula da WATCH em
+    qualquer volume. f2_percentil_glosa_liquida_pares_tenant pode ser nula quando
+    f2_lotes_janela &lt; 10 (volume insuficiente = neutro).
 
     O portao gold-card (F1 &gt;= 90% em &gt;= 10 ordens) e checado AQUI e nao so pela pontuacao: uma
     pontuacao alta montada por faixas neutras/outras features nunca substitui o historico de
@@ -57,6 +67,12 @@
       <input id="in_fraude_monitorar_12m" label="Caso FRAUDE encerrado em MONITORAR nos ultimos 12 meses (fraude_monitorar_12m)">
         <inputExpression id="ie_ti_fraude_monitorar_12m" typeRef="boolean"><text>fraude_monitorar_12m</text></inputExpression>
       </input>
+      <input id="in_f2_lotes_janela" label="F2 — lotes CONTAS na janela (validade do dado que alimentou a pontuacao) (f2_lotes_janela)">
+        <inputExpression id="ie_ti_f2_lotes_janela" typeRef="integer"><text>f2_lotes_janela</text></inputExpression>
+      </input>
+      <input id="in_f2_percentil_glosa_liquida_pares_tenant" label="F2 — percentil (0..100) da glosa liquida vs pares do MESMO tenant (validade do dado) (f2_percentil_glosa_liquida_pares_tenant)">
+        <inputExpression id="ie_ti_f2_percentil_glosa_liquida_pares_tenant" typeRef="double"><text>f2_percentil_glosa_liquida_pares_tenant</text></inputExpression>
+      </input>
       <output id="out_prestador_tier" label="prestador_tier" name="prestador_tier" typeRef="string"/>
       <output id="out_motivo_tier" label="motivo_tier" name="motivo_tier" typeRef="string"/>
       <rule id="r_pontuacao_ausente">
@@ -68,6 +84,8 @@
         <inputEntry id="r_pontuacao_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_pontuacao_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_pontuacao_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_pontuacao_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_pontuacao_ausente_o2"><text>"ENTRADA_AUSENTE_PONTUACAO"</text></outputEntry>
       </rule>
@@ -80,6 +98,8 @@
         <inputEntry id="r_ordens_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_ordens_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_ordens_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_ordens_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_ordens_ausente_o2"><text>"ENTRADA_AUSENTE_F1_ORDENS"</text></outputEntry>
       </rule>
@@ -92,6 +112,8 @@
         <inputEntry id="r_taxa_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_taxa_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_taxa_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_taxa_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_taxa_ausente_o2"><text>"ENTRADA_AUSENTE_F1_TAXA"</text></outputEntry>
       </rule>
@@ -104,6 +126,8 @@
         <inputEntry id="r_meses_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_meses_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_meses_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_meses_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_meses_ausente_o2"><text>"ENTRADA_AUSENTE_F5_MESES"</text></outputEntry>
       </rule>
@@ -116,6 +140,8 @@
         <inputEntry id="r_pagamentos_ausente_i5"><text>null</text></inputEntry>
         <inputEntry id="r_pagamentos_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_pagamentos_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_pagamentos_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_pagamentos_ausente_o2"><text>"ENTRADA_AUSENTE_PAGAMENTOS_LIBERADOS"</text></outputEntry>
       </rule>
@@ -128,6 +154,8 @@
         <inputEntry id="r_pico_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_pico_ausente_i6"><text>null</text></inputEntry>
         <inputEntry id="r_pico_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_pico_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_pico_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_pico_ausente_o2"><text>"ENTRADA_AUSENTE_RED_FLAG_PICO"</text></outputEntry>
       </rule>
@@ -140,8 +168,122 @@
         <inputEntry id="r_fraude_monitorar_ausente_i5"><text>-</text></inputEntry>
         <inputEntry id="r_fraude_monitorar_ausente_i6"><text>-</text></inputEntry>
         <inputEntry id="r_fraude_monitorar_ausente_i7"><text>null</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_ausente_i9"><text>-</text></inputEntry>
         <outputEntry id="r_fraude_monitorar_ausente_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_fraude_monitorar_ausente_o2"><text>"ENTRADA_AUSENTE_FRAUDE_MONITORAR"</text></outputEntry>
+      </rule>
+      <rule id="r_lotes_ausente">
+        <description>F2 lotes ausente -> WATCH (fail-closed: a pontuacao foi montada sem F2)</description>
+        <inputEntry id="r_lotes_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i8"><text>null</text></inputEntry>
+        <inputEntry id="r_lotes_ausente_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_lotes_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_lotes_ausente_o2"><text>"ENTRADA_AUSENTE_F2_LOTES"</text></outputEntry>
+      </rule>
+      <rule id="r_percentil_ausente">
+        <description>F2 com volume suficiente mas percentil ausente -> WATCH (fail-closed)</description>
+        <inputEntry id="r_percentil_ausente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i8"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_percentil_ausente_i9"><text>null</text></inputEntry>
+        <outputEntry id="r_percentil_ausente_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_percentil_ausente_o2"><text>"ENTRADA_AUSENTE_F2_PERCENTIL"</text></outputEntry>
+      </rule>
+      <rule id="r_ordens_invalida">
+        <description>F1 ordens negativa (dado invalido) -> WATCH</description>
+        <inputEntry id="r_ordens_invalida_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i2"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_ordens_invalida_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_ordens_invalida_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_ordens_invalida_o2"><text>"ENTRADA_INVALIDA_F1_ORDENS"</text></outputEntry>
+      </rule>
+      <rule id="r_taxa_invalida">
+        <description>F1 taxa fora de [0,1] (dado invalido) -> WATCH</description>
+        <inputEntry id="r_taxa_invalida_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i3"><text>&lt; 0, &gt; 1</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_taxa_invalida_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_taxa_invalida_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_taxa_invalida_o2"><text>"ENTRADA_INVALIDA_F1_TAXA"</text></outputEntry>
+      </rule>
+      <rule id="r_meses_invalido">
+        <description>F5 meses negativos (dado invalido) -> WATCH</description>
+        <inputEntry id="r_meses_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i4"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_meses_invalido_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_meses_invalido_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_meses_invalido_o2"><text>"ENTRADA_INVALIDA_F5_MESES"</text></outputEntry>
+      </rule>
+      <rule id="r_pagamentos_invalido">
+        <description>Contagem de pagamentos negativa (dado invalido) -> WATCH</description>
+        <inputEntry id="r_pagamentos_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i5"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_pagamentos_invalido_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_pagamentos_invalido_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_pagamentos_invalido_o2"><text>"ENTRADA_INVALIDA_PAGAMENTOS_LIBERADOS"</text></outputEntry>
+      </rule>
+      <rule id="r_lotes_invalido">
+        <description>F2 lotes negativo (dado invalido) -> WATCH</description>
+        <inputEntry id="r_lotes_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i8"><text>&lt; 0</text></inputEntry>
+        <inputEntry id="r_lotes_invalido_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_lotes_invalido_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_lotes_invalido_o2"><text>"ENTRADA_INVALIDA_F2_LOTES"</text></outputEntry>
+      </rule>
+      <rule id="r_percentil_invalido">
+        <description>F2 percentil fora de [0,100] (dado invalido) -> WATCH</description>
+        <inputEntry id="r_percentil_invalido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_percentil_invalido_i9"><text>&lt; 0, &gt; 100</text></inputEntry>
+        <outputEntry id="r_percentil_invalido_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_percentil_invalido_o2"><text>"ENTRADA_INVALIDA_F2_PERCENTIL"</text></outputEntry>
       </rule>
       <rule id="r_pontuacao_invalida">
         <description>Pontuacao fora de [0,85] (escala desta versao do scorecard) -> WATCH</description>
@@ -152,6 +294,8 @@
         <inputEntry id="r_pontuacao_invalida_i5"><text>-</text></inputEntry>
         <inputEntry id="r_pontuacao_invalida_i6"><text>-</text></inputEntry>
         <inputEntry id="r_pontuacao_invalida_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_pontuacao_invalida_i9"><text>-</text></inputEntry>
         <outputEntry id="r_pontuacao_invalida_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_pontuacao_invalida_o2"><text>"PONTUACAO_FORA_DA_ESCALA"</text></outputEntry>
       </rule>
@@ -164,6 +308,8 @@
         <inputEntry id="r_red_flag_pico_i5"><text>-</text></inputEntry>
         <inputEntry id="r_red_flag_pico_i6"><text>true</text></inputEntry>
         <inputEntry id="r_red_flag_pico_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_pico_i9"><text>-</text></inputEntry>
         <outputEntry id="r_red_flag_pico_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_red_flag_pico_o2"><text>"RED_FLAG_PICO_FATURAMENTO"</text></outputEntry>
       </rule>
@@ -176,6 +322,8 @@
         <inputEntry id="r_fraude_monitorar_i5"><text>-</text></inputEntry>
         <inputEntry id="r_fraude_monitorar_i6"><text>-</text></inputEntry>
         <inputEntry id="r_fraude_monitorar_i7"><text>true</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_monitorar_i9"><text>-</text></inputEntry>
         <outputEntry id="r_fraude_monitorar_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_fraude_monitorar_o2"><text>"RED_FLAG_FRAUDE_MONITORAR_12M"</text></outputEntry>
       </rule>
@@ -188,6 +336,8 @@
         <inputEntry id="r_prestador_novo_i5"><text>&lt; 10</text></inputEntry>
         <inputEntry id="r_prestador_novo_i6"><text>-</text></inputEntry>
         <inputEntry id="r_prestador_novo_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_novo_i9"><text>-</text></inputEntry>
         <outputEntry id="r_prestador_novo_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_prestador_novo_o2"><text>"PRESTADOR_NOVO_OU_BAIXO_VOLUME"</text></outputEntry>
       </rule>
@@ -200,6 +350,8 @@
         <inputEntry id="r_trusted_i5"><text>-</text></inputEntry>
         <inputEntry id="r_trusted_i6"><text>-</text></inputEntry>
         <inputEntry id="r_trusted_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_trusted_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_trusted_i9"><text>-</text></inputEntry>
         <outputEntry id="r_trusted_o1"><text>"TRUSTED"</text></outputEntry>
         <outputEntry id="r_trusted_o2"><text>"GOLD_CARD_ATINGIDO"</text></outputEntry>
       </rule>
@@ -212,6 +364,8 @@
         <inputEntry id="r_standard_i5"><text>-</text></inputEntry>
         <inputEntry id="r_standard_i6"><text>-</text></inputEntry>
         <inputEntry id="r_standard_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_standard_i9"><text>-</text></inputEntry>
         <outputEntry id="r_standard_o1"><text>"STANDARD"</text></outputEntry>
         <outputEntry id="r_standard_o2"><text>"PONTUACAO_STANDARD"</text></outputEntry>
       </rule>
@@ -224,6 +378,8 @@
         <inputEntry id="r_watch_pontuacao_i5"><text>-</text></inputEntry>
         <inputEntry id="r_watch_pontuacao_i6"><text>-</text></inputEntry>
         <inputEntry id="r_watch_pontuacao_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_watch_pontuacao_i9"><text>-</text></inputEntry>
         <outputEntry id="r_watch_pontuacao_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_watch_pontuacao_o2"><text>"PONTUACAO_ABAIXO_DO_CORTE_WATCH"</text></outputEntry>
       </rule>
@@ -236,6 +392,8 @@
         <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i6"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i9"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_catchall_o2"><text>"COMBINACAO_NAO_MAPEADA"</text></outputEntry>
       </rule>

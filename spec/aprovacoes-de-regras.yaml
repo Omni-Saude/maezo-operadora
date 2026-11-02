@@ -228,7 +228,7 @@ pendentes:
     marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
   - artefato: spec/processes/dmn/prestador_tier.dmn
     responsavel: a definir
-    marca_no_arquivo: "prestador_tier v0.1.0 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos"
+    marca_no_arquivo: "prestador_tier v0.1.1 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos"
     nota: "MPTT P5, nao ligada (P6 liga). Valores DRAFT a ratificar (financas + medico-auditor): corte_watch=40, corte_trusted=70, N=10 pagamentos liberados por humano, T=12 meses, gold-card >= 90% em >= 10 ordens (patamar do dono 2026-10-31). docs/review-queue.md secao MPTT P5."
   - artefato: spec/processes/dmn/prestador_trust_scorecard.dmn
     responsavel: a definir
