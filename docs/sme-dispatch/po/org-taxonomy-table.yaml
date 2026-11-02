@@ -866,10 +866,10 @@ grupos_registrados:
   nome_exibicao: Coordenacao financeira (aprovacao por SLA)
   decisao: CONFIRMAR
   status: PROPOSTO -- aguarda Nomeacao do dono
-  cargo_mapeado: Gerente Financeiro (tier 1) / VP de CSC e Financas (tier 2) -- CSC
+  cargo_mapeado: Coordenador Financeiro (reporta ao Gerente Financeiro; cargo distinto do Gerente -- esclarecimento do dono 2026-11-02) -- CSC
   qualificacao: nenhuma
   tarefas: PAGTO UT_CoordenacaoAlcada
-  sod: S5; nunca quem deixou o SLA estourar
+  sod: S5; nunca quem deixou o SLA estourar; pessoa distinta dos membros do comite-financeiro (CFO + Gerente Financeiro, DEC-30 D1/D3)
 - id: aprovacao-financeira-l1
   nome_exibicao: Alcada financeira L1
   decisao: CONFIRMAR

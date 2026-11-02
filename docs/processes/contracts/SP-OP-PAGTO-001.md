@@ -281,7 +281,7 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 | `aprovacao-financeira-l2` | 2 | `UT_AprovacaoAlcada` | `ALCADA_L2` |
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
 | `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada** — R-092: multi-instancia sequencial `SP_AprovacaoComite` com `quorum_comite` membros DISTINTOS votando `APROVAR`, DARK atras de `MAEZO_PAGTO_COMITE_COLEGIADO`; com a flag desligada a faixa segue em `UT_AprovacaoAlcada` com este mesmo grupo; **composicao e quorum DECIDIDOS em DEC-30 D1** (#1084, 2026-11-02): CFO + Gerente Financeiro, os dois aprovam (2 de 2) — a pertinencia real no IdP e ato humano) | `ANALISE_HUMANA` |
-| `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada; num caso de comite, DEC-30 D3: so completa o quorum com 1 voto `APROVAR` de membro distinto ja registrado — nunca libera sozinha) | (qualquer, respeitando tier-match) |
+| `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada; num caso de comite, DEC-30 D3: so completa o quorum com 1 voto `APROVAR` de membro distinto ja registrado — nunca libera sozinha). Cargo: **Coordenador Financeiro**, que reporta ao Gerente Financeiro e e cargo DISTINTO dele (esclarecimento do dono 2026-11-02); por construcao, nao e membro do `comite-financeiro` (CFO + Gerente Financeiro) — o guard mantem mesmo assim a checagem de pessoa distinta (SoD em profundidade) | (qualquer, respeitando tier-match) |
 | `analise-contas-pagar` | — (checker, nunca aprovador) | `UT_AnaliseAdmissibilidade` (`decisao_admissibilidade ∈ {PROSSEGUIR, DEVOLVER}`) — divisao de `coordenacao-financeira` em admissibilidade x aprovacao (R-041 / #1084); nunca membro de grupo aprovador (SoD S5) | ordem nao-admissivel (antes da escada) |
 
 **Binding value-driven (unico na plataforma):** a `<bpmn:userTask>` de aprovacao usa
@@ -391,7 +391,10 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   `MAEZO_PAGTO_COMITE_COLEGIADO`. **Decidido pelo dono (DEC-30, #1084, 2026-11-02):** D1 comite =
   CFO + Gerente Financeiro, 2 de 2 (`quorum_comite = 2`); D2 todo voto exigido = `APROVAR`; D3 a
   coordenacao so completa o quorum apos estouro de SLA com 1 voto `APROVAR` de membro distinto ja
-  registrado (`votos_minimos_coordenacao`, DMN). **Pendente humano:** a pertinencia dos dois cargos
+  registrado (`votos_minimos_coordenacao`, DMN). Consequencia de SoD (esclarecimento do dono 2026-11-02): a
+  `coordenacao-financeira` e o Coordenador Financeiro, cargo distinto do Gerente Financeiro (que o
+  supervisiona) e fora do comite — quem completa o quorum e, por construcao, pessoa diferente dos
+  membros; o guard confere a pessoa distinta mesmo assim. **Pendente humano:** a pertinencia dos dois cargos
   no IdP (`comite-financeiro`) e o contrato de formulario do portal para `UT_AprovacaoComite`
   (pacote PAGTO PR-F).
 - Interacao com SP-OP-CONTAS-001 (conta adjudicada → ordem de pagamento, via `operadora.contas.handoff_pagamento` desde ADR-0040) e prazos de pagamento a
