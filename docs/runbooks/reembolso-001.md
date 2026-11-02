@@ -7,8 +7,10 @@ produção.** Contrato: `docs/processes/contracts/SP-OP-REEMBOLSO-001.md` v0.2.0
 
 ## 1. O que é, em linguagem simples
 
-**Todo pedido de reembolso vai para análise humana.** Não há cálculo, tabela, teto nem aprovação automática
-(DL-0161). O sistema só **organiza** o pedido, os documentos e a resposta.
+**Hoje, todo pedido de reembolso vai para análise humana.** Não há cálculo nem tabela (DL-0161). A aprovação
+automática dentro do teto do R-070 (faixa B: só aprovar integral, consulta em livre escolha) é o comportamento
+**pretendido** (DL-0164, decisão do dono de 02/11/2026), mas a **ativação está desligada** até as assinaturas do
+dono e da atuária no §6 do R-070 (ver o item 5-bis). O sistema só **organiza** o pedido, os documentos e a resposta.
 
 1. A pessoa escreve "quero um reembolso" no WhatsApp. O **Lucas** conduz, sem modelo, com perguntas fechadas:
    - tem a nota fiscal? Se não tiver, encerra e **nenhum processo é aberto**;
@@ -148,6 +150,22 @@ Conclua cada passo dentro de 24 h da última mensagem da pessoa. Conferir o moto
   - as leituras do reembolso e do anexo passam pela mesma autorização da tarefa (grupo e papel), com o mesmo portão e a mesma cerca de ambiente da DL-0049/0050;
   - cada leitura vira um elo na trilha (`portal_read.reembolso_*`).
 
+### 5-bis. Faixa automática B (R-070): pretendida, ativação desligada (DL-0164)
+
+- **Estado de hoje:** desligada. Nenhum pedido é aprovado por máquina.
+- **Interruptor único de ativação:** a constante `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` (R-058) em
+  `src/maezo/tools/workers/reembolso.py`, hoje `False`. Só vira em PR revisado, depois das assinaturas do dono
+  e da atuária no §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md`. O CI reprova a virada (ou o
+  kill-switch aberto, ou teto > 0) sem essas assinaturas.
+- **Freio operacional (desligar já):** `faixa_auto_desligada: true` em `spec/policies/autonomy/L0-core.yaml`.
+  Sozinho, fecha a faixa: todo pedido volta à análise humana. Religar é manual, em PR revisado.
+- **Teto:** `max_value_brl` (hoje 0) nunca acima de `teto_duro_brl` (R$ 300, opção B). Política com teto
+  acima do `teto_duro_brl` é inválida e fecha a faixa sozinha.
+- **Antes de ativar, além das assinaturas:** fontes de fatos (NF verificada, limite contratual, P60 do lake
+  AMH, mérito clínico, contadores de exposição), modo sombra (§3.6) e desligamento automático (§3.5).
+  Os limites de exposição (2 aprovações e R$ 600 por beneficiária em 30 dias; R$ 3.000 por dia no tenant)
+  são DRAFT.
+
 ## 6. Pendências que bloqueiam produção
 
 | Pendência | Quem |
@@ -157,6 +175,7 @@ Conclua cada passo dentro de 24 h da última mensagem da pessoa. Conferir o moto
 | Prazo de reembolso (`reembolso_prazo.dmn`) e base RN 566/2022 | jurídico |
 | Template Meta para aviso fora da janela de 24 h | operação |
 | Pessoas reais nos grupos | operação |
+| Faixa B (DL-0164): assinaturas do dono e da atuária no R-070 §6; fontes de fatos, sombra e desligamento automático (R-070 §3.5–§3.7) | dono + atuária (+ engenharia) |
 | Imutabilidade dos anexos (Object-Lock), se o jurídico exigir: o destino é a Zona PHI do lake, por contrato com o datalake (DL-0163) | jurídico + datalake |
 | A leitura e a conclusão interinas do portal saem quando o modelo de leitura assinado carregar o reembolso (dívida da DL-0049/0050) | engenharia |
 

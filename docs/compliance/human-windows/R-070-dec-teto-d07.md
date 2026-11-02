@@ -98,6 +98,15 @@
 - **O que o agente construiu em seguida (R-076, PR #1149, adaptado sobre a v2 do #1074 por decisão do dono de 2026-11-01):** a faixa B **dormente** — os invariantes do §3.1 na DMN `reembolso_auto_approval` (`spec/processes/dmn/reembolso_auto_approval.dmn`), o relay `ST_ValidarFaixaAuto` (worker `validate_auto_criteria`, só relaia), o registro guardado `ST_RegistrarAprovacaoAuto` (worker `register_auto_approval`: aprova só o valor solicitado, nunca acima do teto) e os parâmetros DRAFT de exposição e kill-switch em `spec/policies/autonomy/L0-core.yaml`. A v2 (100% análise humana) segue o fluxo vivo; o pagamento continua fora do sistema, registrado pelo financeiro. O teto continua **R$ 0** e a trava de código (R-058) continua desligada, então nada é aprovado automaticamente.
 - **O que esta transcrição NÃO é:** não é assinatura. O bloco do §6 continua em branco. Sem o preenchimento do dono e da atuária no §6, a faixa não vai para o ativo (§3.6, item 2). Nenhum agente preenche o §6 (ADR-0007).
 
+## 5-ter. Registro da DEC-31 D31-1 (transcrição; não substitui o §6)
+
+- **Decisão do dono:** "respect R-070's auto-approval ceiling and do not send 100% of reimbursement requests to human review".
+- **Data:** 2026-11-02. **Fonte:** issue #1084 — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6582531580
+- **Registro:** DL-0164 (revisa a DL-0161). A faixa B (L2 automática dentro do teto) passa a ser o comportamento **pretendido**, não mais dormente permanente.
+- **O que o agente configurou (PR da DL-0164):** `teto_duro_brl: 300` no `L0-core.yaml` (opção B, §3.3/§4); teto do tenant acima dele = política inválida = faixa fechada (§3.1 item 5; §3.5, configuração inválida); interruptor único de ativação = R-058 (`REEMBOLSO_AUTO_PAGAMENTO_LIBERADO`), amarrado por cerca de CI às assinaturas deste §6. O teto segue **R$ 0**, o kill-switch segue `true` e o R-058 segue `False`.
+- **O que bloqueia a ativação:** as assinaturas do dono e da atuária no §6 (em branco); as fontes de fatos do §3.7; o modo sombra do §3.6; os disparos automáticos do §3.5 (salvo configuração inválida). Os números do §3.4 seguem DRAFT.
+- **O que esta transcrição NÃO é:** não é assinatura. Nenhum agente preenche o §6 (ADR-0007).
+
 ## 6. Bloco de decisão (preenchimento exclusivo do dono e da atuária; agentes não preenchem)
 
 - **Opção escolhida:** [  ]

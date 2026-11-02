@@ -630,8 +630,9 @@ def test_ativacao_da_faixa_b_so_com_o_s6_assinado_pelo_dono_e_pela_atuaria() -> 
     independentes e tambem nao abrem sem o §6. Nenhum agente preenche o §6 (ADR-0007)."""
     assinado = all(_assinaturas_s6(_R070.read_text(encoding="utf-8")).values())
     core = _reembolso_params(_CORE, overlay=False)
+    r058 = reembolso_module.REEMBOLSO_AUTO_PAGAMENTO_LIBERADO
     pedidos = {
-        "R-058 REEMBOLSO_AUTO_PAGAMENTO_LIBERADO": reembolso_module.REEMBOLSO_AUTO_PAGAMENTO_LIBERADO is not False,
+        "R-058 REEMBOLSO_AUTO_PAGAMENTO_LIBERADO": r058 is not False,
         "L0-core faixa_auto_desligada": core.get("faixa_auto_desligada") is not True,
         "L0-core max_value_brl": core.get("max_value_brl", 0) != 0,
     }
