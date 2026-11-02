@@ -171,3 +171,43 @@ def test_catalogo_do_cancel_recusa_id_ruim() -> None:
 
     with pytest.raises(SystemExit):
         montar({"entries": [{}], "forms": []}, {"human": {"entries": [{}]}}, "SP-OP-OUTRO:1:x", "c" * 64)
+
+
+# --- Retirar versoes antigas da admissao (02/11/2026: o segredo do job passou de 65536 bytes) -------------
+_V2 = "SP-OP-CANCEL-001:2:8d4fa921-c8e5-11f1-8e85-06ffc63e4cc5"
+_V3 = "SP-OP-CANCEL-001:3:ee0f9956-d6aa-11f1-a71f-02fff6b4e643"
+_ESC = "SP-OP-ESCALATION-001:3:54460c89-ca4f-11f1-9fd8-02ffe2b01f3f"
+
+
+def _reg(*ids: str) -> dict:
+    return {"admission_revision": "9", "human": {"entries": [{"process_definition_id": i} for i in ids]}}
+
+
+def _cat(*ids: str) -> dict:
+    return {"entries": [{"process_definition_id": i} for i in ids]}
+
+
+def test_retirar_versoes_tira_so_a_versao_antiga_da_admissao() -> None:
+    from scripts.ops.staff_material_renovar_dev import retirar_versoes
+
+    reg = _reg(_V2, _V2, _V3, _ESC)
+    novo = retirar_versoes(reg, _cat(_V3, _ESC), [_V2])
+    assert [e["process_definition_id"] for e in novo["human"]["entries"]] == [_V3, _ESC]
+    assert len(reg["human"]["entries"]) == 4  # puro: a entrada nao muda
+
+
+@pytest.mark.parametrize(
+    ("catalogo", "admissao", "ids", "trecho"),
+    [
+        ((_V2, _V3), (_V2, _V3), [_V2], "o catalogo novo ainda tem"),
+        ((_V3,), (_V3,), [_V2], "a admissao nao tem"),
+        ((), (_V2,), [_V2], "ultima versao admitida"),
+        ((_V3,), (_V2, _V3), ["SP-OP-CANCEL-001:2"], "sem repeticao"),
+        ((_V3,), (_V2, _V3), [_V2, _V2], "sem repeticao"),
+    ],
+)
+def test_retirar_versoes_recusa(catalogo: tuple, admissao: tuple, ids: list, trecho: str) -> None:
+    from scripts.ops.staff_material_renovar_dev import retirar_versoes
+
+    with pytest.raises(SystemExit, match=trecho):
+        retirar_versoes(_reg(*admissao), _cat(*catalogo), ids)
