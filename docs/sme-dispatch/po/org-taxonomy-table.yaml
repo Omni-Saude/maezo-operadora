@@ -400,7 +400,7 @@ rows:
   nome_real: ''
 - grupo_declarado: clerical-pagamentos
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 95
+  linha: 105
   processo: SP-OP-PAGTO-001
   em_escopo: true
   tarefa_ou_regra_dmn: regra r_dentro_teto_l2 (DENTRO_TETO_L2)
@@ -413,41 +413,41 @@ rows:
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l1
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 107
+  linha: 118
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:284 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l1; wireado via bpmn:287 ${pagto_alcada.grupo_aprovador} -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 207 -- tier 1, faixa ALCADA_L1
   proposto: true
   notas: caveat PROPOSTO contrato linha 200-202 (binding value-driven)
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l2
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 119
+  linha: 131
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:284 -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l2; wireado via bpmn:287 -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 208 -- tier 2, faixa ALCADA_L2
   proposto: true
   notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
 - grupo_declarado: aprovacao-financeira-l3
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 131
+  linha: 144
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:284 -> UT_AprovacaoAlcada
+  tarefa_ou_regra_dmn: regra r_alcada_l3; wireado via bpmn:287 -> UT_AprovacaoAlcada
   sla_ato: contrato Sec.Papeis linha 209 -- tier 3, faixa ALCADA_L3
   proposto: true
   notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
 - grupo_declarado: comite-financeiro
   arquivo: spec/processes/dmn/pagto_alcada.dmn
-  linha: 143
+  linha: 157
   processo: SP-OP-PAGTO-001
   em_escopo: true
-  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:284 -> UT_AprovacaoAlcada (flag desligada); bpmn:427 -> UT_AprovacaoComite (R-092, dark)
-  sla_ato: contrato Sec.Papeis linha 210 -- catch-all conservador, aprovacao colegiada DRAFT
+  tarefa_ou_regra_dmn: regra r_catchall (FAIL-SAFE); wireado via bpmn:287 -> UT_AprovacaoAlcada (flag desligada); bpmn:434 -> UT_AprovacaoComite (R-092, dark)
+  sla_ato: contrato Sec.Papeis linha 210 -- catch-all conservador, aprovacao colegiada 2 de 2 (DEC-30 D1)
   proposto: true
   notas: caveat PROPOSTO contrato linha 200-202
   nome_real: ''
@@ -464,7 +464,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-financeira
   arquivo: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
-  linha: 351
+  linha: 354
   processo: SP-OP-PAGTO-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoAlcada (SLA de alcada estourado)
@@ -866,10 +866,10 @@ grupos_registrados:
   nome_exibicao: Coordenacao financeira (aprovacao por SLA)
   decisao: CONFIRMAR
   status: PROPOSTO -- aguarda Nomeacao do dono
-  cargo_mapeado: Gerente Financeiro (tier 1) / VP de CSC e Financas (tier 2) -- CSC
+  cargo_mapeado: Coordenador Financeiro (reporta ao Gerente Financeiro; cargo distinto do Gerente -- esclarecimento do dono 2026-11-02) -- CSC
   qualificacao: nenhuma
   tarefas: PAGTO UT_CoordenacaoAlcada
-  sod: S5; nunca quem deixou o SLA estourar
+  sod: S5; nunca quem deixou o SLA estourar; pessoa distinta dos membros do comite-financeiro (CFO + Gerente Financeiro, DEC-30 D1/D3)
 - id: aprovacao-financeira-l1
   nome_exibicao: Alcada financeira L1
   decisao: CONFIRMAR
@@ -898,8 +898,8 @@ grupos_registrados:
   nome_exibicao: Comite financeiro (aprovacao colegiada)
   decisao: CONFIRMAR
   status: PROPOSTO -- aguarda Nomeacao do dono
-  cargo_mapeado: 'Colegiado proposto: CFO + CEO + Diretor Juridico e de Compliance (composicao e quorum
-    a definir pelo dono)'
+  cargo_mapeado: 'Colegiado DECIDIDO (DEC-30 D1, #1084, 2026-11-02): CFO (VP de CSC e Financas) + Gerente
+    Financeiro, os dois aprovam (2 de 2) -- CSC; pertinencia real no IdP = ato humano'
   qualificacao: nenhuma
   tarefas: PAGTO UT_AprovacaoAlcada (catch-all/acima de L3 via pagto_alcada)
   sod: S5, S6, P7

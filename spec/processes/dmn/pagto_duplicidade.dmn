@@ -6,9 +6,9 @@
              name="Classificacao de duplicidade da ordem de pagamento (detector PAGTO PR-E)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    pagto_duplicidade v0.1.0 — status: DRAFT — janela W=180 dias do nivel 3 e a classe de cada nivel
-    sao DRAFT (financas + controladoria); pendentes em spec/aprovacoes-de-regras.yaml e
-    docs/review-queue.md. Pacote PAGTO PR-E (docs/prompts/fcp-protocol-2026-10-30/analyses/
+    pagto_duplicidade v0.1.1 — status: DECIDIDO (DEC-30 D9/D10) — janela W=90 dias do nivel 3 e a
+    classe de cada nivel decididas pelo dono (#1084, 2026-11-02); a aprovacao formal amarrada aos
+    bytes segue pendente em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. Pacote PAGTO PR-E (docs/prompts/fcp-protocol-2026-10-30/analyses/
     PAGTO-balanced-classification.md §4 e §9 item 5). Avaliada pelo detector
     operadora.pagto.detect_duplicidade (tools/workers/pagto_duplicidade.py) pela costura dmn= da
     ADR-0028, DENTRO do topico operadora.pagto.validate_payment_data e so' com a bandeira
@@ -35,8 +35,9 @@
     Acusacao de fraude e' item hard (spec/policies/autonomy/_hard_frozen.yaml): esta tabela so'
     descreve o que a razao mostra.
 
-    W=180 dias: valor PROVISORIO sem fonte de financas — escolhido como o mesmo horizonte do
-    historyTimeToLive P180D destas tabelas (analise §4 D6), viesado para MAIS SUSPEITA (vai a humano).
+    W=90 dias (v0.1.1): DECIDIDO pelo dono em DEC-30 D9 (opcao B, #1084, 2026-11-02) — menos falso
+    positivo, aceitando perder reapresentacoes tardias (antes: 180 dias provisorios, v0.1.0). Classes
+    por nivel DECIDIDAS em DEC-30 D10 (opcao A): N1 = CONFIRMADA, N2/N3 = SUSPEITA, como construidas.
   </description>
   <decision id="pagto_duplicidade" name="Classificacao de duplicidade da ordem de pagamento" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_pagto_duplicidade" hitPolicy="FIRST">
@@ -82,11 +83,11 @@
         <outputEntry id="r_dup_soma_excede_origem_o2"><text>"DUP_SOMA_EXCEDE_ORIGEM"</text></outputEntry>
       </rule>
       <rule id="r_dup_similar_na_janela">
-        <description>Nivel 3: ordem similar (prestador + competencia + valor, outro lote) dentro de W=180 dias (DRAFT) -> SUSPEITA</description>
+        <description>Nivel 3: ordem similar (prestador + competencia + valor, outro lote) dentro de W=90 dias (DEC-30 D9) -> SUSPEITA</description>
         <inputEntry id="r_dup_similar_na_janela_i1"><text>-</text></inputEntry>
         <inputEntry id="r_dup_similar_na_janela_i2"><text>-</text></inputEntry>
         <inputEntry id="r_dup_similar_na_janela_i3"><text>true</text></inputEntry>
-        <inputEntry id="r_dup_similar_na_janela_i4"><text>[0..180]</text></inputEntry>
+        <inputEntry id="r_dup_similar_na_janela_i4"><text>[0..90]</text></inputEntry>
         <outputEntry id="r_dup_similar_na_janela_o1"><text>"SUSPEITA"</text></outputEntry>
         <outputEntry id="r_dup_similar_na_janela_o2"><text>"DUP_SIMILAR_NA_JANELA"</text></outputEntry>
       </rule>
@@ -100,11 +101,11 @@
         <outputEntry id="r_dup_nenhuma_sem_similar_o2"><text>"SEM_INDICIO"</text></outputEntry>
       </rule>
       <rule id="r_dup_nenhuma_similar_fora_da_janela">
-        <description>Tres niveis avaliados; a ordem similar mais recente esta FORA de W=180 dias (DRAFT) -> NENHUMA</description>
+        <description>Tres niveis avaliados; a ordem similar mais recente esta FORA de W=90 dias (DEC-30 D9) -> NENHUMA</description>
         <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i1"><text>"SEM_OUTRA_ORDEM"</text></inputEntry>
         <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i2"><text>"NAO_EXCEDE"</text></inputEntry>
         <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i3"><text>true</text></inputEntry>
-        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i4"><text>&gt; 180</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i4"><text>&gt; 90</text></inputEntry>
         <outputEntry id="r_dup_nenhuma_similar_fora_da_janela_o1"><text>"NENHUMA"</text></outputEntry>
         <outputEntry id="r_dup_nenhuma_similar_fora_da_janela_o2"><text>"SEM_INDICIO"</text></outputEntry>
       </rule>

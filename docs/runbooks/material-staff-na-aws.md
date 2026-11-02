@@ -345,6 +345,14 @@ raiz ja aprovada), passos 6 a 9. Cada `gerar` remonta do que esta **vivo**, enta
 - **Janela observada:** `staff-rows` 13:37:36Z, apply do motor 13:38:32Z, motor de pe 13:45Z (boot ~135 s) e portal 13:46Z; o job
   T1.5 voltou a publicar 13:56Z (depois de trocar a imagem das tasks staff-ops). Em torno de 8 min de motor fora e ~18 min de
   fila sem refresh.
+- **Teto de 65536 bytes do segredo `staff-job/materials` (02/11/2026).** O segredo leva o catalogo E a admissao Q2 em
+  base64; cada tarefa do portal pesa ~3,5 KB nele. Com escalonamento v4, cancelamento v3 e as 5 tarefas do reembolso v2
+  ele foi a 80 KB e o `publicar` falhou no `PutSecretValue` (`ValidationException ... 65536`). Saida: tirar do catalogo
+  E da admissao as versoes ANTIGAS sem tarefa aberta. Confira no motor (so GET, task `bateria`)
+  `/task/count?processDefinitionId=<id>` e `/process-instance/count?processDefinitionId=<id>&active=true` iguais a 0,
+  monte o catalogo sem elas e passe ao `ensaio`/`gerar` `MATERIAL_RETIRAR_VERSOES=<id1>,<id2>` (a ferramenta recusa
+  retirar o que o catalogo ainda tem e a ultima versao de um processo). Medir o `job.json` da saida antes de publicar
+  (`aws s3 ls .../ops-secrets/job.json`); o problema volta a cada processo novo no portal.
 - **gitleaks:** o `VersionId` pinado em `dev-vivo.auto.tfvars` dispara `generic-api-key`; registre a impressao digital em
   `.gitleaksignore` (como no #775).
 - **Git Bash do Windows:** `staff_material_run.sh` le o log por boto3 (o `/ecs/...` na linha de comando da aws virava caminho

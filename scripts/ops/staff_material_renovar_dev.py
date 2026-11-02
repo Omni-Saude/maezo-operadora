@@ -33,6 +33,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -217,6 +218,33 @@ def renovar_syn(syn: dict[str, Any], nativo: dict[str, str]) -> dict[str, Any]:
         raise SystemExit("segredo SYN ou PKCS12 do AUTH sem certificado")
     files = dict(syn["files"], result_certificate=b64(cert.public_bytes(Encoding.PEM)))
     return dict(syn, files=files)
+
+
+#: `<CHAVE>:<versao>:<uuid>` de uma definicao de processo do motor.
+_ID_DE_VERSAO = re.compile(r"[A-Z][A-Z0-9-]*[A-Z0-9]:[1-9][0-9]*:[0-9a-f-]{36}")
+
+
+def retirar_versoes(reg: dict[str, Any], catalogo: dict[str, Any], ids: list[str]) -> dict[str, Any]:
+    """Tira da admissao Q2 as entradas `human` de versoes ANTIGAS de processo (02/11/2026: o segredo do job
+    passou do teto de 65536 bytes do Secrets Manager com o reembolso v2). Puro: nada de rede.
+
+    So retira versao que o catalogo novo ja nao tem (catalogo e admissao andam juntos no `review_admission`)
+    e nunca a ultima versao admitida de um processo. Conferir ANTES, no motor (so GET), que a versao nao tem
+    tarefa aberta nem instancia ativa: as tarefas dela sumiriam de todas as filas."""
+    if not ids or len(set(ids)) != len(ids) or not all(_ID_DE_VERSAO.fullmatch(i) for i in ids):
+        raise SystemExit("--retirar-versoes: lista de <CHAVE>:<versao>:<uuid> sem repeticao")
+    no_catalogo = {e["process_definition_id"] for e in catalogo["entries"]}
+    if presentes := sorted(set(ids) & no_catalogo):
+        raise SystemExit(f"--retirar-versoes: o catalogo novo ainda tem {presentes}")
+    entradas = reg["human"]["entries"]
+    admitidas = {e["process_definition_id"] for e in entradas}
+    if ausentes := sorted(set(ids) - admitidas):
+        raise SystemExit(f"--retirar-versoes: a admissao nao tem {ausentes}")
+    ficam = [e for e in entradas if e["process_definition_id"] not in ids]
+    for chave in {i.split(":", 1)[0] for i in ids}:
+        if not any(e["process_definition_id"].split(":", 1)[0] == chave for e in ficam):
+            raise SystemExit(f"--retirar-versoes: nao retira a ultima versao admitida de {chave}")
+    return dict(reg, human=dict(reg["human"], entries=ficam))
 
 
 def gerar(args: argparse.Namespace) -> int:
@@ -467,6 +495,11 @@ def gerar(args: argparse.Namespace) -> int:
         if not isinstance(extra, list) or not extra:
             raise SystemExit("--entradas-humanas: esperado uma lista nao vazia de entradas `human`")
         reg["human"] = dict(reg["human"], entries=[*reg["human"]["entries"], *extra])
+    retirar = getattr(args, "retirar_versoes", None)
+    if retirar:
+        if catalogo_novo is None:
+            raise SystemExit("--retirar-versoes exige --catalogo (o catalogo novo, ja sem essas versoes)")
+        reg = retirar_versoes(reg, json.loads(catalogo), list(retirar))
     reg["continuity_keys"] = [dict(k, not_before=inicio, not_after=fim) for k in reg["continuity_keys"]]
     if reg["continuity_keys"][0]["commitment"] != nsum["continuity"]["commitment"]:
         raise SystemExit("commitment de continuidade mudou: a admissao nao descreve o segredo nativo")
@@ -641,13 +674,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     g.add_argument("--code-engine", default=None, help="SHA-256 do JAR do engine da imagem NOVA do motor")
     g.add_argument("--code-provider", default=None, help="SHA-256 do JAR do provedor Q2 da imagem NOVA")
-    g.add_argument("--catalog-revision", type=int, default=None, help="revisao do catalogo novo (> ultima publicada)")
+    g.add_argument(
+        "--catalog-revision", type=int, default=None, help="revisao do catalogo novo (> ultima publicada)"
+    )
     g.add_argument("--catalogo", type=Path, default=None, help="job/task-catalog.json novo (troca o vivo)")
     g.add_argument(
         "--entradas-humanas",
         type=Path,
         default=None,
         help="JSON: lista de entradas `human` a acrescentar na admissao (ex.: as do cancelamento)",
+    )
+    g.add_argument(
+        "--retirar-versoes",
+        nargs="+",
+        default=None,
+        help="ids de versoes ANTIGAS (sem tarefa aberta) a tirar da admissao (com --catalogo)",
     )
     s = cmds.add_parser("publicar")
     src = s.add_mutually_exclusive_group(required=True)
