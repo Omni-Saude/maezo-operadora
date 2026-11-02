@@ -1991,6 +1991,136 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-01",
+        pr="#1172",
+        name="aprovador_id",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. R-092/F-081 (aprovacao colegiada do comite, DARK): inputParameter vazio (campo LOCAL "
+            "a cada instancia de SP_AprovacaoComite, para um membro nunca herdar o voto do anterior) + "
+            "outputParameter que o achata de volta ao processo (+ a leitura JUEL dele) — 3 ocorrencias "
+            "novas no BPMN de PAGTO. Identidade opaca do aprovador (staff da operadora, cadeia ADR-0007), "
+            "nunca dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="aprovador_tier",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. R-092/F-081 (aprovacao colegiada do comite, DARK): inputParameter vazio (campo LOCAL "
+            "a cada instancia de SP_AprovacaoComite, para um membro nunca herdar o voto do anterior) + "
+            "outputParameter que o achata de volta ao processo (+ a leitura JUEL dele) — 3 ocorrencias "
+            "novas no BPMN de PAGTO. Inteiro de alcada do aprovador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="valor_aprovado_cents",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. R-092/F-081 (aprovacao colegiada do comite, DARK): inputParameter vazio (campo LOCAL "
+            "a cada instancia de SP_AprovacaoComite, para um membro nunca herdar o voto do anterior) + "
+            "outputParameter que o achata de volta ao processo (+ a leitura JUEL dele) — 3 ocorrencias "
+            "novas no BPMN de PAGTO. Centavos aprovados de uma ordem a prestador — dado financeiro, nao "
+            "de saude."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="decisao_pagamento",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "Mesmo mecanismo (R-092/F-081 (aprovacao colegiada do comite, DARK): inputParameter vazio "
+            "(campo LOCAL a cada instancia de SP_AprovacaoComite, para um membro nunca herdar o voto do "
+            "anterior) + outputParameter que o achata de volta ao processo (+ a leitura JUEL dele) — 3 "
+            "ocorrencias novas no BPMN de PAGTO.) Nome ja no corpus (gateways de GW_DecisaoPagamento); "
+            "vocabulario fechado APROVAR/RECUSAR/SOLICITAR_INFO/CANCELAR."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="quorum_comite",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. R-092: nova saida integer de pagto_alcada.dmn (membros distintos que precisam "
+            "aprovar; 2 DRAFT no catch-all) achatada por BRT_AlcadaRouting (outputParameter + segmento) e "
+            "lida pela condicao de GW_TipoAprovacao e pela loopCardinality de SP_AprovacaoComite. "
+            "Contagem, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="comite_ultimo_voto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. R-092: completionCondition de SP_AprovacaoComite (eco do voto do membro, escrito pelo "
+            "worker register_committee_vote). Vocabulario fechado de decisao, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="pagto_alcada",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-092: +1 leitura `${pagto_alcada.quorum_comite}` no outputParameter de BRT_AlcadaRouting e +1 "
+            "`${pagto_alcada.grupo_aprovador}` no candidateGroups de UT_AprovacaoComite (mesmo binding "
+            "value-driven de UT_AprovacaoAlcada). Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="grupo_aprovador",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-092: segmento de `${pagto_alcada.grupo_aprovador}` no candidateGroups de UT_AprovacaoComite "
+            "(nenhum grupo novo; conjunto fechado da DMN). Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="sla",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-092: os dois boundary timers do comite (BT_AlertaSlaComite/BT_SlaComite) leem "
+            "`${sla.sla_alerta}`/`${sla.sla_aprovacao}`, os mesmos prazos de UT_AprovacaoAlcada. Nome ja "
+            "no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="sla_alerta",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=("R-092: segmento de `${sla.sla_alerta}` em BT_AlertaSlaComite. Nome ja no corpus."),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1172",
+        name="sla_aprovacao",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=("R-092: segmento de `${sla.sla_aprovacao}` em BT_SlaComite. Nome ja no corpus."),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
         pr="#1174",
         name="f2_lotes_janela",
         name_delta=0,
@@ -2026,12 +2156,15 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 365
+            expected_clean == 370
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
+        # MPTT P5 (#1171): +13
+        # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
+        #   comite_ultimo_voto)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -2066,7 +2199,9 @@ class TestBuckets:
         # R-005 (#1141): +1 (prazo_resposta_dias_uteis)
         # PAGTO PR-A (#1153): +1 (valor_maximo_aprovavel_cents)
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.names) == expected_names == 381
+        # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
+        #   comite_ultimo_voto)
+        assert len(live_sweep.names) == expected_names == 386
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2081,7 +2216,11 @@ class TestBuckets:
         # R-005 (#1141): +4 (prazo_resposta_dias_uteis +3, sla +1); nomes: +1
         # PAGTO PR-A (#1153): +4 (valor_maximo_aprovavel_cents +3, pagto_alcada +1); nomes: +1
         # R-047 (#1146): +1 +1 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
-        assert len(live_sweep.refs) == expected_refs == 1783
+        # R-092 (#1172): +25 (aprovador_id/aprovador_tier/valor_aprovado_cents/decisao_pagamento +3
+        #   cada, quorum_comite +5, comite_ultimo_voto +1, pagto_alcada +2, grupo_aprovador +1, sla +2,
+        #   sla_alerta +1, sla_aprovacao +1); nomes: +5
+        # MPTT P5 reparo B1 (#1174): +2 (f2_lotes_janela, f2_percentil_glosa_liquida_pares_tenant)
+        assert len(live_sweep.refs) == expected_refs == 1808
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2209,7 +2348,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (365)" in rendered
+            f"## {CLEAN} (370)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).

@@ -922,9 +922,32 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         count_statement=None,
     ),
     PersistenceLayer(
+        camada="status_prestador",
+        tabela="prestador_status_ledger",
+        migracao="0032_prestador_status_ledger.py::upgrade (prestador_status_ledger; append-only triggers)",
+        identificacao=(
+            "tenant + chave_evento (the source event: engine instance id + end event, or the AMH "
+            "baseline sha256 + prestador_id); the row holds only the LEGAL STATUS of a PROVIDER (MPTT P3): "
+            "prestador_id (cadastral/pseudonymous provider id, Zona Geral per SP-OP-CRED-001), the closed "
+            "origin/dimension/value enums, the effective date, the engine instance id or baseline digest, "
+            "the business key or the reference to the AMH-signed baseline document, and the provider's "
+            "cadastral attributes (tipo_prestador/especialidade/regiao_saude). A beneficiary is not a "
+            "subject here: no CPF, no name, no health data, no free text, no `beneficiario_pseudo_id`. "
+            "OPEN DPO QUESTION (not decided here): an individual (PF) provider is itself a data subject "
+            "(LGPD art. 5 V) and `prestador_id` may identify one; the table is DARK behind "
+            "MAEZO_PRESTADOR_STATUS_LEDGER and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=44,
+        subject_column=None,
+        # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
+        # would be a fabricated zero until the owner turns the flag on.
+        count_statement=None,
+    ),
+    PersistenceLayer(
         camada="razao_obrigacoes_pagamento",
         tabela="pagto_obrigacao_ledger",
-        migracao="0033_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)",
+        migracao="0034_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)",
         identificacao=(
             "tenant + chave_obrigacao (`OBRIG-{origem}-{sha256}` over tenant/origin/obligation components) +"
             " ordem_pagamento_id + evento; the row holds only what a PAGTO payment order already carries as "
@@ -937,7 +960,7 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "hind MAEZO_PAGTO_DETECT_DUPLICIDADE and empty by default"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
-        ordem=44,
+        ordem=45,
         subject_column=None,
         # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
         # would be a fabricated zero until the owner turns the flag on.

@@ -57,18 +57,20 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0033_revisando_0030() -> None:
-    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0033 revisa 0030
+def test_a_cadeia_local_e_head_linear_0034_revisando_0032() -> None:
+    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0034 revisa 0032
     (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083;
     0023 = CHECKs da 0022; 0024 = `consulta_valores` no CHECK do roteador, DL-0086; 0025 = memoria curta
     do Lucas no roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal no acesso;
     0029 = estruturas de ajuste de comissao em rascunho, D-36 do dono, 25/10/2026;
     0030 = registro da verificacao de legitimidade da PJ contratante, OP21/REG-1.1, escura no
-    substrato, 26/10/2026; 0033 = razao append-only das obrigacoes de pagamento, PAGTO PR-E,
-    escura, 01/11/2026 — revisa 0030; re-apontada pelo orquestrador se a 0031/0032 entrarem antes)."""
+    substrato, 26/10/2026; 0032 = ledger append-only do status do prestador, MPTT P3, escuro,
+    01/11/2026 — revisa 0030; 0034 = razao append-only das obrigacoes de pagamento, PAGTO PR-E,
+    escura, 01/11/2026 — revisa 0032; re-apontada para 0033 se o PR #1074 entrar antes)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0033",)
-    assert edges["0033"] == "0030"
+    assert heads == ("0034",)
+    assert edges["0034"] == "0032"
+    assert edges["0032"] == "0030"
     assert edges["0030"] == "0029"
     assert edges["0027"] == "0026"
     assert edges["0026"] == "0025"
@@ -95,7 +97,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0033",),
+        "migration_heads": ("0034",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -313,7 +315,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0033",
+        "0034",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

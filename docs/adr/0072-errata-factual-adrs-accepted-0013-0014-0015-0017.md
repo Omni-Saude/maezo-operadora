@@ -1,6 +1,6 @@
 # ADR-0072: Errata factual de ADRs Accepted fora do alcance da ADR-0041 (0013, 0014, 0015, 0017) — achado F-114, item R-072
 
-**Status:** **Proposed — DRAFT/verify.** Redigido por AGENTE no item R-072 do roadmap forense; um agente nao aceita ADR. `/docs/adr/` e dono-gated (`.github/CODEOWNERS`). · **Data:** 2026-10-31 · **Area:** Governanca de ADR / Documentacao
+**Status:** **Accepted — decisao do dono DEC-29 (issue #1084), 2026-11-01** (ver "Decisao de aceite" ao final). Redigido por AGENTE no item R-072 do roadmap forense; um agente nao aceita ADR. `/docs/adr/` e dono-gated (`.github/CODEOWNERS`). · **Data:** 2026-10-31 · **Area:** Governanca de ADR / Documentacao
 
 > **Enquadramento.** Esta ADR so registra fatos. Ela nao decide arquitetura nova, nao muda
 > comportamento e nao edita nenhuma ADR Accepted. Cada secao diz o que a ADR afirma, o que existe na
@@ -103,3 +103,23 @@ arquivos e de simbolos na arvore. Uma errata documental nao o deixa verde.
 —. **Amends** ADR-0013 (clausula 5, so a lista de topicos WhatsApp), ADR-0014 (caminhos), ADR-0015
 (nome da classe) e ADR-0017 (caminhos citados). Nao edita nenhum dos quatro arquivos. Nao supersede
 nenhum. Depende de aceite do dono.
+
+## Decisao de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; historico preservado.** Acima desta secao so o paragrafo de Status mudou, com o
+> mesmo numero de linhas. O Status anterior, vigente de 2026-10-31 ate 2026-11-01, era: "**Proposed — DRAFT/verify.** Redigido por AGENTE no item R-072 do roadmap forense; um agente nao aceita ADR."
+
+**O ato.** Decisao do dono **DEC-29**, 2026-11-01, issue **#1084**, comentario de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentario: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentario diz que o status passa a
+Accepted por PR que cite o comentario e que o texto do ADR nao e reescrito alem do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisao.** A DEC-29 nao pede revisao independente por ADR (a DEC-27 pedia). Este registro nao alega
+revisao desse tipo. O pacote esta em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**O que fica aceito.** As quatro erratas factuais (ADR-0013 clausula 5, ADR-0014, ADR-0015, ADR-0017)
+como registro do que existe na arvore. A ADR-0072 continua so registrando fatos.
+
+**O que o aceite NAO faz.** Nao edita a ADR-0013, a ADR-0014, a ADR-0015 nem a ADR-0017. Nao deixa
+verde o repro do F-114, que confere arquivos e simbolos na arvore (a secao Negativas ja dizia isso).

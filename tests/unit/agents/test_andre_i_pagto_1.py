@@ -42,6 +42,8 @@ _FATOS_NOVOS = frozenset(
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
         "tier_minimo",
+        # R-092: o livro de votos do comite (zerado por calculate_facts; nunca semeado por origem).
+        "votos_comite",
         # Evidencia do detector de duplicidade (pacote PAGTO PR-E): nenhuma origem a semeia.
         "duplicidade_motivo_codigo",
         "duplicidade_chave_obrigacao",

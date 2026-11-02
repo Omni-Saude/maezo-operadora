@@ -391,6 +391,7 @@ _PAGTO_WORKER_TOPICS = [
     "operadora.pagto.notify_sla_risk",
     "operadora.pagto.register_payment_refusal",
     "operadora.pagto.prepare_approval_dossier",
+    "operadora.pagto.register_committee_vote",
 ]
 
 _UT_PAGTO_ADMISSIBILIDADE = "UT_AnaliseAdmissibilidade"
