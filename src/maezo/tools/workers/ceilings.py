@@ -1,9 +1,10 @@
 """Deterministic financial-ceiling resolution for the alcada/auto-approval workers.
 
 T1.9 — closes the "decorative ceiling" defect (B3/B4 family, absorbing the AUTH /
-PAGTO auto-approval ceilings; the REEMBOLSO one was removed with its automatic path in DL-0161): the tenant
-governance ceilings — ``authorization_approval.max_value_brl`` and ``high_value_payment.threshold_brl`` —
-(and, before DL-0161, ``reembolso_auto_approval.max_value_brl``) were read by ZERO Python. ``dentro_teto_l2``
+PAGTO auto-approval ceilings; the REEMBOLSO v1 one left with its automatic path in DL-0161 and came back
+DORMANT as the R-070 option B lane — owner, 2026-11-01, PR #1149): the tenant governance ceilings —
+``authorization_approval.max_value_brl``, ``reembolso_auto_approval.max_value_brl`` and
+``high_value_payment.threshold_brl`` — were read by ZERO Python. ``dentro_teto_l2``
 was defaulted/echoed from an INBOUND process variable, so an upstream that seeded
 ``dentro_teto_l2=true`` bypassed the ceiling entirely (reembolso.py:227-230, auth.py:66,
 pagto.py:123).
@@ -19,8 +20,9 @@ auto-approves):
   - a resolved ceiling of 0 (or absent, or negative, or non-numeric, or a bool) forces
     ``within_l2_ceiling == False``. ``L0-core.yaml`` ships 0 for every tenant without an
     overlay. Tenant ``amh``: AUTH has R$ 500 (D-07 closed 25/08/2026, ``tenants-amh.yaml``);
-    REEMBOLSO stays 0 under R-070 option B until the AMH lake history exists — so every
-    REEMBOLSO AUTO_APROVAR route falls through to ANALISE_HUMANA;
+    REEMBOLSO stays 0 under R-070 option B (dormant lane) until the AMH lake history exists and the
+    owner + actuary sign R-070 §6 — so every REEMBOLSO AUTO_APROVAR route falls through to
+    ANALISE_HUMANA;
   - a VALUE that is not a non-negative ``int`` of centavos forces ``within_l2_ceiling ==
     False`` — see :func:`_is_valid_value_cents`. The ceiling clamp above guards the teto
     side of the comparison; this guards the VALUE side, which until now was compared raw;
@@ -192,8 +194,8 @@ class CeilingResolver:
     def ceiling_brl(self, *, tenant: str, action: str, param: str) -> int:
         """Resolved ceiling in whole BRL for ``action.params[param]``. 0 (fail-closed) when absent/invalid.
 
-        ``param`` is ``max_value_brl`` for authorization_approval and ``threshold_brl`` for
-        high_value_payment.
+        ``param`` is ``max_value_brl`` for authorization_approval/reembolso_auto_approval and
+        ``threshold_brl`` for high_value_payment.
         """
         return self.int_param(tenant=tenant, action=action, param=param)
 
