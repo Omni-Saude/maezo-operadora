@@ -12,12 +12,13 @@ do graph NO FIM.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.consultas_plano import INTENT_CONSULTA_PLANO
 from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
+from maezo.agents.helena.habilidades.atendimento_humano import recusa as _recusa
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.habilidades.saude.textos import CHAVE_FECHO, CHAVE_OFERTA_MEDICO
 from maezo.agents.helena.helena_v4 import (
@@ -33,6 +34,7 @@ from maezo.agents.helena.helena_v4 import (
     codigo_pendente,
     escolha_da_resposta,
     especialidade_pedida,
+    ler_pendente,
     populacao_da_v4,
     resposta_ao_alerta,
     texto_da_opcao_1,
@@ -58,6 +60,29 @@ def _base_hoje(self: HelenaGraph) -> _bs.BaseSaude:
     if self._base_do_dia is None or self._base_do_dia[0] != chave:
         self._base_do_dia = (chave, _bs.base_aplicavel(self._base, hoje=hoje))
     return self._base_do_dia[1]
+
+
+def _base_alarme_hoje(self: HelenaGraph, texto: str) -> bool:
+    """Termo de alarme da base (arquivos `sin-*`, base de hoje) no texto; base desligada = `False`.
+    Etapa 1 da limpeza: as travas de entrada leem a base SO' por aqui (sai com a base)."""
+    return self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto)
+
+
+def _base_alarme_do_roteador(
+    self: HelenaGraph, texto: str, pendente: str | None, falas_anteriores: Sequence[str]
+) -> bool:
+    """O que a base acrescenta a trava de alarme do roteador (`travas_entrada._roteador_alarme`): o alarme do
+    assunto `sin-*` em curso, o dos sintomas citados antes e o termo de alarme no texto. Sai com a base."""
+    anterior = ler_pendente(pendente)
+    if (
+        anterior is not None
+        and anterior.grupo.startswith("sin-")
+        and _bs.alarme_do_assunto(self._base, anterior.grupo, texto)
+    ):
+        return True
+    if falas_anteriores and _bs.alarme_dos_citados_antes(self._base, falas_anteriores, texto):
+        return True
+    return _bs.alarme_no_texto(self._base, texto)
 
 
 async def _base_antes_dos_gatilhos(
@@ -110,27 +135,11 @@ async def _base_antes_dos_gatilhos(
         update["escalation_motivo"] = "red_flag_clinico"
         update["escalation_severidade"] = "grave"
         return update
-    # (2) RECUSA explicita / pedido de encerrar com caso aberto. Avaliacao r4 de 22/10/2026 (regra do
-    # dono): a recusa depois da oferta/abertura do caso ("nao quero falar com ninguem", "nao, deixa,
-    # desisto") ENCERRA o caso P2/P3 — inclusive logo depois do caso aberto pela v4 (antes a pendencia
-    # da v4 levava a recusa para a v4, que a lia como sintoma novo). A recusa e' a do leitor de
-    # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de recusa
-    # (`cobertura_assistida.ler_resposta` = encerrar).
-    pede_encerrar = pede_para_encerrar_o_atendimento(texto)
-    desiste = _lc.ler_resposta(texto) == "encerrar"
-    if (pede_encerrar or desiste) and not _pedido_explicito_com_verbo(
-        _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
-    ):
-        if await self._casos_abertos_da_conversa(state):
-            if gerativa:
-                # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
-                return await self._base_confirmacao_de_encerramento(state, update, "sim")
-            logger.info("helena_base_saude_confirma_encerramento", node="classify")
-            return self._base_texto_fixo(
-                update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
-            )
-        if pede_encerrar:
-            return None
+    # (2) RECUSA explicita / pedido de encerrar com caso aberto: o caso a pedido, que mora em
+    # `atendimento_humano.recusa` e vale sem a base (limpeza da saude, etapa 1).
+    decidido, parar = await _recusa.encerrar_a_pedido(self, state, update)
+    if decidido is not None or parar:
+        return decidido
     pergunta_nova = (
         # RODADA DO DONO (18/10/2026): com as perguntas de ALERTA pendentes, uma PERGUNTA NOVA (nao
         # sim/nao,
@@ -220,11 +229,11 @@ async def _base_antes_dos_gatilhos(
         if not (informativa or clinica):
             return None  # "minha ... esta ..." sem assunto da base e sem pergunta de saude: o de sempre
         logger.info("helena_base_saude_nao_encontrado", node="classify", pessoal=pessoal)
-        return self._base_texto_fixo(
+        return self._texto_fixo(
             update, _bs.RESPOSTA_RESULTADO_NAO_ENCONTRADO if pessoal else _bs.RESPOSTA_NAO_ENCONTRADO
         )
     logger.info("helena_base_saude_responde", node="classify", assunto=assunto.id, pessoal=pessoal)
-    return self._base_texto_fixo(
+    return self._texto_fixo(
         update,
         _bs.resposta_de_resultado_pessoal(assunto)
         if pessoal
@@ -271,31 +280,8 @@ async def _base_achar_assunto(
     return base.get(escolhido) if escolhido else None
 
 
-def _base_texto_fixo(update: dict[str, Any], texto: str, *, pendente: str | None = None) -> dict[str, Any]:
-    update["intent"] = "information"
-    update["sintoma_codigo"] = None
-    update.pop("consulta_subtipo", None)
-    update["response_text"] = texto
-    if pendente is not None:
-        update["coleta_pendente"] = pendente
-    return _rota_informativa(update)
-
-
 def _gerativa_para(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
     return self._gerativa is not None and self._gerativa.autorizada(state.get("conversation_id"))
-
-
-def _falas_da_pessoa(state: Mapping[str, Any]) -> list[str]:
-    """As mensagens ANTERIORES da pessoa no historico curto (DL-0080), da mais antiga para a mais recente.
-    As falas da Helena NUNCA entram (podem ter dado do plano/carteirinha)."""
-    historico = state.get("historico_conversa")
-    if not isinstance(historico, list):
-        return []
-    return [
-        str(e.get("texto") or "")
-        for e in historico
-        if isinstance(e, Mapping) and e.get("papel") == "beneficiario" and e.get("texto")
-    ]
 
 
 def _cercas_da_helena(texto: str) -> list[str]:
@@ -460,9 +446,7 @@ async def _gerativa_informar(
         # OPCAO C (dono, 23/10/2026, DL-0154): a duvida geral e' respondida UMA vez; quem insiste no MESMO
         # assunto recebe o medico ou a equipe de saude (nunca uma segunda explicacao).
         logger.info("helena_saude_insistencia_no_mesmo_assunto", node="classify")
-        return self._base_texto_fixo(
-            update, self._textos[CHAVE_OFERTA_MEDICO], pendente=PENDENTE_SAUDE_OFERTA
-        )
+        return self._texto_fixo(update, self._textos[CHAVE_OFERTA_MEDICO], pendente=PENDENTE_SAUDE_OFERTA)
     anteriores, assunto_anterior = self._contexto_do_mesmo_assunto(state, base, anteriores, apoio, plano)
     # TINA (18/10/2026): no maximo UM passo da jornada do plano (texto fixo da operadora, acrescentado no
     # fim).
@@ -502,7 +486,7 @@ async def _gerativa_informar(
         texto_final = _com_o_fecho_da_duvida(texto_final, self._textos[CHAVE_FECHO])
     self._guardar_gerativa(state, texto_final)
     logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
-    return self._base_texto_fixo(update, texto_final)
+    return self._texto_fixo(update, texto_final)
 
 
 async def _gerativa_no_alerta(
@@ -632,7 +616,7 @@ def _saude_resposta_a_oferta(
     escolha = _escolha_marcar_ou_equipe(_plano(texto))
     if escolha == "1":
         logger.info("helena_saude_oferta", node="classify", opcao="1")
-        return self._base_texto_fixo(update, texto_da_opcao_1(POPULACAO_ADULTO))
+        return self._texto_fixo(update, texto_da_opcao_1(POPULACAO_ADULTO))
     if escolha == "2":
         logger.info("helena_saude_oferta", node="classify", opcao="2")
         update.update(
@@ -647,23 +631,18 @@ def _saude_resposta_a_oferta(
         return update
     if escolha == "nao":
         logger.info("helena_saude_oferta", node="classify", opcao="nao")
-        return self._base_texto_fixo(update, _lc.TEXTO_COMBINADO)
+        return self._texto_fixo(update, _lc.TEXTO_COMBINADO)
     return None
 
 
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _GERATIVA_NO_ALERTA,
-    _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO,
     _PROMESSA_DE_REPASSE,
-    _RECUSA_DE_EQUIPE,
-    PENDENTE_ENCERRAR_CASO,
-    RESPOSTA_CONFIRMA_ENCERRAMENTO,
     HelenaState,
     _conduta_clinica,
     _falas_da_helena,
     _nega_acesso,
-    _pedido_explicito_com_verbo,
     _pergunta_de_cobertura,
     _pergunta_do_plano,
     _plano,
@@ -671,5 +650,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _sinal_forte_de_emergencia,
     _sinal_fraco_de_emergencia,
     logger,
-    pede_para_encerrar_o_atendimento,
 )

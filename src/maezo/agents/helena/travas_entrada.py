@@ -19,10 +19,9 @@ from typing import TYPE_CHECKING, Any
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
 from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
 from maezo.agents.helena.habilidades.sintoma.ja_respondido import alerta_ja_respondido
-from maezo.agents.helena.helena_v4 import e_agravamento, ler_pendente
+from maezo.agents.helena.helena_v4 import e_agravamento
 from maezo.agents.helena.triagem_v2 import relata_sintoma
-from maezo.conhecimento import base_saude as _bs
-from maezo.conhecimento import saude_gerativa as _sg
+from maezo.domain.comunicacao import lexico as _lexico
 from maezo.runtime.error_text import dmn_unavailable_error
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, first_row
 
@@ -33,14 +32,14 @@ if TYPE_CHECKING:
 async def _risco_pelo_texto(self: HelenaGraph, state: HelenaState) -> dict[str, Any] | None:
     """RISCO PSICOSSOCIAL PELO TEXTO, ANTES DO MODELO (pendencia 15, DL-0151).
 
-    Termo de autolesao ou de nao querer viver na mensagem (`saude_gerativa.tem_risco`, lista do
+    Termo de autolesao ou de nao querer viver na mensagem (`lexico.tem_risco`, lista do
     DL-0123, inalterada) escala `risco_psicossocial` SEM chamar o classificador: a falha do modelo nao
     rebaixa mais o turno a `falha_tecnica`. A severidade continua sendo a da tabela `mental_health`
     (mesmo bloco do gatilho 5 em `classify`; tabela fora do ar = `grave`) e nenhum `sintoma_codigo` e'
     inventado a partir do texto; o ROTEAMENTO e' a `r2` da `escalation_routing` (P1, plantao clinico,
     qualquer severidade). O texto e' o fixo `RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL` (CVV 188, 192), que
     `escalate` escolhe pelo motivo. Sem o termo devolve `None` e o turno segue como antes."""
-    if not _sg.tem_risco(_plano(str(state.get("message_body") or ""))):
+    if not _lexico.tem_risco(_plano(str(state.get("message_body") or ""))):
         return None
     logger.warning("helena_risco_psicossocial_pelo_texto", node="classify", antes_do_modelo=True)
     update: dict[str, Any] = {
@@ -188,9 +187,9 @@ _NEGADO_DEPOIS: re.Pattern[str] = re.compile(r"^ (?:nao|nunca|nenhum|nenhuma)\b"
 def sinal_claro_afirmado(state: Mapping[str, Any]) -> bool:
     """Um `_SINAL_CLARO` numa frase AFIRMADA do turno, sem negacao antes ("ele nao desmaiou") nem depois
     ("convulsao nao")."""
-    cortado = _bs.normalizar_com_cortes(texto_afirmado_do_turno(state))
+    cortado = _lexico.normalizar_com_cortes(texto_afirmado_do_turno(state))
     for m in _SINAL_CLARO.finditer(cortado):
-        if not _bs.negado(cortado, m.start()) and not _NEGADO_DEPOIS.search(cortado[m.end() :]):
+        if not _lexico.negado(cortado, m.start()) and not _NEGADO_DEPOIS.search(cortado[m.end() :]):
             return True
     return False
 
@@ -260,7 +259,7 @@ def _sinal_no_texto(self: HelenaGraph, texto: str) -> bool:
         _sinal_forte_de_emergencia(texto)
         or _VOCABULARIO_DA_TABELA.search(plano)
         or alarme_no_relato(plano) is not None
-        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
+        or self._base_alarme_hoje(texto)
     )
 
 
@@ -306,18 +305,8 @@ def _roteador_alarme(
     plano = _plano(texto)
     if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
         return True
-    if not self._base_saude:
-        return False
-    anterior = ler_pendente(pendente)
-    if (
-        anterior is not None
-        and anterior.grupo.startswith("sin-")
-        and _bs.alarme_do_assunto(self._base, anterior.grupo, texto)
-    ):
-        return True
-    if falas_anteriores and _bs.alarme_dos_citados_antes(self._base, falas_anteriores, texto):
-        return True
-    return _bs.alarme_no_texto(self._base, texto)
+    # BASE DE SAUDE (camada a remover): os termos de alarme dos arquivos `sin-*` (`informar.py`).
+    return self._base_saude and self._base_alarme_do_roteador(texto, pendente, falas_anteriores)
 
 
 # --- O alarme DITO SO' PELO MODELO (contrato v7; decisao do dono de 23/10/2026, DL-0154) ---------------
@@ -358,8 +347,8 @@ def _sinal_do_modelo_na_tabela(self: HelenaGraph, sinal: str) -> bool:
         _VOCABULARIO_DA_TABELA.search(plano)
         or alarme_no_relato(plano) is not None
         or _sinal_forte_de_emergencia(sinal)
-        or _sg.tem_risco(plano)
-        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), sinal))
+        or _lexico.tem_risco(plano)
+        or self._base_alarme_hoje(sinal)
     )
 
 

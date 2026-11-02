@@ -35,7 +35,7 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import (
     TEXTO_OFERTA_POR_REPETICAO,
 )
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
-from maezo.agents.helena.habilidades.protocolo import leitura_sem_modelo as _lsm
+from maezo.agents.helena.habilidades.conversa import leitura_sem_modelo as _lsm
 
 if TYPE_CHECKING:
     from maezo.agents.helena.graph import HelenaGraph
@@ -204,7 +204,7 @@ def responder(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | N
             logger.info("helena_oferta_de_equipe_recusada", node="classify")
             update = self._update_sem_modelo(state)
             update.update({"coleta_pendente": None, "coleta_contexto": ""})
-            return self._base_texto_fixo(update, recusa_curta(state))
+            return self._texto_fixo(update, recusa_curta(state))
         return None
     v7 = _rv7.LEITURA_DO_TURNO.get()
     if (
@@ -219,7 +219,7 @@ def responder(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | N
     if _VERBO_DE_PASSAR.search(_plano(texto)):
         return _abre_caso(self, state, "pedido_de_passar")
     logger.info("helena_oferta_de_equipe_confirmar", node="classify")
-    return self._base_texto_fixo(
+    return self._texto_fixo(
         self._update_sem_modelo(state), TEXTO_CONFIRMA_PASSAR, pendente=PENDENTE_OFERTA_EQUIPE
     )
 

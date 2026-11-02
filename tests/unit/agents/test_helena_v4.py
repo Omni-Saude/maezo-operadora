@@ -1372,16 +1372,16 @@ async def test_chave_desligada_o_especialista_e_o_sintoma_seguem_como_hoje() -> 
     assert not str(sintoma.memoria.get("coleta_pendente") or "").startswith("V4_")
 
 
-async def test_chave_desligada_a_carteirinha_continua_a_de_antes() -> None:
+async def test_chave_desligada_a_carteirinha_e_a_mesma_da_v4() -> None:
+    """Limpeza da saude, etapa 1 (02/11/2026): a carteirinha e' dado do plano e nao depende da chave da v4
+    (no dev a v4 esta' ligada: o mesmo texto)."""
     conversa = _Conversa(v4=False, fonte=_Fonte(), com_identidade=True)
     resultado = await conversa.diz(
         "Qual o número da minha carteirinha?",
         _classify(intent=INTENT_CONSULTA_PLANO, consulta_subtipo="carteirinha"),
     )
 
-    assert "Nº ANS" not in resultado["response_text"]
-    assert "Código:" not in resultado["response_text"]
-    assert "carteirinha: ******4567" in resultado["response_text"]
+    assert resultado["response_text"] == v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_elegibilidade()))
 
 
 async def test_pendencia_da_v4_de_uma_conversa_antiga_e_descartada_com_a_chave_desligada() -> None:

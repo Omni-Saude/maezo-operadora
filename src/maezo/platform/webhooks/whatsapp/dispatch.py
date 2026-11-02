@@ -546,6 +546,10 @@ class HelenaDispatcher:
     #: a
     #: chave ligada; o grafo so' o usa nas conversas da allowlist.
     saude_gerativa: Any = None
+    #: ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1): `runtime.inference.rota_global.RotaGlobal`, o
+    #: transporte do Haiku e as conversas autorizadas, sem depender da base nem da gerativa. `None` = sem
+    #: rota (o grafo usa a do redator, se houver: o de antes).
+    rota_global: Any = None
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -1022,6 +1026,8 @@ class HelenaDispatcher:
                 "cobertura_modo": self.cobertura_modo,
                 # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
                 "saude_gerativa": self.saude_gerativa,
+                # Etapa 1 da limpeza da saude: a rota global da allowlist, sozinha.
+                "rota_global": self.rota_global,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }

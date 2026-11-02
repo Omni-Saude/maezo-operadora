@@ -161,15 +161,32 @@ def _helena_model_tiers() -> dict[str, str]:
         return {}
 
 
-def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
+def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
+    """ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1, 02/11/2026): o transporte do Haiku 5.5 (rota
+    autorizada pelo DPO, ADR-0065/DL-0155) e as conversas autorizadas, SEM depender da base de saude nem da
+    saude gerativa. A porta unica, o roteador ativo e o `modelo_allowlist` usam. Lista vazia = `None` (nada
+    da rota global existe no processo). Mesma env de antes (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`).
+    Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada."""
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+    from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
+
+    conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
+    if not conversas:
+        return None
+    logger.warning("helena_rota_global_ligada", rota=ROTA_DE_RESIDENCIA, conversas_autorizadas=len(conversas))
+    return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas)
+
+
+def _saude_gerativa(settings: WhatsAppWebhookSettings, rota: Any = None) -> Any:
     """SAUDE GERATIVA (ADR-0065, DL-0119): o redator, SO' com `MAEZO_HELENA_SAUDE_GERATIVA` E a base de saude
     ligadas; senao `None` (nada da rota global existe no processo). Construcao pura: o cliente Bedrock nao faz
     rede ate' a primeira chamada. A rota e' PROPRIA (`experimento_global_autorizado_dpo_2026-10-17`) e nunca
-    passa pelo roteador de zonas."""
+    passa pelo roteador de zonas. Com a rota global (`_rota_global`), o MESMO transporte."""
     if settings.helena_saude_gerativa is not True:
         return None
-    from maezo.conhecimento.saude_gerativa import RedatorDeSaude, conversas_autorizadas
+    from maezo.conhecimento.saude_gerativa import RedatorDeSaude
     from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+    from maezo.runtime.inference.rota_global import conversas_autorizadas
 
     if settings.helena_base_saude is not True:
         logger.error("helena_saude_gerativa_sem_base_de_saude", rota=ROTA_DE_RESIDENCIA)
@@ -209,9 +226,8 @@ def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
         from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos, carregar_sinonimos
 
         catalogo = BuscaDeProcedimentos(transporte=busca.transporte, sinonimos=carregar_sinonimos())
-    return RedatorDeSaude(
-        transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca, catalogo=catalogo
-    )
+    transporte = rota.transporte if rota is not None else TransporteGlobalExperimental()
+    return RedatorDeSaude(transporte=transporte, conversas=conversas, busca=busca, catalogo=catalogo)
 
 
 def _build_dispatcher(
@@ -317,6 +333,7 @@ def _build_dispatcher(
             inatividade_minutos=settings.lucas_inatividade_minutos,
             fonte_cobranca=settings.lucas_fonte_cobranca,
         )
+    rota_global = _rota_global(settings)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -369,7 +386,9 @@ def _build_dispatcher(
         cobertura_modo=settings.helena_cobertura_modo,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
-        saude_gerativa=_saude_gerativa(settings),
+        saude_gerativa=_saude_gerativa(settings, rota_global),
+        # A rota global da allowlist (etapa 1 da limpeza): independente da base e da saude gerativa.
+        rota_global=rota_global,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -1381,7 +1400,7 @@ def _inferencia_dedicada(
 
 
 def _conversas_do_roteador(bruto: str) -> frozenset[str]:
-    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da saude gerativa."""
-    from maezo.conhecimento.saude_gerativa import conversas_autorizadas
+    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da rota global."""
+    from maezo.runtime.inference.rota_global import conversas_autorizadas
 
     return conversas_autorizadas(bruto)

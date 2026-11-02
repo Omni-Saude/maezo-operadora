@@ -98,7 +98,7 @@ async def _base_confirmacao_de_encerramento(
     resposta = leitura or _sim_ou_nao_ao_encerramento(plano)
     if resposta == "nao":
         logger.info("helena_base_saude_encerramento", node="classify", resposta="nao")
-        return self._base_texto_fixo(update, RESPOSTA_ENCERRAMENTO_MANTIDO)
+        return self._texto_fixo(update, RESPOSTA_ENCERRAMENTO_MANTIDO)
     if resposta != "sim":
         return None
     encerrados, graves, falhas = 0, 0, 0
@@ -123,12 +123,12 @@ async def _base_confirmacao_de_encerramento(
         falhas=falhas,
     )
     if graves:
-        return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
+        return self._texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
     if falhas:
-        return self._base_texto_fixo(update, RESPOSTA_ENCERRAMENTO_FALHOU)
+        return self._texto_fixo(update, RESPOSTA_ENCERRAMENTO_FALHOU)
     if encerrados:
-        return self._base_texto_fixo(update, RESPOSTA_CASO_ENCERRADO)
-    return self._base_texto_fixo(update, RESPOSTA_SEM_CASO_PARA_ENCERRAR)
+        return self._texto_fixo(update, RESPOSTA_CASO_ENCERRADO)
+    return self._texto_fixo(update, RESPOSTA_SEM_CASO_PARA_ENCERRAR)
 
 
 async def _retirar_caso(

@@ -19,6 +19,7 @@ import string
 from collections.abc import Mapping
 from typing import Final
 
+from .habilidades.atendimento_humano.textos import PADRAO as _PADRAO_ATENDIMENTO
 from .habilidades.cobertura_fora import CHAVE_TEXTO as _CHAVE_COBERTURA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa.agendar import PADRAO as _PADRAO_AGENDAR
@@ -37,6 +38,7 @@ _TAMANHO_MAXIMO: Final[int] = 1200
 PADRAO: Final[Mapping[str, str]] = {
     _CHAVE_COBERTURA: TEXTO_COBERTURA_FORA,
     **_PADRAO_SINTOMA,
+    **_PADRAO_ATENDIMENTO,
     **_PADRAO_SAUDE,
     **_PADRAO_ASSUNTOS,
     **_PADRAO_APP,

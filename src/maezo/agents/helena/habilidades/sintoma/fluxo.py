@@ -22,12 +22,13 @@ from maezo.agents.helena.consultas_plano import (
     INTENT_CONSULTA_PLANO,
 )
 from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
+from maezo.agents.helena.habilidades.atendimento_humano.textos import CHAVE_CASO_MANTIDO
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.plano.carteirinha import pede_carteirinha
 from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
 from maezo.agents.helena.habilidades.sintoma.textos import (
     CHAVE_AVALIAR_CAUSA,
-    CHAVE_CASO_MANTIDO,
     CHAVE_OFERTA_EQUIPE,
     CHAVE_OFERTA_RECUSADA,
 )
@@ -53,7 +54,6 @@ from maezo.agents.helena.helena_v4 import (
     especialidade_pedida,
     grupo_do_sintoma,
     ler_pendente,
-    pede_carteirinha,
     populacao_da_v4,
     relato_cru,
     resposta_ao_alerta,
@@ -651,12 +651,12 @@ def _v4_seguimento(
             )
         if escolha == "nao":
             logger.info("helena_v4_escolha", node="classify", opcao="nao")
-            return self._base_texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA]) | fechado
+            return self._texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA]) | fechado
         if self._v4_seguimento_do_sintoma(state, texto):
             # DL-0154: depois de FECHAR, a conversa sobre o mesmo sintoma nunca reinicia a pergunta de alerta
             # nem vira explicacao de causa: quem avalia e' o medico; as mesmas opcoes continuam valendo.
             logger.info("helena_v4_seguimento_depois_de_fechar", node="classify")
-            return self._base_texto_fixo(
+            return self._texto_fixo(
                 update,
                 self._textos[CHAVE_AVALIAR_CAUSA],
                 pendente=codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao),
@@ -706,7 +706,7 @@ def _v4_seguimento(
         # DL-0154 (regra da ambiguidade; aval do medico responsavel recomendado antes de producao): duas
         # respostas sem clareza -> a OFERTA da equipe de saude, SEM 192 e SEM caso (o caso so' com "sim").
         logger.info("helena_v4_alerta", node="classify", resposta="oferta_da_equipe")
-        return self._base_texto_fixo(
+        return self._texto_fixo(
             update,
             self._textos[CHAVE_OFERTA_EQUIPE],
             pendente=codigo_pendente(ETAPA_OFERTA, pend.grupo, pend.populacao),
@@ -794,7 +794,7 @@ def _v4_sem_repetir_alerta(
         and not _sinal_novo_de_alarme(state)
     ):
         logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="alarme_ja_tratado")
-        return self._base_texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
+        return self._texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
     relato = str(state.get("coleta_contexto") or "")
     pend = ler_pendente(state.get("coleta_pendente"))
     if (
@@ -805,7 +805,7 @@ def _v4_sem_repetir_alerta(
     ):
         logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="alerta_pendente")
         if pend.repetida:
-            return self._base_texto_fixo(
+            return self._texto_fixo(
                 update,
                 self._textos[CHAVE_OFERTA_EQUIPE],
                 pendente=codigo_pendente(ETAPA_OFERTA, grupo, populacao),
@@ -842,7 +842,7 @@ def _v4_sem_repetir_alerta(
     if _v4_queixa_nova(self, state, texto, grupo, populacao):
         return None
     logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="mesma_queixa")
-    return self._base_texto_fixo(
+    return self._texto_fixo(
         update, self._textos[CHAVE_AVALIAR_CAUSA], pendente=fechado["coleta_pendente"]
     ) | {"coleta_contexto": fechado["coleta_contexto"]}
 
@@ -1136,7 +1136,7 @@ def _v4_resposta_a_oferta(
         )
     if leitura in ("nao", "encerrar"):
         logger.info("helena_v4_oferta", node="classify", resposta="nao")
-        return self._base_texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA])
+        return self._texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA])
     return None
 
 

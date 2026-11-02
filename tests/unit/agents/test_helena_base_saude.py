@@ -676,7 +676,9 @@ async def test_base_invalida_desliga_a_chave(tmp_path: Path) -> None:
     assert grafo._base_saude is False
 
 
-def test_a_pendencia_de_encerramento_some_com_a_chave_desligada() -> None:
+def test_a_pendencia_de_encerramento_vale_com_a_chave_desligada() -> None:
+    """Limpeza da saude, etapa 1 (02/11/2026): encerrar o caso e' atendimento, nao saude: a confirmacao
+    pendente vale sem a chave da base (antes ela sumia)."""
     import asyncio
 
     grafo = HelenaGraph(
@@ -699,7 +701,7 @@ def test_a_pendencia_de_encerramento_some_com_a_chave_desligada() -> None:
     )
     estado["coleta_pendente"] = graph_module.PENDENTE_ENCERRAR_CASO
     reset = asyncio.run(grafo.receive(estado))  # type: ignore[arg-type]
-    assert reset["coleta_pendente"] is None
+    assert reset["coleta_pendente"] == graph_module.PENDENTE_ENCERRAR_CASO
 
 
 # =================================================================================================

@@ -439,12 +439,8 @@ async def test_chave_desligada_e_o_grafo_de_antes_byte_a_byte(v4_ligada: bool, s
         enviado = zap_a.enviados[0]
         assert _MASCARA_ANTIGA in enviado  # hoje: os dois vinculos, inclusive o cancelado
         assert _NUMERO not in enviado
-        if v4_ligada:
-            assert enviado == v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_view()))
-        else:
-            fatos = fatos_da_consulta("carteirinha", _view())
-            assert fatos is not None
-            assert enviado == resposta_deterministica("carteirinha", fatos)
+        # Limpeza da saude, etapa 1 (02/11/2026): a carteirinha nao depende mais da v4 (o texto do dev).
+        assert enviado == v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_view()))
     else:
         # Elegibilidade: os fatos que foram ao modelo sao os de hoje (os dois vinculos).
         [prompt] = [p for p in modelo_a.prompts if "fatos_do_plano" in p]
@@ -463,14 +459,13 @@ async def test_chave_ligada_carteirinha_mostra_o_numero_completo_so_do_vinculo_a
     with capture_logs() as logs:
         resultado, zap, modelo, fonte = await _turno("carteirinha", chave=True, v4_ligada=v4_ligada)
     [enviado] = zap.enviados
-    rotulo = "- Número da carteirinha: " if v4_ligada else "- número da carteirinha: "
-    assert f"{rotulo}{_NUMERO}" in enviado
+    # Etapa 1 da limpeza: com ou sem a v4, o texto da carteirinha (o do dev).
+    assert f"- Número da carteirinha: {_NUMERO}" in enviado
     assert _MASCARA_ANTIGA not in enviado and _PLANO_ANTIGO not in enviado
     assert "{{" not in enviado
-    if v4_ligada:
-        assert "O cartão completo está no aplicativo Austa Clínicas e no portal do plano." in enviado
-        assert "Por segurança, não mostro outros dados pessoais por aqui." in enviado
-        assert "não mostro o código inteiro" not in enviado
+    assert "O cartão completo está no aplicativo Austa Clínicas e no portal do plano." in enviado
+    assert "Por segurança, não mostro outros dados pessoais por aqui." in enviado
+    assert "não mostro o código inteiro" not in enviado
     # A rota foi lida SO' para o proprio sujeito, com um id opaco.
     assert fonte.chamadas_carteirinha == [(_REF, "hk1_msg_carteirinha_completa")]
     # O NUMERO SO' no texto enviado: nunca no estado do grafo (checkpoint), nos literais, no historico, no
