@@ -201,10 +201,8 @@ TEXTO_ENVIE_NOTA: Final[str] = (
     "Agora envie a foto ou o PDF da nota fiscal. Se tiver mais de um arquivo, pode mandar todos."
 )
 TEXTO_PROXIMO_ARQUIVO: Final[str] = "Certo. Pode enviar o próximo arquivo."
-TEXTO_ARQUIVO_RECEBIDO: Final[str] = (
-    "Recebi o arquivo. Você terminou de enviar o {tipo}? Responda Sim ou Não."
-)
-TEXTO_PRECISA_ARQUIVO: Final[str] = "Ainda não recebi o {tipo}. Envie a foto ou o PDF por aqui."
+TEXTO_ARQUIVO_RECEBIDO: Final[str] = "Recebi o arquivo. Você terminou de enviar {tipo}? Responda Sim ou Não."
+TEXTO_PRECISA_ARQUIVO: Final[str] = "Ainda não recebi {tipo}. Envie a foto ou o PDF por aqui."
 TEXTO_LIMITE_ARQUIVOS: Final[str] = (
     "Chegamos ao limite de arquivos desse tipo. Se já enviou tudo, responda Sim."
 )
@@ -280,11 +278,12 @@ TEXTO_RESPOSTA_ARQUIVO: Final[str] = (
 )
 
 #: Versao dos textos acima (auditoria; sobe a cada mudanca de redacao).
-TEXTOS_REEMBOLSO_VERSAO: Final[str] = "reembolso-v2"
+TEXTOS_REEMBOLSO_VERSAO: Final[str] = "reembolso-v2.1"
 
+#: O nome com o ARTIGO certo (teste do dono, 02/11/2026: "terminou de enviar o nota fiscal").
 _NOME_DO_DOCUMENTO: Final[dict[str, str]] = {
-    TIPO_DOC_PEDIDO: "pedido médico",
-    TIPO_DOC_NOTA: "nota fiscal",
+    TIPO_DOC_PEDIDO: "o pedido médico",
+    TIPO_DOC_NOTA: "a nota fiscal",
 }
 
 _PERGUNTA_DA_ETAPA: Final[dict[str, str]] = {

@@ -209,3 +209,12 @@ def test_os_resultados_do_bpmn_sao_os_do_modulo() -> None:
     achados = set(re.findall(r"reembolso_(?:aprovado|parcial|negado|info_solicitada|pago)\b", bpmn))
     assert {f"reembolso_{a.split('_', 1)[1]}" for a in achados} == achados
     assert achados == set(rp.RESULTADOS_DO_REEMBOLSO)
+
+
+def test_o_artigo_concorda_com_o_documento() -> None:
+    # Teste do dono (02/11/2026): "Você terminou de enviar o nota fiscal?".
+    nota = rp.receber_documento(_ate_documentos(), "nf-1").texto
+    assert "terminou de enviar a nota fiscal?" in nota
+    assert "Ainda não recebi a nota fiscal." in _turno(_ate_documentos(), "sim").texto
+    pedido = rp.receber_documento(_ate_documentos(categoria="2", tipo="2"), "ped-1").texto
+    assert "terminou de enviar o pedido médico?" in pedido
