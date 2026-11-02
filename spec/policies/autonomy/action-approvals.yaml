@@ -242,10 +242,10 @@ acoes:
       - referencia: "src/maezo/tools/workers/recurso.py:1506"
         detalhe: "topic operadora.recurso.comunicar_resposta (raw handler — resposta ao recurso emitida ao prestador)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1722"
+      - referencia: "src/maezo/tools/workers/contas.py:492"
         detalhe: "topic operadora.contas.registrar_glosa (GUARDED — ERR_CONTAS_GLOSA_NOT_HUMAN)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1728"
+      - referencia: "src/maezo/tools/workers/contas.py:870"
         detalhe: "topic operadora.contas.emitir_demonstrativo (demonstrativo de analise / devolucao emitidos ao prestador)"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
@@ -282,10 +282,10 @@ acoes:
       Liberação de pagamento (prestador). O reembolso ao beneficiário não emite pagamento pelo sistema desde a v0.2.0 (DL-0161): o financeiro paga fora e registra a data. Efeito financeiro
       irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
     superficies:
-      - referencia: "src/maezo/tools/workers/pagto.py:896"
+      - referencia: "src/maezo/tools/workers/pagto.py:616"
         detalhe: "topic operadora.pagto.release_low_value_payment"
         choked: true
-      - referencia: "src/maezo/tools/workers/pagto.py:898"
+      - referencia: "src/maezo/tools/workers/pagto.py:798"
         detalhe: "topic operadora.pagto.release_high_value_payment"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
@@ -400,10 +400,10 @@ acoes:
       agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
       fence próprio (allowlist ADR-0016) e auditoria de start (T-C2).
     superficies:
-      - referencia: "src/maezo/tools/workers/contas.py:1744"
+      - referencia: "src/maezo/tools/workers/contas.py:1236"
         detalhe: "topic operadora.contas.handoff_pagamento (inicia SP-OP-PAGTO-001 — conta adjudicada)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1750"
+      - referencia: "src/maezo/tools/workers/contas.py:644"
         detalhe: "topic operadora.contas.start_fraude"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1499"
@@ -940,3 +940,50 @@ vocabulario_l0_canonico:
       ratificador: PENDENTE
       data: PENDENTE
       evidencia_ref: PENDENTE
+
+# ---------------------------------------------------------------------------------------------
+# concessoes_principal — capacidade C0 concedida pelo dono a um DAEMON sem `agent.yaml`.
+# [ADITIVO — 2026-11-02, DEC-30 D19 (A); issue #1084]
+#
+# O QUE ISTO É. O registro, como DADO, da resposta do dono à PRÉ-CONDIÇÃO 2 da classe
+# `consulta_processo` (descricao acima): "o enforcement é por classe, não por principal" — o
+# `worker_runtime` não tem `agent.yaml`, então, virada a classe, toda leitura de engine da perna de
+# worker negaria em L-1 com `CAPACIDADE_INDISPONIVEL`. Das duas saídas que a pré-condição oferece,
+# o dono escolheu a primeira (registro de capacidade para o daemon), ESCOPADA ao mínimo: SÓ
+# leitura, SÓ a operação de histórico que o PAGTO PR-D (`resolve_lastro`) usa, SÓ os dois
+# processos de origem em que ele procura o lastro. O PR-E (`detect_duplicidade`) não chama o
+# engine: o nível 2 dele consome os fatos do lastro do PR-D, então é coberto por esta mesma linha.
+#
+# O QUE ISTO NÃO É.
+#   * NÃO é aprovação de classe: os três blocos `aprovacoes` de `consulta_processo` seguem
+#     `PENDENTE`, a classe segue `enforcement: shadow`, o arquivo segue `status: DRAFT` — com ou
+#     sem esta concessão, L-5 continua negando. Esta linha só remove o motivo L-1 da negativa.
+#   * NÃO é lida pelo runtime HOJE: `build_worker_seam_context` (`src/maezo/gateway/
+#     tool_registry.py:485`) ainda passa `capabilities=None` ao daemon. Ligar o loader a este
+#     bloco é mudança de código (PR próprio, antes de qualquer virada C0); até lá a telemetria de
+#     sombra da perna de worker segue registrando `CAPACIDADE_INDISPONIVEL`, honestamente.
+#   * NÃO cobre `avaliacao_dmn` (a costura `dmn=` do mesmo daemon tem a mesma pré-condição e não
+#     foi decidida em D19), nem `find_active_instance`/`find_any_instance`/`read_historic_variables`
+#     /`get_process_status`/`correlate_message` — alargar exige nova decisão do dono.
+#
+# NENHUM AGENTE PODE ALARGAR ESTE BLOCO — operação, processo ou principal novo é decisão do dono.
+# ---------------------------------------------------------------------------------------------
+concessoes_principal:
+
+  worker_runtime:
+    consulta_processo:
+      somente_leitura: true
+      operacoes: ["cibseven.resolve_historic_instance"]
+      process_keys: ["SP-OP-CONTAS-001", "SP-OP-RECURSO-001"]
+      superficie: "src/maezo/tools/mcp_cibseven/transport.py:757"
+      consumidores:
+        - referencia: "src/maezo/tools/workers/pagto_lastro.py:269"
+          detalhe: "resolve_lastro — PAGTO PR-D, topic operadora.pagto.validate_payment_data
+            (dark: MAEZO_PAGTO_RESOLVE_LASTRO)"
+        - referencia: "src/maezo/tools/workers/pagto_duplicidade.py:259"
+          detalhe: "detect_duplicidade — PAGTO PR-E, mesmo topic (dark:
+            MAEZO_PAGTO_DETECT_DUPLICIDADE); lê os fatos do lastro do PR-D, não o engine"
+      decidido_por: "dono (rodaquino-OMNI)"
+      decidido_em: "2026-11-02"
+      decisao_ref: "DEC-30 D19 (A) — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6575240466"
+      fiacao_runtime: PENDENTE
