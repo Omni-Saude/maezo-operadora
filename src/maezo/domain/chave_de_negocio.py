@@ -16,6 +16,16 @@ from typing import Final
 #: §"Business key (idempotencia)").
 CONTAS_BUSINESS_KEY_PREFIX: Final[str] = "CONTAS-"
 
+#: Prefixo contratual da familia PAGTO (`docs/processes/contracts/SP-OP-PAGTO-001.md`
+#: §"Business key (idempotencia)").
+PAGTO_BUSINESS_KEY_PREFIX: Final[str] = "PAGTO-"
+
+#: Etiqueta da forma "por conta" da chave PAGTO cunhada pelo handoff CONTAS->PAGTO quando CONTAS
+#: adjudicou por guia/conta (decisao do dono de 2026-11-01, opcao A). Uma letra, como as etiquetas
+#: de forma do ADR-0068 (CONTAS `L`/`G`; PAGTO `O`/`L`/`G`). NAO e' `G`: em PAGTO `G` ja' e' a forma
+#: guia+glosa do handoff RECURSO.
+PAGTO_FORMA_POR_CONTA: Final[str] = "C"
+
 
 class BusinessKeyComponentError(ValueError):
     """Um componente da business key esta' ausente, vazio ou contem espaco/controle.
@@ -90,9 +100,50 @@ def contas_business_key(
     """
     family = "CONTAS"
     tenant = _tenant_componente(tenant_id, family=family)
-    if numero_guia_tiss and numero_conta:
+    if contas_adjudica_por_conta(numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta):
         guia = componente("numero_guia_tiss", numero_guia_tiss, family=family)
         conta = componente("numero_conta", numero_conta, family=family)
         return f"{CONTAS_BUSINESS_KEY_PREFIX}{tenant}-{guia}-{conta}"
     lote = componente("numero_lote_tiss", numero_lote_tiss, family=family)
     return f"{CONTAS_BUSINESS_KEY_PREFIX}{tenant}-{lote}"
+
+
+def contas_adjudica_por_conta(*, numero_guia_tiss: object, numero_conta: object) -> bool:
+    """A regra de FORMA de `SP-OP-CONTAS-001`: guia/conta (`G`) quando os DOIS estao presentes.
+
+    Fonte unica da escolha que `contas_business_key` faz — o handoff CONTAS->PAGTO pergunta a ELA
+    em qual forma a instancia de CONTAS rodou, em vez de repetir a condicao (e poder divergir).
+    """
+    return bool(numero_guia_tiss) and bool(numero_conta)
+
+
+def pagto_business_key_por_conta(*, tenant_id: object, numero_guia_tiss: object, numero_conta: object) -> str:
+    """`PAGTO-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}` — UMA ordem por conta adjudicada.
+
+    Decisao do dono de 2026-11-01 (opcao A): a chave PAGTO cunhada pelo handoff de uma conta que
+    CONTAS adjudicou na forma guia/conta passa a carregar a identidade da conta. A identidade e' a
+    MESMA da instancia de CONTAS que adjudicou (`CONTAS-{t}-{guia}-{conta}`): nem o lote nem o
+    prestador entram, porque nao entram na chave de CONTAS — uma conta reapresentada noutro lote
+    continua sendo a MESMA conta e nao pode ser paga duas vezes.
+
+    So' e' cunhada dentro da janela de migracao de chaves (fases `leitura_dupla`/`escrita_alvo` do
+    handoff; o padrao `legado` nunca chama este compositor).
+
+    RECUSA (`BusinessKeyComponentError`, um `ValueError`):
+      * componente ausente, vazio, nao-`str` ou com espaco/controle (`componente`);
+      * `tenant_id` com `-` (como em CONTAS/AUTH);
+      * `numero_guia_tiss` com `-` — decisao do dono R-101 ("recusar '-' no numero da guia",
+        fail-closed). Com a guia livre de `-` e a etiqueta `C` na frente, a chave se decompoe de
+        um so' jeito: `numero_conta` (o ultimo componente) pode conter `-`.
+    """
+    family = "PAGTO"
+    tenant = _tenant_componente(tenant_id, family=family)
+    guia = componente("numero_guia_tiss", numero_guia_tiss, family=family)
+    if "-" in guia:
+        raise BusinessKeyComponentError(
+            f"business key {family}: componente 'numero_guia_tiss' contem '-' — recusado "
+            "(decisao do dono R-101: a guia com '-' tornaria a forma por conta ambigua entre "
+            "(guia='A-B', conta='C') e (guia='A', conta='B-C'))"
+        )
+    conta = componente("numero_conta", numero_conta, family=family)
+    return f"{PAGTO_BUSINESS_KEY_PREFIX}{tenant}-{PAGTO_FORMA_POR_CONTA}-{guia}-{conta}"

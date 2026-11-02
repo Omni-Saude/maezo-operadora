@@ -40,14 +40,20 @@ import structlog
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
+    HistoricInstanceResolvingTransport,
+    HistoricVariableReadingTransport,
     HistoryQueryingTransport,
     UserTaskAssigneeReadingTransport,
     require_engine_tenant_token,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from maezo.tools.mcp_cibseven.transport import (
         CibSevenTransport,
+        HistoricInstanceRecord,
+        HistoricProcessVariables,
         ProcessInstance,
         ProcessStatus,
     )
@@ -122,6 +128,47 @@ class FreshClientCibSevenTransport:
                     "`find_any_instance` — cannot answer the engine-history question"
                 )
             return await inner.find_any_instance(business_key, process_key=process_key)
+        finally:
+            await inner.close()
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        """`HistoricVariableReadingTransport` delegation. Exists so `gate_cibseven` keeps building the
+        history-RESOLVING gated class over this transport (it requires all three history legs), which
+        `contas.handoff_pagamento` needs to confer the identity of an existing PAGTO order. Inner
+        without the capability RAISES `CibSevenError` ("nao sei", never "nao ha")."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricVariableReadingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `read_historic_variables`"
+                )
+            return await inner.read_historic_variables(process_instance_id, names)
+        finally:
+            await inner.close()
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        """`HistoricInstanceResolvingTransport` delegation (PAGTO PR-C costura, #1167): UMA instancia
+        do historico por chave/filtro. Consumidor: a conferencia de identidade da ordem PAGTO em
+        `contas.handoff_pagamento` (decisao do dono 2026-11-01, opcao A). Inner sem a capacidade
+        LEVANTA `CibSevenError` — nunca e' lido como "nao encontrado"."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricInstanceResolvingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `resolve_historic_instance`"
+                )
+            return await inner.resolve_historic_instance(
+                process_key, business_key=business_key, variable_equals=variable_equals, names=names
+            )
         finally:
             await inner.close()
 
