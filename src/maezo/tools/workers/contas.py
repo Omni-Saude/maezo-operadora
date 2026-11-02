@@ -28,13 +28,13 @@ import functools
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.keys import key_segment
-from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, StartOutcome, start_process_idempotent
 from maezo.tools.workers.base import (
     FunctionWorker,
     non_blank,
@@ -48,13 +48,13 @@ from maezo.tools.workers.pagto import PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
+    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport, HistoricInstanceRecord
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
-# Process key of the SP-OP-PAGTO-001 handoff target — one payment order per adjudicated lote per
-# prestador. CONTAS never releases money: PAGTO owns the release, behind its own alcada ladder AND
+# Process key of the SP-OP-PAGTO-001 handoff target — one order per adjudicated conta (see the key
+# window below). CONTAS never releases money: PAGTO owns the release, behind its own alcada ladder AND
 # (invariant I-PAGTO-1) behind the mandatory human `UT_AnaliseAdmissibilidade`.
 PAGTO_PROCESS_KEY = "SP-OP-PAGTO-001"
 
@@ -943,13 +943,16 @@ def emitir_demonstrativo(
 #: `test_handoff_pagamento_semeia_exatamente_o_conjunto_declarado`) because the invariant this
 #: worker has to keep is a NEGATIVE one: the four admissibility booleans PAGTO resolves for itself
 #: must NEVER appear here. Same shape as `recurso.HANDOFF_PAGTO_SEEDED_KEYS` — one handoff shape
-#: for both chains.
+#: for both chains — PLUS `numero_conta` (decisao do dono 2026-11-01, opcao A): the conta identity
+#: of the order, read back from the engine history by `_conferir_identidade_da_ordem` so a second
+#: conta of the same lote is refused instead of silently "already existing". RECURSO has no conta.
 HANDOFF_PAGTO_SEEDED_KEYS: frozenset[str] = frozenset(
     {
         "tenant_id",
         "ordem_pagamento_id",
         "numero_lote_tiss",
         "numero_guia_tiss",
+        "numero_conta",
         "prestador_id",
         "tipo_pagamento",
         "valor_pagamento_cents",
@@ -1038,14 +1041,215 @@ def _ordem_pagamento_id(tenant_id: str, numero_lote_tiss: str, prestador_id: str
     return f"ORDEM-CONTA-{key_segment(tenant_id)}-{key_segment(numero_lote_tiss)}-{key_segment(prestador_id)}"
 
 
+# ---------------------------------------------------------------------------
+# Chave PAGTO por conta (decisao do dono de 2026-11-01, opcao A) — fases da janela de chaves
+# ---------------------------------------------------------------------------
+#
+# O DEFEITO. `_pagto_business_key` e' `PAGTO-{t}-{lote}-{prestador}`, sem guia/conta. CONTAS admite
+# UMA instancia por guia/conta (`CONTAS-{t}-{guia}-{conta}`) dividindo o mesmo lote, e PAGTO e' a
+# familia de dedup de start `PERMANENT` (sem comparar payload). A 2a conta do mesmo prestador no
+# mesmo lote batia no claim da 1a, recebia `ALREADY_*` e o handoff registrava sucesso: a conta
+# ficava SEM ordem de pagamento.
+#
+# A CORRECAO (opcao A do dono): a chave fica PRECISA — ganha a identidade da conta quando CONTAS
+# rodou na forma guia/conta — e o dedup continua ESTRITO e PERMANENTE. Como e' mudanca de FORMATO
+# de chave, ela pertence a janela unica de migracao do ADR-0068 (Proposed): por isso entra atras de
+# `MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao `legado` (byte-identico na chave). Com o padrao o defeito
+# PERSISTE ate a janela abrir — mas deixa de ser silencioso: `_conferir_identidade_da_ordem` recusa
+# (incidente auditado) a 2a conta em vez de registrar sucesso.
+#
+# As fases espelham as do ADR-0068 (leitor antes de escritor):
+#   legado         escreve a chave legada; le so' a legada (+ conferencia de identidade).
+#   leitura_dupla  escreve a legada; ANTES, procura a ordem desta conta na chave por conta.
+#   escrita_alvo   escreve a chave por conta; ANTES, procura a ordem desta conta na legada.
+# A forma lote (`L`) nunca muda de chave, em fase nenhuma.
+
+#: Chave do seam (`**seams`) da fase da chave PAGTO por conta (`MAEZO_PAGTO_CHAVE_CONTA_FASE`).
+PAGTO_CHAVE_CONTA_FASE_SEAM = "pagto_chave_conta_fase"
+FASE_CHAVE_LEGADO = "legado"
+FASE_CHAVE_LEITURA_DUPLA = "leitura_dupla"
+FASE_CHAVE_ESCRITA_ALVO = "escrita_alvo"
+#: Dominio FECHADO. Um valor fora dele e' recusado no registro (boot), nunca lido como `legado`.
+FASES_CHAVE_CONTA: frozenset[str] = frozenset(
+    {FASE_CHAVE_LEGADO, FASE_CHAVE_LEITURA_DUPLA, FASE_CHAVE_ESCRITA_ALVO}
+)
+
+#: As variaveis (nao-PHI, `phi_vars.PHI_PROCESS_VARS`) que identificam a conta de uma ordem PAGTO
+#: no historico do motor — lidas POR NOME pela costura de #1167 (DL-0050), nunca "todas".
+_IDENTIDADE_DA_CONTA: tuple[str, ...] = ("numero_guia_tiss", "numero_conta")
+
+_MESMA_CONTA = "mesma"
+_OUTRA_CONTA = "outra"
+_CONTA_INDETERMINADA = "indeterminada"
+
+
+class ContasHandoffPagamentoOrdemDeOutraContaError(ContasHandoffPagamentoInvalidoError):
+    """A ordem PAGTO que ja' existe sob a chave deste handoff NAO e' comprovadamente desta conta.
+
+    Mesmo codigo (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`) e mesmo caminho da familia: `ValueError`
+    -> incidente auditado em `ST_HandoffPagamento*` (ADR-0030 §5), nunca `bpmnError`. Substitui o
+    sucesso silencioso de `pagto_already_existed=True` quando a ordem existente e' de OUTRA conta
+    (ou quando a identidade dela nao pode ser provada): a conta fica visivelmente sem ordem, para
+    um humano, em vez de invisivelmente sem pagamento.
+    """
+
+
+def _validar_fase_chave_conta(fase: str) -> str:
+    if fase not in FASES_CHAVE_CONTA:
+        raise ValueError(
+            f"{PAGTO_CHAVE_CONTA_FASE_SEAM}={fase!r} fora do dominio {sorted(FASES_CHAVE_CONTA)} — "
+            "recusado (nunca lido como `legado`): a fase da chave e' ato do dono na janela"
+        )
+    return fase
+
+
+def _pagto_business_key_por_conta(tenant_id: str, numero_guia_tiss: str, numero_conta: str) -> str:
+    """O compositor UNICO da forma por conta (`maezo.domain.chave_de_negocio`), com a recusa
+    re-tipada para o erro da familia (incidente auditado, mesmo codigo)."""
+    from maezo.domain.chave_de_negocio import BusinessKeyComponentError, pagto_business_key_por_conta
+
+    try:
+        return pagto_business_key_por_conta(
+            tenant_id=tenant_id, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+        )
+    except BusinessKeyComponentError as exc:
+        raise ContasHandoffPagamentoInvalidoError(
+            f"handoff_pagamento: chave PAGTO por conta nao compoe — {exc}"
+        ) from exc
+
+
+def _ordem_pagamento_id_por_conta(tenant_id: str, numero_guia_tiss: str, numero_conta: str) -> str:
+    """O id da ordem acompanha a FORMA da chave: na forma por conta, duas contas do mesmo lote
+    nunca dividem `ordem_pagamento_id` (o que dividiriam com `_ordem_pagamento_id`)."""
+    return f"ORDEM-CONTA-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}"
+
+
+def _comparar_identidade_da_conta(
+    variaveis_da_ordem: Mapping[str, Any], *, numero_guia_tiss: str, numero_conta: str
+) -> str:
+    """`mesma` / `outra` / `indeterminada` — a ordem existente e' desta conta?
+
+    `numero_conta` AUSENTE no historico = ordem semeada antes deste pacote (a semente nao tinha a
+    conta). Ela so' e' `mesma` para um pedido sem conta (forma lote, cuja identidade a chave ja'
+    prova); para um pedido com conta e a mesma guia a identidade NAO e' comprovavel —
+    `indeterminada`, nunca "presumivelmente a mesma".
+    """
+    guia_existente = key_segment(variaveis_da_ordem.get("numero_guia_tiss"))
+    if guia_existente != numero_guia_tiss:
+        return _OUTRA_CONTA
+    if "numero_conta" in variaveis_da_ordem:
+        conta_existente = key_segment(variaveis_da_ordem.get("numero_conta"))
+        return _MESMA_CONTA if conta_existente == numero_conta else _OUTRA_CONTA
+    return _MESMA_CONTA if not numero_conta else _CONTA_INDETERMINADA
+
+
+def _ordem_existente(engine: CibSevenTransport, business_key: str) -> HistoricInstanceRecord | None:
+    """A UNICA ordem PAGTO sob `business_key` no historico do motor (ativa ou encerrada), ou `None`.
+
+    So' `HistoricInstanceNotFoundError` vira `None` (o unico "nao existe" da costura de #1167).
+    Indisponivel / ambiguo / malformado PROPAGAM (`CibSevenError`): "nao sei" nunca e' "nao ha" —
+    numa familia que paga, ler "nao ha" sem prova e' o caminho do pagamento em dobro.
+    """
+    from maezo.tools.mcp_cibseven.transport import (
+        HistoricInstanceNotFoundError,
+        HistoricInstanceResolvingTransport,
+    )
+
+    if not isinstance(engine, HistoricInstanceResolvingTransport):
+        raise RuntimeError(
+            "handoff_pagamento: o seam do motor nao le o historico por chave "
+            "(`resolve_historic_instance`) — sem ele a identidade da ordem PAGTO existente nao pode "
+            "ser conferida; falhando fechado (retry/incidente, nunca sucesso presumido)"
+        )
+    try:
+        return asyncio.run(
+            engine.resolve_historic_instance(
+                PAGTO_PROCESS_KEY, business_key=business_key, names=_IDENTIDADE_DA_CONTA
+            )
+        )
+    except HistoricInstanceNotFoundError:
+        return None
+
+
+def _conferir_identidade_da_ordem(
+    engine: CibSevenTransport,
+    *,
+    business_key: str,
+    instance_id: str,
+    numero_lote_tiss: str,
+    numero_guia_tiss: str,
+    numero_conta: str,
+) -> None:
+    """Depois de um `ALREADY_*` do chokepoint: a ordem existente e' desta conta, ou RECUSA.
+
+    Vale em TODA fase. E' o que torna visivel, ja' no padrao `legado`, a 2a conta que antes saia
+    como sucesso silencioso. Uma ordem que o motor acabou de dizer que existe e que o historico nao
+    encontra tambem recusa: a contradicao nao e' prova de nada.
+    """
+    ordem = _ordem_existente(engine, business_key)
+    veredito = (
+        _CONTA_INDETERMINADA
+        if ordem is None
+        else _comparar_identidade_da_conta(
+            ordem.variables, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+        )
+    )
+    if veredito == _MESMA_CONTA:
+        return
+    _recusar_ordem_de_outra_conta(
+        business_key=business_key,
+        instance_id=instance_id,
+        numero_lote_tiss=numero_lote_tiss,
+        veredito=veredito,
+        historico_encontrado=ordem is not None,
+    )
+
+
+def _recusar_ordem_de_outra_conta(
+    *,
+    business_key: str,
+    instance_id: str,
+    numero_lote_tiss: str,
+    veredito: str,
+    historico_encontrado: bool,
+) -> NoReturn:
+    """Log de ERRO + `ContasHandoffPagamentoOrdemDeOutraContaError` (incidente). Sem guia/conta no
+    log: a forma guia/conta e' dado pessoal (ADR-0068, linha 2 — a confirmar pelo DPO)."""
+    logger.error(
+        "contas_handoff_pagamento_ordem_de_outra_conta",
+        numero_lote_tiss=numero_lote_tiss,
+        pagto_business_key=business_key,
+        pagto_instance_id=instance_id,
+        veredito=veredito,
+        historico_encontrado=historico_encontrado,
+    )
+    raise ContasHandoffPagamentoOrdemDeOutraContaError(
+        f"handoff_pagamento: ja existe ordem SP-OP-PAGTO-001 sob {business_key!r} (instancia "
+        f"{instance_id!r}) e ela NAO e' comprovadamente desta conta (veredito={veredito}) — "
+        "recusado em vez de registrar sucesso: esta conta ficaria SEM ordem de pagamento. Chave "
+        "PAGTO sem a conta (decisao do dono 2026-11-01, opcao A; corrigida na janela de chaves do "
+        "ADR-0068, MAEZO_PAGTO_CHAVE_CONTA_FASE). Resolucao humana: ver "
+        "docs/runbooks/pagto-chave-por-conta-migracao.md"
+    )
+
+
 def handoff_pagamento(
     variables: dict[str, Any],
     *,
     fonte_valor: str = "",
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    fase_chave_conta: str = FASE_CHAVE_LEGADO,
 ) -> dict[str, Any]:
     """Neutral handoff: idempotently START SP-OP-PAGTO-001 for the conta the payer adjudicated.
+
+    **Chave PAGTO por conta (decisao do dono de 2026-11-01, opcao A).** `fase_chave_conta`
+    (`MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao `legado`) decide a chave quando CONTAS rodou na forma
+    guia/conta: `legado`/`leitura_dupla` escrevem `PAGTO-{t}-{lote}-{prestador}`; `escrita_alvo`
+    escreve `PAGTO-{t}-C-{guia}-{conta}` (`chave_de_negocio.pagto_business_key_por_conta`, guia com
+    `-` recusada). A forma lote nunca muda. Em TODA fase, um `ALREADY_*` do chokepoint e' conferido
+    contra a identidade da conta da ordem existente (`_conferir_identidade_da_ordem`): de outra
+    conta, ou nao comprovavel, RECUSA — nunca o sucesso silencioso que deixava a conta sem ordem.
 
     NOT an adverse effect and NOT a release of money — SP-OP-PAGTO-001 owns the release, behind
     its own alcada ladder AND (invariant **I-PAGTO-1**) behind the mandatory human
@@ -1208,12 +1412,36 @@ def handoff_pagamento(
             "aqui diria ao revisor de PAGTO que um humano adjudicou quando nenhum adjudicou. "
             "Recusado"
         )
-    business_key = _pagto_business_key(tenant_id, numero_lote_tiss, prestador_id)
+    fase = _validar_fase_chave_conta(fase_chave_conta)
+    # A identidade da conta, normalizada pelo MESMO `key_segment` dos compositores (M2): o que o
+    # payload carrega e' byte-identico ao que a chave por conta e a conferencia de identidade usam.
+    numero_guia_tiss = key_segment(variables.get("numero_guia_tiss"))
+    numero_conta = key_segment(variables.get("numero_conta"))
+    from maezo.domain.chave_de_negocio import contas_adjudica_por_conta
+
+    chave_legada = _pagto_business_key(tenant_id, numero_lote_tiss, prestador_id)
+    # Forma guia/conta de CONTAS: a MESMA regra do compositor de CONTAS. Fora do `legado` a chave
+    # por conta e' composta (e a guia com `-` recusada) ANTES de qualquer efeito, inclusive na
+    # `leitura_dupla`, que a usa so' para ler — a recusa R-101 vale nas duas gramaticas da janela.
+    chave_por_conta = (
+        _pagto_business_key_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+        if fase != FASE_CHAVE_LEGADO
+        and contas_adjudica_por_conta(numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta)
+        else None
+    )
+    escreve_por_conta = chave_por_conta is not None and fase == FASE_CHAVE_ESCRITA_ALVO
+    business_key = chave_por_conta if escreve_por_conta and chave_por_conta else chave_legada
+    ordem_pagamento_id = (
+        _ordem_pagamento_id_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+        if escreve_por_conta
+        else _ordem_pagamento_id(tenant_id, numero_lote_tiss, prestador_id)
+    )
     payload: dict[str, Any] = {
         "tenant_id": tenant_id,
-        "ordem_pagamento_id": _ordem_pagamento_id(tenant_id, numero_lote_tiss, prestador_id),
+        "ordem_pagamento_id": ordem_pagamento_id,
         "numero_lote_tiss": numero_lote_tiss,
-        "numero_guia_tiss": str(variables.get("numero_guia_tiss", "")),
+        "numero_guia_tiss": numero_guia_tiss,
+        "numero_conta": numero_conta,
         "prestador_id": prestador_id,
         "tipo_pagamento": TIPO_PAGAMENTO_PRESTADOR_REDE,
         "valor_pagamento_cents": _to_cents(valor),
@@ -1249,6 +1477,52 @@ def handoff_pagamento(
         model_id=None,
         prompt_version=None,
     )
+    # LEITURA DUPLA da janela (ADR-0068 §3): antes de escrever numa forma, procura a ordem DESTA
+    # conta na outra. Achou e e' desta conta -> devolve a existente, sem start (nunca duas ordens
+    # para a mesma conta atravessando a virada). Achou e nao e' comprovadamente desta conta:
+    #   * na chave legada (escrita_alvo) e' o caso que a correcao existe para destravar quando a
+    #     ordem e' PROVADAMENTE de outra conta -> segue para a chave por conta; indeterminada recusa;
+    #   * na chave por conta (leitura_dupla) a chave ja' carrega a conta -> qualquer divergencia
+    #     recusa.
+    outra_forma = chave_legada if escreve_por_conta else chave_por_conta
+    existente = _ordem_existente(engine, outra_forma) if outra_forma is not None else None
+    if outra_forma is not None and existente is not None:
+        veredito = _comparar_identidade_da_conta(
+            existente.variables, numero_guia_tiss=numero_guia_tiss, numero_conta=numero_conta
+        )
+        segue_para_a_chave_por_conta = escreve_por_conta and veredito == _OUTRA_CONTA
+        if veredito != _MESMA_CONTA and not segue_para_a_chave_por_conta:
+            _recusar_ordem_de_outra_conta(
+                business_key=outra_forma,
+                instance_id=existente.instance_id,
+                numero_lote_tiss=numero_lote_tiss,
+                veredito=veredito,
+                historico_encontrado=True,
+            )
+        if veredito == _MESMA_CONTA:
+            logger.info(
+                "contas.handoff_pagamento",
+                numero_lote_tiss=numero_lote_tiss,
+                prestador_id=prestador_id,
+                pagto_business_key=outra_forma,
+                pagto_instance_id=existente.instance_id,
+                pagto_already_existed=True,
+                fase_chave_conta=fase,
+                leitura_dupla=True,
+            )
+            ordem_da_outra_forma = (
+                _ordem_pagamento_id(tenant_id, numero_lote_tiss, prestador_id)
+                if escreve_por_conta
+                else _ordem_pagamento_id_por_conta(tenant_id, numero_guia_tiss, numero_conta)
+            )
+            return _resultado_handoff(
+                payload,
+                ordem_pagamento_id=ordem_da_outra_forma,
+                business_key=outra_forma,
+                instance_id=existente.instance_id,
+                already_existed=True,
+            )
+
     instance = asyncio.run(
         start_process_idempotent(
             engine,
@@ -1259,29 +1533,60 @@ def handoff_pagamento(
             provenance=provenance,
         )
     )
+    # O veredito do PROPRIO chokepoint (F3 MAJOR-2), nunca o `already_existed` do transporte.
+    ja_existia = instance.start_outcome is not StartOutcome.STARTED
+    if ja_existia:
+        # PERMANENT disse "ja existe" — so' e' sucesso se a ordem existente for DESTA conta.
+        _conferir_identidade_da_ordem(
+            engine,
+            business_key=business_key,
+            instance_id=instance.instance_id,
+            numero_lote_tiss=numero_lote_tiss,
+            numero_guia_tiss=numero_guia_tiss,
+            numero_conta=numero_conta,
+        )
     logger.info(
         "contas.handoff_pagamento",
         numero_lote_tiss=numero_lote_tiss,
         prestador_id=prestador_id,
         pagto_business_key=business_key,
         pagto_instance_id=instance.instance_id,
-        pagto_already_existed=instance.already_existed,
+        pagto_already_existed=ja_existia,
+        fase_chave_conta=fase,
     )
+    return _resultado_handoff(
+        payload,
+        ordem_pagamento_id=payload["ordem_pagamento_id"],
+        business_key=business_key,
+        instance_id=instance.instance_id,
+        already_existed=ja_existia,
+    )
+
+
+def _resultado_handoff(
+    payload: Mapping[str, Any],
+    *,
+    ordem_pagamento_id: str,
+    business_key: str,
+    instance_id: str,
+    already_existed: bool,
+) -> dict[str, Any]:
+    """A saida do worker — o MESMO conjunto de chaves em todo caminho (start ou leitura dupla)."""
     return {
         "handoff": PAGTO_PROCESS_KEY,
         "handoff_executado": True,
         "processo_destino": PAGTO_PROCESS_KEY,
-        "ordem_pagamento_id": payload["ordem_pagamento_id"],
-        "numero_lote_tiss": numero_lote_tiss,
-        "prestador_id": prestador_id,
+        "ordem_pagamento_id": ordem_pagamento_id,
+        "numero_lote_tiss": payload["numero_lote_tiss"],
+        "prestador_id": payload["prestador_id"],
         "tipo_pagamento": TIPO_PAGAMENTO_PRESTADOR_REDE,
         "valor_pagamento_cents": payload["valor_pagamento_cents"],
-        "fonte_valor": fonte,
-        "lastro_origem": lastro_origem,
-        "lastro_decisor_id": lastro_decisor_id,
+        "fonte_valor": payload["fonte_valor"],
+        "lastro_origem": payload["lastro_origem"],
+        "lastro_decisor_id": payload["lastro_decisor_id"],
         "pagto_business_key": business_key,
-        "pagto_instance_id": instance.instance_id,
-        "pagto_already_existed": instance.already_existed,
+        "pagto_instance_id": instance_id,
+        "pagto_already_existed": already_existed,
     }
 
 
@@ -1707,12 +2012,14 @@ def handoff_pagamento_entry(
     kafka: KafkaPublisher | None = None,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    fase_chave_conta: str = FASE_CHAVE_LEGADO,
 ) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.contas.handoff_pagamento` -> `handoff_pagamento`.
 
     Threads the fenced-start seams (`engine`/`audit_sink`) — the handoff REALLY starts
     SP-OP-PAGTO-001 through the ADR-0007 chokepoint, and PAGTO is the STRICT dedup family, so the
     chokepoint additionally demands a dedup-reporting sink + history-querying transport.
+    `fase_chave_conta` is the `MAEZO_PAGTO_CHAVE_CONTA_FASE` phase (default `legado`).
     """
     del kafka  # unused — handoff_pagamento starts a process, it does not publish a Kafka event
     return handoff_pagamento(
@@ -1720,6 +2027,7 @@ def handoff_pagamento_entry(
         fonte_valor=str(variables.get("fonte_valor", "")),
         engine=engine,
         audit_sink=audit_sink,
+        fase_chave_conta=fase_chave_conta,
     )
 
 
@@ -1965,6 +2273,7 @@ _CONTAS_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "fonte_valor",
             "instrumento_pagamento",
             "lastro_origem",
+            "numero_conta",
             "numero_guia_tiss",
             "numero_lote_tiss",
             "prestador_id",
@@ -2014,6 +2323,11 @@ def register_contas_workers(
     # emits on its own asyncio.run loop).
     engine: CibSevenTransport | None = seams.get("engine")
     audit_sink: AuditStartSink | None = seams.get("audit_sink")
+    # Decisao do dono 2026-11-01 (opcao A), DARK: fase da chave PAGTO por conta. Validada AQUI, no
+    # boot — um valor fora do dominio derruba o registro, nunca vira `legado` em silencio.
+    fase_chave_conta = _validar_fase_chave_conta(
+        str(seams.get(PAGTO_CHAVE_CONTA_FASE_SEAM) or FASE_CHAVE_LEGADO)
+    )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
@@ -2077,7 +2391,13 @@ def register_contas_workers(
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.handoff_pagamento",
-            functools.partial(handoff_pagamento_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
+            functools.partial(
+                handoff_pagamento_entry,
+                kafka=kafka,
+                engine=engine,
+                audit_sink=audit_sink,
+                fase_chave_conta=fase_chave_conta,
+            ),
         ),
         variables=_CONTAS_FETCH_SCOPES["operadora.contas.handoff_pagamento"],
     )

@@ -420,12 +420,18 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         inad_chave_exige_contrato: bool = False,
         pagto_comite_colegiado: bool = False,
         contas_sla_risk_entrega: bool = False,
+        pagto_chave_conta_fase: str = "legado",
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
         pagto_resolve_lastro: bool = False,
+        pagto_detect_duplicidade: bool = False,
+        pagto_obrigacao_ledger: Any = None,
     ) -> None:
+        captured["pagto_chave_conta_fase"] = pagto_chave_conta_fase
         captured["pagto_resolve_lastro"] = pagto_resolve_lastro
+        captured["pagto_detect_duplicidade"] = pagto_detect_duplicidade
+        captured["pagto_obrigacao_ledger"] = pagto_obrigacao_ledger
         captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
         captured["pagto_comite_colegiado"] = pagto_comite_colegiado
         captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
@@ -488,6 +494,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
         assert settings.contas_sla_risk_entrega is False
         assert captured["contas_sla_risk_entrega"] is False
+        # Decisao do dono 2026-11-01 (opcao A): a chave PAGTO por conta ships dark (`legado`).
+        assert settings.pagto_chave_conta_fase == "legado"
+        assert captured["pagto_chave_conta_fase"] == "legado"
         # R-044 / F-062: the legal-hold predicate ships dark (MAEZO_LGPD_LEGAL_HOLD_PREDICATE).
         assert settings.lgpd_legal_hold_predicate is False
         assert captured["lgpd_legal_hold_predicate"] is False
@@ -498,6 +507,11 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # PAGTO PR-D: os fatos do lastro conferidos no historico ship dark (MAEZO_PAGTO_RESOLVE_LASTRO).
         assert settings.pagto_resolve_lastro is False
         assert captured["pagto_resolve_lastro"] is False
+        # PAGTO PR-E: o detector de duplicidade ship dark (MAEZO_PAGTO_DETECT_DUPLICIDADE) e a razao
+        # nem e' montada com a flag desligada.
+        assert settings.pagto_detect_duplicidade is False
+        assert captured["pagto_detect_duplicidade"] is False
+        assert captured["pagto_obrigacao_ledger"] is None
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
@@ -1312,3 +1326,78 @@ async def test_bring_up_runs_the_l1_poller_on_the_engine_transport_when_turned_o
         assert built.get("ran") is True
     finally:
         await _teardown(state)
+
+
+def test_pagto_chave_conta_fase_setting_alias_dominio_e_default_legado(monkeypatch: Any) -> None:
+    """Decisao do dono 2026-11-01 (opcao A) fiacao (a): alias `MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao
+    `legado` (dark), dominio FECHADO — um valor desconhecido derruba a configuracao no boot."""
+    from pydantic import ValidationError
+
+    monkeypatch.delenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", raising=False)
+    assert WorkerRuntimeSettings().pagto_chave_conta_fase == "legado"
+    assert (
+        WorkerRuntimeSettings.model_fields["pagto_chave_conta_fase"].alias == "MAEZO_PAGTO_CHAVE_CONTA_FASE"
+    )
+    for fase in ("leitura_dupla", "escrita_alvo"):
+        monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", fase)
+        assert WorkerRuntimeSettings().pagto_chave_conta_fase == fase
+    monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", "so_alvo")
+    with pytest.raises(ValidationError):
+        WorkerRuntimeSettings()
+
+
+async def test_bring_up_threads_pagto_chave_conta_fase_from_env(monkeypatch: Any) -> None:
+    """Fiacao (b): a fase configurada chega ao `register_default_workers` pela raiz de composicao."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", "escrita_alvo")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["pagto_chave_conta_fase"] == "escrita_alvo"
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+@pytest.mark.parametrize(
+    ("fase", "repassa"),
+    [("legado", False), ("leitura_dupla", True), ("escrita_alvo", True)],
+)
+def test_register_default_workers_repassa_a_fase_da_chave_pagto_ao_contas(
+    monkeypatch: Any, fase: str, repassa: bool
+) -> None:
+    """Fiacao (c): `register_default_workers` entrega a fase ao `**seams` de TODO bootstrap (o de
+    CONTAS a usa); o padrao `legado` nao e' repassado (byte-identico ao bootstrap de hoje)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_all(harness: Any, **seams: Any) -> None:
+        captured.update(seams)
+
+    monkeypatch.setattr(svc, "register_all_workers", _spy_all)
+    monkeypatch.setattr(svc, "assert_single_owner", lambda harness: None)
+    svc.register_default_workers(object(), pagto_chave_conta_fase=fase)  # type: ignore[arg-type]
+
+    if repassa:
+        assert captured["pagto_chave_conta_fase"] == fase
+    else:
+        assert "pagto_chave_conta_fase" not in captured

@@ -963,3 +963,21 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: razao_obrigacoes_pagamento
+    tabela: pagto_obrigacao_ledger
+    migracao: "0034_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)"
+    identificacao: "tenant + chave_obrigacao (`OBRIG-{origem}-{sha256}` sobre tenant/origem/componentes da obrigacao) + ordem_pagamento_id + evento; a linha guarda so' o que uma ordem de PAGTO ja carrega como Zona Geral (variaveis de entrada do SP-OP-PAGTO-001): id da ordem, `prestador_id`, lote TISS, `competencia` (YYYY-MM), o valor em centavos, os enums fechados de origem/evento e o id no motor da instancia de origem resolvida pelo PR-D. Numeros de guia/glosa so' entram DENTRO do digest da chave. Beneficiario nao e' titular aqui: sem CPF, nome, dado de saude, texto livre ou `beneficiario_pseudo_id`. PERGUNTA ABERTA AO DPO (nao decidida aqui, a mesma da 0032): prestador pessoa fisica e' ele mesmo titular (LGPD art. 5 V) e `prestador_id` pode identifica-lo; a tabela e' DARK atras de MAEZO_PAGTO_DETECT_DUPLICIDADE e nasce vazia"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 46
+    tensao: null
+    notas: >-
+      Pacote PAGTO PR-E (analise PAGTO §4 e §8 D6(A), aceita pelo dono: "razao append-only de
+      pagamentos"): razao append-only (triggers recusam UPDATE/DELETE/TRUNCATE), idempotente por
+      (ordem, evento), escrita so' pelo detector de duplicidade na validacao (REGISTRADA) e pelo
+      envoltorio dos workers de liberacao depois do guard (LIBERADA), ambos atras da bandeira
+      MAEZO_PAGTO_DETECT_DUPLICIDADE (desligada). Sem dado de beneficiario. A retencao desta razao e'
+      decisao do DPO (prova de pagamento de longa vida vs. LGPD do prestador PF). Segue marcada PENDENTE
+      porque este artefato e' o DRAFT do DPO e so' a ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao do contrato com o prestador e controles internos de pagamento (Lei 9.656/1998 art. 17; RN 503/2022; RN 518/2022), sem dado de beneficiario na relacao e sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — prazo passa a existir no ato de habilitacao do dono, com revisao do DPO"

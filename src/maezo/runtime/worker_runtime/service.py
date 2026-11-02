@@ -72,6 +72,7 @@ from maezo.platform.observability import (
     bootstrap_observability,
     get_metrics_collector,
 )
+from maezo.platform.pagto_obrigacao.ledger import PostgresRazaoObrigacoesPagamento, RazaoObrigacoesPagamento
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
 from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -305,10 +306,13 @@ def register_default_workers(
     inad_chave_exige_contrato: bool = False,
     pagto_comite_colegiado: bool = False,
     contas_sla_risk_entrega: bool = False,
+    pagto_chave_conta_fase: str = "legado",
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
     pagto_resolve_lastro: bool = False,
+    pagto_detect_duplicidade: bool = False,
+    pagto_obrigacao_ledger: RazaoObrigacoesPagamento | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -412,6 +416,8 @@ def register_default_workers(
         **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
         **({"contas_sla_risk_entrega": True} if contas_sla_risk_entrega else {}),
+        # Decisao do dono 2026-11-01 (opcao A): fase da chave PAGTO por conta (dark: `legado`).
+        **({"pagto_chave_conta_fase": pagto_chave_conta_fase} if pagto_chave_conta_fase != "legado" else {}),
         # R-044 / F-062: predicado de legal-hold antes da eliminacao LGPD (dark; see settings).
         **({"lgpd_legal_hold_predicate": True} if lgpd_legal_hold_predicate is True else {}),
         # R-064: vedacao RN 424 art. 3 I da junta medica em SP-OP-AUTH-001 (dark; see settings).
@@ -420,6 +426,13 @@ def register_default_workers(
         auth_prazo_dias_uteis=auth_prazo_dias_uteis,
         # PAGTO PR-D: fatos do lastro conferidos no historico do motor (dark; see settings).
         **({"pagto_resolve_lastro": True} if pagto_resolve_lastro is True else {}),
+        # PAGTO PR-E: detector de duplicidade + razao append-only (dark; see settings). A razao so'
+        # viaja junto com a flag ligada — desligada, nenhum worker recebe a costura.
+        **(
+            {"pagto_detect_duplicidade": True, "pagto_obrigacao_ledger": pagto_obrigacao_ledger}
+            if pagto_detect_duplicidade is True
+            else {}
+        ),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1151,6 +1164,15 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
                 # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
                 pagto_resolve_lastro=settings.pagto_resolve_lastro,
+                # PAGTO PR-E (analise PAGTO §4), DARK: detector de duplicidade so' quando ligada; a
+                # razao (migracao 0034) so' e' montada com a flag E DATABASE_URL — sem ela o
+                # detector emite INDETERMINADA (falha fechada), nunca NENHUMA.
+                pagto_detect_duplicidade=settings.pagto_detect_duplicidade,
+                pagto_obrigacao_ledger=(
+                    PostgresRazaoObrigacoesPagamento(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.pagto_detect_duplicidade and settings.database_url
+                    else None
+                ),
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url
@@ -1165,6 +1187,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
                 pagto_comite_colegiado=settings.pagto_comite_colegiado,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
+                pagto_chave_conta_fase=settings.pagto_chave_conta_fase,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)

@@ -612,10 +612,12 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # MPTT P3 (0032) adds `prestador_status_ledger`, also NOT covered (sem coluna de titular de
     # beneficiario; ledger DARK do status legal do prestador — pergunta do prestador PF aberta ao DPO).
     # DL-0162 adds `reembolso_coleta` (0033), also NOT covered (sem probe).
-    assert len(covered | uncovered) == 45  # 43 + o ledger (0032) + a coleta do reembolso (0033)
-    assert len(uncovered) == 34  # 32 + o ledger + a coleta do reembolso (ambos sem probe)
-    assert len((covered | uncovered) - journal) == 39  # +0032 (MPTT P3) +0033 (DL-0162)
-    assert len(uncovered - journal) == 28  # +0032 (MPTT P3) +0033 (DL-0162)
+    # PAGTO PR-E (0034) adds `pagto_obrigacao_ledger`, also NOT covered (sem coluna de titular de
+    # beneficiario; razao DARK das obrigacoes de pagamento — mesma pergunta do prestador PF ao DPO).
+    assert len(covered | uncovered) == 46  # 43 + o ledger (0032) + a coleta (0033) + a razao (0034)
+    assert len(uncovered) == 35  # 32 + o ledger + a coleta + a razao (todos sem probe)
+    assert len((covered | uncovered) - journal) == 40  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E)
+    assert len(uncovered - journal) == 29  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E)
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

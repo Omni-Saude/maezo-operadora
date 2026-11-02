@@ -199,6 +199,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDISPONIVEL`). DARK by default
     # (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
     pagto_resolve_lastro: bool = Field(default=False, alias="MAEZO_PAGTO_RESOLVE_LASTRO")
+    # Pacote PAGTO PR-E (analise PAGTO §4 niveis 1-3; §8 D6(A) "razao append-only de pagamentos"):
+    # `validate_payment_data` passa a conferir a ordem contra a razao `pagto_obrigacao_ledger`
+    # (migracao 0034; exige DATABASE_URL) e acrescenta o FATO `duplicidade_status` + evidencia,
+    # classificado pela DMN `pagto_duplicidade` no motor; os dois workers de liberacao passam a
+    # gravar a `LIBERADA` DEPOIS do guard. Nao muda rota: `duplicidade_suspeita` segue como antes e a
+    # DMN que vai ler o fato (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDETERMINADA`).
+    # O nivel 2 usa os fatos do PR-D (`MAEZO_PAGTO_RESOLVE_LASTRO`); sem eles o status e'
+    # `INDETERMINADA`. DARK by default (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
+    pagto_detect_duplicidade: bool = Field(default=False, alias="MAEZO_PAGTO_DETECT_DUPLICIDADE")
 
     # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
     # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de
@@ -216,6 +225,18 @@ class WorkerRuntimeSettings(BaseSettings):
     # O bridge ainda NAO roteia esse `type` a SP-OP-ESCALATION-001 (nova origem = decisao do dono);
     # ate la a mensagem e contada/avisada como `unrecognised_shape`. Ligar e' ato humano (ROLL).
     contas_sla_risk_entrega: bool = Field(default=False, alias="MAEZO_CONTAS_SLA_RISK_ENTREGA")
+    # Decisao do dono de 2026-11-01 (opcao A, "conta na chave de pagamento"; bug CONTAS->PAGTO de
+    # pagamento perdido). Fase da chave PAGTO cunhada por `operadora.contas.handoff_pagamento` quando
+    # CONTAS adjudicou por guia/conta: `legado` (padrao) = `PAGTO-{t}-{lote}-{prestador}`, byte-
+    # identico na chave — o defeito PERSISTE, mas a 2a conta do lote vira incidente auditado em vez
+    # de sucesso silencioso; `leitura_dupla` = escreve a legada e le antes a por conta;
+    # `escrita_alvo` = escreve `PAGTO-{t}-C-{guia}-{conta}` e le antes a legada. Mudanca de FORMATO
+    # de chave: pertence a janela unica do ADR-0068 (Proposed). Virar a fase e' ato do dono (ROLL),
+    # na ordem leitor-antes-de-escritor (todas as replicas em `leitura_dupla` antes de qualquer
+    # `escrita_alvo`); nunca de agente. Plano: docs/runbooks/pagto-chave-por-conta-migracao.md.
+    pagto_chave_conta_fase: Literal["legado", "leitura_dupla", "escrita_alvo"] = Field(
+        default="legado", alias="MAEZO_PAGTO_CHAVE_CONTA_FASE"
+    )
     # R-044 (F-062; ADR-0020 item 6; posicao do dono na issue #1081, R-131/DEC-12 -> R-030).
     # Ligada, a eliminacao aprovada em `operadora.lgpd.execute_request` consulta o registro de
     # legal-hold (`maezo.platform.lifecycle.legal_hold`, YAML em MAEZO_LEGAL_HOLD_REGISTRY_PATH)

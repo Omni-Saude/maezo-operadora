@@ -136,8 +136,10 @@ class TestCollectArtifacts:
         # 66 -> 65: DL-0161 (reembolso v2) -reembolso_calculo -reembolso_coverage +reembolso_prazo.
         # 65 -> 67: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5 — scorecard e tier de
         # confianca do prestador, DRAFT e nao ligados; P6 liga). Publicados pelo deploy como os demais.
-        # 67 -> 68: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
-        assert len(dmn) == 68  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        # 67 -> 68: `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de duplicidade, so' pela
+        # costura dmn= do detector, dark atras de `MAEZO_PAGTO_DETECT_DUPLICIDADE`; W DRAFT).
+        # 68 -> 69: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
+        assert len(dmn) == 69  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

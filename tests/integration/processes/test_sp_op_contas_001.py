@@ -522,7 +522,7 @@ async def _contas_probe_ctx(
     audit_sink: Any,
     audit_tenant: str,
     audit_pg: tuple[str, str],
-    **flags: bool,
+    **flags: bool | str,
 ) -> AsyncIterator[ContasEngineProbe]:
     """Corpo do `contas_probe`; `flags` sao as bandeiras escuras repassadas ao bootstrap REAL
     (`register_contas_workers(**seams)`), ex. `contas_sla_risk_entrega=True` (R-107)."""
@@ -590,6 +590,18 @@ async def contas_probe_entrega(
     e publicado no canal interno `operadora.notifications.internal`."""
     async with _contas_probe_ctx(
         engine, audit_sink, audit_tenant, audit_pg, contas_sla_risk_entrega=True
+    ) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def contas_probe_chave_por_conta(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe com `MAEZO_PAGTO_CHAVE_CONTA_FASE=escrita_alvo` (decisao do dono 2026-11-01, opcao A):
+    o handoff escreve a chave PAGTO por conta `PAGTO-{t}-C-{guia}-{conta}` na forma guia/conta."""
+    async with _contas_probe_ctx(
+        engine, audit_sink, audit_tenant, audit_pg, pagto_chave_conta_fase="escrita_alvo"
     ) as probe:
         yield probe
 
@@ -720,8 +732,10 @@ async def start_contas(engine: EngineRest, deploy_artifacts: str) -> Callable[..
             "documentacao_anexa": True,
             "indicio_fraude_sinalizado": False,
         }
+        # Forma guia/conta (chave PAGTO por conta, decisao do dono 2026-11-01): o teste pode dar a
+        # instancia a chave contratual `CONTAS-amh-{guia}-{conta}`; o padrao segue a forma lote.
+        business_key = str(overrides.pop("business_key", f"CONTAS-amh-{lote}"))
         variables.update(overrides)
-        business_key = f"CONTAS-amh-{lote}"
         inst = await engine.start_by_key(_PROCESS_KEY, business_key, variables)
         # Proveniencia da definicao que ESTA instancia carrega (nao a latest do momento): imune a
         # um deploy alheio que chegue depois do start, e o unico ponto onde a versao executada e
@@ -1990,3 +2004,136 @@ async def test_business_key_uma_instancia_por_lote(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# Chave PAGTO por conta — pagamento perdido da 2a conta do mesmo lote (decisao do dono 2026-11-01)
+# ===========================================================================
+
+
+def _conta_unica() -> tuple[str, str]:
+    """Guia SEM `-` (decisao do dono R-101: a chave por conta a recusa) e conta unicas por execucao:
+    a reivindicacao PERMANENT de PAGTO e' duravel, e uma chave repetida entre execucoes provaria o
+    dedup de OUTRA execucao, nao o desta."""
+    sufixo = uuid.uuid4().hex[:10].upper()
+    return f"GUIA{sufixo}", f"CONTA{sufixo}"
+
+
+async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas_ordens(
+    engine: EngineRest,
+    contas_probe_chave_por_conta: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """A REGRESSAO do defeito, ponta a ponta no motor: duas instancias CONTAS na forma guia/conta,
+    mesmo prestador, MESMO lote, adjudicadas pela perna automatica -> DUAS instancias de
+    SP-OP-PAGTO-001, uma por conta, e nenhuma na chave lote."""
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-CHAVE-CONTA")
+    guia, conta_1 = _conta_unica()
+    conta_2 = f"{conta_1}B"
+
+    inst_1 = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=conta_1,
+        business_key=f"CONTAS-amh-{guia}-{conta_1}",
+        has_glosas=False,
+    )
+    inst_2 = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=conta_2,
+        business_key=f"CONTAS-amh-{guia}-{conta_2}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+
+    for inst in (inst_1, inst_2):
+        ended = await _await_end(engine, inst["id"])
+        assert _END_APROVADA_INTEGRAL in ended, f"as duas contas fecham a perna automatica. ended={ended}"
+        assert not await engine.incidents(inst["id"]), "nenhuma das duas contas pode virar incidente"
+
+    ordem_1 = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta_1}")
+    ordem_2 = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta_2}")
+    assert len(ordem_1) == 1, f"a 1a conta tem a SUA ordem; veio {ordem_1}"
+    assert len(ordem_2) == 1, f"a 2a conta tem a SUA ordem (antes ficava sem); veio {ordem_2}"
+    assert ordem_1[0]["id"] != ordem_2[0]["id"]
+    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"), (
+        "na fase escrita_alvo nenhuma ordem da forma guia/conta nasce na chave lote"
+    )
+
+
+async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_ordem_so(
+    engine: EngineRest,
+    contas_probe_chave_por_conta: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """Dedup ESTRITO preservado: a MESMA conta adjudicada duas vezes (inclusive reapresentada noutro
+    lote) converge numa ordem so' — a chave por conta nao inclui o lote, como a de CONTAS."""
+    await _deploy_pagto(engine)
+    guia, conta = _conta_unica()
+
+    primeira = await start_contas(
+        numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-A"),
+        numero_guia_tiss=guia,
+        numero_conta=conta,
+        business_key=f"CONTAS-amh-{guia}-{conta}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+    assert _END_APROVADA_INTEGRAL in await _await_end(engine, primeira["id"])
+
+    segunda = await start_contas(
+        numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-B"),
+        numero_guia_tiss=guia,
+        numero_conta=conta,
+        business_key=f"CONTAS-amh-{guia}-{conta}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+    ended = await _await_end(engine, segunda["id"])
+
+    assert _END_APROVADA_INTEGRAL in ended, f"o reenvio da mesma conta e' sucesso idempotente. ended={ended}"
+    assert not await engine.incidents(segunda["id"])
+    ordens = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta}")
+    assert len(ordens) == 1, f"a mesma conta nunca ganha uma 2a ordem (PERMANENT); veio {ordens}"
+
+
+async def test_legado_segunda_conta_do_mesmo_lote_vira_incidente_em_vez_de_sucesso_silencioso(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """Fase padrao `legado`: a chave NAO muda e o defeito PERSISTE ate a janela do ADR-0068 — mas a
+    2a conta deixa de sair como sucesso: o handoff le no historico do motor que a ordem existente e'
+    de OUTRA conta e abre um incidente que nomeia o motivo. Continua existindo UMA ordem."""
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-LEGADO-CONTA")
+    guia, conta_1 = _conta_unica()
+
+    primeira = await start_contas(
+        numero_lote_tiss=lote, numero_guia_tiss=guia, numero_conta=conta_1, has_glosas=False
+    )
+    await contas_probe.drain()
+    assert _END_APROVADA_INTEGRAL in await _await_end(engine, primeira["id"])
+
+    segunda = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=f"{conta_1}B",
+        business_key=f"CONTAS-amh-{guia}-{conta_1}B",
+        has_glosas=False,
+    )
+    await contas_probe.drain()
+
+    ended = await engine.activity_instances_ended(segunda["id"])
+    assert _END_APROVADA_INTEGRAL not in ended, "a 2a conta NAO pode ser dada por paga sem ordem propria"
+    incidentes = [
+        i for i in await engine.incidents(segunda["id"]) if i.get("activityId") == "ST_HandoffPagamentoAuto"
+    ]
+    assert incidentes, "a recusa tem de ser VISIVEL: incidente em ST_HandoffPagamentoAuto"
+    assert any("comprovadamente desta conta" in (i.get("incidentMessage") or "") for i in incidentes), (
+        f"o incidente nomeia o motivo: {incidentes}"
+    )
+    ordens = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
+    assert len(ordens) == 1, f"PERMANENT intocado: uma ordem so' (a da 1a conta); veio {ordens}"

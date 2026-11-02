@@ -12,7 +12,12 @@ import pytest
 import structlog
 
 from maezo.agents.andre.keys import key_segment
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
+from maezo.tools.mcp_cibseven.transport import (
+    FakeCibSevenTransport,
+    HistoricInstanceRecord,
+    ProcessInstance,
+    start_dedup_key,
+)
 from maezo.tools.workers.contas import (
     COMUNICACAO_TIPOS,
     FRAUDE_PROCESS_KEY,
@@ -1153,7 +1158,12 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
     """A PAGTO-001 already active for this lote is returned unchanged — never a second order.
 
     This is what makes a re-delivered handoff (or a second decision on the same lote after a
-    `Msg_ContasLinhasAtualizadas` round-trip) converge instead of paying twice."""
+    `Msg_ContasLinhasAtualizadas` round-trip) converge instead of paying twice.
+
+    Decisao do dono 2026-11-01 (opcao A): "ja existe" so' e' sucesso quando a ordem existente e'
+    DESTA conta — conferido no HISTORICO do motor (`resolve_historic_instance`). Por isso a ordem
+    pre-existente e' semeada tambem no historico, com a identidade (guia/conta) desta conta; sem
+    ela o handoff recusa (`test_contas_pagto_chave_por_conta.py`)."""
     engine = FakeCibSevenTransport()
     engine.seed_instance(
         ProcessInstance(
@@ -1162,6 +1172,16 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
             business_key=_PAGTO_KEY,
             state="ACTIVE",
             already_existed=True,
+        )
+    )
+    engine.seed_historic_instance_record(
+        HistoricInstanceRecord(
+            instance_id="pre-existing-pagto",
+            business_key=_PAGTO_KEY,
+            process_key=PAGTO_PROCESS_KEY,
+            state="ACTIVE",
+            end_activity_id=None,
+            variables={"numero_guia_tiss": "GUIA-7", "numero_conta": ""},
         )
     )
     result = handoff_pagamento(

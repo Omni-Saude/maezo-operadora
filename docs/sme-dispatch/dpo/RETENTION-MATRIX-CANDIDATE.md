@@ -351,6 +351,18 @@ escopo_b:
         sem ponte DSR. PERGUNTA ABERTA (nao decidida aqui): prestador pessoa fisica e' titular (LGPD
         art. 5 V) e prestador_id pode identifica-lo; retencao a ratificar (o historico do motor expira
         em 1825 dias; a projecao e' de longa vida por desenho)
+    - camada: razao_obrigacoes_pagamento
+      tabelas: [pagto_obrigacao_ledger]
+      motivo: >-
+        fora do escopo B; 0034 (razao append-only das obrigacoes de pagamento, pacote PAGTO PR-E,
+        analise PAGTO §4/§8 D6(A) aceita pelo dono) guarda so' o que uma ordem de PAGTO ja carrega como
+        Zona Geral — id da ordem, prestador_id, lote TISS, competencia, valor em centavos, enums fechados
+        de origem/evento, id da instancia de origem no motor e a chave da obrigacao (digest; guia/glosa
+        so' dentro dele); beneficiario nao e' titular aqui — nenhum CPF, nome, dado de saude, texto livre
+        ou beneficiario_pseudo_id. Append-only por trigger, DARK atras de MAEZO_PAGTO_DETECT_DUPLICIDADE
+        (tabela vazia por padrao); sem coluna de titular de beneficiario e sem ponte DSR. PERGUNTA ABERTA
+        (a mesma da 0032, nao decidida aqui): prestador pessoa fisica e' titular (LGPD art. 5 V) e
+        prestador_id pode identifica-lo; retencao a ratificar (prova de pagamento de longa vida)
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

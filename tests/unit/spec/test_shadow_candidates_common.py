@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 68
+    assert len(dmns) == 69
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -240,7 +240,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     # sao nomeados aqui para o censo nao mudar calado.
     assert "reembolso_prazo.dmn" in dmns
     assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
-    # R-076 (#1149, decisao do dono de 2026-11-01): 67 -> 68 com `reembolso_auto_approval.dmn`, a faixa B
+    # R-076 (#1149, decisao do dono de 2026-11-01): 68 -> 69 com `reembolso_auto_approval.dmn` (somado ao `pagto_duplicidade.dmn` do #1179), a faixa B
     # do R-070 DORMENTE sobre a v2 (teto 0 + R-058); nomeada aqui para o censo nao mudar calado.
     assert "reembolso_auto_approval.dmn" in dmns
     assert "auth_junta_admissibility.dmn" in dmns, (
@@ -255,6 +255,11 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
             "prestador, DRAFT e nao ligados ate o P6) — se ele nao esta mais ai, quem subiu o numero "
             "foi outra coisa, e essa outra coisa precisa se nomear aqui"
         )
+    assert "pagto_duplicidade.dmn" in dmns, (
+        "o censo subiu para 68 por causa de `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de "
+        "duplicidade da ordem, avaliada so' pela costura dmn= do detector dark; W DRAFT) — se ele nao "
+        "esta mais ai, quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
     bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
     assert len(bpmn_names) == 17
     assert "SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn" in bpmn_names, (

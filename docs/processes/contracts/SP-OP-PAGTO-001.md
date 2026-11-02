@@ -61,6 +61,30 @@ pagamento; reenvio da mesma ordem retorna a instancia ativa. `mcp-cibseven.start
 consultar a business key antes de iniciar (start idempotente — **evita liberacao duplicada de
 pagamento**, risco financeiro direto).
 
+**Forma por conta do handoff CONTAS (decisao do dono de 2026-11-01, opcao A — "conta na chave de
+pagamento").** Quando CONTAS-001 adjudicou na forma guia/conta (`numero_guia_tiss` E `numero_conta`
+presentes — a MESMA regra de `chave_de_negocio.contas_adjudica_por_conta`), a forma lote acima nao
+distingue duas contas do mesmo prestador no mesmo lote: com a postura `PERMANENT`, a segunda conta
+batia na ordem da primeira e ficava sem pagamento. A chave precisa e'
+`PAGTO-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}` (compositor unico
+`maezo.domain.chave_de_negocio.pagto_business_key_por_conta`; etiqueta `C`; `numero_guia_tiss` com
+`-` RECUSADO, decisao do dono R-101), e o `ordem_pagamento_id` acompanha a forma
+(`ORDEM-CONTA-{tenant_id}-C-{guia}-{conta}`). Mudanca de FORMATO de chave: so' vale dentro da janela
+unica de migracao do ADR-0068, pela fase `MAEZO_PAGTO_CHAVE_CONTA_FASE` do worker-daemon:
+
+| Fase | Escreve | Le antes (leitura dupla) |
+|---|---|---|
+| `legado` (padrao) | `PAGTO-{t}-{lote}-{prestador}` | — |
+| `leitura_dupla` | `PAGTO-{t}-{lote}-{prestador}` | a forma por conta desta conta |
+| `escrita_alvo` | `PAGTO-{t}-C-{guia}-{conta}` | a forma lote; ordem de OUTRA conta comprovada destrava, identidade indeterminada recusa |
+
+A forma lote nunca muda de chave. **Com o padrao `legado` o defeito persiste ate a janela**, mas nao
+em silencio: em toda fase, um `ALREADY_*` do start idempotente so' e' sucesso quando a ordem existente
+e' DESTA conta (conferido no historico do motor por `numero_guia_tiss`/`numero_conta`); senao o
+handoff RECUSA (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`, incidente auditado). A postura de dedup do
+start segue `PERMANENT` (DL-0046). Plano de migracao das ordens ja' criadas sob a forma lote:
+`docs/runbooks/pagto-chave-por-conta-migracao.md`.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |
@@ -69,6 +93,7 @@ pagamento**, risco financeiro direto).
 | `ordem_pagamento_id` | string | sim | Id da ordem de pagamento (chave de negocio) |
 | `numero_lote_tiss` | string | nao | Lote TISS de origem (quando o pagamento decorre de conta adjudicada CONTAS-001) |
 | `numero_guia_tiss` | string | nao | Guia TISS de origem. Semeada por `contas.handoff_pagamento` (echo do lote) e por `recurso.handoff_pagamento` (ancora da glosa revertida, junto com `glosa_id`); PAGTO nunca a le/decide a partir dela — e identidade/rastreabilidade (ADR-0040) |
+| `numero_conta` | string | nao | Conta TISS de origem, semeada por `contas.handoff_pagamento` (vazia quando CONTAS rodou na forma lote). Com `numero_guia_tiss`, e' a identidade da conta que a ordem paga: o handoff a le de volta do historico do motor para recusar uma segunda conta que bata numa ordem que nao e' dela (decisao do dono 2026-11-01, opcao A). PAGTO nunca decide a partir dela. Ausente em `recurso.handoff_pagamento` |
 | `prestador_id` | string | sim | Prestador/credor beneficiario do pagamento (pseudonimizado; nunca dados bancarios crus em Zona Geral — ADR-0006) |
 | `tipo_pagamento` | string | sim | `prestador_rede` \| `reembolso_beneficiario` \| `prestador_livre_escolha` \| `glosa_revertida` \| `ajuste_conciliacao` |
 | `valor_pagamento_cents` | integer | sim | Valor a liberar, em **centavos** de BRL (inteiro — **NUNCA `number`**). Dinheiro = inteiro-centavos OU `double`; **`number` e proibido** (ADR-0018 parte 2). Dominio: **inteiro estritamente positivo** (`> 0`); ausente ou `<= 0` (incl. coagido para `0`) NUNCA vira liberacao — roteia para a mesma categoria de admissibilidade `PENDENTE_DADOS`/`pendencia_dados` que a DMN `pagto_admissibility` ja declara para "Dados de pagamento invalidos/incompletos" (`spec/processes/dmn/pagto_admissibility.dmn`), aguardando correcao humana antes de qualquer avaliacao de alcada (§Delta-F1) |
@@ -112,6 +137,29 @@ rota:** `lastro_confirmado` segue como descrito acima, e a DMN que vai ler estes
 | `lastro_origem_terminal` | string | Evidencia: evento final que encerrou a origem (`""` quando nenhum) |
 | `lastro_valor_origem_cents` | integer \| null | Evidencia: valor que a origem registrou (`valor_liberado_brl`/`valor_apresentado_brl`/`valor_deferido_brl`), em centavos; `null` quando nao conferido |
 
+### Fatos da duplicidade conferidos na razao append-only (DARK — `MAEZO_PAGTO_DETECT_DUPLICIDADE`, pacote PAGTO PR-E)
+
+Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem tarefa nova no BPMN)
+acrescenta ao escopo os fatos abaixo, produzidos por `tools/workers/pagto_duplicidade.py` (analise
+PAGTO §4 niveis 1-3; §8 D6(A), aceita pelo dono: razao append-only de pagamentos). A ordem e'
+conferida contra a razao `pagto_obrigacao_ledger` (migracao 0034) e a classificacao e' da DMN
+`pagto_duplicidade`, avaliada no motor pela costura `dmn=` (ADR-0028) — janela W e classes DRAFT
+(financas). **Quem escreve a razao:** o detector grava a linha `REGISTRADA` da ordem nesta validacao
+(na mesma transacao em que le os indicios); os workers `release_low_value_payment` e
+`release_high_value_payment` gravam a `LIBERADA` SO' depois que o guard de sempre devolveu a
+liberacao (recusa do guard = nada gravado; retorno do guard inalterado). **Nao muda rota:**
+`duplicidade_suspeita` segue como descrito acima e a DMN que vai ler `duplicidade_status`
+(`pagto_admissibility` v0.2) e' o pacote PR-F. Desligada (padrao), nada disto e' escrito.
+
+| Variavel | Tipo | Descricao |
+|---|---|---|
+| `duplicidade_status` | string | `NENHUMA` (tres niveis avaliados, sem indicio) \| `SUSPEITA` (nivel 2: ordens contra a mesma instancia de origem somam mais que o valor dela; nivel 3: ordem similar — mesmo prestador + `competencia` + valor, outra obrigacao, outro lote — dentro da janela W) \| `CONFIRMADA` (nivel 1: a mesma obrigacao — CONTAS: lote + prestador + guia + conta (`numero_conta`, semeado pelo handoff de CONTAS a partir do PR #1180; ausente = "-"); RECURSO: `glosa_id`; outra: a propria ordem — ja registrada ou liberada em OUTRA ordem) \| `INDETERMINADA` (razao ou DMN indisponivel, ordem sem identidade, ou nivel nao avaliavel — **nunca** `NENHUMA`) |
+| `duplicidade_motivo_codigo` | string | Codigo fechado do motivo (`SEM_INDICIO`, `DUP_OBRIGACAO_LIBERADA`, `DUP_OBRIGACAO_EM_CURSO`, `DUP_SOMA_EXCEDE_ORIGEM`, `DUP_SIMILAR_NA_JANELA`, `NIVEL_NAO_AVALIADO`, `RAZAO_INDISPONIVEL`, `DMN_INDISPONIVEL`, `DMN_SAIDA_INVALIDA`, `DADOS_INSUFICIENTES`) |
+| `duplicidade_chave_obrigacao` | string | Evidencia: `OBRIG-{origem}-{sha256}` da obrigacao (`""` quando nao montada) |
+| `duplicidade_ordem_conflitante_id` | string | Evidencia: a outra ordem (nivel 1, senao a similar do nivel 3; `""` quando nenhuma) |
+| `duplicidade_nivel1_situacao` / `duplicidade_nivel2_situacao` | string | Evidencia: fatos de nivel enviados a DMN (`SEM_OUTRA_ORDEM`/`REGISTRADA_OUTRA_ORDEM`/`LIBERADA_OUTRA_ORDEM`; `NAO_EXCEDE`/`EXCEDE`; `NAO_AVALIAVEL`) |
+| `duplicidade_nivel3_similar_idade_dias` | integer \| null | Evidencia: idade em dias (relogio do banco) da ordem similar mais recente; `null` quando nenhuma |
+
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
@@ -147,7 +195,10 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
 `prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
 `analista_admissibilidade_id`, `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
-`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN) e o livro `votos_comite` (R-092). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN), o livro `votos_comite`
+(R-092) e a evidencia do detector de duplicidade (`duplicidade_motivo_codigo`,
+`duplicidade_chave_obrigacao`, `duplicidade_ordem_conflitante_id`, `duplicidade_nivel1_situacao`,
+`duplicidade_nivel2_situacao`, `duplicidade_nivel3_similar_idade_dias` — pacote PR-E). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
@@ -355,6 +406,7 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 - **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
   - ordem: `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `O-{ordem_pagamento_id}`.
   - lote+prestador (CONTAS): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `L-{numero_lote_tiss}-{prestador_id}`.
+  - guia+conta (CONTAS forma guia/conta — decisao do dono de 2026-11-01, opcao A; **forma ainda nao listada no ADR-0068, emenda proposta no PR que a introduziu**): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `C-{numero_guia_tiss}-{numero_conta}`.
   - guia+glosa (RECURSO): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}-{glosa_id}`.
 - **Classificação (a confirmar pelo DPO):** forma `G` pessoal; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
 - **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
