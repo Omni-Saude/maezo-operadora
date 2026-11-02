@@ -2546,6 +2546,31 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "dark): SAIDA: codigo fixo do motivo da regra que casou. Sem dado de beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1181",
+        name="votos_minimos_coordenacao",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-30 D3 (dono, #1084): saida integer nova da DMN `pagto_alcada` v0.1.3 (+1 "
+            "dmn_output_name), achatada no outputParameter de BRT_AlcadaRouting (+1 "
+            "bpmn_output_parameter, +1 juel_segment). Contagem de votos do comite exigida para a "
+            "coordenacao completar o quorum apos estouro de SLA — sem identificador, sem dado de "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1181",
+        name="pagto_alcada",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DEC-30 D3: +1 leitura `${pagto_alcada.votos_minimos_coordenacao}` no outputParameter de "
+            "BRT_AlcadaRouting (juel_root). Nome ja no corpus."
+        ),
+    ),
 )
 
 
@@ -2557,7 +2582,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 377
+            expected_clean == 378
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
         # DL-0104 (helena_triage_admissibility): +8
@@ -2569,6 +2594,7 @@ class TestBuckets:
         #   comite_ultimo_voto)
         # PAGTO PR-E (#1179): +6 (nivel1_situacao, nivel2_situacao, nivel3_avaliado,
         #   nivel3_similar_idade_dias, duplicidade_status, duplicidade_motivo_codigo)
+        # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 15,
@@ -2607,7 +2633,8 @@ class TestBuckets:
         # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
         # PAGTO PR-E (#1179): +6 (as 4 entradas e as 2 saidas de `pagto_duplicidade`)
-        assert len(live_sweep.names) == expected_names == 398
+        # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
+        assert len(live_sweep.names) == expected_names == 399
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2628,7 +2655,8 @@ class TestBuckets:
         #   sla_alerta +1, sla_aprovacao +1); nomes: +5
         # MPTT P5 reparo B1 (#1174): +2 (f2_lotes_janela, f2_percentil_glosa_liquida_pares_tenant)
         # PAGTO PR-E (#1179): +6 (uma ocorrencia por nome novo em `pagto_duplicidade.dmn`); nomes: +6
-        assert len(live_sweep.refs) == expected_refs == 1816
+        # DEC-30 D3 (#1181): +4 (votos_minimos_coordenacao +3, pagto_alcada +1); nomes: +1
+        assert len(live_sweep.refs) == expected_refs == 1820
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2783,7 +2811,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (377)" in rendered
+            f"## {CLEAN} (378)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
@@ -2792,6 +2820,7 @@ class TestBuckets:
         # R-047 (#1146): +2 (`meses_vencidos`, `dias_atraso_max`) -1 (`atraso_critico`).
         # MPTT P5 (#1171): +13 nomes CLEAN (entradas/saidas das DMNs do scorecard e do tier).
         # PAGTO PR-E (#1179): +6 nomes CLEAN (entradas/saidas de `pagto_duplicidade`).
+        # DEC-30 D3 (#1181): +1 nome CLEAN (`votos_minimos_coordenacao`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
