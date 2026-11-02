@@ -227,17 +227,21 @@ TEXTO_FALHA_AO_REGISTRAR: Final[str] = (
 )
 
 # Retorno (aviso do processo). Textos FIXOS; o texto escrito pelo analista entra entre aspas, como escrito.
+# Teste do dono (02/11/2026): o aviso de aprovado traz o VALOR (o contrato pede "valor e previsao de
+# pagamento"; a previsao depende do prazo de reembolso, ainda nao definido na repo: so' o aviso de quando
+# for pago) e o de negado diz como pedir revisao pelo caminho que ja' existe (falar com a equipe).
 TEXTO_RETORNO_APROVADO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou. "
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou o valor de {valor}. "
     "O financeiro vai fazer o pagamento e você recebe um aviso quando ele for feito."
 )
 TEXTO_RETORNO_PARCIAL: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou uma parte do valor. "
-    "Mensagem da equipe: “{texto}”. Quando o pagamento for feito, você recebe um aviso."
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou uma parte do valor, "
+    "{valor}. Mensagem da equipe: “{texto}”. Quando o pagamento for feito, você recebe um aviso."
 )
 TEXTO_RETORNO_NEGADO: Final[str] = (
     "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe analisou e não aprovou. "
-    "Mensagem da equipe: “{texto}”."
+    "Mensagem da equipe: “{texto}”. Se quiser pedir a revisão dessa decisão, escreva aqui "
+    '"quero falar com a equipe".'
 )
 TEXTO_RETORNO_INFO: Final[str] = (
     "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe precisa de mais informações. "
@@ -278,7 +282,7 @@ TEXTO_RESPOSTA_ARQUIVO: Final[str] = (
 )
 
 #: Versao dos textos acima (auditoria; sobe a cada mudanca de redacao).
-TEXTOS_REEMBOLSO_VERSAO: Final[str] = "reembolso-v2.1"
+TEXTOS_REEMBOLSO_VERSAO: Final[str] = "reembolso-v2.2"
 
 #: O nome com o ARTIGO certo (teste do dono, 02/11/2026: "terminou de enviar o nota fiscal").
 _NOME_DO_DOCUMENTO: Final[dict[str, str]] = {
@@ -738,16 +742,32 @@ def data_br(iso: object) -> str | None:
     return dia.strftime("%d/%m/%Y")
 
 
+def valor_em_reais(cents: object) -> str | None:
+    """Centavos (int > 0) -> "R$ 1.234,56"; `None` fora disso (quem chama nao inventa valor)."""
+    if isinstance(cents, bool) or not isinstance(cents, int) or cents <= 0:
+        return None
+    reais = f"{cents // 100:,}".replace(",", ".")
+    return f"R$ {reais},{cents % 100:02d}"
+
+
 def texto_do_retorno(
-    resultado: str, *, protocolo: str, texto_da_equipe: str = "", data_pagamento_iso: object = None
+    resultado: str,
+    *,
+    protocolo: str,
+    texto_da_equipe: str = "",
+    data_pagamento_iso: object = None,
+    valor_aprovado_cents: object = None,
 ) -> str:
     """O texto de cada retorno. Levanta `ValueError` quando falta o fato que o texto afirma (protocolo,
-    texto da equipe, data do pagamento): quem chama nao envia nada em vez de inventar."""
+    texto da equipe, data do pagamento, valor aprovado): quem chama nao envia nada em vez de inventar."""
     if not protocolo_valido(protocolo):
         raise ValueError("texto_do_retorno: protocolo fora da forma")
     equipe = texto_da_equipe.strip()
+    valor = valor_em_reais(valor_aprovado_cents)
+    if resultado in (RESULTADO_APROVADO, RESULTADO_PARCIAL) and valor is None:
+        raise ValueError("texto_do_retorno: aprovacao sem valor aprovado valido")
     if resultado == RESULTADO_APROVADO:
-        return TEXTO_RETORNO_APROVADO.format(protocolo=protocolo)
+        return TEXTO_RETORNO_APROVADO.format(protocolo=protocolo, valor=valor)
     if resultado == RESULTADO_PAGO:
         data = data_br(data_pagamento_iso)
         if data is None:
@@ -761,5 +781,5 @@ def texto_do_retorno(
             RESULTADO_NEGADO: TEXTO_RETORNO_NEGADO,
             RESULTADO_INFO_SOLICITADA: TEXTO_RETORNO_INFO,
         }[resultado]
-        return modelo.format(protocolo=protocolo, texto=equipe)
+        return modelo.format(protocolo=protocolo, texto=equipe, valor=valor)
     raise ValueError("texto_do_retorno: resultado fora do contrato")

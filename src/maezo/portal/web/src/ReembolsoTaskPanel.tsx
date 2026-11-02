@@ -141,6 +141,15 @@ export function ReembolsoTaskPanel({
   const precisaValor = decisao === "APROVAR" || decisao === "APROVAR_PARCIAL";
   const adversa = decisao === "NEGAR" || decisao === "APROVAR_PARCIAL";
   const centavos = precisaValor ? lerReais(valor) : null;
+  // Teste do dono (02/11/2026): "Aprovar" paga EXATAMENTE o pedido; para pagar menos, "Aprovar parcial" (com
+  // justificativa, fundamentacao e texto). O servidor confere de novo contra o valor do motor.
+  const pedidoCentavos = contexto?.valor_solicitado_cents ?? null;
+  const menorQue = (a: string, b: string) => (a.length !== b.length ? a.length < b.length : a < b);
+  const valorIncoerente =
+    centavos !== null &&
+    pedidoCentavos !== null &&
+    ((decisao === "APROVAR" && centavos !== pedidoCentavos) ||
+      (decisao === "APROVAR_PARCIAL" && !menorQue(centavos, pedidoCentavos)));
 
   function corpo(): ReembolsoSubmission | null {
     const t = (v: string) => v.trim().slice(0, MAX_TEXTO);
@@ -154,7 +163,7 @@ export function ReembolsoTaskPanel({
         ? { kind: "reembolso_pendencia", decisao_pendencia: decisao as (typeof pendencias)[number] }
         : null;
     }
-    if (!decisao || (precisaValor && centavos === null)) return null;
+    if (!decisao || (precisaValor && (centavos === null || pedidoCentavos === null || valorIncoerente))) return null;
     if (adversa && (!t(justificativa) || !t(fundamentacao) || !t(texto))) return null;
     if (auditor && adversa && (!t(cid10) || !t(parecer))) return null;
     if (decisao === "SOLICITAR_INFO" && !t(info)) return null;
@@ -313,7 +322,12 @@ export function ReembolsoTaskPanel({
                     name={`${id}-decisao`}
                     value={opcao}
                     checked={decisao === opcao}
-                    onChange={() => setDecisao(opcao)}
+                    onChange={() => {
+                      setDecisao(opcao);
+                      if (opcao === "APROVAR" && pedidoCentavos) {
+                        setValor(formatarCentavos(pedidoCentavos).replace(/^R\$\s*/u, ""));
+                      }
+                    }}
                   />
                   {rotulo(opcao)}
                 </label>
@@ -328,9 +342,17 @@ export function ReembolsoTaskPanel({
                 inputMode="decimal"
                 value={valor}
                 onChange={(e) => setValor(e.target.value)}
+                readOnly={decisao === "APROVAR"}
                 disabled={estado.kind === "sending" || estado.kind === "completed"}
               />
             </label>
+          )}
+          {precisaValor && formKey !== "reembolso_pendencia" && (
+            <p>
+              {decisao === "APROVAR"
+                ? "Aprovar paga o valor pedido. Para pagar menos, escolha \"Aprovar parcial\"."
+                : `Informe um valor menor que o pedido (${formatarCentavos(pedidoCentavos)}).`}
+            </p>
           )}
           {adversa && formKey !== "reembolso_pendencia" && (
             <>

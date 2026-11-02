@@ -138,3 +138,40 @@ it("o financeiro registra a data do pagamento", async () => {
     data_pagamento: "2026-10-27",
   });
 });
+
+it("aprovar paga exatamente o valor pedido; para pagar menos, so aprovar parcial", async () => {
+  // Teste do dono (02/11/2026): R$ 200,00 num pedido de R$ 250,00 tinha saido como aprovacao integral.
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+    String(url).endsWith("/completion") ? json(conclusao("APROVAR", "reembolso_decisao")) : json(contexto()),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  render(
+    <ReembolsoTaskPanel
+      taskId="task-1"
+      formKey="reembolso_decisao"
+      csrfToken="csrf"
+      sessionBinding="s"
+      onSessionUnavailable={() => undefined}
+    />,
+  );
+  await screen.findByText("REE-AB12-CD34");
+  await user.click(screen.getByLabelText("Aprovar parcial"));
+  const valor = screen.getByLabelText("Valor aprovado (R$)") as HTMLInputElement;
+  await user.type(valor, "1.200,50");
+  await user.type(screen.getByLabelText("Justificativa (interna)"), "x");
+  await user.type(screen.getByLabelText("Fundamentação contratual (interna)"), "y");
+  await user.type(screen.getByLabelText("Texto que a beneficiária vai receber"), "z");
+  const concluir = screen.getByRole("button", { name: "Concluir" }) as HTMLButtonElement;
+  expect(concluir.disabled).toBe(true); // parcial com o valor inteiro: bloqueado
+  await user.click(screen.getByLabelText("Aprovar"));
+  expect(valor.value).toBe("1.200,50");
+  expect(valor.readOnly).toBe(true);
+  await user.click(concluir);
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Tarefa concluída"));
+  const chamada = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/completion"))!;
+  expect(JSON.parse(String(chamada[1]!.body))).toMatchObject({
+    decisao_reembolso: "APROVAR",
+    valor_reembolso_aprovado_cents: "120050",
+  });
+});
