@@ -1,10 +1,10 @@
 # ADR-0068: Migração das identidades de processo para `maezo-payer-*` com referência opaca — janela única de leitura dupla (DEC-18 b + R-101 + F-058)
 
-**Status:** Proposed — DESENHO para revisão do dono (`/docs/adr/` é CODEOWNERS). Nenhuma mudança de
-código, BPMN, DMN, allowlist, deploy ou chave de engine é autorizada por este documento. A
-implementação acontece depois, numa única janela de migração, com plano, aprovadores e gatekeeper
-próprios, como pedem o ADR-0038 (Opção 2) e o DL-0157. As cinco perguntas abertas no fim são do dono
-(e do DPO na Q1/Q3). Nenhum bloco de aprovação foi preenchido (ADR-0007).
+**Status:** Accepted — decisão do dono DEC-29 (issue #1084), 2026-11-01 (ver "Decisão de aceite" ao
+final; `/docs/adr/` é CODEOWNERS). Nenhuma mudança de código, BPMN, DMN, allowlist, deploy ou chave de
+engine é autorizada por este documento. A implementação acontece depois, numa única janela de migração,
+com plano, aprovadores e gatekeeper próprios, como pedem o ADR-0038 (Opção 2) e o DL-0157. As cinco
+perguntas abertas no fim seguem abertas (dono; DPO na Q1/Q3). Nenhum bloco de aprovação foi preenchido (ADR-0007).
 **Data:** 2026-10-31 · **Área:** Integração / Dados / Privacidade / Fronteira de plataforma
 
 > **Numeração.** Outros pacotes da mesma onda também abriram rascunhos como `0068` em paralelo. A
@@ -592,3 +592,32 @@ contrato continua sendo a regra até a fase `escrita_alvo`.
 ## Supersedes
 
 —. Implementa o ADR-0038, Opção 2 (DL-0157). Não edita o ADR-0037 nem nenhum ADR aceito.
+
+## Decisão de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; histórico preservado.** Acima desta seção só o parágrafo de Status mudou, com o
+> mesmo número de linhas. O Status anterior, vigente de 2026-10-31 até 2026-11-01, era: "Proposed — DESENHO para revisão do dono (`/docs/adr/` é CODEOWNERS). Nenhuma mudança de código, BPMN, DMN, allowlist, deploy ou chave de engine é autorizada por este documento. [...] As cinco perguntas abertas no fim são do dono (e do DPO na Q1/Q3). Nenhum bloco de aprovação foi preenchido (ADR-0007)."
+
+**O ato.** Decisão do dono **DEC-29**, 2026-11-01, issue **#1084**, comentário de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentário: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentário diz que o status passa a
+Accepted por PR que cite o comentário e que o texto do ADR não é reescrito além do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisão.** A DEC-29 não pede revisão independente por ADR (a DEC-27 pedia). Este registro não alega
+revisão desse tipo. O pacote está em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**O que fica aceito.** O desenho deste ADR: gramática alvo `maezo-payer-*`, tabela por processo, janela
+única com leitura e escrita duplas, virada e reversão, lista de arquivos, impacto em testes e emendas de
+contrato, como estão escritos acima.
+
+**O que o aceite NÃO faz.**
+- **Não responde às perguntas abertas.** As cinco perguntas da seção "Perguntas abertas" (Q1 a Q5)
+  continuam como escritas, sem resposta. As recomendações de cada uma continuam sendo recomendações. O
+  comentário da DEC-29 diz isso: ratificar o ADR não as responde. Q1 e Q3 seguem pedindo também o DPO.
+- **Não abre a janela.** Nenhuma chave de engine, process key, business key, allowlist, BPMN, DMN ou
+  deploy muda por este aceite. A janela única continua pedindo plano, aprovadores e gatekeeper próprios.
+- As emendas de contrato marcadas como "PROPOSTA (aguarda janela)" continuam aguardando a janela.
+
+**Numeração.** A nota "Numeração" do topo é de 2026-10-31. Em 2026-11-01 este arquivo está em `main`
+como ADR-0068, e é esse o número aceito.

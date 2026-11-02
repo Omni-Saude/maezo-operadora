@@ -1,8 +1,8 @@
 # ADR-0073: Desfecho de start na trilha de auditoria (tentativa × efeito) — e errata da citação RN 259 do ADR-0005
 
-**Status:** Proposed — redigido por AGENTE por ordem do dono (2026-10-31, pacote W0-F: F-148 opção (b) e errata RN 259);
-**ratificação humana PENDENTE** (CODEOWNERS de `/docs/adr/`). Nenhum código de runtime, BPMN, DMN ou worker muda por
-esta ADR. Nenhuma célula de aprovação é preenchida aqui (ADR-0007).
+**Status:** Accepted — decisão do dono DEC-29 (issue #1084), 2026-11-01; errata RN 259 com ratificação jurídica DEC-28
+(issue #1084), 2026-11-01 (ver "Decisão de aceite" ao final). Redigido por AGENTE por ordem do dono (2026-10-31, pacote
+W0-F). Nenhum código de runtime, BPMN, DMN ou worker muda por esta ADR. Nenhuma célula de aprovação é preenchida (ADR-0007).
 **Data:** 2026-10-31
 **Área:** Auditoria (ADR-0007) | Orquestração (chokepoint de start) | Compliance (ADR-0005)
 **Emenda (não substitui):** ADR-0007 — só a leitura da linha de auditoria de start (Parte A). ADR-0005 — só a citação
@@ -246,3 +246,38 @@ citações listadas em B.5.
 
 —. **Emenda** o ADR-0007 (leitura da linha de start, Parte A) e o ADR-0005 (citação do §Contexto, Parte B), sem editar
 os arquivos deles. Complementa o ADR-0045 (o desfecho de agente `erro_inicio_processo` ganha par na trilha durável).
+
+## Decisão de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; histórico preservado.** Acima desta seção só o parágrafo de Status mudou, com o
+> mesmo número de linhas. O Status anterior, vigente de 2026-10-31 até 2026-11-01, era: "Proposed — redigido por AGENTE por ordem do dono (2026-10-31, pacote W0-F: F-148 opção (b) e errata RN 259); **ratificação humana PENDENTE** (CODEOWNERS de `/docs/adr/`). Nenhum código de runtime, BPMN, DMN ou worker muda por esta ADR. Nenhuma célula de aprovação é preenchida aqui (ADR-0007)."
+
+**O ato.** Decisão do dono **DEC-29**, 2026-11-01, issue **#1084**, comentário de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentário: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentário diz que o status passa a
+Accepted por PR que cite o comentário e que o texto do ADR não é reescrito além do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisão.** A DEC-29 não pede revisão independente por ADR (a DEC-27 pedia). Este registro não alega
+revisão desse tipo. O pacote está em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**DEC-28 — ratificação jurídica da errata da RN 259 (Parte B; folha R-054, linha L9).** No mesmo
+comentário de 2026-11-01 (https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547), o dono aprovou e confirmou
+o sign-off jurídico da errata. Texto do dono, literal: "Legal sign-off on the RN 259 errata (R-054 L9)."
+Por isso, a partir de 2026-11-01:
+- o título "### Decisão (errata aprovada pelo dono em 2026-10-31; ratificação jurídica pendente — R-054
+  L9)" da Parte B lê-se com a ratificação jurídica **registrada pela DEC-28 em 2026-11-01**;
+- a frase das Negativas "a errata depende de ratificação jurídica (R-054 L9)" fica cumprida pela DEC-28.
+  A outra metade da frase continua valendo: a errata convive, até o próximo pacote, com as citações
+  listadas em B.5.
+
+Os dois trechos não foram reescritos no lugar (o comentário da DEC-29 limita a mudança ao bloco de
+aceite). A folha `docs/compliance/legal/R-054-RATIFICACAO-CITACOES-POR-LINHA.md` registra a DEC-28 na
+linha L9. As células de ratificação do jurídico daquela folha ficam em branco: o comentário não traz
+nome, papel ou assinatura de quem assina pelo jurídico, e nenhum agente preenche esses campos.
+
+**O que fica aceito.** A Parte A (o desfecho de start como par tentativa × efeito na trilha de auditoria)
+e a Parte B (a errata da RN 259), como estão escritas acima.
+
+**O que o aceite NÃO faz.** Não muda código de runtime, BPMN, DMN nem worker. Não muda a regra: a
+negativa continua L0 hard (`authorization_denial`). Não edita o ADR-0005 nem o ADR-0007.
