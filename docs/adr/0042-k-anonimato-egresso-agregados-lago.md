@@ -1,8 +1,8 @@
 # ADR-0042: Piso de k-anonimato e allowlist de features no egresso de agregados do lago (ADR-P-003 / AND-02, AND-S2)
 
-**Status:** **Proposed — DRAFT/verify. NADA AQUI ESTA RATIFICADO.** Redigido por AGENTE
-(`adr-drafter`, R1) no programa de remediacao do Agent Fleet Audit; um agente nao ratifica ADR.
-`/docs/adr/` e dono-gated (`.github/CODEOWNERS:61`). · **Data:** 2026-09-04
+**Status:** **Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31; o VALOR do piso e a allowlist
+seguem decisao do dono em aberto** (ver "Decisao de aceite" ao final). Redigido por AGENTE (`adr-drafter`,
+R1). `/docs/adr/` e dono-gated (`.github/CODEOWNERS:61`). · **Data:** 2026-09-04
 · **Area:** Seguranca / Dados / Privacidade (LGPD)
 
 > **Enquadramento.** Este ADR pede ao dono DOIS numeros de politica que o codigo hoje nao tem
@@ -228,3 +228,44 @@ human-review na ADR-0019, e os itens 2-4 tocam diretorios dono-gated.
 
 —. **Implementa** `ADR-0019` §4 (nao emenda, nao supersede). Complementar a `ADR-0006` (duas zonas
 PHI) e a `ADR-0017` (enforcement de rede do egresso).
+
+## Decisao de aceite (DEC-27, 2026-10-31)
+
+> **Registro datado; historico preservado.** Acima desta secao so o paragrafo de Status mudou, com o
+> mesmo numero de linhas. O Status anterior, vigente de 2026-09-04 ate 2026-10-31, era: "Proposed —
+> DRAFT/verify. NADA AQUI ESTA RATIFICADO."
+
+**O ato.** Decisao do dono **DEC-27**, opcao (a), 2026-10-31, issue **#1084**, comentario de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079; achado F-034). Nenhum bloco de assinatura foi preenchido (ADR-0007). O pacote de revisao esta em
+`docs/compliance/human-windows/R-079-dec-adr-proposed.md`.
+
+**O que fica aceito, e o que NAO.** Fica aceita a decisao desta ADR: o k-anonimato do egresso de
+agregados e um parametro de compliance versionado, com piso numerico e allowlist FECHADA de features,
+lido de configuracao, fail-closed, nunca escolhido em codigo. **Este aceite nao escolhe a opcao A, B
+ou C da Parte 1, nao fixa o valor de `k` e nao fixa o conteudo da allowlist.** Os itens 1, 2 e 4 de
+"O que e decisao do DONO" continuam abertos, com a revisao de DPO/juridico/regulatorio que a ADR-0019
+exige. Ate la, o piso efetivo continua 1 (`src/maezo/agents/andre/graph.py:345`).
+
+**Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto contra a arvore e
+nao e autor da ADR. A revisao independente por ADR exigida pela DEC-27 e o gate cego publicado no PR #1137
+(https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
+
+Conforme:
+- Mecanismo do piso: `src/maezo/agents/andre/graph.py:345` (default 1), `:348` (parse fail-closed no
+  build), `:1607` (comparacao contra o piso injetado), `:1522` (valor de metrica tem de ser real finito).
+- O veiculo da politica fica num subdiretorio que ja e CODEOWNED, como a Parte 3 pede:
+  `spec/policies/privacy/population-egress-v1.yaml` (`k_min: null`, `allowed_metrics: null`,
+  `ratificado: false`, item R-117). O carregador recusa enquanto nao houver ato verificado
+  (`src/maezo/platform/privacy/population_policy.py`; uso em `src/maezo/gateway/seams/population.py:46`, `:55`).
+
+Divergencias (follow-ups conhecidos; nenhuma bloqueia o aceite):
+1. "Implementado em `fleet/and02-metrics-egress-gate` (nao mergeado)" esta estale: a perna ja esta em `main`.
+2. O criterio 6 (`grep -rn 'k_anonymity < 1' src/` sem linhas) falha ao pe da letra: ha duas
+   ocorrencias em comentario/docstring (`src/maezo/agents/andre/graph.py:81`, `:338`). O codigo
+   compara contra o piso (`:1607`).
+3. O criterio 4 (default = valor ratificado, nao 1) so pode ser cumprido depois da decisao do valor.
+4. Hoje ha dois mecanismos: o piso de configuracao do Andre (`min_k_anonymity`) e a politica R-117
+   (`k_min`/`allowed_metrics`) no seam de populacao. A Parte 3 descreve um caminho so. Unificar os
+   dois e follow-up.
+5. O item 3 ("onde os parametros moram") esta resolvido na pratica pelo veiculo R-117 em
+   `spec/policies/privacy/`. Falta o dono confirmar.
