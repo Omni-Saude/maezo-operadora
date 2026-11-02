@@ -1,8 +1,8 @@
 # ADR-0071: Desenho real da barreira de efeitos (fábrica de seams + effect_pep) e cerca de zona na construção
 
-**Status:** Proposed — decisão do dono **C1** tomada em 31/10/2026 (R-020 / DEC-11; sub-decisão (i): "Remove FHIR
-access" do Gustavo). Ratificação formal pendente: artefato `docs/compliance/human-windows/R-020-dec-adr0016-22.md`,
-papel DPO. Nenhum agente assina (ADR-0007).
+**Status:** Accepted — decisão do dono DEC-29 (issue #1084), 2026-11-01 (ver "Decisão de aceite" ao final).
+Decisão do dono **C1** tomada em 31/10/2026 (R-020 / DEC-11; sub-decisão (i): "Remove FHIR access" do
+Gustavo). Nenhum agente assina (ADR-0007).
 **Data:** 2026-10-31
 **Área:** Segurança | PHI/LGPD | Runtime de agentes
 **Supersede PARCIALMENTE:** ADR-0016 §"Invariante de pseudonimizacao no ToolRegistry" e a frase sobre o
@@ -177,3 +177,27 @@ PARCIAL:
 - **ADR-0022:** a Decisão 1 (costura `register_tools` em `build_tool_invoker`) e a Decisão 4 (`register_tools`
   "load-bearing"). Continuam valendo as Decisões 2, 3 e 5 (sem Deployments MCP fora do processo, DoD negativo de
   `deployment-mcp-*.yaml`, backends upstream por cliente HTTP).
+
+## Decisão de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; histórico preservado.** Acima desta seção só o parágrafo de Status mudou, com o
+> mesmo número de linhas. O Status anterior, vigente de 2026-10-31 até 2026-11-01, era: "Proposed — decisão do dono **C1** tomada em 31/10/2026 (R-020 / DEC-11; sub-decisão (i): "Remove FHIR access" do Gustavo). Ratificação formal pendente: artefato `docs/compliance/human-windows/R-020-dec-adr0016-22.md`, papel DPO. Nenhum agente assina (ADR-0007)."
+
+**O ato.** Decisão do dono **DEC-29**, 2026-11-01, issue **#1084**, comentário de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentário: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentário diz que o status passa a
+Accepted por PR que cite o comentário e que o texto do ADR não é reescrito além do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisão.** A DEC-29 não pede revisão independente por ADR (a DEC-27 pedia). Este registro não alega
+revisão desse tipo. O pacote está em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**O que fica aceito.** O desenho real da barreira de efeitos e a cerca de zona na construção, como
+estão escritos acima (invariantes I-1 a I-7), e as supersessões parciais da ADR-0016 e da ADR-0022 pelos
+adendos datados que já estão nelas.
+
+**O que o aceite NÃO faz.**
+- **Não registra ato do DPO.** O Status anterior apontava a ratificação formal para um artefato do papel
+  DPO. A DEC-29 é a ratificação do dono. Nenhum ato, ciência ou assinatura do DPO é alegado ou registrado
+  aqui. O artefato citado no Status anterior não está nesta árvore em 2026-11-01.
+- Não edita a ADR-0016 nem a ADR-0022: os adendos de status de 2026-10-31 ficam como estão.

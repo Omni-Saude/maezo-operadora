@@ -137,3 +137,42 @@ A DMN `pagto_alcada` emite `grupo_aprovador` que alimenta
 - **When** job do timer nao-interruptivo `BT_AlertaSlaPagto` executado
 - **Then** `notify_sla_risk` recebeu task; fim `End_RiscoSlaNotificado` (informativo); a UT de
   aprovacao **continua aberta** (nao-interruptivo nao cancela); nenhum terminal adverso.
+
+## Aprovacao colegiada do comite (R-092 / F-081) — DARK (`MAEZO_PAGTO_COMITE_COLEGIADO`)
+
+Quorum = `quorum_comite` da DMN `pagto_alcada` (catch-all `comite-financeiro` = 2, **DRAFT**).
+Suite: `tests/integration/processes/test_sp_op_pagto_001.py` (motor real); fences unitarias em
+`tests/unit/tools/workers/test_pagto_comite_colegiado.py` e
+`tests/unit/spec/test_sp_op_pagto_001_comite_colegiado_fence.py`.
+
+### test_comite_colegiado_dois_membros_distintos_libera
+- **Given** flag ligada; ordem acima do maior tier (catch-all, `quorum_comite=2`)
+- **When** dois membros DISTINTOS de `comite-financeiro` votam `APROVAR` em `UT_AprovacaoComite`
+- **Then** so apos o 2o voto `release_high_value_payment` executa; fim `End_PagamentoLiberadoHumano`;
+  `UT_AprovacaoComite` e `ST_RegistrarVotoComite` executaram 2 vezes; `UT_AprovacaoAlcada` nunca.
+
+### test_comite_mesmo_membro_duas_vezes_nao_libera_sod / test_comite_membro_igual_ao_decisor_do_lastro_nao_libera_sod
+- **Given** comite aberto (flag ligada)
+- **When** o mesmo membro vota duas vezes, ou um membro e o `lastro_decisor_id` da origem
+- **Then** `ERR_PAYMENT_SOD_NOT_HUMAN` (incidente); a instancia **NAO** atinge
+  `End_PagamentoLiberadoHumano`.
+
+### test_comite_voto_omitido_nunca_herda_o_aprovar_do_membro_anterior
+- **Given** 1o membro votou `APROVAR`
+- **When** o 2o membro conclui sem `decisao_pagamento`
+- **Then** o voto dele e vazio (campos LOCAIS a cada instancia); o comite encerra pelo caminho
+  conservador; `release_high_value_payment` nunca executa.
+
+### test_comite_voto_cancelar_encerra_no_cancelado
+- **When** o 1o membro vota `CANCELAR` + `justificativa_recusa`
+- **Then** o comite encerra sem pedir o 2o voto; fim `End_PagamentoCancelado`
+  (`pagto.completed` desfecho=`cancelado`).
+
+### test_comite_flag_desligada_mantem_aprovacao_singular
+- **Given** flag desligada (default)
+- **Then** o catch-all segue em `UT_AprovacaoAlcada` (`comite-financeiro`), mesmo com
+  `quorum_comite=2` no escopo.
+
+### test_cancelar_na_aprovacao_singular_termina_no_cancelado (ramo CANCELAR — F-042)
+- **When** `UT_AprovacaoAlcada` concluida com `CANCELAR` + `justificativa_recusa`
+- **Then** fim `End_PagamentoCancelado`; nem liberacao nem registro de recusa.

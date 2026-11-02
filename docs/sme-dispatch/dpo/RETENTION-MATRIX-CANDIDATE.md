@@ -326,6 +326,20 @@ escopo_b:
         substrato, tabela vazia por padrao); sem coluna de titular e sem ponte (as refs de PJ e o
         created_by do editor nao alcanca conversation_id nem a referencia DSR); retencao a ratificar
         quando a habilitacao do dono criar prazo relevante
+    - camada: status_prestador
+      tabelas: [prestador_status_ledger]
+      motivo: >-
+        fora do escopo B; 0032 (ledger append-only do status do prestador, MPTT P3, decisao do dono
+        D-T1(A): baseline AMH assinada + deltas dos terminais de SP-OP-CRED-001/SP-OP-FRAUDE-001) guarda
+        so' o STATUS LEGAL de um PRESTADOR — prestador_id (id cadastral/pseudonimo, Zona Geral), enums
+        fechados de origem/dimensao/valor, data de efeito, id da instancia do motor ou sha256 da baseline,
+        business key ou referencia ao documento assinado pela AMH e atributos cadastrais
+        (tipo_prestador/especialidade/regiao_saude); beneficiario nao e' titular aqui — nenhum CPF, nome,
+        dado de saude, texto livre ou beneficiario_pseudo_id. Append-only por trigger, DARK atras de
+        MAEZO_PRESTADOR_STATUS_LEDGER (tabela vazia por padrao); sem coluna de titular de beneficiario e
+        sem ponte DSR. PERGUNTA ABERTA (nao decidida aqui): prestador pessoa fisica e' titular (LGPD
+        art. 5 V) e prestador_id pode identifica-lo; retencao a ratificar (o historico do motor expira
+        em 1825 dias; a projecao e' de longa vida por desenho)
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

@@ -1,7 +1,7 @@
 # ADR-0070: Convenção de boundary para códigos de guarda — do `*_NOT_HUMAN` à tarefa humana nomeada, predicado T-E e regras de allowlist
 
-**Status:** Proposed — redigido por AGENTE por ordem do dono (2026-10-31, `OWNER-DECISIONS-REGISTER` R-098 / WP-ADR-0030-COMPLETION); **ratificação
-humana PENDENTE** (CODEOWNERS de `/docs/adr/`). Nenhum BPMN, worker ou allowlist muda por esta ADR.
+**Status:** Accepted — decisão do dono DEC-29 (issue #1084), 2026-11-01 (ver "Decisão de aceite" ao final). Redigido por AGENTE por ordem do dono
+(2026-10-31, `OWNER-DECISIONS-REGISTER` R-098 / WP-ADR-0030-COMPLETION; CODEOWNERS de `/docs/adr/`). Nenhum BPMN, worker ou allowlist muda por esta ADR.
 **Data:** 2026-10-31
 **Área:** Orquestração (runtime spine) | Auditoria (ADR-0007) | HITL (ADR-0005/0008/0018)
 **Emenda (não substitui):** ADR-0030 §5 — só para boundaries de guarda **novos** (forma H abaixo) — e ADR-0030 §4 — acrescenta ao co-requisito de T-E um conjunto nomeado e fechado de códigos de custódia (§3(c)), além do padrão `*_NOT_HUMAN` e do bloqueio de negativa. Os boundaries de guarda já modelados sob a ADR-0030 (forma N) ficam como estão.
@@ -172,3 +172,24 @@ não depende desta ADR e não é decidida aqui. Ela só não pode regredir a vis
 
 — Emenda a **ADR-0030 §5** só para boundaries de guarda **novos** (forma H) e a **ADR-0030 §4** só para acrescentar o conjunto nomeado de custódia ao co-requisito de T-E (§3(c)); mantém a ADR-0030 §4 (padrão `*_NOT_HUMAN` + bloqueio de negativa), §5 e Tier 3 para os boundaries que já existem. Complementa a **ADR-0007** (linha `REFUSED`), a **ADR-0018** (nenhum caminho executa o efeito
 adverso) e a **ADR-0020** (custódia selada antes da decisão).
+
+## Decisão de aceite (DEC-29, 2026-11-01)
+
+> **Registro datado; histórico preservado.** Acima desta seção só o parágrafo de Status mudou, com o
+> mesmo número de linhas. O Status anterior, vigente de 2026-10-31 até 2026-11-01, era: "Proposed — redigido por AGENTE por ordem do dono (2026-10-31, `OWNER-DECISIONS-REGISTER` R-098 / WP-ADR-0030-COMPLETION); **ratificação humana PENDENTE** (CODEOWNERS de `/docs/adr/`). Nenhum BPMN, worker ou allowlist muda por esta ADR."
+
+**O ato.** Decisão do dono **DEC-29**, 2026-11-01, issue **#1084**, comentário de 2026-11-01
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Texto do dono, literal, no
+comentário: "Ratification of the new Proposed ADRs, 0068 to 0073." O comentário diz que o status passa a
+Accepted por PR que cite o comentário e que o texto do ADR não é reescrito além do bloco de aceite.
+Nenhum bloco de assinatura foi preenchido (ADR-0007).
+
+**Revisão.** A DEC-29 não pede revisão independente por ADR (a DEC-27 pedia). Este registro não alega
+revisão desse tipo. O pacote está em `docs/compliance/human-windows/R-079-dec29-adrs-0068-0073.md`.
+
+**O que fica aceito.** A convenção como está escrita: as duas formas de boundary de guarda (N e H), o
+conjunto nomeado de custódia no predicado T-E e as regras de allowlist.
+
+**O que o aceite NÃO faz.** Não muda BPMN, worker nem allowlist. As tarefas humanas da forma H
+(FRAUDE, ADEQUACAO, custódia) continuam para as ondas seguintes, cada uma com sua prova em engine.
+Nenhum código entra em `TE_ENABLED_CODES` por este aceite.

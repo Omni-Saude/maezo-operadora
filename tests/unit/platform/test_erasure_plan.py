@@ -828,9 +828,13 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # (the PJ refs, closed criteria JSONB with typed evidence references — never document
     # bytes — and the internal editor principal_ref reach no data subject), the substrate is
     # DARK and the table empty by default.
-    assert len(camadas) == 43, [entry["tabela"] for entry in camadas]
+    # MPTT P3 (01/11/2026) grew it by one (`prestador_status_ledger`, migration 0032) — the
+    # append-only legal STATUS of a PROVIDER, `SEM_COLUNA_DE_TITULAR`: no beneficiary column
+    # exists (provider id + closed enums + engine/baseline refs); the PF-provider question is
+    # left OPEN for the DPO in the row itself; DARK behind a flag and empty by default.
+    assert len(camadas) == 44, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 43, pendentes
+    assert len(pendentes) == 44, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

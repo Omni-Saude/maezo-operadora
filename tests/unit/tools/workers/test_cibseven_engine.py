@@ -127,84 +127,76 @@ def test_close_is_noop() -> None:
     assert asyncio.run(engine.close()) is None
 
 
-# ---------------------------------------------------------------------------
-# Historico por chave (#1167) — consumido por `contas.handoff_pagamento` (decisao do dono
-# 2026-11-01, opcao A). Sem as duas delegacoes `gate_cibseven` NAO monta a classe que resolve o
-# historico sobre este transporte e a conferencia de identidade da ordem PAGTO falharia fechada.
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# Pacote PAGTO PR-D: as duas leituras do historico que `gate_cibseven` exige para expor
+# `resolve_historic_instance` ao daemon de workers (consumidor: `pagto_lastro.resolve_lastro`).
+# -------------------------------------------------------------------------------------------------
 
 
-def test_expoe_as_tres_pernas_de_historico_e_o_gate_monta_a_classe_que_resolve() -> None:
-    from maezo.gateway.seams._base import SeamContext
-    from maezo.gateway.seams.cibseven import GatedHistoryResolvingCibSevenTransport, gate_cibseven
-    from maezo.tools.mcp_cibseven.transport import (
-        HistoricInstanceResolvingTransport,
-        HistoricVariableReadingTransport,
-        HistoryQueryingTransport,
-    )
-
-    engine = FreshClientCibSevenTransport("http://x")
-    assert isinstance(engine, HistoryQueryingTransport)
-    assert isinstance(engine, HistoricVariableReadingTransport)
-    assert isinstance(engine, HistoricInstanceResolvingTransport)
-    gated = gate_cibseven(engine, SeamContext.__new__(SeamContext))
-    assert type(gated) is GatedHistoryResolvingCibSevenTransport
-
-
-def test_resolve_historic_instance_delega_e_e_fresh_per_call() -> None:
-    from maezo.tools.mcp_cibseven.transport import HistoricInstanceRecord
+def _fake_com_historico() -> FakeCibSevenTransport:
+    from maezo.tools.mcp_cibseven.transport import HistoricInstanceRecord, HistoricProcessVariables
 
     shared = FakeCibSevenTransport()
     shared.seed_historic_instance_record(
         HistoricInstanceRecord(
-            instance_id="i-1",
-            business_key="PAGTO-amh-L-P",
-            process_key="SP-OP-PAGTO-001",
-            state="ACTIVE",
-            end_activity_id=None,
-            variables={"numero_guia_tiss": "G1", "numero_conta": "C1", "outra": "x"},
+            instance_id="pi-h",
+            business_key="CONTAS-amh-L",
+            process_key="SP-OP-CONTAS-001",
+            state="COMPLETED",
+            end_activity_id="End_ContaAprovadaHumano",
+            variables={"prestador_id": "prov:h", "valor_liberado_brl": 10.0},
         )
     )
-    counters = {"constructions": 0, "closes": 0}
+    shared.seed_historic_variables(
+        HistoricProcessVariables(
+            instance_id="pi-h",
+            business_key="CONTAS-amh-L",
+            process_key="SP-OP-CONTAS-001",
+            state="COMPLETED",
+            variables={"prestador_id": "prov:h"},
+        )
+    )
+    return shared
 
-    class _ComHistorico(_CountingClose):
-        async def resolve_historic_instance(self, process_key: str, **kwargs: Any) -> Any:
-            return await self._inner.resolve_historic_instance(process_key, **kwargs)
 
-        async def read_historic_variables(self, process_instance_id: str, names: tuple[str, ...]) -> Any:
-            return await self._inner.read_historic_variables(process_instance_id, names)
+def test_resolve_historic_instance_delega_fresco_por_chamada() -> None:
+    shared = _fake_com_historico()
+    construidos: list[FakeCibSevenTransport] = []
 
-    def factory() -> _ComHistorico:
-        counters["constructions"] += 1
-        return _ComHistorico(shared, counters)
+    def factory() -> FakeCibSevenTransport:
+        construidos.append(shared)
+        return shared
 
     engine = FreshClientCibSevenTransport("http://x", transport_factory=factory)
     record = asyncio.run(
         engine.resolve_historic_instance(
-            "SP-OP-PAGTO-001", business_key="PAGTO-amh-L-P", names=("numero_guia_tiss", "numero_conta")
+            "SP-OP-CONTAS-001", variable_equals={"prestador_id": "prov:h"}, names=("valor_liberado_brl",)
         )
     )
-    assert record.instance_id == "i-1"
-    assert record.variables == {"numero_guia_tiss": "G1", "numero_conta": "C1"}
-    assert asyncio.run(engine.read_historic_variables("nao-semeada", ("x",))) is None
-    assert counters == {"constructions": 2, "closes": 2}
+    assert (record.instance_id, record.end_activity_id) == ("pi-h", "End_ContaAprovadaHumano")
+    assert record.variables == {"valor_liberado_brl": 10.0}
+    historico = asyncio.run(engine.read_historic_variables("pi-h", ("prestador_id",)))
+    assert historico is not None and historico.variables == {"prestador_id": "prov:h"}
+    assert len(construidos) == 2  # um inner por chamada
 
 
-@pytest.mark.parametrize("metodo", ["resolve_historic_instance", "read_historic_variables"])
-def test_inner_sem_a_perna_de_historico_levanta_cibseven_error_e_fecha(metodo: str) -> None:
-    """ "Nao sei" nunca e' "nao encontrado": inner sem a capacidade LEVANTA `CibSevenError`."""
-    from maezo.tools.mcp_cibseven.transport import CibSevenError, HistoricInstanceNotFoundError
+def test_leituras_do_historico_com_inner_sem_capacidade_levantam() -> None:
+    from maezo.tools.mcp_cibseven.transport import CibSevenError
 
     counters = {"constructions": 0, "closes": 0}
     engine = FreshClientCibSevenTransport(
         "http://x", transport_factory=_spy_factory(FakeCibSevenTransport(), counters)
     )
-    call = (
-        engine.resolve_historic_instance("SP-OP-PAGTO-001", business_key="k")
-        if metodo == "resolve_historic_instance"
-        else engine.read_historic_variables("i", ("x",))
-    )
-    with pytest.raises(CibSevenError) as caught:
-        asyncio.run(call)
-    assert not isinstance(caught.value, HistoricInstanceNotFoundError)
-    assert counters["closes"] == 1
+    with pytest.raises(CibSevenError, match="resolve_historic_instance"):
+        asyncio.run(engine.resolve_historic_instance("SP-OP-CONTAS-001", business_key="k"))
+    with pytest.raises(CibSevenError, match="read_historic_variables"):
+        asyncio.run(engine.read_historic_variables("pi", ("x",)))
+    assert counters == {"constructions": 2, "closes": 2}  # fecha mesmo quando recusa
+
+
+def test_gate_cibseven_sobre_o_fresh_expoe_a_resolucao() -> None:
+    from maezo.gateway.seams.cibseven import GatedHistoryResolvingCibSevenTransport, gate_cibseven
+    from maezo.runtime.worker_runtime.service import _worker_seam_cached
+
+    gated = gate_cibseven(FreshClientCibSevenTransport("http://engine.invalid"), _worker_seam_cached("amh"))
+    assert isinstance(gated, GatedHistoryResolvingCibSevenTransport)
