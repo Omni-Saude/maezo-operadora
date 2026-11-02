@@ -754,3 +754,19 @@ def test_contador_sem_rotulo_de_identificador() -> None:
 
     counter = MetricsCollector().contas_pagto_ordem_recusada
     assert tuple(counter._labelnames) == ("veredito", "fase")
+
+
+def test_recusa_pos_start_em_escrita_alvo_conta_na_fase_certa() -> None:
+    """A conferencia depois do `ALREADY_*` rotula a fase REAL do handoff (nunca `legado` fixo): a
+    ordem sob a chave `C` desta conta carrega outra identidade (colisao) -> recusa em `escrita_alvo`."""
+    motor, sink = _MotorComHistorico(), FakeStartAuditSink()
+    motor.semear_ordem(_c("G1", "C1"), _ident("G1", "OUTRA"), instance_id="pagto-colisao-c")
+    antes_alvo = _amostra("outra", "escrita_alvo") or 0.0
+    antes_legado = _amostra("outra", "legado") or 0.0
+
+    with pytest.raises(ContasHandoffPagamentoOrdemDeOutraContaError):
+        _handoff(motor, sink, FASE_CHAVE_ESCRITA_ALVO, guia="G1", conta="C1")
+
+    assert motor.starts == []
+    assert (_amostra("outra", "escrita_alvo") or 0.0) == antes_alvo + 1.0
+    assert (_amostra("outra", "legado") or 0.0) == antes_legado
