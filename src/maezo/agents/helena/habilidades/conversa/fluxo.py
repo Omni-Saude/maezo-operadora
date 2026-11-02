@@ -87,7 +87,7 @@ def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
 def _reclamacao_sem_pedido(self: HelenaGraph, state: Mapping[str, Any], texto: str) -> bool:
     """DL-0131, so' na allowlist: a mensagem e' irritacao/reclamacao/"nao entendi" SEM pedido explicito
     de pessoa ("quero falar com um atendente", "me passa para a equipe")."""
-    if not self._gerativa_para(state) or not _lc.e_reclamacao(texto):
+    if not self._conversa_autorizada(state) or not _lc.e_reclamacao(texto):
         return False
     return not _QUERO_UMA_PESSOA.search(_plano(texto))
 

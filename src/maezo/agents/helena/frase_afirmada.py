@@ -17,7 +17,7 @@ um verbo no passado ou no gerundio como "desmaiou"/"sangrando") e sem pedido de 
   * comeca NEGANDO ("nao, mas ...") e repete dois ou mais sinais que a Helena listou na ultima fala;
   * e' ECO da ultima fala da Helena (8+ palavras seguidas iguais, ou 3+ sinais da lista dela).
 Do lado seguro: "sim" no comeco de qualquer frase mantem a mensagem inteira; a negacao colada ao sinal
-continua lida como antes (`base_saude.negado`); risco psicossocial (CVV 188) nao passa por aqui. O que sobra
+continua lida como antes (`lexico.negado`); risco psicossocial (CVV 188) nao passa por aqui. O que sobra
 (o texto AFIRMADO) e' o que os lexicos de alarme leem; sem nada descartado, o texto volta identico.
 """
 

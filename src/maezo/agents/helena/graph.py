@@ -167,6 +167,7 @@ from maezo.contratos.identidade_beneficiario import IDENTIDADE_NAO_ENCONTRADA as
 from maezo.contratos.identidade_beneficiario import IDENTIDADE_RECONHECIDA as IDENTIDADE_RECONHECIDA
 from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO as NOME_OPERADORA_PADRAO
 from maezo.contratos.identidade_beneficiario import normalizar_identidade as normalizar_identidade
+from maezo.domain.comunicacao import lexico as _lexico
 from maezo.domain.comunicacao.cerca_de_saida import (
     RECUSA_DE_SAIDA_VERSION,
     RECUSA_ESCALONAMENTO_JA_ABERTO,
@@ -207,6 +208,7 @@ from maezo.domain.conversa.competencia import (
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
+from maezo.runtime.inference import rota_global as _rg
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
@@ -243,13 +245,19 @@ from .consultas_plano import (
     texto_para_cerca,
 )
 from .frase_afirmada import texto_afirmado as _texto_afirmado
-from .habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from .habilidades.atendimento_humano.textos import (
+    CHAVE_CASO_MANTIDO,
+    PENDENTE_OFERTA_EQUIPE,
+    TEXTO_CASO_MANTIDO,
+)
 from .habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_DE_EQUIPE as RESPOSTA_RECUSA_DE_EQUIPE
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import assuntos as _assuntos
 from .habilidades.conversa import sem_modelo as _sem_modelo
-from .habilidades.sintoma.textos import CHAVE_CASO_MANTIDO, CHAVE_REPERGUNTA, TEXTO_CASO_MANTIDO
+from .habilidades.conversa import texto_fixo as _tf
+from .habilidades.plano.carteirinha import pede_carteirinha
+from .habilidades.sintoma.textos import CHAVE_REPERGUNTA
 from .helena_v4 import (
     ALERTAS,
     ETAPA_ALERTA,
@@ -263,7 +271,6 @@ from .helena_v4 import (
     escolha_da_resposta,
     especialidade_pedida,
     ler_pendente,
-    pede_carteirinha,
     resposta_ao_alerta,
     resumo_do_caso,
     texto_da_pergunta_de_alerta,
@@ -1300,13 +1307,13 @@ def _texto_dos_sinais(texto: str) -> str:
 
 def _sinal_afirmado(padrao: re.Pattern[str], texto: str) -> bool:
     """O sinal do lexico aparece e NAO esta' negado ("sem falta de ar", "nao teve desmaio"): a trava de
-    alarme le a negacao como negacao (r4 de 22/10/2026, `base_saude.negado`). Do lado seguro: se a
+    alarme le a negacao como negacao (r4 de 22/10/2026, `lexico.negado`). Do lado seguro: se a
     pontuacao partia o trecho (so' casa sem ela), o sinal vale. Sinal so' em PERGUNTA nao conta (25/10)."""
     texto = _texto_afirmado(texto)
     if not padrao.search(_texto_dos_sinais(texto)):
         return False
     pontuado = _NEGACAO_DE_URGENCIA.sub(" ", _normalizar_texto(texto or ""))
-    return not padrao.search(pontuado) or _bs.mencao_afirmada(padrao, pontuado)
+    return not padrao.search(pontuado) or _lexico.mencao_afirmada(padrao, pontuado)
 
 
 def _sinal_forte_de_emergencia(texto: str) -> bool:
@@ -3672,7 +3679,7 @@ def mensagem_urgente(texto: str) -> bool:
     esperar-e-juntar (etapa 9) nao espera — o 192 sai na hora."""
     plano = _plano(texto)
     afirmado = _plano(_texto_afirmado(texto))
-    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(afirmado) or _sg.tem_risco(plano))
+    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(afirmado) or _lexico.tem_risco(plano))
 
 
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
@@ -4648,6 +4655,7 @@ class HelenaGraph:
         base_saude: _bs.BaseSaude | None = None,
         helena_dependentes_nome_enabled: bool = False,
         saude_gerativa: _sg.RedatorDeSaude | None = None,
+        rota_global: _rg.RotaGlobal | None = None,
         helena_roteador: str = "desligado",
         roteador_inference: InferenceProvider | None = None,
         roteador_concorrencia: int = 4,
@@ -4751,6 +4759,15 @@ class HelenaGraph:
         self._gerativa: _sg.RedatorDeSaude | None = (
             saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) and self._base_saude else None
         )
+        # ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1): o transporte do Haiku e as conversas, sem
+        # depender da base nem da gerativa (porta unica, roteador ativo, `modelo_allowlist`). Sem a rota
+        # injetada, a do redator (o de antes, para quem constroi o grafo direto).
+        redator = self._gerativa
+        self._rota_global: _rg.RotaGlobal | None = (
+            rota_global
+            if isinstance(rota_global, _rg.RotaGlobal)
+            else (_rg.RotaGlobal(redator.transporte, redator.conversas) if redator is not None else None)
+        )
         #: Os textos redigidos NESTE turno (em memoria, nunca no estado): `inform` so' deixa passar sem modelo
         #: o texto que a propria rota gerativa guardou aqui (um `response_text` plantado nao passa).
         self._gerativas_do_turno: dict[str, str] = {}
@@ -4843,9 +4860,8 @@ class HelenaGraph:
                 reset["coleta_pendente"] = None
                 reset["coleta_contexto"] = ""
                 reset["coleta_rodadas"] = 0
-            if not self._base_saude and reset.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO:
-                # Resto de uma confirmacao de encerramento (ADR-0064) com a chave da base ja' desligada.
-                reset["coleta_pendente"] = None
+        elif state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO:
+            reset["coleta_pendente"] = PENDENTE_ENCERRAR_CASO  # encerrar o caso: sem chave (etapa 1)
         # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
         # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
         # "Sou Helena..." no segundo turno.
@@ -5320,9 +5336,9 @@ class HelenaGraph:
             and (
                 _pergunta_do_plano(texto_da_mensagem)
                 or _pergunta_da_carteirinha(texto_da_mensagem)
-                # HELENA V4: "me manda a carteirinha", "perdi minha carteirinha" — o pedido do cartao.
-                # A v4 responde com os dados mascarados e manda o cartao completo para o aplicativo/portal.
-                or (self._v4 and pede_carteirinha(_plano(texto_da_mensagem)))
+                # "me manda a carteirinha", "perdi minha carteirinha" — o pedido do cartao (nasceu na v4; sem
+                # chave desde a etapa 1): os dados mascarados e o cartao completo no aplicativo/portal.
+                or pede_carteirinha(_plano(texto_da_mensagem))
             )
             and not _pergunta_de_navegacao(texto_da_mensagem)
         ):
@@ -5331,8 +5347,7 @@ class HelenaGraph:
             update["intent"] = intent
             update["consulta_subtipo"] = (
                 "carteirinha"
-                if self._v4
-                and pede_carteirinha(_plano(texto_da_mensagem))
+                if pede_carteirinha(_plano(texto_da_mensagem))
                 and not _pergunta_de_cobertura(texto_da_mensagem)
                 else _subtipo_da_consulta(texto_da_mensagem)
             )
@@ -5663,6 +5678,8 @@ class HelenaGraph:
             if decidido_base is not None:
                 return decidido_base
             intent = cast(Intent, update.get("intent") or intent)
+        elif (encerrar := (await _recusa.encerrar_a_pedido(self, state, update))[0]) is not None:
+            return encerrar  # o caso a pedido, sem a base (limpeza da saude, etapa 1)
 
         # HELENA V4 (DL-0115): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
         # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
@@ -5994,8 +6011,8 @@ class HelenaGraph:
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
             update["coleta_rodadas"] = 0
-        # BASE DE SAUDE (ADR-0064): a confirmacao de encerramento do turno anterior vale SO' para ESTE turno.
-        pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
+        # A confirmacao de encerramento do turno anterior vale SO' para ESTE turno (sem chave, etapa 1).
+        pend_encerrar = state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
         velhas = ("BS_COBERTURA", "COB2:", "SAUDE_OFERTA", PENDENTE_OFERTA_EQUIPE)
@@ -6206,7 +6223,7 @@ class HelenaGraph:
         logger.info("helena_cobertura_fora", node="classify")
         # "E' urgente" de gestante sem sinal de saude leva o 192 no fim (DL-0091), como antes.
         texto = _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA])
-        return self._base_texto_fixo(self._update_sem_modelo(state), texto)
+        return self._texto_fixo(self._update_sem_modelo(state), texto)
 
     _reclamacao_sem_pedido = _conversa._reclamacao_sem_pedido
 
@@ -6257,57 +6274,29 @@ class HelenaGraph:
         if not sobre_o_alarme:
             return None
         logger.info("helena_alarme_ja_tratado_sem_sinal_novo", node="classify")
-        return self._base_texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
+        return self._texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
 
     async def _decidir_sem_modelo(self, state: HelenaState) -> dict[str, Any] | None:
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
-        if not plano or _sg.tem_risco(plano) or state.get("sinal_saude_lexico") is True:
+        if not plano or _lexico.tem_risco(plano) or state.get("sinal_saude_lexico") is True:
             return None
         if (fixa := _sem_modelo.responder(self, state, texto)) is not None:
             return fixa  # r5/r5b: o "sim"/"nao" a oferta da equipe; o reembolso fora do escopo (texto fixo)
         if _recusa.e_recusa_na_conversa(texto):
-            update = self._update_sem_modelo(state)
-            abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
-            if abertos:
-                graves = [
-                    chave
-                    for chave in abertos
-                    if caso_grave_para_encerrar(*await self._motivo_e_severidade(chave))
-                ]
-                logger.info(
-                    "helena_recusa_de_equipe_sem_modelo",
-                    node="classify",
-                    caso_aberto=True,
-                    grave=bool(graves),
-                )
-                if graves:
-                    # Caso P1/grave aberto: nunca se oferece encerrar; o texto do caso grave com 192.
-                    return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
-                if self._gerativa_para(state):
-                    # DL-0131 (decisao do dono): na allowlist a recusa ENCERRA direto os casos P2/P3
-                    # (inclusive
-                    # o de atendimento/solicitacao de pessoa) e confirma — sem a pergunta de confirmacao.
-                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
-                return self._base_texto_fixo(
-                    update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
-                )
-            # Avaliacao r5 (25/10): recusa curta so' com oferta ou caso aberto; sem nada, o reconhecimento.
-            caso = bool(await self._motivo_do_caso_aberto(_business_key(state)))
-            logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=caso)
-            return self._base_texto_fixo(update, _oferta.texto_da_recusa(state, caso_aberto=caso))
+            return await _recusa.recusa_sem_modelo(self, state)
         cobertura = self._cobertura_fora(state, plano, texto)
         if cobertura is not None:
             return cobertura
-        if not self._gerativa_para(state):
+        if not self._conversa_autorizada(state):
             return None
         pendente = state.get("coleta_pendente")
-        if self._base_saude and pendente == PENDENTE_ENCERRAR_CASO:
+        if pendente == PENDENTE_ENCERRAR_CASO:
             if _escalar._sim_ou_nao_ao_encerramento(plano) is None:
                 return None
             logger.info("helena_escolha_sem_modelo", node="classify", oferta="encerrar_caso")
             return await self._base_confirmacao_de_encerramento(state, self._update_sem_modelo(state), texto)
-        pend = ler_pendente(pendente) if self._v4 else None
+        pend = ler_pendente(pendente) if self._v4 and self._gerativa_para(state) else None
         if pend is None:
             return None
         if pend.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) in ("1", "2"):
@@ -6357,6 +6346,8 @@ class HelenaGraph:
     # cobranca e consulta do plano nunca sao respondidos pela base.
 
     _base_hoje = _saude._base_hoje
+    _base_alarme_hoje = _saude._base_alarme_hoje
+    _base_alarme_do_roteador = _saude._base_alarme_do_roteador
 
     _base_assunto_do_grupo = _sintoma._base_assunto_do_grupo
 
@@ -6370,7 +6361,7 @@ class HelenaGraph:
 
     _base_achar_assunto = _saude._base_achar_assunto
 
-    _base_texto_fixo = staticmethod(_saude._base_texto_fixo)
+    _texto_fixo = staticmethod(_tf.texto_fixo)
 
     # -- SAUDE GERATIVA (ADR-0065, DL-0119, `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist) ----------------------
     #
@@ -6383,7 +6374,9 @@ class HelenaGraph:
 
     _gerativa_para = _saude._gerativa_para
 
-    _falas_da_pessoa = staticmethod(_saude._falas_da_pessoa)
+    _falas_da_pessoa = staticmethod(_tf.falas_da_pessoa)
+
+    _conversa_autorizada = _ma.conversa_autorizada
 
     _cercas_da_helena = staticmethod(_saude._cercas_da_helena)
 
@@ -6579,7 +6572,7 @@ class HelenaGraph:
 
     @staticmethod
     def _com_acolhimento(state: Mapping[str, Any], resultado: dict[str, Any]) -> dict[str, Any]:
-        from maezo.agents.helena.habilidades.protocolo.especialista import contesta_o_assunto
+        from maezo.agents.helena.habilidades.conversa.leitura_curta import contesta_o_assunto
 
         texto = resultado.get("response_text")
         mensagem = str(state.get("message_body") or "")
@@ -6648,12 +6641,11 @@ class HelenaGraph:
             # resposta
             # segura padrao dela) — sem segundo modelo.
             return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
-        if self._base_saude and (
-            _bs.e_texto_da_base(state.get("response_text"), self._base)
-            or state.get("response_text") in TEXTOS_FIXOS_DO_ENCERRAMENTO
+        if state.get("response_text") in TEXTOS_FIXOS_DO_ENCERRAMENTO or (
+            self._base_saude and _bs.e_texto_da_base(state.get("response_text"), self._base)
         ):
-            # BASE DE SAUDE (ADR-0064): o texto que `classify` montou da base (texto do arquivo + credito +
-            # link + aviso), ou um texto fixo do encerramento do caso — sem modelo.
+            # Um texto fixo do encerramento do caso (sem chave, etapa 1) ou o texto que `classify` montou da
+            # BASE DE SAUDE (ADR-0064: texto do arquivo + credito + link + aviso) — sem modelo.
             return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._v4 and e_texto_da_v4(state.get("response_text")):
             # HELENA V4 (DL-0115): o texto FIXO que `classify` deixou pronto (especialista, resposta final do
@@ -6986,14 +6978,13 @@ class HelenaGraph:
             text
             if text in self._textos.valores()
             else _sem_repetir_sem_enfeite(state, text)
-            if self._gerativa_para(state)
+            if self._conversa_autorizada(state)
             else _sem_repetir(state, text)
         )
-        if self._gerativa_para(state):
-            # SAUDE GERATIVA (ADR-0065), so' na allowlist: "Entendi. Entendi: ..." (o prefixo de variacao
-            # sobre
-            # um texto que ja' comeca por "Entendi", teste do dono de 17/10/2026) sai uma vez so'.
-            varia = _sg.sem_abertura_repetida(varia)
+        if self._conversa_autorizada(state):
+            # So' na allowlist: "Entendi. Entendi: ..." (o prefixo de variacao sobre um texto que ja' comeca
+            # por "Entendi", teste do dono de 17/10/2026) sai uma vez so'.
+            varia = _lexico.sem_abertura_repetida(varia)
         if varia != text:
             logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
             text = varia
@@ -8152,6 +8143,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         helena_dependentes_nome_enabled=helena_dependentes_nome_enabled,
         helena_base_saude_enabled=helena_base_saude_enabled,
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
+        # A rota global da allowlist (etapa 1 da limpeza): sem ela, a do redator.
+        rota_global=rota if isinstance(rota := cfg.get("rota_global"), _rg.RotaGlobal) else None,
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): so' o valor que a composicao disser; senao desligado.
         helena_roteador=str(cfg.get("helena_roteador") or "desligado"),
         roteador_inference=cast(InferenceProvider, cfg["roteador_inference"])
