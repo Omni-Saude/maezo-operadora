@@ -240,7 +240,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     # sao nomeados aqui para o censo nao mudar calado.
     assert "reembolso_prazo.dmn" in dmns
     assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
-    # R-076 (#1149, decisao do dono de 2026-11-01): 68 -> 69 com `reembolso_auto_approval.dmn` (somado ao `pagto_duplicidade.dmn` do #1179), a faixa B
+    # R-076 (#1149, decisao do dono de 2026-11-01): 68 -> 69 com `reembolso_auto_approval.dmn` (apos `pagto_duplicidade.dmn`), a faixa B
     # do R-070 DORMENTE sobre a v2 (teto 0 + R-058); nomeada aqui para o censo nao mudar calado.
     assert "reembolso_auto_approval.dmn" in dmns
     assert "auth_junta_admissibility.dmn" in dmns, (
