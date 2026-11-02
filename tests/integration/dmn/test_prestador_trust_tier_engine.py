@@ -115,7 +115,26 @@ async def test_motivos_uma_linha_por_feature_no_motor(dmn: CibSevenDmnTransport)
         (_ti(pontuacao_confianca=86), "WATCH", "PONTUACAO_FORA_DA_ESCALA"),
         (_ti(f1_ordens_decididas=9, f1_taxa_liberacao_humana=1.0), "STANDARD", "PONTUACAO_STANDARD"),
         (_ti(f1_taxa_liberacao_humana=0.8999), "STANDARD", "PONTUACAO_STANDARD"),
-        (_ti(pontuacao_confianca=39), "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        (_ti(pontuacao_confianca=49), "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        # DEC-31 D31-3: cortes 50/75 (fronteiras inclusivas) e red flag F1 nao compensatoria.
+        (_ti(pontuacao_confianca=75), "TRUSTED", "GOLD_CARD_ATINGIDO"),
+        (_ti(pontuacao_confianca=74), "STANDARD", "PONTUACAO_STANDARD"),
+        (_ti(pontuacao_confianca=70), "STANDARD", "PONTUACAO_STANDARD"),
+        (_ti(pontuacao_confianca=50), "STANDARD", "PONTUACAO_STANDARD"),
+        (_ti(pontuacao_confianca=45), "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        (_ti(pontuacao_confianca=40), "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),
+        (_ti(f1_taxa_liberacao_humana=0.7999), "WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80"),
+        (
+            _ti(f1_ordens_decididas=10, f1_taxa_liberacao_humana=0.0),
+            "WATCH",
+            "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80",
+        ),
+        (_ti(f1_ordens_decididas=10, f1_taxa_liberacao_humana=0.80), "STANDARD", "PONTUACAO_STANDARD"),
+        (_ti(f1_ordens_decididas=9, f1_taxa_liberacao_humana=0.10), "STANDARD", "PONTUACAO_STANDARD"),
+        # Portoes TRUSTED explicitos: cada um sozinho, com pontuacao maxima, impede TRUSTED.
+        (_ti(f5_meses_relacionamento=11), "STANDARD", "PONTUACAO_STANDARD"),
+        (_ti(f5_meses_relacionamento=12), "TRUSTED", "GOLD_CARD_ATINGIDO"),
+        (_ti(f1_ordens_decididas=10, f1_taxa_liberacao_humana=0.90), "TRUSTED", "GOLD_CARD_ATINGIDO"),
         # Reparo B1 (fail-closed em entrada ausente/invalida, inclusive F2):
         (_ti(pontuacao_confianca=55, f2_lotes_janela=None), "WATCH", "ENTRADA_AUSENTE_F2_LOTES"),
         (
@@ -138,4 +157,28 @@ async def test_tier_first_fail_closed_no_motor(
 ) -> None:
     rows = await _rows(dmn, "prestador_tier", variaveis)
     assert rows, "FIRST sem linha casada — a tabela tem catch-all"
+    assert (rows[0]["prestador_tier"], rows[0]["motivo_tier"]) == (tier, motivo)
+
+
+@pytest.mark.parametrize(
+    ("scorecard", "pontos", "tier", "motivo"),
+    [
+        # Perfis que MUDAM de tier com a DEC-31 D31-3 (composicao scorecard -> tier, as duas no motor).
+        (_sc(percentil=60.0), 70, "STANDARD", "PONTUACAO_STANDARD"),  # era TRUSTED
+        (_sc(lotes=5, percentil=None), 70, "STANDARD", "PONTUACAO_STANDARD"),  # era TRUSTED
+        (_sc(percentil=90.0, meses=11), 40, "WATCH", "PONTUACAO_ABAIXO_DO_CORTE_WATCH"),  # era STANDARD
+        (_sc(taxa=0.79), 45, "WATCH", "RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80"),  # era STANDARD
+        # Controles que NAO mudam.
+        (_sc(), 85, "TRUSTED", "GOLD_CARD_ATINGIDO"),
+        (_sc(ordens=9, taxa=0.10), 65, "STANDARD", "PONTUACAO_STANDARD"),  # sem volume: sem red flag
+        (_sc(taxa=0.85, percentil=60.0), 50, "STANDARD", "PONTUACAO_STANDARD"),
+    ],
+)
+async def test_composicao_scorecard_tier_dec31_no_motor(
+    dmn: CibSevenDmnTransport, scorecard: dict[str, Any], pontos: int, tier: str, motivo: str
+) -> None:
+    linhas = await _rows(dmn, "prestador_trust_scorecard", scorecard)
+    assert len(linhas) == 1, linhas
+    assert linhas[0]["pontuacao_confianca"] == pontos
+    rows = await _rows(dmn, "prestador_tier", _ti(pontuacao_confianca=pontos, **scorecard))
     assert (rows[0]["prestador_tier"], rows[0]["motivo_tier"]) == (tier, motivo)

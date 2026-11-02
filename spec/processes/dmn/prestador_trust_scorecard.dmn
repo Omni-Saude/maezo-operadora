@@ -6,9 +6,13 @@
              name="Scorecard de confianca do prestador (MPTT)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    prestador_trust_scorecard v0.1.0 — status: DRAFT — todos os pontos, faixas, pisos de volume e T
-    (meses) sao DRAFT/calibrar em sombra (financas + medico-auditor + DPO); registrados como pendentes
-    em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. MPTT P5 (Maezo Provider Trust Tiers,
+    prestador_trust_scorecard v0.1.1 — status: DECIDIDO PARA A SOMBRA (DEC-31 D31-3) — pesos,
+    faixas, pisos de volume, neutro = metade do peso e T (meses) MANTIDOS como valores INICIAIS DE
+    SOMBRA ratificados pelo dono (#1084, 2026-11-02; altera a DEC-30 D5). v0.1.1 so muda esta
+    descricao: nenhum ponto, faixa ou piso mudou. ATIVACAO continua pendente: calibracao
+    financas + medico-auditor, RIPD/LIA do DPO (LGPD art. 20) e clausula aditiva RN 503 do juridico —
+    assinaturas em branco em spec/aprovacoes-de-regras.yaml e docs/review-queue.md (a aprovacao
+    amarrada aos bytes segue pendente). MPTT P5 (Maezo Provider Trust Tiers,
     docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md §3; decisao do dono
     2026-10-31 "Pagamentos": scorecard hibrido = red flags nao compensatorias + scorecard de pontos).
     NAO LIGADA a BPMN nem a worker nesta entrega (P6 liga; P4 produz as features em lote).
@@ -24,7 +28,10 @@
         ordenaveis por pontos perdidos (estilo FICO/Reg B), para o lote gravar
         {features, pontos, motivos, snapshot, versao da DMN} e tornar todo tier reprodutivel.
 
-    Pesos ordinais DRAFT (analise §3): F1 40, F2 30, F5 15 -> maximo 85.
+    Pesos (analise §3; DEC-31 D31-3 mantem): F1 40, F2 30, F5 15 -> maximo 85. Os cortes do tier
+    (corte_watch=50, corte_trusted=75) valem SO para este maximo: quando o F3 (15) entrar na v0.2.0
+    o maximo vira 100 e os cortes precisam de nova ratificacao (proporcional ~59/88) — um pin em
+    tests/unit/spec/test_prestador_trust_tier_dmn.py reprova se o maximo mudar sem os cortes.
       F1 historico de pagamento (taxa com shrinkage, piso 10 ordens; &gt;= 90% = patamar gold-card).
       F2 glosa liquida sustentada (glosa humana - deferido em RECURSO) / apresentado, em PERCENTIL
          vs pares DO MESMO TENANT (CADE: benchmark nunca e agregado entre operadoras), piso 10 lotes.

@@ -32,7 +32,7 @@ class CapabilityTest {
     s.put("fields",List.of());d.put("schema",s);b.put("digest",Json.digest(d));assertThrows(Refused.class,()->new Capability(b));
   }
   @Test void noDmnGrantCanBeInvented() {assertTrue(Capability.schemas().values().stream().noneMatch(s->s.get("operation").toString().startsWith("dmn_")));}
-  @Test void all47RowsAreRegistered() {assertEquals(47,Capability.schemas().size());}
+  @Test void all62RowsAreRegistered() {assertEquals(62,Capability.schemas().size());}
   @Test void workerMayNotInjectHumanVariablesOnFailure() {var cap=new Capability(Fixtures.binding("contas.calculate_impact.complete.v1.external_failure"));var r=Fixtures.request(cap);r.put("variables",Map.of("decisao",true));assertThrows(Refused.class,()->cap.validate(r));}
   @Test void dossierInitMustRemainNull() {var cap=new Capability(Fixtures.binding("lucas.escalation.start.v1"));var r=Fixtures.request(cap);Json.object(r.get("variables")).put("dossie_lucas",Map.of("decisao_cancelamento","fabricated"));assertThrows(Refused.class,()->cap.validate(r));}
   @ParameterizedTest @ValueSource(strings={"{\"a\":1,\"a\":2}","{\"n\":{\"x\":null,\"x\":1}}","{\"a\":NaN}","{\"a\":9223372036854775808}","{}{}","[]","{\"a\":\"\\ud800\"}","{\"a\":1e999}"})
