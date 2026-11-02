@@ -140,7 +140,8 @@ class TestNonVacuity:
         # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
         # 65 -> 66 com `auth_junta_admissibility.dmn` (R-064) — ver as entradas do CORPUS_DELTA_LOG.
         # 66 -> 68 com `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5).
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 68  # VW4/GP11: +suppression_routing
+        # 68 -> 69 com `pagto_duplicidade.dmn` (PAGTO PR-E, #1179) — ver as entradas do CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 69  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2145,6 +2146,77 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "de beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="nivel1_situacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): ENTRADA string: a mesma obrigacao em outra ordem "
+            "(SEM_OUTRA_ORDEM/REGISTRADA_OUTRA_ORDEM/LIBERADA_OUTRA_ORDEM/NAO_AVALIAVEL) — fato da "
+            "razao, enum fechado. Sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="nivel2_situacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): ENTRADA string: soma das ordens contra a mesma instancia de origem vs o valor dela "
+            "(NAO_EXCEDE/EXCEDE/NAO_AVALIAVEL) — enum fechado. Sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="nivel3_avaliado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): ENTRADA booleana: a ordem trouxe competencia (o nivel 3 rodou). Sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="nivel3_similar_idade_dias",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): ENTRADA inteira: idade em dias (relogio do banco) da ordem similar mais recente; "
+            "null quando nenhuma. Sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="duplicidade_status",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): SAIDA: NENHUMA/SUSPEITA/CONFIRMADA/INDETERMINADA — FATO lido pela admissibilidade "
+            "v0.2 (PR-F); nunca rota nem liberacao. Sem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1179",
+        name="duplicidade_motivo_codigo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. PAGTO PR-E (DMN nova `pagto_duplicidade`, DRAFT, so' pela costura dmn= do detector "
+            "dark): SAIDA: codigo fixo do motivo da regra que casou. Sem dado de beneficiario."
+        ),
+    ),
 )
 
 
@@ -2156,7 +2228,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 370
+            expected_clean == 376
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
@@ -2165,6 +2237,8 @@ class TestBuckets:
         # MPTT P5 (#1171): +13
         # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
+        # PAGTO PR-E (#1179): +6 (nivel1_situacao, nivel2_situacao, nivel3_avaliado,
+        #   nivel3_similar_idade_dias, duplicidade_status, duplicidade_motivo_codigo)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -2201,7 +2275,8 @@ class TestBuckets:
         # R-047 (#1146): +2 (meses_vencidos, dias_atraso_max) -1 (atraso_critico)
         # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
-        assert len(live_sweep.names) == expected_names == 386
+        # PAGTO PR-E (#1179): +6 (as 4 entradas e as 2 saidas de `pagto_duplicidade`)
+        assert len(live_sweep.names) == expected_names == 392
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2220,7 +2295,8 @@ class TestBuckets:
         #   cada, quorum_comite +5, comite_ultimo_voto +1, pagto_alcada +2, grupo_aprovador +1, sla +2,
         #   sla_alerta +1, sla_aprovacao +1); nomes: +5
         # MPTT P5 reparo B1 (#1174): +2 (f2_lotes_janela, f2_percentil_glosa_liquida_pares_tenant)
-        assert len(live_sweep.refs) == expected_refs == 1808
+        # PAGTO PR-E (#1179): +6 (uma ocorrencia por nome novo em `pagto_duplicidade.dmn`); nomes: +6
+        assert len(live_sweep.refs) == expected_refs == 1814
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2348,7 +2424,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (370)" in rendered
+            f"## {CLEAN} (376)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
@@ -2356,6 +2432,7 @@ class TestBuckets:
         # PAGTO PR-A (#1153): +1 (`valor_maximo_aprovavel_cents`).
         # R-047 (#1146): +2 (`meses_vencidos`, `dias_atraso_max`) -1 (`atraso_critico`).
         # MPTT P5 (#1171): +13 nomes CLEAN (entradas/saidas das DMNs do scorecard e do tier).
+        # PAGTO PR-E (#1179): +6 nomes CLEAN (entradas/saidas de `pagto_duplicidade`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
