@@ -8,7 +8,7 @@
 // Os ARNs sao os dos segredos VIVOS (nomes com sufixo): so leitura (a role nunca grava segredo).
 //
 staff_material = {
-  image_digest          = "sha256:bb19425cda659598c3947f6ecfc7997826b2c91796418edc1e020274c9ddf384" // imagem de operacao 182e11b7-staff-material (base: app 8819f3fb; o catalogo do CANCEL exige o contrato cancel_execucao do app novo)
+  image_digest          = "sha256:71262cad9dfcf8671758cc90d37b4c92d66ba2f749e6a0a3c6fe1a15035d6201" // imagem de operacao 99a4d94a-staff-ops (base: app 021251a9; com --retirar-versoes, #1182; o catalogo do reembolso v2 exige os formularios BPMN_FORMDATA do app novo). Era 182e11b7-staff-material (bb19425c)
   native_secret_arn     = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-XoACan"
   staff_secret_arn      = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
   job_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-job/materials-glnOol"
