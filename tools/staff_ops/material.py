@@ -23,7 +23,8 @@ Variaveis: ``MATERIAL_BUCKET``, ``MATERIAL_KMS_KEY_ARN``, ``MATERIAL_SECRET_{NAT
 ASSIGNMENT,SYN}`` (ARN; SYN opcional), ``MATERIAL_RAIZ_ID``, ``MATERIAL_RAIZ_SHA256``, ``MATERIAL_SAIDA_ID``,
 ``MATERIAL_SUFIXO`` (AAAAMMDD), ``MATERIAL_CATALOGO`` / ``MATERIAL_ENTRADAS_HUMANAS`` (chaves em `insumos/`),
 ``MATERIAL_CODE_ENGINE`` / ``MATERIAL_CODE_PROVIDER`` (SHA-256 dos JARs da imagem NOVA do motor),
-``MATERIAL_CATALOG_REVISION`` (com ``MATERIAL_CATALOGO``).
+``MATERIAL_CATALOG_REVISION`` (com ``MATERIAL_CATALOGO``), ``MATERIAL_RETIRAR_VERSOES`` (process_definition_id
+separados por virgula: versoes antigas, sem tarefa aberta, que o catalogo novo ja nao tem).
 """
 
 from __future__ import annotations
@@ -131,6 +132,7 @@ def argumentos_gerar(
     code_engine: str | None = None,
     code_provider: str | None = None,
     catalog_revision: int | None = None,
+    retirar_versoes: list[str] | None = None,
 ) -> Any:
     from argparse import Namespace
 
@@ -151,6 +153,7 @@ def argumentos_gerar(
         code_engine=code_engine,
         code_provider=code_provider,
         catalog_revision=catalog_revision,
+        retirar_versoes=retirar_versoes,
     )
 
 
@@ -375,6 +378,8 @@ def modo_gerar() -> int:
             catalog_revision=int(os.environ["MATERIAL_CATALOG_REVISION"])
             if os.environ.get("MATERIAL_CATALOG_REVISION")
             else None,
+            retirar_versoes=[v for v in os.environ.get("MATERIAL_RETIRAR_VERSOES", "").split(",") if v]
+            or None,
         )
     )
     conferir_linhas(saida)
