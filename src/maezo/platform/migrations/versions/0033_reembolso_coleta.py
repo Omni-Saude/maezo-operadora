@@ -32,8 +32,8 @@ purgada pelo codigo que a le'. O prazo final pertence ao DPO (`erasure-plan.temp
 **Seguro com a versao anterior do codigo no ar.** A tabela e' nova e so' o turno de reembolso (desligado por
 padrao) a le' e escreve; o `downgrade` e' `DROP TABLE`.
 
-Revision ID: 0031
-Revises: 0030
+Revision ID: 0033
+Revises: 0032
 Create Date: 2026-10-29
 """
 
@@ -41,8 +41,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0031"
-down_revision: str | None = "0030"
+revision: str = "0033"
+down_revision: str | None = "0032"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

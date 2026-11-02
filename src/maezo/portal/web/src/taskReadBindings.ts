@@ -208,6 +208,12 @@ export const taskReadBindings = [
   },
   {
     "process": "SP-OP-PAGTO-001",
+    "task": "UT_AprovacaoComite",
+    "form": "pagto_aprovacao",
+    "source": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"
+  },
+  {
+    "process": "SP-OP-PAGTO-001",
     "task": "UT_CoordenacaoAlcada",
     "form": "pagto_coordenacao",
     "source": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"

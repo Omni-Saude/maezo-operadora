@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md; DL-0161)
 **Fase:** 2 · **Wave:** WC.2 · **BPMN:** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
-**Gatilho regulatorio:** Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify**). A RN 259/2011 foi substituida pela RN 566/2022 (prazos em dias uteis); a norma que fixa o prazo de reembolso segue **nao identificada** (`docs/compliance/rn-currency-review.md`, R3). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`).**
+**Gatilho regulatorio:** RN 566/2022 (garantia de atendimento / prazos em dias uteis — **sucede a RN 259/2011, revogada pela RN 566, art. 16, I**; errata ADR-0073 §B: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify**; a norma que fixa o prazo de reembolso segue **nao identificada**, `docs/compliance/rn-currency-review.md`, R3). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`)** — politica interna ADR-0005; base normativa da negativa pela errata ADR-0073 §B (Lei 12.842/2013 art. 5º, II + RN 424/2017 no merito clinico; RN 623/2024 arts. 14 e 16 + LGPD art. 20 na negativa administrativa).
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/worker de REEMBOLSO derivam dele.
 

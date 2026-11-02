@@ -301,14 +301,27 @@ def test_table_vocabulary_is_exactly_the_bpmn_declared_outputs_of_the_user_task(
     assert match, f"{spec.task_key}: no `{spec.decision_variable} in {{...}}` in its documentation"
     declared = {tok.strip() for tok in match.group(1).split(",") if tok.strip()}
     assert declared == set(spec.vocabulary), (spec.task_key, declared ^ set(spec.vocabulary))
-    # Every condition on the gateway(s) right after this UT uses a declared token.
+    # Every condition on the gateway(s) right after this UT uses a declared token. A UT inside a
+    # multi-instance subprocess (R-092 UT_AprovacaoComite) is routed by the gateway after the
+    # ENCLOSING subprocess, so the walk starts there.
     used = set(
         re.findall(
             r"'?" + re.escape(spec.decision_variable) + r"'?\)?\s*==\s*'([A-Z_]+)'",
-            _conditions_after(root, spec.task_key),
+            _conditions_after(root, _routed_node(root, spec.task_key)),
         )
     )
     assert used and used <= set(spec.vocabulary), (spec.task_key, used - set(spec.vocabulary))
+
+
+def _routed_node(root: Any, task_key: str) -> str:
+    """The node whose outgoing gateways route `task_key`'s decision: the UT itself, or the
+    multi-instance subprocess that encloses it."""
+    for sub in root.iter(f"{_NS}subProcess"):
+        if sub.find(f"{_NS}multiInstanceLoopCharacteristics") is not None and any(
+            t.get("id") == task_key for t in sub.iter(f"{_NS}userTask")
+        ):
+            return str(sub.get("id"))
+    return task_key
 
 
 def _conditions_after(root: Any, node: str, hops: int = 3) -> str:

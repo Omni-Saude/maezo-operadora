@@ -303,10 +303,12 @@ def register_default_workers(
     pagto_fatos_estritos: bool = False,
     inad_fatos_estritos: bool = False,
     inad_chave_exige_contrato: bool = False,
+    pagto_comite_colegiado: bool = False,
     contas_sla_risk_entrega: bool = False,
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
+    pagto_resolve_lastro: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -404,6 +406,8 @@ def register_default_workers(
         # R-063 / F-029: fatos pre-resolvidos deixam de ecoar a entrada (dark; see settings).
         **({"pagto_fatos_estritos": True} if pagto_fatos_estritos else {}),
         **({"inad_fatos_estritos": True} if inad_fatos_estritos else {}),
+        # R-092 / F-081: aprovacao colegiada do comite em PAGTO (dark; see settings).
+        **({"pagto_comite_colegiado": True} if pagto_comite_colegiado is True else {}),
         # F-124: INAD sem contrato nao delega ao Fernando (dark; see settings).
         **({"inad_chave_exige_contrato": True} if inad_chave_exige_contrato is True else {}),
         # R-107 / F-135: entrega real do alerta de SLA de CONTAS ao canal interno (dark).
@@ -414,6 +418,8 @@ def register_default_workers(
         junta_rn424_guard=junta_rn424_guard,
         # R-005 / F-018: prazo de resposta AUTH em dias uteis (dark; see settings).
         auth_prazo_dias_uteis=auth_prazo_dias_uteis,
+        # PAGTO PR-D: fatos do lastro conferidos no historico do motor (dark; see settings).
+        **({"pagto_resolve_lastro": True} if pagto_resolve_lastro is True else {}),
     )
     # R-004 / F-032: one owner for `send_denial_notice` — the contract's worker — asserted after
     # every module registered (a later module, or a stray handler, cannot sneak a second one in).
@@ -1143,6 +1149,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
                 # R-005 (RN 623/2024 art. 12), DARK: prazo de resposta em dias uteis so' quando ligada.
                 auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
+                # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
+                pagto_resolve_lastro=settings.pagto_resolve_lastro,
                 publish_ledger=(
                     PostgresDriverIdempotencyRegistry(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.extask_publish_dedup and settings.database_url
@@ -1155,6 +1163,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 pagto_fatos_estritos=settings.pagto_fatos_estritos,
                 inad_fatos_estritos=settings.inad_fatos_estritos,
                 inad_chave_exige_contrato=settings.inad_chave_exige_contrato,
+                pagto_comite_colegiado=settings.pagto_comite_colegiado,
                 contas_sla_risk_entrega=settings.contas_sla_risk_entrega,
             )
             state.harness = harness

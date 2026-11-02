@@ -208,6 +208,12 @@ export const taskLabels = [
   },
   {
     "process": "SP-OP-PAGTO-001",
+    "task": "UT_AprovacaoComite",
+    "processLabel": "Pagamentos de Alcada",
+    "taskLabel": "Voto do comite financeiro (aprovacao colegiada)"
+  },
+  {
+    "process": "SP-OP-PAGTO-001",
     "task": "UT_CoordenacaoAlcada",
     "processLabel": "Pagamentos de Alcada",
     "taskLabel": "Coordenacao financeira assume a aprovacao (tier >= faixa)"

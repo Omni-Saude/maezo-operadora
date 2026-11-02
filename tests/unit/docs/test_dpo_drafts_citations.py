@@ -609,10 +609,13 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # rascunho DRAFT dark — estrutura de ajuste, nunca dado de titular).
     # OP21/REG-1.1 (0030) adds `portal_legitimacy_screens`, also NOT covered (sem coluna de
     # titular; substrato DARK dark — verificacao de PJ contratante, nunca dado de titular).
-    assert len(covered | uncovered) == 44  # 43 + a coleta do reembolso pelo WhatsApp (0031)
-    assert len(uncovered) == 33  # 32 + a coleta do reembolso (sem probe)
-    assert len((covered | uncovered) - journal) == 38
-    assert len(uncovered - journal) == 27
+    # MPTT P3 (0032) adds `prestador_status_ledger`, also NOT covered (sem coluna de titular de
+    # beneficiario; ledger DARK do status legal do prestador — pergunta do prestador PF aberta ao DPO).
+    # DL-0162 adds `reembolso_coleta` (0033), also NOT covered (sem probe).
+    assert len(covered | uncovered) == 45  # 43 + o ledger (0032) + a coleta do reembolso (0033)
+    assert len(uncovered) == 34  # 32 + o ledger + a coleta do reembolso (ambos sem probe)
+    assert len((covered | uncovered) - journal) == 39  # +0032 (MPTT P3) +0033 (DL-0162)
+    assert len(uncovered - journal) == 28  # +0032 (MPTT P3) +0033 (DL-0162)
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

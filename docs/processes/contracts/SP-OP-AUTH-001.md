@@ -328,7 +328,7 @@ análise de minimização.
 > 5. **Seeds de admissibilidade** (`requer_autorizacao`, `beneficiario_ativo`,
 >    `documentacao_completa`) continuam nao verificados a montante (`auth_admissibility`).
 > 6. **`carater_atendimento` e' don't-care na regra r1**: uma urgencia auto-aprova sob exatamente os
->    mesmos fatos de um eletivo. Input MANTIDO na DMN de proposito, para o SME diferenciar (RN 259)
+>    mesmos fatos de um eletivo. Input MANTIDO na DMN de proposito, para o SME diferenciar (RN 566; RN 259 revogada)
 >    sem mudanca de codigo. **Pergunta aberta ao portao Medico/ANS.**
 >
 > **A promocao deste contrato de DRAFT para FINAL continua vinculada aos itens 1-2 acima.**
@@ -682,12 +682,12 @@ formulario do portal) e a citacao residual "RN 395 art. 10" na `bpmn:documentati
 
 > **DARK / informativo (REG-1.11):** este bloco é âncora de documentação. NENHUM timer, DMN,
 > variável de engine, worker ou wiring é criado ou alterado aqui. A moeda normativa DESTE
-> contrato (RN 259/2011 e RN 395/2016 citadas **DRAFT/verify** no gatilho e na tabela de SLAs
+> contrato (RN 259/2011 e RN 395/2016, ambas revogadas, citadas **DRAFT/verify** no gatilho e na tabela de SLAs
 > acima) permanece na fila R5 — `docs/compliance/rn-currency-review.md` §3.4 (`:150-158`:
 > "em r2 trocar \"RN 259 garantia 21 dias uteis…\" → \"RN 566/2022…\"; em r3 trocar
 > \"RN 395/2016 — resposta em ate 5 dias uteis\" → \"RN 623/2024 …\". [verify SME: figuras
 > exatas]") — NÃO decidida nem aplicada neste bloco. **Nota R-004 (achado F-016):** as citacoes
-> da RN 395/2016 e da RN 259/2011 no gatilho, na tabela de SLAs e em `auth_sla.dmn` foram
+> da RN 395/2016 e da RN 259/2011 (revogadas) no gatilho, na tabela de SLAs e em `auth_sla.dmn` foram
 > trocadas pela RN 623/2024 art. 12 (prazos de RESPOSTA) — somente a citacao; nenhum valor de
 > prazo mudou e tudo segue **DRAFT/verify** para o SME juridico.
 

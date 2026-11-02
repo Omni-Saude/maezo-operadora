@@ -6,7 +6,7 @@
 - Item R-054 do roadmap da auditoria forense @f57f0821 (bundle FORENSIC-COMPLETENESS-2026-10, árvore gitignored, consumido de snapshot local; os trechos relevantes estão transcritos aqui). O item é de decisão humana, dono jurídico, flag COUNSEL.
 - Decisão do dono **DEC-23, opção (b)**: "ratificar por linha (parcial) com pareceres separados".
 - Achados de lastro: F-019 (NIP), F-020 (CANCEL), F-021 (descredenciamento), F-022 (glosa), F-023 (Lei 9.656 arts. 12/13/35-C), F-025 (LBI art. 63), F-026 (art. 17 § 4º, REG-1.9 dark) e F-122 (RN 566, "tempos e distâncias").
-- Errata RN 259, aprovada pelo dono: a RN 259 foi revogada pela RN 566, art. 16, I. A ratificação jurídica está pendente (linha L9).
+- Errata RN 259, aprovada pelo dono: a RN 259 foi revogada pela RN 566, art. 16, I. A ratificação jurídica da linha L9 foi registrada pela decisão do dono **DEC-28** em 2026-11-01 (issue #1084, comentário https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547). Ver a seção L9.
 
 **Estado medido:** `main` = `2be4515f` (checkout limpo do worktree da branch docs/w1a-citacoes-calendario-ans). Todo `arquivo:linha` abaixo foi medido nesse commit.
 
@@ -396,7 +396,7 @@ Acesso em 2026-10-31.
 - `docs/processes/catalog.md:10`.
 - `docs/processes/contracts/SP-OP-REEMBOLSO-001.md:5`.
 
-**Citação corrigida (errata aprovada pelo dono; ratificação jurídica pendente):**
+**Citação corrigida (errata aprovada pelo dono; ratificação jurídica registrada pela DEC-28 em 2026-11-01):**
 - A **RN 259/2011 foi revogada** pela RN 566/2022, art. 16, I.
 - **Negativa por mérito clínico:**
   - Lei 12.842/2013, art. 5º, II: perícia e auditoria médicas são privativas de médico;
@@ -429,6 +429,9 @@ Acesso em 2026-10-31.
 Ambas com acesso em 2026-10-31. Mais os textos-base RN 566, RN 623 e RN 424, todos com matéria DOU e sha256.
 
 **Status:** VERIFICADO.
+
+**Registro da decisão do dono (DEC-28, 2026-11-01).** No comentário de 2026-11-01 da issue #1084
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547), o dono aprovou e confirmou o sign-off jurídico desta errata. Texto do dono, literal: "Legal sign-off on the RN 259 errata (R-054 L9)." A errata está na ADR-0073, Parte B, aceita pela DEC-29 no mesmo comentário. As células abaixo ficam em branco: o comentário não traz nome, papel, parecer ou assinatura de quem assina pelo jurídico, e nenhum agente preenche esses campos (ADR-0007). As demais linhas desta folha (L1 a L8) não mudam por este registro.
 
 | Ratificação do jurídico (L9) | |
 |---|---|

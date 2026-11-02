@@ -260,9 +260,10 @@ def test_all_actual_bpmn_tasks_have_closed_source_shapes_only() -> None:
                 (process.attrib["id"], task.attrib["id"]) for task in process.findall(".//b:userTask", ns)
             )
     assert tasks == set(_BINDINGS)
-    assert (
-        len(tasks) == 47
-    )  # VW4/GP11: +UT_RotearEncarregado; DL-0111: +2 do CANCEL; DL-0161: +UT_RegistrarPagamento
+    # VW4/GP11: +UT_RotearEncarregado; DL-0111: +2 tarefas de execucao do CANCEL;
+    # R-092: +UT_AprovacaoComite (mesmo formulario `pagto_aprovacao`, nenhuma forma nova);
+    # DL-0161: +UT_RegistrarPagamento (forma nova `reembolso_pagamento`)
+    assert len(tasks) == 48
     assert (
         len(_INPUTS_BY_FORM) == 34
     )  # VW4/GP11: +suppression_encarregado; DL-0111: +cancel_execucao; DL-0161: +reembolso_pagamento
