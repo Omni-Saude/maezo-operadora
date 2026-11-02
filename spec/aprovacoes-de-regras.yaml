@@ -217,6 +217,10 @@ pendentes:
   - artefato: spec/processes/dmn/pagto_alcada.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_alcada v0.1.0 — status: DRAFT (escada de alcada / threshold_brl / mapeamento"
+  - artefato: spec/processes/dmn/pagto_duplicidade.dmn
+    responsavel: a definir
+    marca_no_arquivo: "pagto_duplicidade v0.1.0 — status: DRAFT — janela W=180 dias do nivel 3 e a classe de cada nivel"
+    nota: "Pacote PAGTO PR-E, avaliada so' pela costura dmn= do detector (flag MAEZO_PAGTO_DETECT_DUPLICIDADE, desligada). Valores DRAFT a ratificar (financas + controladoria): W=180 dias (provisorio, sem fonte — mesmo horizonte do historyTimeToLive P180D), nivel 1 em ordem em curso = CONFIRMADA, nivel 2 excede = SUSPEITA, nivel nao avaliavel = INDETERMINADA. docs/review-queue.md secao PAGTO PR-E."
   - artefato: spec/processes/dmn/pagto_sla.dmn
     responsavel: a definir
     marca_no_arquivo: "pagto_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify com financas:"

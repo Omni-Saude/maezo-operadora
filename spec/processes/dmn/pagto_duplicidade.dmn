@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_pagto_duplicidade"
+             name="Classificacao de duplicidade da ordem de pagamento (detector PAGTO PR-E)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    pagto_duplicidade v0.1.0 — status: DRAFT — janela W=180 dias do nivel 3 e a classe de cada nivel
+    sao DRAFT (financas + controladoria); pendentes em spec/aprovacoes-de-regras.yaml e
+    docs/review-queue.md. Pacote PAGTO PR-E (docs/prompts/fcp-protocol-2026-10-30/analyses/
+    PAGTO-balanced-classification.md §4 e §9 item 5). Avaliada pelo detector
+    operadora.pagto.detect_duplicidade (tools/workers/pagto_duplicidade.py) pela costura dmn= da
+    ADR-0028, DENTRO do topico operadora.pagto.validate_payment_data e so' com a bandeira
+    MAEZO_PAGTO_DETECT_DUPLICIDADE ligada (desligada por padrao). NAO e' lida por BPMN nenhum e NAO
+    roteia: duplicidade_status e' FATO; quem o le para rotear e' pagto_admissibility v0.2 (PR-F).
+
+    Entradas (todas FATOS da razao append-only pagto_obrigacao_ledger, migracao 0033):
+      nivel1_situacao — a MESMA obrigacao em OUTRA ordem: SEM_OUTRA_ORDEM | REGISTRADA_OUTRA_ORDEM |
+        LIBERADA_OUTRA_ORDEM | NAO_AVALIAVEL;
+      nivel2_situacao — soma das ordens contra a MESMA instancia de origem + esta ordem vs o valor
+        que a origem registrou (PR-D): NAO_EXCEDE | EXCEDE | NAO_AVALIAVEL (sem origem conferida);
+      nivel3_avaliado — a ordem trouxe competencia (sem ela o nivel 3 nao roda);
+      nivel3_similar_idade_dias — idade em dias da ordem similar mais recente (mesmo prestador +
+        competencia + valor, outra obrigacao, outro lote); null quando nenhuma.
+
+    hitPolicy FIRST, ordem = precedencia: (1) nivel 1 em ordem ja LIBERADA -> CONFIRMADA;
+    (2) nivel 1 em ordem em curso -> CONFIRMADA (analise §4: "released or in-flight"); (3) nivel 2
+    excede -> SUSPEITA; (4) nivel 3 dentro da janela W -> SUSPEITA; (5)/(6) NENHUMA so' com os tres
+    niveis AVALIADOS e sem indicio; (7) catch-all INDETERMINADA. FAIL-CLOSED: nivel nao avaliavel
+    nunca vira NENHUMA. Razao indisponivel nem chega aqui: o detector emite INDETERMINADA sem avaliar.
+
+    INVARIANTE (ADR-0018; analise §3 L1): nenhuma saida libera, cancela, bloqueia ou acusa. CONFIRMADA
+    leva a BLOQUEIO humano no PR-F (CANCELAR/ENCAMINHAR_FRAUDE so' por humano); nunca auto-cancela.
+    Acusacao de fraude e' item hard (spec/policies/autonomy/_hard_frozen.yaml): esta tabela so'
+    descreve o que a razao mostra.
+
+    W=180 dias: valor PROVISORIO sem fonte de financas — escolhido como o mesmo horizonte do
+    historyTimeToLive P180D destas tabelas (analise §4 D6), viesado para MAIS SUSPEITA (vai a humano).
+  </description>
+  <decision id="pagto_duplicidade" name="Classificacao de duplicidade da ordem de pagamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_pagto_duplicidade" hitPolicy="FIRST">
+      <input id="in_nivel1_situacao" label="Nivel 1 — mesma obrigacao em outra ordem (nivel1_situacao)">
+        <inputExpression id="ie_dup_nivel1_situacao" typeRef="string"><text>nivel1_situacao</text></inputExpression>
+      </input>
+      <input id="in_nivel2_situacao" label="Nivel 2 — soma contra a instancia de origem excede o valor dela (nivel2_situacao)">
+        <inputExpression id="ie_dup_nivel2_situacao" typeRef="string"><text>nivel2_situacao</text></inputExpression>
+      </input>
+      <input id="in_nivel3_avaliado" label="Nivel 3 — similaridade avaliada (competencia presente) (nivel3_avaliado)">
+        <inputExpression id="ie_dup_nivel3_avaliado" typeRef="boolean"><text>nivel3_avaliado</text></inputExpression>
+      </input>
+      <input id="in_nivel3_similar_idade_dias" label="Nivel 3 — idade em dias da ordem similar mais recente (nivel3_similar_idade_dias)">
+        <inputExpression id="ie_dup_nivel3_similar_idade_dias" typeRef="integer"><text>nivel3_similar_idade_dias</text></inputExpression>
+      </input>
+      <output id="out_duplicidade_status" label="duplicidade_status" name="duplicidade_status" typeRef="string"/>
+      <output id="out_duplicidade_motivo_codigo" label="duplicidade_motivo_codigo" name="duplicidade_motivo_codigo" typeRef="string"/>
+      <rule id="r_dup_obrigacao_liberada">
+        <description>Nivel 1: a mesma obrigacao ja foi LIBERADA em outra ordem -> CONFIRMADA (BLOQUEIO humano no PR-F; nunca auto-cancela)</description>
+        <inputEntry id="r_dup_obrigacao_liberada_i1"><text>"LIBERADA_OUTRA_ORDEM"</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_liberada_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_liberada_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_liberada_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_dup_obrigacao_liberada_o1"><text>"CONFIRMADA"</text></outputEntry>
+        <outputEntry id="r_dup_obrigacao_liberada_o2"><text>"DUP_OBRIGACAO_LIBERADA"</text></outputEntry>
+      </rule>
+      <rule id="r_dup_obrigacao_em_curso">
+        <description>Nivel 1: a mesma obrigacao esta registrada em outra ordem ainda nao liberada -> CONFIRMADA (analise §4: released or in-flight)</description>
+        <inputEntry id="r_dup_obrigacao_em_curso_i1"><text>"REGISTRADA_OUTRA_ORDEM"</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_em_curso_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_em_curso_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_obrigacao_em_curso_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_dup_obrigacao_em_curso_o1"><text>"CONFIRMADA"</text></outputEntry>
+        <outputEntry id="r_dup_obrigacao_em_curso_o2"><text>"DUP_OBRIGACAO_EM_CURSO"</text></outputEntry>
+      </rule>
+      <rule id="r_dup_soma_excede_origem">
+        <description>Nivel 2: ordens contra a mesma origem somam mais que o valor da origem -> SUSPEITA</description>
+        <inputEntry id="r_dup_soma_excede_origem_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_soma_excede_origem_i2"><text>"EXCEDE"</text></inputEntry>
+        <inputEntry id="r_dup_soma_excede_origem_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_soma_excede_origem_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_dup_soma_excede_origem_o1"><text>"SUSPEITA"</text></outputEntry>
+        <outputEntry id="r_dup_soma_excede_origem_o2"><text>"DUP_SOMA_EXCEDE_ORIGEM"</text></outputEntry>
+      </rule>
+      <rule id="r_dup_similar_na_janela">
+        <description>Nivel 3: ordem similar (prestador + competencia + valor, outro lote) dentro de W=180 dias (DRAFT) -> SUSPEITA</description>
+        <inputEntry id="r_dup_similar_na_janela_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_similar_na_janela_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_dup_similar_na_janela_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_dup_similar_na_janela_i4"><text>[0..180]</text></inputEntry>
+        <outputEntry id="r_dup_similar_na_janela_o1"><text>"SUSPEITA"</text></outputEntry>
+        <outputEntry id="r_dup_similar_na_janela_o2"><text>"DUP_SIMILAR_NA_JANELA"</text></outputEntry>
+      </rule>
+      <rule id="r_dup_nenhuma_sem_similar">
+        <description>Tres niveis avaliados, nenhum indicio e nenhuma ordem similar -> NENHUMA</description>
+        <inputEntry id="r_dup_nenhuma_sem_similar_i1"><text>"SEM_OUTRA_ORDEM"</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_sem_similar_i2"><text>"NAO_EXCEDE"</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_sem_similar_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_sem_similar_i4"><text>null</text></inputEntry>
+        <outputEntry id="r_dup_nenhuma_sem_similar_o1"><text>"NENHUMA"</text></outputEntry>
+        <outputEntry id="r_dup_nenhuma_sem_similar_o2"><text>"SEM_INDICIO"</text></outputEntry>
+      </rule>
+      <rule id="r_dup_nenhuma_similar_fora_da_janela">
+        <description>Tres niveis avaliados; a ordem similar mais recente esta FORA de W=180 dias (DRAFT) -> NENHUMA</description>
+        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i1"><text>"SEM_OUTRA_ORDEM"</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i2"><text>"NAO_EXCEDE"</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_dup_nenhuma_similar_fora_da_janela_i4"><text>&gt; 180</text></inputEntry>
+        <outputEntry id="r_dup_nenhuma_similar_fora_da_janela_o1"><text>"NENHUMA"</text></outputEntry>
+        <outputEntry id="r_dup_nenhuma_similar_fora_da_janela_o2"><text>"SEM_INDICIO"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-CLOSED: nivel nao avaliavel, entrada ausente ou combinacao nao mapeada -> INDETERMINADA (vai a humano; nunca NENHUMA)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"INDETERMINADA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"NIVEL_NAO_AVALIADO"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -2505,3 +2505,20 @@ fraude) e do `pagto_admissibility` v0.3 (P6).
 
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
 REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.
+
+## PAGTO PR-E — detector de duplicidade e razao append-only: valores DRAFT pendentes de ratificacao (2026-11-01)
+
+Desenho: `docs/prompts/fcp-protocol-2026-10-30/analyses/PAGTO-balanced-classification.md` §4 (niveis
+1-3, `INDETERMINADA`), §8 D6(A) (razao append-only com chave natural UNIQUE — aceita pelo dono) e §9
+item 5. A DMN e' avaliada SO' pela costura `dmn=` do detector `operadora.pagto.detect_duplicidade`
+(`src/maezo/tools/workers/pagto_duplicidade.py`), atras de `MAEZO_PAGTO_DETECT_DUPLICIDADE`
+(desligada); nenhum BPMN a le e ela nao roteia (o consumidor e' `pagto_admissibility` v0.2, PR-F).
+Nenhum bloco de aprovacao foi preenchido.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/processes/dmn/pagto_duplicidade.dmn` (decisao `pagto_duplicidade` FIRST) | Janela W=180 dias do nivel 3 (mesmo prestador + competencia + valor, outra obrigacao, outro lote) — valor PROVISORIO sem fonte de financas, escolhido como o horizonte do `historyTimeToLive` P180D e viesado para mais SUSPEITA; classe de cada nivel: obrigacao ja LIBERADA ou EM CURSO em outra ordem = CONFIRMADA (analise §4 "released or in-flight" — uma ordem cancelada continua contando, porque o cancelamento hoje nao passa por worker), soma contra a origem acima do valor da origem = SUSPEITA, nivel nao avaliavel (sem origem conferida pelo PR-D, sem competencia) = INDETERMINADA, nunca NENHUMA | financas + controladoria (RN 518/2022 controles internos) | `DRAFT — valores provisorios; requires human review before any activation` |
+| `src/maezo/platform/migrations/versions/0033_pagto_obrigacao_ledger.py` (`pagto_obrigacao_ledger`) | Retencao da razao (append-only; sem dado de beneficiario; `prestador_id` pode identificar prestador PF — mesma pergunta aberta ao DPO da 0032) | DPO | `DRAFT — retencao PENDENTE-RATIFICACAO-DPO` |
+
+Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo da secao
+REG-1.12 acima — tokens deste arquivo sao ancorados por numero de linha.

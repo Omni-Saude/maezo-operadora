@@ -536,7 +536,7 @@ def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
 
 
 def test_domain_worker_modules_discovered() -> None:
-    """Guard: the discovery actually found the 20 domain worker modules (so the fences below
+    """Guard: the discovery actually found the 21 domain worker modules (so the fences below
     are not silently scanning an empty set)."""
     mods = _domain_worker_modules()
     # 18 worker modules (bootstrap.ALL_WORKER_BOOTSTRAPS = 18: 16 + events + vendor_admin).
@@ -544,8 +544,14 @@ def test_domain_worker_modules_discovered() -> None:
     # por `register_pagto_workers` no topico `operadora.pagto.validate_payment_data` sob a flag
     # dark), NAO infra: as cercas de pureza abaixo valem para ele (nao importa cliente de rede,
     # nao cunha identificador; chega ao motor so' pela costura `engine=` via `cibseven_engine`).
-    assert len(mods) == 20, f"expected 20 domain worker modules, found {sorted(mods)}"
+    # 21 (pacote PAGTO PR-E): `pagto_duplicidade` — handler de dominio de SP-OP-PAGTO-001 (o
+    # detector no topico `validate_payment_data` + o envoltorio dos workers de liberacao, sob a flag
+    # dark), NAO infra: as cercas valem para ele (nao importa cliente de rede — chega a razao pela
+    # costura `ledger=` e a DMN pela costura `dmn=`; nao cunha identificador — a chave e' sha256
+    # deterministico; a idade do nivel 3 vem do relogio do banco, nunca do worker).
+    assert len(mods) == 21, f"expected 21 domain worker modules, found {sorted(mods)}"
     assert "pagto_lastro" in mods
+    assert "pagto_duplicidade" in mods
 
 
 def test_no_domain_worker_imports_a_network_or_engine_client() -> None:

@@ -42,6 +42,13 @@ _FATOS_NOVOS = frozenset(
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
         "tier_minimo",
+        # Evidencia do detector de duplicidade (pacote PAGTO PR-E): nenhuma origem a semeia.
+        "duplicidade_motivo_codigo",
+        "duplicidade_chave_obrigacao",
+        "duplicidade_ordem_conflitante_id",
+        "duplicidade_nivel1_situacao",
+        "duplicidade_nivel2_situacao",
+        "duplicidade_nivel3_similar_idade_dias",
     }
 )
 

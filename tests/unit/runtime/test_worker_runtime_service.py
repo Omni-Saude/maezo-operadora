@@ -423,8 +423,12 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
         pagto_resolve_lastro: bool = False,
+        pagto_detect_duplicidade: bool = False,
+        pagto_obrigacao_ledger: Any = None,
     ) -> None:
         captured["pagto_resolve_lastro"] = pagto_resolve_lastro
+        captured["pagto_detect_duplicidade"] = pagto_detect_duplicidade
+        captured["pagto_obrigacao_ledger"] = pagto_obrigacao_ledger
         captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
         captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
         captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
@@ -493,6 +497,11 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # PAGTO PR-D: os fatos do lastro conferidos no historico ship dark (MAEZO_PAGTO_RESOLVE_LASTRO).
         assert settings.pagto_resolve_lastro is False
         assert captured["pagto_resolve_lastro"] is False
+        # PAGTO PR-E: o detector de duplicidade ship dark (MAEZO_PAGTO_DETECT_DUPLICIDADE) e a razao
+        # nem e' montada com a flag desligada.
+        assert settings.pagto_detect_duplicidade is False
+        assert captured["pagto_detect_duplicidade"] is False
+        assert captured["pagto_obrigacao_ledger"] is None
         # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
         # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False

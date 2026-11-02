@@ -135,7 +135,9 @@ class TestCollectArtifacts:
         # urgencia/emergencia, RN 424 art. 3 I; dark atras de `MAEZO_AUTH_JUNTA_RN424_GUARD`).
         # 66 -> 68: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5 — scorecard e tier de
         # confianca do prestador, DRAFT e nao ligados; P6 liga). Publicados pelo deploy como os demais.
-        assert len(dmn) == 68  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        # 68 -> 69: `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de duplicidade, so' pela
+        # costura dmn= do detector, dark atras de `MAEZO_PAGTO_DETECT_DUPLICIDADE`; W DRAFT).
+        assert len(dmn) == 69  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

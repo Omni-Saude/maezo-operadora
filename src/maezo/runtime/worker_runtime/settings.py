@@ -191,6 +191,15 @@ class WorkerRuntimeSettings(BaseSettings):
     # (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDISPONIVEL`). DARK by default
     # (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
     pagto_resolve_lastro: bool = Field(default=False, alias="MAEZO_PAGTO_RESOLVE_LASTRO")
+    # Pacote PAGTO PR-E (analise PAGTO §4 niveis 1-3; §8 D6(A) "razao append-only de pagamentos"):
+    # `validate_payment_data` passa a conferir a ordem contra a razao `pagto_obrigacao_ledger`
+    # (migracao 0033; exige DATABASE_URL) e acrescenta o FATO `duplicidade_status` + evidencia,
+    # classificado pela DMN `pagto_duplicidade` no motor; os dois workers de liberacao passam a
+    # gravar a `LIBERADA` DEPOIS do guard. Nao muda rota: `duplicidade_suspeita` segue como antes e a
+    # DMN que vai ler o fato (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDETERMINADA`).
+    # O nivel 2 usa os fatos do PR-D (`MAEZO_PAGTO_RESOLVE_LASTRO`); sem eles o status e'
+    # `INDETERMINADA`. DARK by default (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
+    pagto_detect_duplicidade: bool = Field(default=False, alias="MAEZO_PAGTO_DETECT_DUPLICIDADE")
 
     # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
     # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de

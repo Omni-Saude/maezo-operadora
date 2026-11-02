@@ -20,7 +20,7 @@ from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from maezo.a2a import DelegationDispatcher
     from maezo.tools.workers.harness import (
@@ -136,7 +136,12 @@ PAGTO_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PAGTO_ORDEM_INVALIDA
 #:   origem, deslocariam o que so PAGTO pode afirmar;
 #: - `tier_minimo` (saida de `pagto_alcada` achatada por `BRT_AlcadaRouting`, lida pelo guard do
 #:   tier de `release_high_value_payment`) — semeada, chegaria ao escopo antes da DMN. NAO entram
-#:   `faixa_valor`/`grupo_aprovador`: Andre ainda os semeia (ecos da mesma DMN no dossie).
+#:   `faixa_valor`/`grupo_aprovador`: Andre ainda os semeia (ecos da mesma DMN no dossie);
+#: - a evidencia do detector de duplicidade (pacote PAGTO PR-E, `pagto_duplicidade`):
+#:   `duplicidade_motivo_codigo`, `duplicidade_chave_obrigacao`, `duplicidade_ordem_conflitante_id`,
+#:   `duplicidade_nivel1_situacao`, `duplicidade_nivel2_situacao`,
+#:   `duplicidade_nivel3_similar_idade_dias` — semeada, apareceria no escopo como se a razao a
+#:   tivesse produzido. Nenhuma origem (CONTAS, RECURSO, Andre) semeia nenhuma delas hoje.
 PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
     {
         "lastro_confirmado",
@@ -151,6 +156,12 @@ PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
         "tier_minimo",
+        "duplicidade_motivo_codigo",
+        "duplicidade_chave_obrigacao",
+        "duplicidade_ordem_conflitante_id",
+        "duplicidade_nivel1_situacao",
+        "duplicidade_nivel2_situacao",
+        "duplicidade_nivel3_similar_idade_dias",
     }
 )
 
@@ -1281,21 +1292,34 @@ def register_pagto_workers(
     # mudaria o caminho vivo com a flag desligada (pinado por teste de fiacao).
     pagto_fatos_estritos = seams.get("pagto_fatos_estritos") is True
     validar = functools.partial(validate_pagto, fatos_estritos=pagto_fatos_estritos)
+    validar_variaveis: tuple[str, ...] | None = None
     if seams.get("pagto_resolve_lastro") is True:
         # Pacote PAGTO PR-D dark seam (settings `MAEZO_PAGTO_RESOLVE_LASTRO`, default off; ABSENT
         # == OFF, `is True`): o MESMO topico passa a acrescentar os fatos do lastro conferidos no
         # historico do motor (`pagto_lastro`), com escopo de leitura explicito. Rota inalterada.
         from maezo.tools.workers.pagto_lastro import VALIDATE_COM_LASTRO_VARIABLES, validar_com_lastro
 
-        harness.register_worker(
-            FunctionWorker(
-                "operadora.pagto.validate_payment_data",
-                functools.partial(validar_com_lastro, validar=validar, engine=seams.get("engine")),
-            ),
-            variables=VALIDATE_COM_LASTRO_VARIABLES,
+        validar = functools.partial(validar_com_lastro, validar=validar, engine=seams.get("engine"))
+        validar_variaveis = VALIDATE_COM_LASTRO_VARIABLES
+    # Pacote PAGTO PR-E dark seam (settings `MAEZO_PAGTO_DETECT_DUPLICIDADE`, default off; ABSENT ==
+    # OFF, `is True`): o MESMO topico passa a acrescentar os fatos da duplicidade (`pagto_duplicidade`,
+    # razao append-only + DMN `pagto_duplicidade` no motor), DEPOIS da validacao e do lastro, e os
+    # dois workers de liberacao passam a gravar a `LIBERADA` DEPOIS do guard (abaixo). Rota
+    # inalterada; nenhum caminho de efeito novo.
+    pagto_detect_duplicidade = seams.get("pagto_detect_duplicidade") is True
+    if pagto_detect_duplicidade:
+        from maezo.tools.workers.pagto_duplicidade import (
+            VALIDATE_COM_DUPLICIDADE_VARIABLES,
+            validar_com_duplicidade,
         )
-    else:
-        harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validar))
+
+        validar = functools.partial(
+            validar_com_duplicidade, validar=validar, ledger=seams.get("pagto_obrigacao_ledger"), dmn=dmn
+        )
+        validar_variaveis = VALIDATE_COM_DUPLICIDADE_VARIABLES
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.validate_payment_data", validar), variables=validar_variaveis
+    )
     harness.register_worker(
         FunctionWorker(
             "operadora.pagto.assess_admissibility", functools.partial(assess_admissibility, dmn=dmn)
@@ -1311,10 +1335,20 @@ def register_pagto_workers(
             ),
         )
     )
-    harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
-    harness.register_worker(
-        FunctionWorker("operadora.pagto.release_high_value_payment", release_high_value_payment)
-    )
+    liberar_baixo_valor: Callable[[dict[str, Any]], dict[str, Any]] = execute_pagto
+    liberar_alto_valor: Callable[[dict[str, Any]], dict[str, Any]] = release_high_value_payment
+    if pagto_detect_duplicidade:
+        # PR-E: o guard de sempre roda PRIMEIRO dentro de `registrar_liberacao`; a razao so' grava a
+        # `LIBERADA` de uma liberacao que o guard devolveu (recusa = excecao intacta, nada gravado).
+        from maezo.tools.workers.pagto_duplicidade import registrar_liberacao
+
+        razao = seams.get("pagto_obrigacao_ledger")
+        liberar_baixo_valor = functools.partial(registrar_liberacao, liberar=execute_pagto, ledger=razao)
+        liberar_alto_valor = functools.partial(
+            registrar_liberacao, liberar=release_high_value_payment, ledger=razao
+        )
+    harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", liberar_baixo_valor))
+    harness.register_worker(FunctionWorker("operadora.pagto.release_high_value_payment", liberar_alto_valor))
     harness.register_worker(FunctionWorker("operadora.pagto.notify_sla_risk", notify_sla_risk))
     harness.register_worker(
         FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)

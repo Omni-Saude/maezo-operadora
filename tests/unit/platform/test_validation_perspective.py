@@ -1430,7 +1430,8 @@ class TestLiveTree:
         # 82 -> 83: `auth_junta_admissibility.dmn` (R-064, RN 424 art. 3 I, #1121), que nao e'
         # artefato de cadeia. Ver as entradas #1121 do CORPUS_DELTA_LOG (phi_completeness).
         # 83 -> 85: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5), fora da cadeia.
-        assert len(_tier_a_paths()) == 85  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
+        # 85 -> 86: `pagto_duplicidade.dmn` (PAGTO PR-E, so' pela costura dmn=), fora da cadeia.
+        assert len(_tier_a_paths()) == 86  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
         assert len([p for p in _tier_a_paths() if p.suffix == ".bpmn"]) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 71 -> 72 pela mesma razao: `triage_sufficiency.dmn` nao e' artefato de cadeia.
         # 75 -> 76: `auth_junta_admissibility.dmn` (R-064, #1121) tambem fica fora da cadeia.

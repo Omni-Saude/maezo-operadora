@@ -112,6 +112,29 @@ rota:** `lastro_confirmado` segue como descrito acima, e a DMN que vai ler estes
 | `lastro_origem_terminal` | string | Evidencia: evento final que encerrou a origem (`""` quando nenhum) |
 | `lastro_valor_origem_cents` | integer \| null | Evidencia: valor que a origem registrou (`valor_liberado_brl`/`valor_apresentado_brl`/`valor_deferido_brl`), em centavos; `null` quando nao conferido |
 
+### Fatos da duplicidade conferidos na razao append-only (DARK — `MAEZO_PAGTO_DETECT_DUPLICIDADE`, pacote PAGTO PR-E)
+
+Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem tarefa nova no BPMN)
+acrescenta ao escopo os fatos abaixo, produzidos por `tools/workers/pagto_duplicidade.py` (analise
+PAGTO §4 niveis 1-3; §8 D6(A), aceita pelo dono: razao append-only de pagamentos). A ordem e'
+conferida contra a razao `pagto_obrigacao_ledger` (migracao 0033) e a classificacao e' da DMN
+`pagto_duplicidade`, avaliada no motor pela costura `dmn=` (ADR-0028) — janela W e classes DRAFT
+(financas). **Quem escreve a razao:** o detector grava a linha `REGISTRADA` da ordem nesta validacao
+(na mesma transacao em que le os indicios); os workers `release_low_value_payment` e
+`release_high_value_payment` gravam a `LIBERADA` SO' depois que o guard de sempre devolveu a
+liberacao (recusa do guard = nada gravado; retorno do guard inalterado). **Nao muda rota:**
+`duplicidade_suspeita` segue como descrito acima e a DMN que vai ler `duplicidade_status`
+(`pagto_admissibility` v0.2) e' o pacote PR-F. Desligada (padrao), nada disto e' escrito.
+
+| Variavel | Tipo | Descricao |
+|---|---|---|
+| `duplicidade_status` | string | `NENHUMA` (tres niveis avaliados, sem indicio) \| `SUSPEITA` (nivel 2: ordens contra a mesma instancia de origem somam mais que o valor dela; nivel 3: ordem similar — mesmo prestador + `competencia` + valor, outra obrigacao, outro lote — dentro da janela W) \| `CONFIRMADA` (nivel 1: a mesma obrigacao — CONTAS: lote + prestador + guia; RECURSO: `glosa_id`; outra: a propria ordem — ja registrada ou liberada em OUTRA ordem) \| `INDETERMINADA` (razao ou DMN indisponivel, ordem sem identidade, ou nivel nao avaliavel — **nunca** `NENHUMA`) |
+| `duplicidade_motivo_codigo` | string | Codigo fechado do motivo (`SEM_INDICIO`, `DUP_OBRIGACAO_LIBERADA`, `DUP_OBRIGACAO_EM_CURSO`, `DUP_SOMA_EXCEDE_ORIGEM`, `DUP_SIMILAR_NA_JANELA`, `NIVEL_NAO_AVALIADO`, `RAZAO_INDISPONIVEL`, `DMN_INDISPONIVEL`, `DMN_SAIDA_INVALIDA`, `DADOS_INSUFICIENTES`) |
+| `duplicidade_chave_obrigacao` | string | Evidencia: `OBRIG-{origem}-{sha256}` da obrigacao (`""` quando nao montada) |
+| `duplicidade_ordem_conflitante_id` | string | Evidencia: a outra ordem (nivel 1, senao a similar do nivel 3; `""` quando nenhuma) |
+| `duplicidade_nivel1_situacao` / `duplicidade_nivel2_situacao` | string | Evidencia: fatos de nivel enviados a DMN (`SEM_OUTRA_ORDEM`/`REGISTRADA_OUTRA_ORDEM`/`LIBERADA_OUTRA_ORDEM`; `NAO_EXCEDE`/`EXCEDE`; `NAO_AVALIAVEL`) |
+| `duplicidade_nivel3_similar_idade_dias` | integer \| null | Evidencia: idade em dias (relogio do banco) da ordem similar mais recente; `null` quando nenhuma |
+
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
@@ -142,8 +165,11 @@ delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e 
 `dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
 admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
 `prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
-`analista_admissibilidade_id` e `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
-`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+`analista_admissibilidade_id`, `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
+`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN) e a evidencia do detector
+de duplicidade (`duplicidade_motivo_codigo`, `duplicidade_chave_obrigacao`,
+`duplicidade_ordem_conflitante_id`, `duplicidade_nivel1_situacao`, `duplicidade_nivel2_situacao`,
+`duplicidade_nivel3_similar_idade_dias` — pacote PR-E). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
 handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |

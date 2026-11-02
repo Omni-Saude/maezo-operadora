@@ -147,7 +147,10 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # D-36 (dono, 25/10/2026) appends 0029 (estruturas de ajuste de comissao em rascunho); still linear.
     # OP21/REG-1.1 (26/10/2026) appends 0030 (registro da verificacao de legitimidade da PJ,
     # escuro no substrato); still linear.
-    assert script.get_heads() == ["0030"]
+    # PAGTO PR-E (01/11/2026) appends 0033 (razao append-only das obrigacoes de pagamento, escura;
+    # revisa 0030 — re-apontada pelo orquestrador se a 0031/0032 entrarem antes); still linear.
+    assert script.get_heads() == ["0033"]
+    assert script.get_revision("0033").down_revision == "0030"
     assert script.get_revision("0030").down_revision == "0029"
     assert script.get_revision("0028").down_revision == "0027"
     assert script.get_revision("0027").down_revision == "0026"
