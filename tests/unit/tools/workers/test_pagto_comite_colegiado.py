@@ -389,3 +389,130 @@ def test_livro_esta_no_conjunto_proibido_na_semente() -> None:
     from maezo.tools.workers.pagto import PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
 
     assert VOTOS_COMITE_VAR in PAGTO_FATOS_PROIBIDOS_NA_SEMENTE
+
+
+# ---------------------------------------------------------------------------------------------
+# 5. DEC-30 D3 (dono, #1084, 2026-11-02): a coordenacao completa o quorum apos estouro de SLA
+#    SO se ja houver o minimo de votos APROVAR que a DMN `pagto_alcada` emite
+#    (`votos_minimos_coordenacao`, 1 no catch-all), de membro(s) DISTINTO(S) da coordenacao.
+# ---------------------------------------------------------------------------------------------
+
+_COORD = "coord-fin-sintetico-009"
+
+
+def _coordenacao_assume(**overrides: Any) -> dict[str, Any]:
+    """Escopo no `ST_ReleaseHighValue` quando a coordenacao assume (`assumir_aprovacao` + APROVAR)
+    um comite interrompido pelo SLA depois de UM voto APROVAR do membro A."""
+    base = _liberacao(
+        aprovador_id=_COORD,
+        decisao_coordenacao="assumir_aprovacao",
+        votos_minimos_coordenacao=1,
+        **{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A)]},
+    )
+    for key, value in overrides.items():
+        if value is _ABSENT:
+            base.pop(key, None)
+        else:
+            base[key] = value
+    return base
+
+
+def test_d3_um_aprovar_de_membro_distinto_coordenacao_completa_e_libera() -> None:
+    out = release_high_value_payment(_coordenacao_assume(), comite_colegiado=True)
+    assert out == {"pagamento_liberado": True, "tipo_liberacao": "humano_alcada"}
+
+
+def test_d3_zero_votos_coordenacao_nunca_libera() -> None:
+    erro = _recusa(_coordenacao_assume(**{VOTOS_COMITE_VAR: []}))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "votos_comite ausente ou vazio" in erro.message
+
+
+def test_d3_coordenacao_igual_ao_membro_que_votou_e_violacao_de_sod() -> None:
+    """A mesma pessoa vota no comite e depois assume como coordenacao: controle dual com UMA pessoa."""
+    for coord in (_MEMBRO_A, f"  {_MEMBRO_A.upper()} "):
+        erro = _recusa(_coordenacao_assume(aprovador_id=coord))
+        assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
+        assert "segregacao: coordenacao == membro do comite que votou" in erro.message
+        assert _MEMBRO_A not in erro.message
+
+
+@pytest.mark.parametrize("voto", ["RECUSAR", "SOLICITAR_INFO", "CANCELAR", "", "aprovar"])
+def test_d3_um_voto_que_nao_aprova_coordenacao_nao_libera(voto: str) -> None:
+    erro = _recusa(_coordenacao_assume(**{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A, voto=voto)]}))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "voto != APROVAR" in erro.message
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [("lastro_decisor_id", _COORD), ("analista_admissibilidade_id", _COORD)],
+)
+def test_d3_coordenacao_igual_ao_decisor_ou_ao_analista_e_violacao_de_sod(campo: str, valor: str) -> None:
+    erro = _recusa(_coordenacao_assume(**{campo: valor}))
+    assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
+
+
+def test_d3_membro_que_votou_igual_ao_decisor_do_lastro_continua_sod() -> None:
+    erro = _recusa(_coordenacao_assume(lastro_decisor_id=_MEMBRO_A))
+    assert erro.code == ERR_PAYMENT_SOD_NOT_HUMAN
+
+
+@pytest.mark.parametrize("minimo", [_ABSENT, None, 0, -1, True, "1", 1.0])
+def test_d3_minimo_da_dmn_ausente_ou_mal_formado_recusa(minimo: Any) -> None:
+    """Fail-closed: sem o fato da DMN (ou 0 — a opcao B rejeitada pelo dono) a coordenacao nao completa."""
+    erro = _recusa(_coordenacao_assume(votos_minimos_coordenacao=minimo))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "votos_minimos_coordenacao invalido" in erro.message
+
+
+def test_d3_minimo_vem_da_dmn_nao_do_python() -> None:
+    """Com a DMN pedindo 2 votos previos, 1 voto nao basta (o numero nao mora no worker)."""
+    erro = _recusa(_coordenacao_assume(votos_minimos_coordenacao=2, quorum_comite=3))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "abaixo do minimo da DMN" in erro.message
+    out = release_high_value_payment(
+        _coordenacao_assume(
+            votos_minimos_coordenacao=2,
+            quorum_comite=3,
+            **{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A), _voto(_MEMBRO_B)]},
+        ),
+        comite_colegiado=True,
+    )
+    assert out["pagamento_liberado"] is True
+
+
+def test_d3_coordenacao_so_acrescenta_um_membro_ao_quorum() -> None:
+    """Quorum 3 com 1 voto previo: 1 + a coordenacao = 2 < 3 -> recusa."""
+    erro = _recusa(_coordenacao_assume(quorum_comite=3))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "quorum_comite nao atingido" in erro.message
+
+
+@pytest.mark.parametrize(
+    "decisao_coordenacao", [_ABSENT, "", "prorrogar_prazo", "seguir_analise", "ASSUMIR_APROVACAO"]
+)
+def test_d3_sem_assumir_aprovacao_o_aprovador_fora_do_livro_continua_recusado(
+    decisao_coordenacao: Any,
+) -> None:
+    erro = _recusa(_coordenacao_assume(decisao_coordenacao=decisao_coordenacao))
+    assert erro.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "aprovador_id fora do livro" in erro.message
+
+
+def test_d3_coordenacao_com_tier_ou_valor_divergente_recusa() -> None:
+    assert _recusa(_coordenacao_assume(aprovador_tier=3)).code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    erro = _recusa(_coordenacao_assume(**{VOTOS_COMITE_VAR: [_voto(_MEMBRO_A, valor=_VALOR - 1)]}))
+    assert "valor aprovado do membro difere" in erro.message
+
+
+def test_d3_flag_desligada_inalterada() -> None:
+    """Sem a flag o guard colegiado nao roda (comportamento historico, com ou sem livro)."""
+    for variables in (_coordenacao_assume(), _coordenacao_assume(**{VOTOS_COMITE_VAR: []})):
+        assert release_high_value_payment(variables)["pagamento_liberado"] is True
+
+
+def test_d3_votos_previos_completos_pelo_comite_continuam_liberando_sem_a_coordenacao() -> None:
+    """O caminho normal do comite (2 membros, o ultimo e o aprovador final) nao muda."""
+    out = release_high_value_payment(_liberacao(decisao_coordenacao=""), comite_colegiado=True)
+    assert out["pagamento_liberado"] is True

@@ -2,7 +2,7 @@
 
 O teste de unidade (`tests/unit/spec/test_pagto_duplicidade_dmn.py`) prova a forma da tabela; ESTE
 arquivo prova o que so' o motor responde: a precedencia FIRST, o teste unario `null` casando a
-entrada presente e nula (sem ordem similar), os limites fechados da janela `[0..180]` / `> 180`, e
+entrada presente e nula (sem ordem similar), os limites fechados da janela `[0..90]` / `> 90` (DEC-30 D9), e
 o catch-all fail-closed (nivel nao avaliavel nunca vira NENHUMA).
 
 E um caso PONTA A PONTA quando o Postgres do job tambem esta' de pe: o detector REAL
@@ -55,8 +55,10 @@ def _fatos(
     ("variaveis", "status", "motivo"),
     [
         (_fatos(), "NENHUMA", "SEM_INDICIO"),
-        (_fatos(idade=181), "NENHUMA", "SEM_INDICIO"),
-        (_fatos(idade=180), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
+        # DEC-30 D9 (dono, #1084, 2026-11-02): W = 90 dias — limites fechados [0..90] / > 90.
+        (_fatos(idade=91), "NENHUMA", "SEM_INDICIO"),
+        (_fatos(idade=90), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
+        (_fatos(idade=180), "NENHUMA", "SEM_INDICIO"),
         (_fatos(idade=0), "SUSPEITA", "DUP_SIMILAR_NA_JANELA"),
         (_fatos(nivel2="EXCEDE"), "SUSPEITA", "DUP_SOMA_EXCEDE_ORIGEM"),
         (_fatos(nivel1="REGISTRADA_OUTRA_ORDEM"), "CONFIRMADA", "DUP_OBRIGACAO_EM_CURSO"),

@@ -199,8 +199,10 @@ grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (
            para o GUARD (3) TIER-MATCH de release_high_value_payment le-lo. Pacote PAGTO PR-A (R-053 (a)):
            `valor_maximo_aprovavel_cents` (o teto do aprovado = valor da ordem, regra na DMN) e achatado
            aqui para o guard do teto do aprovado (valor_aprovado_cents acima dele, ou ele ausente -> recusa).
-           R-092: `quorum_comite` (numero de membros do comite que precisam aprovar; DRAFT na DMN) e
-           achatado aqui para GW_TipoAprovacao, a cardinalidade de SP_AprovacaoComite e o guard colegiado.
+           R-092: `quorum_comite` (numero de membros do comite que precisam aprovar; 2 no comite, DEC-30 D1)
+           e achatado aqui para GW_TipoAprovacao, a cardinalidade de SP_AprovacaoComite e o guard colegiado.
+           DEC-30 D3: `votos_minimos_coordenacao` (votos APROVAR do comite ja no livro para a coordenacao
+           completar o quorum apos estouro de SLA; 1 no comite) e achatado aqui para o guard colegiado.
            NAO existe saida adversa: so re-expoe a classificacao/roteamento ja produzido pela DMN. -->
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -209,6 +211,7 @@ grupo analise-contas-pagar (checker, nunca aprovador — #1084) e DRAFT/verify (
           <camunda:outputParameter name="tier_minimo">${pagto_alcada.tier_minimo}</camunda:outputParameter>
           <camunda:outputParameter name="valor_maximo_aprovavel_cents">${pagto_alcada.valor_maximo_aprovavel_cents}</camunda:outputParameter>
           <camunda:outputParameter name="quorum_comite">${pagto_alcada.quorum_comite}</camunda:outputParameter>
+          <camunda:outputParameter name="votos_minimos_coordenacao">${pagto_alcada.votos_minimos_coordenacao}</camunda:outputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GWAdmiss_Segue</bpmn:incoming>
@@ -394,7 +397,7 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
     </bpmn:exclusiveGateway>
 
     <!-- R-092 (F-081): aprovacao colegiada do comite financeiro. Multi-instancia SEQUENCIAL com
-         cardinalidade = quorum_comite (DMN pagto_alcada — valor DRAFT, docs/review-queue.md). Cada
+         cardinalidade = quorum_comite (DMN pagto_alcada — 2, decidido pelo dono em DEC-30 D1). Cada
          instancia: UT_AprovacaoComite (um membro de comite-financeiro vota com os MESMOS campos de
          UT_AprovacaoAlcada) -> ST_RegistrarVotoComite (registra o voto no livro votos_comite; FATO,
          nunca decide). Os campos de DECISAO (decisao_pagamento, aprovador_id, aprovador_tier,
@@ -411,9 +414,13 @@ diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` di
          quorum_comite votos APROVAR; a liberacao continua materializada APENAS pelo worker gated
          release_high_value_payment, que (com a flag) re-verifica o livro: quorum atingido, membros
          DISTINTOS, nenhum membro igual ao decisor do lastro ou ao analista de admissibilidade
-         (ERR_PAYMENT_SOD_NOT_HUMAN), tier e valor aprovado de cada voto. -->
+         (ERR_PAYMENT_SOD_NOT_HUMAN), tier e valor aprovado de cada voto. DEC-30 D3: apos estouro de
+         SLA (BT_SlaComite) a coordenacao financeira que assume (assumir_aprovacao) so COMPLETA o
+         quorum se o livro ja tiver votos_minimos_coordenacao (DMN) votos APROVAR de membros distintos
+         dela; o listener de Flow_GWTipo_Comite zera o livro e decisao_coordenacao a cada rodada do
+         comite, entao um voto de rodada anterior (prorrogar_prazo/seguir_analise) nunca conta. -->
     <bpmn:subProcess id="SP_AprovacaoComite" name="Aprovacao colegiada do comite financeiro (quorum da DMN pagto_alcada)">
-      <bpmn:documentation>HITL L1 hard (high_value_payment): aprovacao colegiada (contrato SP-OP-PAGTO-001 §Papeis: comite-financeiro, tier 4, UT_AprovacaoComite). Quorum = quorum_comite (DMN pagto_alcada; DRAFT/verify financas — composicao e quorum do comite NAO decididos pelo dono). Nenhuma decisao automatica: cada voto e humano; o worker do livro so registra. Sem auto-liberacao por timeout: os boundary timers levam a coordenacao humana (mesmo caminho de UT_AprovacaoAlcada).</bpmn:documentation>
+      <bpmn:documentation>HITL L1 hard (high_value_payment): aprovacao colegiada (contrato SP-OP-PAGTO-001 §Papeis: comite-financeiro, tier 4, UT_AprovacaoComite). Quorum = quorum_comite (DMN pagto_alcada; DEC-30 D1: comite = CFO + Gerente Financeiro, 2 de 2, todo voto APROVAR). Nenhuma decisao automatica: cada voto e humano; o worker do livro so registra. Sem auto-liberacao por timeout: os boundary timers levam a coordenacao humana (mesmo caminho de UT_AprovacaoAlcada).</bpmn:documentation>
       <bpmn:incoming>Flow_GWTipo_Comite</bpmn:incoming>
       <bpmn:outgoing>Flow_Comite_GWDecisao</bpmn:outgoing>
       <bpmn:multiInstanceLoopCharacteristics isSequential="true">
@@ -596,7 +603,14 @@ Portal: mesmo formulario fechado de UT_AprovacaoAlcada (pagto_aprovacao, DRAFT/v
     <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_PagtoSla" targetRef="ST_PrepareApprovalDossier"/>
     <bpmn:sequenceFlow id="Flow_Dossie_GWTipo" sourceRef="ST_PrepareApprovalDossier" targetRef="GW_TipoAprovacao"/>
     <bpmn:sequenceFlow id="Flow_GWTipo_Alcada" name="aprovacao singular (default)" sourceRef="GW_TipoAprovacao" targetRef="UT_AprovacaoAlcada"/>
+    <!-- DEC-30 D3: cada rodada do comite comeca sem livro e sem decisao da coordenacao — um voto de
+         rodada anterior (antes de prorrogar_prazo/seguir_analise) nunca e contado quando a coordenacao
+         assume apos novo estouro de SLA, e um assumir_aprovacao antigo nunca vale para esta rodada. -->
     <bpmn:sequenceFlow id="Flow_GWTipo_Comite" name="comite colegiado (flag + quorum &gt; 1)" sourceRef="GW_TipoAprovacao" targetRef="SP_AprovacaoComite">
+      <bpmn:extensionElements>
+        <camunda:executionListener event="take" expression="${execution.removeVariable('votos_comite')}"/>
+        <camunda:executionListener event="take" expression="${execution.setVariable('decisao_coordenacao', '')}"/>
+      </bpmn:extensionElements>
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('pagto_comite_colegiado_ativo') == true and execution.getVariable('quorum_comite') != null and quorum_comite &gt; 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Comite_GWDecisao" sourceRef="SP_AprovacaoComite" targetRef="GW_DecisaoPagamento"/>

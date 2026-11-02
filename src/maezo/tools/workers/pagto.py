@@ -201,6 +201,16 @@ VOTOS_COMITE_VAR = "votos_comite"
 #: `SP_AprovacaoComite` (`${comite_ultimo_voto != 'APROVAR'}`): o comite encerra no primeiro voto
 #: que nao aprova. Plumbing do voto humano, nunca decisao deste worker.
 COMITE_ULTIMO_VOTO_VAR = "comite_ultimo_voto"
+#: DEC-30 D3 (dono, #1084, 2026-11-02): minimo de votos APROVAR do comite ja registrados no livro
+#: para a coordenacao financeira completar o quorum apos estouro de SLA. FATO da DMN `pagto_alcada`
+#: (v0.1.3, achatado por `BRT_AlcadaRouting`) — o numero nunca mora aqui; ausente/mal-formado/< 1
+#: -> a coordenacao nao completa (fail-closed; 0 seria a opcao B rejeitada pelo dono).
+VOTOS_MINIMOS_COORDENACAO_VAR = "votos_minimos_coordenacao"
+#: Vocabulario FECHADO de `decisao_coordenacao` (UT_CoordenacaoAlcada; BPMN `GW_DecisaoCoordenacao`):
+#: o unico valor que leva a coordenacao a decidir o merito agora. `SP_AprovacaoComite` zera a
+#: variavel ao abrir cada rodada do comite (listener em `Flow_GWTipo_Comite`), entao ela so chega
+#: aqui com este valor quando a coordenacao assumiu ESTA rodada.
+DECISAO_COORDENACAO_ASSUMIR = "assumir_aprovacao"
 #: Escopo de leitura EXPLICITO de `operadora.pagto.register_committee_vote` (menor privilegio —
 #: nunca `variables=all`): os campos do voto (ja no escopo do processo — os outputParameter de
 #: `UT_AprovacaoComite` os achataram ao concluir a tarefa), o contador da multi-instancia e o livro
@@ -756,6 +766,13 @@ def _violacoes_colegiado(
     sozinha um caso de comite) -> recusa `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Membro repetido, ou membro
     igual ao decisor do lastro / ao analista de admissibilidade -> `ERR_PAYMENT_SOD_NOT_HUMAN`.
     Mensagens so com tokens — nenhuma identidade nem valor no texto do incidente.
+
+    DEC-30 D3 (dono, #1084, 2026-11-02): quando a coordenacao financeira assumiu o caso apos estouro
+    de SLA (`decisao_coordenacao == assumir_aprovacao`), ela COMPLETA o quorum — conta como um
+    membro a mais — SO se o livro ja tiver pelo menos `votos_minimos_coordenacao` membros distintos
+    (fato da DMN; 1 no catch-all) e a coordenacao for pessoa DISTINTA de todos eles (igual a um
+    membro que votou -> `ERR_PAYMENT_SOD_NOT_HUMAN`). Todas as demais conferencias (voto APROVAR,
+    tier, valor, SoD contra decisor do lastro/analista) valem igual; livro vazio continua recusando.
     """
     erros: list[str] = []
     sod: list[str] = []
@@ -788,10 +805,25 @@ def _violacoes_colegiado(
         if analista and membro == analista:
             sod.append("segregacao: membro do comite == analista_admissibilidade_id")
         membros.append(membro)
-    if len(set(membros)) < quorum:
+    aprovador = _identidade(aprovador_id)
+    distintos = set(membros)
+    if _norm_str(variables.get("decisao_coordenacao")) != DECISAO_COORDENACAO_ASSUMIR:
+        if len(distintos) < quorum:
+            erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
+        if aprovador not in distintos:
+            erros.append("aprovador_id fora do livro de votos do comite")
+        return erros, sod
+    # DEC-30 D3: a coordenacao completa o quorum (um membro a mais), nunca o substitui.
+    if aprovador in distintos:
+        sod.append("segregacao: coordenacao == membro do comite que votou")
+    minimo = _quorum_comite_or_none(variables.get(VOTOS_MINIMOS_COORDENACAO_VAR))
+    if minimo is None:
+        erros.append("votos_minimos_coordenacao invalido (fato da DMN pagto_alcada ausente/mal-formado)")
+    elif len(distintos) < minimo:
+        erros.append("coordenacao: votos APROVAR do comite abaixo do minimo da DMN")
+    # Coordenacao sem identidade nunca conta como membro (o Guard 1 tambem recusa).
+    if len(distintos | ({aprovador} if aprovador else set())) < quorum:
         erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
-    if _identidade(aprovador_id) not in membros:
-        erros.append("aprovador_id fora do livro de votos do comite")
     return erros, sod
 
 
@@ -818,6 +850,10 @@ def release_high_value_payment(
         when it is > 1 the committee ledger `votos_comite` must carry that many DISTINCT members,
         every vote APROVAR with tier >= `tier_minimo` and the SAME approved amount, the final
         `aprovador_id` among them (`_violacoes_colegiado`). OFF = the historical guard, unchanged.
+        DEC-30 D3: after an SLA breach the coordinator (`decisao_coordenacao=assumir_aprovacao`)
+        may COMPLETE the quorum as one extra member only if the ledger already holds at least
+        `votos_minimos_coordenacao` (DMN `pagto_alcada`) distinct APROVAR members and the
+        coordinator is none of them (same person -> ERR_PAYMENT_SOD_NOT_HUMAN).
 
     NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
     #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
