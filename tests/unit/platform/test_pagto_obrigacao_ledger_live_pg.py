@@ -13,7 +13,8 @@ Cadeia alembic REAL sobre um schema de tenant descartavel no Postgres do compose
 - APPEND-ONLY: UPDATE, DELETE e TRUNCATE direto no banco levantam a excecao do trigger; CHECKs
   fechados recusam evento/origem/chave fora do vocabulario;
 - banco fora -> `RazaoIndisponivelError` (o detector a traduz em INDETERMINADA);
-- `downgrade -1` (so' a 0034, qualquer que seja o pai no merge) apaga tabela e funcao, e um segundo `upgrade head` as restaura.
+- `downgrade -1` (so' a 0034, qualquer que seja o pai no merge) apaga tabela e funcao, e um
+  segundo `upgrade head` as restaura.
 """
 
 from __future__ import annotations
