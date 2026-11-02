@@ -125,3 +125,78 @@ def test_close_is_noop() -> None:
     """No persistent client is held -> close() is a safe no-op (daemon calls it on drain)."""
     engine = FreshClientCibSevenTransport("http://x")
     assert asyncio.run(engine.close()) is None
+
+
+# -------------------------------------------------------------------------------------------------
+# Pacote PAGTO PR-D: as duas leituras do historico que `gate_cibseven` exige para expor
+# `resolve_historic_instance` ao daemon de workers (consumidor: `pagto_lastro.resolve_lastro`).
+# -------------------------------------------------------------------------------------------------
+
+
+def _fake_com_historico() -> FakeCibSevenTransport:
+    from maezo.tools.mcp_cibseven.transport import HistoricInstanceRecord, HistoricProcessVariables
+
+    shared = FakeCibSevenTransport()
+    shared.seed_historic_instance_record(
+        HistoricInstanceRecord(
+            instance_id="pi-h",
+            business_key="CONTAS-amh-L",
+            process_key="SP-OP-CONTAS-001",
+            state="COMPLETED",
+            end_activity_id="End_ContaAprovadaHumano",
+            variables={"prestador_id": "prov:h", "valor_liberado_brl": 10.0},
+        )
+    )
+    shared.seed_historic_variables(
+        HistoricProcessVariables(
+            instance_id="pi-h",
+            business_key="CONTAS-amh-L",
+            process_key="SP-OP-CONTAS-001",
+            state="COMPLETED",
+            variables={"prestador_id": "prov:h"},
+        )
+    )
+    return shared
+
+
+def test_resolve_historic_instance_delega_fresco_por_chamada() -> None:
+    shared = _fake_com_historico()
+    construidos: list[FakeCibSevenTransport] = []
+
+    def factory() -> FakeCibSevenTransport:
+        construidos.append(shared)
+        return shared
+
+    engine = FreshClientCibSevenTransport("http://x", transport_factory=factory)
+    record = asyncio.run(
+        engine.resolve_historic_instance(
+            "SP-OP-CONTAS-001", variable_equals={"prestador_id": "prov:h"}, names=("valor_liberado_brl",)
+        )
+    )
+    assert (record.instance_id, record.end_activity_id) == ("pi-h", "End_ContaAprovadaHumano")
+    assert record.variables == {"valor_liberado_brl": 10.0}
+    historico = asyncio.run(engine.read_historic_variables("pi-h", ("prestador_id",)))
+    assert historico is not None and historico.variables == {"prestador_id": "prov:h"}
+    assert len(construidos) == 2  # um inner por chamada
+
+
+def test_leituras_do_historico_com_inner_sem_capacidade_levantam() -> None:
+    from maezo.tools.mcp_cibseven.transport import CibSevenError
+
+    counters = {"constructions": 0, "closes": 0}
+    engine = FreshClientCibSevenTransport(
+        "http://x", transport_factory=_spy_factory(FakeCibSevenTransport(), counters)
+    )
+    with pytest.raises(CibSevenError, match="resolve_historic_instance"):
+        asyncio.run(engine.resolve_historic_instance("SP-OP-CONTAS-001", business_key="k"))
+    with pytest.raises(CibSevenError, match="read_historic_variables"):
+        asyncio.run(engine.read_historic_variables("pi", ("x",)))
+    assert counters == {"constructions": 2, "closes": 2}  # fecha mesmo quando recusa
+
+
+def test_gate_cibseven_sobre_o_fresh_expoe_a_resolucao() -> None:
+    from maezo.gateway.seams.cibseven import GatedHistoryResolvingCibSevenTransport, gate_cibseven
+    from maezo.runtime.worker_runtime.service import _worker_seam_cached
+
+    gated = gate_cibseven(FreshClientCibSevenTransport("http://engine.invalid"), _worker_seam_cached("amh"))
+    assert isinstance(gated, GatedHistoryResolvingCibSevenTransport)

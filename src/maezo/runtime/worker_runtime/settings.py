@@ -184,6 +184,13 @@ class WorkerRuntimeSettings(BaseSettings):
     reembolso_condicoes_contratuais: bool = Field(
         default=False, alias="MAEZO_REEMBOLSO_CONDICOES_CONTRATUAIS"
     )
+    # Pacote PAGTO PR-D (analise PAGTO §2 L1-L4, ADR-0040 I-PAGTO-1): `validate_payment_data`
+    # passa a conferir o lastro da ordem no HISTORICO do motor (instancia de CONTAS/RECURSO que a
+    # produziu: terminal, valor, credor) e acrescenta os FATOS `lastro_status`/`lastro_origem_tipo`
+    # + evidencia. Nao muda rota: `lastro_confirmado` segue como antes e a DMN que vai ler os fatos
+    # (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDISPONIVEL`). DARK by default
+    # (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
+    pagto_resolve_lastro: bool = Field(default=False, alias="MAEZO_PAGTO_RESOLVE_LASTRO")
 
     # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
     # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de

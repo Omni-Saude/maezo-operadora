@@ -1334,7 +1334,10 @@ def _parse_valor_monetario(value: Any) -> float | None:
     silently defaults to ``0`` — a wrong monetary decision on a conta is a financial defect, and
     the ``0.0`` case is REAL, not theoretical: `marina/graph.py` seeds
     ``float(state.get("valor_apresentado_brl", 0.0))``, so a state missing the field produces
-    ``0.0``, and ``0`` cents would sail through PAGTO's `r_dentro_teto_l2` (``0 <= 10000000``).
+    ``0.0``, and ``0`` cents would have sailed through PAGTO's `r_dentro_teto_l2` when that row
+    still repeated the ceiling (``<= 10000000``). `pagto_alcada` v0.1.1 no longer does: the row
+    reads ``> 0`` plus `dentro_teto_l2`, and the R$ 100k teto comes ONLY from the `ceilings.py`
+    resolver — refusing here keeps a zero order from ever reaching it.
 
     DUPLICATED, NOT SHARED, deliberately: hoisting it into `workers/base.py` would couple two
     worker modules through a third at the exact moment both are being rebuilt. Consolidation is a

@@ -30,7 +30,8 @@ _QUATRO_FATOS_ORIGINAIS = frozenset(
 )
 
 #: Fatos que o pacote PAGTO introduz (v0.2 da admissibilidade, §3 da analise) + o teto do
-#: aprovado (saida da DMN, PR-A) + a identidade do analista que a SoD compara (PR-A).
+#: aprovado (saida da DMN, PR-A) + a identidade do analista que a SoD compara (PR-A) + o
+#: `tier_minimo` que o guard do tier le (saida da DMN; follow-up A2 do PR-D).
 _FATOS_NOVOS = frozenset(
     {
         "lastro_status",
@@ -40,6 +41,7 @@ _FATOS_NOVOS = frozenset(
         "prestador_conhecido",
         "valor_maximo_aprovavel_cents",
         "analista_admissibilidade_id",
+        "tier_minimo",
     }
 )
 
