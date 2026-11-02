@@ -143,8 +143,6 @@ locals {
       # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
       { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
       { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
-      # DL-0165 (etapa 2 da limpeza da saude): rota global, roteador ativo e porta unica para TODAS as conversas.
-      { name = "MAEZO_HELENA_ROTA_GLOBAL_TODAS", value = tostring(var.helena_rota_global_todas) },
       # Fase 3 (18/10/2026): busca por significado na base de saude (embeddings REGIONAIS sa-east-1; default `false`).
       { name = "MAEZO_HELENA_BUSCA_SEMANTICA", value = tostring(var.helena_busca_semantica) },
       { name = "MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", value = var.helena_busca_semantica_modelo },

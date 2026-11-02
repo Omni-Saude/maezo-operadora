@@ -948,20 +948,6 @@ variable "helena_saude_gerativa_conversas" {
   }
 }
 
-variable "helena_rota_global_todas" {
-  description = <<-EOT
-    ROTA GLOBAL PARA TODAS AS CONVERSAS (limpeza da saude, etapa 2; dono, 02/11/2026; DL-0165):
-    `MAEZO_HELENA_ROTA_GLOBAL_TODAS`. Default `false` = so' as conversas das listas (`helena_saude_gerativa_conversas`
-    e `helena_roteador_conversas`). Ligada, o Haiku 5.5 pela rota global (perfil GLOBAL do Bedrock: pode processar FORA
-    DO BRASIL; autorizacao do dono como DPO de 27/10/2026 para todos os numeros do dev), o roteador ativo e a porta
-    unica da saude (DL-0160) valem para TODA conversa keyed, sem lista. So' dev. Runbook:
-    docs/runbooks/helena-saude-original.md.
-  EOT
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
 variable "helena_busca_semantica" {
   description = <<-EOT
     BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): `MAEZO_HELENA_BUSCA_SEMANTICA`.

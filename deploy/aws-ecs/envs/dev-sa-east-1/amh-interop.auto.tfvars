@@ -139,12 +139,6 @@ helena_saude_gerativa_conversas = [
   "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
 ]
 
-// ROTA GLOBAL PARA TODAS AS CONVERSAS (limpeza da saude, etapa 2; dono, 02/11/2026; DL-0165): o Haiku 5.5 pela
-// rota global (autorizacao do dono como DPO de 27/10/2026 para todos os numeros do dev), o roteador ativo e a
-// porta unica da saude (DL-0160) valem para TODA conversa do dev, sem lista. Desligar ("volta a lista"): false
-// + apply direcionado (runbook docs/runbooks/helena-saude-original.md).
-helena_rota_global_todas = true
-
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
 // BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): embeddings REGIONAIS em sa-east-1
