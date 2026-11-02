@@ -2,7 +2,7 @@
 
 **Status:** código ESCURO (fase padrão `legado`). Decisão do dono de 2026-11-01, opção A ("pôr a conta
 na chave de pagamento"). Mudança de formato de chave: pertence à janela única de migração de chaves do
-ADR-0068 (`docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, **Proposed**). Este
+ADR-0068 (`docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, **Accepted** — DEC-29, 2026-11-01; perguntas Q1–Q5 seguem abertas). Este
 runbook é o plano; **executá-lo é ato do dono dentro da janela**, nunca de agente.
 
 Contratos: `docs/processes/contracts/SP-OP-PAGTO-001.md` §"Business key" e
@@ -93,7 +93,8 @@ Pré-condições: as do ADR-0068 §4, mais este código mergeado escuro e a suí
    uma linha com `dedup_key = {t}:start:SP-OP-PAGTO-001:{chave_por_conta}`. A linha legada nunca é apagada
    nem alterada; a business key da instância viva nunca é reescrita. Conferir: alias = ordens atribuídas.
    (O job não existe neste PR — é do pacote da janela.)
-5. **`leitura_dupla` → `escrita_alvo`** e, em seguida, "Retry" dos incidentes da seção 3. Cada retry lê a
+5. **Bloqueio de corrida (pré-condição dura):** este PR NÃO implementa a exclusão mútua entre formas do ADR-0068 §3 item 3 (inserir o claim da própria forma ANTES de ler o da outra). A leitura dupla daqui consulta o HISTÓRICO e depois inicia (ler-depois-inserir, ordem que o ADR proíbe). Com réplicas em `leitura_dupla` e `escrita_alvo` ao mesmo tempo, dois handoffs concorrentes da MESMA conta (ex.: reentrega da external task após expirar o lock) podem abrir uma ordem na chave lote E outra na chave `C` — pagamento duplicado. Portanto NÃO virar nenhuma réplica para `escrita_alvo` antes de: (a) o pacote da janela entregar a exclusão mútua por claim entre as formas lote e `C` de PAGTO, com o teste de integração obrigatório (dois starts concorrentes da mesma conta, um em `leitura_dupla` e outro em `escrita_alvo`, terminam com no máximo uma instância); OU (b) a virada ser feita com o tópico `operadora.contas.handoff_pagamento` sem nenhum consumidor ativo (todas as réplicas paradas para esse tópico) até TODAS estarem em `escrita_alvo`.
+   **`leitura_dupla` → `escrita_alvo`** e, em seguida, "Retry" dos incidentes da seção 3. Cada retry lê a
    ordem lote, comprova que é de outra conta e abre a ordem própria — que passa pela
    `UT_AnaliseAdmissibilidade` humana obrigatória de PAGTO (I-PAGTO-1), como qualquer ordem. Uma
    `indeterminada` não atribuída continua recusando (correto: pode ser a mesma conta).
@@ -117,3 +118,4 @@ chave lote. Nenhuma reversão apaga alias nem reescreve chave.
   `PAGTO-{t}-{ordem}` (ADR-0068 §3 item 10, pré-existente, também para a forma lote).
 - **Correlação por business key** (`msg.pagto.dados_corrigidos`): quem correlacionar uma ordem `C` precisa
   da chave da própria instância, não de uma recomposta por lote/prestador.
+- **Corrida entre fases:** ver o bloqueio de corrida da seção 5, passo 5.
