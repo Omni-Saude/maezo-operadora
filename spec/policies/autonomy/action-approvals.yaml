@@ -959,12 +959,19 @@ vocabulario_l0_canonico:
 #     `PENDENTE`, a classe segue `enforcement: shadow`, o arquivo segue `status: DRAFT` — com ou
 #     sem esta concessão, L-5 continua negando. Esta linha só remove o motivo L-1 da negativa.
 #   * NÃO é lida pelo runtime HOJE: `build_worker_seam_context` (`src/maezo/gateway/
-#     tool_registry.py:485`) ainda passa `capabilities=None` ao daemon. Ligar o loader a este
+#     tool_registry.py:486`) ainda passa `capabilities=None` ao daemon. Ligar o loader a este
 #     bloco é mudança de código (PR próprio, antes de qualquer virada C0); até lá a telemetria de
 #     sombra da perna de worker segue registrando `CAPACIDADE_INDISPONIVEL`, honestamente.
 #   * NÃO cobre `avaliacao_dmn` (a costura `dmn=` do mesmo daemon tem a mesma pré-condição e não
 #     foi decidida em D19), nem `find_active_instance`/`find_any_instance`/`read_historic_variables`
 #     /`get_process_status`/`correlate_message` — alargar exige nova decisão do dono.
+#   * NÃO cobre os OUTROS consumidores `worker_runtime` da MESMA operação na main: o
+#     `handoff_pagamento` do CONTAS (`src/maezo/tools/workers/contas.py:1169`, `_ordem_existente`,
+#     lê `SP-OP-PAGTO-001`) e o reconciliador de status do prestador
+#     (`src/maezo/platform/prestador_status/reconciliador.py:183`, lê `SP-OP-CRED-001`/
+#     `SP-OP-FRAUDE-001`; principal `worker_runtime` via `prestador_status/cli.py:90`). Ligada a
+#     fiação e virada a classe, essas leituras seguem negando (`process_keys` fora do escopo) —
+#     alargar é decisão nova do dono.
 #
 # NENHUM AGENTE PODE ALARGAR ESTE BLOCO — operação, processo ou principal novo é decisão do dono.
 # ---------------------------------------------------------------------------------------------
