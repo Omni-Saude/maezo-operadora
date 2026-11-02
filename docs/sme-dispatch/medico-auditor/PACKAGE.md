@@ -100,7 +100,21 @@ regulatório/DPO/finanças territory, see the other packages.
      `UT_AnaliseDescredenciamento` given `false_decredentialing_rate == 0` is a named KPI, or is
      `gestão-rede`/`jurídico-rede` sufficient without clinical input?
 
-### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.0.0**) — retro-verification
+### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.1.0**) — retro-verification
+
+- **Pacote pronto para confirmar/corrigir e assinar (2026-10-20, PR #862, `feat/pacote-clinico-escalonamento`):**
+  - planilha `Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx` (pasta do projeto no OneDrive,
+    "Maezo Operadora"), gerada dos arquivos por `scripts/sme/revisao_clinica.py`: uma linha por regra
+    das 4 tabelas `triage_redflag_*` (40), do alarme por texto da DL-0123 (7) e da `triage_sufficiency`
+    (7), com sugestão conservadora e evidência — **a sugestão não é parecer médico**; a coluna de veredito
+    (Confirmo / Alterar / Perigoso) está vazia. Abas também para SLAs e grupos, caso paralelo, ADR-0059
+    (D1, D2, R1) e o dono clínico (`owners.clinico`);
+  - a volta: `scripts/sme/revisao_clinica_para_yaml.py` lê a planilha preenchida e GERA (sem aplicar) a
+    ratificação por tabela, no formato de `triage-redflag-pediatric-neonatal-ratification.yaml`, e as
+    entradas candidatas de `spec/aprovacoes-de-regras.yaml` (tabela inteira só com todas as regras
+    "Confirmo");
+  - rascunho da emenda v1.2.0 (caso clínico paralelo): `EMENDA-v1.2.0-caso-paralelo.md`;
+  - modelo do signoff com as instruções de 3 passos: `SIGNOFF-MODELO-SP-OP-ESCALATION-001.yaml`.
 
 - **Why médico-auditor:** this is the flagged case (SP-OP-ESCALATION-001-signoff-absent, see
   `../tracker.md`) — the contract is already FINAL and shipped, but the SLA values were never
