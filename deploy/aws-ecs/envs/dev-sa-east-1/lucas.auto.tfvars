@@ -50,7 +50,7 @@ amh_billing_status_contratacao_openapi_path = "/app/config/integrations/amh/open
 // arquivos, 100% dos pedidos vao a analise humana no portal e o financeiro registra o pagamento. Ligado SO' em dev
 // no mesmo PR do codigo (decisao do dono em 29/10/2026: recurso sem uso, so' dados de teste). Antes de producao:
 // revisao juridica dos textos, ciencia do DPO sobre a retencao dos anexos (PHI) e operacao.
-// ORDEM DO APPLY (docs/runbooks/reembolso-001.md): migration 0031, BPMN v2, imagens (plugin do motor primeiro) e
+// ORDEM DO APPLY (docs/runbooks/reembolso-001.md): migration 0033, BPMN v2, imagens (plugin do motor primeiro) e
 // catalogo do portal ANTES de a chave valer; ate' la' um pedido aberto nao teria quem analisasse.
 // Voltar: reembolso_v1 = false (o canal volta ao de antes). O bucket exige recipient_vault_enabled = true.
 reembolso_anexos_enabled = true
