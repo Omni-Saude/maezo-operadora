@@ -166,15 +166,24 @@ def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
     autorizada pelo DPO, ADR-0065/DL-0155) e as conversas autorizadas, SEM depender da base de saude nem da
     saude gerativa. A porta unica, o roteador ativo e o `modelo_allowlist` usam. Lista vazia = `None` (nada
     da rota global existe no processo). Mesma env de antes (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`).
-    Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada."""
+    Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada.
+
+    Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): `MAEZO_HELENA_ROTA_GLOBAL_TODAS` liga a rota para
+    TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota)."""
     from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
     from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
 
     conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
-    if not conversas:
+    todas = getattr(settings, "helena_rota_global_todas", False) is True
+    if not conversas and not todas:
         return None
-    logger.warning("helena_rota_global_ligada", rota=ROTA_DE_RESIDENCIA, conversas_autorizadas=len(conversas))
-    return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas)
+    logger.warning(
+        "helena_rota_global_ligada",
+        rota=ROTA_DE_RESIDENCIA,
+        conversas_autorizadas=len(conversas),
+        todas_as_conversas=todas,
+    )
+    return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas, todas=todas)
 
 
 def _saude_gerativa(settings: WhatsAppWebhookSettings, rota: Any = None) -> Any:

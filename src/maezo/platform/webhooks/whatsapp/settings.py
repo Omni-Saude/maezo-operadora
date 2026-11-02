@@ -833,6 +833,17 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK", "sem_wamid_identidade_fallback"),
     )
 
+    # ROTA GLOBAL PARA TODAS AS CONVERSAS (limpeza da saude, etapa 2: dono, 02/11/2026; autorizacao do dono
+    # como DPO de 27/10/2026 para todos os numeros do dev). DESLIGADA por padrao, e desligada e' a Helena de
+    # antes: a rota global do Haiku 5.5, o roteador ativo e a porta unica da saude (DL-0160) valem so' nas
+    # conversas das listas. Ligada: valem para TODA conversa keyed (`wa:{tenant}:hk1_...`), sem lista — um
+    # interruptor booleano explicito, nunca um curinga na lista (`rota_global.conversas_autorizadas`).
+    # So' dev.
+    helena_rota_global_todas: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTA_GLOBAL_TODAS", "helena_rota_global_todas"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

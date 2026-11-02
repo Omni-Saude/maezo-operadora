@@ -9,6 +9,10 @@ conversas: a base de saude e a saude gerativa podem sair sem desligar a porta ne
 Mesma env de antes por enquanto (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`): no dev, a mesma lista e o mesmo
 transporte (`experimento_global.py`, ao lado). Mora no runtime de inferencia (SDK dos agentes, ADR-0067): a
 composicao da plataforma a monta sem importar o interior da Helena. Modulo FOLHA.
+
+Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): `todas=True` (env `MAEZO_HELENA_ROTA_GLOBAL_TODAS`,
+desligada por padrao) autoriza TODA conversa keyed (`wa:{tenant}:hk1_...`), sem lista. E' um interruptor
+explicito e booleano: a lista continua recusando curinga, e id fora do formato keyed nunca entra.
 """
 
 from __future__ import annotations
@@ -39,9 +43,15 @@ class RotaGlobal:
 
     transporte: Any
     conversas: frozenset[str] = field(default_factory=frozenset)
+    #: Todas as conversas keyed (etapa 2 da limpeza da saude): a lista deixa de limitar.
+    todas: bool = False
 
     def autorizada(self, conversation_id: object) -> bool:
-        return isinstance(conversation_id, str) and conversation_id in self.conversas
+        if not isinstance(conversation_id, str):
+            return False
+        if self.todas:
+            return _ID_DE_CONVERSA.fullmatch(conversation_id) is not None
+        return conversation_id in self.conversas
 
 
 __all__ = ["RotaGlobal", "conversas_autorizadas"]

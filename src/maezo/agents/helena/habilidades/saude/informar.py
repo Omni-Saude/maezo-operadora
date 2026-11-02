@@ -635,10 +635,38 @@ def _saude_resposta_a_oferta(
     return None
 
 
+def _com_acolhimento(
+    self: HelenaGraph, state: Mapping[str, Any], resultado: dict[str, Any]
+) -> dict[str, Any]:
+    """ACOLHIMENTO ANTES DA RESPOSTA (dossie de seguranca, 18/10/2026; camada de PALAVRA, sai na etapa 3 da
+    limpeza): com SOFRIMENTO na mensagem e sem o CVV no texto, o acolhimento (CVV 188, 192) vem primeiro.
+    Nunca nas conversas da porta unica (DL-0160; etapa 2 da limpeza, dono, 02/11/2026): la', o risco e' da
+    lista do DL-0151 e da tabela, e o resto e' da leitura da porta."""
+    from maezo.agents.helena.habilidades.conversa.leitura_curta import contesta_o_assunto
+    from maezo.agents.helena.habilidades.saude_original import fluxo as _porta
+
+    texto = resultado.get("response_text")
+    mensagem = str(state.get("message_body") or "")
+    if (
+        isinstance(texto, str)
+        and texto
+        and RESPOSTA_ACOLHIMENTO not in texto
+        and "188" not in texto
+        and _SOFRIMENTO.search(_plano(mensagem))
+        and not contesta_o_assunto(mensagem)  # "quem disse que e' depressao?" (dono, 27/10/2026)
+        and not _porta.assume(self, state)
+    ):
+        logger.info("helena_acolhimento_antes_da_resposta", node="inform")
+        return {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}
+    return resultado
+
+
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _GERATIVA_NO_ALERTA,
     _PROMESSA_DE_REPASSE,
+    _SOFRIMENTO,
+    RESPOSTA_ACOLHIMENTO,
     HelenaState,
     _conduta_clinica,
     _falas_da_helena,

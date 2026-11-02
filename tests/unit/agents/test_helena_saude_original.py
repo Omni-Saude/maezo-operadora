@@ -209,9 +209,11 @@ async def test_risco_de_suicidio_pelo_texto_e_o_caminho_de_sempre_com_cvv() -> N
     assert _casos(cib)[0]["motivo_categoria"] == "risco_psicossocial"
 
 
-async def test_palavra_de_alarme_traz_a_mensagem_mesmo_com_o_roteador_em_outra_habilidade() -> None:
+async def test_sinal_dito_pelo_modelo_traz_a_mensagem_mesmo_com_o_roteador_em_outra_habilidade() -> None:
+    # Etapa 2 da limpeza (dono, 02/11/2026): quem traz a mensagem e' o sinal DITO pelo modelo do roteador,
+    # nao a lista de palavras de alarme.
     leitor = _Leitor(_leitura(sintoma_codigo="sincope", idade_anos=40))
-    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa")), leitor)
+    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa", sinais=["desmaiou"])), leitor)
     await grafo.ainvoke(_entrada("meu marido desmaiou agora"))
     assert leitor.chamadas == 1
     assert _casos(cib)[0]["motivo_categoria"] == "red_flag_clinico"
@@ -296,25 +298,29 @@ async def test_com_caso_de_saude_aberto_emergencia_nova_continua_no_192() -> Non
     ],
 )
 async def test_conversa_fora_da_saude_tem_texto_fixo(frase: str, esperado: str) -> None:
-    leitor = _Leitor()
+    # Etapa 2 da limpeza (dono, 02/11/2026): a porta LE a fala de `conversa` (sem lista de palavras, o
+    # roteador pode errar a saude); lida como "outro", o texto fixo de sempre.
+    leitor = _Leitor(_leitura(assunto="outro"))
     modelo = _Modelo(decisao_v7("conversa"))
     grafo, whatsapp, cib, _dmn = _grafo(modelo, leitor)
     await grafo.ainvoke(_entrada(frase))
     assert whatsapp.enviados[-1] == esperado
-    assert leitor.chamadas == 0 and modelo.outras == [] and cib._history == {}
+    assert leitor.chamadas == 1 and modelo.outras == [] and cib._history == {}
 
 
-async def test_sinal_claro_de_agora_sem_leitura_e_o_192_de_sempre() -> None:
+async def test_leitura_que_falha_com_alarme_do_modelo_vai_a_equipe_sem_192_pela_palavra() -> None:
+    # Etapa 2 da limpeza (dono, 02/11/2026): sem leitura, uma pessoa assume (caso para a equipe); nenhuma
+    # lista de palavras ("convulsionando") decide o 192 sem a tabela.
     leitor = _Leitor("nao sei", "de novo nao")
-    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa")), leitor)
+    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa", sinais=["convulsionando"])), leitor)
     await grafo.ainvoke(_entrada("meu filho esta convulsionando"))
-    assert whatsapp.enviados[-1] == RESPOSTA_ESCALONAMENTO_URGENTE
-    assert [c["severidade"] for c in _casos(cib)] == ["grave"]
+    assert whatsapp.enviados[-1] == RESPOSTA_HANDOFF_SAUDE
+    assert [c["motivo_categoria"] for c in _casos(cib)] == ["intencao_clinica"]
 
 
 async def test_mensagem_trazida_pelo_alarme_nunca_vira_nao_e_saude() -> None:
     leitor = _Leitor(_leitura(assunto="outro"))
-    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa")), leitor)
+    grafo, whatsapp, cib, _dmn = _grafo(_Modelo(decisao_v7("conversa", sinais=["desmaiou"])), leitor)
     await grafo.ainvoke(_entrada("meu pai desmaiou"))
     assert _casos(cib), "a mensagem com alarme abriu caso"
     assert whatsapp.enviados[-1] not in so.TEXTOS_FIXOS

@@ -5032,6 +5032,9 @@ class HelenaGraph:
                 "escalation_severidade": None,
                 "error": classify_failure or "classify LLM failed",
             }
+        porta = _saude_original.assume(self, state)  # DL-0160 + etapa 2: saude SO' pela porta unica
+        if porta and (saude := await _saude_original.no_classify(self, state, extraction)) is not None:
+            return saude
         intent = cast(Intent, extraction.get("intent", "information"))
         psychosocial = bool(extraction.get("psychosocial_risk", False))
         # O termo de risco no TEXTO (DL-0123) ja' decidiu o turno antes do modelo (`_risco_pelo_texto`,
@@ -5410,7 +5413,7 @@ class HelenaGraph:
         # `_INTENTS_ADMISSIVEIS_INFORM`, ou seja EXATAMENTE os intents que poderiam terminar numa
         # resposta automatica. E' esse o risco que esta regra existe para remover: uma correcao de
         # dado clinico que termina em cartao administrativo.
-        correcao = _correcao_de_dado_avaliado(extraction, memoria)
+        correcao = None if porta else _correcao_de_dado_avaliado(extraction, memoria)
         # DL-0088: uma mensagem SEM relato clinico (vocabulario fechado, sem numero) nao corrige dado
         # nenhum — uma idade "corrigida" ali so' pode ter vindo do historico ou de invencao do modelo.
         if (
@@ -5489,7 +5492,7 @@ class HelenaGraph:
         # sinal, crianca com febre e prostrada, ingestao de muitos comprimidos/veneno, dor do lado direito da
         # barriga piorando) escala NA HORA como alerta clinico P1 com 192 — antes da tabela, que dependia do
         # codigo e da idade gestacional ditos. Nunca rebaixa nada: sem o termo, o caminho de sempre.
-        alarme = _travas_entrada.alarme_afirmado(state)
+        alarme = None if porta else _travas_entrada.alarme_afirmado(state)
         if alarme is not None:
             logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme)
             update["intent"] = "symptom"
@@ -5498,9 +5501,7 @@ class HelenaGraph:
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
-        if _travas_entrada.sinal_claro_afirmado(
-            state
-        ):  # 25/10/2026: antes de pendencia, protocolo e historico
+        if not porta and _travas_entrada.sinal_claro_afirmado(state):  # 25/10: antes de pendencia e protocolo
             return await _travas_entrada.escalar_sinal_claro(self, state, extraction, update)
 
         # CONTEUDO CLINICO NUNCA VIRA `solicitacao_humano` (rodada 10, regra B). No teste real do dono, "ele
@@ -5512,7 +5513,9 @@ class HelenaGraph:
         # sintoma — segue a triagem (tabela, coleta, resposta). Com pedido explicito DENTRO da triagem, o
         # motivo e' o clinico (`intencao_clinica`), e o caso clinico abre na chave `-clin`.
         texto_clinico = str(state.get("message_body") or "")
-        conteudo_clinico = bool(extraction.get("sintoma_codigo")) or _conteudo_clinico(texto_clinico)
+        conteudo_clinico = not porta and (
+            bool(extraction.get("sintoma_codigo")) or _conteudo_clinico(texto_clinico)
+        )
         em_triagem_clinica = bool(state.get("coleta_pendente")) or _memoria_em_triagem(memoria)
         clinico_continua = False
         if (
@@ -5596,10 +5599,10 @@ class HelenaGraph:
         decidido_pend = self._v4_conduzir_pendencia(state, update, pend_v4, texto_clinico)
         if decidido_pend is not None:
             return decidido_pend
-        oferta_c = self._saude_resposta_a_oferta(state, update, texto_clinico)
+        oferta_c = None if porta else self._saude_resposta_a_oferta(state, update, texto_clinico)
         if oferta_c is not None:
             return oferta_c
-        mantido = self._caso_mantido_se_alarme_ja_tratado(state, update, texto_clinico)
+        mantido = None if porta else self._caso_mantido_se_alarme_ja_tratado(state, update, texto_clinico)
         if mantido is not None:
             return mantido
         ja_triado = bool(extraction.get("sintoma_codigo"))
@@ -5635,7 +5638,8 @@ class HelenaGraph:
         caso_aberto = _caso_aberto_no_historico(state)
         texto_do_turno = str(state.get("message_body") or "")
         if (
-            caso_aberto is not None
+            not porta
+            and caso_aberto is not None
             and not duvida_educativa
             and (
                 _sinal_forte_de_emergencia(texto_do_turno)
@@ -5658,7 +5662,7 @@ class HelenaGraph:
         # a orientacao de emergencia. A tabela pediatrica nao tem esta linha (ver `_RECEM_NASCIDO`): a regra
         # e'
         # do grafo, deterministica, e a tabela continua rodando.
-        if _alerta_neonatal(state, extraction, memoria):
+        if not porta and _alerta_neonatal(state, extraction, memoria):
             logger.warning("helena_alerta_neonatal", node="classify", intent_do_modelo=intent)
             update["population"] = "pediatric"
             update["next_kind"] = "escalate"
@@ -5673,7 +5677,7 @@ class HelenaGraph:
         # caso aberto pede confirmacao para encerrar; (3) pergunta INFORMATIVA de saude (ou resultado pessoal)
         # responde da base, SEM caso. Pedido de pessoa, ANS/Procon, cobranca e consulta do plano NAO entram
         # aqui (vencem a base, como vencem a v4).
-        if self._base_saude:
+        if self._base_saude and not porta:
             decidido_base = await self._base_antes_dos_gatilhos(state, update, extraction, pend_v4, conversa)
             if decidido_base is not None:
                 return decidido_base
@@ -5684,7 +5688,7 @@ class HelenaGraph:
         # HELENA V4 (DL-0115): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
         # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
         # resposta da pessoa a uma pergunta/oferta da v4 e o pedido de especialista.
-        if self._v4:
+        if self._v4 and not porta:
             decidido_v4 = await self._v4_antes_dos_gatilhos(state, update, extraction, pend_v4)
             if decidido_v4 is not None:
                 return decidido_v4
@@ -5695,7 +5699,7 @@ class HelenaGraph:
         # modelo. Aceite em dev (15/10/2026): "4" depois do "Ainda nao entendi" saiu `human_request`, foi
         # rebaixado a `information` (sem pedido explicito no texto) e a Helena respondeu "Entendi que voce
         # quer falar com uma pessoa da equipe. Se quiser, e' so' me pedir." sem abrir o caso.
-        if self._triagem_v2:
+        if self._triagem_v2 and not porta:
             opcao = self._opcao_do_esclarecimento(state, texto_do_turno)
             if opcao is not None:
                 decidido = self._triagem_v2_opcao(
@@ -5875,7 +5879,7 @@ class HelenaGraph:
         # classificador, risco psicossocial, tabela de alarme, emergencia com caso aberto, recem-nascido,
         # pedido de pessoa, ANS/Procon, consulta do plano, cobranca), a tabela nova decide a saida de
         # sintoma, pergunta clinica e necessidade nao clara. `None` = o turno nao e' dela.
-        if self._triagem_v2:
+        if self._triagem_v2 and not porta:
             decidido = await self._triagem_v2_decidir(
                 state, update, extraction, ja_triado=ja_triado, conversa=conversa
             )
@@ -6020,7 +6024,7 @@ class HelenaGraph:
             # COBERTURA FORA (DL-0154) e a oferta da equipe (r5, 25/10): a pendencia vale so' um turno.
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
-        return pend_v4, pend_encerrar
+        return (None if _saude_original.assume(self, state) else pend_v4), pend_encerrar
 
     _risco_pelo_texto = _travas_entrada._risco_pelo_texto
     _sinal_claro_pelo_texto = _travas_entrada._sinal_claro_pelo_texto
@@ -6296,7 +6300,8 @@ class HelenaGraph:
                 return None
             logger.info("helena_escolha_sem_modelo", node="classify", oferta="encerrar_caso")
             return await self._base_confirmacao_de_encerramento(state, self._update_sem_modelo(state), texto)
-        pend = ler_pendente(pendente) if self._v4 and self._gerativa_para(state) else None
+        porta = _saude_original.assume(self, state)
+        pend = ler_pendente(pendente) if self._v4 and self._gerativa_para(state) and not porta else None
         if pend is None:
             return None
         if pend.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) in ("1", "2"):
@@ -6570,23 +6575,7 @@ class HelenaGraph:
         resultado = await self._inform_sem_acolhimento(state)
         return self._com_acolhimento(state, resultado)
 
-    @staticmethod
-    def _com_acolhimento(state: Mapping[str, Any], resultado: dict[str, Any]) -> dict[str, Any]:
-        from maezo.agents.helena.habilidades.conversa.leitura_curta import contesta_o_assunto
-
-        texto = resultado.get("response_text")
-        mensagem = str(state.get("message_body") or "")
-        if (
-            isinstance(texto, str)
-            and texto
-            and RESPOSTA_ACOLHIMENTO not in texto
-            and "188" not in texto
-            and _SOFRIMENTO.search(_plano(mensagem))
-            and not contesta_o_assunto(mensagem)  # "quem disse que e' depressao?" (dono, 27/10/2026)
-        ):
-            logger.info("helena_acolhimento_antes_da_resposta", node="inform")
-            return {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}
-        return resultado
+    _com_acolhimento = _saude._com_acolhimento
 
     async def _inform_sem_acolhimento(self, state: HelenaState) -> dict[str, Any]:
         """Administrative response (no clinical guidance, no red flag).
