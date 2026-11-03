@@ -164,63 +164,75 @@ class Saida:
 
 # ------------------------------------------------------------------------------------------------
 # Textos (rascunho para dev; revisao juridica e do dono antes de producao). Curtos, sem promessa.
+# Teste do dono (03/11/2026): no WhatsApp tudo chegava numa linha so'. As quebras separam a pergunta,
+# as opcoes (uma por linha) e a mensagem da equipe; as PALAVRAS nao mudaram. O texto escrito pela
+# equipe continua achatado numa linha (`lucas_retomada.retomar_reembolso`): so' a moldura quebra.
 # ------------------------------------------------------------------------------------------------
 TEXTO_INICIO: Final[str] = (
-    "Posso registrar o seu pedido de reembolso. Quem decide é a nossa equipe de análise. "
-    "Você tem a nota fiscal do atendimento? Responda Sim ou Não."
+    "Posso registrar o seu pedido de reembolso. Quem decide é a nossa equipe de análise.\n\n"
+    "Você tem a nota fiscal do atendimento?\n"
+    "Responda Sim ou Não."
 )
 TEXTO_SEM_NOTA: Final[str] = (
-    "Sem a nota fiscal não consigo registrar o pedido. Quando tiver, é só me chamar aqui. "
+    "Sem a nota fiscal não consigo registrar o pedido. Quando tiver, é só me chamar aqui.\n\n"
     "Nenhum pedido foi aberto."
 )
 TEXTO_SEM_PEDIDO: Final[str] = (
-    "Para exame ou terapia, é preciso o pedido médico. Quando tiver, é só me chamar aqui. "
+    "Para exame ou terapia, é preciso o pedido médico. Quando tiver, é só me chamar aqui.\n\n"
     "Nenhum pedido foi aberto."
 )
 TEXTO_PERGUNTA_RELACAO: Final[str] = (
-    "O reembolso é do titular do plano ou de um dependente? Responda Titular ou Dependente."
+    "O reembolso é do titular do plano ou de um dependente?\nResponda Titular ou Dependente."
 )
 TEXTO_PERGUNTA_CATEGORIA: Final[str] = (
-    "Qual foi o atendimento? Responda com o número: 1 - Consulta, 2 - Exame, 3 - Terapia."
+    "Qual foi o atendimento? Responda com o número:\n\n1 - Consulta\n2 - Exame\n3 - Terapia"
 )
-TEXTO_PERGUNTA_PEDIDO: Final[str] = "Você tem o pedido médico? Responda Sim ou Não."
+TEXTO_PERGUNTA_PEDIDO: Final[str] = "Você tem o pedido médico?\nResponda Sim ou Não."
 TEXTO_PERGUNTA_TIPO: Final[str] = (
-    "Como foi o atendimento? Responda com o número: 1 - Escolhi o profissional por conta própria, "
-    "2 - Fora da rede do plano, 3 - Urgência ou emergência, 4 - Não havia prestador da rede disponível."
+    "Como foi o atendimento? Responda com o número:\n\n"
+    "1 - Escolhi o profissional por conta própria\n"
+    "2 - Fora da rede do plano\n"
+    "3 - Urgência ou emergência\n"
+    "4 - Não havia prestador da rede disponível"
 )
-TEXTO_PERGUNTA_DATA: Final[str] = "Qual foi a data do atendimento? Escreva assim: 25/10/2026."
-TEXTO_PERGUNTA_VALOR: Final[str] = "Qual o valor que você pagou, em reais? Exemplo: 150,00."
+TEXTO_PERGUNTA_DATA: Final[str] = "Qual foi a data do atendimento?\nEscreva assim: 25/10/2026."
+TEXTO_PERGUNTA_VALOR: Final[str] = "Qual o valor que você pagou, em reais?\nExemplo: 150,00."
 TEXTO_PERGUNTA_MOTIVO: Final[str] = (
-    "Por que não usou a rede do plano? Responda com o número: 1 - Urgência, "
-    "2 - Não havia prestador no prazo, 3 - Preferi outro profissional."
+    "Por que não usou a rede do plano? Responda com o número:\n\n"
+    "1 - Urgência\n"
+    "2 - Não havia prestador no prazo\n"
+    "3 - Preferi outro profissional"
 )
 TEXTO_ENVIE_PEDIDO: Final[str] = (
-    "Agora envie a foto ou o PDF do pedido médico. Se tiver mais de um arquivo, pode mandar todos."
+    "Agora envie a foto ou o PDF do pedido médico.\nSe tiver mais de um arquivo, pode mandar todos."
 )
 TEXTO_ENVIE_NOTA: Final[str] = (
-    "Agora envie a foto ou o PDF da nota fiscal. Se tiver mais de um arquivo, pode mandar todos."
+    "Agora envie a foto ou o PDF da nota fiscal.\nSe tiver mais de um arquivo, pode mandar todos."
 )
 TEXTO_PROXIMO_ARQUIVO: Final[str] = "Certo. Pode enviar o próximo arquivo."
-TEXTO_ARQUIVO_RECEBIDO: Final[str] = "Recebi o arquivo. Você terminou de enviar {tipo}? Responda Sim ou Não."
+TEXTO_ARQUIVO_RECEBIDO: Final[str] = (
+    "Recebi o arquivo.\n\nVocê terminou de enviar {tipo}?\nResponda Sim ou Não."
+)
 TEXTO_PRECISA_ARQUIVO: Final[str] = "Ainda não recebi {tipo}. Envie a foto ou o PDF por aqui."
 TEXTO_LIMITE_ARQUIVOS: Final[str] = (
     "Chegamos ao limite de arquivos desse tipo. Se já enviou tudo, responda Sim."
 )
-TEXTO_NAO_ENTENDI: Final[str] = "Não entendi. {pergunta}"
-TEXTO_DATA_INVALIDA: Final[str] = "Essa data não é válida. {pergunta}"
-TEXTO_VALOR_INVALIDO: Final[str] = "Não consegui entender o valor. {pergunta}"
+TEXTO_NAO_ENTENDI: Final[str] = "Não entendi.\n\n{pergunta}"
+TEXTO_DATA_INVALIDA: Final[str] = "Essa data não é válida.\n\n{pergunta}"
+TEXTO_VALOR_INVALIDO: Final[str] = "Não consegui entender o valor.\n\n{pergunta}"
 TEXTO_ARQUIVO_INVALIDO: Final[str] = (
     "Esse tipo de arquivo não é aceito. Envie uma foto (JPG ou PNG) ou um PDF."
 )
-TEXTO_ARQUIVO_FORA_DE_HORA: Final[str] = "Agora preciso de uma resposta por escrito. {pergunta}"
+TEXTO_ARQUIVO_FORA_DE_HORA: Final[str] = "Agora preciso de uma resposta por escrito.\n\n{pergunta}"
 TEXTO_FALHA_AO_RECEBER: Final[str] = "Não consegui receber esse arquivo. Tente enviar de novo."
 TEXTO_DESISTIU: Final[str] = "Tudo bem, não registrei nenhum pedido. Se mudar de ideia, é só me chamar aqui."
 TEXTO_PEDIDO_RECEBIDO: Final[str] = (
-    "Recebi o seu pedido de reembolso. Protocolo: {protocolo}. A nossa equipe vai analisar. "
-    "Quando houver uma resposta, você recebe por aqui."
+    "Recebi o seu pedido de reembolso.\n\n"
+    "Protocolo: {protocolo}\n\n"
+    "A nossa equipe vai analisar. Quando houver uma resposta, você recebe por aqui."
 )
 TEXTO_PEDIDO_JA_REGISTRADO: Final[str] = (
-    "O seu pedido de reembolso já está com a nossa equipe. Protocolo: {protocolo}."
+    "O seu pedido de reembolso já está com a nossa equipe.\n\nProtocolo: {protocolo}"
 )
 TEXTO_FALHA_AO_REGISTRAR: Final[str] = (
     "Não consegui registrar o seu pedido agora. Nada foi enviado para análise. Tente de novo daqui a pouco."
@@ -231,36 +243,42 @@ TEXTO_FALHA_AO_REGISTRAR: Final[str] = (
 # pagamento"; a previsao depende do prazo de reembolso, ainda nao definido na repo: so' o aviso de quando
 # for pago) e o de negado diz como pedir revisao pelo caminho que ja' existe (falar com a equipe).
 TEXTO_RETORNO_APROVADO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou o valor de {valor}. "
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\n"
+    "A nossa equipe aprovou o valor de {valor}.\n\n"
     "O financeiro vai fazer o pagamento e você recebe um aviso quando ele for feito."
 )
 TEXTO_RETORNO_PARCIAL: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe aprovou uma parte do valor, "
-    "{valor}. Mensagem da equipe: “{texto}”. Quando o pagamento for feito, você recebe um aviso."
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\n"
+    "A nossa equipe aprovou uma parte do valor, {valor}.\n\n"
+    "Mensagem da equipe:\n“{texto}”\n\n"
+    "Quando o pagamento for feito, você recebe um aviso."
 )
 TEXTO_RETORNO_NEGADO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe analisou e não aprovou. "
-    "Mensagem da equipe: “{texto}”. Se quiser pedir a revisão dessa decisão, escreva aqui "
-    '"quero falar com a equipe".'
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\n"
+    "A nossa equipe analisou e não aprovou.\n\n"
+    "Mensagem da equipe:\n“{texto}”\n\n"
+    'Se quiser pedir a revisão dessa decisão, escreva aqui "quero falar com a equipe".'
 )
 TEXTO_RETORNO_INFO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): a nossa equipe precisa de mais informações. "
-    "Mensagem da equipe: “{texto}”. Mande a informação ou os arquivos nesta conversa e, no fim, "
-    "escreva TERMINEI."
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\n"
+    "A nossa equipe precisa de mais informações.\n\n"
+    "Mensagem da equipe:\n“{texto}”\n\n"
+    "Mande a informação ou os arquivos nesta conversa e, no fim, escreva TERMINEI."
 )
 TEXTO_RETORNO_PAGO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): o pagamento foi feito em {data}."
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\nO pagamento foi feito em {data}."
 )
 
 #: As cercas de saida barraram o texto escrito pela equipe: o aviso sai SEM ele, e diz isso.
 TEXTO_RETORNO_TEXTO_BARRADO: Final[str] = (
-    "Sobre o seu pedido de reembolso (protocolo {protocolo}): há uma resposta da nossa equipe, mas não foi "
-    "possível repassar o texto por aqui. Para saber o andamento, fale com a central de atendimento do plano."
+    "Sobre o seu pedido de reembolso (protocolo {protocolo}):\n\n"
+    "Há uma resposta da nossa equipe, mas não foi possível repassar o texto por aqui.\n\n"
+    "Para saber o andamento, fale com a central de atendimento do plano."
 )
 
 # Resposta a um pedido de informacao da equipe (DL-0163).
 TEXTO_RESPOSTA_INICIADA: Final[str] = (
-    "Recebi. Se tiver mais alguma informação ou arquivo para a equipe, pode mandar agora. "
+    "Recebi. Se tiver mais alguma informação ou arquivo para a equipe, pode mandar agora.\n\n"
     "Quando terminar, responda TERMINEI."
 )
 TEXTO_RESPOSTA_ANOTADA: Final[str] = "Anotado. Quando terminar, responda TERMINEI."
