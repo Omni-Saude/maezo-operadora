@@ -1,5 +1,7 @@
 # Helena — base de conhecimento de saúde (só em dev) — `MAEZO_HELENA_BASE_SAUDE`
 
+> **REMOVIDO do código em 02/11/2026** (limpeza da saúde, etapa 3 — DL-0165, adendo de 02/11/2026; decisão do dono). A base de conhecimento de saúde (e a saúde gerativa e a busca por significado que dependiam dela) não existe mais no código; a chave `MAEZO_HELENA_BASE_SAUDE` (e `MAEZO_HELENA_SAUDE_GERATIVA`, `MAEZO_HELENA_BUSCA_SEMANTICA*`) ainda vem da task/pacote do dev e é **aceita e ignorada** até a etapa 4. A saúde de todas as conversas com a rota do modelo vai pela porta única (`docs/runbooks/helena-saude-original.md`). Este runbook fica só como histórico.
+
 **Status:** MODELO DE TESTE do dono, SÓ no ambiente de desenvolvimento (dev). Decisão do dono (17/10/2026):
 ADR-0064 e DL-0118. **Conteúdo RASCUNHO aprovado pelo dono só para dev; revisão médica e jurídica antes de
 produção.** Não ligar em outro ambiente.

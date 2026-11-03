@@ -34,23 +34,30 @@ FORMATO_ROTEADOR: Final[str] = "helena-roteador-v7"
 #: chave do pacote -> chave(s) da configuracao do grafo (`graph.build`) e dos nos fora do grafo.
 _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "memoria_clinica": ("memoria_clinica_enabled",),
-    "historico": ("historico_enabled", "coleta_enabled"),
-    "triagem_v2": ("triagem_v2_enabled",),
-    "v4": ("helena_v4_enabled",),
+    "historico": ("historico_enabled",),
     "carteirinha_completa": ("helena_carteirinha_completa_enabled",),
     "dependentes_nome": ("helena_dependentes_nome_enabled",),
-    "base_saude": ("helena_base_saude_enabled",),
-    # Protocolos clinicos (dono, 25/10/2026): ausente = ligado pela composicao; `false` desliga sem deploy.
-    "protocolos": ("helena_protocolos_enabled",),
-    # Triagem com juiz (DL-0159, 01/11/2026): ausente/`false` desliga; `true` liga SO' na allowlist.
-    "saude_original": ("helena_saude_original_enabled",),
 }
+#: LIMPEZA DA SAUDE, ETAPA 3 (dono, 02/11/2026): as chaves booleanas das camadas que sairam do codigo (triagem
+#: v2, v4, base de saude, protocolos) e a da porta unica, que ficou incondicional. O pacote PUBLICADO ainda
+#: as traz: ACEITAS (booleanas, como antes) E IGNORADAS — nada no grafo as le. Saem na etapa 4.
+_BOOLEANAS_IGNORADAS: Final[frozenset[str]] = frozenset(
+    {"triagem_v2", "v4", "base_saude", "protocolos", "saude_original"}
+)
 #: DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena. `cobertura_modo` continua ACEITO (e ignorado) so'
-#: para um pacote antigo nao ser recusado inteiro durante a troca; o pacote atual nao o traz.
+#: para um pacote antigo nao ser recusado inteiro durante a troca (sai na etapa 4 da limpeza da saude).
 _MODOS_COBERTURA: Final[frozenset[str]] = frozenset({"simples", "consulta"})
 _MODOS_ROTEADOR: Final[frozenset[str]] = frozenset({"desligado", "sombra", "ativo"})
 _CHAVES: Final[frozenset[str]] = frozenset(
-    {"formato", *_BOOLEANAS, "cobertura_modo", "identidade_nome_operadora", "roteador", "juntar_mensagens"}
+    {
+        "formato",
+        *_BOOLEANAS,
+        *_BOOLEANAS_IGNORADAS,
+        "cobertura_modo",
+        "identidade_nome_operadora",
+        "roteador",
+        "juntar_mensagens",
+    }
 )
 _CHAVES_JUNTAR: Final[frozenset[str]] = frozenset({"espera_s", "conversas"})
 _CHAVES_ROTEADOR: Final[frozenset[str]] = frozenset(
@@ -75,7 +82,7 @@ def configuracao(pacote: PacoteDoAgente) -> dict[str, Any]:
         erros.append(f"chaves desconhecidas {desconhecidas}")
     if dados.get("formato") != FORMATO_CONFIGURACAO:
         erros.append(f"formato tem de ser {FORMATO_CONFIGURACAO!r}")
-    for chave in _BOOLEANAS:
+    for chave in (*_BOOLEANAS, *_BOOLEANAS_IGNORADAS):
         if chave in dados and not isinstance(dados[chave], bool):
             erros.append(f"{chave} tem de ser booleano")
     if "cobertura_modo" in dados and dados["cobertura_modo"] not in _MODOS_COBERTURA:

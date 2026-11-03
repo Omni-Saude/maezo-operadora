@@ -13,8 +13,8 @@ from pathlib import Path
 from maezo.agents.helena import graph
 
 _GRAFO = Path(graph.__file__)
-#: O teto, em linhas (medido no fim da etapa 10; descido nas etapas 1 e 2 da limpeza da saude). So' DESCE.
-TETO_DE_LINHAS: int = 8176
+#: O teto, em linhas (medido no fim da etapa 10; descido nas etapas 1, 2 e 3 da limpeza da saude). So' DESCE.
+TETO_DE_LINHAS: int = 6979
 
 
 def test_o_graph_py_da_helena_nao_cresce() -> None:

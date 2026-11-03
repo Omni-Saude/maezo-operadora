@@ -26,9 +26,10 @@ from maezo.agents.helena.graph import (
 from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.helena_conversa import _BK, _INFO, _PESSOA, _Motor, _texto
+from tests.support.helena_conversa import _ConversaDeCaso as _Conversa
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents import test_helena_saude_original as so_tests
-from tests.unit.agents.test_helena_base_saude import _BK, _INFO, _PESSOA, _Conversa, _Motor, _texto
 from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _entrada, _WhatsApp
 
 # =================================================================================================
@@ -37,7 +38,7 @@ from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _entrada
 
 
 async def test_recusa_com_caso_aberto_pede_confirmacao_e_encerra_sem_a_base() -> None:
-    conversa = _Conversa(chave=False)
+    conversa = _Conversa()
     await conversa.diz("Quero falar com uma pessoa", _PESSOA)
     assert conversa.motivos == ["solicitacao_humano"]
 
@@ -54,7 +55,7 @@ async def test_recusa_com_caso_aberto_pede_confirmacao_e_encerra_sem_a_base() ->
 async def test_pedido_de_encerrar_com_caso_aberto_sem_a_base() -> None:
     motor = _Motor()
     motor.abrir(_BK, motivo_categoria="solicitacao_humano", severidade="leve")
-    conversa = _Conversa(chave=False, motor=motor)
+    conversa = _Conversa(motor=motor)
     pergunta = await conversa.diz("Pode cancelar o atendimento", _INFO)
     assert _texto(pergunta) == RESPOSTA_CONFIRMA_ENCERRAMENTO
     await conversa.diz("sim", _INFO)
@@ -86,7 +87,7 @@ async def test_recusa_lida_pelo_roteador_lista_e_encerra_o_caso_sem_a_base() -> 
     bk = graph_module.chave_do_escalonamento("amh", _CONVERSA)
     motor.abrir(bk, motivo_categoria="intencao_clinica", severidade="moderada")
     grafo = _grafo_sem_camadas(motor)
-    assert grafo._base_saude is False
+    assert not hasattr(grafo, "_base_saude")  # etapa 3: a base saiu do codigo
     saida = await rt._recusa_da_equipe(grafo, _entrada("nao quero falar com ninguem"))  # type: ignore[arg-type]
     assert saida["response_text"] == RESPOSTA_CASO_ENCERRADO
     assert await motor.find_active_instance(bk) is None
@@ -111,10 +112,9 @@ def _grafo_da_porta(leitor: Any, modo: str = ma.MODO_GLM5) -> tuple[Any, _WhatsA
         rota_global=RotaGlobal(transporte=leitor, conversas=frozenset({_CONVERSA})),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset({_CONVERSA}),
-        helena_saude_original_enabled=True,
         modelo_allowlist=modo,
     )
-    assert grafo._base_saude is False and grafo._gerativa is None
+    assert not hasattr(grafo, "_base_saude") and not hasattr(grafo, "_gerativa")  # etapa 3: sairam
     return grafo, whatsapp, cib
 
 
@@ -162,29 +162,13 @@ class _Settings:
 
 
 def test_composicao_monta_a_rota_global_sem_a_base_e_sem_a_gerativa() -> None:
-    from maezo.platform.webhooks.service import _rota_global, _saude_gerativa
+    from maezo.platform.webhooks.service import _rota_global
 
     conversa = "wa:amh:hk1_" + "a" * 64
     assert _rota_global(_Settings("")) is None  # type: ignore[arg-type]
     rota = _rota_global(_Settings(f"{conversa},lixo"))  # type: ignore[arg-type]
     assert isinstance(rota, RotaGlobal)
     assert rota.conversas == frozenset({conversa}) == conversas_autorizadas(f"{conversa} lixo")
-    assert _saude_gerativa(_Settings(conversa), rota) is None  # type: ignore[arg-type]
-    # Com as chaves ligadas (o dev de hoje), o redator usa o MESMO transporte da rota.
-    redator = _saude_gerativa(_Settings(conversa, gerativa=True, base=True), rota)  # type: ignore[arg-type]
-    assert redator.transporte is rota.transporte and redator.conversas == rota.conversas
-
-
-def test_o_grafo_construido_direto_com_o_redator_herda_a_rota_dele() -> None:
-    from maezo.conhecimento import base_saude as bs
-    from maezo.conhecimento import saude_gerativa as sg
-
-    transporte = so_tests._Leitor()
-    redator = sg.RedatorDeSaude(transporte=transporte, conversas=frozenset({_CONVERSA}))  # type: ignore[arg-type]
-    com_base = _grafo_sem_camadas(
-        _Motor(), saude_gerativa=redator, helena_base_saude_enabled=True, base_saude=bs.BASE_VAZIA
-    )
-    assert com_base._rota_global == RotaGlobal(transporte, frozenset({_CONVERSA}))
-    # Sem a base o redator nao vale (como antes) e, sem rota injetada, nao ha' rota.
-    sem_base = _grafo_sem_camadas(_Motor(), saude_gerativa=redator)
-    assert sem_base._gerativa is None and sem_base._rota_global is None
+    # Etapa 3 da limpeza: as chaves da gerativa e da base (ainda na task do dev) nao mudam a rota.
+    com_chaves = _rota_global(_Settings(conversa, gerativa=True, base=True))  # type: ignore[arg-type]
+    assert com_chaves is not None and com_chaves.conversas == rota.conversas

@@ -6,7 +6,7 @@ sem build e sem deploy. Sem pacote (teste, ambiente sem `MAEZO_PACOTES_URI`) val
 que e' o mesmo aprovado.
 
 Regras do validador (o pacote inteiro e' recusado se uma falhar; o agente fica com o ultimo pacote bom):
-- so' chaves CONHECIDAS (as de `PADRAO`); chave desconhecida reprova;
+- so' chaves CONHECIDAS (as de `PADRAO`, mais as de `LEGADO`); chave desconhecida reprova;
 - texto nao vazio, ate' 1200 caracteres;
 - nenhum link (decisao do dono de 18/10/2026: a fonte e' citada so' pelo nome) — `http`, `www.` ou dominio;
 - marcadores `{...}` so' os que o texto padrao da mesma chave ja' tem.
@@ -26,8 +26,6 @@ from .habilidades.conversa.agendar import PADRAO as _PADRAO_AGENDAR
 from .habilidades.conversa.app import PADRAO as _PADRAO_APP
 from .habilidades.conversa.assuntos import PADRAO as _PADRAO_ASSUNTOS
 from .habilidades.conversa.reembolso import PADRAO as _PADRAO_REEMBOLSO
-from .habilidades.saude.textos import PADRAO as _PADRAO_SAUDE
-from .habilidades.sintoma.textos import PADRAO as _PADRAO_SINTOMA
 
 ARQUIVO_TEXTOS: Final[str] = "textos.yaml"
 FORMATO_TEXTOS: Final[str] = "helena-textos-v1"
@@ -37,14 +35,40 @@ _TAMANHO_MAXIMO: Final[int] = 1200
 #: habilidade declara os seus (`habilidades/<nome>/textos.py`).
 PADRAO: Final[Mapping[str, str]] = {
     _CHAVE_COBERTURA: TEXTO_COBERTURA_FORA,
-    **_PADRAO_SINTOMA,
     **_PADRAO_ATENDIMENTO,
-    **_PADRAO_SAUDE,
     **_PADRAO_ASSUNTOS,
     **_PADRAO_APP,
     **_PADRAO_AGENDAR,
     **_PADRAO_REEMBOLSO,
 }
+
+#: LIMPEZA DA SAUDE, ETAPA 3 (dono, 02/11/2026): as chaves dos textos das camadas que sairam do codigo
+#: (`habilidades/sintoma`, v4, e `habilidades/saude`, opcao C) que o pacote PUBLICADO ainda traz. ACEITAS E
+#: IGNORADAS (nenhum texto delas sai para a pessoa): o validador as confere como antes, contra o padrao de
+#: entao, para o pacote atual nao ser recusado inteiro. Saem na etapa 4, junto com o `textos.yaml` do pacote.
+LEGADO: Final[Mapping[str, str]] = {
+    "sintoma_repergunta": (
+        "Só para eu ter certeza: neste momento, existe algum destes sinais: {sinais}? "
+        "Pode responder só sim ou não."
+    ),
+    "sintoma_oferta_equipe": (
+        "Não consegui entender bem a sua resposta. Para não arriscar, posso passar o seu caso para a nossa "
+        "equipe de saúde avaliar com você. Quer? Responda sim ou não."
+    ),
+    "sintoma_oferta_recusada": "Tudo bem. Se o sintoma mudar ou piorar, é só me chamar.",
+    "sintoma_avaliar_causa": (
+        "Quem pode avaliar a causa é o médico. Quer que eu te mostre onde marcar a consulta ou prefere falar "
+        "com a equipe de saúde?"
+    ),
+    "saude_fecho_da_duvida": (
+        "Esta informação é geral e não substitui avaliação médica. Posso ajudar em mais alguma coisa?"
+    ),
+    "saude_oferta_medico": (
+        "Para ir além disso, quem pode te orientar é o médico. Quer que eu te mostre onde marcar a consulta "
+        "ou prefere falar com a equipe de saúde?"
+    ),
+}
+_CONHECIDAS: Final[Mapping[str, str]] = {**PADRAO, **LEGADO}
 
 #: Link em qualquer forma: esquema, `www.` ou dominio com TLD comum (gov.br, anvisa.gov.br, site.com).
 LINK: Final[re.Pattern[str]] = re.compile(
@@ -62,11 +86,11 @@ def erros_dos_textos(textos: object) -> list[str]:
     if not isinstance(textos, Mapping):
         return ["textos tem de ser um mapeamento chave -> texto"]
     erros: list[str] = []
-    desconhecidas = sorted(set(textos) - set(PADRAO))
+    desconhecidas = sorted(set(textos) - set(_CONHECIDAS))
     if desconhecidas:
         erros.append(f"textos: chaves desconhecidas {desconhecidas}")
     for chave, texto in textos.items():
-        if chave not in PADRAO:
+        if chave not in _CONHECIDAS:
             continue
         if not isinstance(texto, str) or not texto.strip() or len(texto) > _TAMANHO_MAXIMO:
             erros.append(f"textos.{chave}: texto nao vazio de ate' {_TAMANHO_MAXIMO} caracteres")
@@ -74,7 +98,7 @@ def erros_dos_textos(textos: object) -> list[str]:
         if LINK.search(texto):
             erros.append(f"textos.{chave}: sem link (a fonte vai so' pelo nome)")
         try:
-            extras = _marcadores(texto) - _marcadores(PADRAO[chave])
+            extras = _marcadores(texto) - _marcadores(_CONHECIDAS[chave])
         except ValueError:
             erros.append(f"textos.{chave}: chaves {{}} malformadas")
             continue
@@ -100,6 +124,7 @@ class TextosDaHelena:
 __all__ = [
     "ARQUIVO_TEXTOS",
     "FORMATO_TEXTOS",
+    "LEGADO",
     "LINK",
     "PADRAO",
     "TextosDaHelena",

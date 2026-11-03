@@ -1,20 +1,15 @@
 """FALHAS AVULSAS (Plano de ajustes da Helena v2, etapa 10; DL-0154): nenhum link sai (a fonte fica pelo
-nome); a dor nas costas nao credita "Infarto"; o profissional do caminho vai pela idade; audio, foto e
-figurinha recebem o aviso de que o canal le' so' texto, com o caminho para uma pessoa.
+nome); audio, foto e figurinha recebem o aviso de que o canal le' so' texto, com o caminho para uma pessoa.
+Limpeza da saude, etapa 3 (02/11/2026): os testes dos textos da base de saude sairam com ela.
 
 Frases escritas para estes testes (nenhuma copiada de roteiro do simulador)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from maezo.agents.helena.travas_saida import sem_links
-from maezo.conhecimento import base_saude as b
 from maezo.platform.webhooks.whatsapp.dispatch import NON_TEXT_ACK_TEXT
-
-_BASE = Path(__file__).resolve().parents[3] / "spec" / "conhecimento" / "saude"
 
 
 @pytest.mark.parametrize(
@@ -46,27 +41,6 @@ def test_nenhum_link_sai_e_a_fonte_fica_pelo_nome(texto: str, fica: str) -> None
 )
 def test_texto_sem_link_sai_igual(texto: str) -> None:
     assert sem_links(texto) is texto
-
-
-def test_dor_nas_costas_nao_credita_infarto() -> None:
-    base = b.carregar_base(_BASE)
-    costas = base.get("sin-dor-nas-costas")
-    assert costas is not None
-    assert "Infarto" not in b.linha_de_credito(costas)
-    assert all("infarto" not in f.nome.lower() for f in costas.fontes)
-
-
-@pytest.mark.parametrize(
-    ("populacao", "profissional"), [("adult", "clínico geral"), ("pediatric", "pediatra")]
-)
-def test_o_caminho_do_sintoma_vai_pela_idade(populacao: str, profissional: str) -> None:
-    base = b.carregar_base(_BASE)
-    costas = base.get("sin-dor-nas-costas")
-    assert costas is not None
-    texto = b.texto_final_do_sintoma_com_orientacao("dor nas costas", costas, populacao)
-    assert f"consulta com {profissional}" in texto
-    if populacao == "adult":
-        assert "pediatra" not in texto
 
 
 def test_aviso_de_audio_foto_e_figurinha() -> None:

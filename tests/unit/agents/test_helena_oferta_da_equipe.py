@@ -30,9 +30,9 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import (
 )
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from tests.support.helena_conversa import _PESSOA, _texto
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_roteador_v7 import _ConversaAtiva
-from tests.unit.agents.test_helena_saude_gerativa import _PESSOA, _texto
 
 _CONVITE = "O seu plano é coletivo empresarial. Se quiser falar com uma pessoa da equipe, é só me pedir."
 _PARAGRAFO_LONGO = "respeito sua escolha"

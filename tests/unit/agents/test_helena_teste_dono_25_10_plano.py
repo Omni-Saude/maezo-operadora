@@ -25,11 +25,12 @@ from maezo.agents.helena.habilidades.conversa import reexplicar as rx
 from maezo.agents.helena.habilidades.plano import apto
 from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
 from maezo.agents.helena.textos import LINK, PADRAO, erros_dos_textos
-from maezo.conhecimento import saude_gerativa as sg
 from maezo.ports.tina import ElegibilidadeView
+from maezo.runtime.inference.rota_global import RotaGlobal
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.helena_conversa import _Transporte
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import (
     _CONVERSA,
@@ -40,7 +41,6 @@ from tests.unit.agents.test_helena_rodada_3_simulador import (
 )
 from tests.unit.agents.test_helena_rodada_3_simulador import _grafo as _grafo_sem_roteador
 from tests.unit.agents.test_helena_roteador_ativo import _Modelo
-from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _Transporte
 
 HOJE = date(2026, 10, 21)
 _V = ELEGIBILIDADE.vinculos[0]
@@ -124,9 +124,7 @@ def _grafo(modelo: _Modelo, view: Any = APTO) -> tuple[Any, _WhatsApp, _FonteVie
         historico_enabled=True,
         consultas_plano=fonte,  # type: ignore[arg-type]
         relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
-        saude_gerativa=sg.RedatorDeSaude(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
-        helena_base_saude_enabled=True,
-        base_saude=_Conversa().base,
+        rota_global=RotaGlobal(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset({_CONVERSA}),
     )
@@ -276,7 +274,8 @@ async def test_nao_entendi_depois_da_saude_resume_a_propria_resposta(nao_entendi
         "infecções. Esta informação é geral e não substitui avaliação médica. "
         "Posso ajudar em mais alguma coisa?"
     )
-    modelo = _Modelo([decisao_v7("saude")], [])
+    # Limpeza da saude, etapa 3: o roteador le' `conversa` (com `saude`, a mensagem iria a porta unica).
+    modelo = _Modelo([decisao_v7("conversa")], [])
     grafo, whatsapp, _fonte = _grafo(modelo)
     await grafo.ainvoke(_entrada(nao_entendi, falas_da_helena=[resposta_de_saude]))
     texto = whatsapp.enviados[-1]

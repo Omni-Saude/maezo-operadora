@@ -25,7 +25,6 @@ from maezo.agents.helena.graph import (
     HelenaGraph,
     HelenaState,
     _coerce_age,
-    _correcao_de_dado_avaliado,
     _frase_de_confirmacao,
     _fundir_memoria_clinica,
     _marcar_avaliacao,
@@ -412,83 +411,6 @@ def test_o_lastro_exige_o_campo_de_idade_daquela_populacao(
     diria que "tenho 0 anos" nao e' afirmacao. `mental_health` nao tem campo de idade e e' a
     excecao declarada; `none` nunca chega aqui como afirmacao (o chamador trata antes)."""
     assert _populacao_tem_lastro(_extracao(**campos), nova, lembrada) is tem_lastro
-
-
-def test_correcao_exige_as_tres_condicoes_e_cada_uma_derruba_sozinha() -> None:
-    """As tres condicoes de `_correcao_de_dado_avaliado`, uma a uma, com a MESMA correcao de
-    idade (30 -> 70) que o `D3` mediu. Um gatilho largo aqui reabriria a triagem em toda pergunta
-    administrativa; um estreito perde o `D3`."""
-    avaliada = _memoria(
-        population="adult", idade_anos=30, sintoma_avaliado="febre", intensidade_avaliada="moderada"
-    )
-    corrige = _extracao(population="adult", idade_anos=70)
-
-    # 1. sem avaliacao nesta conversa -> nada a refazer.
-    sem_marca = {k: v for k, v in avaliada.items() if k != "sintoma_avaliado"}
-    assert _correcao_de_dado_avaliado(corrige, sem_marca) is None
-    assert _correcao_de_dado_avaliado(corrige, None) is None
-    assert _correcao_de_dado_avaliado(corrige, {}) is None
-
-    # 2. a mensagem traz sintoma proprio -> o caminho normal resolve.
-    assert _correcao_de_dado_avaliado(_extracao(**{**corrige, "sintoma_codigo": "febre"}), avaliada) is None
-
-    # 3. o valor NAO e' diferente -> repetir o dado nao e' corrigir.
-    assert _correcao_de_dado_avaliado(_extracao(population="adult", idade_anos=30), avaliada) is None
-
-    # As tres satisfeitas -> reavalia com o sintoma e a intensidade que a avaliacao usou.
-    achado = _correcao_de_dado_avaliado(corrige, avaliada)
-    assert achado == {
-        "sintoma_codigo": "febre",
-        "intensidade": "moderada",
-        "corrigidos": {"idade_anos": 70},
-    }
-
-
-def test_correcao_ignora_ausencia_e_o_none_de_populacao() -> None:
-    """Ausencia nao e' correcao (a regra 3 do documento, do outro lado) — nem `None` numa idade,
-    nem o literal `"none"` numa populacao, que e' o que o modelo devolve para "a mensagem nao e'
-    sobre ninguem em particular"."""
-    avaliada = _memoria(
-        population="pediatric", idade_meses=36, sintoma_avaliado="febre", intensidade_avaliada="leve"
-    )
-
-    assert _correcao_de_dado_avaliado(_extracao(population="none"), avaliada) is None
-    assert _correcao_de_dado_avaliado(_extracao(population="pediatric"), avaliada) is None
-
-
-def test_correcao_de_populacao_com_lastro_e_uma_correcao() -> None:
-    """O outro eixo do `D3`: "na verdade e' pra mim mesma, tenho 34 anos" corrige QUEM e' o
-    paciente, e a reavaliacao tem de sair com o campo trocado — nao so' com a idade."""
-    avaliada = _memoria(
-        population="pediatric", idade_meses=36, sintoma_avaliado="febre", intensidade_avaliada="moderada"
-    )
-    fundida, _ = _fundir_memoria_clinica(_extracao(population="adult", idade_anos=34), avaliada)
-
-    achado = _correcao_de_dado_avaliado(fundida, avaliada)
-
-    assert achado is not None
-    assert achado["corrigidos"]["population"] == "adult"
-    assert achado["sintoma_codigo"] == "febre"
-
-
-@pytest.mark.parametrize("intensidade", [None, "", "forte", "GRAVE", 3, True])
-def test_intensidade_avaliada_invalida_degrada_para_desconhecida_na_reavaliacao(intensidade: Any) -> None:
-    """A reavaliacao nao pode herdar uma intensidade fora do vocabulario: a DMN casa `grave` no
-    proprio fail-safe, e um valor cru passaria por la' sem casar regra nenhuma.
-
-    Duas portas, o mesmo default: `_marcar_avaliacao` na entrada e `_correcao_de_dado_avaliado`
-    na saida.
-    """
-    marcada = _marcar_avaliacao(
-        _memoria(population="adult", idade_anos=30), sintoma_codigo="febre", intensidade=intensidade
-    )
-    assert marcada is not None and marcada["intensidade_avaliada"] == "desconhecida"
-
-    crua = _memoria(
-        population="adult", idade_anos=30, sintoma_avaliado="febre", intensidade_avaliada=intensidade
-    )
-    achado = _correcao_de_dado_avaliado(_extracao(population="adult", idade_anos=70), crua)
-    assert achado is not None and achado["intensidade"] == "desconhecida"
 
 
 def test_a_marca_de_avaliacao_nao_muta_a_memoria_recebida() -> None:

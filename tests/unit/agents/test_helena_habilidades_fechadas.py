@@ -6,11 +6,17 @@ Frases escritas para cada comportamento (nenhuma copiada de roteiro do simulador
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from structlog.testing import capture_logs
 
 from tests.unit.agents.test_helena_rodada_3_simulador import _classify, _entrada, _starts
 from tests.unit.agents.test_helena_roteador_ativo import _decisao, _grafo, _Modelo
+
+
+def _motivos(cib: Any) -> list[object]:
+    return [cib._variables[k].get("motivo_categoria") for k in cib._history]
 
 
 def _eventos(logs: list[dict[str, object]]) -> set[object]:
@@ -32,7 +38,8 @@ async def test_saude_que_cita_o_plano_nao_vira_consulta_do_cadastro(fala: str) -
         await grafo.ainvoke(_entrada(fala))
     assert "helena_pergunta_do_plano_vai_a_consulta" not in _eventos(logs)
     assert not _eventos(logs) & {"helena_consulta_plano", "helena_consulta_recusada"}
-    assert _starts(cib) == 0
+    # Limpeza da saude, etapa 3: a saude vai a porta unica (caso para a equipe), nunca a consulta do plano.
+    assert _motivos(cib) == ["intencao_clinica"]
 
 
 @pytest.mark.parametrize(
@@ -109,7 +116,8 @@ async def test_cobranca_com_intencao_de_fora_vai_ao_lucas_com_subtipo(fala: str)
     ],
 )
 async def test_saude_sem_sintoma_nunca_abre_caso_de_enfermagem(fala: str) -> None:
+    # Limpeza da saude, etapa 3: a duvida de saude vai a equipe (`intencao_clinica`), nunca caso de alerta.
     modelo = _Modelo([_decisao("saude")], [_classify(intent="clinical_question"), "", ""])
     grafo, _whatsapp, cib, _fonte = _grafo(modelo)
     await grafo.ainvoke(_entrada(fala))
-    assert _starts(cib) == 0
+    assert _motivos(cib) == ["intencao_clinica"]

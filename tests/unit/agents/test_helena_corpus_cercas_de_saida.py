@@ -37,7 +37,6 @@ import pytest
 
 from maezo.agents.helena import graph as graph_module
 from maezo.agents.helena import prompts as prompts_module
-from maezo.agents.helena.graph import _PERGUNTA_FALLBACK
 from maezo.agents.helena.prompts import (
     menciona_encaminhamento,
     motivo_de_canal_nao_confirmado,
@@ -184,8 +183,6 @@ def test_toda_constante_enviada_ao_beneficiario_esta_no_corpus() -> None:
         for nome, valor in vars(modulo).items():
             if nome.startswith(PREFIXOS_DE_FRASE) and isinstance(valor, str):
                 constantes[f"{modulo.__name__}.{nome}"] = valor
-    for chave, pergunta in _PERGUNTA_FALLBACK.items():
-        constantes[f"_PERGUNTA_FALLBACK[{chave!r}]"] = pergunta
 
     assert constantes, "a reflexao nao achou constante nenhuma — a cerca ficaria vacua"
 

@@ -342,20 +342,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_HISTORICO", "helena_historico"),
     )
-    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): experimento em DEV. DESLIGADA por padrao, e desligada
-    # e' a Helena de antes byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do
-    # turno depois dos portoes de seguranca (alarme, risco, pessoa, ANS/Procon, cobranca, plano): pergunta
-    # clinica sem sintoma deixa de abrir caso, sintoma faz ficha de ate' 3 perguntas e recebe o caminho.
-    # CONTEUDO CLINICO DRAFT, pendente do medico-auditor — nao ligar fora de dev sem a ratificacao.
+    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): a camada SAIU DO CODIGO na limpeza da saude, etapa 3
+    # (dono, 02/11/2026). A variavel ainda vem da task do dev: ACEITA E IGNORADA (nada a le); sai na etapa 4,
+    # junto com o terraform. Valor nenhum muda o comportamento.
+    #
+    #
     helena_triagem_v2: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_TRIAGEM_V2", "helena_triagem_v2"),
     )
-    # HELENA V4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono, SO' em DEV. DESLIGADA por
-    # padrao, e desligada e' a Helena de antes byte a byte. Ligada: o especialista e a carteirinha recebem
-    # texto fixo (onde marcar, dados mascarados) e o sintoma leve recebe so' perguntas de alerta
-    # antes do caminho. Com ela ligada a nova triagem (`helena_triagem_v2`) fica inerte. CONTEUDO CLINICO
-    # DRAFT, pendente do medico-auditor; sem prazo da ANS nos textos (dono, 25/10/2026).
+    # HELENA V4 (DL-0115, 16/10/2026): a camada SAIU DO CODIGO na limpeza da saude, etapa 3 (dono,
+    # 02/11/2026); a carteirinha ficou com o plano, sem chave. A variavel ainda vem da task do dev: ACEITA E
+    # IGNORADA (nada a le); sai na etapa 4, junto com o terraform.
+    #
+    #
     helena_v4: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
@@ -378,12 +378,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_DEPENDENTES_NOME", "helena_dependentes_nome"),
     )
-    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
-    # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
-    # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
-    # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta antes do
-    # caso (com a v4 ligada); e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao.
-    # Revisao medica e juridica pendentes antes de producao.
+    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): a camada SAIU DO CODIGO na limpeza da
+    # saude, etapa 3 (dono, 02/11/2026); o encerramento do caso a pedido ficou sem chave (etapa 1). A variavel
+    # ainda vem da task do dev: ACEITA E IGNORADA (nada a le); sai na etapa 4, junto com o terraform.
+    #
+    #
+    #
     helena_base_saude: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
@@ -422,22 +422,22 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONCORRENCIA", "helena_roteador_concorrencia"),
     )
     # F2 (ADR-0066, DL-0136): as conversas em que o roteador ATIVO decide (ids keyed por virgula; tambem
-    # precisam estar na allowlist da saude gerativa). Vazia = ninguem. Na F2 so' as conversas do simulador.
+    # precisam estar na rota global, `helena_saude_gerativa_conversas`). Vazia = ninguem.
     helena_roteador_conversas: str = Field(
         default="",
         validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONVERSAS", "helena_roteador_conversas"),
     )
-    # COBERTURA (decisao do dono de 22/10/2026, DL-0140): `simples` (padrao) nunca consulta catalogo/AMH por
-    # procedimento: explica o geral e oferece a equipe; `consulta` = a consulta automatica (atras da chave).
+    # COBERTURA (DL-0140): a cobertura saiu da Helena (DL-0154; o codigo, na limpeza da saude, etapa 3). A
+    # variavel ainda vem da task do dev: ACEITA E IGNORADA; sai na etapa 4, junto com o terraform.
     helena_cobertura_modo: Literal["simples", "consulta"] = Field(
         default="simples",
         validation_alias=AliasChoices("MAEZO_HELENA_COBERTURA_MODO", "helena_cobertura_modo"),
     )
-    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
-    # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
-    # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
-    # autorizou como DPO SO' para as conversas da allowlist abaixo, SO' em dev. DESLIGADA por padrao; so' tem
-    # efeito com `helena_base_saude` ligada. Fora da allowlist, a Helena de antes byte a byte.
+    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): a REDACAO saiu do codigo na limpeza da saude, etapa 3
+    # (dono, 02/11/2026). A variavel ainda vem da task do dev: ACEITA E IGNORADA; sai na etapa 4. A allowlist
+    # abaixo (`helena_saude_gerativa_conversas`) CONTINUA: e' a lista da ROTA GLOBAL do Haiku 5.5 (perfil
+    # GLOBAL do Bedrock, autorizado pelo DPO so' em dev; `runtime/inference/rota_global.py`): porta unica,
+    # roteador ativo e `modelo_allowlist`. Com `MAEZO_HELENA_ROTA_GLOBAL_TODAS`, todas as conversas keyed.
     helena_saude_gerativa: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_SAUDE_GERATIVA", "helena_saude_gerativa"),
@@ -449,9 +449,9 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
         ),
     )
-    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026, decisao do dono): embeddings de um modelo
-    # REGIONAL do Bedrock em sa-east-1 escolhem o APOIO da saude gerativa (nunca portao). So' tem efeito com a
-    # saude gerativa ligada e so' para a allowlist dela. DESLIGADA por padrao.
+    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026): SAIU DO CODIGO na limpeza da saude,
+    # etapa 3 (dono, 02/11/2026), com a base e os embeddings. As tres variaveis ainda vem da task do dev:
+    # ACEITAS E IGNORADAS; saem na etapa 4, junto com o terraform.
     helena_busca_semantica: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),

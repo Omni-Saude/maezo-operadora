@@ -12,17 +12,17 @@ from __future__ import annotations
 import pytest
 
 from maezo.agents.helena.graph import RESPOSTA_RECUSA_DE_EQUIPE
+from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTO_CASO_MANTIDO
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
-from maezo.agents.helena.habilidades.sintoma.textos import TEXTO_CASO_MANTIDO
+from tests.support.helena_conversa import _DOR_NO_PEITO, _INFO, _PESSOA, _classify, _Conversa, _texto
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_roteador_v7 import _ConversaAtiva
-from tests.unit.agents.test_helena_saude_gerativa import _INFO, _PESSOA, _SINTOMA, _Conversa, _texto
+
+_SEM_AR = _classify(intent="symptom", population="adult", sintoma_codigo="dispneia", intensidade="grave")
 
 
 async def _alarme_tratado(conversa: _Conversa) -> None:
-    alerta = await conversa.diz("ando com uma dor forte no peito desde cedo", _SINTOMA)
-    assert "responda sim ou não" in _texto(alerta).lower()
-    urgente = await conversa.diz("sim", _INFO)
+    urgente = await conversa.diz("ando com uma dor forte no peito desde cedo", _DOR_NO_PEITO)
     assert "192" in _texto(urgente) and conversa.motivos == ["red_flag_clinico"]
 
 
@@ -32,7 +32,9 @@ async def _alarme_tratado(conversa: _Conversa) -> None:
 async def test_piora_depois_do_192_da_192_de_novo(piora: str) -> None:
     conversa = _Conversa()
     await _alarme_tratado(conversa)
-    resposta = await conversa.diz(piora, _INFO)
+    # Limpeza da saude, etapa 3: sem a lista de palavras, a piora e' extraida pelo classificador e a tabela
+    # DMN da' o P1 de novo.
+    resposta = await conversa.diz(piora, _SEM_AR)
     assert _texto(resposta) != TEXTO_CASO_MANTIDO
     assert "192" in _texto(resposta)
 
@@ -52,17 +54,3 @@ async def test_recusa_com_caso_de_pessoa_aberto_encerra() -> None:
     await conversa.fala("quero falar com alguém", decisao_v7("equipe"), _PESSOA)
     fim = await conversa.fala("não, deixa, desisto", decisao_v7("conversa", recusa=True))
     assert "encerr" in _texto(fim).lower(), "a recusa tentou encerrar o caso P2/P3"
-
-
-@pytest.mark.parametrize(
-    "alarme", ["a bolsa estourou", "vomitei sangue agora", "minha garganta está fechando"]
-)
-async def test_alarme_da_tabela_nao_espera_o_roteador_nem_o_classificador(alarme: str) -> None:
-    from maezo.agents.helena.habilidades.atendimento_humano.escalar import RESUMO_DO_ALARME_GRAVE
-
-    conversa = _ConversaAtiva()
-    resposta = await conversa.diz(alarme, _INFO)
-    assert "192" in _texto(resposta)
-    assert conversa.modelo.chamadas_do_roteador == 0  # type: ignore[attr-defined]
-    assert conversa.modelo.respostas == [_INFO], "o classificador nao foi chamado"  # type: ignore[attr-defined]
-    assert conversa.cib.inicios[0]["resumo_contexto"] == RESUMO_DO_ALARME_GRAVE

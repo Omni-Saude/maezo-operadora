@@ -142,9 +142,9 @@ async def test_mensagem_nova_durante_a_resposta_barra_o_envio_e_refaz_do_checkpo
     assert segunda == {"response_text": "tô com dor de cabeça\ne também enjoo"}
 
 
-@pytest.mark.parametrize(
-    "alarme", ["a bolsa estourou", "estou com dor no peito e falta de ar", "quero me matar"]
-)
+# Limpeza da saude, etapa 3: o alarme deterministico ("a bolsa estourou") saiu; ficam o lexico forte e a lista
+# de risco do DL-0151.
+@pytest.mark.parametrize("alarme", ["estou com dor no peito e falta de ar", "quero me matar"])
 async def test_sinal_claro_de_emergencia_nao_espera(alarme: str) -> None:
     costura, _compilado, remetente = _montar(espera_s=5.0)
     await asyncio.wait_for(costura.ainvoke(_estado(alarme), _CONFIG), timeout=1.0)

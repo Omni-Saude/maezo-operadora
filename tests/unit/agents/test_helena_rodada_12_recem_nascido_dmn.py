@@ -1,7 +1,7 @@
 """DL-0101 — rodada 12: a regra do recem-nascido vem da TABELA pediatrica (r9-r13, ratificadas pelo dono).
 
-O grafo so' (a) preenche `idade_meses=0` quando o recem-nascido vem dito em palavras e (b) mantem a regra
-deterministica `_alerta_neonatal` como fail-safe. Quem decide o red flag e' a tabela (ADR-0012).
+Quem decide o red flag e' a tabela (ADR-0012): o grafo repassa a idade e o codigo que o modelo extraiu.
+Limpeza da saude, etapa 3 (dono, 02/11/2026): sairam a idade 0 pelas palavras e a regra neonatal do grafo.
 """
 
 from __future__ import annotations
@@ -81,17 +81,6 @@ async def test_a_tabela_e_a_fonte_primaria_o_codigo_neonatal_escala_como_grave(c
     assert "192" in whatsapp.enviados[0]
 
 
-async def test_recem_nascido_dito_em_palavras_vira_idade_zero_para_a_tabela() -> None:
-    grafo, _, dmn = _grafo(
-        [_classify(intent="symptom", population="pediatric", sintoma_codigo="choro_inconsolavel")],
-        pediatrica=_LINHA_NEONATAL,
-    )
-
-    await grafo.ainvoke(_entrada("minha filha nasceu ha 5 dias e chora sem parar"))
-
-    assert dmn.calls[0][1]["idade_meses"] == 0
-
-
 async def test_idade_dita_pelo_modelo_nao_e_sobrescrita() -> None:
     grafo, _, dmn = _grafo(
         [_classify(intent="symptom", population="pediatric", sintoma_codigo="febre", idade_meses=5)],
@@ -112,16 +101,3 @@ async def test_sem_recem_nascido_a_idade_continua_desconhecida() -> None:
     await grafo.ainvoke(_entrada("meu filho esta com febre"))
 
     assert dmn.calls[0][1]["idade_meses"] is None
-
-
-async def test_fail_safe_do_grafo_escala_mesmo_quando_o_modelo_nao_devolve_o_codigo() -> None:
-    """Cinto e suspensorio: sem codigo neonatal a tabela le' `-`, e a regra do grafo ainda escala."""
-    grafo, whatsapp, _ = _grafo(
-        [_classify(intent="symptom", population="pediatric")], pediatrica=_SEM_BANDEIRA
-    )
-
-    resultado = await grafo.ainvoke(_entrada("minha filha recém-nascida está chorando muito, deve ser dor"))
-
-    assert resultado["escalation_motivo"] == "red_flag_clinico"
-    assert resultado["escalation_severidade"] == "grave"
-    assert "192" in whatsapp.enviados[0]

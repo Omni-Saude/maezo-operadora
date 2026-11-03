@@ -168,8 +168,11 @@ async def test_inform_recusado_com_caso_ativo_diz_que_o_caso_continua() -> None:
     "motor", [FakeCibSevenTransport, _MotorQueNaoLe], ids=["sem_instancia", "leitura_falha"]
 )
 async def test_emergencia_com_historico_clinico_e_motor_sem_caso_continua_escalando(motor: Any) -> None:
-    """DL-0072 intacto: o sinal de emergencia com caso clinico no historico NAO espera o motor."""
-    grafo, _, _, _ = _grafo([_classify()], cib=motor())
+    """DL-0072 intacto: o sinal de emergencia com caso clinico no historico NAO espera o motor.
+
+    Limpeza da saude, etapa 3: sem palavras de alarme, o sinal vem do classificador e a tabela decide."""
+    extracao = _classify(intent="symptom", population="adult", sintoma_codigo="dispneia", intensidade="grave")
+    grafo, _, _, _ = _grafo([extracao], cib=motor())
     resultado = await grafo.ainvoke(
         _entrada("ELE TA ROXO, PARANDO DE RESPIRAR", [RESPOSTA_ESCALONAMENTO_URGENTE])
     )

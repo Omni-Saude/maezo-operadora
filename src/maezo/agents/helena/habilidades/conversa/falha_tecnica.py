@@ -9,10 +9,10 @@ sem a pessoa pedir.
 Agora, nas conversas do roteador ATIVO (a allowlist do dono), o turno que ia escalar `falha_tecnica` por falha
 TECNICA — o classificador (excecao, JSON ilegivel ou fora do esquema, inclusive a segunda falha seguida), uma
 tabela DMN fora do ar ou com veredito fora do vocabulario — responde o pedido curto de repetir
-(`RESPOSTA_PECA_REENVIO`) e GUARDA a pergunta pendente. Excecoes (o escalonamento de sempre): sinal de alarme
-AFIRMADO na mensagem (tabela deterministica ou lexico forte de emergencia), risco psicossocial, pedido
-explicito de pessoa. As travas de decisao (`inform`/`handoff`/`consulta` recusados) nao sao falha do modelo e
-nao passam aqui.
+(`RESPOSTA_PECA_REENVIO`) e GUARDA a pergunta pendente. Excecoes (o escalonamento de sempre): sinal do lexico
+forte de emergencia afirmado na mensagem, risco psicossocial, pedido explicito de pessoa. Limpeza da saude,
+etapa 3 (dono, 02/11/2026): o alarme deterministico por palavra saiu da excecao (saiu do codigo). As travas
+de decisao (`inform`/`handoff`/`consulta` recusados) nao sao falha do modelo e nao passam aqui.
 """
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ def sem_caso(self: HelenaGraph, state: Mapping[str, Any], resultado: dict[str, A
     """O resultado do `classify`, com o escalonamento `falha_tecnica` por falha tecnica trocado pelo pedido
     de repetir (a pendencia do turno fica). Qualquer outro resultado volta como veio."""
     from maezo.agents.helena import graph as _g
-    from maezo.agents.helena.travas_entrada import alarme_afirmado
     from maezo.domain.comunicacao.lexico import tem_risco
 
     if resultado.get("next_kind") != "escalate" or resultado.get("escalation_motivo") != "falha_tecnica":
@@ -53,7 +52,6 @@ def sem_caso(self: HelenaGraph, state: Mapping[str, Any], resultado: dict[str, A
     texto = str(state.get("message_body") or "")
     if (
         resultado.get("psychosocial_risk") is True
-        or alarme_afirmado(state) is not None
         or _g._sinal_forte_de_emergencia(texto)
         or tem_risco(_g._plano(texto))
         or _g._pedido_explicito_com_verbo(texto)

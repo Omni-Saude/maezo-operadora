@@ -144,10 +144,9 @@ _SUBTREES_ESPERADOS = {
     "spec/processes/dmn",
     "spec/schemas/tiss",
     "spec/agents",
-    # ADR-0064/DL-0118: a base de conhecimento de saude da Helena (`base_saude.raiz_padrao()`).
-    "spec/conhecimento/saude",
-    # DL-0128: os sinonimos genericos da cobertura assistida (`catalogo_procedimentos.raiz_dos_sinonimos()`).
-    "spec/conhecimento/cobertura",
+    # `spec/conhecimento/saude` e `spec/conhecimento/cobertura` sairam daqui na limpeza da saude, etapa 3
+    # (02/11/2026, DL-0165): o runtime nao os cita mais (`base_saude.py` e `catalogo_procedimentos.py`).
+    # O force-include e a COPY continuam em par ate' a etapa 4 (a COPY mora no `deploy/Dockerfile`).
     # ADR-0066/DL-0134: o contrato do roteador de habilidades da Helena (`roteador_contrato.caminho_padrao`),
     # dentro de `spec/agents` (ja' empacotado).
     "spec/agents/helena",

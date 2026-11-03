@@ -33,7 +33,6 @@ import structlog
 from structlog.testing import capture_logs
 
 from maezo.agents.helena import consultas_plano as cp
-from maezo.agents.helena import helena_v4 as v4
 from maezo.agents.helena.consultas_plano import (
     INTENT_CONSULTA_PLANO,
     RESPOSTA_SEM_VINCULO_ATIVO,
@@ -46,6 +45,7 @@ from maezo.agents.helena.consultas_plano import (
     vinculo_ativo,
 )
 from maezo.agents.helena.graph import IDENTIDADE_RECONHECIDA, HelenaGraph, new_helena_state
+from maezo.agents.helena.habilidades.plano import carteirinha as v4
 from maezo.agents.helena.prompts import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from maezo.ports.tina import CarteirinhaCompleta, CarteirinhasView, ElegibilidadeView, VinculoPlano
 from maezo.qa.simulador import aceite
@@ -367,7 +367,6 @@ async def _turno(
     subtipo: str,
     *,
     chave: bool | None,
-    v4_ligada: bool,
     fonte: Any = None,
     rascunho: str | None = None,
     verificada: bool = True,
@@ -385,7 +384,6 @@ async def _turno(
         audit_sink=FakeStartAuditSink(),
         whatsapp=whatsapp,
         historico_enabled=True,
-        helena_v4_enabled=v4_ligada,
         consultas_plano=fonte,
         relogio=lambda: _RELOGIO,
         **kwargs,
@@ -410,19 +408,14 @@ async def _turno(
     return cast(dict[str, Any], resultado), whatsapp, modelo, fonte
 
 
-@pytest.mark.parametrize("v4_ligada", [True, False])
 @pytest.mark.parametrize("subtipo", ["elegibilidade", "carteirinha"])
-async def test_chave_desligada_e_o_grafo_de_antes_byte_a_byte(v4_ligada: bool, subtipo: str) -> None:
+async def test_chave_desligada_e_o_grafo_de_antes_byte_a_byte(subtipo: str) -> None:
     """Argumento AUSENTE (o grafo de hoje) e `False` explicito: o MESMO texto enviado e o MESMO estado, a
     rota da
     carteirinha nunca chamada e o vinculo cancelado de 2014 ainda listado (o comportamento de hoje)."""
     rascunho = f"Seu plano consta como {_PLANO_ATIVO}." if subtipo == "elegibilidade" else None
-    ausente, zap_a, modelo_a, fonte_a = await _turno(
-        subtipo, chave=None, v4_ligada=v4_ligada, rascunho=rascunho
-    )
-    desligada, zap_d, modelo_d, fonte_d = await _turno(
-        subtipo, chave=False, v4_ligada=v4_ligada, rascunho=rascunho
-    )
+    ausente, zap_a, modelo_a, fonte_a = await _turno(subtipo, chave=None, rascunho=rascunho)
+    desligada, zap_d, modelo_d, fonte_d = await _turno(subtipo, chave=False, rascunho=rascunho)
     assert zap_a.enviados == zap_d.enviados and len(zap_a.enviados) == 1
     for chave_estado in (
         "response_text",
@@ -454,10 +447,9 @@ def _sem_carimbo(valor: Any) -> Any:
     return valor
 
 
-@pytest.mark.parametrize("v4_ligada", [True, False])
-async def test_chave_ligada_carteirinha_mostra_o_numero_completo_so_do_vinculo_ativo(v4_ligada: bool) -> None:
+async def test_chave_ligada_carteirinha_mostra_o_numero_completo_so_do_vinculo_ativo() -> None:
     with capture_logs() as logs:
-        resultado, zap, modelo, fonte = await _turno("carteirinha", chave=True, v4_ligada=v4_ligada)
+        resultado, zap, modelo, fonte = await _turno("carteirinha", chave=True)
     [enviado] = zap.enviados
     # Etapa 1 da limpeza: com ou sem a v4, o texto da carteirinha (o do dev).
     assert f"- Número da carteirinha: {_NUMERO}" in enviado
@@ -481,7 +473,7 @@ async def test_chave_ligada_carteirinha_mostra_o_numero_completo_so_do_vinculo_a
 
 
 async def test_chave_ligada_sem_identidade_verificada_nunca_le_a_rota() -> None:
-    resultado, zap, _, fonte = await _turno("carteirinha", chave=True, v4_ligada=True, verificada=False)
+    resultado, zap, _, fonte = await _turno("carteirinha", chave=True, verificada=False)
     assert fonte.chamadas_carteirinha == [] and fonte.chamadas == []
     assert _NUMERO not in zap.enviados[0]
 
@@ -498,7 +490,7 @@ async def test_chave_ligada_sem_identidade_verificada_nunca_le_a_rota() -> None:
     ],
 )
 async def test_falha_da_rota_cai_no_mascarado_sem_quebrar(fonte: Any) -> None:
-    _, zap, _, _ = await _turno("carteirinha", chave=True, v4_ligada=True, fonte=fonte)
+    _, zap, _, _ = await _turno("carteirinha", chave=True, fonte=fonte)
     [enviado] = zap.enviados
     assert f"- Código: {_MASCARA}" in enviado
     assert _NUMERO not in enviado and _NUMERO_2 not in enviado and "{{" not in enviado
@@ -511,9 +503,7 @@ async def test_chave_ligada_elegibilidade_ve_so_o_ativo_e_nao_le_a_rota() -> Non
         f"Seu plano consta como {_PLANO_ATIVO}, segmentação Ambulatorial + Hospitalar com obstetricia, "
         "acomodação Enfermaria. Se quiser falar com uma pessoa da equipe, é só me pedir."
     )
-    resultado, zap, modelo, fonte = await _turno(
-        "elegibilidade", chave=True, v4_ligada=True, rascunho=rascunho
-    )
+    resultado, zap, modelo, fonte = await _turno("elegibilidade", chave=True, rascunho=rascunho)
     [prompt] = [p for p in modelo.prompts if "fatos_do_plano" in p]
     assert _PLANO_ANTIGO not in prompt and _PLANO_ATIVO in prompt
     assert fonte.chamadas_carteirinha == []
@@ -521,10 +511,9 @@ async def test_chave_ligada_elegibilidade_ve_so_o_ativo_e_nao_le_a_rota() -> Non
 
 
 @pytest.mark.parametrize("subtipo", ["elegibilidade", "carteirinha"])
-@pytest.mark.parametrize("v4_ligada", [True, False])
-async def test_chave_ligada_sem_vinculo_ativo_responde_o_texto_fixo(subtipo: str, v4_ligada: bool) -> None:
+async def test_chave_ligada_sem_vinculo_ativo_responde_o_texto_fixo(subtipo: str) -> None:
     fonte = _Fonte(view=_view(_CANCELADO_2014))
-    _, zap, modelo, _ = await _turno(subtipo, chave=True, v4_ligada=v4_ligada, fonte=fonte)
+    _, zap, modelo, _ = await _turno(subtipo, chave=True, fonte=fonte)
     assert zap.enviados == [RESPOSTA_SEM_VINCULO_ATIVO]
     assert not [p for p in modelo.prompts if "fatos_do_plano" in p]  # sem modelo
 
@@ -535,14 +524,11 @@ async def test_o_modelo_nao_escreve_nem_puxa_o_numero() -> None:
     pela cerca e vira o texto deterministico; (b) um rascunho que IMITA o marcador nao puxa numero nenhum (a
     rota
     nem e' lida fora da carteirinha) — o envio troca o marcador pela propria mascara."""
-    _, zap, _, fonte = await _turno(
-        "elegibilidade", chave=True, v4_ligada=False, rascunho=f"Sua carteirinha e' {_NUMERO}."
-    )
+    _, zap, _, fonte = await _turno("elegibilidade", chave=True, rascunho=f"Sua carteirinha e' {_NUMERO}.")
     assert _NUMERO not in zap.enviados[0] and fonte.chamadas_carteirinha == []
     _, zap, _, fonte = await _turno(
         "elegibilidade",
         chave=True,
-        v4_ligada=False,
         rascunho=f"Seu plano e' {_PLANO_ATIVO}. Carteirinha {cp.marcador_da_carteirinha(_MASCARA)}.",
     )
     assert _NUMERO not in zap.enviados[0] and "{{" not in zap.enviados[0]
@@ -571,7 +557,7 @@ async def test_o_numero_nunca_vai_a_log_nem_ao_stdlib(caplog: pytest.LogCaptureF
     caplog.set_level("DEBUG")
     structlog.reset_defaults()
     with capture_logs() as logs:
-        await _turno("carteirinha", chave=True, v4_ligada=True)
+        await _turno("carteirinha", chave=True)
     assert _NUMERO not in caplog.text
     assert _NUMERO not in json.dumps(logs, default=str)
     assert any(e.get("event") == "helena_carteirinha_completa" and e.get("com_numero") is True for e in logs)
@@ -734,13 +720,9 @@ def test_o_roteiro_de_aceite_da_carteirinha_completa() -> None:
     ruim = enviado + "\n- Cancelamento: 31/05/2014"
     falhas = aceite.avaliar_passo(carteirinha, [("helena", ruim)], [], None)
     assert falhas and all(_NUMERO not in f for f in falhas)
-    # O passo mascarado de hoje (dono_v1 / helena_v4) so' roda com a chave DESLIGADA.
+    # O passo mascarado de hoje (dono_v1; o roteiro helena_v4 saiu com a v4) so' roda com a chave DESLIGADA.
     mascarados = [
-        p
-        for r in (aceite.DONO_V1, aceite.HELENA_V4)
-        for s in r
-        for p in s.passos
-        if p.texto == "Qual o número da minha carteirinha?"
+        p for s in aceite.DONO_V1 for p in s.passos if p.texto == "Qual o número da minha carteirinha?"
     ]
     assert mascarados and all(p.condicao == "sem_carteirinha_completa" for p in mascarados)
     assert aceite._condicao_atendida(mascarados[0], False, carteirinha_completa=True) is False

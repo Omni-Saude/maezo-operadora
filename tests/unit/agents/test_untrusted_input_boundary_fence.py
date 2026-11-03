@@ -564,9 +564,13 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # 18/18 desde 25/10/2026 (protocolos clinicos): `habilidades/protocolo/fluxo.py::_chamar` (escolha do
     # protocolo, leitura das respostas e mapa do especialista) leva a mensagem DEMARCADA como `message_body`
     # e o historico como `historico_conversa`, como o roteador.
-    assert (total, com_entrada) == (18, 18), (
+    # 15/15 desde 02/11/2026 (limpeza da saude, etapa 3, DL-0165): sairam do codigo tres sitios da Helena —
+    # `habilidades/protocolo/fluxo.py::_chamar` (protocolos),
+    # `habilidades/saude/informar.py::_base_achar_assunto` (base de saude) e `graph.py::collect` (a pergunta
+    # da coleta). Nenhuma chamada LLM nova.
+    assert (total, com_entrada) == (15, 15), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 18/18 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 15/15 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )
