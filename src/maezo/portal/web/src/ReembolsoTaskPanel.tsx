@@ -405,3 +405,36 @@ export function ReembolsoTaskPanel({
     </section>
   );
 }
+
+// Na tarefa de reembolso, "Responsabilidade" (assumir/liberar/reatribuir) e "Decisão humana" seguem RECUSADOS em
+// dev: dependem da autoridade nativa e do material de decisao, que nenhum .tf de dev monta
+// (docs/plans/portal-autoridade-nativa-dev.md §D-P), e o plano de decisao nem conhece `reembolso_*`
+// (gateway.py, `_decision_binding`). Os botoes ficam visiveis e desligados, com o motivo, em vez de
+// responderem "indisponivel" depois do clique. A conclusao vai pelo "Concluir" do painel acima (DL-0163).
+export function ReembolsoBlocosIndisponiveis({ responsabilidade, decisao }: { responsabilidade: boolean; decisao: boolean }) {
+  const motivo =
+    "Não se aplica ao reembolso neste ambiente: decida pelo botão “Concluir” do pedido acima. " +
+    "Não é preciso assumir a tarefa; basta estar no grupo dela.";
+  return (
+    <>
+      {responsabilidade && (
+        <section className="ownership-controls" aria-label="Responsabilidade pela tarefa">
+          <h3>Responsabilidade pela tarefa</h3>
+          <button className="secondary-action" type="button" disabled>
+            Consultar responsabilidade
+          </button>
+          <p className="field-hint">{motivo}</p>
+        </section>
+      )}
+      {decisao && (
+        <section className="task-detail decision-workspace" aria-label="Decisão humana">
+          <h2>Decisão humana</h2>
+          <button className="secondary-action" type="button" disabled>
+            Consultar contexto atual
+          </button>
+          <p className="field-hint">{motivo}</p>
+        </section>
+      )}
+    </>
+  );
+}

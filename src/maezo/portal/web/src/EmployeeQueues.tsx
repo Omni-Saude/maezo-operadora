@@ -2,7 +2,7 @@ import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { TaskOwnershipControls } from "./TaskOwnershipControls";
-import { ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
+import { ReembolsoBlocosIndisponiveis, ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
 import { TaskCompletionControls } from "./TaskCompletionControls";
 import { TaskContextPanel } from "./TaskContextPanel";
 
@@ -545,7 +545,14 @@ export function EmployeeQueues({
           onCompleted={() => void loadFirstPage()}
         />
       )}
-      {ownershipTask && csrfToken && (
+      {/* DL-0163: na tarefa de reembolso os dois blocos abaixo aparecem desligados, com o motivo. */}
+      {completionTask && completionForm.startsWith("reembolso_") && (
+        <ReembolsoBlocosIndisponiveis
+          responsabilidade={ownershipTask === completionTask}
+          decisao={decisionTask === completionTask}
+        />
+      )}
+      {ownershipTask && csrfToken && !(ownershipTask === completionTask && completionForm.startsWith("reembolso_")) && (
         <TaskOwnershipControls
           key={`responsabilidade\u0000${sessionBinding}\u0000${ownershipTask}`}
           taskId={ownershipTask}
@@ -555,7 +562,7 @@ export function EmployeeQueues({
           onCommitted={() => void loadFirstPage()}
         />
       )}
-      {decisionTask && csrfToken && <DecisionWorkspace key={`decisao\u0000${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
+      {decisionTask && csrfToken && !(decisionTask === completionTask && completionForm.startsWith("reembolso_")) && <DecisionWorkspace key={`decisao\u0000${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );
 }
