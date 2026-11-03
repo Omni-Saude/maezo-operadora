@@ -85,6 +85,81 @@ def tem_risco(plano: str) -> bool:
     return bool(RISCO_NA_MENSAGEM.search(plano))
 
 
+# --- Frases afirmadas (a pergunta sobre um sinal nao e' o sinal) ----------------------------------------
+#: Limpeza da saude, etapa 3 (dono, 02/11/2026): MOVIDO de `agents/helena/frase_afirmada.py` (teste do dono de
+#: 25/10/2026), SO' a parte que a conversa ainda usa (os lexicos de emergencia de `graph._sinal_afirmado`): a
+#: frase que PERGUNTA sobre um sinal, ou que levanta uma hipotese, sem marca de afirmacao, sai da leitura. O
+#: eco da fala da Helena e o vocabulario da tabela sairam com o alarme por palavra (ninguem mais os le).
+_RETICENCIAS: Final[re.Pattern[str]] = re.compile(r"\.{2,}|…")
+_FIM_DE_FRASE: Final[re.Pattern[str]] = re.compile(r"(?<=[.?!;\n])")
+_AFIRMACAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:sim|tenho|tive|teve|tinha|tem(?! a ver| haver| que ver| relacao| algo a ver| alguma relacao)"
+    r"|estou|esta|to|ta|tava|estava|estamos|estao|sinto|sente|senti|sentiu|sentindo|sentia|comecei|comecou"
+    r"|apareceu|fiquei|ficou|deu|veio|vem|piorou|agora|acordou|acordei|caiu|bateu|bati|sou|fui|foi)\b"
+)
+_VERBO_CONJUGADO: Final[re.Pattern[str]] = re.compile(r"\b\w{3,}(?:ou|ei|ando|endo|indo)\b")
+_NAO_SAO_VERBO: Final[frozenset[str]] = frozenset({"quando", "enquanto", "sendo", "lindo", "vindo"})
+_PEDE_ORIENTACAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:o que (?:eu )?(?:faco|fazer|devo|faz)|devo|chamo|ligo|levo|preciso (?:ir|ligar|chamar|levar)"
+    r"|socorro|samu|192|ambulancia|pronto socorro|emergencia|hospital)\b"
+)
+_PERGUNTA_SOBRE_O_SINAL: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:o que|oque|por que|sera|seria|pode ser|podem ser|tem a ver|tem haver|tem que ver|a ver com"
+    r"|relacao|e normal|eh normal|e grave|eh grave|e perigoso|e sinal|significa|quer dizer|como assim"
+    r"|qual|quais|isso e)\b"
+)
+_HIPOTESE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:e se|se|caso)\b(?: \w+){0,3} (?:ficar|parar|tiver|tiverem|desmaiar|convulsionar|acontecer"
+    r"|nao acordar|nao respirar)\b"
+)
+_ABRE_COM_SIM: Final[re.Pattern[str]] = re.compile(r"^(?:sim|s|tenho|tem sim)\b|^isso(?: mesmo| ai| sim)?$")
+_CONFIRMACAO_PALAVRAS: Final[int] = 5
+
+
+def _so_letras(texto: str) -> str:
+    sem = "".join(c for c in unicodedata.normalize("NFD", texto or "") if unicodedata.category(c) != "Mn")
+    return " ".join(re.sub(r"[^\w\s]", " ", sem.lower()).split())
+
+
+def _afirma(plano: str) -> bool:
+    if _AFIRMACAO.search(plano):
+        return True
+    return any(m.group(0) not in _NAO_SAO_VERBO for m in _VERBO_CONJUGADO.finditer(plano))
+
+
+def _descartada(frase: str) -> bool:
+    plano = _so_letras(frase)
+    if not plano or _afirma(plano):
+        return False
+    if _HIPOTESE.search(plano):
+        return True  # "e se ele parar de respirar?", "o que fazer se o bebe ficar roxo?"
+    if _PEDE_ORIENTACAO.search(plano):
+        return False
+    return frase.rstrip().endswith("?") or _PERGUNTA_SOBRE_O_SINAL.search(plano) is not None
+
+
+def frases_afirmadas(texto: str, sinal: re.Pattern[str]) -> str:
+    """O texto SO' com as frases afirmadas: sai a frase que so' PERGUNTA sobre o sinal (ou levanta uma
+    hipotese), sem marca de afirmacao. "Sim" no comeco de qualquer frase mantem tudo; a frase curta com
+    afirmacao e sem `sinal` proprio, logo depois de uma pergunta descartada, confirma a pergunta ("dor no
+    peito? to sentindo agora"). Sem nada descartado, `texto` identico."""
+    corrido = _RETICENCIAS.sub(" ", texto or "")
+    partes = [f for f in _FIM_DE_FRASE.split(corrido) if f.strip()]
+    if not partes:
+        return texto or ""
+    if any(_ABRE_COM_SIM.search(_so_letras(p)) for p in partes):
+        return texto
+    fora = [_descartada(p) for p in partes]
+    for i in range(1, len(partes)):
+        seguinte = _so_letras(partes[i])
+        curta = 0 < len(seguinte.split()) <= _CONFIRMACAO_PALAVRAS
+        if fora[i - 1] and not fora[i] and curta and _afirma(seguinte) and not sinal.search(seguinte):
+            fora[i - 1] = False
+    if not any(fora):
+        return texto
+    return " ".join(p.strip() for p, f in zip(partes, fora, strict=True) if not f)
+
+
 # --- Higiene do texto final ------------------------------------------------------------------------------
 _ABERTURA_REPETIDA: Final[re.Pattern[str]] = re.compile(
     r"^(entendi|certo|ok|claro|oi|ola|olá)[.!,:]?\s+(?=\1\b)", re.IGNORECASE
@@ -130,6 +205,7 @@ __all__ = [
     "LIGACOES_DA_NEGATIVA",
     "NEGATIVAS_DE_SINAL",
     "RISCO_NA_MENSAGEM",
+    "frases_afirmadas",
     "mencao_afirmada",
     "negado",
     "normalizar",

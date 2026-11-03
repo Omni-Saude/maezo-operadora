@@ -331,37 +331,3 @@ def test_bug_a_central_de_atendimento_nao_tem_cerca_de_nome() -> None:
     escapam = [t for t in formas if motivo_de_canal_nao_confirmado(t) is None]
 
     assert not escapam, f"nome de central que ninguem confirmou e a cerca nao ve: {escapam}"
-
-
-async def test_bug_a_cerca_de_canal_nao_alcanca_a_rota_collect() -> None:
-    """REPROVA — bug real de WIRING (latente: `coleta_enabled=False` por default).
-
-    `_respond_llm` declara ser o ponto unico de passagem:
-
-        "ESTE e' o unico ponto por onde passa todo texto que chega ao beneficiario — `inform`
-         (1x), `_start_escalation` (escalate e schedule) e o fallback de `respond`."
-
-    A enumeracao nao tem `collect`, e o no' `collect` (graph.py:1815) monta prompt proprio, chama
-    `self._llm.generate` direto e devolve `response_text` SEM passar por cerca nenhuma. Em
-    `respond`, a unica cerca do turno e' a TEXTO x FATO — que nao chama
-    `motivo_de_canal_nao_confirmado`. Resultado: na rota de coleta, o canal inventado chega ao
-    beneficiario.
-
-    Alcance honesto: hoje a rota so' e' escolhida com `coleta_enabled=True` (default `False`,
-    dependente da tabela `triage_sufficiency` no motor). O no' JA EXISTE e ja' e' chamavel, e a
-    cerca e' de uma entrega posterior a ele — quando a feature ligar, o F7 volta por esta porta.
-    """
-    whatsapp = _WhatsApp()
-    graph = _graph(
-        "Antes de continuar: a dor esta' leve, moderada ou forte? Se preferir, veja no aplicativo do plano.",
-        whatsapp=whatsapp,
-    )
-
-    do_collect = await graph.collect(_estado(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))
-    await graph.respond(_estado(**do_collect))
-
-    assert whatsapp.enviados, "o turno de coleta tem de perguntar alguma coisa"
-    assert "aplicativo do plano" not in whatsapp.enviados[0][1].lower(), (
-        "a rota `collect` entrega o canal nao confirmado — nenhuma das duas cercas de saida roda "
-        "nela (graph.py:1815 `collect`, graph.py:2587 o unico ponto de chamada da cerca de canal)"
-    )

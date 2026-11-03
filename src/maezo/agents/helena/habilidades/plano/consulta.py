@@ -91,14 +91,6 @@ def _rota_de_consulta(self: HelenaGraph, update: dict[str, Any]) -> dict[str, An
 
 
 async def consultar_plano(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
-    """A consulta do plano; com SOFRIMENTO na mesma mensagem ("o plano cobre psiquiatra? ando muito mal"),
-    o acolhimento (com o CVV 188 e o 192) vem PRIMEIRO (dossie de seguranca, 18/10/2026). O portao de
-    risco ja' rodou em `classify` (risco psicossocial vence a consulta)."""
-    resultado = await self._consultar_plano_sem_acolhimento(state)
-    return self._com_acolhimento(state, resultado)
-
-
-async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
     """CONSULTA DO PLANO (DL de 07/10/2026): fatos do cadastro do PROPRIO beneficiario.
 
     SO' com identidade resolvida (DL-0077: candidato unico, `portable_subject_ref` no estado). Sem

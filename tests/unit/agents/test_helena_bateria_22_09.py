@@ -146,7 +146,6 @@ async def _turno(graph: HelenaGraph, estado: HelenaState) -> dict[str, Any]:
         "inform": graph.inform,
         "escalate": graph.escalate,
         "schedule": graph.schedule,
-        "collect": graph.collect,
     }[destino]
     corrente.update(await no(cast(HelenaState, corrente)))
     corrente["rota_escolhida"] = destino
@@ -174,8 +173,9 @@ async def test_o_c1_e_o_b5_tem_o_mesmo_desfecho_porque_tem_o_mesmo_estado_clinic
     """O RED do CRITICO 1, com os dois casos medidos lado a lado.
 
     Mesma extracao, mesma tabela, mesmo `red_flag=false` — e desfechos opostos, decididos pela
-    frase que o modelo sorteou. Depois do conserto os dois terminam em `inform` e nenhum dos dois
-    abre fila: o que muda entre eles e' o TEXTO, que e' a unica coisa que de fato diferia.
+    frase que o modelo sorteou. Depois do conserto os dois tem o MESMO desfecho: o que muda entre
+    eles e' o TEXTO, que e' a unica coisa que de fato diferia. Limpeza da saude, etapa 3 (dono,
+    02/11/2026): o sintoma sem bandeira da DMN vai a equipe (`intencao_clinica`/`moderada`) nos dois.
     """
     desfechos = []
     for rascunho in (C1_RASCUNHO_COM_PROMESSA, B5_RASCUNHO_LIMPO):
@@ -187,14 +187,12 @@ async def test_o_c1_e_o_b5_tem_o_mesmo_desfecho_porque_tem_o_mesmo_estado_clinic
         desfechos.append(saida)
 
     c1, b5 = desfechos
-    assert c1["rota_escolhida"] == "inform", "o C1 virou escalonamento por causa da REDACAO"
-    assert c1["response_kind"] == "inform"
-    assert c1.get("escalation_started") is not True, "abriu fila humana por um defeito de redacao"
-    assert c1.get("escalation_motivo") is None, (
-        "o turno saiu rotulado `falha_tecnica` — uma dor de cabeca comum nao e' falha da automacao"
-    )
-    assert b5["rota_escolhida"] == "inform"
-    assert b5.get("escalation_started") is not True
+    for saida in (c1, b5):
+        assert saida["rota_escolhida"] == "escalate"
+        assert saida["escalation_motivo"] == "intencao_clinica", (
+            "o turno saiu rotulado `falha_tecnica` — uma dor de cabeca comum nao e' falha da automacao"
+        )
+        assert saida["escalation_severidade"] == "moderada"
     assert c1["desfecho"] == b5["desfecho"], (
         "dois turnos com estado clinico identico continuam com desfechos diferentes"
     )

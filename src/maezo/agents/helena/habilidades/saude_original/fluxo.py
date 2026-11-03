@@ -1,6 +1,6 @@
 """A PORTA UNICA da saude (desenho original de 05/07/2026; dono, 01/11/2026 — DL-0160).
 
-Nas conversas da allowlist, com `saude_original: true` no pacote, TODA mensagem de saude passa so' por aqui:
+Nas conversas da allowlist (a rota do modelo), TODA mensagem de saude passa so' por aqui:
 
 1. risco de suicidio/autolesao pelo texto: o caminho de sempre (`_risco_pelo_texto`: tabela de saude mental,
    CVV 188 e 192, caso para a equipe);
@@ -41,8 +41,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-#: Chave do PACOTE (`spec/agents/helena/pacote/configuracao.yaml`): `saude_original: true` liga.
-CHAVE_DO_PACOTE: Final[str] = "saude_original"
+#: A chave `saude_original` do PACOTE (`spec/agents/helena/pacote/configuracao.yaml`) nao liga mais nada:
+#: limpeza da saude, etapa 3 (dono, 02/11/2026), a porta e' incondicional nas conversas da rota do modelo. A
+#: chave e' ACEITA E IGNORADA pelo validador do pacote (`pacote.py`) ate' a etapa 4.
 #: As habilidades do roteador que sao saude.
 HABILIDADES_DE_SAUDE: Final[frozenset[str]] = frozenset({"sintoma", "saude"})
 _MAX_FALAS: Final[int] = 12
@@ -93,13 +94,11 @@ LEITURA_DO_TURNO: ContextVar[dict[str, Any] | None] = ContextVar(
 _INTENCOES_DE_SAUDE: Final[frozenset[str]] = frozenset({"symptom", "clinical_question"})
 
 
-def ligada(self: HelenaGraph) -> bool:
-    return getattr(self, "_saude_original", False) is True
-
-
 def assume(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
-    """A porta unica conduz a saude desta conversa (chave ligada, rota do modelo e allowlist)."""
-    return ligada(self) and _ma.na_allowlist(self, state)
+    """A porta unica conduz a saude desta conversa: a rota do modelo e a allowlist (ou todas as conversas
+    keyed, `MAEZO_HELENA_ROTA_GLOBAL_TODAS`). Sem a rota, o desenho original no `classify` (o classificador
+    extrai, a tabela DMN decide)."""
+    return _ma.na_allowlist(self, state)
 
 
 def ja_leu() -> bool:
@@ -300,7 +299,6 @@ def _para_a_equipe(
 
 
 __all__ = [
-    "CHAVE_DO_PACOTE",
     "HABILIDADES_DE_SAUDE",
     "TEXTO_CASO_DE_SAUDE_ABERTO",
     "TEXTO_CONVERSA",
@@ -312,7 +310,6 @@ __all__ = [
     "texto_do_caso_aberto",
     "atender",
     "conversa_para_leitura",
-    "ligada",
     "no_classify",
     "texto_de_conversa",
 ]

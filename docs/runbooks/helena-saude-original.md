@@ -77,3 +77,26 @@ Log novo: `helena_saude_original` com `via=classify_sem_saude` (a leitura disse 
 
 Etapa 3 (a seguir): apagar do código as camadas que ficaram sem uso (base, saúde gerativa, v4, triagem v2,
 protocolos, alarme por palavra, acolhimento por palavra).
+
+## Adendo 02/11/2026 — etapa 3: as camadas antigas saem do código (DL-0165, adendo)
+As camadas de saúde posteriores ao desenho original foram **apagadas do código**: base de conhecimento, saúde
+gerativa, busca por significado, v4, triagem v2, coleta, protocolos, alarme por palavra (sinal claro, alarme
+determinístico, frase afirmada), alarme dito pelo modelo, regra neonatal, acolhimento por palavra, correção de
+dado e a sombra do roteador fora da allowlist. Não há mais chave que as traga de volta.
+
+- **Porta incondicional.** Toda conversa com a rota do modelo (allowlist ou `MAEZO_HELENA_ROTA_GLOBAL_TODAS`) é da
+  porta; a chave `saude_original` do pacote é aceita e ignorada. Sem a rota (fora do dev), o `classify` é o desenho
+  original: o modelo extrai, a tabela decide; sintoma sem bandeira = caso `intencao_clinica` moderado.
+- **Aceitas e ignoradas até a etapa 4:** pacote `triagem_v2`, `v4`, `base_saude`, `protocolos`, `saude_original`,
+  `cobertura_modo` e os textos `sintoma_*`/`saude_*`; variáveis `MAEZO_HELENA_TRIAGEM_V2`, `MAEZO_HELENA_V4`,
+  `MAEZO_HELENA_BASE_SAUDE`, `MAEZO_HELENA_COBERTURA_MODO`, `MAEZO_HELENA_SAUDE_GERATIVA`,
+  `MAEZO_HELENA_BUSCA_SEMANTICA*`, `MAEZO_HELENA_PROTOCOLOS`. `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` continua (é a
+  lista da rota global).
+- **Fica para a etapa 4:** tirar as chaves do pacote, do terraform e das settings; tirar `spec/conhecimento/**` junto
+  com a COPY do `deploy/Dockerfile` (revisão de segurança); tirar as tabelas `triage_sufficiency.dmn` e
+  `helena_triage_admissibility.dmn` (sem leitor) junto com o censo de variáveis do motor.
+- Cerca: `tests/unit/agents/test_helena_sem_camadas_antigas.py`.
+
+| Frase do dono | O que fazer |
+|---|---|
+| "Desfaz a etapa 3" | Reverter o PR da etapa 3 (código); nada de infraestrutura muda. |

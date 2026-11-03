@@ -1,4 +1,4 @@
-"""O modelo da allowlist (dono e DPO, 26/10/2026, opcao A; DL-0155): roteador, passos do protocolo e classify
+"""O modelo da allowlist (dono e DPO, 26/10/2026, opcao A; DL-0155): roteador e classify
 vao ao Haiku 5.5 pela rota global SO' nas conversas da allowlist; o resto segue no GLM-5 como antes. Opcao B
 (`glm5_com_reserva_haiku`): GLM-5 primeiro, Haiku quando o GLM-5 estoura o prazo ou cai.
 
@@ -18,20 +18,19 @@ from structlog.testing import capture_logs
 from maezo.agents.helena import modelo_allowlist as ma
 from maezo.agents.helena import pacote as pc
 from maezo.agents.helena.graph import HelenaGraph
-from maezo.conhecimento import base_saude as bs
-from maezo.conhecimento import saude_gerativa as sg
 from maezo.runtime.inference.experimento_global import (
     MODELO_HAIKU_GLOBAL,
     ROTA_DE_RESIDENCIA,
     FalhaDaRotaGlobalError,
     RespostaDaRotaGlobal,
 )
+from maezo.runtime.inference.rota_global import RotaGlobal
 from maezo.runtime.pacote_do_agente import PacoteDoAgente, PacoteInvalidoError
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.helena_conversa import _DmnReal
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _classify, _entrada, _WhatsApp
-from tests.unit.agents.test_helena_v4 import _DmnReal
 
 _OUTRA = "wa:amh:hk1_" + "b" * 64
 _SO_GERATIVA = "wa:amh:hk1_" + "c" * 64
@@ -94,12 +93,8 @@ def _grafo(
         whatsapp=_WhatsApp(),
         roteador_lucas_enabled=True,
         historico_enabled=True,
-        coleta_enabled=True,
-        helena_v4_enabled=True,
         relogio=lambda: datetime(2026, 10, 26, 18, 0, tzinfo=UTC),
-        saude_gerativa=sg.RedatorDeSaude(transporte=haiku, conversas=frozenset({_CONVERSA, _SO_GERATIVA})),
-        helena_base_saude_enabled=True,
-        base_saude=bs.BASE_VAZIA,
+        rota_global=RotaGlobal(transporte=haiku, conversas=frozenset({_CONVERSA, _SO_GERATIVA})),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset({_CONVERSA, _OUTRA}),
         roteador_prazo_s=prazo_s,
@@ -191,20 +186,6 @@ async def test_allowlist_roteador_vai_ao_haiku(frase: str) -> None:
     assert contador and contador[0]["modelo"] == MODELO_HAIKU_GLOBAL and contador[0]["regiao"] == "global"
 
 
-@pytest.mark.parametrize("frase", _FRASES)
-async def test_allowlist_passo_do_protocolo_vai_ao_haiku(frase: str) -> None:
-    from maezo.agents.helena.habilidades.protocolo import fluxo
-
-    escolha = json.dumps({"publico": "adulto", "faixa_crianca": "nao_se_aplica", "protocolo": "x"})
-    glm, haiku = _Glm("{}"), _Haiku(escolha)
-    grafo = _grafo(glm, haiku)
-    with capture_logs() as logs:
-        lido = await fluxo._chamar(grafo, _estado(frase), "Voce escolhe o PROTOCOLO", _ler, "escolha")
-    assert lido == {"publico": "adulto", "faixa_crianca": "nao_se_aplica", "protocolo": "x"}
-    assert len(haiku.enviados) == 1 and glm.prompts == []
-    assert _eventos(logs, "helena_modelo_allowlist_chamada")[0]["papel"] == "protocolo"
-
-
 def _ler(bruto: str) -> tuple[Any, list[str]]:
     try:
         return json.loads(bruto), []
@@ -227,17 +208,14 @@ async def test_allowlist_classify_vai_ao_haiku(frase: str) -> None:
 @pytest.mark.parametrize("conversa", [_OUTRA, _SO_GERATIVA, "wa:amh:hk1_" + "e" * 64])
 async def test_fora_da_allowlist_tudo_segue_no_glm5(conversa: str) -> None:
     """So' na lista do roteador, so' na da saude gerativa, ou em nenhuma: o GLM-5 de sempre (um predicado)."""
-    from maezo.agents.helena.habilidades.protocolo import fluxo
-
     glm, haiku = _Glm(decisao_v7("sintoma")), _Haiku(decisao_v7("conversa"))
     grafo = _grafo(glm, haiku)
     estado = _estado(_FRASES[0], conversa)
     assert ma.na_allowlist(grafo, estado) is False
     await grafo._roteador_decidir(estado, None)
-    await fluxo._chamar(grafo, estado, "Voce escolhe o PROTOCOLO", _ler, "escolha")
     glm.resposta = _classify(intent="symptom")
     await grafo._classify_llm(estado)  # type: ignore[arg-type]
-    assert len(glm.prompts) == 3 and haiku.enviados == []
+    assert len(glm.prompts) == 2 and haiku.enviados == []
 
 
 async def test_modo_glm5_desliga_o_haiku_tambem_na_allowlist() -> None:
@@ -278,7 +256,7 @@ async def test_falha_do_haiku_no_classify_e_registrada_sem_texto(erro: Exception
 
 
 async def test_resposta_vazia_do_haiku_e_falha() -> None:
-    provedor = ma.ProvedorHaikuGlobal(_Haiku("   "), papel=ma.PAPEL_PROTOCOLO, prazo_s=2.0)
+    provedor = ma.ProvedorHaikuGlobal(_Haiku("   "), papel=ma.PAPEL_ROTEADOR, prazo_s=2.0)
     with capture_logs() as logs, pytest.raises(FalhaDaRotaGlobalError):
         await provedor.generate("x")
     assert _eventos(logs, "inferencia_chamada")[0]["erro"] == "resposta_vazia"
@@ -349,7 +327,7 @@ class _ClienteGravador:
         }
 
 
-@pytest.mark.parametrize("papel", ["roteador", "protocolo", "classify"])
+@pytest.mark.parametrize("papel", ["roteador", "classify"])
 async def test_classificacao_da_allowlist_vai_sem_pensamento_e_a_gerativa_nao(papel: str) -> None:
     from maezo.agents.helena.modelo_allowlist import ProvedorHaikuGlobal
     from maezo.runtime.inference.experimento_global import TransporteGlobalExperimental

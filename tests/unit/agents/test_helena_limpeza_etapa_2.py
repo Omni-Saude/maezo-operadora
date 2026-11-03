@@ -19,10 +19,7 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.helena import graph as graph_module
 from maezo.agents.helena import modelo_allowlist as ma
-from maezo.agents.helena import roteador as rt
-from maezo.agents.helena import travas_entrada as te
 from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_HANDOFF_SAUDE,
@@ -35,7 +32,6 @@ from tests.support.audit_fakes import FakeStartAuditSink
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents import test_helena_saude_original as so_tests
 from tests.unit.agents.test_helena_rodada_3_simulador import _entrada, _WhatsApp
-from tests.unit.agents.test_helena_saude_gerativa import _Conversa
 
 #: Uma conversa keyed que NAO esta' em lista nenhuma.
 _FORA_DAS_LISTAS = "wa:amh:hk1_" + "7" * 64
@@ -76,8 +72,8 @@ class _Modelo:
 def _grafo(
     modelo: _Modelo, leitor: so_tests._Leitor, *, todas: bool = True
 ) -> tuple[Any, _WhatsApp, FakeCibSevenTransport]:
-    """O dev de hoje (v4, base, historico, roteador ativo, porta ligada), mas SEM lista de conversas: so' a
-    chave `todas` da rota global."""
+    """O dev de hoje (historico, roteador ativo, porta unica), mas SEM lista de conversas: so' a chave `todas`
+    da rota global. Etapa 3 da limpeza: as chaves da v4, da base e da porta sairam do construtor."""
     whatsapp, cib = _WhatsApp(), FakeCibSevenTransport()
     grafo = HelenaGraph(
         inference=modelo,  # type: ignore[arg-type]
@@ -87,13 +83,9 @@ def _grafo(
         whatsapp=whatsapp,
         roteador_lucas_enabled=True,
         historico_enabled=True,
-        helena_v4_enabled=True,
-        helena_base_saude_enabled=True,
-        base_saude=_Conversa().base,
         relogio=lambda: datetime(2026, 11, 2, 15, 0, tzinfo=UTC),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset(),
-        helena_saude_original_enabled=True,
         rota_global=RotaGlobal(transporte=leitor, todas=todas),
     )
     return grafo.compile_graph().compile(), whatsapp, cib
@@ -116,34 +108,10 @@ def _camadas_antigas_nunca(monkeypatch: pytest.MonkeyPatch, request: pytest.Fixt
     async def proibido(*_: Any, **__: Any) -> Any:
         raise AssertionError("camada antiga de saude chamada com a porta unica para todas as conversas")
 
-    def proibido_sincrono(*_: Any, **__: Any) -> Any:
-        raise AssertionError("trava antiga de saude chamada com a porta unica para todas as conversas")
-
-    for nome in (
-        "_base_antes_dos_gatilhos",
-        "_v4_antes_dos_gatilhos",
-        "_triar_red_flag",
-        "_avaliar_suficiencia",
-        "_gerativa_informar",
-        "_triagem_v2_decidir",
-    ):
-        monkeypatch.setattr(HelenaGraph, nome, proibido)
-    for nome in (
-        "_v4_sintoma_leve",
-        "_base_dor_sem_alarme",
-        "_saude_resposta_a_oferta",
-        "_caso_mantido_se_alarme_ja_tratado",
-        "_sinal_claro_pelo_texto",
-        "_roteador_alarme",
-    ):
-        monkeypatch.setattr(HelenaGraph, nome, proibido_sincrono)
-    monkeypatch.setattr(te, "alarme_afirmado", proibido_sincrono)
-    monkeypatch.setattr(te, "sinal_claro_afirmado", proibido_sincrono)
-    monkeypatch.setattr(graph_module, "_alerta_neonatal", proibido_sincrono)
-    monkeypatch.setattr(rt, "_alarme_do_modelo", proibido_sincrono)
-    monkeypatch.setattr(rt, "_escalar_alarme_do_modelo", proibido)
-    for nome in ("conduzir", "responder_alerta", "sem_roteador", "sem_alerta_geral"):
-        monkeypatch.setattr(rt._protocolo, nome, proibido)
+    # Etapa 3 da limpeza (02/11/2026): as camadas antigas SAIRAM do codigo (cerca de ausencia em
+    # `test_helena_sem_camadas_antigas.py`); a triagem do `classify` (o desenho original fora da porta) fica e
+    # continua proibida nas conversas da porta.
+    monkeypatch.setattr(HelenaGraph, "_triar_red_flag", proibido)
 
 
 # =================================================================================================

@@ -1,6 +1,9 @@
 """TRAVAS DE ENTRADA da Helena (ADR-0066 camada 1, ADR-0067 §5): regras fixas, sem modelo decidindo —
-risco psicossocial pelo texto (CVV 188), alarme pela tabela DMN (ADR-0012) e o alarme deterministico que o
-roteador consulta.
+risco psicossocial pelo texto (CVV 188, lista do DL-0151) e o alarme pela tabela DMN (ADR-0012).
+
+Limpeza da saude, etapa 3 (dono, 02/11/2026): sairam do codigo o alarme por palavra (alarme deterministico,
+sinal claro, frase afirmada, vocabulario da tabela, alarme dito pelo modelo, "piorou" depois do 192) e o
+sintoma do historico tirado antes da tabela. Fica o desenho original: o modelo le, a tabela decide.
 
 MOVIDO SEM MUDANCA de `graph.py` (Plano de ajustes da Helena v2, etapa 6, PR so' de mudanca de lugar): cada
 metodo do `HelenaGraph` virou uma funcao deste modulo com o MESMO corpo (`self` e' o grafo) e a classe aponta
@@ -12,15 +15,8 @@ do graph NO FIM.
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from maezo.agents.helena.alarme_deterministico import alarme_no_relato
-from maezo.agents.helena.frase_afirmada import texto_afirmado, ultima_fala
-from maezo.agents.helena.habilidades.sintoma.ja_respondido import alerta_ja_respondido
-from maezo.agents.helena.helena_v4 import e_agravamento
-from maezo.agents.helena.triagem_v2 import relata_sintoma
 from maezo.domain.comunicacao import lexico as _lexico
 from maezo.runtime.error_text import dmn_unavailable_error
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, first_row
@@ -164,233 +160,14 @@ async def _evaluate_dmn(
     return {"dmn_table": table, "dmn_decision": row, "dmn_decision_ref": ref}
 
 
-def texto_afirmado_do_turno(state: Mapping[str, Any]) -> str:
-    """A mensagem do turno SO' com as frases afirmadas (`frase_afirmada`; o eco e' contra a ultima fala da
-    Helena). E' o que as travas de alarme leem (complemento da ADR-0012, decisao do dono de 25/10/2026)."""
-    return texto_afirmado(str(state.get("message_body") or ""), ultima_fala(_falas_da_helena(state)))
-
-
-#: SINAL CLARO DE EMERGENCIA AGUDA (rodada de seguranca de 25/10/2026, adulto e crianca): numa frase AFIRMADA
-#: da mensagem do turno, da' 192 NA HORA, antes de qualquer pendencia, protocolo, historico ou da trava "sem
-#: segundo 192" (o 192 ja' dado pode ter saido da janela de 12 mensagens; o evento e' novo). Sinais que ja'
-#: existem nas tabelas (A7/A8 desmaio, C4/N3 convulsao e "nao reage", parada respiratoria, cianose).
-_SINAL_CLARO: re.Pattern[str] = re.compile(
-    r"\bdesmai(?:ou|ei|aram|ando|ad[oa]s?)\b|\bteve (?:um )?desmaio\b|\bdesacordad[oa]s?\b|\binconscientes?\b"
-    r"|\b(?:parou|parando) de respirar\b|\bnao (?:esta |ta )?respirando\b"
-    r"|\bnao (?:consegue|consigo) respirar\b|\bsem respirar\b|\bconvulsion\w*|\bconvulsao\b"
-    r"|\b(?:ele|ela|bebe|nenem|crianca|filh[oa]|labios?|boca|rosto|cara)\b(?: (?!nao\b)\w+){0,2} rox[oa]s?\b"
-    r"|\btod[oa] rox[oa]\b|\bnao (?:acorda|reage)\b|\bnao (?:esta |ta )?reagindo\b|\bsem reagir\b"
-)
-_NEGADO_DEPOIS: re.Pattern[str] = re.compile(r"^ (?:nao|nunca|nenhum|nenhuma)\b")
-
-
-def sinal_claro_afirmado(state: Mapping[str, Any]) -> bool:
-    """Um `_SINAL_CLARO` numa frase AFIRMADA do turno, sem negacao antes ("ele nao desmaiou") nem depois
-    ("convulsao nao")."""
-    cortado = _lexico.normalizar_com_cortes(texto_afirmado_do_turno(state))
-    for m in _SINAL_CLARO.finditer(cortado):
-        if not _lexico.negado(cortado, m.start()) and not _NEGADO_DEPOIS.search(cortado[m.end() :]):
-            return True
-    return False
-
-
-def _sinal_claro_pelo_texto(self: HelenaGraph, state: HelenaState) -> dict[str, Any] | None:
-    """O 192 do `_SINAL_CLARO` afirmado, SEM modelo e antes de tudo (fora o risco psicossocial)."""
-    if not sinal_claro_afirmado(state):
-        return None
-    logger.warning("helena_sinal_claro_afirmado", node="classify")
-    plano = _plano(str(state.get("message_body") or ""))
-    lembrada = str(state.get("population") or "")
-    populacao = (
-        "pediatric" if _CRIANCA_NO_TEXTO.search(plano) else (lembrada if lembrada in _POPULACOES else "adult")
-    )
-    update = self._update_sem_modelo(state, populacao)
-    self._expirar_pendencias_do_turno(state, update)
-    update.update(
-        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
-        | {"escalation_severidade": "grave"}
-    )
-    return update
-
-
-async def escalar_sinal_claro(
-    self: HelenaGraph, state: Mapping[str, Any], extraction: dict[str, Any], update: dict[str, Any]
-) -> dict[str, Any]:
-    """O `_SINAL_CLARO` afirmado no caminho de sempre (`classify`, depois do classificador e ANTES da
-    pendencia, do protocolo e da trava "sem segundo 192"): com codigo de sintoma, a tabela decide primeiro
-    (proveniencia da DMN; tabela fora do ar = `falha_tecnica`); sem bandeira da tabela, 192 do mesmo jeito."""
-    logger.warning("helena_sinal_claro_afirmado", node="classify", sem_modelo=False)
-    if extraction.get("sintoma_codigo") and await self._triar_red_flag(extraction, update):
-        if update.get("escalation_motivo") == "red_flag_clinico":
-            update["escalation_severidade"] = "grave"
-        update["intent"] = "symptom"
-        return update
-    if _CRIANCA_NO_TEXTO.search(_plano(str(state.get("message_body") or ""))):
-        update["population"] = "pediatric"
-    update.update(
-        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
-        | {"escalation_severidade": "grave"}
-    )
-    return update
-
-
-_CRIANCA_NO_TEXTO: re.Pattern[str] = re.compile(
-    r"\b(?:bebe|nenem|crianca|recem nascid[oa]|meu filho|minha filha|meu neto|minha neta)\b"
-)
-_POPULACOES: frozenset[str] = frozenset({"adult", "pediatric", "gestante"})
-
-
-def alarme_afirmado(state: Mapping[str, Any]) -> str | None:
-    """O alarme deterministico (`alarme_no_relato`) sobre as frases AFIRMADAS do turno."""
-    return alarme_no_relato(_plano(texto_afirmado_do_turno(state)))
-
-
-#: Os motivos (vocabulario fechado, vao ao log) para o codigo de sintoma do modelo NAO ir a tabela de alarme.
-MOTIVO_HABILIDADE_NAO_CLINICA = "habilidade_nao_clinica"
-MOTIVO_ALERTA_JA_RESPONDIDO = "alerta_ja_respondido"
-MOTIVO_SINAL_NAO_AFIRMADO = "sinal_nao_afirmado"
-
-
-def _sinal_no_texto(self: HelenaGraph, texto: str) -> bool:
-    """Algum sinal de alarme no texto (lexico forte, vocabulario da tabela, alarme deterministico, termo de
-    alarme da base)?"""
-    plano = _plano(texto)
-    return bool(
-        _sinal_forte_de_emergencia(texto)
-        or _VOCABULARIO_DA_TABELA.search(plano)
-        or alarme_no_relato(plano) is not None
-        or self._base_alarme_hoje(texto)
-    )
-
-
-def motivo_sem_sintoma_do_historico(
-    self: HelenaGraph, state: Mapping[str, Any], roteada: str | None, extraction: Mapping[str, Any]
-) -> str | None:
-    """POR QUE o `sintoma_codigo` do modelo nao vai a tabela de alarme neste turno (`None`: vai, como sempre).
-
-    1. Roteador numa habilidade NAO clinica, sem conteudo clinico na mensagem (r4 de 22/10/2026).
-    2. Avaliacao r5b (25/10/2026): o alerta JA' foi respondido na conversa (as opcoes/o caminho do "nao", ou
-       o 192 ja' saiu) e a mensagem nao relata sintoma nem traz sinal de alarme ("posso tomar dipirona?"): o
-       codigo veio do HISTORICO, e a tabela escalava a dor de cabeca ja' tratada.
-    3. Caso b do teste do dono (25/10/2026): os sinais da mensagem estao SO' em pergunta, depois de "nao" ou
-       copiados da pergunta da Helena (`frase_afirmada`), e o resto nao relata sintoma.
-    Sinal afirmado na mensagem nunca tira o codigo (a tabela decide, ADR-0012)."""
-    if not extraction.get("sintoma_codigo"):
-        return None
-    texto = str(state.get("message_body") or "")
-    if roteada is not None and roteada not in ("sintoma", "saude"):
-        if _conteudo_clinico(texto) or _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto):
-            return None
-        return MOTIVO_HABILIDADE_NAO_CLINICA
-    afirmado = texto_afirmado_do_turno(state)
-    if _sinal_no_texto(self, afirmado) or relata_sintoma(_plano(afirmado)) or e_agravamento(_plano(afirmado)):
-        return None
-    if alerta_ja_respondido(_falas_da_helena(state)) or _alarme_ja_tratado(state):
-        return MOTIVO_ALERTA_JA_RESPONDIDO
-    if afirmado != texto and _sinal_no_texto(self, texto):
-        return MOTIVO_SINAL_NAO_AFIRMADO
-    return None
-
-
-def _roteador_alarme(
-    self: HelenaGraph,
-    texto: str,
-    pendente: str | None,
-    falas_anteriores: Sequence[str] = (),
-    fala_da_helena: str = "",
-) -> bool:
-    # Caso b do teste do dono (25/10/2026): sinal em pergunta, depois de "nao" ou copiado da pergunta da
-    # Helena nao trava o turno; so' as frases afirmadas contam.
-    texto = texto_afirmado(texto, fala_da_helena)
-    plano = _plano(texto)
-    if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
-        return True
-    # BASE DE SAUDE (camada a remover): os termos de alarme dos arquivos `sin-*` (`informar.py`).
-    return self._base_saude and self._base_alarme_do_roteador(texto, pendente, falas_anteriores)
-
-
-# --- O alarme DITO SO' PELO MODELO (contrato v7; decisao do dono de 23/10/2026, DL-0154) ---------------
-#: O VOCABULARIO DA TABELA de alarme (os sinais das tabelas `triage_redflag_*`, da aba "3 Sinais de alarme"
-#: e dos arquivos `sin-*`): o sinal que o modelo diz so' vale como "claro" se estiver aqui (ou nos lexicos de
-#: sempre). "Vomito" sozinho NAO esta' (so' com sangue); febre de adulto sozinha tambem nao.
-_VOCABULARIO_DA_TABELA: re.Pattern[str] = re.compile(
-    r"\b(?:dor|aperto|pressao|queimacao) no peito\b|\bfalta de ar\b|\bdificuldade (?:para|pra|de) respirar\b"
-    r"|\bnao (?:consegue|consigo) respirar\b|\bdesmai\w*|\bdesacordad\w*|\bconvuls\w*"
-    r"|\b(?:vomit\w*|tosse|tossindo|escarr\w*)\b.{0,12}\bsangue\b|\bsangue no vomito\b"
-    r"|\bsangramento (?:forte|intenso|muito|grande)\b|\bhemorragia\b"
-    r"|\b(?:fraqueza|formigamento|dormencia|paralisi\w*)\b.{0,20}\b(?:lado|braco|perna|rosto)\b"
-    r"|\b(?:face|rosto|boca)\b.{0,8}\b(?:caid[oa]|torta)\b|\bfala (?:enrolada|arrastada)\b|\bconfus\w*"
-    r"|\b(?:molinh[oa]|sem reagir|nao reage|nao acorda|prostrad[oa])\b"
-    r"|\bfebre\b.{0,30}\b(?:bebe|recem nascid\w*|\d+ (?:dias?|semanas?|mes(?:es)?)|idos[oa]|\d{2,3} anos)\b"
-    r"|\b(?:bateu|batida|pancada|caiu)\b.{0,25}\bcabeca\b.{0,25}\b(?:bebe|nenem|recem nascid\w*|\d+ "
-    r"mes(?:es)?)\b"
-    r"|\b(?:bebe|nenem|recem nascid\w*|\d+ "
-    r"mes(?:es)?)\b.{0,25}\b(?:bateu|batida|pancada|caiu)\b.{0,25}\bcabeca\b"
-    r"|\bbolsa\b.{0,10}\b(?:rompeu|rompida|estourou|estourada)\b|\bsangr\w*\b.{0,25}\b(?:gravid\w*|gestac\w*)\b"
-    r"|\b(?:inchac\w*|inchad\w*|inchando)\b.{0,20}\b(?:garganta|lingua|boca|rosto|labios?)\b"
-    r"|\b(?:garganta|lingua|boca)\b.{0,15}\b(?:inchad\w*|inchando|fechando)\b"
-    r"|\bpior dor de cabeca\b|\bdor de cabeca (?:subita|muito forte|explosiva)\b|\bpior (?:dor )?da "
-    r"(?:minha )?vida\b"
-    r"|\b(?:vontade de morrer|me matar|se matar|acabar com tudo|me machucar|se machucar|tirar a (?:minha "
-    r")?vida)\b"
-)
-
-
-def _sinal_do_modelo_na_tabela(self: HelenaGraph, sinal: str) -> bool:
-    """O sinal que o MODELO disse esta' no vocabulario da tabela de alarme? So' entao ele vale como "claro"
-    (192 na hora); senao, a pergunta de alerta. O modelo pode ACRESCENTAR urgencia, nunca tirar: a tabela e
-    os lexicos de sempre rodam antes, sobre a mensagem."""
-    plano = _plano(sinal)
-    if not plano:
-        return False
-    return bool(
-        _VOCABULARIO_DA_TABELA.search(plano)
-        or alarme_no_relato(plano) is not None
-        or _sinal_forte_de_emergencia(sinal)
-        or _lexico.tem_risco(plano)
-        or self._base_alarme_hoje(sinal)
-    )
-
-
-def _radicais(texto: str) -> set[str]:
-    return {p[:5] for p in _plano(texto).split() if len(p) > 3}
-
-
-def _sinal_do_modelo_e_novo(self: HelenaGraph, state: HelenaState, sinais: Sequence[str]) -> bool:
-    """TRAVA "SEM SEGUNDO 192" para o sinal do modelo: algum sinal tem palavras que a pessoa ainda NAO
-    tinha dito nesta conversa (pelos radicais)? O alarme ja' tratado, repetido ou comentado, nao e' novo.
-    """
-    falas = self._falas_da_pessoa(state)
-    antes = set().union(*(_radicais(f) for f in falas)) if falas else set()
-    return any(not (_radicais(s) & antes) for s in sinais)
-
-
-def _urgencia_que_piorou(self: HelenaGraph, update: dict[str, Any], texto: str) -> dict[str, Any] | None:
-    """Rodada de 24/10/2026: depois do 192, "piorou" / "nao consigo respirar" e' urgencia NOVA (nunca
-    "mantive o seu caso"): o mesmo escalonamento do alarme (`red_flag_clinico` grave, 192 no texto)."""
-    if not e_agravamento(_plano(texto)):
-        return None
-    logger.warning("helena_urgencia_piorou_depois_do_alarme", node="classify")
-    update.update(
-        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
-        | {"escalation_severidade": "grave"}
-    )
-    return update
-
-
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _DMN_BY_POPULATION,
     HelenaState,
-    _alarme_ja_tratado,
-    _conteudo_clinico,
-    _falas_da_helena,
     _is_explicitly_false,
     _marcar_avaliacao,
     _plano,
     _severidade_de_intensidade,
     _severidade_from_prioridade,
-    _sinal_forte_de_emergencia,
-    _sinal_fraco_de_emergencia,
     logger,
 )

@@ -19,7 +19,7 @@ from maezo.agents.helena import travas_saida as ts
 from maezo.agents.helena.habilidades.conversa import assuntos
 from maezo.agents.helena.textos import PADRAO as TEXTOS_PADRAO
 from maezo.platform.webhooks.whatsapp.dispatch import NON_TEXT_ACK_TEXT
-from tests.unit.agents.test_helena_saude_gerativa import _INFO, _Conversa
+from tests.support.helena_conversa import _INFO, _Conversa
 
 # --- contagem ---------------------------------------------------------------------------------------
 

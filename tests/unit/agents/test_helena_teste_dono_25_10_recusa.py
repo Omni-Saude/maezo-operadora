@@ -6,7 +6,7 @@
     `equipe` sem `refusal_of_team` (o log da noite), nem com o roteador fora. Controle: o pedido explicito
     de pessoa continua abrindo o caso.
 (b) P1 aberto por engano (decisao B do dono, opcao 1): o caso FICA para a equipe confirmar, a conversa volta
-    ao normal e o aviso "nao posso encerrar"/"mantive o seu caso" sai no MAXIMO uma vez por conversa.
+    ao normal e o aviso "nao posso encerrar" da recusa sai no MAXIMO uma vez por conversa.
 (c) O caso aberto nao contamina as outras respostas (plano, consulta, saude, especialista, cortesia), a menos
     que a pessoa pergunte do caso.
 Seguranca: o sinal NOVO de alarme depois do 192 continua escalando.
@@ -15,6 +15,7 @@ Frases escritas para estes testes (a conversa do dono aparece parafraseada, nunc
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -25,13 +26,12 @@ from maezo.agents.helena.habilidades.atendimento_humano import oferta as of
 from maezo.agents.helena.habilidades.atendimento_humano import recusa as rc
 from maezo.agents.helena.habilidades.atendimento_humano.textos import (
     TEXTO_RECUSA_JA_RESPONDIDA,
-    TEXTO_SEM_SINAL_NOVO,
 )
 from maezo.agents.helena.habilidades.conversa import leitura_curta as lc
-from maezo.agents.helena.habilidades.sintoma.textos import TEXTO_CASO_MANTIDO
+from maezo.agents.helena.habilidades.saude_original import fluxo as so
+from tests.support.helena_conversa import _DOR_NO_PEITO, _INFO, _PESSOA, _SINTOMA, _texto
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_roteador_v7 import _ConversaAtiva
-from tests.unit.agents.test_helena_saude_gerativa import _DOR_NO_PEITO, _INFO, _PESSOA, _SINTOMA, _texto
 
 # Os cinco jeitos de recusar da conversa do dono, cada um com 3 ou mais frases.
 _RECUSA_DE_CONTATO = (
@@ -102,8 +102,24 @@ async def _turno(
     return _texto(await conversa.diz(mensagem, extracao, *extras))
 
 
+def _leitura(**campos: Any) -> str:
+    """A leitura da porta unica (a rota do modelo so' LE; a tabela DMN decide)."""
+    base: dict[str, Any] = {
+        "assunto": "sintoma",
+        "populacao": "adult",
+        "sintoma_codigo": None,
+        "intensidade": "desconhecida",
+        "idade_anos": 50,
+        "idade_meses": None,
+        "idade_gestacional_semanas": None,
+        "risco_imediato": False,
+    }
+    return json.dumps(base | campos)
+
+
 async def _com_p1(conversa: _ConversaAtiva) -> None:
-    """O alarme (aqui pelo modelo, validado na tabela) abre o P1 com 192."""
+    """O alarme (lido pela porta, decidido na tabela) abre o P1 com 192."""
+    conversa.transporte.fila.append(_leitura(sintoma_codigo="dor_toracica", intensidade="moderada"))
     texto = await _turno(
         conversa,
         "sinto uma dor no peito e falta de ar",
@@ -221,28 +237,32 @@ async def test_recusas_seguidas_com_p1_o_aviso_sai_uma_vez(recusas: tuple[str, .
         ("tá doendo um pouco ainda", "a dor continua do mesmo jeito", "ainda sinto um pouco de dor"),
     ],
 )
-async def test_fala_do_mesmo_alarme_sem_sinal_novo_o_mantive_sai_uma_vez(falas: tuple[str, ...]) -> None:
+async def test_fala_do_mesmo_alarme_sem_sinal_novo_nao_da_192_de_novo(falas: tuple[str, ...]) -> None:
+    # Limpeza da saude, etapa 3: na porta unica, o caso de saude aberto sem emergencia nova recebe o texto
+    # fixo do caso aberto (conte ao profissional), sem caso novo e sem o "Ligue agora" de novo.
     conversa = _ConversaAtiva()
     await _com_p1(conversa)
+    conversa.transporte.fila.extend(_leitura() for _ in falas)
     textos = [await _turno(conversa, f, decisao_v7("sintoma"), _SINTOMA) for f in falas]
-    assert textos[0] == TEXTO_CASO_MANTIDO
-    assert textos[1:] == [TEXTO_SEM_SINAL_NOVO] * (len(falas) - 1), "sem repetir, com a linha do 192"
+    assert textos == [so.TEXTO_CASO_DE_SAUDE_ABERTO] * len(falas)
+    assert not any(t.startswith("Ligue") for t in textos)
     assert conversa.motivos == ["red_flag_clinico"]
 
 
 @pytest.mark.parametrize(
-    ("fala", "sinal"),
+    ("fala", "sinal", "codigo"),
     [
-        ("agora ele desmaiou", "desmaio"),
-        ("ela desmaiou agora", "desmaio"),
-        ("tô vomitando sangue", "vômito com sangue"),
+        ("agora ele desmaiou", "desmaio", "sincope"),
+        ("ela desmaiou agora", "desmaio", "sincope"),
+        ("tô vomitando sangue", "vômito com sangue", "sangramento_ativo"),
     ],
 )
-async def test_sinal_novo_depois_da_recusa_continua_dando_192(fala: str, sinal: str) -> None:
-    """Seguranca: a recusa e o aviso uma vez nunca calam um alarme NOVO."""
+async def test_sinal_novo_depois_da_recusa_continua_dando_192(fala: str, sinal: str, codigo: str) -> None:
+    """Seguranca: a recusa e o aviso uma vez nunca calam um alarme NOVO (P1 da tabela, pela leitura)."""
     conversa = _ConversaAtiva()
     await _com_p1(conversa)
     await _turno(conversa, "não quero que ninguém entre em contato", decisao_v7("equipe"), _PESSOA)
+    conversa.transporte.fila.append(_leitura(sintoma_codigo=codigo, intensidade="grave"))
     texto = await _turno(conversa, fala, decisao_v7("sintoma", sinais=[sinal], alarme="clear"), _SINTOMA)
     assert texto.startswith("Ligue agora para o 192")
 

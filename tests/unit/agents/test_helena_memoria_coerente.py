@@ -57,7 +57,6 @@ import pytest
 from maezo.agents.helena.graph import (
     HelenaGraph,
     HelenaState,
-    _correcao_de_dado_avaliado,
     _frase_de_confirmacao,
     _fundir_memoria_clinica,
     _marcar_avaliacao,
@@ -74,9 +73,6 @@ AGORA: Final[datetime] = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 
 #: A linha que o `FakeDmnTransport` devolve quando nada precisa ser decidido pelo teste.
 _SEM_BANDEIRA = [{"red_flag": False, "prioridade": "-", "conduta": "CONTINUE", "motivo": "Sem criterio"}]
-_COM_BANDEIRA = [
-    {"red_flag": True, "prioridade": "P2", "conduta": "ESCALATE_PRIORITARIO", "motivo": "febre em idoso"}
-]
 
 
 def memoria(**campos: Any) -> dict[str, Any]:
@@ -277,73 +273,6 @@ def test_a_marca_da_avaliacao_atravessa_os_turnos_seguintes() -> None:
     assert gravada["intensidade_avaliada"] == "moderada"
 
 
-def test_o_turno_2_do_d3_e_reconhecido_como_correcao() -> None:
-    """A correcao do D3: "me enganei, tenho 70 anos" depois de "tenho 30 anos e estou com febre".
-
-    O sinal e' DETERMINISTICO e nao depende de o modelo rotular a intencao como "correcao": a
-    mensagem traz um valor para um campo que a avaliacao anterior USOU, DIFERENTE do que estava
-    lembrado, e nao traz sintoma proprio.
-    """
-    correcao = _correcao_de_dado_avaliado(
-        {"population": "adult", "idade_anos": 70, "sintoma_codigo": None},
-        memoria(
-            population="adult",
-            idade_anos=30,
-            sintoma_avaliado="febre",
-            intensidade_avaliada="moderada",
-        ),
-    )
-
-    assert correcao is not None
-    assert correcao["sintoma_codigo"] == "febre"
-    assert correcao["intensidade"] == "moderada"
-    assert correcao["corrigidos"] == {"idade_anos": 70}
-
-
-@pytest.mark.parametrize(
-    ("extracao", "mem", "porque"),
-    [
-        (
-            {"idade_anos": 70, "sintoma_codigo": None},
-            memoria(population="adult", idade_anos=30),
-            "nenhuma avaliacao aconteceu nesta conversa — nao ha o que refazer",
-        ),
-        (
-            {"idade_anos": 30, "sintoma_codigo": None},
-            memoria(idade_anos=30, sintoma_avaliado="febre"),
-            "repetir o mesmo dado nao e' correcao",
-        ),
-        (
-            {"idade_anos": 70, "sintoma_codigo": "dor_toracica"},
-            memoria(idade_anos=30, sintoma_avaliado="febre"),
-            "a mensagem trouxe sintoma PROPRIO — o caminho normal ja' resolve, e usar o lembrado "
-            "aqui seria responder a mensagem errada",
-        ),
-        (
-            {"idade_anos": None, "sintoma_codigo": None},
-            memoria(idade_anos=30, sintoma_avaliado="febre"),
-            "ausencia nao e' correcao (a mesma regra 3 do documento, do outro lado)",
-        ),
-        (
-            {"population": "none", "idade_anos": None, "sintoma_codigo": None},
-            memoria(population="adult", idade_anos=30, sintoma_avaliado="febre"),
-            "`population=none` e' o valor de ausencia do vocabulario fechado, nao uma troca",
-        ),
-        ({"idade_anos": 70, "sintoma_codigo": None}, None, "conversa sem memoria nenhuma"),
-    ],
-)
-def test_o_que_nao_e_correcao_nao_re_dispara_avaliacao_nenhuma(
-    extracao: dict[str, Any], mem: dict[str, Any] | None, porque: str
-) -> None:
-    """A metade que impede a regra de virar "todo turno vira sintoma".
-
-    Um gatilho largo aqui faria cada mensagem administrativa no meio de uma conversa clinica
-    reabrir a triagem — e o custo de um falso positivo e' uma DMN consultada com um sintoma que a
-    pessoa nao mencionou neste turno.
-    """
-    assert _correcao_de_dado_avaliado(extracao, mem) is None, porque
-
-
 def test_a_marca_da_avaliacao_e_validada_na_fronteira_como_todo_o_resto() -> None:
     """T1.11 nos campos novos: um `sintoma_avaliado` fora da allowlist, ou uma intensidade fora do
     dominio, derruba a memoria INTEIRA para `None` — nunca um paciente parcialmente lembrado."""
@@ -500,39 +429,6 @@ async def test_d2_a_frase_de_confirmacao_do_turno_3_fala_em_3_anos() -> None:
     assert "36 meses" not in t3["memoria_a_confirmar"]
 
 
-async def test_d3_a_correcao_da_idade_reavalia_com_o_sintoma_lembrado() -> None:
-    """O caso `D3` inteiro. Turno 2 registra `SEM TABELA, sintoma perdido`; passa a reavaliar.
-
-    A tabela de adulto e' a UNICA registrada, e o teste exige `idade_anos=70` NA ENTRADA da
-    decisao — sem isso o teste passaria com a tabela certa e a idade velha, que e' precisamente o
-    modo de falha da regra `r8` (`febre` + intensidade + `>= 65`).
-    """
-    dmn = FakeDmnTransport()
-    dmn.register("triage_redflag_adult", _COM_BANDEIRA)
-    inferencia = _Inferencia(
-        [
-            _extracao(population="adult", sintoma_codigo="febre", intensidade="moderada", idade_anos=30),
-            # turno 2: "me enganei, tenho 70 anos" — sem sintoma proprio, intent administrativo
-            _extracao(intent="information", population="adult", idade_anos=70),
-        ]
-    )
-    g = _grafo(inferencia, dmn)
-
-    t1 = await _turno(g, _estado("tenho 30 anos e estou com febre"))
-    assert t1["dmn_table"] == "triage_redflag_adult"
-
-    t2 = await _turno(g, _estado("me enganei, tenho 70 anos", memoria_clinica=t1["memoria_clinica"]))
-
-    assert t2["dmn_table"] == "triage_redflag_adult", "a correcao tem de reavaliar, nao voltar ao cartao"
-    assert t2["sintoma_codigo"] == "febre", "o sintoma nao se perde quando a mensagem so' corrige"
-    assert t2["intent"] == "symptom"
-    assert t2["next_kind"] == "escalate"
-    entradas = dmn.calls[-1][1]
-    assert entradas["idade_anos"] == 70, (
-        f"a reavaliacao usou o dado VELHO: {entradas!r} — e' a idade nova que cruza o limiar de 65"
-    )
-
-
 async def test_um_turno_administrativo_sem_correcao_nao_reabre_a_triagem() -> None:
     """O RED do teste acima: sem correcao de dado, um turno administrativo no meio de uma conversa
     clinica continua administrativo. Sem este teste, "toda mensagem vira sintoma" passaria."""
@@ -644,35 +540,6 @@ def test_o_vocabulario_do_sintoma_nao_declara_codigo_que_nao_existe() -> None:
     orfaos = sorted(set(SINTOMA_EM_PALAVRAS) - ALLOWED_SINTOMA_CODIGOS)
 
     assert not orfaos, f"vocabulario declarado para codigo fora da allowlist: {orfaos}"
-
-
-async def test_d3_a_reavaliacao_por_correcao_confirma_o_sintoma_lembrado() -> None:
-    """F5, a metade que faltava: a pessoa tem de poder corrigir SOBRE O QUE ela esta falando.
-
-    O turno de correcao reabre a triagem com um sintoma que a mensagem NAO mencionou (o lembrado),
-    e `confirmar_agora` — calculado antes da conversao, e olhando so' os campos de QUEM E' O
-    PACIENTE — nao cobria esse caso. Resultado: o dado lembrado mais decisivo do turno entrava sem
-    ninguem dizer a pessoa, e a unica coisa que ela leria seria o resultado (um escalonamento P2).
-    """
-    dmn = FakeDmnTransport()
-    dmn.register("triage_redflag_adult", _COM_BANDEIRA)
-    inferencia = _Inferencia(
-        [
-            _extracao(population="adult", sintoma_codigo="febre", intensidade="moderada", idade_anos=30),
-            _extracao(intent="information", population="adult", idade_anos=70),
-        ]
-    )
-    g = _grafo(inferencia, dmn)
-
-    t1 = await _turno(g, _estado("tenho 30 anos e estou com febre"))
-    t2 = await _turno(g, _estado("me enganei, tenho 70 anos", memoria_clinica=t1["memoria_clinica"]))
-
-    assert t2["sintoma_codigo"] == "febre", "premissa: a reavaliacao usou o sintoma lembrado"
-    assert t2["memoria_a_confirmar"], (
-        "a reavaliacao usou um sintoma que a mensagem nao mencionou e nao disse isso a pessoa"
-    )
-    assert "a febre" in t2["memoria_a_confirmar"]
-    assert t2["memoria_a_confirmar"].endswith(", certo?"), "e' uma PERGUNTA, nao um aviso"
 
 
 async def test_um_turno_sem_correcao_nao_ganha_confirmacao_de_sintoma() -> None:

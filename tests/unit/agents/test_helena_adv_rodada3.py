@@ -19,7 +19,7 @@ O que cada bloco cobra, em uma linha:
   5. `MARCAS_DE_APRESENTACAO` — duas frases literais nunca acendiam com a parafrase do modelo;
   6. o teto de idade — existia so' na memoria, e a extracao do turno entregava 1200 meses;
   7. a frase de confirmacao — "seu bebe de 1 meses";
-  8. o no' `collect` — recusa por NEGATIVA CLINICA virava pergunta generica;
+  8. (o no' `collect` saiu na limpeza da saude, etapa 3, 02/11/2026);
   9. `docs/review-queue.md` — as duas pendencias clinicas que a prosa diz estarem registradas.
 """
 
@@ -88,7 +88,6 @@ def _graph(
     *,
     whatsapp: _WhatsApp | None = None,
     dmn: FakeDmnTransport | None = None,
-    coleta_enabled: bool = False,
 ) -> HelenaGraph:
     return HelenaGraph(
         inference=cast(InferenceProvider, _InferenciaFixa(texto)),
@@ -96,7 +95,6 @@ def _graph(
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=cast(Any, whatsapp or _WhatsApp()),
-        coleta_enabled=coleta_enabled,
     )
 
 
@@ -604,40 +602,6 @@ def test_a_frase_de_confirmacao_concorda_em_numero(meses: int, esperado: str) ->
     assert esperado in frase, f"{meses} meses -> {frase!r}"
     if meses == 1:
         assert "1 meses" not in frase
-
-
-# =================================================================================================
-# 8. [DESEJAVEL] `collect`: a recusa por NEGATIVA CLINICA escala
-# =================================================================================================
-
-
-async def test_a_negativa_clinica_no_collect_escala_em_vez_de_perguntar() -> None:
-    """A assimetria por GRUPO, e nao por rota.
-
-    A pergunta generica e' uma saida honesta para "o modelo citou um canal que nao existe" ou
-    "prometeu o que o canal nao faz": o turno de coleta pode simplesmente perguntar de novo. Nao
-    e' saida honesta para a NEGATIVA CLINICA — o unico grupo que fala sobre o CORPO de alguem. Um
-    texto que afirma "nao ha sinais de alerta" nao e' um turno de coleta que errou a redacao; e' o
-    modelo saindo do roteiro para dar parecer clinico, e a pergunta generica descartaria isso em
-    silencio.
-    """
-    graph = _graph("Pelo que voce contou, nao ha sinais de alerta. A dor esta leve ou forte?")
-
-    saida = await graph.collect(_estado(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))
-
-    assert saida["response_kind"] == "escalate", "a negativa clinica no `collect` virou pergunta generica"
-    assert saida.get("escalation_motivo") == "falha_tecnica"
-
-
-async def test_os_outros_grupos_no_collect_continuam_perguntando() -> None:
-    """O RED do teste acima: escalar CADA texto barrado transformaria um defeito de redacao em
-    fila humana, e a coleta existe justamente para nao escalar antes de saber."""
-    graph = _graph("Antes de continuar: a dor esta leve ou forte? Se preferir, veja no aplicativo do plano.")
-
-    saida = await graph.collect(_estado(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))
-
-    assert saida["response_kind"] == "collect"
-    assert "aplicativo do plano" not in str(saida["response_text"]).lower()
 
 
 # =================================================================================================

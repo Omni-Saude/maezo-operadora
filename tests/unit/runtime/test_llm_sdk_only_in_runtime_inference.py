@@ -106,9 +106,12 @@ def test_cerca_recusa_import_de_sdk_gerativo_e_aceita_boto3_generico() -> None:
 
 
 def test_o_pacote_de_inferencia_contem_o_que_a_cerca_procura() -> None:
-    """Nao-vacuidade: a mesma varredura, aplicada ao pacote isento, acha o SDK e o servico de embeddings —
-    a cerca enxerga o padrao; so' a isencao do pacote o permite."""
-    ofensas = _ofensas_em_fonte((_PACOTE_DE_INFERENCIA / "embeddings.py").read_text(encoding="utf-8"), "e.py")
+    """Nao-vacuidade: a mesma varredura, aplicada ao pacote isento, acha o SDK e o servico do Bedrock —
+    a cerca enxerga o padrao; so' a isencao do pacote o permite. (Os embeddings sairam com a busca por
+    significado na limpeza da saude, etapa 3; a rota global do Haiku chama o mesmo servico.)"""
+    ofensas = _ofensas_em_fonte(
+        (_PACOTE_DE_INFERENCIA / "experimento_global.py").read_text(encoding="utf-8"), "e.py"
+    )
     assert any("'bedrock-runtime'" in o for o in ofensas)
     todas = [
         o

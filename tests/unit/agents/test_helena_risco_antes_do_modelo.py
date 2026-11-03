@@ -41,7 +41,6 @@ _TABELAS = (
     "triage_redflag_pediatric",
     "triage_redflag_gestante",
     "triage_redflag_mental_health",
-    "triage_sufficiency",
 )
 #: Marca do prompt do CLASSIFICADOR (o unico que pede `psychosocial_risk` de volta).
 _MARCA_DO_CLASSIFY = '"psychosocial_risk"'

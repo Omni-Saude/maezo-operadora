@@ -500,17 +500,8 @@ class HelenaDispatcher:
     #: Helena que lembra, que e' a de producao.
     memoria_clinica_enabled: bool = True
     #: HISTORICO CURTO DA CONVERSA (DL-0080, settings `helena_historico` / `MAEZO_HELENA_HISTORICO`).
-    #: Default `False` = a Helena de antes byte a byte. Ligado, liga TAMBEM o modo coleta
-    #: (`coleta_enabled`), para a Helena poder fazer a pergunta de esclarecimento que ja' existe.
+    #: Default `False` = a Helena de antes byte a byte.
     historico_enabled: bool = False
-    #: NOVA TRIAGEM DA HELENA (DL-0104, settings `helena_triagem_v2` / `MAEZO_HELENA_TRIAGEM_V2`). Default
-    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
-    #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
-    triagem_v2_enabled: bool = False
-    #: HELENA V4 (DL-0115, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
-    #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
-    #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
-    helena_v4_enabled: bool = False
     #: CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, settings
     #: `helena_carteirinha_completa` / `MAEZO_HELENA_CARTEIRINHA_COMPLETA`). Default `False` = a Helena de
     #: antes byte a byte. Ligada (so' em
@@ -520,11 +511,6 @@ class HelenaDispatcher:
     #: NOME COMPLETO DOS DEPENDENTES (decisao do dono e DPO de 19/10/2026, DL-0127, settings
     #: `helena_dependentes_nome`). Default `False` = a Helena de antes byte a byte.
     helena_dependentes_nome_enabled: bool = False
-    #: BASE DE SAUDE (ADR-0064/DL-0118, settings `helena_base_saude` / `MAEZO_HELENA_BASE_SAUDE`). Default
-    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev): informa perguntas gerais de saude pela
-    #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
-    #: confirmacao.
-    helena_base_saude_enabled: bool = False
     #: ROTEADOR DE HABILIDADES (ADR-0066/DL-0134, settings `helena_roteador` / `MAEZO_HELENA_ROTEADOR`).
     #: `desligado` (default) = a Helena de antes byte a byte; `sombra` so' registra a decisao do roteador.
     helena_roteador: str = "desligado"
@@ -537,15 +523,6 @@ class HelenaDispatcher:
     fabrica_de_inferencia: Callable[..., Any] | None = None
     #: F2 (DL-0136): as conversas em que o roteador ativo decide (vazio = ninguem).
     helena_roteador_conversas: frozenset[str] = frozenset()
-    # DL-0140 (dono, 22/10/2026): o modo da cobertura (`simples` | `consulta`).
-    cobertura_modo: str = "simples"
-    #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
-    #: `helena_saude_gerativa_conversas`).
-    #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
-    #: (`maezo.conhecimento.saude_gerativa.RedatorDeSaude`, com a allowlist e a rota global experimental) com
-    #: a
-    #: chave ligada; o grafo so' o usa nas conversas da allowlist.
-    saude_gerativa: Any = None
     #: ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1): `runtime.inference.rota_global.RotaGlobal`, o
     #: transporte do Haiku e as conversas autorizadas, sem depender da base nem da gerativa. `None` = sem
     #: rota (o grafo usa a do redator, se houver: o de antes).
@@ -647,11 +624,8 @@ class HelenaDispatcher:
             "memoria_clinica_enabled": self.memoria_clinica_enabled,
             "roteador_lucas_enabled": roteador_lucas_enabled,
             "historico_enabled": self.historico_enabled,
-            "triagem_v2_enabled": self.triagem_v2_enabled,
-            "helena_v4_enabled": self.helena_v4_enabled,
             "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
             "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
-            "helena_base_saude_enabled": self.helena_base_saude_enabled,
         }
 
     async def accept_administrative_turn(
@@ -1002,19 +976,12 @@ class HelenaDispatcher:
                 # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
                 # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
                 "identidade_nome_operadora": self.identidade_nome_operadora,
-                # DL-0080: o historico curto e, com ele, o modo coleta — os dois so' com a flag.
+                # DL-0080: o historico curto, so' com a flag.
                 "historico_enabled": self.historico_enabled,
-                "coleta_enabled": self.historico_enabled,
-                # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
-                "triagem_v2_enabled": self.triagem_v2_enabled,
-                # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
-                "helena_v4_enabled": self.helena_v4_enabled,
                 # Decisao do dono de 17/10/2026: vinculo ativo e carteirinha completa, so' com a flag.
                 "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
                 # DL-0127: nome completo dos dependentes do proprio titular, so' com a flag.
                 "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
-                # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
-                "helena_base_saude_enabled": self.helena_base_saude_enabled,
                 # DL-0134: o roteador de habilidades (ADR-0066), so com a chave; desligado = grafo de antes.
                 "helena_roteador": self.helena_roteador,
                 "roteador_inference": self.roteador_inference,
@@ -1022,10 +989,6 @@ class HelenaDispatcher:
                 "fabrica_de_inferencia": self.fabrica_de_inferencia,
                 "roteador_concorrencia": self.roteador_concorrencia,
                 "helena_roteador_conversas": self.helena_roteador_conversas,
-                # DL-0140: o modo da cobertura (`simples` nunca consulta procedimento).
-                "cobertura_modo": self.cobertura_modo,
-                # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
-                "saude_gerativa": self.saude_gerativa,
                 # Etapa 1 da limpeza da saude: a rota global da allowlist, sozinha.
                 "rota_global": self.rota_global,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).

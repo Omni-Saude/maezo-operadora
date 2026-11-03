@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 from structlog.testing import capture_logs
 
-from maezo.agents.helena import roteador as rt
 from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL,
     RESPOSTA_ESCALONAMENTO_URGENTE,
@@ -23,15 +22,14 @@ from maezo.agents.helena.graph import (
 )
 from maezo.agents.helena.habilidades.saude_original import fluxo as so
 from maezo.agents.helena.habilidades.saude_original import leitura as lt
-from maezo.conhecimento import saude_gerativa as sg
-from maezo.runtime.inference.experimento_global import RespostaDaRotaGlobal
+from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, RespostaDaRotaGlobal
+from maezo.runtime.inference.rota_global import RotaGlobal
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnVersion
 from tests.support import dmn_first_hit as dfh
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _entrada, _WhatsApp
-from tests.unit.agents.test_helena_saude_gerativa import _Conversa
 
 _DMN = Path(__file__).resolve().parents[3] / "spec" / "processes" / "dmn"
 
@@ -55,7 +53,7 @@ class _DmnReal:
 class _Leitor:
     """A rota do modelo da allowlist, FALSA: so' o prompt da LEITURA e' esperado (qualquer outro levanta)."""
 
-    rota = sg.ROTA_DE_RESIDENCIA if hasattr(sg, "ROTA_DE_RESIDENCIA") else "experimento"
+    rota = ROTA_DE_RESIDENCIA
     modelo = "global.anthropic.claude-haiku-5-5"
 
     def __init__(self, *leituras: dict[str, Any] | str) -> None:
@@ -99,9 +97,7 @@ def _leitura(**campos: Any) -> dict[str, Any]:
     return base | campos
 
 
-def _grafo(
-    modelo: _Modelo, leitor: _Leitor, *, ligada: bool = True
-) -> tuple[Any, _WhatsApp, FakeCibSevenTransport, _DmnReal]:
+def _grafo(modelo: _Modelo, leitor: _Leitor) -> tuple[Any, _WhatsApp, FakeCibSevenTransport, _DmnReal]:
     whatsapp, cib, dmn = _WhatsApp(), FakeCibSevenTransport(), _DmnReal()
     grafo = HelenaGraph(
         inference=modelo,  # type: ignore[arg-type]
@@ -112,12 +108,9 @@ def _grafo(
         roteador_lucas_enabled=True,
         historico_enabled=True,
         relogio=lambda: datetime(2026, 11, 1, 15, 0, tzinfo=UTC),
-        saude_gerativa=sg.RedatorDeSaude(transporte=leitor, conversas=frozenset({_CONVERSA})),  # type: ignore[arg-type]
-        helena_base_saude_enabled=True,
-        base_saude=_Conversa().base,
+        rota_global=RotaGlobal(transporte=leitor, conversas=frozenset({_CONVERSA})),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset({_CONVERSA}),
-        helena_saude_original_enabled=ligada,
     )
     return grafo.compile_graph().compile(), whatsapp, cib, dmn
 
@@ -126,24 +119,8 @@ def _casos(cib: FakeCibSevenTransport) -> list[dict[str, Any]]:
     return [cib._variables[k] for k in cib._history]
 
 
-@pytest.fixture(autouse=True)
-def _camadas_antigas_nunca(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
-    """Nenhuma camada antiga de saude pode responder nestas conversas (fora o teste da chave desligada)."""
-    if "chave_desligada" in request.node.name:
-        return
-
-    async def proibido(*_: Any, **__: Any) -> Any:
-        raise AssertionError("camada antiga de saude chamada com a porta unica ligada")
-
-    def proibido_sincrono(*_: Any, **__: Any) -> Any:
-        raise AssertionError("trava antiga de alarme chamada com a porta unica ligada")
-
-    monkeypatch.setattr(rt, "_escalar_alarme_do_modelo", proibido)
-    monkeypatch.setattr(HelenaGraph, "_sinal_claro_pelo_texto", proibido_sincrono)
-    monkeypatch.setattr(rt._protocolo, "conduzir", proibido)
-    monkeypatch.setattr(rt._protocolo, "responder_alerta", proibido)
-    monkeypatch.setattr(rt._protocolo, "sem_roteador", proibido)
-    monkeypatch.setattr(rt._protocolo, "sem_alerta_geral", proibido)
+# Limpeza da saude, etapa 3 (02/11/2026): as camadas antigas de saude sairam do codigo; o fixture que as fazia
+# levantar deu lugar a cerca de ausencia (`test_helena_sem_camadas_antigas.py`).
 
 
 async def test_p1_da_tabela_e_o_192_e_caso_grave() -> None:
@@ -249,12 +226,13 @@ async def test_assunto_que_nao_e_saude_segue_o_caminho_de_sempre_sem_leitura() -
     assert leitor.chamadas == 0 and dmn.chamadas == [] and cib._history == {}
 
 
-def test_a_chave_vem_desligada_e_o_pacote_liga() -> None:
+def test_a_chave_do_pacote_e_aceita_e_ignorada() -> None:
+    """Etapa 3 da limpeza: a porta e' incondicional; `saude_original` do pacote publicado nao liga nada."""
     from maezo.agents.helena import pacote as pc
 
     saida: dict[str, Any] = {}
-    pc.PacoteDaHelena._aplicar_booleanas(saida, {so.CHAVE_DO_PACOTE: True})
-    assert saida == {"helena_saude_original_enabled": True}
+    pc.PacoteDaHelena._aplicar_booleanas(saida, {"saude_original": False})
+    assert saida == {}
 
 
 def test_a_leitura_so_aceita_codigo_da_tabela_do_publico() -> None:
@@ -324,14 +302,6 @@ async def test_mensagem_trazida_pelo_alarme_nunca_vira_nao_e_saude() -> None:
     await grafo.ainvoke(_entrada("meu pai desmaiou"))
     assert _casos(cib), "a mensagem com alarme abriu caso"
     assert whatsapp.enviados[-1] not in so.TEXTOS_FIXOS
-
-
-async def test_chave_desligada_nao_le_e_segue_a_helena_de_antes() -> None:
-    leitor = _Leitor()
-    grafo, whatsapp, _cib, dmn = _grafo(_Modelo(decisao_v7("sintoma")), leitor, ligada=False)
-    await grafo.ainvoke(_entrada("estou com dor no peito forte agora"))
-    assert leitor.chamadas == 0
-    assert "192" in whatsapp.enviados[-1]
 
 
 def test_leitura_com_tipo_inesperado_e_valueerror() -> None:

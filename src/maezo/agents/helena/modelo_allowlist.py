@@ -71,10 +71,9 @@ MODO_PADRAO: Final[str] = MODO_HAIKU
 ENV_MODO: Final[str] = "MAEZO_HELENA_MODELO_ALLOWLIST"
 
 PAPEL_ROTEADOR: Final[str] = "roteador"
-PAPEL_PROTOCOLO: Final[str] = "protocolo"
 PAPEL_CLASSIFY: Final[str] = "classify"
 
-#: Prazo por chamada do Haiku (p90 medido ~2 s): roteador e protocolo no maximo 6 s (decisao de 26/10).
+#: Prazo por chamada do Haiku (p90 medido ~2 s): roteador no maximo 6 s (decisao de 26/10).
 PRAZO_ROTEADOR_S: Final[float] = 6.0
 #: O classify devolve um JSON maior: um pouco mais de folga, ainda abaixo do prazo do GLM-5 de hoje.
 PRAZO_CLASSIFY_S: Final[float] = 8.0
@@ -344,7 +343,6 @@ __all__ = [
     "MODO_HAIKU",
     "MODO_PADRAO",
     "PAPEL_CLASSIFY",
-    "PAPEL_PROTOCOLO",
     "PAPEL_ROTEADOR",
     "conversa_autorizada",
     "conversa_do_roteador",
