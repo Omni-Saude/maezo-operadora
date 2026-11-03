@@ -312,11 +312,13 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
         await cibseven.close()
 
 
-async def test_non_red_flag_message_never_starts_escalation(
+async def test_non_red_flag_symptom_opens_a_moderate_case_for_the_health_team(
     engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
-    """(b) non-red-flag input -> Helena's `inform` path — no SP-OP-ESCALATION-001 instance is
-    ever started for this conversation's business key."""
+    """(b) non-red-flag symptom -> the REAL red-flag table says no flag, and the symptom goes to the
+    health team: SP-OP-ESCALATION-001 with `intencao_clinica`/`moderada` (escalation_routing r4 ->
+    `enfermagem-triagem`), never an automatic answer. Limpeza da saude, etapa 3 (02/11/2026, DL-0165):
+    the fixed "sintoma sem alerta" text left the code; never a red flag P1 either."""
     conversation_id = f"wa:{audit_tenant}:t111-inform-{_RUN_ID}"
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
@@ -353,15 +355,18 @@ async def test_non_red_flag_message_never_starts_escalation(
             }
         )
 
-        assert result["next_kind"] == "inform"
-        assert result.get("escalation_started") is not True
-        assert result["response_kind"] == "inform"
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "intencao_clinica"
+        assert result["escalation_severidade"] == "moderada"
+        assert result["escalation_started"] is True
         assert whatsapp.sent
 
         actives = await active_instances(engine_client, business_key)
-        assert actives == [], (
-            f"non-red-flag turn must NEVER start SP-OP-ESCALATION-001 — found active instance(s) "
-            f"for business_key={business_key!r}: {actives}"
+        assert actives, f"the symptom case for business_key={business_key!r} was not started"
+        task = await wait_for_task(engine_client, str(actives[0]["id"]))
+        groups = await candidate_groups(engine_client, task["id"])
+        assert groups == {"enfermagem-triagem"}, (
+            f"expected 'enfermagem-triagem' (intencao_clinica -> escalation_routing r4 -> P2), got {groups!r}"
         )
     finally:
         await dmn.close()
