@@ -248,7 +248,7 @@ portal = {
     // 1b72be17: portal-human sobre a main 1b72be17, assinada pelo supply-chain.yml run 37467442502.
     // f7026a7e: portal-human sobre a main f7026a7e, assinada pelo supply-chain.yml run 37489994010.
     // 02/11 (b): portal sobre a main com #1191 (reembolso: aprovar = valor pedido) e #1192; supply-chain.yml.
-    portal_image_digest = "sha256:5d9cda62d9e6a9fbbbafdb4969a1ca29e9625a844fe44262effb703ef28c43e1"
+    portal_image_digest = "sha256:a35a0ad773e688f37063c6eb2bb2743eab2dbc3dd945a416896069ea3d7ab040"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "7531a87ccc12ea405f017eaa3686750b2b64a2f4b923a23257b17ec41d03e5bb"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
