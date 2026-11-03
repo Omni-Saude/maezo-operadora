@@ -234,53 +234,75 @@ export function ReembolsoTaskPanel({
     formKey === "reembolso_pendencia" ? pendencias : auditor ? decisoesAuditor : decisoesAnalista;
 
   return (
-    <section aria-label="Pedido de reembolso">
-      <h3>Pedido de reembolso</h3>
-      {falhaContexto && <p role="alert">{falhaContexto}</p>}
+    <section className="task-completion" aria-labelledby={`${id}-titulo`}>
+      <h3 id={`${id}-titulo`}>Pedido de reembolso</h3>
+      {falhaContexto && (
+        <p role="alert" className="queue-error">
+          {falhaContexto}
+        </p>
+      )}
       {contexto && (
         <>
-          <dl>
-            <dt>Protocolo</dt>
-            <dd>{contexto.protocolo ?? "—"}</dd>
-            <dt>Para quem</dt>
-            <dd>{rotulo(contexto.relacao_com_titular)}</dd>
-            <dt>Atendimento</dt>
-            <dd>
-              {rotulo(contexto.categoria_procedimento)} — {rotulo(contexto.tipo_reembolso)}
-            </dd>
-            <dt>Motivo de não usar a rede</dt>
-            <dd>{rotulo(contexto.motivo_nao_rede)}</dd>
-            <dt>Data do atendimento</dt>
-            <dd>
-              {dataBr(contexto.data_atendimento)}
-              {contexto.dias_desde_atendimento !== null && contexto.dias_desde_atendimento >= 0
-                ? ` (${contexto.dias_desde_atendimento} dias antes do pedido)`
-                : ""}
-            </dd>
-            <dt>Valor pago (declarado)</dt>
-            <dd>{formatarCentavos(contexto.valor_solicitado_cents)}</dd>
-            <dt>Prazo (informativo)</dt>
-            <dd>{rotulo(contexto.situacao_prazo)}</dd>
+          <dl className="task-facts">
+            <div>
+              <dt>Protocolo</dt>
+              <dd className="exact-value">{contexto.protocolo ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Para quem</dt>
+              <dd>{rotulo(contexto.relacao_com_titular)}</dd>
+            </div>
+            <div>
+              <dt>Atendimento</dt>
+              <dd>
+                {rotulo(contexto.categoria_procedimento)} — {rotulo(contexto.tipo_reembolso)}
+              </dd>
+            </div>
+            <div>
+              <dt>Motivo de não usar a rede</dt>
+              <dd>{rotulo(contexto.motivo_nao_rede)}</dd>
+            </div>
+            <div>
+              <dt>Data do atendimento</dt>
+              <dd>
+                {dataBr(contexto.data_atendimento)}
+                {contexto.dias_desde_atendimento !== null && contexto.dias_desde_atendimento >= 0
+                  ? ` (${contexto.dias_desde_atendimento} dias antes do pedido)`
+                  : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>Valor pago (declarado)</dt>
+              <dd>{formatarCentavos(contexto.valor_solicitado_cents)}</dd>
+            </div>
+            <div>
+              <dt>Prazo (informativo)</dt>
+              <dd>{rotulo(contexto.situacao_prazo)}</dd>
+            </div>
             {formKey === "reembolso_pagamento" && (
               <>
-                <dt>Decisão</dt>
-                <dd>{rotulo(contexto.decisao_reembolso)}</dd>
-                <dt>Valor aprovado</dt>
-                <dd>{formatarCentavos(contexto.valor_reembolso_aprovado_cents)}</dd>
+                <div>
+                  <dt>Decisão</dt>
+                  <dd>{rotulo(contexto.decisao_reembolso)}</dd>
+                </div>
+                <div>
+                  <dt>Valor aprovado</dt>
+                  <dd>{formatarCentavos(contexto.valor_reembolso_aprovado_cents)}</dd>
+                </div>
               </>
             )}
           </dl>
           {contexto.resposta_beneficiario && (
-            <>
+            <div className="task-context-summary">
               <h4>Resposta da beneficiária ao pedido de informação</h4>
-              <p style={{ whiteSpace: "pre-wrap" }}>{contexto.resposta_beneficiario}</p>
-            </>
+              <blockquote>{contexto.resposta_beneficiario}</blockquote>
+            </div>
           )}
           <h4>Documentos enviados</h4>
           {contexto.anexos.length === 0 ? (
-            <p>Nenhum documento.</p>
+            <p className="field-hint">Nenhum documento.</p>
           ) : (
-            <ul>
+            <ul className="reembolso-anexos">
               {contexto.anexos.map((anexo, indice) => {
                 const url = anexoUrl(taskId, anexo.document_ref);
                 return (
@@ -348,7 +370,7 @@ export function ReembolsoTaskPanel({
             </label>
           )}
           {precisaValor && formKey !== "reembolso_pendencia" && (
-            <p>
+            <p className="field-hint">
               {decisao === "APROVAR"
                 ? "Aprovar paga o valor pedido. Para pagar menos, escolha \"Aprovar parcial\"."
                 : `Informe um valor menor que o pedido (${formatarCentavos(pedidoCentavos)}).`}
@@ -365,13 +387,54 @@ export function ReembolsoTaskPanel({
           )}
           {decisao === "SOLICITAR_INFO" &&
             campoTexto("O que pedir à beneficiária", info, setInfo, "info")}
-          <button type="submit" disabled={!pronto || estado.kind === "sending" || estado.kind === "completed"}>
+          <button
+            className="primary-action"
+            type="submit"
+            disabled={!pronto || estado.kind === "sending" || estado.kind === "completed"}
+          >
             {formKey === "reembolso_pagamento" ? "Registrar pagamento" : "Concluir"}
           </button>
           {estado.kind === "completed" && <p role="status">Tarefa concluída.</p>}
-          {estado.kind === "error" && <p role="alert">{estado.message}</p>}
+          {estado.kind === "error" && (
+            <p role="alert" className="queue-error">
+              {estado.message}
+            </p>
+          )}
         </form>
       )}
     </section>
+  );
+}
+
+// Na tarefa de reembolso, "Responsabilidade" (assumir/liberar/reatribuir) e "Decisão humana" seguem RECUSADOS em
+// dev: dependem da autoridade nativa e do material de decisao, que nenhum .tf de dev monta
+// (docs/plans/portal-autoridade-nativa-dev.md §D-P), e o plano de decisao nem conhece `reembolso_*`
+// (gateway.py, `_decision_binding`). Os botoes ficam visiveis e desligados, com o motivo, em vez de
+// responderem "indisponivel" depois do clique. A conclusao vai pelo "Concluir" do painel acima (DL-0163).
+export function ReembolsoBlocosIndisponiveis({ responsabilidade, decisao }: { responsabilidade: boolean; decisao: boolean }) {
+  const motivo =
+    "Não se aplica ao reembolso neste ambiente: decida pelo botão “Concluir” do pedido acima. " +
+    "Não é preciso assumir a tarefa; basta estar no grupo dela.";
+  return (
+    <>
+      {responsabilidade && (
+        <section className="ownership-controls" aria-label="Responsabilidade pela tarefa">
+          <h3>Responsabilidade pela tarefa</h3>
+          <button className="secondary-action" type="button" disabled>
+            Consultar responsabilidade
+          </button>
+          <p className="field-hint">{motivo}</p>
+        </section>
+      )}
+      {decisao && (
+        <section className="task-detail decision-workspace" aria-label="Decisão humana">
+          <h2>Decisão humana</h2>
+          <button className="secondary-action" type="button" disabled>
+            Consultar contexto atual
+          </button>
+          <p className="field-hint">{motivo}</p>
+        </section>
+      )}
+    </>
   );
 }

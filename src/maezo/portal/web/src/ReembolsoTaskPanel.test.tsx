@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
+import { ReembolsoBlocosIndisponiveis, ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
 
 const REF = `rdoc_${"a".repeat(32)}`;
 
@@ -174,4 +174,11 @@ it("aprovar paga exatamente o valor pedido; para pagar menos, so aprovar parcial
     decisao_reembolso: "APROVAR",
     valor_reembolso_aprovado_cents: "120050",
   });
+});
+
+it("responsabilidade e decisao humana aparecem desligadas no reembolso, com o motivo", () => {
+  render(<ReembolsoBlocosIndisponiveis responsabilidade decisao />);
+  expect(screen.getByRole("button", { name: "Consultar responsabilidade" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Consultar contexto atual" })).toHaveProperty("disabled", true);
+  expect(screen.getAllByText(/decida pelo botão “Concluir” do pedido acima/u)).toHaveLength(2);
 });
