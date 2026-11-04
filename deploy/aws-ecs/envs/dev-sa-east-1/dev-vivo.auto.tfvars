@@ -85,16 +85,16 @@ staff_ops = {
   // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job).
   // Mesmas camadas-base que 6bd559ec-staff-ops (a20b2597); entre as duas so mudou deploy/sql/portal-human-plane-grants.sql
   // (#558: INSERT do outbox na cadeia de auditoria); tools/staff_ops, staff_install, staff_materials e dev_syn_fixture identicos.
-  image_digest = "sha256:bb19425cda659598c3947f6ecfc7997826b2c91796418edc1e020274c9ddf384"
+  image_digest = "sha256:71262cad9dfcf8671758cc90d37b4c92d66ba2f749e6a0a3c6fe1a15035d6201" // 99a4d94a-staff-ops (corte dev = main de 02/11/2026). Era bb19425c
 
   rows_secret_arn       = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/rows-R8q4LK"
   syn_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/syn-fixture-wt3sOm"
   job_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-job/materials-glnOol"
-  job_secret_version_id = "5ba0f7c5-d051-480c-b877-b6c79a43d79a"
+  job_secret_version_id = "6411c3e4-28df-4f7e-8e12-30607044ea1d"
 
   // Pins publicos do pacote humano (os mesmos de `portal.human` em `portal.auto.tfvars`).
-  human_material_version_id = "amh-dev-human-ff3e3c3c69d3bb371d85550cf0"
-  human_manifest_sha256     = "38e8ad36e922a36950213ebb6c3f4849650c760bd87dd2f97fd4d3e7f45c50a0"
+  human_material_version_id = "amh-dev-human-43f1b03fece4d471726b87f5f0"
+  human_manifest_sha256     = "07179c8d30a3e272cc2703b9763d31bb9e3c39423f3a0b5cf5ed2d77746a89fd"
 
   job_schedule_enabled = true
 
@@ -111,7 +111,7 @@ staff_ops = {
 // ---------------------------------------------------------------------------
 engine_native = {
   native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-XoACan"
-  native_secret_version_id = "151c76b5-0d60-4c86-a427-39f091c3e2c9"
+  native_secret_version_id = "e69981a9-a858-421a-93e4-856297812652"
   kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/49a1f9f2-9f92-44ad-9b5a-d5de269fee73" // alias/maezo-operadora-dev-engine-native
   app_image_digest         = "sha256:c29a88eafcf568b64b4ea455c954aa499964bc07e8d65088754dacce2c463d14"     // init e sidecar (imagem do app 6bd559ec)
   staff_case_issuer        = true
