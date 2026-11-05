@@ -15,9 +15,10 @@ variable "phi_excecao_regional" {
   type        = string
   default     = ""
   nullable    = false
+  # PROD: a excecao us-east-1 e' do DEV (aval do DPO de 21/10/2026 so' para dev). Aqui so' vazio.
   validation {
-    condition     = contains(["", "excecao_us_east_1_autorizada_dpo_2026-10-21"], var.phi_excecao_regional)
-    error_message = "phi_excecao_regional: vazio ou o rotulo literal da excecao autorizada pelo DPO."
+    condition     = var.phi_excecao_regional == ""
+    error_message = "Prod: a excecao regional us-east-1 e' do dev; phi_excecao_regional tem de ser vazio (zona PHI em sa-east-1)."
   }
 }
 

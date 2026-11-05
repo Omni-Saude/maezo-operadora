@@ -162,5 +162,41 @@ resource "aws_ecs_service" "cibseven" {
     rollback = true
   }
 
+  # N5 em PROD (review de seguranca do PR #1204): a declaracao `client-certificate` (main.tf)
+  # nao basta. Com servicos ligados, o engine so' sobe com imagem `secured-v2` COMPROVADA duas
+  # vezes: (1) atestacao explicita de quem promoveu (`engine_image_variante`) e (2) a imagem do
+  # digest, no ECR de prod, carregando uma tag `secured-v2-*` (o ECR e' IMMUTABLE: tag nao e'
+  # reescrita). A imagem aberta do dev (`sem-showcase-*`) reprova o plan.
+  lifecycle {
+    precondition {
+      condition = !var.servicos_habilitados || (
+        var.engine_image_variante == "secured-v2" &&
+        length([for img in data.aws_ecr_image.engine : img if anytrue([for t in coalesce(img.image_tags, []) : startswith(t, "secured-v2-")])]) == 1
+      )
+      error_message = "Prod com servicos ligados exige engine secured-v2 comprovado: engine_image_variante = \"secured-v2\" E o digest do engine com tag secured-v2-* no ECR de prod. A imagem aberta do dev nao sobe aqui (N5)."
+    }
+  }
+
   tags = local.base_tags
+}
+
+variable "engine_image_variante" {
+  description = <<-EOT
+    ATESTACAO de quem promove o engine: qual Dockerfile gerou `engine_image_digest`. So' `secured-v2`
+    (deploy/cibseven/Dockerfile.secured-v2: engine-rest por certificado, sem fallback anonimo) e'
+    aceito com servicos ligados. Vazio (default) = nenhuma atestacao, e o servico nao pode subir.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "secured-v2"], var.engine_image_variante)
+    error_message = "engine_image_variante: vazio ou \"secured-v2\" (a imagem aberta do dev nao e' opcao em prod)."
+  }
+}
+
+# So' com servicos ligados (com tudo parado a imagem pode nem ter sido copiada ainda).
+data "aws_ecr_image" "engine" {
+  count           = var.servicos_habilitados ? 1 : 0
+  repository_name = aws_ecr_repository.engine.name
+  image_digest    = var.engine_image_digest
 }

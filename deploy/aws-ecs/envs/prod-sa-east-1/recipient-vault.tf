@@ -72,7 +72,7 @@ resource "aws_iam_role_policy" "webhook_receiver_bedrock" {
 }
 
 resource "aws_iam_role_policy" "webhook_receiver_exec_ssm" {
-  count  = local.recipient_vault_ativo
+  count  = var.ecs_exec_habilitado ? local.recipient_vault_ativo : 0
   name   = "${local.name}-ecs-exec"
   role   = aws_iam_role.webhook_receiver_task[0].id
   policy = data.aws_iam_policy_document.task_exec_ssm.json

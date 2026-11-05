@@ -133,12 +133,8 @@ resource "aws_iam_role_policy" "agente_remoto_busca_semantica" {
   policy = data.aws_iam_policy_document.busca_semantica_saude.json
 }
 
-resource "aws_iam_role_policy" "agente_remoto_saude_gerativa" {
-  count  = local.agente_remoto_role
-  name   = "${local.name}-saude-gerativa-experimental"
-  role   = aws_iam_role.agente_remoto_task[0].id
-  policy = data.aws_iam_policy_document.saude_gerativa_experimental.json
-}
+# PROD: sem a policy da saude gerativa. O experimento usa perfil GLOBAL do Bedrock (pode processar fora do
+# Brasil) e o aval do DPO (DL-0119) vale so' para o dev; `helena_saude_gerativa` e' travada em false (variables.tf).
 
 resource "aws_iam_role_policy" "agente_remoto_roteador_modelo" {
   count  = local.agente_remoto_role * local.roteador_modelo_ativo
@@ -155,7 +151,7 @@ resource "aws_iam_role_policy" "agente_remoto_pacotes" {
 }
 
 resource "aws_iam_role_policy" "agente_remoto_exec_ssm" {
-  count  = local.agente_remoto_role
+  count  = var.ecs_exec_habilitado ? local.agente_remoto_role : 0
   name   = "${local.name}-ecs-exec"
   role   = aws_iam_role.agente_remoto_task[0].id
   policy = data.aws_iam_policy_document.task_exec_ssm.json

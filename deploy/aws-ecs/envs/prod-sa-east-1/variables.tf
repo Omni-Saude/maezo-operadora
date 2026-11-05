@@ -8,6 +8,11 @@ variable "aws_account_id" {
   description = "Conta de PROD da AMH (441395443640). Usado como trava em provider.allowed_account_ids e na montagem de ARNs."
   type        = string
   default     = "441395443640"
+
+  validation {
+    condition     = var.aws_account_id == "441395443640"
+    error_message = "Este state e' da conta de PROD 441395443640; o dev (203312548462) tem o proprio."
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -130,6 +135,11 @@ variable "phi_endpoint_url" {
   EOT
   type        = string
   default     = "https://bedrock-runtime.sa-east-1.amazonaws.com"
+
+  validation {
+    condition     = var.phi_endpoint_url == "https://bedrock-runtime.sa-east-1.amazonaws.com"
+    error_message = "Prod: a zona PHI so' usa o endpoint Bedrock de sa-east-1 (a excecao us-east-1 e' do dev)."
+  }
 }
 
 variable "phi_model_id" {
@@ -424,9 +434,15 @@ variable "caso_sintetico_zona_geral" {
     DESLIGUE antes de qualquer carga com dado real. Com `true` num ambiente que veja
     paciente de verdade, houve transferência internacional de dado de saúde sem base
     legal — o perfil `global.*` do Bedrock roteia entre regiões por desenho.
+    PROD: travada em false — este ambiente nasce para ver paciente real.
   EOT
   type        = bool
   default     = false
+
+  validation {
+    condition     = var.caso_sintetico_zona_geral == false
+    error_message = "Prod ve dado real: caso_sintetico_zona_geral e' saida de emergencia do dev e nao pode ser true aqui."
+  }
 }
 
 variable "phi_zone_provider" {
@@ -470,12 +486,19 @@ variable "inference_provider" {
 
 variable "bedrock_model_id" {
   description = <<-EOT
-    Modelo da zona GERAL. O perfil `global.*` roteia entre regioes por desenho
-    (inference.py:485) — aceitavel aqui porque a zona geral nao ve dado de paciente,
-    e inaceitavel na zona PHI sem o DPA do endpoint BR-resident.
+    Modelo da zona GERAL. PROD: so' id REGIONAL servido em sa-east-1 (ON_DEMAND), nunca
+    perfil cross-region (`global.`, `us.`, `eu.`, `apac.`): o perfil roteia entre regioes
+    por desenho e, em prod, o mesmo processo ve dado real. O dev usa
+    `global.anthropic.claude-opus-5`; aqui o default e' VAZIO (sem grant de zona geral) e
+    escolher o modelo regional e' decisao do cutover (README, bloqueios).
   EOT
   type        = string
-  default     = "global.anthropic.claude-opus-5"
+  default     = ""
+
+  validation {
+    condition     = !can(regex("^(global|us|eu|apac|us-gov)\\.", var.bedrock_model_id)) && !strcontains(var.bedrock_model_id, "*")
+    error_message = "Prod: bedrock_model_id tem de ser modelo regional de sa-east-1, sem perfil cross-region nem curinga."
+  }
 }
 
 variable "prefixo_fonte_build" {
@@ -824,10 +847,16 @@ variable "helena_saude_gerativa" {
     de `helena_saude_gerativa_conversas`, pela rota PROPRIA `experimento_global_autorizado_dpo_2026-10-17`
     (perfil GLOBAL do Bedrock: pode processar FORA DO BRASIL). Autorizado pelo dono COMO DPO so' para a conversa
     dele e as do simulador, so' em dev, como teste reversivel. Runbook: docs/runbooks/helena-base-saude.md §10.
+    PROD: travada em false (sem aval do DPO para prod; a policy do perfil global nao existe aqui).
   EOT
   type        = bool
   default     = false
   nullable    = false
+
+  validation {
+    condition     = var.helena_saude_gerativa == false && length(var.helena_saude_gerativa_conversas) == 0
+    error_message = "Prod: saude gerativa (perfil GLOBAL do Bedrock, fora do Brasil) tem aval do DPO so' para dev."
+  }
 }
 
 variable "helena_saude_gerativa_conversas" {

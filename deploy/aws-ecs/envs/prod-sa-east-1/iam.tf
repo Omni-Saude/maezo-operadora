@@ -128,6 +128,8 @@ data "aws_iam_policy_document" "task_exec_ssm" {
 }
 
 resource "aws_iam_role_policy" "task_exec_ssm" {
+  # PROD: so' com ECS Exec ligado (break-glass por PR).
+  count  = var.ecs_exec_habilitado ? 1 : 0
   name   = "${local.name}-ecs-exec"
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.task_exec_ssm.json

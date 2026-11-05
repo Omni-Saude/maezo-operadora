@@ -78,30 +78,27 @@ resource "aws_iam_role_policy" "task_execution_maezo_secrets" {
 # Bedrock — permissao de INFERENCIA na task role (nao na execution role: quem
 # chama o modelo e' o processo da aplicacao, em runtime).
 # ---------------------------------------------------------------------------
-# Escopo: o perfil `global.anthropic.claude-opus-5` e as variantes regionais do
-# mesmo modelo. `global.*` ROTEIA ENTRE REGIOES por desenho (inference.py:485) —
-# aceitavel na zona GERAL deste staging tecnico, que nao ve dado de paciente, e
-# EXATAMENTE o motivo pelo qual a zona PHI nao sobe aqui (ver service-agents.tf).
+# PROD (review de seguranca do PR #1204): SO' modelo REGIONAL em sa-east-1, nas duas zonas.
+# O dev concede o perfil `global.anthropic.claude-opus-5*` com regiao `*` para a zona GERAL —
+# `global.*` roteia entre regioes por desenho, e em prod o mesmo processo ve dado real de
+# beneficiario. Aqui a regiao e' literal `sa-east-1` em todo ARN (sem regiao curinga e sem
+# inference-profile `global.`); `bedrock_model_id` recusa id de perfil cross-region
+# (variables.tf). Consequencia: a zona geral de prod precisa de um modelo regional.
 data "aws_iam_policy_document" "task_bedrock" {
   statement {
-    sid    = "InvocarModeloDaZonaGeral"
+    sid    = "InvocarModelosRegionaisSaoPaulo"
     effect = "Allow"
     actions = [
       "bedrock:InvokeModel",
       "bedrock:InvokeModelWithResponseStream",
     ]
-    resources = [
-      # Perfil global (cross-region) e o inference profile correspondente.
-      "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/anthropic.claude-opus-5*",
-      "arn:${data.aws_partition.current.partition}:bedrock:*:${var.aws_account_id}:inference-profile/global.anthropic.claude-opus-5*",
-      # ZONA PHI: modelo REGIONAL, e a regiao esta FIXA no ARN — nao e' `*` como as duas
-      # linhas acima. Aquelas usam `*` porque um perfil `global.*` roteia entre regioes por
-      # desenho e restringir a regiao ali quebraria a invocacao de forma intermitente. Aqui e'
-      # o oposto: a regiao presa em `sa-east-1` e' a propria garantia de residencia, e um
-      # `*` desfaria o que este provedor existe para dar.
-      # Excecao regional do dev (DPO, 21/10/2026): `local.phi_regiao` e' us-east-1 so' com a excecao ligada.
+    resources = compact([
+      # Zona GERAL: so' com um modelo regional declarado.
+      var.bedrock_model_id == "" ? "" : "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${var.bedrock_model_id}",
+      # ZONA PHI: modelo regional; `local.phi_regiao` e' travado em sa-east-1 em prod
+      # (excecao-regional-phi.tf).
       "arn:${data.aws_partition.current.partition}:bedrock:${local.phi_regiao}::foundation-model/${var.phi_model_id}",
-    ]
+    ])
   }
 }
 

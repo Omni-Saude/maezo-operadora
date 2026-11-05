@@ -123,12 +123,10 @@ resource "aws_ecs_service" "cloudflared" {
   enable_execute_command = var.ecs_exec_habilitado # prod: desligado por padrao (break-glass por PR)
 
   network_configuration {
-    # Mesmo SG dos demais componentes: a regra de auto-referencia na 8080 ja permite
-    # que o tunel alcance o engine, e a saida 7844 esta em security_groups_cloudflared.tf.
-    # Nenhuma regra de ENTRADA
-    # e' criada — a borda nao tem porta.
+    # PROD: SG PROPRIO (security_groups_cloudflared.tf), sem o SG das tasks e sem o
+    # marcador do Aurora. Nenhuma regra de ENTRADA — a borda nao tem porta.
     subnets          = data.aws_subnets.private_app.ids
-    security_groups  = local.task_security_groups
+    security_groups  = [aws_security_group.cloudflared.id]
     assign_public_ip = false
   }
 

@@ -34,6 +34,14 @@ Diferença que **acrescenta** PR cruzado: o ALB interno do HAPI de prod só acei
 | `borda_publica_habilitada` | `false` | Túnel Cloudflare de prod. Só sobe com **os dois** em `true`: dá para provar o ambiente inteiro sem entrada pública. |
 | `ecs_exec_habilitado` | `false` | Shell nas tasks (break-glass por PR). |
 | `engine_db_schema_update` | `false` | DDL automática do CIB Seven (só no primeiro boot). |
+| `bootstrap_db_habilitado` | `false` | Cria a task `bootstrap-db` e a execution role **própria** dela, a única que lê o segredo MESTRE do Aurora (compartilhado com o HAPI). Ligar só na janela do bootstrap. |
+| `engine_image_variante` | `""` | Atestação de quem promove o engine. Com serviços ligados, o plan exige `"secured-v2"` **e** o digest com tag `secured-v2-*` no ECR de prod (precondition em `aws_ecs_service.cibseven`). |
+
+**Saídas de emergência do dev travadas por validation** (review de segurança do PR #1204): `phi_excecao_regional`
+só `""`, `phi_endpoint_url` só sa-east-1, `caso_sintetico_zona_geral = false`, `helena_saude_gerativa = false`
+(o arquivo do experimento com perfil global nem existe aqui), `bedrock_model_id` sem perfil cross-region
+(`global.`/`us.`/...), `aws_account_id = 441395443640`. Toda policy Bedrock de prod usa ARN de **sa-east-1**; o
+`terraform test` varre o texto dos `.tf` e reprova região curinga ou perfil global.
 
 **Atestação PHI só por `-var`**, sem default no repo (mesma regra do dev): `phi_zone_provider`, `phi_model_id`,
 `phi_vendor_dpa_ref`, `helena_zona_phi`. O `plan` não roda sem elas — é proposital.
@@ -78,7 +86,10 @@ Custo estimado (preço público sa-east-1, sem Bedrock e sem a fundação):
 1. **Engine `client-certificate` (N5).** Este env declara `engine_rest_authentication = "client-certificate"`
    (exigido por `scripts/ci/check_engine_rest_auth.py`). A imagem de engine do dev é a **aberta**; a `secured*`
    (`deploy/cibseven/Dockerfile.secured-v2`) derruba worker/agentes/canal até a migração de callers (pacote C).
-   Copiar o engine do dev para cá contradiz a declaração.
+   Copiar o engine do dev para cá contradiz a declaração — e o plan com serviços ligados **reprova** (precondition
+   `secured-v2`). Pendente também: o health check do engine usa `/engine-rest/version` sem credencial na 8080;
+   conferir que ele continua respondendo na imagem `secured-v2` antes do cutover. O `Dockerfile.secured-v2` não
+   tem `LABEL`: a prova hoje é a tag `secured-v2-*` (ECR IMMUTABLE) + a atestação.
 2. **Lucas só em dev.** `check_roteador_lucas.py` reprova a env da fonte de cobrança do Lucas presente fora de dev; aqui
    ela não entra e `roteador_lucas_enabled = false`. Cobrança, cancelamento PF, reembolso e Lucas v4 dependem de
    emendar a cerca por PR do dono.
@@ -90,6 +101,8 @@ Custo estimado (preço público sa-east-1, sem Bedrock e sem a fundação):
 5. **Portal/plano staff** não existe em prod (acima): a fila humana de casos não tem onde aparecer.
 6. **`maezo/prod/phi-hmac-key`**: se o cutover migrar o banco do dev (conversas, custódia), a chave tem de ser **a
    mesma** do dev (o pseudônimo `hk1_...` depende dela); se prod começar vazio, chave nova.
+7. **Zona geral sem modelo**: o dev usa `global.anthropic.claude-opus-5` (perfil cross-region), recusado em prod.
+   `bedrock_model_id` nasce vazio (sem grant); escolher um modelo **regional** de sa-east-1 é decisão do cutover.
 
 ## Segredos — só o recurso, sem valor
 
@@ -157,9 +170,11 @@ Meta de volta para o dev e virar `servicos_habilitados = false` aqui (PR + apply
 5. **PRs no amh-data-platform**: `ecs_tasks_security_group_id` em `ingest_allowed_source_sg_ids` do
    `prod-sa-east-1-hapi` (com o certificado interno); SG das tasks na origem do ALB interno do
    `prod-sa-east-1-interop`; `task_execution_role_arn` como leitor das chaves de interop (`maezo_receiver_task_role_arn`).
-6. **Banco**: `run-task` de `bootstrap-db` (cria o database `maezo`) → `migrations` (`terraform output
+6. **Banco**: PR `bootstrap_db_habilitado = true` → apply → `run-task` de `bootstrap-db` (cria o database `maezo`;
+   use a execution role própria que o state cria) → PR voltando a `false` → `migrations` (`terraform output
    run_migrations_command`).
-7. **Primeiro boot do engine**: PR com `engine_db_schema_update = true` + `servicos_habilitados = true` → apply → schema
+7. **Primeiro boot do engine**: imagem `secured-v2` copiada com tag `secured-v2-<sha>`; PR com
+   `engine_image_variante = "secured-v2"`, `engine_db_schema_update = true` + `servicos_habilitados = true` → apply → schema
    `cibseven` criado → PR voltando `engine_db_schema_update = false`. Depois `deploy-processes` e `engine-bootstrap`.
 8. **Comportamento**: PR com as flags da Helena decididas (bloqueio 3), pacotes copiados do bucket do dev e ponteiro
    `<agente>/prod/ativo.json` movido; `-var` da atestação PHI no apply. `staff_alerts_email` preenchido.

@@ -19,24 +19,72 @@
 # credencial mestre, e ele nao e' um service: roda, sai e pronto.
 
 # ---------------------------------------------------------------------------
-# Grant do segredo mestre — restrito a este ARN
+# PROD (review de seguranca do PR #1204): execution role PROPRIA, e so' sob flag.
 # ---------------------------------------------------------------------------
+# No dev o segredo MESTRE do Aurora e' lido pela execution role COMPARTILHADA de todas as
+# tasks — qualquer task definition nova que citasse o ARN teria a credencial mestre. Aqui:
+#   * a role `bootstrap-db-execution` e' a UNICA que le `rds!cluster-...`;
+#   * role, policy e task definition so' existem com `bootstrap_db_habilitado = true`
+#     (default false): liga-se num PR para a janela do bootstrap e desliga-se no seguinte.
+# O Aurora de prod e' compartilhado com o HAPI: a credencial mestre abre o banco de
+# outro produto, entao ela nao fica disponivel fora da janela.
+
+variable "bootstrap_db_habilitado" {
+  description = "Cria a task de bootstrap do banco (credencial MESTRE do Aurora) e a execution role propria dela. Default false; ligar so' na janela do bootstrap, por PR."
+  type        = bool
+  default     = false
+}
+
+locals {
+  bootstrap_db = var.bootstrap_db_habilitado ? toset(["this"]) : toset([])
+}
+
+resource "aws_iam_role" "bootstrap_db_execution" {
+  for_each           = local.bootstrap_db
+  name               = "${local.name}-bootstrap-db-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  tags               = local.base_tags
+}
+
+resource "aws_iam_role_policy_attachment" "bootstrap_db_execution_managed" {
+  for_each   = local.bootstrap_db
+  role       = aws_iam_role.bootstrap_db_execution[each.key].name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
 # Com `manage_master_user_password = true` no modulo aurora-cluster, a AWS cria e
 # roda o segredo `rds!cluster-...`. Ele fica FORA de qualquer prefixo nosso, e por
 # isso precisa de um statement proprio.
-data "aws_iam_policy_document" "task_execution_master_secret" {
+data "aws_iam_policy_document" "bootstrap_db_master_secret" {
   statement {
     sid       = "LerSegredoMestreDoAurora"
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [local.aurora_master_secret_arn]
   }
+
+  # O segredo mestre pode estar sob CMK (a do Aurora do HAPI). Vazio com a chave gerida.
+  dynamic "statement" {
+    for_each = compact([data.aws_rds_cluster.shared.master_user_secret[0].kms_key_id])
+    content {
+      sid       = "DecifrarSegredoMestre"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+      }
+    }
+  }
 }
 
-resource "aws_iam_role_policy" "task_execution_master_secret" {
-  name   = "${local.name}-master-secret"
-  role   = aws_iam_role.task_execution.id
-  policy = data.aws_iam_policy_document.task_execution_master_secret.json
+resource "aws_iam_role_policy" "bootstrap_db_master_secret" {
+  for_each = local.bootstrap_db
+  name     = "${local.name}-master-secret"
+  role     = aws_iam_role.bootstrap_db_execution[each.key].id
+  policy   = data.aws_iam_policy_document.bootstrap_db_master_secret.json
 }
 
 resource "aws_cloudwatch_log_group" "bootstrap_db" {
@@ -47,13 +95,17 @@ resource "aws_cloudwatch_log_group" "bootstrap_db" {
 }
 
 resource "aws_ecs_task_definition" "bootstrap_db" {
+  for_each                 = local.bootstrap_db
   family                   = "${local.name}-bootstrap-db"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "512"
   memory                   = "1024"
-  execution_role_arn       = aws_iam_role.task_execution.arn
+  execution_role_arn       = aws_iam_role.bootstrap_db_execution[each.key].arn
   task_role_arn            = aws_iam_role.task.arn
+
+  # A policy do segredo tem de existir antes da primeira task (CreateContainerConfigError).
+  depends_on = [aws_iam_role_policy.bootstrap_db_master_secret, aws_iam_role_policy_attachment.bootstrap_db_execution_managed]
 
   runtime_platform {
     cpu_architecture        = "X86_64"
