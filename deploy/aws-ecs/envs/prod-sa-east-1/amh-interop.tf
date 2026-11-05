@@ -53,10 +53,11 @@ locals {
   # SO' com `acesso_beneficiario` — o Cognito recusa o token INTEIRO se o client nao tiver um escopo pedido, e
   # pedi-los sempre derrubaria identidade, cobranca e TINA. Desligadas as duas flags, o valor e' o de antes.
   # Carteirinha completa (decisao do dono de 17/10/2026, so' dev; manifest v1.12): SO' com as consultas E a chave
-  # `helena_carteirinha_completa` (e o caminho do OpenAPI nao vazio) o escopo PROPRIO `interop/tina.carteirinha`
+  # chave da carteirinha completa (e o caminho do OpenAPI nao vazio) o escopo PROPRIO `interop/tina.carteirinha`
   # entra no pedido de token e o caminho do OpenAPI `tina-carteirinha` entra na env. O Cognito recusa o token
   # INTEIRO se o client `maezo-operadora-interop` nao tiver o escopo: a AMH tem de concede-lo ANTES de ligar.
-  amh_tina_carteirinha_ligada = var.helena_consultas_amh && var.helena_carteirinha_completa && var.amh_tina_carteirinha_openapi_path != ""
+  # PROD: carteirinha completa e' somente-dev (teste de chave somente-dev em tests/unit/agents); travada em false.
+  amh_tina_carteirinha_ligada = false
   # Nomes dos dependentes do proprio titular (decisao do dono e DPO de 19/10/2026, DL-0127, so' dev; manifest
   # v1.13): como a carteirinha completa, com o escopo PROPRIO `interop/tina.dependentes_nome` (a AMH concede ao
   # client `maezo-operadora-interop` ANTES de ligar, senao o Cognito recusa o token INTEIRO).
@@ -88,11 +89,12 @@ locals {
   ] : []) : []
 
   # Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): o executor governado do detalhamento do pagador e
-  # da 2a via. SO' com a chave `lucas_v4` E o cliente Cognito DEDICADO da 2a via informado: entram os dois OpenAPI
+  # da 2a via. SO' com a chave do Lucas v4 E o cliente Cognito DEDICADO da 2a via informado: entram os dois OpenAPI
   # (digest conferido contra o pin no boot), o client id e o segredo (`amh/cognito/dev/maezo-operadora-interop-boleto`,
   # injetado INTEIRO; so' o cofre de agente o le'). Desligado, a task definition e' a de antes, byte a byte. O escopo
   # `interop/billing.boleto` NAO entra em `MAEZO_AMH_INTEROP_SCOPES`: o token da 2a via e' do cliente dedicado.
-  amh_v4_ligado = local.amh_interop_ligado && var.lucas_v4 && local.amh_interop_boleto_client_id_efetivo != ""
+  # PROD: Lucas v4 e' somente-dev (teste de chave somente-dev em tests/unit/platform/webhooks); travado em false.
+  amh_v4_ligado = false
   amh_v4_env = local.amh_v4_ligado ? [
     { name = "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH", value = var.amh_billing_status_detalhamento_openapi_path },
     { name = "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH", value = var.amh_billing_segunda_via_openapi_path },

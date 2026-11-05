@@ -131,8 +131,8 @@ locals {
       # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
       { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
       # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver
-      # `helena_carteirinha_completa`).
-      { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = tostring(var.helena_carteirinha_completa) },
+      # a chave da carteirinha). PROD: somente-dev, literal false.
+      { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = "false" },
       # Dono e DPO, 19/10/2026 (DL-0127): nome completo dos dependentes do proprio titular (default `false`; so'
       # dev, ver `helena_dependentes_nome`).
       { name = "MAEZO_HELENA_DEPENDENTES_NOME", value = tostring(var.helena_dependentes_nome) },
@@ -159,12 +159,12 @@ locals {
       { name = "MAEZO_ACESSO_VALIDADE_HORAS", value = tostring(var.acesso_validade_horas) },
       # Valores na resposta do Lucas (DL-0086): desligado por default; exige o acesso ligado e a fonte `amh`.
       { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
-      # DL-0111: cancelamento a pedido PF (default `false`; so' dev, ver `cancel_pf_v1`).
-      { name = "MAEZO_CANCEL_PF_V1", value = tostring(var.cancel_pf_v1) },
+      # DL-0111: cancelamento a pedido PF (default `false`; so' dev). PROD: literal false.
+      { name = "MAEZO_CANCEL_PF_V1", value = "false" },
       # DL-0161/DL-0162: reembolso pelo WhatsApp (default `false`; so' dev, ver `reembolso_v1`).
       { name = "MAEZO_REEMBOLSO_V1", value = tostring(var.reembolso_v1) },
-      # DL-0114: Lucas do catalogo v4 (default `false`; so' dev, ver `lucas_v4`).
-      { name = "MAEZO_LUCAS_V4", value = tostring(var.lucas_v4) },
+      # DL-0114: Lucas do catalogo v4 (default `false`; so' dev). PROD: literal false.
+      { name = "MAEZO_LUCAS_V4", value = "false" },
 
       # PROD: SEM `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`. No dev ele devolve o texto da Helena no corpo
       # do ack para o Canal de Teste ler; o proprio dev registra que "e' assim que producao tem de

@@ -738,20 +738,6 @@ variable "helena_v4" {
   nullable    = false
 }
 
-variable "helena_carteirinha_completa" {
-  description = <<-EOT
-    Vinculo ativo e carteirinha completa na Helena (decisao do dono de 17/10/2026, "modelo de teste" reversivel):
-    `MAEZO_HELENA_CARTEIRINHA_COMPLETA`. Default `false` = a Helena de antes, byte a byte. Ligada, o tipo de plano
-    e a carteirinha mostram SO' os vinculos ATIVOS, e a carteirinha (texto fixo) traz o NUMERO COMPLETO do proprio
-    beneficiario verificado pela rota `tina-carteirinha` da AMH (manifest v1.12): acrescenta
-    `interop/tina.carteirinha` aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com
-    `helena_consultas_amh`). O receptor RECUSA servir sem o bloco `manifest_v1_12` no pin. EXPERIMENTO SO' EM DEV.
-  EOT
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
 variable "helena_dependentes_nome" {
   description = <<-EOT
     Nome completo dos dependentes na Helena (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste"
@@ -955,7 +941,7 @@ variable "amh_tina_dependentes_nome_openapi_path" {
 }
 
 variable "amh_tina_carteirinha_openapi_path" {
-  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). Lido so' com helena_consultas_amh e helena_carteirinha_completa. Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). PROD: nao lido (a carteirinha completa e' somente-dev). Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
   type        = string
   default     = "/app/config/integrations/amh/openapi/tina-carteirinha.openapi.yaml"
   nullable    = false
@@ -1007,26 +993,6 @@ variable "lucas_consulta_valores" {
   }
 }
 
-variable "cancel_pf_v1" {
-  description = <<-EOT
-    Cancelamento a pedido do beneficiario PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0):
-    `MAEZO_CANCEL_PF_V1`. Default `false` = o Lucas de antes, byte a byte (o pedido abre o processo com
-    fatos `false` e tudo vai a analise humana). Ligada, o Lucas le' os fatos nos contratos AMH ja' pinados
-    (TINA elegibilidade + billing-status), dependente nao abre o processo, o titular PF abre com os fatos
-    reais e recebe o protocolo, e o processo devolve o resultado pela retomada. Aprovado pelo dono em
-    15/10/2026 SO' para dev; revisao juridica/regulatoria, DPO e operacao antes de producao. Exige
-    `lucas_fonte_cobranca = "amh"` (validado aqui). Runbook: docs/runbooks/cancel-001-pf.md.
-  EOT
-  type        = bool
-  default     = false
-  nullable    = false
-
-  validation {
-    condition     = !var.cancel_pf_v1 || var.lucas_fonte_cobranca == "amh"
-    error_message = "cancel_pf_v1 exige lucas_fonte_cobranca = \"amh\" (os fatos do cancelamento vem dos contratos da AMH)."
-  }
-}
-
 variable "reembolso_v1" {
   description = <<-EOT
     Reembolso pelo WhatsApp (DL-0161/DL-0162, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
@@ -1055,34 +1021,6 @@ variable "reembolso_anexos_enabled" {
   validation {
     condition     = !var.reembolso_anexos_enabled || var.recipient_vault_enabled
     error_message = "reembolso_anexos_enabled exige recipient_vault_enabled = true (role propria do receptor)."
-  }
-}
-
-variable "lucas_v4" {
-  description = <<-EOT
-    Lucas do catalogo v4 (DL-0114, aprovado pelo dono em 16/10/2026 SO' para dev; revisao juridica e do DPO antes
-    de producao): `MAEZO_LUCAS_V4`. Default `false` = o Lucas de antes, byte a byte. Ligada: so' o pagador PF
-    recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do contrato (sem nome)
-    e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro; plano de empresa segue para o RH.
-    O detalhamento por beneficiario e o codigo de barras da 2a via so' ligam quando os contratos novos da AMH
-    (billing-status 0.4.0 e billing-segunda-via) estiverem publicados e pinados (segundo sinal no codigo). Exige
-    `lucas_consulta_valores = true` (validado aqui e no boot). Runbook: docs/runbooks/lucas-v4.md.
-  EOT
-  type        = bool
-  default     = false
-  nullable    = false
-
-  validation {
-    condition     = !var.lucas_v4 || var.lucas_consulta_valores
-    error_message = "lucas_v4 exige lucas_consulta_valores = true (sem os fatos de valor nao ha' como saber quem e' o pagador)."
-  }
-
-  # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 (`beneficiario_e_pagador`) o Lucas nao tem como
-  # afirmar quem e' o pagador. O codigo FALHA FECHADO (nao mostra valor), mas a chave ligada sem o 0.3.0 so'
-  # entrega a negativa: recusar aqui evita ligar a v4 "pela metade".
-  validation {
-    condition     = !var.lucas_v4 || var.amh_billing_status_contratacao_openapi_path != ""
-    error_message = "lucas_v4 exige amh_billing_status_contratacao_openapi_path (billing-status 0.3.0: beneficiario_e_pagador e valor_boleto_pagador)."
   }
 }
 
@@ -1141,14 +1079,14 @@ variable "amh_billing_status_contratacao_openapi_path" {
 }
 
 variable "amh_billing_status_detalhamento_openapi_path" {
-  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). PROD: nao lido (o Lucas do catalogo v4 e' somente-dev)."
   type        = string
   default     = ""
   nullable    = false
 }
 
 variable "amh_billing_segunda_via_openapi_path" {
-  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). PROD: nao lido (o Lucas do catalogo v4 e' somente-dev)."
   type        = string
   default     = ""
   nullable    = false

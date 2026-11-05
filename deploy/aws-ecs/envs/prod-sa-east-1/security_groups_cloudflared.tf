@@ -17,6 +17,9 @@ resource "aws_security_group" "cloudflared" {
   tags        = merge(local.base_tags, { Name = "${local.name}-cloudflared" })
 }
 
+# AWS-0104 (trivy) — IGNORE, mesmo despacho do dev (pacote trivy/IaC D2, 19/09/2026): a borda anycast
+# da Cloudflare muda de IP sem aviso e o tunel nao registra sem a 7844 aberta. Mesma validade do dev.
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "cloudflared_quic" {
   security_group_id = aws_security_group.cloudflared.id
   description       = "Tunel Cloudflare: QUIC (protocolo preferido)"
@@ -26,6 +29,8 @@ resource "aws_vpc_security_group_egress_rule" "cloudflared_quic" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# AWS-0104 (trivy) — IGNORE: fallback HTTP/2 do MESMO tunel (mesmo motivo e validade do QUIC acima).
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "cloudflared_http2" {
   security_group_id = aws_security_group.cloudflared.id
   description       = "Tunel Cloudflare: fallback HTTP/2 sobre TCP"
@@ -35,6 +40,9 @@ resource "aws_vpc_security_group_egress_rule" "cloudflared_http2" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# AWS-0104 (trivy) — IGNORE: 443 para APIs da Cloudflare (IP anycast, sem lista estavel) e AWS via NAT —
+# mesma regra que o SG das tasks ja' tem com o mesmo ignore (security_groups.tf). Validade do dev.
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "cloudflared_https" {
   security_group_id = aws_security_group.cloudflared.id
   description       = "APIs da Cloudflare e AWS (ECR, Logs, Secrets Manager) via NAT"

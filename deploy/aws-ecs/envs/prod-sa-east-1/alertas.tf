@@ -8,6 +8,10 @@
 # Topico CIFRADO com a chave gerida do SNS (`alias/aws/sns`): o alarme nao carrega PHI, mas o
 # texto do alarme cita servico/modelo, e topico sem cifra reprova o portao de IaC.
 
+# AWS-0136 (trivy) — IGNORE com justificativa: o topico usa a chave GERIDA `alias/aws/sns` (cifrado em
+# repouso), nao CMK. Uma CMK exigiria key policy liberando `cloudwatch.amazonaws.com` a publicar; o texto do
+# alarme nao carrega PHI (nome de servico/modelo). Revisar junto com o backlog trivy do dono.
+# trivy:ignore:AWS-0136 exp:2026-12-19
 resource "aws_sns_topic" "staff_alerts" {
   for_each          = toset(["alertas"])
   name              = "${local.name}-alertas"
