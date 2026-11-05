@@ -76,6 +76,36 @@ data "aws_iam_policy_document" "leitura_gold_sem_phi" {
     resources = ["*"]
   }
 
+  # HAPI do DEV, so leitura (05/11/2026): PHI — aval do DPO confirmado pelo Leonardo. Caminho unico: tunel SSM pela
+  # instancia amh-debug-tasy com o documento AMH-Tunel-HapiDev-Leitura (destino FIXO no Aurora do HAPI:5432; o
+  # documento generico de port forwarding NAO e' concedido, senao a maquina viraria passagem para o Oracle do
+  # Tasy). No banco: usuario `leitura_marcelo`, so SELECT, transacao read-only, 2 conexoes.
+  statement {
+    sid     = "TunelSoParaOHapiDoDev"
+    actions = ["ssm:StartSession"]
+    resources = [
+      "arn:${local.partition}:ec2:sa-east-1:203312548462:instance/i-0a42c93905c44fe5f",
+      "arn:${local.partition}:ssm:sa-east-1:203312548462:document/AMH-Tunel-HapiDev-Leitura",
+    ]
+    condition {
+      test     = "BoolIfExists"
+      variable = "ssm:SessionDocumentAccessCheck"
+      values   = ["true"]
+    }
+  }
+
+  statement {
+    sid       = "EncerrarSoAsPropriasSessoes"
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession"]
+    resources = ["arn:${local.partition}:ssm:*:*:session/$${aws:userid}-*"]
+  }
+
+  statement {
+    sid       = "SenhaDoProprioUsuarioDeLeitura"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = ["arn:${local.partition}:secretsmanager:sa-east-1:203312548462:secret:amh-aurora-hapi-dev/leitura_marcelo-*"]
+  }
+
   statement {
     sid       = "LakeFormationVendeSoOQueFoiConcedido"
     actions   = ["lakeformation:GetDataAccess"]
