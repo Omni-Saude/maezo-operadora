@@ -110,8 +110,10 @@ resource "aws_ecs_cluster" "this" {
   name = local.name
 
   setting {
+    # Desligado em 05/11/2026: 463 metricas customizadas (~US$ 139/mes) sem alarme nem painel que as leia;
+    # CPU/memoria por servico seguem no namespace AWS/ECS, gratuito.
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 
   tags = local.base_tags
