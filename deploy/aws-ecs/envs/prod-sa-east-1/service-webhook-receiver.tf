@@ -1,0 +1,299 @@
+# Receptor de webhook do WhatsApp — a peca que EXECUTA a Helena.
+#
+# POR QUE ESTE SERVICO EXISTE, E POR QUE SO' AGORA
+#
+# `agent-helena` esta' no ar desde 13/08 e NAO executa turno: o proprio runtime diz
+# `agent_graph_execution_not_performed_here` — para a Helena, o turno e' conduzido pelo
+# receptor de webhook, que recebe a mensagem da Meta, valida a assinatura HMAC, deduplica por
+# `wamid` e despacha o grafo EM PROCESSO (DMN de red flag + start auditado de
+# SP-OP-ESCALATION-001). O receptor existia no Helm (`deployment-webhook-receiver.yaml`) e no
+# compose desde T1.6, e nunca foi implantado aqui. Medido em 09/09/2026: 8 servicos no cluster,
+# nenhum deles o receptor. Sem ele, os passos 2, 4, 5 e 12 do fluxo de triagem sao
+# intestaveis — e' a menor peca que destrava o maior pedaco.
+#
+# O QUE ISTO NAO E'. Nao e' a integracao com a Meta. Nao ha conta WhatsApp Business, nao ha
+# numero aprovado, nao ha app. O segredo que este servico le (`whatsapp_meta`) e' ALEATORIO,
+# gerado por nos, e serve para receber mensagem SIMULADA assinada com o mesmo segredo.
+# Isso valida apenas o ingresso sintetico; a resposta WhatsApp exige phone_number_id e
+# waba_token validos da Meta. A URL publica NAO deve ser cadastrada na Meta enquanto
+# o segredo for o nosso.
+#
+# IMAGEM SEPARADA (`var.webhook_receiver_image_tag`), e o motivo esta' na variavel: o receptor
+# mudou 1.593 linhas entre a imagem dos agentes e a `main` de 09/09.
+#
+# ZONA: geral (mesma da Helena — `maezo.io/phi-zone: general` no Helm). O texto que chega ja'
+# vem pseudonimizado pelo proprio receptor (PHI_HMAC_KEY), e a inferencia e' o provedor da
+# zona geral (`var.inference_provider`).
+
+resource "aws_cloudwatch_log_group" "webhook_receiver" {
+  name              = "/ecs/${local.name}/webhook-receiver"
+  retention_in_days = var.log_retention_auditoria_days
+  kms_key_id        = local.logs_kms_key_arn
+  tags              = merge(local.base_tags, { zona = "general" })
+}
+
+# DNS interno estavel: e' por este nome que o tunel (e a bateria de teste) alcancam o receptor.
+resource "aws_service_discovery_service" "webhook_receiver" {
+  name = "webhook-receiver"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.this.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  tags = local.base_tags
+}
+
+# O CONTRATO DE AMBIENTE DO RECEPTOR, compartilhado com a task avulsa do simulador de beneficiario
+# (`task-simulador.tf`). Um so' lugar para os dois: um simulador com ambiente diferente do receptor
+# testaria um receptor que nao existe. As pecas:
+#   environment_app  o ambiente da Helena/Lucas/acesso (o que o grafo le');
+#   environment_amh  os contratos da AMH (vazios com a fonte `simulada`);
+#   secrets_app      banco, PHI_HMAC_KEY, chave A2A e os dois segredos que o boot exige;
+#   secrets_envio    SO' o receptor: credenciais de envio da Meta (o simulador nunca envia).
+# A custodia do telefone (`local.recipient_vault_env`) tambem fica so' no receptor.
+locals {
+  webhook_receiver_contrato = {
+    environment_app = concat(local.db_env, [
+      { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
+      { name = "TENANT_ID", value = var.tenant_id },
+      { name = "AGENT_ID", value = "helena" },
+      { name = "AGENT_SECURITY_ZONE", value = local.agentes.helena.zona },
+      { name = "CIBSEVEN_BASE_URL", value = local.cibseven_base_url },
+      { name = "KAFKA_BOOTSTRAP_SERVERS", value = local.kafka_bootstrap },
+      { name = "HEALTH_PORT", value = "8080" },
+      { name = "RUNTIME_MODE", value = var.agent_runtime_mode },
+      { name = "AGENT_RUNTIME_MODE", value = var.agent_runtime_mode },
+      { name = "MAEZO_INFERENCE_PROVIDER", value = local.agentes.helena.provider },
+      { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(local.agentes.helena.phi_zone_required) },
+      # Os tres portoes da zona PHI + o modelo explicito — lidos SO' quando o provedor e'
+      # `bedrock_br`/`br_resident` (ver `service-agents.tf`). Vazios nao afrouxam nada.
+      { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      # Excecao regional do dev autorizada pelo DPO (excecao-regional-phi.tf); vazio = sa-east-1.
+      { name = "MAEZO_PHI_EXCECAO_REGIONAL", value = var.phi_excecao_regional },
+      { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
+      { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
+      # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto
+      # de tokens de saida e pool proprio de threads.
+      { name = "MAEZO_INFERENCE_TIMEOUT_S", value = tostring(var.inferencia_prazo_s) },
+      { name = "MAEZO_INFERENCE_MAX_TOKENS", value = tostring(var.inferencia_max_tokens) },
+      { name = "MAEZO_INFERENCE_DEDICATED_WORKERS", value = tostring(var.inferencia_workers) },
+      { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
+      { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
+      { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
+      # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Declarada AQUI, e nao deixada no default do
+      # codigo, porque este e' o unico lugar em que alguem que opera o ambiente consegue ver que a
+      # Helena lembra quem e' o paciente — e desliga-la sem trocar imagem se precisar.
+      { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
+      # TETO DE VOLUME (Frente 7.1, 14/09/2026). Os valores do codigo ja' sao estes; declara-los
+      # AQUI e' o que torna a calibracao um `-var` em vez de um deploy de imagem — e o que faz o
+      # teto aparecer para quem le' a task definition, em vez de viver so' num default de Python.
+      #
+      # SAO PONTO DE PARTIDA, nao verdade medida: 6 por conversa e' mais do que alguem digita
+      # conversando, e 120 no tenant e' o dobro do pico das baterias de 13/09. Calibrar com
+      # trafego real; o contador `maezo_webhook_mensagem_limitada_total` e' quem diz se o numero
+      # esta cortando quem nao devia.
+      { name = "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", value = tostring(var.limite_por_conversa_por_minuto) },
+      { name = "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", value = tostring(var.limite_por_tenant_por_minuto) },
+
+      # NUMERO UNICO: ROTEADOR HELENA -> LUCAS (ADR-0062, `docs/plans/lucas-numero-unico.md` §4).
+      # So' NESTE container: o roteador mora no receptor (`service.py` o constroi), e
+      # agent-resume/bridge nao despacham turno. NAO existe `agent-lucas` em `local.agentes` de
+      # proposito (§6g): seria um daemon sem turno pagando Fargate, o erro do agent-helena de 13/08.
+      #
+      # O valor de dev mora em `lucas.auto.tfvars` (versionado) e NASCE `false`: desligado, o
+      # roteador nem e' construido e o despacho segue byte a byte o de hoje. Ligar e' um PR que
+      # troca aquele arquivo, seguido de `apply` pelo time.
+      #
+      # Os tres valores tem de ser LITERAIS que `scripts/ci/check_roteador_lucas.py` resolve (var
+      # com default, `*.auto.tfvars` do diretorio, `tostring()` de escalar): `valueFrom` ou
+      # indirecao nao resolvivel REPROVA, e qualquer um destes ligados/presentes fora de
+      # `dev-sa-east-1` tambem. A fonte e' `simulada` (default) ou `amh` (contratos da AMH,
+      # amh-interop.tf; desligada ate' os contratos serem publicados e pinados) — so' em dev.
+      #
+      # PROD: `MAEZO_LUCAS_FONTE_COBRANCA` NAO entra (a cerca reprova a mera PRESENCA fora de dev) e
+      # `roteador_lucas_enabled` fica no default `false`. Ou seja: o Lucas NAO roda em prod ate' o
+      # dono emendar a cerca (escopo `somente-dev` em check_roteador_lucas.py) por PR proprio —
+      # bloqueio de cutover registrado no README.
+      { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.roteador_lucas_enabled) },
+      { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", value = tostring(var.lucas_inatividade_minutos) },
+      { name = "MAEZO_HELENA_IDENTIDADE_AMH", value = tostring(var.helena_identidade_amh) },
+      # DL-0080: historico curto da conversa na Helena (default `false`; liga junto o modo coleta).
+      { name = "MAEZO_HELENA_HISTORICO", value = tostring(var.helena_historico) },
+      # DL-0104: nova triagem da Helena (default `false`; so' dev, ver `helena_triagem_v2`).
+      { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
+      # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
+      { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
+      # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver
+      # `helena_carteirinha_completa`).
+      { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = tostring(var.helena_carteirinha_completa) },
+      # Dono e DPO, 19/10/2026 (DL-0127): nome completo dos dependentes do proprio titular (default `false`; so'
+      # dev, ver `helena_dependentes_nome`).
+      { name = "MAEZO_HELENA_DEPENDENTES_NOME", value = tostring(var.helena_dependentes_nome) },
+      # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
+      { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
+      # DL-0134: roteador de habilidades da Helena (ADR-0066; default `desligado`; F1 `sombra` so' registra).
+      { name = "MAEZO_HELENA_ROTEADOR", value = var.helena_roteador },
+      # DL-0140 (dono, 22/10/2026): modo da cobertura (`simples` nunca consulta procedimento).
+      { name = "MAEZO_HELENA_COBERTURA_MODO", value = var.helena_cobertura_modo },
+      { name = "MAEZO_HELENA_ROTEADOR_CONVERSAS", value = join(",", var.helena_roteador_conversas) },
+      # DL-0137: o modelo PROPRIO do roteador (vazio = o da zona PHI).
+      { name = "MAEZO_HELENA_ROTEADOR_MODELO", value = var.helena_roteador_modelo },
+      # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
+      # Fase 3 (18/10/2026): busca por significado na base de saude (embeddings REGIONAIS sa-east-1; default `false`).
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA", value = tostring(var.helena_busca_semantica) },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", value = var.helena_busca_semantica_modelo },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", value = tostring(var.helena_busca_semantica_limiar) },
+      # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
+      { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
+      # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.
+      { name = "MAEZO_ACESSO_BENEFICIARIO", value = tostring(var.acesso_beneficiario) },
+      { name = "MAEZO_ACESSO_VALIDADE_HORAS", value = tostring(var.acesso_validade_horas) },
+      # Valores na resposta do Lucas (DL-0086): desligado por default; exige o acesso ligado e a fonte `amh`.
+      { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
+      # DL-0111: cancelamento a pedido PF (default `false`; so' dev, ver `cancel_pf_v1`).
+      { name = "MAEZO_CANCEL_PF_V1", value = tostring(var.cancel_pf_v1) },
+      # DL-0161/DL-0162: reembolso pelo WhatsApp (default `false`; so' dev, ver `reembolso_v1`).
+      { name = "MAEZO_REEMBOLSO_V1", value = tostring(var.reembolso_v1) },
+      # DL-0114: Lucas do catalogo v4 (default `false`; so' dev, ver `lucas_v4`).
+      { name = "MAEZO_LUCAS_V4", value = tostring(var.lucas_v4) },
+
+      # PROD: SEM `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`. No dev ele devolve o texto da Helena no corpo
+      # do ack para o Canal de Teste ler; o proprio dev registra que "e' assim que producao tem de
+      # ficar" — sem ele, porque aqui quem recebe o corpo e' a Meta e o texto e' PHI.
+      { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+      # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
+      # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
+    ], local.pacotes_dos_agentes_env) # ADR-0067 fase 3 (pacotes-dos-agentes.tf); vazio = desligado
+    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
+    secrets_app = concat(local.db_secrets_maezo, [
+      # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
+      # o numero e o wamid antes de qualquer coisa tocar o texto.
+      { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
+      { name = "MAEZO_A2A_CARD_SIGNING_KEY__${upper(var.tenant_id)}", valueFrom = "${aws_secretsmanager_secret.a2a_card_signing_key.arn}:key::" },
+      # As duas que o receptor EXIGE no boot (settings.py: sem default, fail-closed).
+      { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
+      { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:verify_token::" },
+    ])
+    # Segredo do client Cognito e chave do hash do telefone da fonte AMH: `local.amh_interop_secrets`
+    # (amh-interop.tf), acrescentado por quem usa o contrato. Chegam ao executor SO' pelo cofre de agente.
+    secrets_envio = [
+      # O mesmo processo envia a resposta; ambas as configuracoes sao obrigatorias no envio.
+      { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:phone_number_id::" },
+      { name = "WHATSAPP_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:waba_token::" },
+    ]
+  }
+}
+
+resource "aws_ecs_task_definition" "webhook_receiver" {
+  family                   = "${local.name}-webhook-receiver"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = tostring(var.agent_cpu)
+  memory                   = tostring(var.agent_memory)
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
+  task_role_arn = local.webhook_receiver_task_role_arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = jsonencode([{
+    name      = "webhook-receiver"
+    image     = "${aws_ecr_repository.app.repository_url}@${var.webhook_receiver_image_digest}"
+    essential = true
+
+    # Mesmo entrypoint do Helm e do compose. O DSN e' montado do mesmo jeito que nos agentes:
+    # o despacho da Helena exige DATABASE_URL (fail-closed — sem ele o /webhook responde 501).
+    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.webhooks"]
+
+    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+
+    # O bloco de ambiente ESPELHA o do `agent-helena` em `service-agents.tf` — porque o grafo
+    # que roda aqui e' o dela. Divergir os dois e' a forma classica de a Helena "funcionar no
+    # receptor e nao no agente" (ou o inverso) sem que ninguem saiba por que.
+    # O ambiente e os segredos moram em `local.webhook_receiver_contrato` (logo acima deste
+    # recurso), que a task avulsa do simulador (`task-simulador.tf`) tambem usa: nao derivam.
+    environment = concat(
+      local.webhook_receiver_contrato.environment_app,
+      local.recipient_vault_env,
+      # DL-0163: a custodia dos anexos do reembolso (so' gravar), lista vazia com `reembolso_anexos_enabled = false`.
+      local.reembolso_anexos_env,
+      local.webhook_receiver_contrato.environment_amh,
+      # ADR-0067 §6 (agente-remoto.tf): URL do runtime remoto da Helena; vazio = turno em processo.
+      local.agente_remoto_env_cliente,
+    )
+
+    secrets = concat(
+      local.webhook_receiver_contrato.secrets_app,
+      local.webhook_receiver_contrato.secrets_envio,
+      local.amh_interop_secrets,
+    )
+
+    readonlyRootFilesystem = true
+
+    healthCheck = {
+      # python, nao curl: a imagem e' python:3.12-slim. Mesmo /healthz do compose.
+      command     = ["CMD-SHELL", "python -c \"import sys,urllib.request as u; sys.exit(0 if u.urlopen('http://localhost:8080/healthz',timeout=3).status==200 else 1)\""]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
+    }
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.webhook_receiver.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "webhook"
+      }
+    }
+  }])
+
+  tags = merge(local.base_tags, { zona = "general" })
+}
+
+resource "aws_ecs_service" "webhook_receiver" {
+  name            = "webhook-receiver"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.webhook_receiver.arn
+  desired_count   = var.servicos_habilitados ? var.webhook_receiver_desired_count : 0
+  launch_type     = "FARGATE"
+
+  # ECS Exec exige escrita no filesystem raiz; preserve o container somente leitura.
+  enable_execute_command = false
+
+  network_configuration {
+    subnets          = data.aws_subnets.private_app.ids
+    security_groups  = local.task_security_groups
+    assign_public_ip = false
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.webhook_receiver.arn
+  }
+
+  # Rollback automatico se a task nao ficar saudavel — foi o que salvou o ambiente quando o
+  # canal de teste subiu quebrado em 19/08.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  tags = merge(local.base_tags, { zona = "general" })
+}
+
+# Porta 8080 entre componentes do maezo: JA' EXISTE em `security_groups.tf` (e' a porta do
+# engine, que agentes e worker alcancam). O receptor escuta na mesma porta e herda a regra;
+# declarar outra aqui duplicaria o par ingress/egress e o apply falharia por regra repetida.
