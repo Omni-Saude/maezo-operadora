@@ -68,6 +68,14 @@ data "aws_iam_policy_document" "leitura_gold_sem_phi" {
     ]
   }
 
+  # Catalogo Glue (05/11/2026, pedido do Marcelo): so METADADO — bancos, tabelas, colunas e tipos. Nenhum dado:
+  # o Lake Formation da DESCRIBE (nunca SELECT) por LF-Tag `tier`, em dev e prod.
+  statement {
+    sid       = "CatalogoGlueSoMetadado"
+    actions   = ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetTableVersions", "glue:SearchTables", "glue:GetCatalog", "glue:GetCatalogs"]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "LakeFormationVendeSoOQueFoiConcedido"
     actions   = ["lakeformation:GetDataAccess"]
@@ -140,6 +148,17 @@ resource "aws_ssoadmin_account_assignment" "leitura_gold_prod" {
   principal_id       = aws_identitystore_group.leitura_gold_sem_phi.group_id
   principal_type     = "GROUP"
   target_id          = "441395443640"
+  target_type        = "AWS_ACCOUNT"
+}
+
+# Dev tambem recebe este set (05/11/2026): o catalogo vivo esta la'. Athena/S3 citam ARNs de prod, entao em dev
+# ele so' le o catalogo (metadado). A leitura de configuracao do dev continua pelo set da avaliacao.
+resource "aws_ssoadmin_account_assignment" "leitura_gold_dev" {
+  instance_arn       = local.instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.leitura_gold_sem_phi.arn
+  principal_id       = aws_identitystore_group.leitura_gold_sem_phi.group_id
+  principal_type     = "GROUP"
+  target_id          = "203312548462"
   target_type        = "AWS_ACCOUNT"
 }
 
