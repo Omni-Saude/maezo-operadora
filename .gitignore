@@ -15,6 +15,8 @@
 # Estado vivo do dev (staff_ops/staff_install/engine_native, zona PHI, egresso Cognito desligado). O
 # apply de dev saiu de um arquivo avulso que se perdeu; este substitui. Ver o cabecalho do arquivo.
 !deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars
+# Configuracao NAO secreta de prod (interruptores de trafego). A atestacao PHI NUNCA entra aqui: so' -var.
+!deploy/aws-ecs/envs/prod-sa-east-1/prod.auto.tfvars
 
 # Python
 __pycache__/

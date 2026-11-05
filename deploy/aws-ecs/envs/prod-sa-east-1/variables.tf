@@ -1,0 +1,1278 @@
+variable "aws_region" {
+  description = "Regiao. sa-east-1 por residencia de dado (LGPD) — o mesmo motivo que prende a plataforma de dados aqui."
+  type        = string
+  default     = "sa-east-1"
+}
+
+variable "aws_account_id" {
+  description = "Conta de PROD da AMH (441395443640). Usado como trava em provider.allowed_account_ids e na montagem de ARNs."
+  type        = string
+  default     = "441395443640"
+
+  validation {
+    condition     = var.aws_account_id == "441395443640"
+    error_message = "Este state e' da conta de PROD 441395443640; o dev (203312548462) tem o proprio."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Rede e banco — recursos da PLATAFORMA, lidos por data source. Nunca criados aqui.
+# ---------------------------------------------------------------------------
+
+variable "aurora_cluster_identifier" {
+  description = <<-EOT
+    Cluster Aurora compartilhado. Decisao do dono (2026-08-13): reaproveitar em vez de
+    subir um proprio, porque as roles `maezo_app` e `cibseven_app` JA existem nele com
+    senha gravada desde 2026-06-04 — foram criadas exatamente para isto.
+  EOT
+  type        = string
+  default     = "amh-aurora-hapi-prod"
+}
+
+variable "aurora_database_name" {
+  description = <<-EOT
+    Database alvo das migrations do maezo. `applications/maezo/migrations/README.md` (repo da
+    plataforma) descreve os schemas `maezo` e `cibseven` dentro de um database `maezo`.
+    ATENCAO: a existencia desse database NAO foi verificada — nao ha rota da minha maquina ate
+    a subnet privada. A task de migrations e' o primeiro ponto onde isso aparece; se falhar com
+    "database maezo does not exist", rode o bootstrap descrito no runbook.
+  EOT
+  type        = string
+  default     = "maezo"
+}
+
+variable "aurora_bootstrap_database" {
+  description = <<-EOT
+    Database usado apenas para ABRIR a conexao da task de bootstrap, antes de o
+    database do maezo existir. `hapi` e' o unico que o cluster tem ao nascer
+    (DatabaseName do modulo aurora-cluster da plataforma). Nada e' criado nele.
+  EOT
+  type        = string
+  default     = "hapi"
+}
+
+variable "fhir_partition" {
+  description = <<-EOT
+    Particao do HAPI que o Rafael le. O HAPI e' multitenant POR URL, e o caminho sem
+    particao nao serve busca — medido: `/fhir/Patient` devolve 400 "does not know how to
+    handle", `/fhir/omni/Patient` devolve 200.
+
+    `omni` e' a operadora, e e' a particao semanticamente correta para autorizacao previa.
+    ATENCAO ao que isso significa hoje: medido em 19/08/2026, a particao `omni` tem
+    Patient=0, Condition=0, Encounter=0. O dado clinico vive nas particoes dos HOSPITAIS
+    (austa_hospital=90.565 pacientes, imc=13.870, hmc=1.590), porque a operadora tem guia e
+    o hospital tem prontuario.
+
+    Ler o prontuario de um beneficiario da operadora e' portanto uma resolucao pelo MPI
+    (`mpi/patient.read`, que o client tem) seguida de leitura na particao do prestador — e
+    NAO uma troca desta variavel. Apontar isto para `austa_hospital` faria o Rafael ler
+    prontuario de hospital com caso de operadora, o que o isolamento por token impede de
+    propósito: token de `omni` recebe 403 na particao `austa_hospital`.
+  EOT
+  type        = string
+  # AMH ADR-046 (06/10/2026): a operadora e' a Austa Clinicas; particao 14 `austa_operadora` (a `omni` estava vazia).
+  default = "austa_operadora"
+}
+
+variable "fhir_cognito_client_id" {
+  description = <<-EOT
+    App client do Cognito para a particao escolhida — `agent-rafael-<particao>`, criado no
+    amh-data-platform (PR #167). UM CLIENT POR AGENTE POR EMPRESA, e o motivo esta escrito
+    no cognito.tf de lá: o token M2M nao carrega claim de tenant de proposito, porque "um
+    agente que escolhe o proprio tenant nao tem fronteira". O SEGREDO E' A FRONTEIRA, e o
+    raio de um vazamento e' uma empresa.
+
+    PROD: vazio = resolvido pelo NOME do client no pool de prod (data.tf, data source
+    `aws_cognito_user_pool_clients`). O pool de prod e' NOVO: o id do dev NAO vale aqui.
+  EOT
+  type        = string
+  default     = "" # resolvido por nome em data.tf
+}
+
+variable "fhir_scope" {
+  description = <<-EOT
+    Escopos pedidos ao Cognito. PEDIR UM ESCOPO QUE O CLIENT NAO TEM faz o Cognito recusar
+    o TOKEN INTEIRO com 400, antes de chegar ao servidor clinico — o agente perde o turno
+    descobrindo isso. Mantenha alinhado com `agent-rafael` no cognito.tf.
+
+    `Coverage.read` foi CRIADO em 19/08/2026: o resource server tinha 17 escopos e nenhum de
+    Coverage, e `search_coverage` e' uma das duas unicas chamadas FHIR do grafo do Rafael.
+    O interceptor exige escopo por tipo de recurso — sem ele, 403 "Escopo insuficiente".
+  EOT
+  type        = string
+  default     = "fhir/Patient.read fhir/Coverage.read fhir/Encounter.read fhir/Condition.read"
+}
+
+variable "phi_vendor_dpa_ref" {
+  description = <<-EOT
+    Referência ao INSTRUMENTO CONTRATUAL que garante residência e retenção zero para a
+    inferência da zona PHI. O adaptador RECUSA construir sem isto, e o motivo está escrito
+    no próprio `inference.py`: para que a declaração de capacidade "não chegue à produção
+    por decisão de um agente".
+
+    SEM DEFAULT, de propósito, e isso é o ponto: quem preenche é quem tem autoridade para
+    afirmar que o instrumento existe. Um default aqui transformaria a atestação numa linha
+    de código, que é exatamente o que o portão foi escrito para impedir.
+
+    Para `bedrock_br` o instrumento são os Termos de Serviço da AWS — o contrato que a
+    empresa já tem, sem fornecedor novo. Para `br_resident` com endpoint de terceiro, é o
+    DPA assinado com aquele fornecedor.
+
+    O valor viaja para o container e aparece no header `X-Maezo-Vendor-Dpa-Ref` de cada
+    requisição: é o registro de QUAL instrumento foi invocado naquela chamada.
+  EOT
+  type        = string
+}
+
+variable "phi_endpoint_url" {
+  description = <<-EOT
+    Endpoint da inferência da zona PHI. Precisa passar `br_endpoint_denial_reasons`, que
+    exige https, sem userinfo, sem query, e host na allowlist.
+
+    Para `bedrock_br`: `https://bedrock-runtime.sa-east-1.amazonaws.com`. A REGIÃO ESTÁ NO
+    NOME DO HOST, e é isso que faz a allowlist ser uma verificação de residência — outra
+    região simplesmente não casa.
+  EOT
+  type        = string
+  default     = "https://bedrock-runtime.sa-east-1.amazonaws.com"
+
+  validation {
+    condition     = var.phi_endpoint_url == "https://bedrock-runtime.sa-east-1.amazonaws.com"
+    error_message = "Prod: a zona PHI so' usa o endpoint Bedrock de sa-east-1 (a excecao us-east-1 e' do dev)."
+  }
+}
+
+variable "phi_model_id" {
+  description = <<-EOT
+    Modelo da zona PHI. O adaptador exige explícito: `BR_RESIDENT_CAPABILITIES` declara
+    `supported_model_versions` VAZIO de propósito, porque a repo não sanciona nenhum id —
+    então escolher é um ato registrado, não um default herdado.
+
+    `mistral.mistral-large-3-675b-instruct`: medido em 19/08/2026 na conta 203312548462,
+    é `ON_DEMAND` em sa-east-1 (servido na região, sem perfil `global.*`) e produziu o
+    texto mais bem estruturado entre os quatro testados com prompt de dossiê real — os
+    outros foram `deepseek.v3.2`, `zai.glm-5` e `qwen.qwen3-next-80b-a3b`, todos viáveis.
+
+    RE-MEDIDO EM 11/09/2026, e o inventário completo está em
+    `docs/design/zona-phi-modelos-sa-east-1.md`: sa-east-1 serve 37 modelos de texto
+    `ON_DEMAND` in-region e outros 17 SÓ por perfil `global.*`. Os 17 incluem todo Claude
+    atual, GPT-6 e Grok — nenhum tem perfil regional, e é por isso que os modelos que
+    alguém preferiria são justamente os que NÃO podem servir a zona PHI. Trocar de modelo
+    aqui é trocar qualidade, nunca residência: esta variável já alimenta o ARN regional do
+    IAM em `secrets.tf`.
+  EOT
+  type        = string
+}
+
+# ---------------------------------------------------------------------------
+# Aplicacao
+# ---------------------------------------------------------------------------
+
+variable "tenant_id" {
+  description = "Tenant desta instancia. Instancia-por-cliente e' principio inegociavel do produto (README, principio 3)."
+  type        = string
+  default     = "amh"
+}
+
+variable "app_image_digest" {
+  description = <<-EOT
+    Digest da imagem da APLICACAO (`amh/maezo-operadora`) usada por migrations, bootstrap,
+    deploy-processes, engine-bootstrap e a2a-outbox-relay. SEM DEFAULT: e' a MESMA imagem que
+    roda no dev (o `image_tag` de dev resolvido para digest no ECR do dev), copiada com
+    `crane copy` para o ECR de prod antes do apply (README, cutover).
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.app_image_digest))
+    error_message = "Informe o DIGEST (sha256:<64 hex>) da imagem que roda no dev, copiada para o ECR de prod. Tag nao: prod so' aceita digest."
+  }
+}
+
+variable "webhook_receiver_image_digest" {
+  description = <<-EOT
+    Digest da imagem do RECEPTOR (tambem ponte, inbox, retomada e lembrete). SEM DEFAULT:
+    o `webhook_receiver_image_tag` do dev resolvido para digest, copiado para o ECR de prod.
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.webhook_receiver_image_digest))
+    error_message = "Informe o DIGEST (sha256:<64 hex>) da imagem que roda no dev, copiada para o ECR de prod. Tag nao: prod so' aceita digest."
+  }
+}
+
+variable "webhook_receiver_desired_count" {
+  description = "Replicas do receptor de webhook WhatsApp. 1 para exercitar a Helena com mensagem simulada; 0 para tirar do ar."
+  type        = number
+  default     = 1
+}
+
+variable "bridge_desired_count" {
+  description = "Replicas da ponte de notificacao (consumer do topico interno -> start auditado de processos). 1 para o passo 9 existir; 0 para tirar do ar."
+  type        = number
+  default     = 1
+}
+
+variable "notifications_inbox_desired_count" {
+  description = <<-EOT
+    Replicas do inbox duravel de avisos de escalonamento (`service-notifications-inbox.tf`:
+    `operadora.notifications.internal` -> linha em `escalation_team_notice`). DEFAULT 0, e com 0
+    nenhum recurso daquele arquivo existe. Teto 1 enquanto a ponte for singleton declarado (SC-04-b).
+    Ligar e' decisao do dono.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.notifications_inbox_desired_count >= 0 && var.notifications_inbox_desired_count <= 1
+    error_message = "notifications_inbox_desired_count aceita 0 ou 1."
+  }
+}
+
+variable "agent_resume_desired_count" {
+  description = <<-EOT
+    Replicas do consumidor de retomada (GAP-XHITL-4: `agents.events.process_completed` ->
+    Helena retoma a conversa com a instrucao do humano). DEFAULT 0, e com 0 nenhum recurso de
+    `service-agent-resume.tf` existe: o modulo RECUSA SUBIR enquanto nao houver custodia de
+    destinatario decidida pelo dono/DPO (o WhatsApp exige o numero; v2 guarda so' o hash keyed).
+    Teto 3 = particoes do topico no registro (`topic_registry.TopicEntry.partitions`); replicas
+    alem disso ficariam ociosas no consumer group.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count >= 0 && var.agent_resume_desired_count <= 3)
+    error_message = "agent_resume_desired_count aceita de 0 a 3 (particoes do topico process_completed)."
+  }
+
+  # Sem custodia o modulo recusa subir: ligar replicas sem ela so' produziria tasks morrendo.
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count == 0 ? true : var.recipient_vault_enabled)
+    error_message = "agent_resume_desired_count > 0 exige recipient_vault_enabled = true (ADR-0061)."
+  }
+}
+
+variable "recipient_vault_enabled" {
+  description = <<-EOT
+    Liga a custodia CIFRADA do telefone do beneficiario (ADR-0061, status Proposto): chave KMS
+    propria, role do receptor so' com kms:Encrypt, role do agent-resume so' com kms:Decrypt.
+    DEFAULT false — com false nenhum recurso de `recipient-vault.tf` existe e o plan nao muda.
+    NAO LIGAR sem ciencia registrada do DPO.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "recipient_vault_ttl_days" {
+  description = "Retencao (dias apos a ultima mensagem) do telefone cifrado. Proposta do ADR-0061: 30; decisao final do DPO."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.recipient_vault_ttl_days == null ? true : (var.recipient_vault_ttl_days >= 1 && var.recipient_vault_ttl_days <= 365)
+    error_message = "recipient_vault_ttl_days aceita de 1 a 365."
+  }
+}
+
+variable "helena_zona_phi" {
+  description = <<-EOT
+    Decisao do dono (09/09/2026): a inferencia da Helena vai para o provedor da
+    zona de saude (`phi_zone_provider`, hoje bedrock_br/Mistral em sa-east-1)? O grafo dela marca
+    toda chamada como PHI; com `false` (default) e o `bedrock` comum, TODO turno cai em
+    `falha_tecnica` -> humano (seguro, nao o desejado). `true` so' tem efeito com
+    `phi_vendor_dpa_ref` preenchido — a atestacao continua sendo a outra metade.
+
+    A PRE-CONDICAO QUE A DIRECAO LEVANTOU ("existe alternativa BR-resident ao Mistral?") FOI
+    RESPONDIDA EM 11/09/2026 e nao bloqueia mais: sim, 36 alternativas in-region, e nenhuma e'
+    mais BR-resident, porque residencia vem da regiao do endpoint e do ARN regional, nao do
+    fornecedor do modelo. Provas no mesmo documento (`docs/design/zona-phi-modelos-sa-east-1.md`):
+    o boot constroi `BrResidentInferenceProvider` com `phi_capable=True` / `br-sao-paulo` /
+    `zero-retention`; a chamada real respondeu com `served_region=br-sao-paulo`; e o prompt
+    `classify-v2` da propria Helena devolveu JSON valido no vocabulario do DMN em tres mensagens
+    sinteticas. `rafael` e `marina` usam este mesmo provedor, modelo e instrumento desde 20/08 —
+    ligar a Helena nao admite fornecedor novo.
+
+    O DEFAULT SEGUE `false` DE PROPOSITO. O que falta nao e' evidencia, e' a autorizacao: ligar
+    continua sendo `-var helena_zona_phi=true` num apply, para que o ato tenha autor.
+  EOT
+  type        = bool
+}
+
+variable "limite_por_conversa_por_minuto" {
+  description = <<-EOT
+    Teto de mensagens por CONVERSA por minuto no receptor (Frente 7.1). Protege do caso que de
+    fato acontece: um numero em laco. `0` desliga, e desligar passa a ser um ato declarado aqui
+    em vez de um esquecimento.
+
+    6 e' ponto de partida — mais do que alguem digita conversando —, nao verdade medida. Quem diz
+    se esta cortando quem nao devia e' `maezo_webhook_mensagem_limitada_total{escopo="conversa"}`.
+  EOT
+  type        = number
+  default     = 6
+}
+
+variable "limite_por_tenant_por_minuto" {
+  description = <<-EOT
+    Teto global de mensagens por minuto no tenant (Frente 7.1). Protege do incidente: mil pessoas
+    escrevendo ao mesmo tempo. `0` desliga.
+
+    120 e' o dobro do pico das baterias de 13/09. ATENCAO: o limitador e' memoria de PROCESSO —
+    com mais de uma replica do receptor, o teto efetivo e' N vezes este numero. Hoje
+    `webhook_receiver_desired_count` e' 1, entao a conta fecha.
+  EOT
+  type        = number
+  default     = 120
+}
+
+variable "log_retention_days" {
+  description = "Retencao dos log groups de APLICACAO sem trilha de auditoria (ponte, inbox, lembrete). Decisao de custo 05/11/2026: 30-90 dias."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = contains([30, 60, 90], var.log_retention_days)
+    error_message = "log_retention_days aceita 30, 60 ou 90 (faixa decidida para prod)."
+  }
+}
+
+variable "log_retention_infra_days" {
+  description = "Retencao dos log groups de INFRA (kafka, cloudflared, coletor, lambda do egresso Cognito)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = contains([30, 60, 90], var.log_retention_infra_days)
+    error_message = "log_retention_infra_days aceita 30, 60 ou 90."
+  }
+}
+
+variable "log_retention_auditoria_days" {
+  description = <<-EOT
+    Retencao dos log groups que sao TRILHA de auditoria/LGPD: receptor (entrada de mensagem,
+    consentimento, identidade), agentes (decisao clinica), worker e engine (BPMN), retomada,
+    relay A2A, migrations/bootstrap/deploy-processes (mudanca de schema e de processo), plano
+    staff e portal (acao humana). Piso de 365 dias. A cadeia de auditoria de verdade continua
+    no Aurora (ADR de retencao de 5 anos); o CloudWatch guarda a evidencia operacional.
+  EOT
+  type        = number
+  default     = 365
+
+  validation {
+    condition     = var.log_retention_auditoria_days >= 365
+    error_message = "Trilha de auditoria/LGPD: no minimo 365 dias."
+  }
+}
+
+variable "worker_cpu" {
+  description = "CPU do worker-runtime (256 = 0.25 vCPU)."
+  type        = number
+  default     = 512
+}
+
+variable "worker_memory" {
+  description = "Memoria do worker-runtime em MB."
+  type        = number
+  default     = 1024
+}
+
+variable "worker_desired_count" {
+  description = <<-EOT
+    Quantas tasks do worker-runtime (o harness registra os workers BPMN por task; medido:
+    124 registrados).
+    Nasceu em ZERO enquanto o banco nao estava alcancavel — sem ele o harness falha
+    fechado e registra zero workers. Migrations passaram e o engine subiu em 18/08/2026,
+    entao o default agora e' 1: o valor declarado descreve o ambiente que EXISTE.
+    Isso importa mais do que parece — com default 0, um `apply` sem `-var` derruba o
+    servico em silencio, e quem aplica costuma nao estar olhando o desired_count.
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "cibseven_desired_count" {
+  description = <<-EOT
+    Quantas tasks do engine BPMN. Nasceu em ZERO enquanto o SG deste stack nao estava
+    liberado no Aurora — sem isso o engine entraria em crash-loop cobrando Fargate sem
+    entregar nada. A liberacao foi aplicada (PR #160 no amh-data-platform) e as
+    migrations rodaram limpas, entao o default e' 1.
+    NAO volte isto para 0 como "valor seguro": zero aqui significa DERRUBAR O MOTOR de
+    processos, e um `apply` sem `-var` passaria a fazer isso sozinho.
+    Replica unica: o engine faz aquisicao de job com lock em banco; duas replicas em dev
+    so multiplicam contencao.
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "agent_cpu" {
+  description = "CPU de cada agente. LLM e' I/O-bound (espera resposta de rede), nao CPU-bound."
+  type        = number
+  default     = 512
+}
+
+variable "agent_memory" {
+  description = "Memoria de cada agente em MB."
+  type        = number
+  default     = 1024
+}
+
+variable "caso_sintetico_zona_geral" {
+  description = <<-EOT
+    Declara que ESTE AMBIENTE não contém dado de paciente real e, portanto, a narrativa
+    do dossiê do Rafael pode ser servida pelo provedor da zona GERAL (Bedrock).
+
+    NÃO é a ratificação de DPO/médico auditor. São afirmações diferentes:
+      - ratificação: o DADO pseudonimizado pertence à zona geral (via de produção);
+      - esta chave:  o AMBIENTE não vê dado real (via de teste).
+
+    Declaração do dono, 18/08/2026, textual: "só é aceitável porque vamos usar caso
+    fictício". O código não pode verificar que o caso é fictício — nenhum código pode.
+    Por isso a chave grita em WARNING a cada boot e aparece no diff da task definition.
+
+    DESLIGUE antes de qualquer carga com dado real. Com `true` num ambiente que veja
+    paciente de verdade, houve transferência internacional de dado de saúde sem base
+    legal — o perfil `global.*` do Bedrock roteia entre regiões por desenho.
+    PROD: travada em false — este ambiente nasce para ver paciente real.
+  EOT
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = var.caso_sintetico_zona_geral == false
+    error_message = "Prod ve dado real: caso_sintetico_zona_geral e' saida de emergencia do dev e nao pode ser true aqui."
+  }
+}
+
+variable "phi_zone_provider" {
+  description = <<-EOT
+    Provedor de inferencia dos agentes da ZONA PHI (rafael, marina).
+
+    So dois valores satisfazem o contrato da zona (os cinco criterios de
+    `phi_zone_denial_reasons`), e a diferenca entre eles e' o que voce esta escolhendo:
+
+      phi_zone_mock  — roda o grafo do agente de verdade, com narrativa SINTETICA e
+                       ZERO egresso (`is_mock=True` visivel em log e em /readyz).
+                       Prova que o caminho de agente funciona. NAO e' modelo.
+
+      br_resident    — endpoint BR-resident real. Exige `MAEZO_PHI_VENDOR_DPA_REF`
+                       (sem ele o provedor RECUSA construir) E um transporte §8.2
+                       injetado — que hoje NAO EXISTE no repositorio, entao ele
+                       resolve para `RefusingBrRegionalTransport`.
+
+    `bedrock` NAO e' opcao aqui: declara `phi_allowed=False` e a fachada recusa antes
+    do egresso. E nao ha como consertar isso por configuracao — medido em 18/08/2026
+    na conta 203312548462: `anthropic.claude-opus-5` em sa-east-1 so aceita
+    INFERENCE_PROFILE, e TODOS os perfis disponiveis sao `global.*`. Nao existe perfil
+    BR-resident de Claude nesta regiao.
+  EOT
+  type        = string
+
+  validation {
+    condition     = contains(["phi_zone_mock", "br_resident", "bedrock_br"], var.phi_zone_provider)
+    error_message = "phi_zone_provider deve ser 'phi_zone_mock' ou 'br_resident' — nenhum provedor de zona geral satisfaz o contrato PHI."
+  }
+}
+
+variable "inference_provider" {
+  description = <<-EOT
+    `bedrock` = chamada real ao modelo. Qualquer outro valor cai no stub do T1.7.
+    Provado ao vivo em 12/08/2026 no ambiente local.
+  EOT
+  type        = string
+  default     = "bedrock"
+}
+
+variable "bedrock_model_id" {
+  description = <<-EOT
+    Modelo da zona GERAL. PROD: so' id REGIONAL servido em sa-east-1 (ON_DEMAND), nunca
+    perfil cross-region (`global.`, `us.`, `eu.`, `apac.`): o perfil roteia entre regioes
+    por desenho e, em prod, o mesmo processo ve dado real. O dev usa
+    `global.anthropic.claude-opus-5`; aqui o default e' VAZIO (sem grant de zona geral) e
+    escolher o modelo regional e' decisao do cutover (README, bloqueios).
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !can(regex("^(global|us|eu|apac|us-gov)\\.", var.bedrock_model_id)) && !strcontains(var.bedrock_model_id, "*")
+    error_message = "Prod: bedrock_model_id tem de ser modelo regional de sa-east-1, sem perfil cross-region nem curinga."
+  }
+}
+
+variable "prefixo_fonte_build" {
+  description = "Prefixo dentro do bucket compartilhado. Isola a nossa fonte da dos vizinhos."
+  type        = string
+  default     = "maezo-operadora"
+}
+
+variable "cloudflared_desired_count" {
+  description = <<-EOT
+    Replicas do tunel Cloudflare (a borda). Nasceu em ZERO porque sem o token no cofre o
+    container sobe e morre em loop, e um crash-loop na borda e' o tipo de ruido que faz o
+    time parar de olhar log. Tunel criado, hostnames publicados, politica de Access no ar
+    e token gravado (18/08/2026) — default 1.
+    Zero aqui NAO e' economia: e' tirar do ar os dois hostnames publicos de uma vez.
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "cloudflared_image_digest" {
+  description = "Digest do INDICE multi-arch de cloudflare/cloudflared:2026.8.2 (a mesma versao do dev), medido em 05/11/2026. Indice, nao manifesto de plataforma: a task roda em ARM64."
+  type        = string
+  default     = "sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38"
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.cloudflared_image_digest))
+    error_message = "Informe o DIGEST (sha256:<64 hex>) da imagem que roda no dev, copiada para o ECR de prod. Tag nao: prod so' aceita digest."
+  }
+}
+
+variable "kafka_desired_count" {
+  description = <<-EOT
+    Broker Kafka de DEV. 1 para o fluxo andar (o primeiro passo do SP-OP-AUTH-001
+    publica evento e falha fechado sem broker); 0 para zerar o custo. Nao substitui
+    o MSK em producao — ver o cabecalho de service-kafka.tf.
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "agent_runtime_mode" {
+  description = <<-EOT
+    `production` liga os gates fail-closed (checkpoint duravel, assinatura de Agent Card,
+    recusa de MAEZO_SPEC_DIR — Wave-1 Q-6). `local` afrouxa. Em qualquer ambiente da AWS isto
+    e' `production`: um ambiente de nuvem rodando em modo local seria uma mentira silenciosa
+    sobre quais controles estao ativos.
+  EOT
+  type        = string
+  default     = "production"
+
+  validation {
+    condition     = contains(["production", "local"], var.agent_runtime_mode)
+    error_message = "agent_runtime_mode deve ser 'production' ou 'local'."
+  }
+}
+
+variable "a2a_outbox_relay_cpu" {
+  description = "CPU do a2a-outbox-relay (256 = 0.25 vCPU). Daemon leve: so drena o outbox Postgres para o Kafka."
+  type        = number
+  default     = 256
+}
+
+variable "a2a_outbox_relay_memory" {
+  description = "Memoria do a2a-outbox-relay em MB."
+  type        = number
+  default     = 512
+}
+
+variable "a2a_outbox_relay_desired_count" {
+  description = <<-EOT
+    Quantas tasks do a2a-outbox-relay (SC-01/R-004). 1 e' suficiente: o relay usa
+    `claim_batch`/lease para concorrencia segura (`src/maezo/a2a/outbox.py`), entao mais
+    replicas so' aumentam o paralelismo do drain, nunca corretude. 0 zera o custo sem quebrar
+    nada alem da entrega de fatos A2A (o outbox acumula com seguranca — nenhuma linha e'
+    perdida, so' fica pendente ate o proximo drain).
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "helena_memoria_clinica" {
+  description = <<-EOT
+    MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). `true` faz a Helena lembrar QUEM E' O PACIENTE —
+    populacao e idades — de um turno para o outro, dentro de uma janela de horas.
+
+    LIGADA por padrao, ao contrario das outras novidades do receptor. Desligada, o sistema fica no
+    comportamento MEDIDO COMO ERRADO em 13/09/2026: um bebe de 11 meses triado pela tabela de
+    ADULTO, tres vezes, porque a mae disse a idade num turno e o sintoma no seguinte.
+
+    `false` faz cada turno comecar do zero, exatamente como antes desta frente — a reversao existe
+    e e' um ato declarado, nao um esquecimento. So' tem efeito com checkpointer atachado: sem
+    estado duravel nao ha turno anterior de onde lembrar.
+  EOT
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
+# Coletor de metricas (Frente 5)
+# ---------------------------------------------------------------------------
+
+variable "prometheus_workspace_alias" {
+  description = <<-EOT
+    Prefixo do ALIAS do workspace gerenciado (AMP) onde o coletor escreve. Lido por data source,
+    nunca criado por este state: o workspace e' da plataforma e compartilhado, e um `resource`
+    aqui faria um `terraform destroy` do maezo apagar serie historica de outro time.
+  EOT
+  type        = string
+  default     = "amh-prometheus-prod"
+}
+
+variable "metrics_collector_image" {
+  description = <<-EOT
+    Imagem do coletor. `aws-otel-collector` (ADOT) e nao o coletor upstream porque a escrita no
+    workspace gerenciado exige assinatura SigV4 pela role da task, e a extensao `sigv4auth` ja'
+    vem nesta distribuicao. VERSAO FIXA de proposito: `latest` num coletor significa que a forma
+    da configuracao pode mudar num deploy que nao mexeu em nada nosso.
+  EOT
+  type        = string
+  # DIGEST, nao tag (auditoria 18/09/2026): esta task carrega uma IAM role com `aps:RemoteWrite` e
+  # alcanca a rede interna onde os agentes PHI expoem /metrics. Uma tag e mutavel — um republish
+  # do repositorio publico troca o binario no proximo restart sem nenhum commit aqui. O digest e o
+  # do INDICE OCI de v0.43.1 (sha256 dos bytes do manifest list; o ECS resolve a plataforma), e
+  # todas as outras imagens deste ambiente ja sao digest-pinned. Para subir de versao: novo digest.
+  default = "public.ecr.aws/aws-observability/aws-otel-collector@sha256:db725ac7007ef1d9b5a357a59f3b964ab9e1df23ebb0dfc694275019048b489b"
+}
+
+variable "metrics_collector_desired_count" {
+  description = <<-EOT
+    Quantas tasks do coletor. 1 e' o certo e 2 seria pior: duas replicas raspam os MESMOS alvos e
+    escrevem a MESMA serie no workspace, o que produz amostras duplicadas no mesmo timestamp em
+    vez de redundancia. Zero desliga a coleta — e volta ao estado que a Frente 5 veio corrigir,
+    entao que seja um ato declarado.
+  EOT
+  type        = number
+  default     = 0 # prod sem AMP (foundation create_amp = false)
+
+  validation {
+    condition     = var.metrics_collector_desired_count >= 0 && var.metrics_collector_desired_count <= 1
+    error_message = "metrics_collector_desired_count so aceita 0 ou 1: duas replicas raspariam os mesmos alvos e duplicariam amostras no workspace."
+  }
+}
+
+variable "metrics_collector_cpu" {
+  description = "CPU do coletor (256 = 0.25 vCPU). Quatro alvos a cada 30s nao pedem mais."
+  type        = number
+  default     = 256
+}
+
+variable "metrics_collector_memory" {
+  description = "Memoria do coletor em MB. 512 cobre o buffer de escrita remota com folga no volume de dev."
+  type        = number
+  default     = 512
+}
+
+# ---------------------------------------------------------------------------------------
+# Numero unico: roteador Helena -> Lucas (ADR-0062, `docs/plans/lucas-numero-unico.md` §4/§6g).
+# Os tres viram env SO' na task definition do receptor (service-webhook-receiver.tf). O valor
+# de dev mora em `lucas.auto.tfvars`, versionado. A cerca `scripts/ci/check_roteador_lucas.py`
+# reprova o roteador ligado, ou a fonte presente, em qualquer ambiente que nao seja este.
+# ---------------------------------------------------------------------------------------
+variable "roteador_lucas_enabled" {
+  description = <<-EOT
+    Liga o roteamento por conversa do numero unico no receptor: a conversa pode sair da Helena e
+    ir para o Lucas (cobranca, com fatos SIMULADOS). DESLIGADO por padrao: desligado, o roteador
+    nem e' construido e o despacho e' byte a byte o de antes. Nesta onda, ligado roda em SOMBRA
+    (grava o agente ativo e o motivo, nao muda resposta). So' pode ser `true` em dev-sa-east-1.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "lucas_inatividade_minutos" {
+  description = <<-EOT
+    Janela de inatividade da conversa com o Lucas, em minutos: depois dela, um "oi" volta para a
+    Helena. Inerte com o roteador desligado. A faixa e' a mesma que o settings recusa no boot
+    (5..1440): recusar aqui poupa um deploy que nao sobe.
+  EOT
+  type        = number
+  default     = 60
+  nullable    = false
+
+  validation {
+    condition     = var.lucas_inatividade_minutos >= 5 && var.lucas_inatividade_minutos <= 1440 && floor(var.lucas_inatividade_minutos) == var.lucas_inatividade_minutos
+    error_message = "lucas_inatividade_minutos tem de ser inteiro entre 5 e 1440."
+  }
+}
+
+variable "helena_identidade_amh" {
+  description = <<-EOT
+    Identidade do beneficiario na Helena pelos contratos da AMH (DL-0077, decisao do dono de
+    06/10/2026): `MAEZO_HELENA_IDENTIDADE_AMH`. Default `false`. Ligada, reusa o interop da AMH
+    (`amh-interop.tf`) e exige os contratos publicados e pinados; sem isso o receptor recusa servir.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_historico" {
+  description = <<-EOT
+    Historico curto da conversa na Helena (DL-0080, 07/10/2026): `MAEZO_HELENA_HISTORICO`. Default
+    `false` = a Helena de antes. Ligado, as ultimas 12 mensagens (so' texto, 300 caracteres, janela de 6 h) vao ao
+    classificador e a redacao, e o modo coleta liga junto. Base LGPD PENDENTE de ratificacao do DPO.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_triagem_v2" {
+  description = <<-EOT
+    Nova triagem da Helena (DL-0104, 14/10/2026): `MAEZO_HELENA_TRIAGEM_V2`. Default `false` = a Helena
+    de antes, byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do turno depois
+    dos portoes de seguranca (pergunta clinica sem sintoma deixa de abrir caso; sintoma faz ficha de ate'
+    3 perguntas). EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT, pendente do medico-auditor.
+    Runbook: docs/runbooks/helena-triagem-v2.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_v4" {
+  description = <<-EOT
+    Helena v4 (DL-0115, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
+    Ligada, o especialista (cardiologista, dermatologista...) e a carteirinha recebem texto fixo (onde marcar,
+    prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta antes do caminho. Com ela
+    ligada a nova triagem (`helena_triagem_v2`) fica inerte. EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT
+    (medico-auditor pendente) e prazo de 14 dias uteis a confirmar pelo juridico.
+    Runbook: docs/runbooks/helena-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_dependentes_nome" {
+  description = <<-EOT
+    Nome completo dos dependentes na Helena (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste"
+    reversivel): `MAEZO_HELENA_DEPENDENTES_NOME`. Default `false` = a Helena de antes, byte a byte. Ligada, a lista
+    de dependentes e o "para quem e'?" da cobertura levam o nome completo de cada dependente do PROPRIO titular
+    verificado pela rota `tina-dependentes-nome` da AMH (manifest v1.13): acrescenta `interop/tina.dependentes_nome`
+    aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com `helena_consultas_amh`). O
+    receptor RECUSA servir sem o bloco `manifest_v1_13` no pin. EXPERIMENTO SO' EM DEV.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_base_saude" {
+  description = <<-EOT
+    Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): `MAEZO_HELENA_BASE_SAUDE`.
+    Default `false` = a Helena de antes, byte a byte. Ligada, a Helena informa perguntas gerais de saude a
+    partir da base curada `spec/conhecimento/saude` (sem diagnostico, conduta nem dose; sem abrir caso), faz
+    perguntas de alerta na dor sem sinal de alarme (com `helena_v4` ligada) e encerra o caso P2/P3 a pedido
+    da pessoa, com confirmacao (mensagem `msg.escalation.withdrawn` do SP-OP-ESCALATION-001 v1.1.0: rode o
+    deploy-processes ANTES de ligar). MODELO DE TESTE SO' EM DEV: revisao medica e juridica antes de producao.
+    Runbook: docs/runbooks/helena-base-saude.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_cobertura_modo" {
+  description = <<-EOT
+    Modo da cobertura da Helena (decisao do dono de 22/10/2026, DL-0140): `MAEZO_HELENA_COBERTURA_MODO`.
+    `simples` (default) = nunca consulta catalogo/AMH por procedimento; explica o geral (Rol x segmentacao,
+    carencia, autorizacao e indicacao medica) e oferece a equipe, que confirma (caso so' com "sim").
+    `consulta` = a consulta automatica por procedimento (o codigo continua, atras da chave).
+  EOT
+  type        = string
+  default     = "simples"
+  nullable    = false
+  validation {
+    condition     = contains(["simples", "consulta"], var.helena_cobertura_modo)
+    error_message = "helena_cobertura_modo: simples ou consulta."
+  }
+}
+
+variable "helena_roteador" {
+  description = <<-EOT
+    Roteador de habilidades da Helena (ADR-0066, DL-0134, 21/10/2026): `MAEZO_HELENA_ROTEADOR`.
+    `desligado` (default) = a Helena de antes, byte a byte. `sombra` (F1) roda o roteador (GLM-5 regional) e as
+    travas de entrada EM PARALELO e so' registra a decisao no log `helena_roteador_sombra`, sem mudar resposta,
+    estado, caso ou envio. `ativo` (F2, so' na allowlist) ainda vale como `sombra`. SO' EM DEV.
+  EOT
+  type        = string
+  default     = "desligado"
+  nullable    = false
+  validation {
+    condition     = contains(["desligado", "sombra", "ativo"], var.helena_roteador)
+    error_message = "helena_roteador: desligado, sombra ou ativo."
+  }
+}
+
+variable "helena_roteador_modelo" {
+  description = <<-EOT
+    Modelo PROPRIO do roteador de habilidades da Helena (ADR-0066, DL-0137): `MAEZO_HELENA_ROTEADOR_MODELO`. Modelo de
+    base REGIONAL de sa-east-1 (zona PHI). Vazio = o mesmo da zona PHI (`phi_model_id`). Fixado explicitamente para o
+    roteador nao mudar de modelo quando a zona PHI mudar. A permissao vem de `roteador-modelo.tf` (os quatro papeis).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = var.helena_roteador_modelo == "" || can(regex("^[a-z0-9-]+\\.[a-z0-9.:-]+$", var.helena_roteador_modelo))
+    error_message = "helena_roteador_modelo: um id de modelo de base (ex.: mistral.mistral-large-3-675b-instruct) ou vazio."
+  }
+}
+
+variable "helena_roteador_conversas" {
+  description = <<-EOT
+    F2 do roteador de habilidades (ADR-0066, DL-0136): as conversas (ids keyed `wa:amh:hk1_...`) em que o roteador
+    ATIVO decide. Precisam estar tambem em `helena_saude_gerativa_conversas`. Vira `MAEZO_HELENA_ROTEADOR_CONVERSAS`.
+    Vazia = ninguem. Na F2 so' as conversas do simulador; a lista de teste das pessoas entra so' na F4, com o OK do dono.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
+variable "helena_saude_gerativa" {
+  description = <<-EOT
+    SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
+    a Helena de antes, byte a byte. Ligada (e com `helena_base_saude`), o Claude Haiku 5.5 REDIGE a resposta a
+    perguntas informativas de saude (com checagem antes de enviar e resposta segura padrao) SO' para as conversas
+    de `helena_saude_gerativa_conversas`, pela rota PROPRIA `experimento_global_autorizado_dpo_2026-10-17`
+    (perfil GLOBAL do Bedrock: pode processar FORA DO BRASIL). Autorizado pelo dono COMO DPO so' para a conversa
+    dele e as do simulador, so' em dev, como teste reversivel. Runbook: docs/runbooks/helena-base-saude.md §10.
+    PROD: travada em false (sem aval do DPO para prod; a policy do perfil global nao existe aqui).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.helena_saude_gerativa == false && length(var.helena_saude_gerativa_conversas) == 0
+    error_message = "Prod: saude gerativa (perfil GLOBAL do Bedrock, fora do Brasil) tem aval do DPO so' para dev."
+  }
+}
+
+variable "helena_saude_gerativa_conversas" {
+  description = <<-EOT
+    A ALLOWLIST da saude gerativa (ADR-0065): `conversation_id` keyed (`wa:<tenant>:hk1_<64 hex>`). Fora dela, a
+    Helena de antes. Vira `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` (separados por virgula). Vazia = ninguem.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for c in var.helena_saude_gerativa_conversas : can(regex("^wa:[a-z0-9][a-z0-9_-]{0,31}:hk1_[0-9a-f]{64}$", c))])
+    error_message = "helena_saude_gerativa_conversas: so' conversation_id keyed (wa:<tenant>:hk1_<64 hex>)."
+  }
+}
+
+variable "helena_busca_semantica" {
+  description = <<-EOT
+    BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): `MAEZO_HELENA_BUSCA_SEMANTICA`.
+    Default `false` = o lexico de antes. Ligada (e com `helena_saude_gerativa`), embeddings de um modelo REGIONAL do
+    Bedrock em sa-east-1 (sem perfil de inferencia) escolhem o APOIO da redacao da saude gerativa, so' para a
+    allowlist dela. Nunca e' portao de recusa. IAM em `busca-semantica-saude.tf`. Runbook: helena-base-saude.md §13.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_busca_semantica_modelo" {
+  description = "Modelo de embeddings REGIONAL (sa-east-1) da busca por significado: cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+  nullable    = false
+  validation {
+    condition     = contains(["cohere.embed-multilingual-v3", "amazon.titan-embed-text-v2:0"], var.helena_busca_semantica_modelo)
+    error_message = "helena_busca_semantica_modelo: so' cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0 (regionais)."
+  }
+}
+
+variable "helena_busca_semantica_limiar" {
+  description = "Similaridade minima (cosseno, 0..1) para o assunto da busca por significado virar apoio (calibrado em dev)."
+  type        = number
+  default     = 0.33
+  nullable    = false
+  validation {
+    condition     = var.helena_busca_semantica_limiar >= 0 && var.helena_busca_semantica_limiar <= 1
+    error_message = "helena_busca_semantica_limiar: entre 0 e 1."
+  }
+}
+
+variable "helena_consultas_amh" {
+  description = <<-EOT
+    Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
+    `MAEZO_HELENA_CONSULTAS_AMH`. Default `false`. Ligada, a Helena responde elegibilidade,
+    carteirinha, carencia e autorizacao do PROPRIO beneficiario (identidade resolvida). Exige
+    `helena_identidade_amh = true` (validado aqui e no boot), acrescenta `interop/tina.read` aos escopos
+    pedidos ao Cognito e o caminho do OpenAPI TINA na task definition. O receptor RECUSA servir sem o
+    manifest v1.2 pinado (publicado pela AMH em 13/10/2026; bloco `manifest_v1_2` no lock).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.helena_consultas_amh || var.helena_identidade_amh
+    error_message = "helena_consultas_amh exige helena_identidade_amh = true (sem identidade nao ha' de quem consultar)."
+  }
+}
+
+variable "amh_tina_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina` publicado (o digest tem de estar no bloco manifest_v1_2 do pin). Lido so' com helena_consultas_amh."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_dependentes_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes` publicado (manifest v1.5; o digest tem de estar no bloco manifest_v1_5 do pin). Lido so' com helena_consultas_amh."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_procedimentos_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-procedimentos` (manifest v1.14, DL-0128: catalogo de procedimentos resolvidos por codigo; o digest tem de estar no bloco manifest_v1_14 do pin). Lido so' com helena_consultas_amh. Vazio = sem o catalogo: a cobertura assistida usa a busca por texto da rota de cobertura."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-procedimentos.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_dependentes_nome_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes-nome` (manifest v1.13; o digest tem de estar no bloco manifest_v1_13 do pin). Lido so' com helena_consultas_amh e helena_dependentes_nome. Vazio = sem a rota (nem o escopo `interop/tina.dependentes_nome`): a Helena mostra os dependentes sem nome."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes-nome.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_carteirinha_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). PROD: nao lido (a carteirinha completa e' somente-dev). Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-carteirinha.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_cpt_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cpt` (manifest v1.15, DL-0130: CPT vigente do proprio sujeito; o digest tem de estar no bloco manifest_v1_15 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota: a Helena nao da' o aviso de CPT; falha de leitura/digest deixa so' a CPT de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_tina_cobertura_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "acesso_beneficiario" {
+  description = <<-EOT
+    Acesso do beneficiario no WhatsApp (decisao do dono de 08/10/2026, DL-0083): `MAEZO_ACESSO_BENEFICIARIO`.
+    Default `false` (task definition intacta). Ligado, TODA conversa passa antes por consentimento (ACEITO) e
+    verificacao de identidade (CPF [+ nascimento]), sem LLM, e so' entao chega a Helena/Lucas. Exige o interop
+    da AMH (mesma composicao da identidade), a chave `amh/interop/subject-verify-key`, os dois OpenAPI
+    (`subject-verification`, `consent-record`) e os escopos `interop/subject.verify` + `interop/consent.write`
+    no client Cognito. O receptor RECUSA servir sem o manifest v1.3 pinado (contratos ainda nao publicados).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "lucas_consulta_valores" {
+  description = <<-EOT
+    Valores na resposta do Lucas (DL-0086, revisao de seguranca do PR #709): `MAEZO_LUCAS_CONSULTA_VALORES`.
+    Default `false`: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta de valor escala.
+    Ligada, a fonte AMH entrega tambem valores, coparticipacao, saldo, datas de pagamento e boleto
+    mascarado — SO' para a ref. verificada pelo acesso do beneficiario (DL-0083). Exige
+    `acesso_beneficiario = true` e `lucas_fonte_cobranca = "amh"` (validado aqui e no boot).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_consulta_valores || (var.acesso_beneficiario && var.lucas_fonte_cobranca == "amh")
+    error_message = "lucas_consulta_valores exige acesso_beneficiario = true e lucas_fonte_cobranca = \"amh\" (valor so' para beneficiario verificado)."
+  }
+}
+
+variable "reembolso_v1" {
+  description = <<-EOT
+    Reembolso pelo WhatsApp (DL-0161/DL-0162, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
+    `false` = o canal de antes, byte a byte (nenhuma coleta, nenhum arquivo recebido). Ligada, o Lucas
+    conduz o pedido (perguntas fechadas, laco de documentos, confirmacao), o processo abre com
+    `aviso_beneficiario_whatsapp=true` e devolve o resultado pela retomada. 100% dos pedidos vao a analise
+    humana. SO' dev; revisao juridica dos textos, DPO (retencao de anexos PHI) e operacao antes de producao.
+    Ordem de subida: plugin do motor, catalogo do portal, depois esta chave. Runbook: docs/runbooks/reembolso-001.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "reembolso_anexos_enabled" {
+  description = <<-EOT
+    Custodia dos anexos do reembolso (DL-0163): bucket S3 privado com SSE-KMS de chave propria, receptor so' grava,
+    portal so' le. DEFAULT false — com false nenhum recurso de `reembolso-anexos.tf` existe e o plan nao muda. Dado de
+    saude (Zona PHI): NAO LIGAR sem ciencia registrada do DPO. Exige `recipient_vault_enabled = true` (a role propria
+    do receptor so' existe com o cofre do telefone; sem ela a permissao iria para a role compartilhada).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.reembolso_anexos_enabled || var.recipient_vault_enabled
+    error_message = "reembolso_anexos_enabled exige recipient_vault_enabled = true (role propria do receptor)."
+  }
+}
+
+variable "acesso_validade_horas" {
+  description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
+  type        = number
+  default     = 24
+  nullable    = false
+
+  validation {
+    condition     = var.acesso_validade_horas >= 1 && var.acesso_validade_horas <= 168 && floor(var.acesso_validade_horas) == var.acesso_validade_horas
+    error_message = "acesso_validade_horas deve ser um inteiro entre 1 e 168."
+  }
+}
+
+variable "amh_subject_verify_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-subject-verify-v1 (CPF e CPF+nascimento). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "amh/interop/subject-verify-key"
+  nullable    = false
+}
+
+variable "amh_subject_verification_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-verification` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-verification.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_document_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-document-resolution` (AMH #214; digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario` (DL-0084)."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-document-resolution.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_consent_record_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `consent-record` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/consent-record.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_billing_status_atendimento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-atendimento` (billing-status 0.2.0; digest no bloco manifest_v1_4 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas declara `purpose_of_use=atendimento_whatsapp`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_billing_status_contratacao_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-contratacao` (billing-status 0.3.0; digest no bloco manifest_v1_6 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas passa a pedir `incluir_contratacao=true` (tipo de contratacao, beneficiario e pagador, valor do boleto do pagador). Vazio = segue o 0.2.0."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_status_detalhamento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). PROD: nao lido (o Lucas do catalogo v4 e' somente-dev)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_segunda_via_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). PROD: nao lido (o Lucas do catalogo v4 e' somente-dev)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_boleto_client_id" {
+  description = "client_id do app client Cognito DEDICADO da 2a via (`maezo-operadora-interop-boleto`, unico escopo interop/billing.boleto; criado pela AMH). Vazio = o executor do Lucas v4 nao e' composto e o segundo sinal fica desligado."
+  type        = string
+  default     = "" # vazio = resolvido por nome no pool de prod (data.tf)
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_boleto_client_id == "" || can(regex("^[a-z0-9]{20,40}$", var.amh_interop_boleto_client_id))
+    error_message = "amh_interop_boleto_client_id tem de ser vazio ou um client_id do Cognito (alfanumerico minusculo)."
+  }
+}
+
+variable "amh_interop_boleto_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client dedicado da 2a via (maezo-operadora-interop-boleto)."
+  type        = string
+  default     = "amh/cognito/prod/maezo-operadora-interop-boleto"
+  nullable    = false
+}
+
+variable "lucas_fonte_cobranca" {
+  description = <<-EOT
+    Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos
+    contratos da AMH (decisao do dono de 06/10/2026; ver `amh-interop.tf`). `amh` so' sobe com os
+    contratos publicados e pinados e com as variaveis `amh_*` preenchidas; sem isso o receptor
+    recusa servir. Presente fora de dev-sa-east-1 significa o Lucas montado onde ele nao pode
+    existir — a cerca reprova.
+  EOT
+  type        = string
+  default     = "simulada"
+  nullable    = false
+
+  validation {
+    condition     = contains(["simulada", "amh"], var.lucas_fonte_cobranca)
+    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" ou \"amh\"."
+  }
+}
+
+# --- Fonte AMH do Lucas (so' lidas com lucas_fonte_cobranca = "amh"; ver amh-interop.tf) --------
+
+variable "amh_interop_base_url" {
+  description = "Origem do servico interop da AMH: ALB INTERNO, `http://<dns>` sem caminho (porta 80 dentro da VPC)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_client_id" {
+  description = <<-EOT
+    Id do app client `maezo-operadora-interop` no Cognito da AMH. Gerado pela AWS (muda se o client
+    for recriado); vazio com a fonte AMH ligada faz o receptor recusar subir, alto, no boot.
+  EOT
+  type        = string
+  default     = "" # vazio = resolvido por nome no pool de prod (data.tf)
+  nullable    = false
+}
+
+variable "amh_interop_scopes" {
+  description = "Escopos pedidos ao Cognito. Pedir um escopo que o client nao tem faz o Cognito recusar o token inteiro."
+  type        = string
+  default     = "interop/billing.read interop/subject.resolve interop/profile.read"
+  nullable    = false
+}
+
+variable "amh_interop_tenant" {
+  description = "Tenant da operadora no vocabulario da AMH (entra no hash do telefone e no corpo da resolucao). AMH ADR-046: era omni."
+  type        = string
+  default     = "austa_operadora"
+  nullable    = false
+}
+
+variable "amh_interop_purpose_of_use" {
+  description = "purpose_of_use enviado a AMH nas leituras do Lucas."
+  type        = string
+  default     = "sharing_amh_internal"
+  nullable    = false
+}
+
+variable "amh_billing_status_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_subject_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-resolution` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client maezo-operadora-interop."
+  type        = string
+  default     = "amh/cognito/prod/maezo-operadora-interop"
+  nullable    = false
+}
+
+variable "amh_phone_lookup_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-phone-lookup-v1."
+  type        = string
+  default     = "amh/interop/phone-lookup-key"
+  nullable    = false
+}
+
+variable "amh_interop_alb_security_group_id" {
+  description = <<-EOT
+    SG do ALB interno do servico interop da AMH, para a regra de saida 80 dedicada. Vazio = sem
+    regra dedicada (a regra `hapi_internal` ja' abre 80 para o CIDR da VPC).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_alb_security_group_id == "" || can(regex("^sg-[0-9a-f]{8,17}$", var.amh_interop_alb_security_group_id))
+    error_message = "amh_interop_alb_security_group_id tem de ser vazio ou um id sg-..."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# PROD — interruptores de trafego, plataforma e imagens (nao existem no dev)
+# ---------------------------------------------------------------------------
+
+variable "servicos_habilitados" {
+  description = <<-EOT
+    INTERRUPTOR GERAL do ambiente. `false` (o default) = todo servico ECS com desired_count 0 e
+    nenhuma rotina agendada habilitada: o ambiente existe (ECR, cluster, task definitions, SGs,
+    roles, logs, segredos vazios) e nao processa NADA. Virar para `true` e' o ato do CUTOVER, por
+    PR revisado, nunca `-var` avulso. Os desired_count por servico so' valem com ele ligado.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "borda_publica_habilitada" {
+  description = <<-EOT
+    Liga o tunel Cloudflare de PROD (a unica entrada publica: webhook da Meta e cockpit). `false`
+    (default) = cloudflared com 0 tasks mesmo com `servicos_habilitados = true`, entao o receptor
+    so' e' alcancavel de dentro da VPC. Separado do interruptor geral de proposito: da' para subir
+    e provar o ambiente inteiro sem um numero de WhatsApp apontado para ele.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "platform_state_bucket" {
+  description = "Bucket de state da plataforma de PROD (amh-data-platform). Lido por terraform_remote_state (data.tf)."
+  type        = string
+  default     = "amh-tfstate-prod"
+}
+
+variable "logs_kms_alias" {
+  description = "CMK dos CloudWatch Log Groups de prod (amh-data-platform, envs/prod-sa-east-1/kms_logs.tf)."
+  type        = string
+  default     = "alias/amh-logs-prod"
+}
+
+variable "kafka_image_digest" {
+  description = "Digest do INDICE multi-arch de confluentinc/cp-kafka:7.7.0 (a mesma versao do dev), medido em 05/11/2026. A task roda em ARM64."
+  type        = string
+  default     = "sha256:1fa3cdb3ef77b75bc56e7040bbdfa2bd6950b6ee6363381b2493f7a83e07a0b3"
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.kafka_image_digest))
+    error_message = "Informe o digest (sha256:<64 hex>)."
+  }
+}
+
+variable "ecs_exec_habilitado" {
+  description = "ECS Exec (shell na task) nos servicos que o dev deixa ligado. Prod: false; ligar e' break-glass por PR, com motivo, e desligar no PR seguinte."
+  type        = bool
+  default     = false
+}
+
+variable "engine_db_schema_update" {
+  description = <<-EOT
+    DDL automatica do CIB Seven (`DB_SCHEMA_UPDATE`). Prod: false. A PRIMEIRA subida do engine
+    num banco `maezo` vazio precisa de `true` para criar o schema `cibseven`; depois volta a
+    `false` (cutover, README). Upgrade de versao do engine e' migration revisada, nao auto-DDL.
+  EOT
+  type        = bool
+  default     = false
+}
