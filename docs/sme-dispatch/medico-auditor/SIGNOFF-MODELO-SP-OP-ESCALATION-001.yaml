@@ -1,0 +1,36 @@
+# MODELO — NAO E' UM SIGNOFF. Nenhum campo de pessoa esta' preenchido, e nenhum agente o preenche.
+#
+# Contrato: docs/processes/contracts/SP-OP-ESCALATION-001.md — FINAL (v1.1.0) em 20/10/2026.
+# Formato: docs/sme-dispatch/README.md §"Signoff artifact spec"; gate: `make validate-signoff`
+# (src/maezo/platform/validation/signoff.py). Este arquivo mora FORA de signoffs/ de proposito: um
+# signoff incompleto la' dentro reprovaria o gate.
+#
+# COMO USAR — os 3 passos vao no MESMO PR, aberto ou aprovado pelas pessoas que assinam:
+#   1. Copiar este arquivo para docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml
+#      (sem este cabecalho, se preferir) e preencher, CADA PESSOA o seu registro: reviewer_name (nome
+#      completo), date (AAAA-MM-DD, nao futura), verdict (approved | needs-changes) e notes (o que foi
+#      conferido; cite a planilha Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx). Se a emenda
+#      v1.2.0 (EMENDA-v1.2.0-caso-paralelo.md) for aplicada ANTES, troque contract_version_reviewed
+#      para "v1.2.0" — um signoff de versao antiga nao conta.
+#   2. Remover a entrada SP-OP-ESCALATION-001 de
+#      docs/processes/contracts/signoffs/retro-verification-pending.yaml (a excecao fica obsoleta assim
+#      que o signoff existe; o gate reprova se as duas coisas coexistirem) e atualizar a linha 8 e o
+#      "Signoff-absent flag" de docs/sme-dispatch/tracker.md.
+#   3. Preencher `owners.clinico` em spec/agents/helena/agent.yaml com o MESMO nome do reviewer_name
+#      do medico-auditor, no formato "Nome Completo <email>" — tests/unit/agents/test_helena_dono_declarado.py
+#      passa a exigir isso no momento em que o signoff existe.
+#   Depois: `make validate-signoff` e `pytest tests/unit/agents/test_helena_dono_declarado.py` verdes.
+#
+# Um `needs-changes` bloqueia: o contrato FINAL nao pode carregar veredito nao aprovado na versao atual.
+- reviewer_name: ""
+  role: "medico-auditor"
+  date: ""
+  contract_version_reviewed: "v1.1.0"
+  verdict: ""
+  notes: ""
+- reviewer_name: ""
+  role: "regulatorio"
+  date: ""
+  contract_version_reviewed: "v1.1.0"
+  verdict: ""
+  notes: ""

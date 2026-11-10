@@ -46,7 +46,8 @@
 entries:
   - contract_id: SP-OP-ESCALATION-001
     justification: >
-      Shipped Status: FINAL (v1.0.0) before the sign-off gate (T2.2) existed;
+      Shipped Status: FINAL before the sign-off gate (T2.2) existed (then v1.0.0;
+      currently FINAL (v1.1.0), after the DL-0118/ADR-0064 amendment of 2026-10-17);
       no docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml
       was ever produced because the artifact spec and the enforcing gate both
       postdate it. This is pre-existing debt, not new drift introduced by this
