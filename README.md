@@ -148,7 +148,7 @@ O que separa esta base do go-live **não é código** — são ações que só h
 |--------|-----------|
 | Linguagem | Python 3.12, mypy `--strict`, ruff |
 | Runtime de agentes | LangGraph + A2A SDK v1.0 + MCP |
-| Engine de processos | CIB Seven 2.1.3 (BPMN + DMN) |
+| Engine de processos | CIB Seven 2.1.0 (BPMN + DMN; 2.1.3 nunca publicada — DL-0006) |
 | API | FastAPI |
 | Dados | PostgreSQL / Aurora, Alembic |
 | Inferência LLM | Anthropic (zona geral) / Bedrock |

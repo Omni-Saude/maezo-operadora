@@ -1,0 +1,83 @@
+# Deploy dos processos no engine — 16 BPMN + 62 DMN.
+#
+# Sem isto o engine esta VAZIO: ele sobe, responde /engine-rest/version e nao
+# executa processo nenhum, porque nao conhece nenhum. Foi o passo que faltava no
+# meu plano inicial, e ele nao e' opcional — e' o que transforma "o motor esta de
+# pe" em "a plataforma existe".
+#
+# Task avulsa, como as migrations: roda, sai, deixa log. O nome do deployment e'
+# ESTAVEL (`maezo-spec-processes`) porque o engine filtra duplicata por nome —
+# mudar o nome derrota a idempotencia e cria versao nova de tudo a cada execucao.
+#
+# `--spec-dir /opt/maezo/spec` e' o override sancionado pela Wave-1 Q-6 (o CLI
+# documenta isso no proprio --help). Os artefatos vivem fora de /app de proposito;
+# ver o comentario no deploy/Dockerfile.
+
+resource "aws_cloudwatch_log_group" "deploy_processes" {
+  name              = "/ecs/${local.name}/deploy-processes"
+  retention_in_days = var.log_retention_auditoria_days
+  kms_key_id        = local.logs_kms_key_arn
+  tags              = local.base_tags
+}
+
+resource "aws_ecs_task_definition" "deploy_processes" {
+  family                   = "${local.name}-deploy-processes"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = jsonencode([{
+    name      = "deploy-processes"
+    image     = "${aws_ecr_repository.app.repository_url}@${var.app_image_digest}"
+    essential = true
+
+    # Sem `--spec-dir`: os artefatos viajam no wheel (force-include no
+    # pyproject.toml) e o CLI os resolve ao lado do pacote. A flag existe como
+    # unico override sancionado pela Wave-1 Q-6, e nao precisamos dela — quanto
+    # menos caminho alternativo, menos chance de o engine receber uma versao
+    # diferente da que esta na imagem.
+    #
+    # `--tenant` (27/09/2026): os agentes iniciam por `/process-definition/key/{key}/tenant-id/
+    # {tenant}/start`, que so resolve definicao DO tenant — e a business rule task de um processo
+    # do tenant so resolve DMN do mesmo tenant. Medido no dev: a v3 da ESCALATION estava sem
+    # tenant e o `amh` so tinha a v1 da fixture SYN; a instancia da Helena nascia sem tenant e o
+    # portal (que le `tenantIdIn(amh)`) nao a via. `--shared dmn` mantem a copia SEM tenant so'
+    # das DMNs, que a avaliacao do lado do agente (`dmn_transport`, `tenant=None`) ainda le.
+    # BPMN compartilhada NAO: uma segunda copia duplicaria os timers da ANS-CRON.
+    command = [
+      "python", "-m", "maezo.platform.deploy",
+      "--deployment-name", "maezo-spec-processes",
+      "--tenant", var.tenant_id,
+      "--shared", "dmn",
+    ]
+
+    environment = [
+      # O CLI le ENGINE_REST_URL (nao CIBSEVEN_BASE_URL — sao variaveis diferentes
+      # para consumidores diferentes; confundir as duas faz o deploy apontar para
+      # localhost e falhar sem dizer por que).
+      { name = "ENGINE_REST_URL", value = local.cibseven_base_url },
+      { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+    ]
+
+    readonlyRootFilesystem = true
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.deploy_processes.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "deploy"
+      }
+    }
+  }])
+
+  tags = local.base_tags
+}
