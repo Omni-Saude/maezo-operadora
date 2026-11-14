@@ -36,7 +36,7 @@
 | `carencia_check.dmn` | `auth.py:280` (critério regulatório); órfã (`orphans-allowlist.yaml:50`); tem `carencia-check-shadow-candidate.yaml` |
 | `auth_criteria_contratual.dmn` | `auth.py:281`; hoje tem uma única linha catch-all que devolve `false,"SEM_REGRA_RATIFICADA"` (`tests/unit/sec/test_auto_approval_criteria_fence.py:220-227`) |
 | `glosa_classification.dmn` | BPMN `SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:169`; `src/maezo/agents/marina/graph.py:226` |
-| `glosa_reason_normalization.dmn` | BPMN `SP-OP-CONTAS-001...bpmn:159`; `src/maezo/tools/workers/contas.py:384` |
+| `glosa_reason_normalization.dmn` | BPMN `SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:159`; `src/maezo/tools/workers/contas.py:384` |
 
 **Lado Maezo ("como"): ficam no Maezo.**
 - SLA: `adequacao_sla`, `ans_sla`, `auth_sla`, `cancel_sla`, `contas_sla`, `cred_sla`, `fraude_sla`, `inadimplencia_sla`, `nip_sla`, `pagto_sla`, `programa_sla`, `recurso_sla`, `reembolso_sla`, `ans_calendar`, `ans_retry_policy`.
@@ -53,10 +53,10 @@ São regras de domínio que o K1 não cobre (rede, pagamento e fraude) e continu
 |---|---|---|
 | `auth_auto_approval` (BPMN `SP-OP-AUTH-001_Autorizacao_Previa.bpmn:273`) | É agregador e porta de alçada L2 ("como"), mas suas entradas `criterio_{tecnico,financeiro,regulatorio,contratual}_ok` são veredictos "o quê". | Fica no Maezo. As entradas passam a vir das saídas do K1. |
 | `reembolso_auto_approval` (BPMN `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:565`, faixa dormente, DL-0164) | Mistura limite contratual e tabela (`limite_contratual_cents`, `valor_tabela_dmn_cents`: "o quê") com teto e orçamento de alçada (`teto_l2_cents`, `orcamento_auto_tenant_dia_cents`: "como"). | Dividir: o limite vem do K1; a alçada fica no Maezo. |
-| `reembolso_prazo` (BPMN `...REEMBOLSO-001...bpmn:80`) | O prazo de pedido de reembolso é cláusula contratual, mas a tabela hoje só devolve `NAO_AVALIADO`. | Vai para o rco se o K1 trouxer prazo contratual; senão fica como está. |
+| `reembolso_prazo` (BPMN `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:80`) | O prazo de pedido de reembolso é cláusula contratual, mas a tabela hoje só devolve `NAO_AVALIADO`. | Vai para o rco se o K1 trouxer prazo contratual; senão fica como está. |
 | `recurso_eligibility` (BPMN `SP-OP-RECURSO-001_Recurso_Glosa.bpmn:249`) | A saída é roteamento, mas a chave é a classificação da glosa ("o quê"). | Fica no Maezo; passa a consumir o `idRegra`/`motivoTab38` da glosa do K1. |
 | `inadimplencia_status`, `inadimplencia_purga` (BPMN `SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn:117,136`) | Regra legal (Lei 9.656, art. 13) fora da lista do K1. A saída é roteamento ou prazo regulatório, e prazo regulatório é timer/DMN do Maezo (AGENTS.md, regra 5). | Ficam no Maezo enquanto o rco não publicar a regra. |
-| `auth_admissibility` (BPMN `...AUTH-001...bpmn:110`) | Roteia, mas consome `requer_autorizacao` e `carencia_cumprida`, que são fatos "o quê". | Fica no Maezo; as entradas passam a vir do K1. |
+| `auth_admissibility` (BPMN `SP-OP-AUTH-001_Autorizacao_Previa.bpmn:110`) | Roteia, mas consome `requer_autorizacao` e `carencia_cumprida`, que são fatos "o quê". | Fica no Maezo; as entradas passam a vir do K1. |
 | 7 tabelas de indicador de fraude (órfãs, `orphans-allowlist.yaml:140-230`) | `unbundling_partial_bundles` se sobrepõe aos "pacotes" do rco; `upcoding_complexity_ceiling`, à glosa técnica. | Ficam no Maezo (SP-OP-FRAUDE). Revisar a sobreposição quando o K1 trouxer pacotes. |
 
 ### (b) Onde o pacote K1 entra
@@ -67,7 +67,7 @@ São regras de domínio que o K1 não cobre (rede, pagamento e fraude) e continu
   - `provenance` com o commit do rco (`:29`);
   - `manifest_pin` com `sha256` (`:39`);
   - `artifacts` com `path`+`sha256` por arquivo (`:89`).
-- **Verificador novo:** `verify-rco-rules-pin`, espelho de `scripts/ci/verify_amh_contract_pin.py`. Roda só com a biblioteca padrão, sem rede, recalcula o sha256 de cada `rco/*.dmn` e recusa arquivo fora da lista. Entra no Makefile e no CI no mesmo lugar do AMH (`Makefile:157-166`, `.github/workflows/ci.yml:922`).
+- **Verificador novo:** `verify-rco-rules-pin`, espelho de `scripts/ci/verify_amh_contract_pin.py`. Roda só com a biblioteca padrão, sem rede, recalcula o sha256 de cada `rco/*.dmn` e recusa arquivo fora da lista. Entra no Makefile e no CI no mesmo lugar do AMH (`Makefile:157-166`, `ci.yml:922` (`.github/workflows/`)).
 - **Namespacing obrigatório dos ids de decisão.** No motor, a chave da decisão é global por tenant. Um `carencia_check` do rco, publicado ao lado do `carencia_check` do Maezo, viraria uma *nova versão* da mesma chave. Além disso, o deploy dá nome ao recurso pelo nome do arquivo (`src/maezo/platform/deploy/engine_deploy.py:328`), o que causa colisão de nome. Regra: toda decisão do K1 tem id com prefixo `rco_` (ou outro prefixo que o manifesto declare). O nome do recurso no deploy passa a ser o caminho relativo (`rco/<arquivo>.dmn`). A validação já recusa id de decisão repetido em toda a árvore varrida (`src/maezo/platform/validation/cli.py:117-126`) e passa a varrer `rco/` também.
 
 **Pontos que hoje varrem DMN só no primeiro nível.** Todos foram conferidos; `glob("*.dmn")` não enxerga `rco/`.
@@ -187,11 +187,11 @@ Os nomes nunca coincidem literalmente: o rco usa `snake_case` e o Maezo usa `keb
 |---|---|---|---|
 | `auditoria_medica` | `medico-auditor` (+ `coordenacao-auditoria-medica`) | `SP-OP-AUTH-001_Autorizacao_Previa.bpmn:193` | sim |
 | `auditoria_enfermagem` | — (o mais próximo, `enfermagem-triagem` em `bootstrap.py:43`, é fila de triagem/escalonamento) | — | **não** |
-| `junta_medica` | `junta-medica` | `SP-OP-AUTH-001...bpmn:573` | sim |
+| `junta_medica` | `junta-medica` | `SP-OP-AUTH-001_Autorizacao_Previa.bpmn:573` | sim |
 | `regulacao` | — (`regulatorio-ans`/`coordenacao-regulatorio` são regulatório ANS, não regulação assistencial) | — | **não** (falso amigo) |
 | `cadastro` | `cadastro-beneficiarios` | `SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:143` | sim |
-| `faturamento` | `auditoria-contas`/`coordenacao-contas` (glosa); `analise-contas-pagar` (pagamento) | `SP-OP-CONTAS-001...bpmn:190` | parcial (1→n) |
-| `juridico` | `juridico-contratos`/`-rede`/`-fraude`/`-regulatorio`/`-privacidade` | `SP-OP-CANCEL-001...bpmn:384` | parcial (1→5, por domínio) |
+| `faturamento` | `auditoria-contas`/`coordenacao-contas` (glosa); `analise-contas-pagar` (pagamento) | `SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:190` | parcial (1→n) |
+| `juridico` | `juridico-contratos`/`-rede`/`-fraude`/`-regulatorio`/`-privacidade` | `SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:384` | parcial (1→5, por domínio) |
 
 Grupos do Maezo sem fila do rco (são "como" puro):
 - reembolso: `analise-reembolso`, `coordenacao-reembolso`;
