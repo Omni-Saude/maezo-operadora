@@ -1,0 +1,109 @@
+# Segredos PROPRIOS do maezo — apenas as CASCAS (nome/ARN). O valor NUNCA passa
+# pelo Terraform: se passasse, ficaria em texto no state, e o state e' um arquivo
+# que muita gente le. E' a mesma postura do repo (docs/Tarefas_Pendentes.md §1.1:
+# "populate via AWS Console ou put-secret-value — nunca via Terraform").
+#
+# Estas duas chaves NAO dependem de contrato com terceiro: sao chaves internas,
+# geradas aleatoriamente. Diferente das do WhatsApp/LLM/Tasy, que sao credenciais
+# de fora e continuam bloqueadas em acordo comercial.
+
+resource "aws_secretsmanager_secret" "a2a_card_signing_key" {
+  # PER-TENANT no nome, nao repo-wide: ADR-0039 decisao 4 proibe uma chave unica
+  # servindo varios tenants (confusao de chave cross-tenant). O sufixo do env var
+  # que o runtime le e' o tenant em maiuscula: MAEZO_A2A_CARD_SIGNING_KEY__AMH.
+  name        = "maezo/${local.env}/a2a/card-signing-key/${var.tenant_id}"
+  description = "Chave de assinatura do Agent Card do tenant ${var.tenant_id} (ADR-0039). Valor populado fora do Terraform."
+
+  # Curto de proposito em dev: se a casca for destruida por engano, queremos poder
+  # recriar no mesmo nome sem esperar 30 dias.
+  recovery_window_in_days = 30 # prod: janela cheia (no dev e' 7 para recriar rapido)
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-a2a-card-signing-key-${var.tenant_id}" })
+}
+
+resource "aws_secretsmanager_secret" "phi_hmac_key" {
+  name        = "maezo/${local.env}/phi-hmac-key"
+  description = "Chave HMAC-SHA256 do Pseudonymizer (ADR-0035). Sem ela o runtime falha FECHADO em producao, por desenho."
+
+  recovery_window_in_days = 30 # prod: janela cheia (no dev e' 7 para recriar rapido)
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-phi-hmac-key" })
+}
+
+resource "aws_secretsmanager_secret" "engine_admin" {
+  name        = "maezo/${local.env}/cibseven/admin"
+  description = "Credencial do administrador REAL do engine BPMN. Substitui o usuario `demo` da imagem oficial."
+
+  recovery_window_in_days = 30 # prod: janela cheia (no dev e' 7 para recriar rapido)
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-cibseven-admin" })
+}
+
+resource "aws_secretsmanager_secret" "whatsapp_meta" {
+  # Contrato do receptor e do sender no mesmo processo: app_secret/verify_token para
+  # entrada; waba_token/phone_number_id para resposta. Todos os quatro campos devem
+  # existir no JSON antes de iniciar a task. Valores sao populados fora do Terraform.
+  # Segredos sinteticos de entrada permitem testar somente a recepcao assinada;
+  # nao constituem credenciais Meta nem comprovam entrega de uma resposta real.
+  name        = "maezo/${local.env}/whatsapp/meta"
+  description = "Credenciais WhatsApp: app_secret, verify_token, waba_token e phone_number_id. Valores populados fora do Terraform."
+
+  recovery_window_in_days = 30 # prod: janela cheia (no dev e' 7 para recriar rapido)
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-whatsapp-meta" })
+}
+
+# Grant de leitura para a execution role — restrito a estes ARNs.
+data "aws_iam_policy_document" "task_execution_maezo_secrets" {
+  statement {
+    sid     = "LerSegredosPropriosDoMaezo"
+    effect  = "Allow"
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.a2a_card_signing_key.arn,
+      aws_secretsmanager_secret.phi_hmac_key.arn,
+      aws_secretsmanager_secret.engine_admin.arn,
+      aws_secretsmanager_secret.whatsapp_meta.arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "task_execution_maezo_secrets" {
+  name   = "${local.name}-maezo-secrets"
+  role   = aws_iam_role.task_execution.id
+  policy = data.aws_iam_policy_document.task_execution_maezo_secrets.json
+}
+
+# ---------------------------------------------------------------------------
+# Bedrock — permissao de INFERENCIA na task role (nao na execution role: quem
+# chama o modelo e' o processo da aplicacao, em runtime).
+# ---------------------------------------------------------------------------
+# PROD (review de seguranca do PR #1204): SO' modelo REGIONAL em sa-east-1, nas duas zonas.
+# O dev concede o perfil `global.anthropic.claude-opus-5*` com regiao `*` para a zona GERAL —
+# `global.*` roteia entre regioes por desenho, e em prod o mesmo processo ve dado real de
+# beneficiario. Aqui a regiao e' literal `sa-east-1` em todo ARN (sem regiao curinga e sem
+# inference-profile `global.`); `bedrock_model_id` recusa id de perfil cross-region
+# (variables.tf). Consequencia: a zona geral de prod precisa de um modelo regional.
+data "aws_iam_policy_document" "task_bedrock" {
+  statement {
+    sid    = "InvocarModelosRegionaisSaoPaulo"
+    effect = "Allow"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream",
+    ]
+    resources = compact([
+      # Zona GERAL: so' com um modelo regional declarado.
+      var.bedrock_model_id == "" ? "" : "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${var.bedrock_model_id}",
+      # ZONA PHI: modelo regional; `local.phi_regiao` e' travado em sa-east-1 em prod
+      # (excecao-regional-phi.tf).
+      "arn:${data.aws_partition.current.partition}:bedrock:${local.phi_regiao}::foundation-model/${var.phi_model_id}",
+    ])
+  }
+}
+
+resource "aws_iam_role_policy" "task_bedrock" {
+  name   = "${local.name}-bedrock"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.task_bedrock.json
+}
