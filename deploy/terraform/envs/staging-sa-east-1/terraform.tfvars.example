@@ -17,3 +17,6 @@ eks_node_role_arns          = ["arn:aws:iam::123456789012:role/amh-eks-node-role
 # O valor e insumo de financas — este arquivo e so exemplo, nao um default.
 monthly_budget_amount = 500          # USD/mes — substitua pelo teto aprovado
 cost_alert_email      = "finops@example.com"
+
+# Observabilidade AMP/AMG (ADR-0014; F-070 / R-075). Dark por default; ligar gera custo.
+# enable_observability = true

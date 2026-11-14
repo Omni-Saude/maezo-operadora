@@ -391,6 +391,7 @@ _PAGTO_WORKER_TOPICS = [
     "operadora.pagto.notify_sla_risk",
     "operadora.pagto.register_payment_refusal",
     "operadora.pagto.prepare_approval_dossier",
+    "operadora.pagto.register_committee_vote",
 ]
 
 _UT_PAGTO_ADMISSIBILIDADE = "UT_AnaliseAdmissibilidade"
@@ -842,14 +843,14 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     humano semearia `lastro_confirmado=true` e a ordem cairia direto na faixa clerical
     `DENTRO_TETO_L2` (`ST_ReleaseLowValue`, sem nenhuma User Task). Com ela,
     `pagto_admissibility` le o lastro ausente => `ANALISE_HUMANA` => a ordem PARA na fila de
-    `coordenacao-financeira`.
+    `analise-contas-pagar` (R-041).
 
     M3 (gatekeeper R1) — POR QUE ESTE TESTE DRENA PAGTO. Na forma anterior ele NAO drenava os
     workers de destino, e a instancia estacionava na sua PRIMEIRA external task
     (`ST_PublishReceived`): `BRT_PagtoAdmissibility` nunca era avaliada e as tres assercoes
     negativas eram verdadeiras por construcao — valeriam tambem com `lastro_confirmado=true`
     semeado. Agora a instancia e efetivamente conduzida ao gate, a assercao central e POSITIVA
-    (a User Task humana ESTA aberta, para `coordenacao-financeira`) e o controle negativo
+    (a User Task humana ESTA aberta, para `analise-contas-pagar`) e o controle negativo
     `test_controle_negativo_lastro_confirmado_libera_pela_faixa_clerical` prova que o MESMO dreno
     e as MESMAS assercoes mudam de resultado quando o lastro chega confirmado.
     """
@@ -879,7 +880,7 @@ async def test_glosa_revertida_nunca_alcanca_liberacao_automatica_sem_ut(
     await pagto_drain.drain()
 
     pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"}), (
         "a ordem tem de parar na fila HUMANA de admissibilidade — quem julgou o recurso nao e "
         "quem admite a ordem de pagamento (I-PAGTO-1, segregacao de funcoes)"
     )
@@ -2357,3 +2358,73 @@ async def test_business_key_uma_instancia_por_glosa(
         "re-checar a mesma BK apos o primeiro start deve continuar reportando 1 instancia ativa"
     )
     assert after_second_check[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# `BE_GlosaInvalidaDocs` e `BE_GlosaInvalidaDossie` sao defesa em profundidade: num start sem
+# `glosa_id`, o primeiro site a recusar e' `ST_ValidarRecurso` (`BE_GlosaInvalidaValidacao`) e o
+# token nunca chega a eles (nota de ORDEM dos testes `test_glosa_id_ausente_*` acima). Pela
+# topologia, eles so' disparam se `glosa_id` ficar vazio DEPOIS do intake — por uma variavel
+# entregue no meio do caso (formulario da UT ou payload da mensagem de documentos). Os dois testes
+# abaixo dirigem exatamente esses dois caminhos, e o motor prova que o guard do worker e a fronteira
+# fecham o caso limpo em End_RecursoGlosaInvalidaOrigem, sem incidente e sem desfecho adverso.
+
+
+async def test_r119_glosa_id_esvaziado_no_pedido_de_documentos_termina_limpo(
+    engine: EngineRest,
+    recurso_probe: RecursoEngineProbe,
+    iniciar_recurso: Callable[..., Any],
+) -> None:
+    """BE_GlosaInvalidaDocs: o analista pede informacao (SOLICITAR_INFO) e o formulario chega com
+    `glosa_id` vazio — request_documents recusa antes de abrir a pendencia."""
+    inst = await iniciar_recurso()
+    iid = inst["id"]
+    ut = await _drive_to_analista(engine, recurso_probe, iid)
+
+    await engine.complete_task_as_human(ut.id, {"decisao_recurso": "SOLICITAR_INFO", "glosa_id": ""})
+    await recurso_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert "BE_GlosaInvalidaDocs" in ended, ended
+    assert _END_GLOSA_INVALIDA_ORIGEM in ended, ended
+    assert "ST_PublishRecursoPended" not in ended, "Guard recusa antes de publicar recurso.pended"
+    assert not (ended & _ENDS_ADVERSOS), "Validacao de origem nunca produz terminal adverso (L0)"
+    assert not await engine.incidents(iid)
+
+
+async def test_r119_glosa_id_esvaziado_na_chegada_dos_documentos_termina_limpo(
+    engine: EngineRest,
+    recurso_probe: RecursoEngineProbe,
+    iniciar_recurso: Callable[..., Any],
+) -> None:
+    """BE_GlosaInvalidaDossie: a mensagem de documentos recebidos chega com `glosa_id` vazio — a
+    admissibilidade segue para analise e analyze_request recusa antes de preparar o dossie."""
+    inst = await iniciar_recurso(documentacao_recurso_completa=False)
+    iid = inst["id"]
+    await recurso_probe.drain()
+    assert "ST_SolicitarDocumentos" in await engine.activity_instances_ended(iid)
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={
+                "messageName": "msg.recurso.docs_received",
+                "businessKey": inst["businessKey"],
+                "processVariables": {
+                    "documentacao_recurso_completa": {"value": True, "type": "Boolean"},
+                    "glosa_id": {"value": "", "type": "String"},
+                },
+            },
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    await recurso_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert "BE_GlosaInvalidaDossie" in ended, ended
+    assert _END_GLOSA_INVALIDA_ORIGEM in ended, ended
+    assert _UT_ANALISTA not in ended, "Guard recusa antes de qualquer UT de analise"
+    assert not (ended & _ENDS_ADVERSOS), "Validacao de origem nunca produz terminal adverso (L0)"
+    assert not await engine.incidents(iid)

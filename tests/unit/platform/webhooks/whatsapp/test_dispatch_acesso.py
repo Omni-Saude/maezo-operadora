@@ -11,10 +11,10 @@ from typing import Any
 import pytest
 import structlog
 
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.gateway.amh_interop import AmhSubjectVerifyHasher
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.webhooks.whatsapp import acesso as ac
-from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp import pre_roteamento
 from maezo.platform.webhooks.whatsapp.acesso_ponte import (
     ConsentimentoDoAcesso,
@@ -144,7 +144,7 @@ async def _verificar(d: HelenaDispatcher) -> None:
 
 async def test_agentes_nao_rodam_antes_da_verificacao(monkeypatch: pytest.MonkeyPatch) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, cliente, _ = _montar()
     r1 = await d.dispatch(_m("quero saber da minha mensalidade", 1))
     r2 = await d.dispatch(_m("nao quero", 2))
@@ -159,7 +159,7 @@ async def test_depois_de_verificado_o_fluxo_de_sempre_roda_e_a_cpf_nunca_chega_a
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, cliente, _ = _montar()
     with structlog.testing.capture_logs() as logs:
         await _verificar(d)
@@ -183,7 +183,7 @@ async def test_ponte_entrega_a_referencia_verificada_so_durante_o_turno(
             vistos.append((ref, refs.consent_de(ref) if ref else None))
             return {"response_text": "ok", "conversation_id": estado["conversation_id"]}
 
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: Grafo())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: Grafo())
     d, _, _ = _montar()
     await _verificar(d)
     await d.dispatch(_m("bom dia", 5))
@@ -234,7 +234,7 @@ async def test_aviso_de_identidade_fica_desligado_com_o_acesso(monkeypatch: pyte
             capturado.append(estado.get("identidade_desfecho"))
             return {"response_text": "ok", "conversation_id": estado["conversation_id"]}
 
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: Grafo())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: Grafo())
     d, _, _ = _montar(identidade=_IDENT)
     await _verificar(d)
     await d.dispatch(_m("bom dia", 5))
@@ -266,7 +266,7 @@ async def test_helena_responde_dados_do_plano_por_modelo_fixo(
     monkeypatch: pytest.MonkeyPatch, pergunta: str, esperado: str
 ) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, cliente, _ = _montar(identidade=_IDENT)
     await _verificar(d)
     r = await d.dispatch(_m(pergunta, 7))
@@ -278,7 +278,7 @@ async def test_helena_responde_dados_do_plano_por_modelo_fixo(
 
 async def test_pergunta_de_plano_com_sinal_de_saude_vai_para_o_grafo(monkeypatch: pytest.MonkeyPatch) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, _, _ = _montar(identidade=_IDENT)
     await _verificar(d)
     await d.dispatch(_m("meu plano esta ativo? estou com dor no peito", 8))
@@ -286,7 +286,7 @@ async def test_pergunta_de_plano_com_sinal_de_saude_vai_para_o_grafo(monkeypatch
 
 
 async def test_cadastro_indisponivel_responde_frase_fixa(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, _, _ = _montar(identidade=None)
     await _verificar(d)
     r = await d.dispatch(_m("meu plano esta ativo?", 9))
@@ -294,7 +294,7 @@ async def test_cadastro_indisponivel_responde_frase_fixa(monkeypatch: pytest.Mon
 
 
 async def test_nova_verificacao_invalida_o_cache_da_identidade(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, _, _ = _montar()
     await _verificar(d)
     ident = d.identidade
@@ -305,7 +305,7 @@ async def test_nova_verificacao_invalida_o_cache_da_identidade(monkeypatch: pyte
 
 async def test_com_a_flag_desligada_o_despachante_e_o_de_sempre(monkeypatch: pytest.MonkeyPatch) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     d, cliente, _ = _montar()
     d.acesso = None
     d.refs_verificadas = None

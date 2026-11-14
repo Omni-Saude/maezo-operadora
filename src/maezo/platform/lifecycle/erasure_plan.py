@@ -22,11 +22,12 @@ WHAT THIS MODULE DOES NOT DO, stated plainly because the omissions are the desig
 
 - It executes nothing destructive. `ErasureRunMode.EXECUTE` is refused unconditionally by
   `assert_dry_run_only()`. While the plan is unratified the reason is `plan_unratified`;
-  once a DPO ratifies it, the reason becomes `execution_mechanism_absent` — because
-  `ErasureManager.erase()` still raises `ErasureNotImplementedError`
-  (`src/maezo/platform/erasure.py:152`) and the identity bridges below still do not
-  exist. Ratification alone is therefore NEVER sufficient to cause an effect, which is the
-  point: a governance act must not double as a destructive trigger.
+  once a DPO ratifies it, the reason becomes `execution_mechanism_absent` — because this
+  dry-run never executes, and the cascade that could (`ErasureManager.erase()`, R-013) is
+  DARK (`MAEZO_ERASURE_CASCADE` OFF, no per-relation executor bound, no production caller),
+  as are the identity bridges below. Ratification alone is therefore NEVER sufficient to
+  cause an effect, which is the point: a governance act must not double as a destructive
+  trigger.
 - It decides nothing. Every `decisao_dpo`, `base_legal` and `retencao` is the DPO's, and an
   unratified plan yields the literal sentinel `DECISION_PENDING` in every finding rather
   than a default.
@@ -40,7 +41,16 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
   (`src/maezo/tools/workers/lgpd.py:112`); the two FHIR patient columns in the
   Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
 - `thread_id` -> `fhir_patient_id`. The working layer is keyed by `thread_id`, not by
-  patient (`src/maezo/platform/erasure.py:196-206`).
+  patient (checkpointer relations provisioned by `PostgresSaver.setup()`,
+  `0006_retire_dead_checkpoint_tables.py`).
+
+W5 CLNT 5.4 ships the flag-gated DARK substrate for exactly these two crossings
+(`src/maezo/platform/identity_bridges.py`: one default-OFF flag per bridge, a
+caller-provisioned mapping source, and the ratified plan as the required DPO decision).
+That substrate changes NOTHING in this module's reports: with the flags OFF — every
+deployment of this program — no bridge is reachable, no source is bound and no production
+caller exists, so a dry-run given a `titular_pseudo_id` still reports
+`NOT_COUNTED_IDENTITY_BRIDGE_ABSENT` per layer below.
 - DSR/FHIR reference -> portal principal. ADR-0049 D4/D6 authenticates human actors;
   issuer/subject/principal_ref and reviewed subject_bindings are not a contracted
   per-titular erasure bridge. None of the nine portal relations carries a count probe.
@@ -263,6 +273,10 @@ class PersistenceLayer:
         subject_column: The column a subject reference binds to, or None.
         count_statement: A `SELECT count(*)` probe with named parameters, or None when no
             honest per-titular count exists. Values are NEVER interpolated into this text.
+        proposta_dono: The OWNER'S retention proposal for this relation, verbatim as the
+            artifact's `proposta_dono`, or None. Documentation for the DPO, never a decision:
+            the loader never reads it and `decisao_dpo`/`base_legal`/`retencao` stay PENDENTE
+            until the DPO ratifies (anti-drift in tests/unit/platform/test_erasure_plan.py).
     """
 
     camada: str
@@ -273,6 +287,7 @@ class PersistenceLayer:
     ordem: int
     subject_column: str | None
     count_statement: str | None
+    proposta_dono: str | None = None
 
 
 # ---------------------------------------------------------------------------------------
@@ -446,6 +461,11 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # resolved to a titular, which is exactly what SEM_COLUNA_DE_TITULAR asserts. Were the raw
         # wamid ever stored instead, this row would have to become PONTE_AUSENTE and carry a
         # subject_column — the pseudonymization is what keeps this line true.
+        # F-147 / R-060 (owner decision 2026-10-31, #1084; flag WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK,
+        # default off): wamid-less messages also write `wa:inbound-sem-wamid:` keys here — a KEYED
+        # `hk1_` HMAC over (phone pseudonym, Meta timestamp, type, keyed body digest), never the raw
+        # phone or text. Same classification by the same argument; DPO confirmation is PENDING (see
+        # the `driver_idempotency` note in spec/policies/retention/erasure-plan.template.yaml).
         identificacao=(
             "key text PRIMARY KEY (0003:62) — since 0010 the keyed `hk1_` pseudonym of the "
             "inbound wamid (never the raw wamid, which embeds the phone number); status text "
@@ -858,6 +878,126 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="comissao_rascunho",
+        tabela="commission_adjustment_policies",
+        migracao="0029_commission_adjustment_policies.py::upgrade (commission_adjustment_policies)",
+        identificacao=(
+            "tenant + policy_ref (`cap-` + 128 bits aleatorios do servidor); the row holds only the DRAFT "
+            "STRUCTURE of a commission adjustment (dimension, symbolic target id, adjustment kind, NULLABLE "
+            "value slots, vigencia windows, declared precedence, optimistic revision) and the audit stamps "
+            "(principal_ref of the internal staff editor + timestamps) - no titular data: no CPF, no birth "
+            "date, no name, no phone, no text. `dimensao_ref` is an opaque internal identifier of a "
+            "product/channel/broker (closed charset) and reaches neither `conversation_id` nor the DSR "
+            "reference (`beneficiario_pseudo_id`); the editor principal_ref identifies an internal "
+            "operator, never the data subject (D-36). The row can hold no state other than `DRAFT` "
+            "(table CHECK); the surface is DARK and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=42,
+        subject_column=None,
+        # No probe: the surface is DARK (flag OFF) and the table is empty by default — a
+        # count would be a fabricated zero until the owner act flips it.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="legitimidade_tela",
+        tabela="portal_legitimacy_screens",
+        migracao="0030_legitimacy_screens.py::upgrade (portal_legitimacy_screens)",
+        identificacao=(
+            "tenant + screen_ref (`screen-` + closed charset) per screen_revision; the row holds only "
+            "the LEGITIMACY VERIFICATION of a contracting LEGAL ENTITY (OP21/REG-1.1): the company refs "
+            "(`legal_entity_ref`/`opportunity_ref`, opaque), the contract kind/form enums, the closed "
+            "criteria JSONB (criterion id, result, norm anchor, typed evidence references kind+locator+"
+            "sha256 - NEVER document bytes; custody stays with the operadora/administradora, RN 557/2022 "
+            "art. 12), the verification status, would_block and the art. 39 signal with its literal "
+            "anchor, plus the audit stamps (created_by of the internal staff editor + timestamps). A "
+            "beneficiary is not a subject here: no CPF, no birth date, no name, no phone, no health data "
+            "(the PHI firewall keeps clinical data out of the commercial input) and no free text beyond "
+            "the bounded norm anchors. No column reaches `conversation_id` or the DSR reference "
+            "(`beneficiario_pseudo_id`); the editor principal_ref identifies an internal operator, "
+            "never the data subject. The row can hold no state outside `valid/invalid/pending` "
+            "(table CHECK); the substrate is DARK and empty by default (screen/flag is a later PR)"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=43,
+        subject_column=None,
+        # No probe: the substrate is DARK (no writer exists in this PR) and the table is
+        # empty by default — a count would be a fabricated zero until a later PR lands.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="status_prestador",
+        tabela="prestador_status_ledger",
+        migracao="0032_prestador_status_ledger.py::upgrade (prestador_status_ledger; append-only triggers)",
+        identificacao=(
+            "tenant + chave_evento (the source event: engine instance id + end event, or the AMH "
+            "baseline sha256 + prestador_id); the row holds only the LEGAL STATUS of a PROVIDER (MPTT P3): "
+            "prestador_id (cadastral/pseudonymous provider id, Zona Geral per SP-OP-CRED-001), the closed "
+            "origin/dimension/value enums, the effective date, the engine instance id or baseline digest, "
+            "the business key or the reference to the AMH-signed baseline document, and the provider's "
+            "cadastral attributes (tipo_prestador/especialidade/regiao_saude). A beneficiary is not a "
+            "subject here: no CPF, no name, no health data, no free text, no `beneficiario_pseudo_id`. "
+            "OPEN DPO QUESTION (not decided here): an individual (PF) provider is itself a data subject "
+            "(LGPD art. 5 V) and `prestador_id` may identify one; the table is DARK behind "
+            "MAEZO_PRESTADOR_STATUS_LEDGER and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=44,
+        subject_column=None,
+        # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
+        # would be a fabricated zero until the owner turns the flag on.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="coleta_reembolso",
+        tabela="reembolso_coleta",
+        migracao="0033_reembolso_coleta.py::upgrade (reembolso_coleta; expira_em index)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds"
+            " only the stage of the reimbursement collection (closed enum), the CLOSED answers (relation to "
+            "the holder, procedure category, reimbursement type, reason for not using the network), the "
+            "service date, the requested amount in cents and the list of {type, document_ref} where the ref "
+            "is OPAQUE (the file lives in the PHI custody, ADR-0006) - no phone, no free text. After the "
+            "process opens it also holds the protocol (`REE-XXXX-XXXX`, no PII). The DSR reference "
+            "(`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so "
+            "the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=45,
+        subject_column="conversation_id",
+        # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="razao_obrigacoes_pagamento",
+        tabela="pagto_obrigacao_ledger",
+        migracao="0034_pagto_obrigacao_ledger.py::upgrade (pagto_obrigacao_ledger; append-only triggers)",
+        identificacao=(
+            "tenant + chave_obrigacao (`OBRIG-{origem}-{sha256}` over tenant/origin/obligation components) +"
+            " ordem_pagamento_id + evento; the row holds only what a PAGTO payment order already carries as "
+            "Zona Geral (SP-OP-PAGTO-001 input variables): the order id, `prestador_id`, the TISS lote, `com"
+            "petencia` (YYYY-MM), the amount in cents, the closed origin/event enums and the engine id of th"
+            "e source instance resolved by PR-D. Guia/glosa numbers only enter INSIDE the key digest. A bene"
+            "ficiary is not a subject here: no CPF, no name, no health data, no free text, no `beneficiario_"
+            "pseudo_id`. OPEN DPO QUESTION (not decided here, same as 0032): an individual (PF) provider is "
+            "itself a data subject (LGPD art. 5 V) and `prestador_id` may identify one; the table is DARK be"
+            "hind MAEZO_PAGTO_DETECT_DUPLICIDADE and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=46,
+        subject_column=None,
+        # No probe: DARK (both writers refuse with the flag off) and empty by default — a count
+        # would be a fabricated zero until the owner turns the flag on.
+        count_statement=None,
+        proposta_dono=(
+            "PROPOSTA DO DONO (DEC-31 D31-5, #1084, 2026-11-02), NAO e' decisao do DPO: reter a razao por"
+            " 5 anos (1825 dias), alinhada a retencao do historico do motor (historyTimeToLive 1825 dias "
+            "do SP-OP-PAGTO-001) e ao Codigo Civil art. 206 par. 5, I; ao fim do prazo, as linhas de pres"
+            "tador pessoa fisica (PF) sao eliminadas. O DPO formaliza: decisao_dpo, base_legal, retencao "
+            "e assinatura seguem PENDENTE."
+        ),
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
@@ -1187,10 +1327,10 @@ def assert_dry_run_only(mode: ErasureRunMode, plan: ErasurePlan | None) -> None:
 
     The refusal REASON depends on the plan, and that is the whole information content of this
     function: with no ratified plan the blocker is governance (`plan_unratified`); with one,
-    the blocker is that nothing can carry the decision out (`execution_mechanism_absent`) —
-    `ErasureManager.erase()` raises `ErasureNotImplementedError` (`erasure.py:152`) and
-    neither identity bridge exists. Ratification is therefore never, on its own, sufficient
-    to cause an effect.
+    the blocker is that nothing here can carry the decision out (`execution_mechanism_absent`)
+    — this module is dry-run only, and the cascade (`ErasureManager.erase()`, R-013) and both
+    identity bridges are DARK. Ratification is therefore never, on its own, sufficient to cause
+    an effect.
 
     Args:
         mode: The requested mode.
@@ -1211,10 +1351,12 @@ def assert_dry_run_only(mode: ErasureRunMode, plan: ErasurePlan | None) -> None:
     _refuse(
         REASON_EXECUTION_MECHANISM_ABSENT,
         f"mode={mode.value} requested with a ratified plan present, and it is STILL refused: "
-        "no execution mechanism exists (ErasureManager.erase() raises "
-        "ErasureNotImplementedError; the titular_pseudo_id->fhir_patient_id and "
-        "thread_id->fhir_patient_id bridges do not exist). Ratification is a governance act, "
-        "never a trigger",
+        "no execution mechanism is reachable (this module is dry-run only; the "
+        "ErasureManager cascade is DARK — MAEZO_ERASURE_CASCADE OFF, no per-relation executor "
+        "bound, no production caller — and the titular_pseudo_id->fhir_patient_id and "
+        "thread_id->fhir_patient_id bridges are DARK: per-bridge flags OFF, no bound mapping "
+        "source, no production caller). "
+        "Ratification is a governance act, never a trigger",
     )
 
 

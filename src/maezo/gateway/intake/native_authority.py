@@ -202,7 +202,8 @@ class NativeAuthReader:
         installed = (
             (
                 await db.execute(
-                    text("SELECT * FROM " + self.table("mzo_auth_installation") + " WHERE tenant_=:tenant"),
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
+                    text("SELECT * FROM " + self.table("mzo_auth_installation") + " WHERE tenant_=:tenant"),  # nosec B608 # fonte: self.table() (binding.relations)
                     {"tenant": b.scope.tenant},
                 )
             )
@@ -238,8 +239,9 @@ class NativeAuthReader:
         row = (
             (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
                     text(
-                        "SELECT t.designation_,r.key_id_ AS revoked FROM "
+                        "SELECT t.designation_,r.key_id_ AS revoked FROM "  # nosec B608 # fonte: self.table() (binding.relations)
                         + self.table("mzo_auth_trust")
                         + " t LEFT JOIN "
                         + self.table("mzo_auth_revoked_key")
@@ -283,8 +285,9 @@ class NativeAuthReader:
         row = (
             (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
                     text(
-                        "SELECT * FROM "
+                        "SELECT * FROM "  # nosec B608 # fonte: self.table() (binding.relations)
                         + self.table("mzo_auth_input_head")
                         + " WHERE tenant_=:tenant AND kind_=:kind AND resource_=:resource"
                     ),
@@ -318,8 +321,9 @@ class NativeAuthReader:
         version = (
             (
                 await db.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
                     text(
-                        "SELECT request_,digest_,receipt_ FROM "
+                        "SELECT request_,digest_,receipt_ FROM "  # nosec B608 # fonte: self.table() (binding.relations)
                         + self.table("mzo_auth_input_version")
                         + " WHERE tenant_=:tenant AND kind_=:kind AND resource_=:resource"
                         " AND generation_=:generation"
@@ -379,8 +383,9 @@ class NativeAuthReader:
             refs = (
                 (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
                         text(
-                            "SELECT resource_ FROM "
+                            "SELECT resource_ FROM "  # nosec B608 # fonte: self.table() (binding.relations)
                             + self.table("mzo_auth_input_head")
                             + " WHERE tenant_=:tenant AND kind_='resource_authority' AND state_"
                             "='active' AND payload_::jsonb->>'action'=:action AND payload_"
@@ -436,8 +441,9 @@ class NativeAuthReader:
                 candidates = (
                     (
                         await db.execute(
+                            # nosemgrep: avoid-sqlalchemy-text # fonte: self.table() (binding.relations)
                             text(
-                                "SELECT resource_ FROM "
+                                "SELECT resource_ FROM "  # nosec B608 # fonte: self.table() (binding.relations)
                                 + self.table("mzo_auth_input_head")
                                 + " WHERE tenant_=:tenant AND kind_='resource_authority' AND stat"
                                 "e_='active' AND payload_::jsonb->>'action'='auth.receipt.read'"

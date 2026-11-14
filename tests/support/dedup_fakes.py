@@ -62,6 +62,11 @@ class FakeDedupRegistry:
         if self.rows.get(key) == STATUS_PENDING:
             self.rows[key] = STATUS_PROCESSED
 
+    async def is_processed(self, key: str) -> bool:
+        self.calls.append(("is_processed", key))
+        self._check("is_processed")
+        return self.rows.get(key) == STATUS_PROCESSED
+
     async def release(self, key: str) -> None:
         self.calls.append(("release", key))
         self._check("release")

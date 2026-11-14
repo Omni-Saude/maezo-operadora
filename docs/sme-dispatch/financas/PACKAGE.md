@@ -168,7 +168,7 @@ where applicable) before any of these contracts can leave DRAFT.
   2. **(Partially answered — still yours to close.)** "No ceiling or extra sign-off for large-value
      glosa reversals" is no longer true: the reversal is now a payment order subject to
      **SP-OP-PAGTO-001's own alcada ladder** AND — by invariant **I-PAGTO-1** — to a mandatory
-     human `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`) in EVERY value band, because the
+     human `UT_AnaliseAdmissibilidade` (`analise-contas-pagar`) in EVERY value band, because the
      handoff never seeds `lastro_confirmado`. So the answer moved from "there is no ladder" to
      "there is PAGTO's ladder, plus a human admission before it — confirm that is the right one
      for a glosa reversal." **NOT RATIFIED** — this is a proposal, not a sign-off.
@@ -199,6 +199,8 @@ where applicable) before any of these contracts can leave DRAFT.
      SP-OP-RECURSO-001 **deixa de esperar por ela**.
 
 ### SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiário (DRAFT, v0.1.0)
+
+> **SUPERSEDIDO por DL-0161 (28/10/2026) — reembolso v2, 100% análise humana.** A tabela de referência (`reembolso_calculo`), o teto L2 (`dentro_teto_l2`), a escolha A×B do sobrepagamento (R-058/R-059) e o sign-off atuarial **deixaram de ser necessários**: o processo não calcula nem paga. O texto abaixo descreve a v0.1.0 e fica como histórico; a tabela padronizada de reembolso é tema de uma versão futura e não bloqueia a v2.
 
 - **Why finanças:** the reimbursement reference table (`reembolso_calculo`) and the L2
   auto-approval ceiling (`dentro_teto_l2`) are both finance-owned figures requiring actuarial

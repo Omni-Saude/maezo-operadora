@@ -14,7 +14,7 @@ ultimo texto e avisos de caso aberto) passa de um turno ao outro como o roteador
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, tzinfo
 from typing import Any
 
 import pytest
@@ -29,15 +29,29 @@ from maezo.agents.lucas.graph import (
     ref_de_resposta,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
+from maezo.domain.conversa.cobranca_foco import decidir_foco_da_cobranca
+from maezo.domain.conversa.competencia import mes_unico_do_texto, resolver_ano_da_competencia
 from maezo.platform.webhooks.whatsapp.dispatch import _handoff_com_mes_do_texto
-from maezo.runtime.cobranca_foco import decidir_foco_da_cobranca
-from maezo.runtime.competencia import mes_unico_do_texto, resolver_ano_da_competencia
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink
 
 _HOJE = date(2026, 10, 13)
 _FECHO = "(dados de 12/10)"
+
+
+def _congelar_relogio_do_dispatch(monkeypatch: pytest.MonkeyPatch, hoje: date) -> None:
+    """`_handoff_com_mes_do_texto` le' `datetime.now(UTC)` do modulo `dispatch`; o teste fixa esse relogio
+    em `hoje` (meio-dia UTC = 09h em Brasilia, mesmo dia) para nao depender da data em que roda (sem
+    isso, "julho" sem ano vira 2027-07 a partir de julho de 2027)."""
+    agora = datetime(hoje.year, hoje.month, hoje.day, 12, tzinfo=UTC)
+
+    class _RelogioFixo(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
+            return agora if tz is None else agora.astimezone(tz)
+
+    monkeypatch.setattr("maezo.platform.webhooks.whatsapp.dispatch.datetime", _RelogioFixo)
 
 
 def _mes(competencia: str, situacao: str, **extra: str) -> dict[str, str]:
@@ -140,7 +154,8 @@ def _sem_recusa(final: dict[str, Any], texto: str) -> None:
 # --- 1. "A mensalidade de julho foi paga?" --------------------------------------------------------------
 
 
-def test_foi_paga_e_pergunta_de_pagamento_e_o_mes_vai_ao_lucas() -> None:
+def test_foi_paga_e_pergunta_de_pagamento_e_o_mes_vai_ao_lucas(monkeypatch: pytest.MonkeyPatch) -> None:
+    _congelar_relogio_do_dispatch(monkeypatch, _HOJE)
     pergunta = "A mensalidade de julho foi paga?"
     assert decidir_foco_da_cobranca(pergunta) == "pagamento"
     assert mes_unico_do_texto(pergunta) == 7

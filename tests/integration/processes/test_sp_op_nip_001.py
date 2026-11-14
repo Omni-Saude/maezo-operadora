@@ -845,7 +845,7 @@ async def test_happy_path_nao_assistencial_respondida(
     nip_probe: NipEngineProbe,
     start_nip: Callable[..., Any],
 ) -> None:
-    """NIP nao-assistencial (cobranca) com docs => ELABORAR_RESPOSTA -> nucleo-ans autora e confirma.
+    """NIP nao-assistencial (cobranca) com docs => ELABORAR_RESPOSTA -> regulatorio-ans autora e confirma.
 
     O humano elabora a minuta e na revisao confirma RESPONDER_NAO_ASSISTENCIAL =>
     End_NipNaoAssistencialRespondida; mesmo no caminho clerical o envio passa por User Task
@@ -859,9 +859,9 @@ async def test_happy_path_nao_assistencial_respondida(
     )
     iid = inst["id"]
 
-    # roteamento ELABORAR_RESPOSTA -> UT_ElaborarRespostaNip (nucleo-ans)
+    # roteamento ELABORAR_RESPOSTA -> UT_ElaborarRespostaNip (regulatorio-ans; nucleo-ans fundido, R-041)
     ut_elaborar = await _drive_to_elaborar(engine, nip_probe, iid)
-    assert "nucleo-ans" in ut_elaborar.candidate_groups
+    assert "regulatorio-ans" in ut_elaborar.candidate_groups
     await engine.complete_task_as_human(
         ut_elaborar.id,
         {"texto_resposta_nip": "Minuta clerical sintetica (teste)", "decisao_nip": "ENCAMINHAR_REVISAO"},
@@ -1049,13 +1049,14 @@ async def test_grupo_humano_dmn_decide_candidate_groups_nao_assistencial(
     nip_probe: NipEngineProbe,
     start_nip: Callable[..., Any],
 ) -> None:
-    """NAO_ASSISTENCIAL + docs => nip_routing.grupo_humano='nucleo-ans' -> candidateGroups EXATO.
+    """NAO_ASSISTENCIAL + docs => nip_routing.grupo_humano='regulatorio-ans' -> candidateGroups EXATO.
 
     Prova que candidateGroups de UT_ElaborarRespostaNip vem de ${grupo_humano} (variavel flat
     promovida por outputParameter em BRT_Roteamento a partir de roteamento_nip.grupo_humano —
     root-cause fix do ENGINE-16004/500 em ST_PublishClassified/complete; ver nota em BRT_Roteamento
     do BPMN) — nao mais do literal estatico "regulatorio-ans,nucleo-ans". Se ainda fosse estatico,
-    "regulatorio-ans" tambem apareceria aqui; o teste prova que NAO aparece.
+    "nucleo-ans" tambem apareceria aqui; o teste prova que NAO aparece (R-041: nucleo-ans fundido
+    em regulatorio-ans — a linha NAO_ASSISTENCIAL da DMN agora emite regulatorio-ans).
     """
     inst = await start_nip(
         classificacao_nip="nao_assistencial",
@@ -1066,8 +1067,8 @@ async def test_grupo_humano_dmn_decide_candidate_groups_nao_assistencial(
     iid = inst["id"]
 
     ut = await _drive_to_elaborar(engine, nip_probe, iid)
-    assert ut.candidate_groups == frozenset({"nucleo-ans"}), (
-        f"nip_routing (NAO_ASSISTENCIAL+docs) deve resolver grupo_humano=nucleo-ans EXATO "
+    assert ut.candidate_groups == frozenset({"regulatorio-ans"}), (
+        f"nip_routing (NAO_ASSISTENCIAL+docs) deve resolver grupo_humano=regulatorio-ans EXATO "
         f"(DMN-decidido, GAP-NIP-2); candidate_groups={ut.candidate_groups}"
     )
 
@@ -1242,7 +1243,7 @@ async def test_resposta_final_nunca_gerada_por_dmn(
     iid = inst["id"]
 
     ut_elaborar = await _drive_to_elaborar(engine, nip_probe, iid)
-    assert "nucleo-ans" in ut_elaborar.candidate_groups
+    assert "regulatorio-ans" in ut_elaborar.candidate_groups
 
     # Antes de qualquer decisao humana, submit_response NAO pode ter corrido.
     submits = nip_probe.notifications_of_type("nip.submit_response")
@@ -1775,7 +1776,7 @@ async def test_business_key_uma_instancia_por_nip(
     start_nip: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    nip = "NIP-TESTE-IDEM-001"
+    nip = f"NIP-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"NIP-amh-{nip}"
 
     first = await start_nip(numero_nip_ans=nip)
@@ -2085,3 +2086,75 @@ def test_dmn_typeref_allowlist() -> None:
                     f"{dmn_path.name}: typeRef invalido '{type_ref}' (allowlist={sorted(allowed)})"
                 )
                 assert type_ref != "number", f"{dmn_path.name}: 'number' e proibido (use double/integer)"
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou DOIS timers deste processo sem nenhuma execucao: o prazo ANS estourado DURANTE a elaboracao
+# (a suite so' estourava o da revisao) e o prazo da espera por informacao adicional.
+
+
+async def test_r119_prazo_nip_estourado_na_elaboracao_coordenacao_assume(
+    engine: EngineRest,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+) -> None:
+    """BT_PrazoNipEstourado (interruptivo, timeDate absoluto): cancela UT_ElaborarRespostaNip, publica
+    nip.breached e entrega a UT_CoordenacaoNip — nunca responde sozinho por prazo."""
+    inst = await start_nip(
+        classificacao_nip="nao_assistencial",
+        tema_nip="cobranca",
+        contesta_negativa=False,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+    await _drive_to_elaborar(engine, nip_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_PrazoNipEstourado")
+    await engine.execute_job(job.id)
+    await nip_probe.drain()
+
+    await engine.await_user_task(iid, _UT_COORDENACAO)
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_PrazoNipEstourado", "ST_PublishBreach"} <= ended, ended
+    assert nip_probe.has_event(_NIP_BREACHED)
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ELABORAR not in open_keys, "UT_ElaborarRespostaNip deve ser cancelada (interruptivo)"
+    assert not (ended & {_END_NEGATIVA_MANTIDA, _END_RESOLVIDA_FAVORAVEL, _END_NAO_ASSISTENCIAL})
+    await _assert_no_manter_without_human_task(engine, iid)
+
+
+async def test_r119_prazo_da_informacao_expira_e_volta_a_revisao_juridica(
+    engine: EngineRest,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+) -> None:
+    """ICE_PrazoInfo: SOLICITAR_INFO e a informacao nao chega; o timer da espera devolve o caso a
+    UT_RevisaoJuridicaNip (humano) — nunca mantem a negativa por falta de resposta."""
+    inst = await start_nip(
+        classificacao_nip="assistencial",
+        tema_nip="negativa_cobertura",
+        contesta_negativa=True,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+    ut = await _drive_to_revisao(engine, nip_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id, {"decisao_nip": "SOLICITAR_INFO", "revisor_id": "revisor-sintetico-r119"}
+    )
+    await nip_probe.drain()
+
+    job = await engine.await_timer_job(iid, "ICE_PrazoInfo")
+    await engine.execute_job(job.id)
+    await nip_probe.drain()
+
+    ut2 = await engine.await_user_task(iid, _UT_REVISAO)
+    assert ut2.id != ut.id
+    ended = await engine.activity_instances_ended(iid)
+    assert "ICE_PrazoInfo" in ended, ended
+    assert "ICE_InfoRecebida" not in ended, "o ramo de mensagem do event gateway nao pode ter disparado"
+    assert _END_NEGATIVA_MANTIDA not in ended, "Prazo de info expirado nunca mantem negativa (L0)"
+    await _assert_no_manter_without_human_task(engine, iid)

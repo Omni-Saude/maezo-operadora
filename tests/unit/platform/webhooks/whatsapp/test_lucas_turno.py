@@ -729,13 +729,11 @@ async def test_consulta_valores_com_um_mes_sem_pagamento_responde_sem_abrir_caso
     assert final["route"] == "respond_member" and final["process_started"] is False
 
 
-async def test_os_limiares_de_atraso_do_receptor_chegam_ao_grafo(seam_lucas: SeamContext) -> None:
-    """`MAEZO_LUCAS_ATRASO_MESES_MIN`: com o limiar em 1 mes, o mesmo fato (1 ciclo) vira atraso critico."""
-    from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
-
-    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=1))
+async def test_dois_ciclos_viram_atraso_critico_pela_dmn(seam_lucas: SeamContext) -> None:
+    """R-047/F-031: o limiar (>= 2 meses) mora na DMN; o receptor nao tem mais como ajusta'-lo."""
+    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=2))
     turno, registry, _ = _turno(seam_lucas, fonte=fonte, rota_padrao="escalate_human")
-    turno.limiares_atraso = LimiaresDeAtraso(meses_minimo=1)
+    assert not hasattr(turno, "limiares_atraso")
     cliente = _ClienteComDedup(registry)
     final = await _rodar(turno, _conversa("dl86-limiar"), _handoff("consulta_valores"), cliente)
     assert final["route"] == "escalate_human"

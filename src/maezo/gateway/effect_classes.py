@@ -42,7 +42,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:672-675`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:707-710`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -97,7 +97,8 @@ SHAPE_LACUNA_DECLARADA: Final[str] = "LACUNA_DECLARADA"
 #: INDEPENDENTLY of the PEP (I-6, defense in depth).
 SHAPE_ROTA_LLM_INDISPONIVEL: Final[str] = "ROTA_LLM_INDISPONIVEL"
 #: No effect happened, an audited refusal row exists, and the external task lands as an incident
-#: with `retries=0` (`tools/workers/harness.py:1635-1651`). The C3/C4 shape.
+#: with `retries=0` (`tools/workers/harness.py:1635-1651`). The C3/C4 shape — and the C1
+#: `notificacao_interna_equipe` (DL-0150), whose surfaces are external-task workers too.
 SHAPE_INCIDENTE_FALHA_FECHADA: Final[str] = "INCIDENTE_FALHA_FECHADA"
 #: The delegating side degrades exactly as it does when the dossier seam is absent — never a
 #: fabricated dossier.
@@ -145,8 +146,9 @@ def _classes(*specs: ActionClassSpec) -> MappingProxyType[str, ActionClassSpec]:
     return MappingProxyType({spec.name: spec for spec in specs})
 
 
-#: The CLOSED action-class registry (design §6.1). Ten classes already declared in the shipped
-#: manifest, five declared by Onda 1 as UNAPPROVED shadow entries. Every name here must exist in
+#: The CLOSED action-class registry (design §6.1). Seventeen classes: the ten of the original
+#: manifest, the five declared by Onda 1 as UNAPPROVED shadow entries, `registro_consentimento`
+#: (DL-0083) and `notificacao_interna_equipe` (DL-0150). Every name here must exist in
 #: `action-approvals.yaml` `acoes` (asserted by the tests), and no name may be added without the
 #: matching manifest declaration — a class the loader has never heard of can never be approved.
 ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
@@ -168,6 +170,19 @@ ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
         name="comunicacao_beneficiario",
         rung=RUNG_C1_NOTIFICACAO,
         denial_shape=SHAPE_ESCALONAMENTO_HUMANO,
+    ),
+    # DL-0150: aviso INTERNO a equipe/supervisor (topicos `operadora.escalation.notify_team` e
+    # `notify_supervisor` do SP-OP-ESCALATION-001), publicado em `operadora.notifications.internal`.
+    # Nao sai da plataforma nem toca o beneficiario — por isso nao e' `comunicacao_beneficiario`.
+    # Degrau C1 (notificacao). Forma de recusa: as superficies sao workers de external task, entao uma
+    # recusa ENFORCADA segue o caminho do harness (recusa auditada + incidente, retries=0) — a mesma
+    # forma das classes C3/C4, e nunca um aviso silenciosamente perdido. A falha de PUBLICACAO continua
+    # no fallback que o BPMN ja' modela (`ERR_ESC_NOTIFY_FAILED` -> `BE_FalhaNotificacao`).
+    # `operadora.events.publish` FICA DE FORA (17 BPMNs; pede classe propria, decisao da Seguranca).
+    ActionClassSpec(
+        name="notificacao_interna_equipe",
+        rung=RUNG_C1_NOTIFICACAO,
+        denial_shape=SHAPE_INCIDENTE_FALHA_FECHADA,
     ),
     # -- C2: PHI read / model egress -------------------------------------------------------------
     ActionClassSpec(
@@ -277,6 +292,12 @@ class OperationSpec:
         phi_egress: this operation can carry PHI OUT of the platform boundary. Documentation for
             the approvers and the reason `inference.generate` is split in two (design §6.1 C2);
             the decision core does not gate on it — ADR-0006 zone routing is INDEPENDENT (I-6).
+        returns_phi: the operation's RESULT carries raw PHI (clinical record content). Read by the
+            construction-time zone fence (ADR-0071 I-5, `gateway/tool_registry.py::build_fhir_seam`):
+            a seam that can gate a `returns_phi` operation is never BUILT for a principal outside
+            the PHI zone. Subtract-only — the decision core does not read it, and the default
+            `False` never widens permission. Pseudonymized Zona Geral reads (the AMH billing/TINA
+            facts) and k-anonymous aggregates are deliberately NOT marked.
     """
 
     operation: str
@@ -287,6 +308,7 @@ class OperationSpec:
     ceiling_action: str | None = None
     ceiling_param: str | None = None
     phi_egress: bool = False
+    returns_phi: bool = False
 
 
 def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
@@ -297,30 +319,35 @@ def _operations(*specs: OperationSpec) -> MappingProxyType[str, OperationSpec]:
 #: tree). Unknown operation => L-0 DENY `OPERACAO_DESCONHECIDA`.
 OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # -- FHIR reads (C2). Leaves `tools/mcp_fhir/server.py:88` (read_resource) and `:118`
-    # (search_resources); agents reach them through per-agent adapter Protocols.
+    # (search_resources); agents reach them through per-agent adapter Protocols. All four return
+    # raw clinical record content: `returns_phi=True` (ADR-0071 I-5 zone fence).
     OperationSpec(
         operation="fhir.read_patient",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_patient_summary",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_patient_summary",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.read_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.read_coverage",
+        returns_phi=True,
     ),
     OperationSpec(
         operation="fhir.search_coverage",
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.search_coverage",
+        returns_phi=True,
     ),
     # -- Canonical AMH subject-context reads (ADR-0037), distinct from FHIR tools.
     OperationSpec(
@@ -447,6 +474,14 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
     ),
+    # CPT VIGENTE do proprio sujeito (caso C1 do dono e DPO de 20/10/2026, DL-0130; manifest aditivo v1.15;
+    # executor `AmhTinaCptExecutor`): sim/nao, contagem e maior data de fim, nunca o CID. Fato do plano:
+    # mesma classe e acao da cobertura (a governanca liga/desliga junto com ela).
+    OperationSpec(
+        operation="amh.tina_get_cpt_vigente",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
     OperationSpec(
         operation="amh.tina_get_dependentes_nome",
         action_class="leitura_phi_clinica",
@@ -523,6 +558,15 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # two siblings above.
     OperationSpec(
         operation="cibseven.read_historic_variables",
+        action_class="consulta_processo",
+        autonomy_action="query_process_status",
+    ),
+    # PAGTO PR-C / MPTT P2: the history INSTANCE resolution by business key and/or variable filter
+    # (`transport.py::resolve_historic_instance`) — state, `endActivityId` and named historic
+    # variables of exactly ONE instance, fail-closed (DL-0050 pattern). No MCP tool id: an
+    # internal read of the same transport, same class and autonomy name as its siblings above.
+    OperationSpec(
+        operation="cibseven.resolve_historic_instance",
         action_class="consulta_processo",
         autonomy_action="query_process_status",
     ),

@@ -47,7 +47,7 @@ Os terminais ADVERSOS NUNCA aparecem na history do engine sem `UT_DecisaoInvesti
 
 - `src/maezo/gateway/custody.py` expoe `CustodyBundle` — projecao tipada sobre `AuditRecord`/`verify_chain` existentes (ADR-0007). O `bundle_root` e a raiz Merkle calculada sobre os `record_hashes` **ordenados** dos itens do dossie (cada item = referencia/ponteiro pseudonimizado a uma evidencia, mais seu hash — **nunca o conteudo PHI**).
 - **Sequencia obrigatoria:** (1) montagem do dossie (`assemble_dossier`) → (2) calculo do `bundle_root` (`seal_bundle`) → (3) **gravacao do `bundle_root` de volta na hash-chain ADR-0007 ANTES de criar `UT_DecisaoInvestigador`** → (4) `UT_DecisaoInvestigador` (decisao sobre corpus selado) → (5) se `ACUSAR_FRAUDE`, `register_fraud_accusation` (gated) re-verifica que o `bundle_root` selado bate antes de registrar o efeito.
-- Propriedades verificaveis: **tamper-evidence** (qualquer alteracao/reordenacao de item muda o `bundle_root`; o registro selado na chain nao bate); **no-PHI-in-custody** (o bundle carrega ponteiros + hashes pseudonimizados, nunca PHI bruto — ADR-0006 Zona Geral); **reprodutibilidade** (o bundle referencia um snapshot congelado do feature store — ver OQ sobre janela de 90d). 
+- Propriedades verificaveis: **tamper-evidence** (qualquer alteracao/reordenacao/duplicacao de item muda o `bundle_root` — arvore com separacao de dominio do RFC 6962 (forma da arvore nao-RFC: pares de baixo para cima): folha `SHA256(0x00||ref)`, no `SHA256(0x01||esq||dir)`, no impar promovido sem duplicar; auditoria forense F-003; o registro selado na chain nao bate); **no-PHI-in-custody** (o bundle carrega ponteiros + hashes pseudonimizados, nunca PHI bruto — ADR-0006 Zona Geral); **reprodutibilidade** (o bundle referencia um snapshot congelado do feature store — ver OQ sobre janela de 90d). 
 - Worker `operadora.fraude.seal_custody_bundle` grava o `bundle_root` na chain e publica `agents.events.fraude.custody_sealed` com `bundle_root` + `record_count` (sem PHI) ANTES da UT. O gate de fluxo `GW_CustodiaSelada` impede que `UT_DecisaoInvestigador` seja criada sem `bundle_root` selado.
 
 ## Business key (idempotencia)
@@ -257,3 +257,18 @@ Adicionar a `config/topic_registry.yaml` — Kafka `agents.events.fraude.*`: `in
 ## Allowlist de inicio de processo (REPORTE — gate humano W0.1/ADR-0016)
 
 Adicionar `SP-OP-FRAUDE-001` (process key) a `KNOWN_PROCESS_KEYS` exige PR humano CODEOWNERS (ADR-0016 — start atras de gate humano). Este contrato apenas declara a necessidade; o start em runtime so e habilitado pelo gate.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-FRAUDE-001` → `maezo-payer-fraude-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - caso: `{tenant_id}:fraude-001:hk1_<HMAC>` sobre `F-{numero_caso}`.
+- **Classificação (a confirmar pelo DPO):** identificador de caso em contexto de fraude (sensibilidade reputacional) — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

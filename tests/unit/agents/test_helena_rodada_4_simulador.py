@@ -20,6 +20,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_CASO_ABERTO_CURTO_3,
     RESPOSTA_CASO_ABERTO_PRAZO,
     RESPOSTA_CASO_ABERTO_RECADO,
+    RESPOSTA_COBERTURA_ESPECIFICA,
     RESPOSTA_COBERTURA_ESPECIFICA_2,
     RESPOSTA_DESPEDIDA,
     RESPOSTA_DESPEDIDA_CASO_ABERTO,
@@ -55,7 +56,9 @@ async def test_despedida_com_espera_de_atendente_nao_vira_aviso_de_caso_aberto()
         )
     )
 
-    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA_CASO_ABERTO]
+    # Teste do dono (25/10/2026, noite): a despedida sai sem o caso aberto de carona.
+    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA]
+    assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in whatsapp.enviados
     assert not resultado.get("escalation_started")
     assert _starts(cib) == antes
 
@@ -142,10 +145,8 @@ async def test_insistencia_na_cobertura_nao_reenvia_os_dados_do_plano() -> None:
     await grafo.ainvoke(_entrada("mas cobre dermatologia ou não?", [MARCADOR_RESPOSTA_DE_COBERTURA]))
 
     assert fonte.chamadas == []
-    # DL-0095: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
-    # recebe a outra redacao.
+    # DL-0154 (dono, 23/10/2026): a insistencia recebe o mesmo aviso (nunca oferta da equipe nem dados).
     assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA_2]
-    assert "cobertura de um procedimento específico" in whatsapp.enviados[0]
     assert "não consta" not in whatsapp.enviados[0]
 
 
@@ -159,9 +160,8 @@ async def test_segunda_insistencia_muda_a_redacao() -> None:
         )
     )
 
-    # Ja' disse a segunda redacao: a terceira varia de novo (`_sem_repetir`), sem repetir igual.
-    assert whatsapp.enviados[0] != RESPOSTA_COBERTURA_ESPECIFICA_2
-    assert RESPOSTA_COBERTURA_ESPECIFICA_2 in whatsapp.enviados[0]
+    # DL-0154: a cobertura e' sempre o MESMO aviso curto do dono (texto do pacote, sem enfeite de variacao).
+    assert whatsapp.enviados[0] == RESPOSTA_COBERTURA_ESPECIFICA_2
 
 
 # =================================================================================================
@@ -177,7 +177,9 @@ async def test_e_urgente_sobre_cobertura_responde_a_cobertura_e_192_no_fim() -> 
     enviado = whatsapp.enviados[0]
     assert not enviado.startswith("Se for uma emergência")
     assert enviado.endswith(_EMERGENCIA_192)
-    assert "Ambulatorial + Hospitalar" in enviado
+    assert enviado.startswith(RESPOSTA_COBERTURA_ESPECIFICA), (
+        "DL-0154: o aviso da cobertura, sem a segmentacao"
+    )
 
 
 def test_com_sinal_de_saude_o_192_vai_na_frente() -> None:

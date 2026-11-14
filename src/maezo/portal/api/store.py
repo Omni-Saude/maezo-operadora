@@ -26,6 +26,17 @@ class IdentityStore(Protocol):
     async def close(self) -> None: ...
 
 
+class RosterUnavailableError(Exception):
+    """This identity store cannot serve the D-40 read-only staff roster read.
+
+    Raised, never faked as an empty roster: an absent listing is a missing dependency, and
+    "this deployment has no staff" is a fact only a real read may state. The AUTH-composed
+    participant (`PostgresIdentityStore` with a bound lifecycle) raises it by construction —
+    it exposes per-identity reads only, and reading its moved/role-scoped tables through the
+    plain engine would be the wrong role and the wrong schema.
+    """
+
+
 class LocalTestIdentityStore:
     """Never selected by production factory; shared only within one local process."""
 
@@ -78,6 +89,21 @@ class LocalTestIdentityStore:
     async def get_membership(self, issuer: str, subject: str) -> MembershipRecord | None:
         record = self.memberships.get((issuer, subject))
         return record if record and record.tenant == self.tenant else None
+
+    async def staff_memberships(self) -> tuple[MembershipRecord, ...]:
+        """D-40 read-only staff roster: every reviewed staff row of this tenant, ordered.
+
+        Includes revoked and past-deadline records on purpose: the administration panel
+        exists exactly to show review facts, and hiding a revoked vínculo would make the
+        roster lie. This store is local/test only; production reads go through
+        `PostgresIdentityStore.staff_memberships`.
+        """
+        records = [
+            record
+            for record in self.memberships.values()
+            if record.tenant == self.tenant and record.audience == "staff"
+        ]
+        return tuple(sorted(records, key=lambda record: record.principal_ref))
 
     async def purge_expired(self, now: datetime) -> None:
         async with self._lock:

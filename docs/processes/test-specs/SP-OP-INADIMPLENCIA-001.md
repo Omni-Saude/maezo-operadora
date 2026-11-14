@@ -67,6 +67,31 @@ both" — o BPMN so declara `Error_InadContratoInvalido` e `Error_ContractSuspen
 - **Then** fluxo reavalia e chega a `UT_AnaliseInadimplencia` (`juridico-contratos`) — recebimento
   do ack **nunca** suspende automaticamente.
 
+## Notificacao ate o 50o dia (R-027 — RN 593 alterada pela RN 617/2024; DARK `MAEZO_INAD_RN593_ESTRITO`)
+
+Direcao do dono (issue #1081, DEC-10 -> R-019). Engine REAL (`tests/integration/processes/test_sp_op_inadimplencia_001.py`)
++ unidade/estatico (`tests/unit/tools/workers/test_inadimplencia_rn593.py`, individual/familiar E coletivo).
+
+### test_rn593_flag_off_sem_notificacao_segue_cure_window_legado
+- **Given** flag OFF (probe `inad_probe`), sem notificacao comprovada, dentro da janela de purga
+- **Then** o token aguarda o timer `ICE_PrazoPurga` de hoje e NAO existe timer `ICE_PrazoNotificacao50` (dark provado no engine).
+
+### test_rn593_sem_notificacao_aguarda_50o_dia_e_expira_para_humano
+- **Given** flag ON (probe `inad_probe_rn593`), sem notificacao comprovada
+- **Then** `GW_NotificacaoPrerequisito` desvia para `GW_JanelaNotificacao50`; o timer `ICE_PrazoNotificacao50` vence em ~50 dias (`${purga.prazo_notificacao_previa}` = `P50D` da DMN) e NAO ha timer `ICE_PrazoPurga`
+- **Nota de semantica:** os ~50 dias contam da ENTRADA em `GW_JanelaNotificacao50` (e reiniciam a cada `notificacao_ack`), NAO do 1o dia de inadimplencia — ainda nao e o teto absoluto do 50o dia da norma; ancorar no vencimento exige o fato `data_inicio_inadimplencia_iso` (pendencia juridico/produto obrigatoria antes do flip).
+- **When** o timer dispara **Then** `UT_AnaliseInadimplencia` abre; nenhum terminal adverso no historico.
+
+### test_rn593_notificacao_confirmada_abre_prazo_de_10_dias
+- **Given** flag ON, aguardando na janela do 50o dia
+- **When** `msg.inadimplencia.notificacao_ack` com `notificacao_previa_feita=true`
+- **Then** reavalia e so entao abre o cure-window: timer `ICE_PrazoPurga` vence em ~10 dias (`P10D` da DMN); nenhum terminal adverso.
+
+### test_inadimplencia_purge_* / test_inadimplencia_notificacao_50_* / test_inadimplencia_dois_meses_* (unidade)
+- `calculate_purge` nao existe mais e seu topico nao e registrado; prazos so na DMN (`prazo_purga >= 10` dias, `prazo_notificacao_previa = P50D` em todas as linhas). O `P15D` de coletivo/catch-all e herdado sem fonte primaria: DRAFT, a confirmar com o juridico antes do flip.
+- Guard estrito de `register_contract_suspension`: exige `tier`, `data_notificacao_iso` (nao futura) e `data_efeito_iso` nao retroativa `>= notificacao + prazo_purga` (DMN); notificacao tardia vale se garantir o prazo; DMN ausente/prazo fora de `P<n>D` => recusa. Worker registrado so fica estrito com a flag.
+- Minimo de 2 mensalidades sem janela de 12 meses: DMN `r_segue_analise` `meses_inadimplencia >= 2`; limiar Python preso a DMN; sob a flag, competencia repetida conta uma vez.
+
 ## Happy paths
 
 ### test_happy_path_suspensao_por_inadimplencia_humano

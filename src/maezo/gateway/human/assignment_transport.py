@@ -315,6 +315,7 @@ class NativeAssignmentClient(
 
         async with self._source_engine.begin() as db:
             schema = schema_for_tenant(self.scope.tenant)
+            # nosemgrep: avoid-sqlalchemy-text # fonte: schema_for_tenant
             await db.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             if (await db.execute(text("SELECT current_schema()"))).scalar_one() != schema:
                 raise unavailable()
@@ -462,7 +463,8 @@ class NativeAssignmentClient(
             target_ref,
             target_membership_revision,
         )
-        assert result[2] is not None
+        if result[2] is None:
+            raise AssertionError("recibo de atribuicao ausente")
         return result[2]
 
     async def list_candidates(

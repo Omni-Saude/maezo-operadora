@@ -1,0 +1,27 @@
+{
+  "schema": "omni-commercial-source-pin.v1",
+  "classification": "SOURCE_PUBLISHED_PROPOSED_EXTENSION_NOT_RUNTIME_ADMISSION",
+  "contract_id": "omni-commercial.proposed.v1",
+  "revision": "C6-4",
+  "source_repository": "Omni-Saude/amh-data-platform",
+  "source_commit": "a4f2ac237f02ea54873e245de3dceac922b8891d",
+  "source_tree": "11ee7dd7367e608284cc9e00492c91d5bd421e35",
+  "source_pr": 282,
+  "source_path": "schemas/proposals/maezo/commercial-v1/shared-contract-c6-4.proposed.v1.json",
+  "source_blob": "08e4d70dae5605d9000ad23db7df355eaa5fc940",
+  "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+  "bytes": 320163,
+  "commands": 42,
+  "recoverable_commands": 41,
+  "public_gets": 3,
+  "verification": "GitHub connector full UTF-8 bytes equal fetched immutable main Git object; protected normal squash tree equals independently gated candidate.",
+  "consumer_adapter": "src/maezo/adapters/amh/commercial.py",
+  "runtime_admission": "UNBOUND",
+  "admission_requirement": "Trusted composition injects exact source bytes and separately verifies current source publication, identity/representation, tenant, purpose and lifecycle for each operation. This file grants no source authority.",
+  "historical_canonical_pin": {
+    "path": "config/integrations/amh/contracts.lock.json",
+    "sha256_unchanged": "098ff7b5077792ee5bc8126cf01fec6b9de89bd3f78d5bc0f63f8b5f73f6e55a"
+  },
+  "candidate_provenance": "tests/candidate_artifacts/commercial/PROVENANCE-C6-4.json remains immutable; NOT_PUBLISHED describes its historical candidate import.",
+  "recorded_at": "2026-10-22T22:49:48.592070+00:00"
+}

@@ -52,7 +52,7 @@ CPF/nome real; referencias de negativa original sinteticas (`AUTH-amh-GUIA-TESTE
 
 ### test_happy_path_nao_assistencial_respondida
 - **Given** `classificacao_nip=nao_assistencial`, `tema_nip=cobranca`, `documentacao_suficiente=true`
-- **When** `UT_ElaborarRespostaNip` (`nucleo-ans`) autora e humano confirma o envio
+- **When** `UT_ElaborarRespostaNip` (`regulatorio-ans`; `nucleo-ans` fundido — R-041) autora e humano confirma o envio
 - **Then** `nip.completed` `desfecho=nao_assistencial_respondida`; fim `End_NipNaoAssistencialRespondida`; mesmo no caminho clerical, o envio passa por User Task (nunca auto-submete)
 
 ## Classificacao e roteamento

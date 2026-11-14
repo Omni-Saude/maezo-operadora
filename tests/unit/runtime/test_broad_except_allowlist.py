@@ -56,6 +56,7 @@ from types import ModuleType
 from typing import Any, Final
 
 import pytest
+from tests.support.fontes_do_grafo import arquivos_de_grafo, rotulo
 
 from maezo.runtime.dependency_failures import (
     DECLARED_INFERENCE_FAILURES,
@@ -97,7 +98,20 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: e o Lucas manda ao beneficiario o texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR`, pelo mesmo
 #: `self._whatsapp` e com a mesma forma de `send_escalation_ack` (`PROGRAMMING_ERRORS` re-levanta; o resto
 #: vira `mensagem_enviada=False`). Sitio NOVO e legitimo, nao um predicado que mudou.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
+#: 21/10/2026: 38 — `HelenaGraph._roteador_decidir` (ADR-0066/DL-0134, F1): o roteador de habilidades em
+#: SOMBRA chama o modelo numa tarefa paralela; `PROGRAMMING_ERRORS` re-levanta, prazo e falha do provedor
+#: viram o campo `falha` do log `helena_roteador_sombra` (a resposta nao muda). Sitio NOVO e legitimo.
+#: 25/10/2026: 39 — `habilidades/protocolo/fluxo.py::_chamar` (protocolos clinicos da Helena): escolha do
+#: protocolo, leitura das respostas e mapa do especialista pelo provedor do roteador; `PROGRAMMING_ERRORS`
+#: re-levanta, prazo e falha do provedor viram `None` (alerta universal / "sem clareza"). Sitio NOVO.
+#: 31/10/2026: 38 — `GustavoGraph.gather` (try da leitura FHIR da J2) SAIU com o acesso FHIR do Gustavo
+#: (ADR-0071 I-5; decisao do dono DEC-11 (i)): o `gather` dele nao le mais nada, entao nao ha `except`.
+#: Sitio REMOVIDO junto com o codigo, nao um predicado que parou de casar.
+#: 02/11/2026: 35 — limpeza da saude, etapa 3 (DL-0165, adendo): SAIRAM com as camadas os sitios
+#: `habilidades/protocolo/fluxo.py::_chamar` (protocolos),
+#: `habilidades/saude/informar.py::_base_achar_assunto` (base de saude) e `graph.py::HelenaGraph::collect`
+#: (a pergunta da coleta). Sitios REMOVIDOS com o codigo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 35
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -121,6 +135,13 @@ _SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
 #:      ambiente mal configurado — pior para o beneficiario e para a escalacao ja' aberta. Ficam
 #:      largos, e a afirmacao 3 desta cerca garante que o bug propaga mesmo assim.
 BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
+    # -- ADR-0067 fase 3: o pacote de comportamento do agente -----------------------------
+    "src/maezo/runtime/pacote_do_agente.py::CarregadorDePacote::atual": (
+        1,
+        "releitura do pacote do agente no S3 a cada TTL: PROGRAMMING_ERRORS re-levanta; rede (o ClientError "
+        "do S3 nao e' OSError), hash ou validacao do agente mantem o ULTIMO PACOTE BOM e vao ao log "
+        "`pacote_do_agente_nao_carregado` — trocar por EXTERNAL_DEPENDENCY_FAILURES derrubaria o turno",
+    ),
     # -- (a) conta-e-re-levanta -----------------------------------------------------------
     "src/maezo/agents/lucas/bateria.py::executar_caso": (
         1,
@@ -242,7 +263,9 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "sonda de prontidao: qualquer falha significa 'not ready' (False), nunca propaga",
     ),
     "src/maezo/runtime/worker_runtime/service.py::_bring_up_dependencies": (
-        10,
+        # 11 = 10 + o bloco do poller do historico do engine (R-085, dark): observabilidade so',
+        # uma falha ao construi-lo nunca derruba o daemon.
+        11,
         "isolamento de bring-up do daemon de workers: cada construcao que falha deixa o SEU "
         "health-check vermelho; nenhum turno de negocio roda aqui",
     ),
@@ -419,6 +442,17 @@ def _chama_dependencia_injetada(node: ast.Try) -> bool:
                 and alvo.attr.startswith("_")
             ):
                 return True
+            # DL-0155 (26/10/2026): `modelo_allowlist.provedor_para(self, state, papel).generate(...)` e' o
+            # mesmo porto de inferencia do grafo (GLM-5 ou o Haiku da allowlist), por conversa.
+            if (
+                isinstance(alvo, ast.Call)
+                and isinstance(alvo.func, ast.Attribute)
+                and alvo.func.attr == "provedor_para"
+                and alvo.args
+                and isinstance(alvo.args[0], ast.Name)
+                and alvo.args[0].id == "self"
+            ):
+                return True
     return False
 
 
@@ -480,7 +514,10 @@ def _exige_clausula_de_guarda(node: ast.Try, modulo: ModuleType) -> bool:
 
 
 def _modulo_do_grafo(graph_path: Path) -> ModuleType:
-    return importlib.import_module(f"maezo.agents.{graph_path.parent.name}.graph")
+    # O modulo do PROPRIO arquivo (o `graph.py` ou um modulo dividido por habilidade, ADR-0067 §5): os nomes
+    # do `except` resolvem nos globals de quem os escreveu.
+    rel = graph_path.relative_to(_REPO_ROOT / "src").with_suffix("")
+    return importlib.import_module(".".join(rel.parts))
 
 
 def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
@@ -497,8 +534,9 @@ def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
 
 @pytest.mark.parametrize(
     "graph_path",
-    sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py")),
-    ids=lambda p: p.parent.name,
+    # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+    arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents"),
+    ids=lambda p: rotulo(_REPO_ROOT / "src/maezo/agents", p),
 )
 def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -> None:
     """Em `graph.py`, todo `try` que absorve falha de dependencia re-levanta o BUG primeiro.
@@ -530,7 +568,7 @@ def test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados() -> None:
     """
     medidos = {
         rotulo
-        for graph_path in sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py"))
+        for graph_path in arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents")
         for rotulo, _ in _sitios_que_exigem_guarda(graph_path)
     }
     assert len(medidos) == _SITIOS_COM_GUARDA_EXIGIDA, (

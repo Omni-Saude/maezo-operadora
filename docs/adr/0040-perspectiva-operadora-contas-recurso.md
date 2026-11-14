@@ -1,6 +1,6 @@
 # ADR-0040: Perspectiva de processo — a operadora e o dono de SP-OP-CONTAS-001 e SP-OP-RECURSO-001
 
-**Status:** Proposed
+**Status:** Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31; aceito como esta, com emenda anunciada a D6-bis (ver "Decisao de aceite" ao final)
 **Data:** 2026-09-02
 **Area:** Orquestracao / Compliance / Produto
 
@@ -694,3 +694,67 @@ ancorado) permanece exatamente como esta: **nenhum adaptador e construido, nenhu
 removida.** Esta nota nao ratifica o ADR, que segue `Proposed`; o merge continua sob revisao
 CODEOWNER pela regra `/docs/adr/` de `.github/CODEOWNERS` (citada por texto de regra, nao por
 numero de linha, que muda — achado F3/VER-SMALL-DECISIONS).
+
+## Decisao de aceite (DEC-27, 2026-10-31)
+
+> **Registro datado; historico preservado.** Acima desta secao so a linha de Status mudou. O Status
+> anterior, vigente de 2026-09-02 ate 2026-10-31, era: "Proposed".
+
+**O ato.** Decisao do dono **DEC-27**, opcao (a): "ratificar o lote (revisao independente por ADR) e
+promover a Accepted", sobre o lote ADR-0040/0042/0045/0048/0062. Tomada em 2026-10-31, na resposta do
+dono ao issue de papel **#1084**, comentario de 2026-10-31
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766) (item R-079 do roadmap forense; achados F-034 e F-052). Um agente
+registra o ato. Nenhum bloco de assinatura foi preenchido (ADR-0007). O aceite e do dono e fica
+identificado pela data e pelo issue. O pacote de revisao esta em
+`docs/compliance/human-windows/R-079-dec-adr-proposed.md`.
+
+**Aceito como esta, com emenda anunciada.** O dono aprovou depois (2026-10-31, #1084, comentario de
+2026-10-31) uma classificacao balanceada de pagamentos para SP-OP-PAGTO-001. Ela confere o lastro dentro de PAGTO contra o historico do processo
+de origem, e deixa a ordem de baixo valor com checagens objetivas verdes sair sem toque humano. Isso
+muda a consequencia escrita em D6-bis ("Toda ordem originada em CONTAS ou RECURSO atravessa uma User
+Task humana"). **Uma ADR de emenda vira** para essa classificacao. Ela nao e escrita aqui. Ate ela
+ser aceita, D6-bis vale como esta, e o codigo segue D6-bis: `pagto_admissibility` manda lastro
+ausente para `ANALISE_HUMANA` (`spec/processes/dmn/pagto_admissibility.dmn:54-60`). A parte de D6-bis
+que a emenda preserva: a origem fornece a evidencia; so PAGTO resolve o fato.
+
+**Revisao independente (2026-10-31, `main` = `2be4515f`).** O revisor leu o texto da ADR contra a
+arvore. Ele nao e autor da ADR. A revisao independente por ADR exigida pela DEC-27 e o gate cego publicado no PR #1137
+(https://github.com/Omni-Saude/maezo-operadora/pull/1137#issuecomment-6545468678).
+
+Conforme:
+- D1 — as 15 chaves de `KNOWN_PROCESS_KEYS` seguem inalteradas (`src/maezo/tools/process_allowlist.py:21-41`).
+- D3 — os dois guards existem e levantam: `ERR_CONTAS_GLOSA_NOT_HUMAN` (`src/maezo/tools/workers/contas.py:106`)
+  e `ERR_RECURSO_INDEFERIMENTO_NOT_HUMAN` (`src/maezo/tools/workers/recurso.py:80`). Os codigos antigos
+  sobrevivem so como vocabulario proibido do gate (`src/maezo/platform/validation/perspective.py`).
+- D4 — `glosa_triage` so emite `PAGAR` e `ANALISE_HUMANA` (`spec/processes/dmn/glosa_triage.dmn:68`, `:78`).
+  `recurso_eligibility` emite `SEGUE_MERITO` (`spec/processes/dmn/recurso_eligibility.dmn:41`).
+- D5 — os tres gateways tem default de erro: `GW_DecisaoContas`
+  (`spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:248`, `:497`), `GW_DecisaoRecurso`
+  e `GW_MeritoAuditor` (`spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn:431`, `:469`, `:722`, `:733`).
+- D6 — `operadora.contas.start_recurso` nao existe mais em `src/` nem em `spec/` (fica so na lista
+  proibida do gate). Os handoffs existem: `src/maezo/tools/workers/contas.py:1040` e
+  `src/maezo/tools/workers/recurso.py:1308`.
+- D6-bis — os conjuntos de chaves proibidas estao fixados (`src/maezo/tools/workers/contas.py:971`,
+  `src/maezo/tools/workers/recurso.py:1251`). O teste no engine real espera a ordem parar na User Task
+  `UT_AnaliseAdmissibilidade` (`tests/integration/processes/test_sp_op_contas_001.py:1223`, `:1307`;
+  a constante esta em `:613`).
+- D6-ter — `emitir_demonstrativo` com `tipo_comunicacao` fechado (`src/maezo/tools/workers/contas.py:869`).
+- D7 — o gate roda dentro de `validate_artifacts` (`src/maezo/platform/validation/cli.py:40`, `:134-153`).
+  Os pinos das duas cadeias estao em zero (`tests/unit/platform/test_validation_perspective.py:1332-1333`).
+
+Divergencias (follow-ups conhecidos; nenhum bloqueia o aceite):
+1. D3 cita `harness.py:546-561` para o predicado de sufixo. Hoje ele e `is_guard_refusal_code`
+   (`src/maezo/tools/workers/harness.py:579`). E deriva de linha; o predicado e o mesmo.
+2. A consequencia de D6-bis muda com a classificacao balanceada (ADR de emenda anunciada acima).
+3. A nota de proveniencia do topo ("nenhum artefato de `spec/`, `src/` ou `tests/` foi alterado") e o
+   "Plano de merge" descrevem o estado de 2026-09. A implementacao entrou depois.
+4. Ainda ha mencoes "ADR-0040, Proposed" em contratos, BPMN, DMN e `src/` (por exemplo
+   `docs/processes/contracts/SP-OP-CONTAS-001.md:8`, `src/maezo/tools/workers/contas.py:7`). Ficam
+   estaleis com este aceite. Nao sao editadas aqui: mudar bytes de BPMN/DMN e outro pacote.
+5. M-4 (OQ-10) segue aberto. `Flow_GWTriagem_Pagar` continua apontando para
+   `ST_EmitirDemonstrativoIntegral` (`spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:470`).
+   A variante conservadora descrita nas Consequencias nao foi adotada.
+
+Em aberto: OQ-1 a OQ-15 e OQ-R2 continuam com os decisores da tabela. OQ-R1 foi fechada pela
+"Nota de escopo" acima. Este aceite nao valida nenhuma citacao de RN (continuam `DRAFT/verify`) e nao
+ratifica `action-approvals.yaml` (MZO-040).

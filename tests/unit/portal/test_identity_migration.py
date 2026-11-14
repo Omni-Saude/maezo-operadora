@@ -41,7 +41,17 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # O carimbo da apresentacao do canal (14/10/2026) adds `apresentado_em` to the access state as 0026.
     # O lembrete proativo de cobranca (14/10/2026) adds the reminder tables as 0027.
     # O limite de falhas por CPF (D-04, 15/10/2026) adds `acesso_falhas_por_cpf` as 0028.
-    assert heads == {"0028"}, f"expected 0028 to be the sole head, got {heads}"
+    # D-36 (dono, 25/10/2026) adds the dark commission adjustment DRAFT structures as 0029.
+    # OP21/REG-1.1 (26/10/2026) adds the dark legitimacy-screen substrate as 0030.
+    # MPTT P3 (01/11/2026) adds the dark append-only provider status ledger as 0032 after 0030
+    # (re-pointed to 0031 if PR #1074's 0031 merges first).
+    # DL-0162 (reembolso pelo WhatsApp) adds `reembolso_coleta` as 0033 after 0032.
+    # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0033.
+    assert heads == {"0034"}, f"expected 0034 to be the sole head, got {heads}"
+    assert revisions["0034"] == "0033"
+    assert revisions["0033"] == "0032"
+    assert revisions["0032"] == "0030"
+    assert revisions["0030"] == "0029"
     assert revisions["0028"] == "0027"
     assert revisions["0027"] == "0026"
     assert revisions["0026"] == "0025"
@@ -60,7 +70,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0028"
+    current = "0034"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

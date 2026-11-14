@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import signal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
+    from .whatsapp.reembolso_turno import CustodiaDeArquivo, ReembolsoTurno
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
 #: "kubernetes") is PRODUCTION, where a checkpointer that fails to provision makes the receiver
@@ -159,56 +161,29 @@ def _helena_model_tiers() -> dict[str, str]:
         return {}
 
 
-def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
-    """SAUDE GERATIVA (ADR-0065, DL-0119): o redator, SO' com `MAEZO_HELENA_SAUDE_GERATIVA` E a base de saude
-    ligadas; senao `None` (nada da rota global existe no processo). Construcao pura: o cliente Bedrock nao faz
-    rede ate' a primeira chamada. A rota e' PROPRIA (`experimento_global_autorizado_dpo_2026-10-17`) e nunca
-    passa pelo roteador de zonas."""
-    if settings.helena_saude_gerativa is not True:
-        return None
-    from maezo.conhecimento.saude_gerativa import RedatorDeSaude, conversas_autorizadas
-    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
+    """ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1, 02/11/2026): o transporte do Haiku 5.5 (rota
+    autorizada pelo DPO, ADR-0065/DL-0155) e as conversas autorizadas, SEM depender da base de saude nem da
+    saude gerativa. A porta unica, o roteador ativo e o `modelo_allowlist` usam. Lista vazia = `None` (nada
+    da rota global existe no processo). Mesma env de antes (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`).
+    Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada.
 
-    if settings.helena_base_saude is not True:
-        logger.error("helena_saude_gerativa_sem_base_de_saude", rota=ROTA_DE_RESIDENCIA)
-        return None
+    Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): `MAEZO_HELENA_ROTA_GLOBAL_TODAS` liga a rota para
+    TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota)."""
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+    from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
+
     conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
+    todas = getattr(settings, "helena_rota_global_todas", False) is True
+    if not conversas and not todas:
+        return None
     logger.warning(
-        "helena_saude_gerativa_ligada",
+        "helena_rota_global_ligada",
         rota=ROTA_DE_RESIDENCIA,
         conversas_autorizadas=len(conversas),
+        todas_as_conversas=todas,
     )
-    busca = None
-    if getattr(settings, "helena_busca_semantica", False) is True:
-        # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
-        # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
-        from maezo.conhecimento.busca_semantica import BuscaSemantica, TransporteBedrockRegional
-
-        try:
-            busca = BuscaSemantica(
-                transporte=TransporteBedrockRegional(modelo=settings.helena_busca_semantica_modelo),
-                limiar=settings.helena_busca_semantica_limiar,
-            )
-            logger.warning(
-                "helena_busca_semantica_ligada",
-                modelo=settings.helena_busca_semantica_modelo,
-                limiar=settings.helena_busca_semantica_limiar,
-            )
-        except ValueError:
-            logger.error(
-                "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
-            )
-    catalogo = None
-    if busca is not None:
-        # COBERTURA ASSISTIDA (DL-0128): o mesmo modelo de embeddings REGIONAL indexa o catalogo de
-        # procedimentos
-        # (rota TINA `tina-procedimentos`, carregada em segundo plano na primeira pergunta de cobertura).
-        from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos, carregar_sinonimos
-
-        catalogo = BuscaDeProcedimentos(transporte=busca.transporte, sinonimos=carregar_sinonimos())
-    return RedatorDeSaude(
-        transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca, catalogo=catalogo
-    )
+    return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas, todas=todas)
 
 
 def _build_dispatcher(
@@ -248,6 +223,7 @@ def _build_dispatcher(
         inference=InferenceProvider(model_tiers=_helena_model_tiers()),
     )
     seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
+    roteador_inference = _inferencia_do_roteador(settings, seam_context)
     # Gap `WEBHOOK-WAMID-DEDUP` (owner decisions R-071/R-072/R-073): the durable dedup registry
     # over the repurposed `driver_idempotency` table. Built HERE, in the one place that already
     # owns the mandatory DSN and the keyed pseudonymizer, so BOTH legs of the guard — the inbound
@@ -313,6 +289,7 @@ def _build_dispatcher(
             inatividade_minutos=settings.lucas_inatividade_minutos,
             fonte_cobranca=settings.lucas_fonte_cobranca,
         )
+    rota_global = _rota_global(settings)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -342,21 +319,25 @@ def _build_dispatcher(
         memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # HISTORICO CURTO DA CONVERSA (DL-0080): `MAEZO_HELENA_HISTORICO`, default `false`.
         historico_enabled=settings.helena_historico,
-        # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
-        triagem_v2_enabled=settings.helena_triagem_v2,
-        # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
-        helena_v4_enabled=settings.helena_v4,
+        # Limpeza da saude, etapa 3 (dono, 02/11/2026): `MAEZO_HELENA_TRIAGEM_V2`, `MAEZO_HELENA_V4`,
+        # `MAEZO_HELENA_BASE_SAUDE`, `MAEZO_HELENA_COBERTURA_MODO`, `MAEZO_HELENA_SAUDE_GERATIVA` e
+        # `MAEZO_HELENA_BUSCA_SEMANTICA*` ainda chegam da task: ACEITAS E IGNORADAS (as camadas sairam do
+        # codigo); saem do terraform e das settings na etapa 4.
         # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
         # default `false` (so' dev).
         helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
         # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `MAEZO_HELENA_DEPENDENTES_NOME`,
         # default `false` (so' dev).
         helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
-        # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
-        helena_base_saude_enabled=settings.helena_base_saude,
-        # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
-        # dev).
-        saude_gerativa=_saude_gerativa(settings),
+        # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
+        helena_roteador=settings.helena_roteador,
+        roteador_inference=roteador_inference,
+        # ADR-0067 fase 3: o pacote de comportamento da Helena escolhe o modelo do roteador por aqui.
+        fabrica_de_inferencia=functools.partial(_inferencia_dedicada, seam_context),
+        roteador_concorrencia=settings.helena_roteador_concorrencia,
+        helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
+        # A rota global da allowlist (limpeza da saude, etapa 1): o Haiku da porta unica e do roteador.
+        rota_global=rota_global,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -394,7 +375,6 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
     lucas_turno = None
     if settings.roteador_lucas_enabled:
         from maezo.agents.lucas.fonte_cobranca import FonteCobranca, FonteCobrancaSimulada
-        from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
         from maezo.platform.webhooks.whatsapp.lucas_turno import LucasTurno
 
         if dispatcher.dedup is None:
@@ -441,9 +421,6 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             fonte=fonte,
             hash_telefone_amh=amh_interop.phone_hasher if amh_interop is not None else None,
             fonte_aclose=amh_interop.aclose if amh_interop is not None else None,
-            limiares_atraso=LimiaresDeAtraso(
-                meses_minimo=settings.lucas_atraso_meses_min, dias_minimo=settings.lucas_atraso_dias_min
-            ),
             # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
             cancelamento_pf_v1=settings.cancel_pf_v1 is True,
             fonte_cancelamento=fonte_cancelamento,
@@ -462,6 +439,73 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
+
+
+def _custodia_de_arquivo(settings: WhatsAppWebhookSettings) -> CustodiaDeArquivo | None:
+    """A custodia da Zona PHI para o arquivo que chega do beneficiario (DL-0162/DL-0163).
+
+    S3 com SSE-KMS (`gateway/reembolso_anexos.py`), so' com o bucket E a chave configurados
+    (`MAEZO_REEMBOLSO_ANEXOS_BUCKET`/`MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN`, `reembolso-anexos.tf`). O plano de
+    documentos do portal (`gateway/documents/`) nao serve aqui: aceita so' upload de pessoa da equipe
+    sobre caso
+    ja' existente e ate' 256 KiB. Sem as duas variaveis: `None`, e o receptor sobe sem o reembolso."""
+    bucket = settings.reembolso_anexos_bucket.strip()
+    chave = settings.reembolso_anexos_kms_key_arn.strip()
+    if not bucket or not chave:
+        return None
+    from maezo.gateway.reembolso_anexos import CustodiaDeAnexosS3
+
+    return CustodiaDeAnexosS3(bucket=bucket, kms_key_arn=chave, tenant=settings.tenant_id)
+
+
+def _build_reembolso_turno(
+    settings: WhatsAppWebhookSettings,
+    dispatcher: HelenaDispatcher,
+    lucas_turno: LucasTurno | None,
+    *,
+    custodia: CustodiaDeArquivo | None = None,
+) -> ReembolsoTurno | None:
+    """`MAEZO_REEMBOLSO_V1`: o turno do reembolso, com as costuras cercadas do Lucas (principal `lucas`).
+
+    Pre-condicoes: a chave, o Lucas (o motor e a auditoria que ele ja' tem cercados), o acesso do
+    beneficiario (so' conversa verificada) e a custodia de arquivo. Sem alguma, `None` e um aviso."""
+    if settings.reembolso_v1 is not True:
+        return None
+    from maezo.platform.webhooks.whatsapp.reembolso_store import PostgresColetaReembolsoStore
+    from maezo.platform.webhooks.whatsapp.reembolso_turno import ReembolsoTurno
+    from maezo.tools.mcp_whatsapp.server import WhatsAppMediaClient, WhatsAppSettings
+
+    custodia = custodia if custodia is not None else _custodia_de_arquivo(settings)
+    faltando = [
+        nome
+        for nome, presente in (
+            ("lucas", lucas_turno is not None),
+            ("acesso_beneficiario", dispatcher.acesso is not None),
+            ("custodia_de_arquivo", custodia is not None),
+            ("database_url", bool(settings.database_url)),
+        )
+        if not presente
+    ]
+    if faltando or lucas_turno is None or custodia is None or not settings.database_url:
+        logger.error(
+            "reembolso_v1_sem_pre_condicoes",
+            tenant_id=settings.tenant_id,
+            faltando=faltando,
+            detail="MAEZO_REEMBOLSO_V1 ligada, mas o reembolso NAO foi construido",
+        )
+        return None
+    whatsapp = WhatsAppSettings()
+    turno = ReembolsoTurno(
+        tenant_id=settings.tenant_id,
+        store=PostgresColetaReembolsoStore(dsn=settings.database_url, tenant=settings.tenant_id),
+        cibseven=lucas_turno.cibseven,
+        audit_sink=lucas_turno.audit_sink,
+        custodia=custodia,
+        baixador=WhatsAppMediaClient(base_url=whatsapp.base_url, token=whatsapp.whatsapp_token),
+        agent_version=_LUCAS_AGENT_VERSION,
+    )
+    logger.warning("reembolso_turno_construido", tenant_id=settings.tenant_id)
+    return turno
 
 
 def _build_fonte_cobranca_amh(
@@ -955,27 +999,17 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
-async def _aquecer_catalogo(dispatcher: Any) -> None:
-    """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
-    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
-    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
-    if busca is None or leitor is None:
-        return
-    try:
-        itens, versao = await leitor()
-        if itens:
-            busca.carregar(itens, versao)
-            busca.agendar_indice()
-    except Exception as exc:  # o catalogo e' melhoria: sem ele, a busca por texto da rota de cobertura
-        logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
-
-
-async def _bring_up_dependencies(state: WebhookState) -> None:
+async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = False) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
     (T4b), bounded by `dep_connect_timeout_s`. Any failure leaves `state.dispatcher` `None` —
     `/webhook` degrades to the explicit 501 for a message needing dispatch (never a fabricated
-    dispatch, never a silently-stateless prod dispatch)."""
+    dispatch, never a silently-stateless prod dispatch).
+
+    `so_o_agente` (ADR-0067 fase 4b): a MESMA composicao, para o servico do agente de entrada remoto
+    (`maezo.platform.agente_remoto`) — as dependencias do grafo e dos nos (costuras cercadas, consultas do
+    plano, saude gerativa, checkpointer) sem o que so' o receptor usa: a ponte do acesso, o Lucas e o acesso.
+    """
     try:
         state.dispatcher, state.cibseven_transport = _build_dispatcher(state.settings)
         logger.info("webhook_dispatcher_ready", tenant=state.settings.tenant_id)
@@ -1008,7 +1042,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
-    if state.settings.acesso_beneficiario:
+    if state.settings.acesso_beneficiario and not so_o_agente:
         # DL-0083: a ponte com os agentes existe ANTES de o Lucas e a identidade serem construidos, para que
         # os dois resolvam pela referencia verificada e nunca pelo telefone.
         from .whatsapp.acesso_ponte import RefsVerificadas
@@ -1018,7 +1052,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
     # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
     try:
-        state.lucas_turno = _build_lucas_turno(state.settings, state.dispatcher)
+        state.lucas_turno = None if so_o_agente else _build_lucas_turno(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"lucas turn build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1069,7 +1103,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # DL-0083: o acesso do beneficiario. Ligado e quebrado (contrato nao pinado, chave ausente...) = recusa
     # servir.
     try:
-        state.acesso = _build_acesso(state.settings, state.dispatcher)
+        state.acesso = None if so_o_agente else _build_acesso(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"access build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1077,6 +1111,21 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     if state.acesso is not None:
         state.dispatcher.acesso = state.acesso
+
+    # DL-0161/DL-0162: o reembolso pelo WhatsApp. Ligado e quebrado = recusa servir; ligado sem as
+    # pre-condicoes (Lucas, acesso verificado, custodia de arquivo) = o receptor sobe SEM o reembolso e
+    # diz por que (nunca aceita um arquivo que nao sabe onde guardar).
+    try:
+        state.dispatcher.reembolso = (
+            None
+            if so_o_agente
+            else _build_reembolso_turno(state.settings, state.dispatcher, state.lucas_turno)
+        )
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = f"reembolso build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        logger.error("webhook_reembolso_build_failed", exc_info=True)
+        return
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
@@ -1100,6 +1149,18 @@ async def build_live_dispatcher(settings: WhatsAppWebhookSettings) -> WebhookSta
     # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
+    return state
+
+
+async def build_agent_dependencies(settings: WhatsAppWebhookSettings) -> WebhookState:
+    """As dependencias do turno do agente de entrada, para o SERVICO dele (ADR-0067 fase 4b).
+
+    A mesma composicao do receptor (`_bring_up_dependencies`, nunca uma copia), sem a ponte do acesso, o
+    Lucas e o acesso, que so' o receptor usa. O `dispatcher` devolvido e' so' o PORTADOR dessas dependencias:
+    o servico do agente nao despacha mensagem nenhuma por ele. Nunca levanta (como `build_live_dispatcher`).
+    """
+    state = WebhookState(settings=settings)
+    await _bring_up_dependencies(state, so_o_agente=True)
     return state
 
 
@@ -1145,18 +1206,8 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
 
         retencao_task = asyncio.create_task(laco_de_retencao(state.acesso, shutdown), name="acesso-retencao")
 
-    # DL-0128: o catalogo de procedimentos e o indice por significado da cobertura assistida sobem em SEGUNDO
-    # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
-    catalogo_task: asyncio.Task[None] | None = None
-    if state.dispatcher is not None:
-        catalogo_task = asyncio.create_task(
-            _aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos"
-        )
-
     logger.info("webhook_receiver_running")
     await shutdown.wait()
-    if catalogo_task is not None and not catalogo_task.done():
-        catalogo_task.cancel()
     if retencao_task is not None:
         retencao_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1191,6 +1242,12 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
         with contextlib.suppress(Exception):
             await dedup.aclose()
 
+    # ADR-0067 fase 4b: o cliente HTTP do agente de entrada remoto (so' com MAEZO_AGENTE_DE_ENTRADA_URL).
+    fechar_agente = getattr(getattr(state.dispatcher, "agente_de_entrada", None), "aclose", None)
+    if fechar_agente is not None:
+        with contextlib.suppress(Exception):
+            await fechar_agente()
+
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)
 
 
@@ -1221,3 +1278,55 @@ def _attach_administrative_runtime(
     state.dispatcher.administrative_runtime = runtime
     state.dispatcher.administrative_binding = binding.model_copy(deep=True)
     return runtime
+
+
+def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
+    """ADR-0066 (21/10/2026): o provedor PROPRIO do roteador de habilidades, so' com a chave ligada e so'
+    na zona PHI regional (`bedrock_br`): mesmo adaptador e mesmas garantias, com prazo REAL curto (tempo de
+    leitura do cliente), teto de saida pequeno, sem retentativa e pool de threads proprio. Fora disso, `None`
+    (o grafo usa o provedor da conversa, como na F1). Passa pela mesma porta (`build_inference_seam`)."""
+    if settings.helena_roteador == "desligado":
+        return None
+    return _inferencia_dedicada(
+        seam_context,
+        modelo=settings.helena_roteador_modelo,
+        prazo_s=settings.helena_roteador_prazo_s,
+        max_tokens=settings.helena_roteador_max_tokens,
+        concorrencia=settings.helena_roteador_concorrencia,
+    )
+
+
+def _inferencia_dedicada(
+    seam_context: Any, *, modelo: str, prazo_s: float, max_tokens: int, concorrencia: int
+) -> Any:
+    """Um provedor de inferencia DEDICADO na zona PHI regional (`bedrock_br`): prazo real curto, teto de
+    saida, sem retentativa e pool proprio, pela mesma costura do gateway. Fora do `bedrock_br`, `None`.
+
+    E' tambem a `fabrica_de_inferencia` do despachante (ADR-0067 fase 3): o pacote de comportamento do agente
+    escolhe modelo e orcamento por ela, sem a plataforma mudar."""
+    from maezo.gateway.tool_registry import build_inference_seam
+    from maezo.runtime.inference import InferenceProvider
+    from maezo.runtime.inference.settings import InferenceSettings
+
+    base = InferenceSettings()
+    if base.provider != "bedrock_br":
+        return None
+    curta = base.model_copy(
+        update={
+            "model": modelo.strip() or base.model,
+            "timeout_s": prazo_s,
+            "max_tokens": max_tokens,
+            "max_retries": 0,
+            "dedicated_workers": concorrencia,
+        }
+    )
+    return build_inference_seam(
+        seam=seam_context, inner=InferenceProvider(curta, model_tiers=_helena_model_tiers())
+    )
+
+
+def _conversas_do_roteador(bruto: str) -> frozenset[str]:
+    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da rota global."""
+    from maezo.runtime.inference.rota_global import conversas_autorizadas
+
+    return conversas_autorizadas(bruto)

@@ -736,6 +736,14 @@ _NOTIFY_REGULATORIO_NOTIFICATION_TYPE = "anssubmit.notify_regulatorio"
 _RETRANSMIT_TOPIC = "regulatorio.anssubmit.retransmit"
 _RETRANSMIT_NOTIFICATION_TYPE = "anssubmit.retransmit"
 
+#: `ST_SubmeterEnvio`'s topic + the typed notification `make_submit_handler` publishes on
+#: `operadora.notifications.internal`. Third ans_submit worker to emit one (after
+#: notify_regulatorio and retransmit) — this closes FINDING C for the LAST entry-function topic
+#: whose notification an integration test asserts
+#: (`test_happy_path_envio_aprovado_e_acked`'s `notifications_of_type("anssubmit.submit")`).
+_SUBMIT_TOPIC = "regulatorio.anssubmit.submit"
+_SUBMIT_NOTIFICATION_TYPE = "anssubmit.submit"
+
 
 @dataclass
 class AnsNotifyRegulatorioInput:
@@ -850,7 +858,12 @@ def make_notify_regulatorio_handler(kafka: KafkaPublisher | None) -> TaskHandler
 # (excl. shared/out-of-scope `operadora.events.publish`):
 #   prepare_submission -> regulatorio.anssubmit.assemble        (exact spec match: "Montar dataset")
 #   validate_data       -> regulatorio.anssubmit.validate        (exact spec match)
-#   transmit_to_ans      -> regulatorio.anssubmit.submit          (exact spec match, GUARDED)
+#   transmit_to_ans      -> regulatorio.anssubmit.submit          (exact spec match, GUARDED —
+#     + the `anssubmit.submit` notification). Registered as a RAW ASYNC handler
+#     (`make_submit_handler`) since W8 W5-XFIX, NOT via `register_worker`: it publishes the
+#     `anssubmit.submit` notification the sync `FunctionWorker.execute` boundary cannot reach
+#     (closes FINDING C for this topic, the same closure method as notify_regulatorio/
+#     retransmit). `submit_entry` stays the sync dict-boundary core the handler wraps.
 #   handle_nack          -> regulatorio.anssubmit.track_protocol  (spec match: "Correlacionar
 #                            status do protocolo ANS")
 #   retransmit_to_ans    -> regulatorio.anssubmit.retransmit      (exact spec match, GUARDED —
@@ -944,7 +957,7 @@ def submit_entry(
     every other worker's output untouched. Forwarding is safe in production regardless: the
     production gateway refuses before reading the directive (see `transmit_to_ans`).
     """
-    del kafka  # unused — transmit_to_ans emits no domain event itself (publish_completed does)
+    del kafka  # unused here — the notification is published by `make_submit_handler` (async seam)
     submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
     decision = AnsSubmitDecision(**pick_fields(variables, AnsSubmitDecision))
     return transmit_to_ans(
@@ -954,6 +967,76 @@ def submit_entry(
         business_key=_ans_business_key(variables),
         requested_outcome=str(variables.get("status_envio") or ""),
     )
+
+
+def make_submit_handler(
+    kafka: KafkaPublisher | None,
+    *,
+    ans_gateway: AnsGatewayTransport | None = None,
+) -> TaskHandler:
+    """Raw-handler factory for `regulatorio.anssubmit.submit` (`ST_SubmeterEnvio`).
+
+    Third ans_submit worker moved onto the raw async seam (after
+    `make_notify_regulatorio_handler` and, since t9-nack-vars, `make_retransmit_handler`) — SAME
+    reason each time: it must publish the `anssubmit.submit` typed notification to
+    `operadora.notifications.internal`, and the sync `FunctionWorker.execute` boundary cannot
+    reach `await kafka.publish`. This closes FINDING C for the last entry-function topic whose
+    notification an integration test asserts: `test_happy_path_envio_aprovado_e_acked` reads
+    `notifications_of_type("anssubmit.submit")` and judges the transmission by
+    `decisao_envio`/`revisor_id`/`protocolo_ans`, all carried below straight from the
+    `transmit_to_ans` result (plus `status_envio`/`synthetic`/`vinculativo`, the honest facts of
+    the filing) — with `decisao_envio` read off the INBOUND task variables, the same source
+    `make_retransmit_handler` uses, because the guard-reuse contract keeps `AnsSubmitDecision` out
+    of the transmit result.
+
+    `reclassify_coded_exception` (`base.py`, the ONE shared implementation — GK-w5 finding 3) is
+    applied around the sync core `submit_entry` exactly as `FunctionWorker.execute` would have, so
+    leaving the registry path does not change a single classification: the
+    `ERR_ANS_SUBMIT_NOT_HUMAN` guard (`AnsSubmitNotHumanError`, a `PermissionError`) still lands
+    `failure(retries=0)` — never retried (ADR-0008) — and `WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK)`
+    still carries its allowlisted variables to `BE_SubmitNack` byte-identically.
+
+    kafka=None (fail-closed, evidenced — same decision as the two sibling factories): completes
+    the external task ANYWAY, logging LOUDLY instead of fabricating a publish. The notification is
+    ADVISORY: `GW_DecisaoEnvio`/`GW_AguardarAck` route on the PROCESS VARIABLES the harness
+    completes with, never on the notification. Publish posture is the topic default (best-effort,
+    DL-0038) for the same reason as both siblings. The publish happens ONLY after the sync core
+    succeeded — a refused (guard) or NACKed transmission publishes NOTHING.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = await asyncio.to_thread(
+            reclassify_coded_exception,
+            lambda: submit_entry(task.variables, ans_gateway=ans_gateway),
+        )
+        if kafka is None:
+            logger.warning(
+                "ans_submit_submit_no_producer",
+                business_key=task.business_key,
+                protocolo_ans=result.get("protocolo_ans"),
+            )
+            return result
+        notification = {
+            "type": _SUBMIT_NOTIFICATION_TYPE,
+            "tenant_id": str(task.variables.get("tenant_id") or ""),
+            "report_type": result.get("report_type", ""),
+            "competencia": result.get("competencia", ""),
+            # The three fields the integration suite judges the filing by: WHICH human decision,
+            # WHOSE approval was reused (never re-obtained — `_require_human_approval`), and WHAT
+            # protocol the gateway issued.
+            "decisao_envio": str(task.variables.get("decisao_envio") or ""),
+            "revisor_id": result.get("revisor_id", ""),
+            "protocolo_ans": result.get("protocolo_ans", ""),
+            "status_envio": result.get("status_envio", ""),
+            "synthetic": result.get("synthetic"),
+            "vinculativo": result.get("vinculativo"),
+        }
+        # GAP-SC-04-a partition key — see the shared chain in `partition_key.py`.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key)
+        return result
+
+    return handler
 
 
 def track_protocol_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
@@ -1168,20 +1251,24 @@ def register_ans_submit_workers(
 ) -> None:
     """Register the SP-OP-ANS-SUBMIT-001 workers on `harness`.
 
-    FIVE dict-boundary `FunctionWorker` entries (assemble/validate/submit/track_protocol/
-    publish_completed) PLUS TWO raw async handlers registered via `harness.register` rather than
+    FOUR dict-boundary `FunctionWorker` entries (assemble/validate/track_protocol/
+    publish_completed) PLUS THREE raw async handlers registered via `harness.register` rather than
     `register_worker`, because each must publish a typed notification the sync `FunctionWorker`
     boundary cannot reach (mirrors recurso's raw handlers):
       - `make_notify_regulatorio_handler` on `regulatorio.anssubmit.notify_regulatorio`
         (`anssubmit.notify_regulatorio`);
       - `make_retransmit_handler` on `regulatorio.anssubmit.retransmit` (`anssubmit.retransmit`) —
-        moved off `FunctionWorker` by t9-nack-vars; the contract already names this factory (:157).
+        moved off `FunctionWorker` by t9-nack-vars; the contract already names this factory (:157);
+      - `make_submit_handler` on `regulatorio.anssubmit.submit` (`anssubmit.submit`) — moved off
+        `FunctionWorker` by W8 W5-XFIX, closing FINDING C for the last entry-function topic whose
+        notification an integration test asserts.
 
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded to every entry function via
     `functools.partial` for signature parity with modules that DO emit domain events; none of the
-    five `FunctionWorker` entry functions calls `kafka.publish` (the typed functions only DESCRIBE
-    the event to publish — see `publish_completed_entry` — a genuine `kafka.publish` fan-out needs
-    the async seam only the two raw handlers have; not fabricated in the sync entries).
+    four remaining `FunctionWorker` entry functions calls `kafka.publish` (the typed functions only
+    DESCRIBE the event to publish — see `publish_completed_entry` — a genuine `kafka.publish`
+    fan-out needs the async seam only the three raw handlers have; not fabricated in the sync
+    entries).
 
     `dmn` (ADR-0028 §1 seam) is threaded ONLY into `retransmit_entry` — the sole function here
     that evaluates a DMN table (`ans_retry_policy`, T1.5 cutover); every other entry function
@@ -1216,12 +1303,6 @@ def register_ans_submit_workers(
     )
     harness.register_worker(
         FunctionWorker(
-            "regulatorio.anssubmit.submit",
-            functools.partial(submit_entry, kafka=kafka, ans_gateway=ans_gateway),
-        )
-    )
-    harness.register_worker(
-        FunctionWorker(
             "regulatorio.anssubmit.track_protocol", functools.partial(track_protocol_entry, kafka=kafka)
         )
     )
@@ -1239,6 +1320,17 @@ def register_ans_submit_workers(
     harness.register(
         _NOTIFY_REGULATORIO_TOPIC,
         make_notify_regulatorio_handler(kafka),
+    )
+    # submit: raw async handler (NOT register_worker) since W8 W5-XFIX — it publishes the
+    # `anssubmit.submit` notification the sync FunctionWorker boundary cannot reach (FINDING C,
+    # closed for this topic by the SAME method as notify_regulatorio/retransmit before it).
+    # `submit_entry` stays the sync dict-boundary core the handler wraps (unit-testable without
+    # an event loop, classification byte-identical via `reclassify_coded_exception`). The guard
+    # and the gateway seams are unchanged; `ans_gateway` is threaded through exactly as it was on
+    # the FunctionWorker partial.
+    harness.register(
+        _SUBMIT_TOPIC,
+        make_submit_handler(kafka, ans_gateway=ans_gateway),
     )
     # retransmit: raw async handler (NOT register_worker) since t9-nack-vars — it publishes the
     # `anssubmit.retransmit` notification the sync FunctionWorker boundary cannot reach, and the

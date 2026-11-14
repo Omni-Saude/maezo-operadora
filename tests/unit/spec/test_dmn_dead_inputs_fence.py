@@ -69,13 +69,12 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         # admissão da base foram REMOVIDAS pelo ratchet, como ela prometeu) — a ratchet
         # abaixo força a remoção desta linha no dia em que `canal` passar a discriminar.
         ("suppression_routing.dmn", "in_canal", "canal"),
-        # Lucas rodada 12 (14/10/2026, decisao do dono): o atraso e' decidido pelo grafo e chega
-        # pronto a tabela (`atraso_critico`); estas tres colunas seguem DECLARADAS (contrato dos fatos),
-        # sem regra que dependa delas em v0.2.0.
+        # Lucas rodada 12 (14/10/2026, decisao do dono) + R-047/F-031: o atraso critico e' decidido pela
+        # tabela sobre `meses_vencidos`/`dias_atraso_max` (contados pelo grafo); estas tres colunas seguem
+        # DECLARADAS (contrato dos fatos), sem regra que dependa delas.
         ("lucas_billing_admissibility.dmn", "lba_in_ciclos", "ciclos_sem_conciliacao"),
         ("lucas_billing_admissibility.dmn", "lba_in_status_conciliado", "status_conciliado"),
         ("lucas_billing_admissibility.dmn", "lba_in_valores_com_atraso", "valores_com_atraso"),
-        ("ans_calendar.dmn", "in_competencia", "competencia"),
         ("auth_auto_approval.dmn", "in_carater", "carater_atendimento"),
         ("auth_criteria_contratual.dmn", "in_tenant", "tenant_id"),
         ("auth_criteria_contratual.dmn", "in_categoria", "categoria_procedimento"),
@@ -89,13 +88,15 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("fraude_sla.dmn", "in_entidade_tipo", "entidade_tipo"),
         ("fraude_sla.dmn", "in_origem_encaminhamento", "origem_encaminhamento"),
         ("glosa_triage.dmn", "in_tipo_item", "tipo_item"),
-        ("inadimplencia_status.dmn", "in_meses_inadimplencia", "meses_inadimplencia"),
         ("lucas_escalation_routing.dmn", "ler_in_ciclos", "ciclos_sem_conciliacao"),
         ("pagto_alcada.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("pagto_sla.dmn", "in_tipo_pagamento", "tipo_pagamento"),
         ("recurso_eligibility.dmn", "in_reason_code", "glosa_reason_code"),
         ("recurso_eligibility.dmn", "in_valor", "valor_glosado_brl"),
-        ("reembolso_calculo.dmn", "in_tipo", "tipo_reembolso"),
+        # DL-0161: so ha o catch-all NAO_AVALIADO; o prazo contratual nao esta confirmado
+        # (DRAFT/verify). Quando o
+        # juridico definir, as linhas DENTRO/FORA passam a ler a coluna e esta linha sai.
+        ("reembolso_prazo.dmn", "in_dias", "dias_desde_atendimento"),
         # VW4-WIRING (2026-10-07): `k_piso` é PARAMETRO (a cifra ratificada K_ANON_FLOOR=100
         # vive na constante do código, nunca na tabela) — a própria coluna é wildcard e quem a
         # LÊ são as unary tests das OUTRAS colunas (`< k_piso` / `>= k_piso` nas rows C2/C6),
@@ -357,7 +358,15 @@ def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
             if any(_text_of(entry) != "-" for entry in last):
                 offenders.append(name)
     assert offenders == [], f"FIRST-policy tables whose LAST row is not a catch-all: {offenders}"
-    assert unique_tables == ["programa_sla.dmn:dt_programa_sla"], (
+    # MPTT P5: as duas tabelas COLLECT de `prestador_trust_scorecard.dmn` NAO podem ter linha `-`
+    # nua — sob COLLECT+SUM ela somaria pontos para TODO prestador. Em vez disso cada feature tem
+    # faixas exaustivas e disjuntas (null e fora de faixa inclusos), provadas por
+    # `tests/unit/spec/test_prestador_trust_tier_dmn.py::test_exatamente_uma_faixa_por_feature`.
+    assert unique_tables == [
+        "prestador_trust_scorecard.dmn:dt_prestador_trust_scorecard",
+        "prestador_trust_scorecard.dmn:dt_prestador_trust_motivos",
+        "programa_sla.dmn:dt_programa_sla",
+    ], (
         "a new non-FIRST decision table appeared — confirm its catch-all covers the remaining "
         f"domain before adding it here: {unique_tables}"
     )

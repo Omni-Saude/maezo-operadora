@@ -1,0 +1,41 @@
+﻿Triagem de legitimidade da pessoa jurídica contratante em planos coletivos (OP21)
+De: Lucas, Diretor Jurídico
+Para: Rodrigo 
+Data: 26 de outubro de 2026 
+1. Como citar a infração
+Pergunta. Qual a forma correta de citar a norma em todos os materiais do controle (tela, checklist, registros e testes)?
+Resposta: Usar “RN 489/2022, art. 23-A (redação dada pela RN 659/2025)”, e a forma curta “RN 489/2022, art. 23-A” na tela. A forma que circula hoje, “RN 659/2025, art. 23-A”, é imprecisa: a RN 659/2025 apenas alterou a RN 489/2022, onde o artigo está.
+2. O que verificar desde já
+Pergunta. A triagem deve cobrir desde já tudo o que a norma exige, ou existe algum padrão menor admissível até 2027?
+Resposta:  Cobrir o conteúdo integral desde a primeira versão. Como o dever vale desde maio de 2026, não vemos base para uma versão reduzida.
+3. Quem responde por “intermediar”
+Pergunta. O canal de venda da Maezo pode ser enquadrado como quem “intermedeia”, ou a responsabilidade é da operadora e da administradora de benefícios?
+Resposta:  A RN 489/2022 (art. 1º) se aplica a operadoras, administradoras de benefícios, seus administradores e prestadores de serviços de saúde; não menciona corretores. A RN 515/2022 (art. 6º) diz que corretores não são administradoras de benefícios. 
+* A — a responsabilidade é da operadora (celebrar/manter) e da administradora de benefícios; o canal, em si, não seria alcançado.
+Recomendação técnica. Não caracterizar juridicamente o papel do canal na tela nem em textos exibidos a terceiros.
+4. Base normativa do checklist
+Pergunta. Em quais artigos da RN 557/2022 o checklist deve se apoiar, já que a RN 195/2009 foi revogada?
+Resposta:  Apoiar o checklist na RN 557/2022 — arts. 5º (empresarial), 15 e 16 (adesão), 29 (formas de contratação) e 39 (ingresso irregular); arts. 9º a 14 para empresário individual. Separar as citações por assunto: contratação na RN 557/2022 e penalidade na RN 489/2022, art. 23-A. Hoje um registro interno junta as duas como “RN 557/659”.
+5. O que a tela verifica e o que guarda
+Pergunta. Quais critérios entram na tela e quais registros o controle deve guardar?
+Proposta de critérios:
+* tipo de contratação (empresarial ou adesão) e forma (direta, com administradora ou com administradora coestipulante — art. 29);
+* empresarial: vínculo do beneficiário com a contratante (art. 5º);
+* adesão: contratante na lista do art. 15 e constituída há pelo menos um ano (art. 16, salvo conselhos, entidades de classe e sindicatos);
+* empresário individual: documentos do art. 9º e reconfirmação anual (art. 10);
+* nenhuma inclusão de beneficiário sem a pessoa jurídica legitimada (art. 29, § 1º).
+Registros. A guarda dos documentos é dever da operadora e/ou da administradora (art. 12). Propomos que a Maezo guarde o registro da verificação no banco de dados (AMH datalake) e a referência aos documentos, sem duplicar a custódia.
+6. Ingresso irregular (art. 39 da RN 557/2022)
+Pergunta. O controle deve tratar a regra do art. 39 — beneficiário que entra sem cumprir os requisitos passa a ter plano individual com a operadora — oriento a bloquear e registrar (proposta) alem de também sinalizar o efeito do art. 39.
+Anexo — Trechos das normas citadas
+RN 489/2022, art. 23-A (incluído pela RN 659/2025) — Celebrar, manter ou intermediar contrato coletivo com pessoa jurídica que não detenha a legitimidade prevista na normatização vigente: Sanção - Multa, conforme Anexo desta Resolução.
+RN 659/2025, art. 5º — Esta Resolução entra em vigor em 1º de maio de 2026.
+RN 489/2022, art. 1º, § 3º — A presente Resolução Normativa aplica-se a todas as Operadoras de planos privados de assistência à saúde, inclusive as Administradoras de Benefícios.
+RN 557/2022, art. 15, § 3º — Caberá à operadora exigir e comprovar a legitimidade da pessoa jurídica contratante, na forma do caput e a condição de elegibilidade do beneficiário.
+RN 557/2022, art. 29, § 1º — Fica vedada a inclusão de beneficiários sem a participação da pessoa jurídica legitimada.
+RN 557/2022, art. 39 — O ingresso de novos beneficiários que não atendam aos requisitos de elegibilidade previstos nos artigos 5º e 15 desta resolução constituirá vínculo direto e individual com a operadora, equiparando-se para todos os efeitos legais ao plano individual ou familiar.
+RN 557/2022, art. 40, I — Ficam revogadas: I - a Resolução Normativa n° 195, de 14 de julho de 2009; […]
+RN 515/2022, art. 6º — Não se enquadram como Administradoras de Benefícios os Corretores e Corretoras regulamentados pela Lei nº 4.594, de 29 de dezembro de 1964.
+
+
+Minuta aprovada — uso interno · pág.

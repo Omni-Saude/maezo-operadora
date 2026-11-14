@@ -112,7 +112,14 @@ final class RuntimeDefinitionObservation {
       finally {COMMITTING_OBSERVATION.remove();if(previous)WorkloadPlugin.GUARDED.set(true);else WorkloadPlugin.GUARDED.remove();}
     });
     ctx.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,ignored->{
+      // The instrument's own COMMITTED marker listener (openStage) is registered
+      // FIRST, so stage.committed/committedAt are already set when this
+      // consumption runs (registration order == firing order, pinned by P1-D2).
+      // A failure here propagates AFTER the SQL commit: the stage stays DURABLE
+      // and the abort unwind commits an idle connection (no-op, §3.1 of the
+      // design) — the instrument self-aborts inside its own fail() path.
       result.committed=true;if(token.activeValidation!=null)token.activeValidation.committed(ctx);
+      if(token.admission.measurement!=null){token.admission.measurement.awaitRootRelease();token.admission.measurement.seal();}
     });
     return result;
     }catch(RuntimeException|Error failure){abortMeasurement(token,failure);throw failure;}
@@ -145,10 +152,17 @@ final class RuntimeDefinitionObservation {
     var token=result.token;var ctx=result.context;var c=result.connection;var port=token.admission.measurement;
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     if(port==null)return observeStageSample(token.plugin,ctx,c,token.request,token,locked);
-    port.hold(endpoint);port.awaitRootRelease();
+    port.hold(endpoint);
+    // D2 (DESIGN-D2-POST-COMMIT-v1 §2.2-2): the ENTRY endpoint keeps the full
+    // in-tx consume/seal; the COMMITTING endpoint returns after the in-tx HOLD
+    // oath — awaitRootRelease()+seal() migrate to the COMMITTED listener below,
+    // so no observer pacing retains the engine transaction past the HOLD. The
+    // in-tx custody that survives HERE is the two samples plus the hard
+    // equalities (sameStable/sameEndpointSession), the design §3.2-1 substitute.
+    if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.awaitRootRelease();
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     var sample=observeStageSample(token.plugin,ctx,c,token.request,token,locked);
-    port.seal();
+    if(endpoint==NativeMeasurementPort.Endpoint.ENTRY)port.seal();
     token.current(ctx,c);token.plugin.reauthorizeCapability(ctx,token.peer,token.capability);
     var fresh=observeStageSample(token.plugin,ctx,c,token.request,token,locked);
     sameStable(sample,fresh);sameEndpointSession(sample,fresh);return fresh;
@@ -331,13 +345,20 @@ final class RuntimeDefinitionObservation {
         provenance.add(map("class_name",type.getName(),"jar_relative_path",root.relativize(jar).toString(),"jar_sha256",jarHash,"class_sha256",classHash,"loader_group","engine-common"));
       }catch(Exception e){throw Refused.unavailable();}
     }
-    String version;
-    try{version=(String)ProcessEngine.class.getField("VERSION").get(null);}catch(ReflectiveOperationException e){throw Refused.unavailable();}
-    require("2.1.0".equals(version));token.admission.current();
+    // VERSION is the admitted artifact's own constant (CIB ships codenames, e.g.
+    // "fox"); observedVersion() reads it live from the actual loader and requires
+    // it present. The projection keeps its exact 7-key contract; the observed
+    // value is emitted as a fact at bytes() assembly time, never inlined.
+    observedVersion();token.admission.current();
     var jvm=map("boot_uuid",RuntimeObservationAdmission.BOOT,"pid_namespace",ProcessHandle.current().pid(),"start_time_epoch_ms",ManagementFactory.getRuntimeMXBean().getStartTime(),
         "engine_registry_size",(long)ProcessEngines.getProcessEngines().size(),"engine_registry_name",token.plugin.engine().getName());
     return immutable(map("engine_name",token.plugin.engine().getName(),"authorization_enabled",config.isAuthorizationEnabled(),"tenant_check_enabled",config.isTenantCheckEnabled(),
         "schema_update",config.getDatabaseSchemaUpdate(),"jvm_process",jvm,"class_provenance",provenance,"mounted_pins",pins));
+  }
+  /** VERSION is the admitted artifact's own constant (CIB ships codenames); observed live, never inlined. */
+  private static String observedVersion() {
+    try{String v=(String)ProcessEngine.class.getField("VERSION").get(null);require(v!=null && !v.isBlank());return v;}
+    catch(ReflectiveOperationException e){throw Refused.unavailable();}
   }
   private static void requireClassPinned(StageToken token,Path root,Path jar,String digest) {
     if(jar.equals(root.resolve("lib/maezo-human-command.jar"))) {requirePinned(token,jar,digest);return;}
@@ -503,7 +524,7 @@ final class RuntimeDefinitionObservation {
       var result=map("schema","provider-native-runtime-snapshot.v4","request_sha256",token.request.digest(),"observation_admission_sha256",token.admission.digest,
           "nonce",token.admission.document.get("nonce"),"original_deadline",token.admission.document.get("original_deadline"),"policy_digest",token.admission.policy.digest,
           "capability_digest",token.capability.digest,"identity",token.peer.identity(),"peer_certificate_sha256",token.peer.certificate(),"peer_spki_sha256",token.peer.spki(),
-          "engine_name",install.get("engine_name"),"cibseven_version","2.1.0","authorization_enabled",install.get("authorization_enabled"),"tenant_check_enabled",install.get("tenant_check_enabled"),
+          "engine_name",install.get("engine_name"),"cibseven_version",observedVersion(),"authorization_enabled",install.get("authorization_enabled"),"tenant_check_enabled",install.get("tenant_check_enabled"),
           "schema_update",install.get("schema_update"),"definition",capture.definition,"profile",capture.profile,"jvm_process",install.get("jvm_process"),"class_provenance",install.get("class_provenance"),
           "mounted_pins",install.get("mounted_pins"),"candidate_expectations",expectations(token),"clock",capture.clock,"cutoff","command-transaction-COMMITTING-as-of",
           "authority_semantics","technical-observation-only-no-effect-authorization","database_witness",capture.stageWitness,

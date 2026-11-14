@@ -805,8 +805,12 @@ def build_dossier_delegation_dispatcher(
     kafka_producer: KafkaLike | None = None,
     fhir: Mapping[str, FhirSummaryReader] | None = None,
     population: PopulationFeatureClient | None = None,
+    inad_chave_exige_contrato: bool = False,
 ) -> DelegationDispatcher:
     """Assemble the WORKER-RUNTIME dossier delegation edges (DL-0033 real wiring, Option A).
+
+    `inad_chave_exige_contrato` (F-124, dark — `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF) is
+    forwarded to Fernando's handler only (the one edge that starts SP-OP-INADIMPLENCIA-001).
 
     The first production-ORIGINATED `.delegate()` surface: unlike the Helena->Rafael edge above
     (assembled in agent-runtime, driven only by tests/a thin driver), this dispatcher is consumed
@@ -966,6 +970,7 @@ def build_dossier_delegation_dispatcher(
         cibseven=cibseven,
         audit_sink=audit_sink,
         whatsapp=build_whatsapp_seam(seam=worker_seam, adapter=_require_whatsapp_adapter_for("fernando")),
+        inad_chave_exige_contrato=inad_chave_exige_contrato is True,
     )
 
     # Facts are DURABLE now (module docstring). This root is where the gate genuinely bites:

@@ -24,6 +24,7 @@ constroi este transporte. Runbook: `docs/runbooks/helena-base-saude.md` (secao "
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -44,6 +45,9 @@ REGIAO_DO_CLIENTE: Final[str] = "sa-east-1"
 #: Os Claude 5.x RECUSAM `temperature` (medido no experimento de 17/10/2026); esforco BAIXO, como no
 #: experimento (sem ele o Haiku 5.5 gastava o teto pensando).
 CAMPOS_ADICIONAIS: Final[Mapping[str, Any]] = {"output_config": {"effort": "low"}}
+#: Classificacao curta (roteador, protocolo, classify da allowlist, 26/10/2026): o Haiku 5.5 aceita o thinking
+#: DESLIGADO com esforco ate' `high`; medido na rota: mediana 2,2 s -> 1,5 s e sem os picos de pensamento.
+CAMPOS_SEM_PENSAMENTO: Final[Mapping[str, Any]] = {**CAMPOS_ADICIONAIS, "thinking": {"type": "disabled"}}
 PRAZO_PADRAO_S: Final[float] = 15.0
 
 #: Codigos de falha (vocabulario fechado, vao para log e para quem chama).
@@ -89,6 +93,7 @@ class TransporteGlobalExperimental:
             raise ValueError(f"rota {ROTA_DE_RESIDENCIA}: so' o modelo {MODELO_HAIKU_GLOBAL} e' admitido")
         self.modelo = modelo
         self._prazo_s = prazo_s
+        self._campos: Mapping[str, Any] = CAMPOS_ADICIONAIS
         if client is not None:
             self._client = client
         else:
@@ -105,6 +110,13 @@ class TransporteGlobalExperimental:
                 ),
             )
 
+    def com_campos(self, campos: Mapping[str, Any]) -> TransporteGlobalExperimental:
+        """O MESMO transporte (cliente, modelo, prazo, rota) com outros campos do pedido (ex.: o thinking
+        desligado da classificacao curta)."""
+        irmao = copy.copy(self)
+        irmao._campos = dict(campos)
+        return irmao
+
     async def conversar(
         self, sistema: str, mensagens: Sequence[Mapping[str, Any]], *, max_tokens: int
     ) -> RespostaDaRotaGlobal:
@@ -117,7 +129,7 @@ class TransporteGlobalExperimental:
                     system=[{"text": sistema}],
                     messages=[dict(m) for m in mensagens],
                     inferenceConfig={"maxTokens": max_tokens},
-                    additionalModelRequestFields=dict(CAMPOS_ADICIONAIS),
+                    additionalModelRequestFields=dict(self._campos),
                 ),
                 timeout=self._prazo_s + 2.0,
             )

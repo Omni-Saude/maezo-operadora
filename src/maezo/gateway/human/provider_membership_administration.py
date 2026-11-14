@@ -173,8 +173,8 @@ class ProviderMembershipAdministration:
                 self.pep.evaluate(ADMIN_ACTION) in {Decision.ALLOW, Decision.REQUIRE_HUMAN},
                 AdministrationReason.AUTHORITY_UNPROVEN,
             )
-            require(self.store is not None, AdministrationReason.SOURCE_UNAVAILABLE)
-            assert self.store is not None  # narrowed after a fail-closed source check
+            if self.store is None:  # fail-closed source check
+                raise ProviderAdministrationError(AdministrationReason.SOURCE_UNAVAILABLE)
             receipt = await self.store.record(command, self.binding)
             require(datetime.now(UTC) < self.binding.valid_until, AdministrationReason.AUTHORITY_UNPROVEN)
             receipt = ProviderAdministrationReceipt.model_validate(receipt.model_dump(mode="python"))

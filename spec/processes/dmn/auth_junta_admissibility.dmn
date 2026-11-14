@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_auth_junta_admissibility"
+             name="Admissibilidade da junta medica (RN 424/2017)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    auth_junta_admissibility v0.1.0 — status: DRAFT (vedacao RN 424 art. 3 I requer ratificacao do medico auditor antes do flip).
+    Consumida por SP-OP-AUTH-001 (BRT_JuntaAdmissibilidade, logo apos ST_ConvocarJunta).
+    R-064 (F-017) / decisao do dono DEC-15 (issue #1083): junta medica SO em divergencia
+    tecnico-assistencial e NUNCA em urgencia/emergencia. Base: RN 424/2017 art. 3 "Nao se admite a
+    realizacao de junta medica ou odontologica nas seguintes situacoes: I - urgencia ou emergencia".
+    A divergencia e' declarada pelo proprio ato humano JUNTA_MEDICA na User Task do auditor ou da
+    coordenacao; esta tabela so decide se a junta e' ADMISSIVEL, nunca o merito.
+    INVARIANTE L0 HARD (authorization_denial, clinical_decision): NAO ha saida de negativa nem de
+    aprovacao. Junta vedada ou carater indeterminado devolve o caso a decisao HUMANA da coordenacao
+    de auditoria medica (fail-closed: um carater desconhecido nao prova que o caso nao e' urgente).
+    O efeito no roteamento so existe com MAEZO_AUTH_JUNTA_RN424_GUARD ligada (dark); desligada, o
+    resultado fica registrado em sombra e o caso segue para a junta como antes.
+    Dominio de carater_atendimento no contrato: urgencia | eletivo. "emergencia" e' aceito por
+    fidelidade ao texto do art. 3 I. Suspensao de prazo (art. 4 par. 2) NAO e' modelada aqui.
+  </description>
+  <decision id="auth_junta_admissibility" name="Admissibilidade da junta medica" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_auth_junta_admissibility" hitPolicy="FIRST">
+      <input id="in_carater" label="Carater do atendimento (carater_atendimento)">
+        <inputExpression id="ie_carater" typeRef="string"><text>carater_atendimento</text></inputExpression>
+      </input>
+      <output id="out_resultado" label="resultado" name="resultado" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>RN 424/2017 art. 3 I: junta vedada em urgencia</description>
+        <inputEntry id="r1i1"><text>"urgencia"</text></inputEntry>
+        <outputEntry id="r1o1"><text>"VEDADA_URGENCIA_EMERGENCIA"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"RN 424/2017 art. 3 I: junta medica vedada em urgencia/emergencia — decisao volta a coordenacao de auditoria medica (humana)"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>RN 424/2017 art. 3 I: junta vedada em emergencia</description>
+        <inputEntry id="r2i1"><text>"emergencia"</text></inputEntry>
+        <outputEntry id="r2o1"><text>"VEDADA_URGENCIA_EMERGENCIA"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"RN 424/2017 art. 3 I: junta medica vedada em urgencia/emergencia — decisao volta a coordenacao de auditoria medica (humana)"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Atendimento eletivo: junta admissivel (divergencia declarada pelo ato humano JUNTA_MEDICA)</description>
+        <inputEntry id="r3i1"><text>"eletivo"</text></inputEntry>
+        <outputEntry id="r3o1"><text>"ADMITIDA"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"Atendimento eletivo com divergencia declarada pelo auditor — junta admissivel"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Catch-all fail-closed: carater ausente ou fora do dominio nao prova que o caso nao e' urgente</description>
+        <inputEntry id="r4i1"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>"CARATER_INDETERMINADO"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"Carater do atendimento ausente ou desconhecido — junta nao convocada; decisao volta a coordenacao de auditoria medica (humana)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

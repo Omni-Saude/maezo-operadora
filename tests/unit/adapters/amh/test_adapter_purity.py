@@ -31,6 +31,12 @@ enforces the three things that must hold for THIS package, at THIS phase:
         arrival of a broker client in this package is what the fence prevents; a deliberate,
         reviewed one is what it invites.
 
+C6 successor: `commercial` adds only the existing jsonschema dependency for an injected,
+exact-digest proposed command codec; `commercial_http` adds only httpx for fixed, source-guarded
+HTTP command/public-read transport. Neither is a broker consumer or a MZO-060 durable ack.
+Their exact per-module allowances below leave every older Phase-A module unchanged; CDC and
+dependency-inversion fences apply identically to all modules.
+
 Every layer carries a NON-VACUITY guard, and the extraction the layers rest on is itself proved
 non-vacuous — `test_import_extraction_is_not_vacuous` asserts the extractors return specific known
 imports of a real module, and `test_synthetic_violations_are_detected_by_the_real_predicates` puts
@@ -74,6 +80,8 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "subject_verification",  # SubjectVerificationPort adapter (acesso, DL-0083; v1.3): fail-closed
         "consent_record",  # ConsentRecordPort adapter (acesso, DL-0083; manifest v1.3): fail-closed sem pin
         "document_resolution",  # DocumentResolutionPort adapter (telefone sem cadastro, DL-0084; v1.3)
+        "commercial",  # C6 proposed command codec; exact injected schema, never publication
+        "commercial_http",  # C6 source-guarded HTTP command/public-read transport, not a broker consumer
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
         "settings",  # env-driven configuration, declared not wired
@@ -192,14 +200,20 @@ def _cdc_offenders(tree: ast.AST) -> set[str]:
     return _imported_roots(tree) & _FORBIDDEN_CDC_ROOTS
 
 
-def _phase_a_offenders(tree: ast.AST) -> set[str]:
+def _phase_a_offenders(tree: ast.AST, *, module: str = "") -> set[str]:
     """Fence (iii): broker/codec/cloud/HTTP/SQL roots phase A must not carry."""
-    return _imported_roots(tree) & _FORBIDDEN_PHASE_A_ROOTS
+    # C6 is a separately reviewed HTTP command seam, not MZO-060 broker ack.
+    allowed = {"httpx"} if module == "commercial_http" else set()
+    return (_imported_roots(tree) & _FORBIDDEN_PHASE_A_ROOTS) - allowed
 
 
 def _non_stdlib_offenders(tree: ast.AST, *, module: str = "") -> set[str]:
     """The POSITIVE form — the failure mode a blocklist alone always has: an unlisted third party."""
     allowed = _ALLOWED_NON_STDLIB_ROOTS
+    if module == "commercial":
+        allowed = allowed | {"jsonschema"}
+    elif module == "commercial_http":
+        allowed = allowed | {"httpx"}
     if module in (
         "subject_context",
         "billing_status",
@@ -239,9 +253,8 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 12, (
-        "expected exactly 12 modules (phase A + MZO-050b + E02 + billing + resolution + tina + acesso), "
-        f"found {sorted(mods)}"
+    assert len(mods) == 14, (
+        f"expected exactly 14 modules (prior 12 + C6 codec and HTTP transport), found {sorted(mods)}"
     )
     assert "consumer" not in mods, (
         "consumer.py exists — phase A must NOT ship a consumer: WorkItemSource.ack may only report "
@@ -428,7 +441,9 @@ def test_no_module_imports_a_phase_a_forbidden_dependency() -> None:
     """Fence (iii): phase A ships no consumer, no codec, no cloud client and no new runtime
     dependency — enforced structurally, not promised in prose."""
     offenders = {
-        name: bad for name, path in _adapter_modules().items() if (bad := _phase_a_offenders(_parsed(path)))
+        name: bad
+        for name, path in _adapter_modules().items()
+        if (bad := _phase_a_offenders(_parsed(path), module=name))
     }
     assert not offenders, (
         f"phase-A dependency fence breached: {offenders}. A broker client, Avro codec or cloud SDK "
@@ -490,3 +505,31 @@ def test_subject_context_schema_libraries_do_not_open_client_or_other_modules() 
     assert _non_stdlib_offenders(tree, module="subject_context") == {"httpx"}
     assert _non_stdlib_offenders(tree, module="mapping") == {"yaml", "jsonschema", "httpx"}
     assert _phase_a_offenders(tree) == {"httpx"}
+
+
+@pytest.mark.parametrize("module", sorted(_EXPECTED_MODULES | {"unregistered_future_module"}))
+def test_c6_dependency_admission_is_exact_and_cannot_leak_to_other_modules(module: str) -> None:
+    """The C6 successor admits only its exact dependency; old Phase A stays closed."""
+    for root in _FORBIDDEN_PHASE_A_ROOTS | {"jsonschema", "unlisted_sdk"}:
+        tree = ast.parse(f"import {root}\n")
+        assert _phase_a_offenders(tree, module=module) == (
+            {root}
+            if root in _FORBIDDEN_PHASE_A_ROOTS and (module, root) != ("commercial_http", "httpx")
+            else set()
+        )
+        allowed_schema = root == "jsonschema" and module in {
+            "commercial",
+            "subject_context",
+            "billing_status",
+            "subject_resolution",
+            "tina",
+            "subject_verification",
+            "consent_record",
+            "document_resolution",
+        }
+        assert _non_stdlib_offenders(tree, module=module) == (
+            set() if allowed_schema or (module, root) == ("commercial_http", "httpx") else {root}
+        )
+    for source in ("import cdc", "import tasy", "import debezium", "import fhirclient"):
+        assert _cdc_offenders(ast.parse(source))
+    assert _foreign_maezo_offenders(ast.parse("import maezo.gateway")) == {"maezo.gateway"}

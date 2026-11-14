@@ -10,7 +10,7 @@ DL-0050 takes the same shortcut DL-0049 already took for completion, for the sam
 behind the same gate: read the handful of facts straight over the engine's REST surface, from a
 fixed server-owned client. It is fenced to `dev-sa-east-1` by
 `scripts/ci/check_portal_direct_completion.py` and it is not the destination — the destination
-is the durable, signed read model (issue #427's family of work). Read DL-0049 and DL-0050 before
+is the durable, signed read model (issue #1145's family of work). Read DL-0049 and DL-0050 before
 extending anything here.
 
 Nothing in this module is a capability: no key, no connection and no HTTP client. It holds the
@@ -29,7 +29,9 @@ from typing import Final, Literal
 from maezo.portal.contracts.context import MAX_SUMMARY
 from maezo.tools.workers.phi_vars import redact_free_text
 
+from .errors import GatewayRefusalError
 from .models import Scope
+from .reembolso_context import ReembolsoContexto
 
 __all__ = [
     "DECISION_REF",
@@ -106,6 +108,12 @@ class EscalationContextSource(ABC):
         never an upstream string.
         """
         raise NotImplementedError
+
+    async def read_reembolso(self, *, task_id: str) -> ReembolsoContexto:
+        """INTERIM (DL-0163): o contexto de uma tarefa de REEMBOLSO ja' autorizada. O padrao RECUSA: so'
+        o adaptador do motor (`EngineRestEscalationContext`) sabe ler."""
+        del task_id
+        raise GatewayRefusalError("task_unavailable")
 
     @abstractmethod
     async def close(self) -> None:

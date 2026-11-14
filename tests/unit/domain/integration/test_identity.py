@@ -1169,6 +1169,31 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "__init__.py",  # maezo.domain — docstring + empty __all__
         "integration/__init__.py",  # public surface (re-exports only)
         "integration/identity.py",  # the five identity/tenant value objects (XRD-05)
+        # ADR-0067: the exit fences for ANY text sent to a beneficiary (stdlib-only), moved out of
+        # `agents/helena/` because the gateway and Lucas apply them too.
+        "comunicacao/__init__.py",
+        "comunicacao/cerca_de_saida.py",
+        "comunicacao/lexico.py",
+        "comunicacao/retomada_saida.py",
+        # ADR-0067 (saida da fase 2): regras lexicas/de calendario da conversa, compartilhadas pela
+        # Helena, pelo Lucas e pelo despachante; moravam em `maezo.runtime`.
+        "conversa/__init__.py",
+        "conversa/caso_clinico.py",
+        "conversa/cobranca_esclarecimento.py",
+        "conversa/cobranca_foco.py",
+        "conversa/cobranca_intencao.py",
+        "conversa/cobranca_lista.py",
+        "conversa/cobranca_reclamacao.py",
+        "conversa/competencia.py",
+        "conversa/normalizacao.py",
+        "conversa/terceiro_no_texto.py",
+        # DL-0162 / ADR-0067: a maquina de estados do pedido de reembolso (stdlib-only), usada pelo Lucas e
+        # pelo despachante do WhatsApp; a plataforma nao pode importar `agents.lucas`.
+        "reembolso/__init__.py",
+        "reembolso/pedido.py",
+        # R-101 / F-139: primitivos de business key + compositor UNICO de SP-OP-CONTAS-001,
+        # aqui (SDK de agente, ADR-0067) para Marina e o worker CONTAS chamarem o MESMO codigo.
+        "chave_de_negocio.py",
     }
 )
 
@@ -1343,7 +1368,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 3
+    assert len(modules) == 20
 
 
 def test_import_extraction_is_not_vacuous() -> None:

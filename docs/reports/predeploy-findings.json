@@ -1,0 +1,679 @@
+{
+  "schema_version": 1,
+  "fonte": "docs/reports/predeploy-audit-report.md",
+  "gerador": "scripts/docs/gerar_predeploy_findings.py",
+  "nota": "Checklist historico 'nao repetir' (auditoria WS-5 de 2026-07-04). Registros refutados ficam listados como evidencia do refutador; nenhum registro e diagnostico do estado atual.",
+  "totais": {
+    "registros": 78,
+    "confirmados": 60,
+    "refutados": 18
+  },
+  "registros": [
+    {
+      "id": "auth-denial-not-human-undeclared-error",
+      "dimensao": "bpmn-dmn",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`ERR_AUTH_DENIAL_NOT_HUMAN` is thrown by `send_denial_notice` but no matching `<bpmn:error>` is declared anywhere in SP-OP-AUTH-001 — worse than a missing boundary catch, the error isn't modeled at all.",
+      "evidencia": "`auth.py:76,327-328`; `SP-OP-AUTH-001_Autorizacao_Previa.bpmn` (only 2 errors declared, neither this code)",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "cancel-brtcancelsla-dangling-outgoing-idref",
+      "dimensao": "bpmn-dmn",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`BRT_CancelSla`'s `<outgoing>` IDREF (`Flow_Sla_Dossie`) points at a `sequenceFlow` id that doesn't exist anywhere in the file; real flow is `Flow_Sla_Classificacao`.",
+      "evidencia": "`SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:199` vs `:481`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "cred-business-key-missing-collision-fallback",
+      "dimensao": "bpmn-dmn",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "3 business-key builders (CRED/CANCEL/INADIMPLENCIA) skip the digest-fallback pattern sibling builders use; a blank identity field silently collides two distinct real-world cases onto one businessKey, and the second is silently dropped (`already_existed` no-op).",
+      "evidencia": "`notifications_bridge/consumer.py:590-624` vs `:325-335`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "publish-missing-topic-guard-unreachable-in-current-deployment",
+      "dimensao": "bpmn-dmn",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`ERR_PUBLISH_MISSING_TOPIC` guard is dead code today (`event_topic` is always a hardcoded literal on all 16 process files) but would reintroduce an uncatchable crash on every publish task if ever parameterized.",
+      "evidencia": "`phase0.py:249-256`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "lucas-cancel-start-overclaim",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Lucas's prompt claims he \"abre\" (opens) SP-OP-CANCEL-001 directly; `agent.yaml` scopes his only start-capability to SP-OP-ESCALATION-001 — the same overclaim class PR #174 just fixed for Carolina/Rafael, unfixed here.",
+      "evidencia": "`lucas/prompts/system-v1.md:18` vs `agent.yaml:34,48`; `graph.py:151-152`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "lgpd-negar-fundamentado-classified-neutral",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`End_RequisicaoConcluida` is classified NEUTRAL but is also the exit for the human's `NEGAR_FUNDAMENTADO` (substantive LGPD-rights denial) decision — merges an adverse-in-substance outcome into the non-adverse bucket, exempting it from the suite's own human-gate reachability proof.",
+      "evidencia": "`SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:286`; `test_no_denial_consolidated.py:326`",
+      "disposicao": "**needs product judgment — see §3.5**"
+    },
+    {
+      "id": "helena-autonomy-actions-incomplete-triage-scheduling",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Helena's `agent.yaml` `autonomy_actions` omits `triage_and_routing`/`scheduling`/`informational_response`, though her own journey doc and prompt say she performs them.",
+      "evidencia": "`helena/agent.yaml:25-31` vs `AGJ-HELENA-TRIAGE.md:6`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "no-denial-heuristic-blind-to-genuine-adverse-terms",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "The \"PT+EN defense-in-depth\" adverse-looking regex doesn't match several already-registered genuinely-adverse end ids (`confirmada`, `encaminhado`, `desligamento`, …) and its PT/EN token pairs are asymmetric.",
+      "evidencia": "`test_no_denial_consolidated.py:402-407`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "no-denial-boundary-escape-reachability-blindspot",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "The human-gate reachability BFS only expands boundary-event edges when the source node is a human `userTask` — 24 boundary escapes attached to service/subProcess activities across 12 of 16 BPMN bodies are never actually traversed/verified.",
+      "evidencia": "`test_no_denial_consolidated.py:464-484`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "autonomy-actions-declared-but-never-exercised",
+      "dimensao": "no-denial-autonomy",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "Helena/Rafael declare `query_process_status` (Gustavo additionally `correlate_process_message`) in `autonomy_actions` with a backing tool + graph.py constant, but no graph node ever calls them.",
+      "evidencia": "`helena/agent.yaml:21,28`; `rafael/graph.py:115,125`; `gustavo/graph.py:113-114,123-124`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-deployment-crashloop-no-main",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "**deploy-blocking**",
+      "afirmacao": "See §2.1.",
+      "evidencia": "`deployment-gateway.yaml:34`",
+      "disposicao": "**fixed-this-session** (`{{PR_GATEWAY}}`)"
+    },
+    {
+      "id": "matricula-raw-to-general-zone-notifications-topic",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`inadimplencia.py`/`cancel.py` publish `matricula_beneficiario` (a declared direct-identifier PHI var) raw to the Zona Geral topic without `scrub_phi_vars` — bypassing the layer-2 egress backstop that `phase0.py`/`auth.py` are wired with.",
+      "evidencia": "`phi_vars.py:52-63`; `inadimplencia.py:429,502,689,760`; `cancel.py:221,340,388,488`",
+      "disposicao": "**needs product judgment — see §3.5** (same defect as `inad-cancel-matricula-phi-egress-unscrubbed`, §3.4)"
+    },
+    {
+      "id": "console-ingress-dangling-service-latent",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`ingress.yaml` references a `console` Service/backend with no Deployment/Service/entrypoint anywhere in the chart; inert only because `ingress.enabled` defaults `false`.",
+      "evidencia": "`ingress.yaml:62-73`; `values.yaml:174`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "phone-hash-keyless-brute-forceable-reidentification",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`phone_number_hash` on the General-Zone bus is a **keyless** SHA-256 of `tenant:phone` (tenant public, phone low-entropy ~10⁹–10¹⁰); any General-Zone/DLQ reader can brute-force the exact phone number offline — the docstring's \"salt is gateway-secret\" claim is false (there is no salt).",
+      "evidencia": "`webhooks/whatsapp/security.py:44-46`",
+      "disposicao": "**needs product judgment — see §3.5**"
+    },
+    {
+      "id": "redact-payload-force-key-gap-operator-named-flow-fields",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`redact_payload` only force-tokenizes a small fixed key-name allowlist; a WhatsApp Flow field under an unlisted key carrying a bare name/address passes through raw to the General Zone.",
+      "evidencia": "`pseudonymizer.py:248-250,337-339`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "audit-chain-from-rows-ts-reorder-verify-flap",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`chain_from_rows` sorts by wall-clock `ts` before `verify_chain`, reintroducing exactly the clock-skew fragility `recover_head` was deliberately fixed to avoid — can produce a false tamper alarm under multi-writer/failover skew.",
+      "evidencia": "`audit_postgres.py:197` vs `:65-75`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "redact-payload-geo-coordinate-string-bypasses-rounding",
+      "dimensao": "phi-perimeter",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Geo-coordinate rounding is gated on `isinstance(value, int|float)`; a coordinate delivered as a JSON string bypasses rounding entirely and passes through verbatim — a precise residential quasi-identifier pin.",
+      "evidencia": "`pseudonymizer.py:324,339`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "networkpolicy-otel-cross-namespace-egress-missing",
+      "dimensao": "infra-deploy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Every OTel-emitting pod points at a Service in the separate `observability` namespace; no NetworkPolicy egress rule permits cross-namespace traffic under `default-deny-egress` — telemetry export is silently blocked cluster-wide.",
+      "evidencia": "`values.yaml:352-353`; `networkpolicy.yaml` (no observability-ns rule anywhere in 268 lines)",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "webhook-receiver-missing-required-app-secret-verify-token-crashloop",
+      "dimensao": "infra-deploy",
+      "status": "confirmado",
+      "severidade": "**deploy-blocking**",
+      "afirmacao": "See §2.2.",
+      "evidencia": "`deployment-webhook-receiver.yaml:35-43`",
+      "disposicao": "**fixed-this-session** (`{{PR_WEBHOOK}}`)"
+    },
+    {
+      "id": "webhook-receiver-missing-kafka-bootstrap-and-egress",
+      "dimensao": "infra-deploy",
+      "status": "confirmado",
+      "severidade": "**deploy-blocking**",
+      "afirmacao": "See §2.3.",
+      "evidencia": "`deployment-webhook-receiver.yaml:35-43`; `networkpolicy.yaml:231-267`",
+      "disposicao": "**fixed-this-session** (`{{PR_WEBHOOK}}`)"
+    },
+    {
+      "id": "networkpolicy-ingress-policytype-blocks-all-cross-namespace-external-traffic",
+      "dimensao": "infra-deploy",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "The only Ingress-type NetworkPolicy (`allow-intra-namespace`) allows same-namespace peers only — defeats the ALB→webhook-receiver/console edge and cross-namespace PodMonitor scraping the moment either feature is enabled; latent today since both default off.",
+      "evidencia": "`networkpolicy.yaml:78-105`; `ingress.yaml:1-75`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "recurso-marina-a2a-decorative",
+      "dimensao": "runtime-seams",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "RECURSO's `analyze_request` worker claims A2A delegation to Marina but has zero delegation code — only an internal echo notification; enrichment never fires in production (pre-#176 PAGTO-class defect, unfixed here).",
+      "evidencia": "`recurso.py:295,328-345,847`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "inad-fernando-a2a-unreachable",
+      "dimensao": "runtime-seams",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "INAD builds a real `arrears.followup` envelope to Fernando, but `service.py` never passes the dispatcher to `register_inadimplencia_workers` **and** Fernando is excluded from `a2a_assembly._A2A_TARGETS` — structurally unreachable, always degrades to the fail-safe echo.",
+      "evidencia": "`service.py:323-327`; `a2a_assembly.py:77`; `inadimplencia.py:283,302`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "reembolso-stale-marina-card-comment",
+      "dimensao": "runtime-seams",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`reembolso.py`'s docstring claims Marina's card rejects `reembolso.analyze`; the card actually accepts it and delegation succeeds — the comment inverts reality and could mislead a maintainer into \"fixing\" a working path.",
+      "evidencia": "`reembolso.py:68-70` vs `marina/agent.yaml:83`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "inad-cancel-matricula-phi-egress-unscrubbed",
+      "dimensao": "runtime-seams",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Same underlying defect as `matricula-raw-to-general-zone-notifications-topic` (§3.3), independently found from the wiring-parity angle: `register_inadimplencia_workers`/`register_cancel_workers` accept **no** `pseudonymizer` parameter at all, unlike `phase0`/`auth`.",
+      "evidencia": "`inadimplencia.py:429,853-859`; `cancel.py:221,692`",
+      "disposicao": "**needs product judgment — see below** (same defect as `matricula-raw-to-general-zone-notifications-topic`)"
+    },
+    {
+      "id": "kafka-lag-alert-topic-label-never-matches",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`MaezoKafkaConsumerLagHigh` + the matching dashboard panel filter on literal `topic=\"agents.events\"`, which is never a real topic (only dotted subtopics exist) — permanently dead regardless of any real lag.",
+      "evidencia": "`alert-rules.yaml:28`; `engine.json:146`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "phantom-metrics-escalation-latency-evalscore",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "3 metrics backing live alerts/panels (`escalation_total`, `response_duration_seconds`, `eval_score_latest`) have documented \"Emitted by ...\" call sites that don't exist anywhere in app or CI code.",
+      "evidencia": "`metrics.py:694-719`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "runbook-url-misrouted-and-missing",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`MaezoAuditLagHigh` (ADR-0007 compliance-critical) and `MaezoEscalationRateHigh` both point `runbook_url` at an unrelated PEP-deny-spike section; `MaezoAgentRuntimeDown` has no `runbook_url` at all (sole alert missing it).",
+      "evidencia": "`alert-rules.yaml:73,81-92,111`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "podmonitor-joblabel-misuse",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`PodMonitor.spec.jobLabel` is set to a literal string, but the CRD field actually names a pod-label **key** to copy from; no pod carries that label, so the intended `job` value never resolves (dormant — `podMonitor.enabled` defaults false).",
+      "evidencia": "`podmonitor.yaml:37-38,75`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "hitl-approved-total-never-emitted-alert-permanent-false-signal",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`maezo_hitl_approved_total` is never incremented by any production path (console stopped emitting it as an unrelated fix); the HITL-approval-rate alert and dashboard panel go permanently no-data instead of ever protecting against a real approval-rate drop.",
+      "evidencia": "`metrics.py:730-735`; `harness.py:416-438`; `console/app.py:489-503`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "phase2-worker-calendar-metrics-unalerted-undashboarded",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "6 emitted instruments covering ANS/NIP/worker-dispatch compliance events (incl. no-denial-guard firings) have zero alert rules and zero dashboard panels anywhere.",
+      "evidencia": "`harness.py:351`; `ans_submit.py:162,172-173`; `nip.py:194`; `metrics.py:581-591`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "lgpd-notify-sla-risk-never-emits-breach-metric",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`lgpd.py`'s sole handler for BOTH the P7D internal alert and the P15D LGPD art. 19-II legal deadline never calls `emit_user_task_sla_breach`, unlike every sibling SP-OP module — the compliance counter/alert can never fire for LGPD-DSR deadline breaches (Kafka domain event still fires independently).",
+      "evidencia": "`lgpd.py:737-777`; contrast `auth.py:462`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "ans-cron-process-keys-missing-from-engine-poller",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`EngineMetricsPoller.DEFAULT_PROCESS_KEYS` omits all 5 SP-OP-ANS-CRON-001 process ids; engine instance-count metrics/dashboard are permanently blank for the whole regulatory-scheduler module.",
+      "evidencia": "`engine_metrics.py:48-64`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "worker-task-outcome-metric-unalerted-undashboarded",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`maezo_worker_task_total`/`_duration_seconds` (GAP-XOBS-4, explicitly documented to make no-denial-guard firings alertable) has zero alert rules and zero dashboard panels.",
+      "evidencia": "`metrics.py:594-646`; `harness.py:351`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "kafka-consumer-lag-metric-has-no-exporter-anywhere",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Both Kafka-group alerts key off `kafka_consumer_group_lag`, but no exporter/scrape-job/PodMonitor producing that metric exists anywhere (dev or prod).",
+      "evidencia": "`prometheus.yml:16-51`; `docker-compose.yml`; `podmonitor.yaml`",
+      "disposicao": "ledgered-brief"
+    },
+    {
+      "id": "gateway-service-command-has-no-main-module",
+      "dimensao": "observability",
+      "status": "confirmado",
+      "severidade": "**deploy-blocking**",
+      "afirmacao": "See §2.1 (convergent with `gateway-deployment-crashloop-no-main`).",
+      "evidencia": "`deployment-gateway.yaml:34`",
+      "disposicao": "**fixed-this-session** (`{{PR_GATEWAY}}`)"
+    },
+    {
+      "id": "auditor-console-deployment-not-found",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Incident-response commands target k8s deployment `auditor-console`, which doesn't exist anywhere in the Helm chart.",
+      "evidencia": "`devops-stack.md:372,376-381`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "devops-stack-auditor-console-not-found",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(dup. of above)",
+      "evidencia": "`devops-stack.md:372-381`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "otel-collector-wrong-namespace",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "Runbook kubectl commands target `otel-collector` in the tenant namespace; it actually runs in the separate `observability` namespace.",
+      "evidencia": "`devops-stack.md:436-472`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "pseudonymizer-secret-wrong-env-var",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`gateway.md`'s example secret-injection snippet names env var `PSEUDONYMIZER_SECRET`; the real (and only) var anywhere in the codebase is `PHI_HMAC_KEY`.",
+      "evidencia": "`gateway.md:124` vs `hmac_key_provider.py:30`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "helena-alert-name-mismatch",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`helena.md` references alert `MaezoHelenaEscalationRateAnomaly`; real alert is `MaezoEscalationRateHigh` with a materially different (single 0.30, not dual) threshold.",
+      "evidencia": "`helena.md:207` vs `alert-rules.yaml:94`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "helena-escalation-alert-name-mismatch",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(dup. of above)",
+      "evidencia": "`helena.md:207,254`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "whatsapp-invalid-signature-alert-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`whatsapp-webhook.md` documents alert `WhatsAppInvalidSignatureSpike` — not defined anywhere in the repo.",
+      "evidencia": "`whatsapp-webhook.md:261`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "whatsapp-kafka-publish-alert-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`whatsapp-webhook.md` documents alert `WhatsAppKafkaPublishFailure` — not defined anywhere.",
+      "evidencia": "`whatsapp-webhook.md:262`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "whatsapp-alerts-not-implemented",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(combined dup. of the 2 above)",
+      "evidencia": "`whatsapp-webhook.md:261-262`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "whatsapp-metrics-not-implemented",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`whatsapp-webhook.md` lists 4 Prometheus metric names never emitted anywhere in the app (only structured log events exist).",
+      "evidencia": "`whatsapp-webhook.md:253-256`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-audit-verify-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`gateway.md` instructs `python -m maezo.gateway.audit_verify`; no such module exists (only library functions `verify_chain`/`parse_jsonl`).",
+      "evidencia": "`gateway.md:217`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-audit-verify-command-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(dup. of above)",
+      "evidencia": "`gateway.md:217-218`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-audit-verify-module-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(3rd independent dup. of above)",
+      "evidencia": "`gateway.md:217-218`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "phase0-demo-webhook-service-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`phase0-demo.md`'s Step 1 curls `localhost:8082/webhook` after a compose profile that starts no such service.",
+      "evidencia": "`phase0-demo.md:18,58`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "phase0-demo-webhook-receiver-missing-docker-compose",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(dup. of above, adds that the real container port is 8080 not 8082)",
+      "evidencia": "`phase0-demo.md:58-61`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "devops-stack-agent-runtime-name-wrong",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "8 runbook commands (`devops-stack.md`+`helena.md`) target k8s resource `agent-runtime`; real per-agent names are `agent-helena`/`agent-rafael`/etc. — the legacy singular resource is gone.",
+      "evidencia": "`devops-stack.md:159,269-320,509-510`; `helena.md:220,244`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-policies-path-hard-frozen",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`gateway.md` cites `deploy/policies/autonomy/_hard_frozen.yaml`; real path is `src/maezo/policies/autonomy/_hard_frozen.yaml`.",
+      "evidencia": "`gateway.md:247`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-policies-path-tenant-overlay",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`gateway.md`'s example tenant-overlay path is fictional on 3 counts (root, subdirectory, filename) — real file is `src/maezo/policies/autonomy/tenants-amh.yaml`.",
+      "evidencia": "`gateway.md:260`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-autonomy-policy-file-paths-wrong",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "(combined dup. of the 2 above)",
+      "evidencia": "`gateway.md:247,260-268`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-metrics-names-incorrect",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`gateway.md`'s PEP-decision metric names don't match `metrics.py` (`maezo_pep_decision_total` vs real `maezo_gateway_pep_decision_total`, etc.).",
+      "evidencia": "`gateway.md:359-361`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "gateway-audit-lag-metric-name-wrong",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`gateway.md`'s audit-lag monitoring query wraps `histogram_quantile()` around what is actually a **Gauge** (`maezo_gateway_audit_lag_seconds`), not a Histogram — the documented query returns no series at all, a type-level incompatibility, not just a naming typo.",
+      "evidencia": "`gateway.md:362` vs `metrics.py:403`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "devops-stack-maezo-console-unclear",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "cosmetic",
+      "afirmacao": "`devops-stack.md`'s \"HITL console (`maezo-console`)\" reference is ambiguous/unresolvable — no such resource exists; likely means the real (differently-named) console app or the CIB Seven Tasklist.",
+      "evidencia": "`devops-stack.md:340`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "engine-processes-compliance-events-yaml-missing",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`engine-processes.md` instructs editing a `COMPLIANCE_EVENTS.yaml` that doesn't exist anywhere in the repo.",
+      "evidencia": "`engine-processes.md:4`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "grafana-dashboard-provisioning-path-mismatch",
+      "dimensao": "docs-runbooks",
+      "status": "confirmado",
+      "severidade": "post-deploy",
+      "afirmacao": "`devops-stack.md` says dashboards provision from `deploy/observability/dashboards/`; the actual Grafana provisioning config points at a different (empty) path.",
+      "evidencia": "`devops-stack.md:54`; `docker-compose.yml`",
+      "disposicao": "ledgered"
+    },
+    {
+      "id": "residue-ledger-false-merge-claim",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "Ran against a stale local `main` (an unmerged PR #175 draft branch), not canonical `origin/main`; the 4 disputed fixes are all confirmed merged on `origin/main`."
+    },
+    {
+      "id": "doc-juel-itertext-fix-not-on-main",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "Same stale-local-checkout artifact; PR #173's `itertext()` fix and its tests are confirmed present on `origin/main`."
+    },
+    {
+      "id": "dangling-not-human-guard-errors-no-boundary-catch",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Per ADR-0018 the worker guard **is** the enforcement layer; an uncaught error halts fail-closed (no adverse effect) rather than causing one, and firings are already alertable via `metrics.py` (GAP-XOBS-4)."
+    },
+    {
+      "id": "fraude-phi-custody-guard-uncaught",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Uncaught BPMN error halts the token **before** the PHI bundle is sealed/published or the accusation is registered — the designed fail-closed outcome; process is also DRAFT/pre-signoff."
+    },
+    {
+      "id": "fraude-scoring-dmn-ungoverned-by-signoff-gate",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Gate gap is CI-only (doesn't affect the deployed worker); runtime is fail-safe (score is advisory, accusation human-gated) and the DRAFT review requirement is already tracked in `review-queue.md`/`topic_registry.yaml`."
+    },
+    {
+      "id": "nip-protocolo-invalido-dead-declaration",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "Stale claim — GAP-NIP-6 (PR #171) already implemented this exact guard + boundary-catch + contract doc on current main."
+    },
+    {
+      "id": "intake-guard-errors-declared-but-never-caught",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Uncaught error is a fail-closed, per-instance, observable (metrics+logs) halt, not a crash/PHI exposure; all 8 affected processes are DRAFT/unsigned for production."
+    },
+    {
+      "id": "auth-analyze-invalid-input-undeclared-error-code",
+      "dimensao": "bpmn-dmn",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Guard is effectively unreachable for any real guia (upstream identifiers always populated by that point); firing triggers the same accepted fail-closed pattern used codebase-wide for input guards."
+    },
+    {
+      "id": "verify-chain-no-reanchor-after-retention",
+      "dimensao": "phi-perimeter",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "Re-derived: the claimed verification-failure consequence cannot occur given how `verify_chain` actually reconstructs the chain; no runtime impact under the amh-overlay as configured."
+    },
+    {
+      "id": "phi-hmac-secret-provisioned-but-never-injected-as-env",
+      "dimensao": "phi-perimeter",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Mechanically real (fix PR #177 not yet on the audited HEAD) but the PHI pipeline is inert today — gated behind the SAME blocked §6.2 LLM/Tasy secrets; tracked as a deploy-day prerequisite (`res-phi-hmac-env-injection`), not a live breach of the config as deployed."
+    },
+    {
+      "id": "networkpolicy-agent-runtime-no-db-engine-fhir-egress",
+      "dimensao": "infra-deploy",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "No NetworkPolicy in the amh render opens egress to `cibseven:8080` for **any** component, agents included — if ipBlock egress truly gated CIB Seven reachability the whole agent fleet would already be non-functional; connectivity is provided out-of-band."
+    },
+    {
+      "id": "networkpolicy-bridges-excluded-from-daemon-egress-selector",
+      "dimensao": "infra-deploy",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "In the amh render `wr2-daemon-egress` has an **empty** egress endpoint list, so the selector omission changes nothing in practice."
+    },
+    {
+      "id": "networkpolicy-daemon-egress-endpoints-empty-in-amh-values",
+      "dimensao": "infra-deploy",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Facts reproduce (empty egress endpoints in the reference overlay), but `values-amh.yaml` is a CI placeholder overlay (dummy account/CIDRs) — most plausibly completed out-of-band or in the real production values; a config-hygiene item, not a decisive break."
+    },
+    {
+      "id": "helena-a2a-delegation-helpers-uncalled",
+      "dimensao": "runtime-seams",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "ADR-0015 explicitly frames helena→rafael / gustavo→nip A2A origination as \"Phase 1+ future wiring\"; production is served today by the live BPMN/topic workers regardless — dormant-by-design, zero functional gap."
+    },
+    {
+      "id": "otel-collector-no-app-metrics-receiver",
+      "dimensao": "observability",
+      "status": "refutado",
+      "refutado_por": "refuter-2",
+      "motivo": "Treats an un-deployed template (`config/otel-collector.prod.yaml`) as canonical; the real amh collector is out-of-repo/externally managed, and annotation-based Prometheus scrape-discovery (`prometheus.io/scrape` on agent/fhir-sync Services) is an alternate path the finding didn't credit."
+    },
+    {
+      "id": "observability-terraform-module-never-invoked-by-any-env",
+      "dimensao": "observability",
+      "status": "refutado",
+      "refutado_por": "refuter-2 *(see note)*",
+      "motivo": "Recorded reason verbatim: **\"refuter died.\"** The refuter process hit the session limit before producing any reasoned verdict; the kill was nonetheless recorded as final. **⚠ This kill is INVALID — re-adjudication in flight → `{{TERRAFORM_MODULE_VERDICT}}`.** Treat the underlying finding (the observability Terraform module is never referenced by any env root module) as **open/unresolved**, not refuted, until re-adjudicated."
+    },
+    {
+      "id": "phase0-demo-wrong-deployment-endpoint",
+      "dimensao": "docs-runbooks",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "`phase0-demo.md`'s `/deployment/create` endpoint matches the actual test suite (`engine_rest.py`, `test_phase0_journey.py`) that deploys to a real CIB Seven engine — the finding had the \"correct\" reference backwards; `engine-processes.md` is the stale one (a separate, unclaimed finding)."
+    },
+    {
+      "id": "devops-stack-sla-breach-metric-name-wrong",
+      "dimensao": "docs-runbooks",
+      "status": "refutado",
+      "refutado_por": "verifier-1",
+      "motivo": "Claimed text (`maezo_process_sla_breach_total{...}`) does not exist anywhere in the file at the cited line (a blank line); the real `Alert:` line there is correct and matches `alert-rules.yaml`/`metrics.py` exactly — likely hallucinated or sourced from a stale variant."
+    }
+  ]
+}

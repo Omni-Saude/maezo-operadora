@@ -108,7 +108,7 @@ ESC-{tenant_id}-{conversation_id}-clin
 com o mesmo contrato de variaveis (o `resumo_contexto` anota que ha outro caso aberto). O caso
 original nao e cancelado nem alterado. Com um caso CLINICO ja aberto na conversa (qualquer das duas
 chaves) nao se abre outro. O `agent-resume` aceita as duas chaves como ancora da conversa
-(`runtime/caso_clinico.py::chave_e_da_conversa`); o `conversation_id` das duas instancias e o mesmo,
+(`domain/conversa/caso_clinico.py::chave_e_da_conversa`); o `conversation_id` das duas instancias e o mesmo,
 entao a retomada volta para a mesma conversa. Cobranca nunca abre caso clinico.
 
 ## Variaveis de entrada
@@ -350,12 +350,12 @@ humano que nao foi acionado.**
 O agente so' AFIRMA ao beneficiario que ha' um caso aberto ("seu atendimento continua com a equipe")
 quando o MOTOR confirma uma instancia ATIVA deste processo numa chave desta conversa
 (`ESC-{tenant}-{conversation_id}` ou o caso clinico paralelo `ESC-{tenant}-{conversation_id}-clin`,
-`src/maezo/runtime/caso_clinico.py::chave_do_escalonamento`). A confirmacao e' a leitura
+`src/maezo/domain/conversa/caso_clinico.py::chave_do_escalonamento`). A confirmacao e' a leitura
 `src/maezo/gateway/seams/cibseven.py::GatedCibSevenTransport.find_active_instance` (operacao
 catalogada `cibseven.find_active_instance`), feita no inicio do turno e SO' quando o historico curto
 da conversa traz indicio de caso (sem indicio, nenhuma leitura). A classe do caso (clinico ou
 administrativo) vem da chave `-clin` ativa ou do `motivo_categoria` da instancia
-(`src/maezo/runtime/caso_clinico.py::MOTIVOS_DE_ALERTA_CLINICO`).
+(`src/maezo/domain/conversa/caso_clinico.py::MOTIVOS_DE_ALERTA_CLINICO`).
 
 * Instancia concluida (por exemplo `UT_TratarEscalonamento` com `resultado=resolvido_humano`) ou
   inexistente: o agente NAO afirma caso aberto (despedida comum, nunca "seu caso continua").

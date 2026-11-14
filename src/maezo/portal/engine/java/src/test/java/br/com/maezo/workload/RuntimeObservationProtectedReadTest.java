@@ -28,10 +28,14 @@ class RuntimeObservationProtectedReadTest {
   private static void linux() {
     assumeTrue(Files.isDirectory(Path.of("/proc/self/fd")),"Actual Linux opened-FD custody is unavailable on this host");
   }
-  @Test void actualLinuxProtectedReadClosesDescriptorAndReturnsPinnedBytes()throws Exception {
+  @Test void actualLinuxProtectedReadPossessesDescriptorAndRepeatedReadsReopenNothing()throws Exception {
     linux();Path path=protectedFile("valid.json");var before=RuntimeObservationAdmission.descriptorCensus();
     assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
-    assertEquals(before,RuntimeObservationAdmission.descriptorCensus());
+    var possessed=RuntimeObservationAdmission.descriptorCensus();
+    assertEquals(before.size()+1,possessed.size());
+    assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
+    assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
+    assertEquals(possessed,RuntimeObservationAdmission.descriptorCensus());
   }
   @Test void wrongOpenedInodeRefusesEvenWithSameBytesAndAnExternalMatchingDescriptor()throws Exception {
     linux();Path wanted=protectedFile("wanted.json"),substituted=protectedFile("substituted.json");

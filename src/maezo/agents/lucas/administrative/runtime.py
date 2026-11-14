@@ -489,7 +489,8 @@ class AdministrativeJourneyRuntime:
     async def __run(
         self, fresh: RuntimeTurnStimulus | RuntimeResumeStimulus
     ) -> JourneyDispatchOutcome | CapabilityRefusalReason:
-        assert self.__checkpointer is not None
+        if self.__checkpointer is None:
+            raise AssertionError("runtime administrativo sem checkpointer")
         saver = _ScopedSaver(self.__checkpointer, self)
         config = self._config()
         await saver.aget_tuple(config)

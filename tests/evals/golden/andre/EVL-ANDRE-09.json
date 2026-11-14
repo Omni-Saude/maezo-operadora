@@ -5,7 +5,7 @@
   "tier": [
     "A"
   ],
-  "description": "AND-06: pagto_admissibility resolves PENDENTE_DADOS (duplicidade_suspeita=false) -- BPMN's non-admissible branch (UT_AnaliseAdmissibilidade, coordenacao-financeira), terminating BEFORE pagto_alcada/pagto_sla ever run. Closes the audit's own named 'PENDENTE_DADOS' gap (AND-06 fix_shape); not itself a literal agent.yaml `triggers:` line (that list only names the ANALISE_HUMANA value), but the SAME `pagto_admissibility` DMN and the same non-adverse human-routing invariant. Synthetic data only.",
+  "description": "AND-06: pagto_admissibility resolves PENDENTE_DADOS (duplicidade_suspeita=false) -- BPMN's non-admissible branch (UT_AnaliseAdmissibilidade, analise-contas-pagar since R-041), terminating BEFORE pagto_alcada/pagto_sla ever run. Closes the audit's own named 'PENDENTE_DADOS' gap (AND-06 fix_shape); not itself a literal agent.yaml `triggers:` line (that list only names the ANALISE_HUMANA value), but the SAME `pagto_admissibility` DMN and the same non-adverse human-routing invariant. Synthetic data only.",
   "input": {
     "state": {
       "flow": "pagto_dossier",
@@ -38,7 +38,7 @@
     "fields": {
       "route": "human_review",
       "motivo_humano": "pendencia_dados",
-      "grupo_humano": "coordenacao-financeira",
+      "grupo_humano": "analise-contas-pagar",
       "admissibilidade": "PENDENTE_DADOS",
       "desfecho": "pagamento_pendente_dados"
     }

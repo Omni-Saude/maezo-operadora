@@ -229,18 +229,18 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   da garantia de nenhuma decisão e frases de até 20 palavras. No Lucas, o mesmo papel é de
   `tests/unit/agents/test_lucas_tom_humanizado.py` (inclui os exemplos aprovados byte a byte).
 - **Responder só o que foi perguntado (Lucas):** a Helena decide o campo perguntado sobre o texto
-  (`runtime/cobranca_foco.py`: valor, coparticipação, saldo, pagamento, vencimento ou geral) e o passa
+  (`domain/conversa/cobranca_foco.py`: valor, coparticipação, saldo, pagamento, vencimento ou geral) e o passa
   no handoff; a resposta de valor do Lucas fala só daquele campo.
 - **Mês sempre com o ano (Lucas, 12/10/2026):** "julho de 2026", nunca só "julho". Sem o ano, a primeira
   pergunta do dono no teste real foi "De qual ano?". A data de pagamento continua curta (29/07) no ano
   corrente.
 - **Pergunta sobre a resposta anterior (Lucas, 12/10/2026):** "De qual ano?", "como assim?", "não entendi"
   depois de uma resposta do Lucas reaproveitam o assunto e o mês daquela resposta
-  (`runtime/cobranca_esclarecimento.py`); não viram pergunta nova nem contestação. Contestação exige
+  (`domain/conversa/cobranca_esclarecimento.py`); não viram pergunta nova nem contestação. Contestação exige
   discordância explícita ("está errado", "não reconheço", "cobraram a mais"). O mês lembrado é o mês
   RESPONDIDO, não só o pedido: "de qual ano mesmo??" depois de "a de outubro" repete outubro com o ano.
 - **Vários meses (Lucas, 12/10/2026):** "as últimas três pagas", "de julho a setembro", "as de 2026" e
-  "quais estão em aberto" viram LISTA (`runtime/cobranca_lista.py`): um cabeçalho curto e uma linha por mês,
+  "quais estão em aberto" viram LISTA (`domain/conversa/cobranca_lista.py`): um cabeçalho curto e uma linha por mês,
   com o mês e o ano e só o campo perguntado ("• outubro de 2026: R$ 8.389,53, paga em 06/10."). Nunca um mês
   só em silêncio para quem pediu vários. Com menos meses do que o pedido: "Encontrei só 2 mensalidades pagas
   nos dados que tenho:". Assunto sem lista (2ª via, vencimento, status): "Consigo te mostrar um mês por vez."

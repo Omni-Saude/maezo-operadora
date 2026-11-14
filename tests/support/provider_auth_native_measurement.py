@@ -32,7 +32,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.support import provider_auth_native_runtime as runtime
 
-PROTOCOL_SCHEMA_SHA256 = "d55733ba7703f39c7c71f13da0eb20f14825cbff03c1106894aae610423cebfe"
+PROTOCOL_SCHEMA_SHA256 = "b3de20a3918e02f97ae16ed37cd941553d23e794bca2135167471b962087ca7f"
 MAX_BYTES = 2097152
 MAX_FRAME = 32768
 SESSION_KEYS = (
@@ -57,10 +57,106 @@ _CHECKPOINT_SQL = """SELECT clock_timestamp() AS observed_at,
  a.backend_xid::text AS backend_xid32,a.usename::text AS session_login,
  a.client_addr::text AS client_address,a.client_port,s.ssl AS backend_ssl,
  s.version::text AS backend_tls_version,
- ARRAY(SELECT x::text FROM pg_catalog.pg_snapshot_xip(pg_catalog.pg_current_snapshot()) x)
- AS active_full_xids FROM pg_catalog.pg_stat_activity a
+ pg_catalog.txid_status($2::bigint) AS witness_xact_status
+ FROM pg_catalog.pg_stat_activity a
  JOIN pg_catalog.pg_stat_ssl s ON s.pid=a.pid
- CROSS JOIN pg_catalog.pg_database d WHERE a.pid=$1 AND d.datname=current_database()"""
+ CROSS JOIN pg_catalog.pg_database d
+ WHERE a.pid=$1 AND d.datname=current_database()"""
+# CI #60 root cause: the committing HOLD frame is emitted at the exact instant the
+# stage transaction's first write assigns its xid (HOLD-2 witness xid=None; HOLD-5
+# witness xid=761, same tx). One combined statement straddled that assignment
+# (snapshot evaluated before, row after) — 'full-XID mapping absent' at EVERY
+# committing-hold checkpoint. Two statements in dependency order (v22): the ROW
+# first (corroborates the witness against live pg_stat_activity), the SNAPSHOT
+# second (a later statement cannot predate an xid the row already showed).
+# v22 still refused with the SAME guard as v16 (discriminator): by the time the
+# ROOT checkpoint reads the row the stage transaction has already LEFT the
+# in-progress set (committed between the instrument's witness read and the
+# checkpoint) while pg_stat_activity still projects backend_xid32 by report lag.
+# The xip-only admission invariant is unsatisfiable BY CONSTRUCTION at that
+# boundary, so the ROW statement also reads the witness's own commit-log verdict
+# in the SAME statement (no straddle): pg_catalog.txid_status($2::bigint). The
+# value never enters the capture document — it is consumed by full_xid() and
+# recorded only in the acquisition record/crosslink decisive source.
+_SNAPSHOT_SQL = (
+    "SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip("
+    "pg_catalog.pg_current_snapshot()) y) AS active_full_xids"
+)
+# v25 REFUSAL-63 third decisive read (T3): the commit may land INSIDE the
+# checkpoint's own two-statement observation window — T1 already read the
+# witness 'in progress' while the fresh T2 snapshot no longer lists it. This
+# re-reads the SAME commit-log verdict exactly once, after the snapshot, on the
+# same connection inside the same read-only transaction: one statement, never a
+# retry, never a poll.
+#
+# v26 (ADENDO 2) T3-deferred: the v25 T3 ran at T2+ε and LOST the race against
+# the commit itself (run 40160133432 read the 'in progress' literal ~1-3 ms
+# before the commit became visible). The disambiguating read therefore happens
+# only after ONE unconditional, bounded, protocol-derived wait below — the
+# commit-log verdict is terminal there, so a single read decides. Doctrine
+# (clarified, unchanged in force): an unconditional bounded wait scheduled once
+# before the single decisive read is AGENDAMENTO, not retry/poll — the
+# prohibited patterns are conditional or unbounded re-reads, and none exist
+# here: no condition gates the wait on a previous verdict, and the read runs
+# exactly once.
+_STRADDLE_SQL = (
+    "SELECT pg_catalog.txid_status($1::bigint) AS witness_xact_status,"
+    " pg_catalog.clock_timestamp() AS read_at"
+)
+# T3' deferral (ADENDO 2, REFUSAL-63-CLASSIFICATION-v1.md, option 1 — sanctioned
+# repair of the v25 run 40160133432 failure): the measured physics of the
+# protocol pins emit->commit at +35.4 / +36.3 / +37.2 ms across three runs,
+# stable at ±1 ms (ADENDO 2 §B.2/§B.7 pins), while any immediate extra read
+# inside the post-emit hot window (~emit+[20,37] ms) disputes that same horizon
+# and lost it by <2 ms. The delay is ~5x the observed maximum commit horizon
+# (0.2 s / 37.2 ms ≈ 5.4), so the deferred verdict reads the clog AFTER the
+# commit is visible and is terminal. It is unconditional on the in-gap corner —
+# every path that reaches it waits the SAME delay, exactly once, never repeated
+# and never conditioned on any prior read — and bounded (Δ×18 ≈ 3.6 s/run, and
+# the per-read guard cap is untouched). A real commit slower than Δ is an
+# anomaly the T3' still reports correctly: the 'in progress' literal keeps the
+# exact refusal.
+#
+# v27 D2' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §10.8): under the early RELEASE the
+# wait is post-RELEASE discipline and the discriminator P4 varies Δ ∈ {0, 0.2}
+# WITHOUT one module blob per value. The env is read exactly ONCE, here at
+# import, against a CLOSED set: absent -> the pinned default "0.2" (the exact
+# v26 behaviour); "0" or "0.2" -> that value; ANY other value (including
+# "0.20", " 0.2", "-1", "abc") is a loud import-time refusal — fail-closed,
+# zero silent fallback, and never re-read at runtime. A future Δ is a new
+# module blob + re-pin (the normal v23→v27 cadence), never an open knob. The
+# validation of the scope/runner field that injects it is the release v27
+# work, not this module's.
+# v28 D-42 (owner decision 2026-10-26, route (a) of P4-RESULT-v1 §6 — the §10.8
+# sanctioned cadence "a future Δ is a new module blob + re-pin"): the P4 lane
+# measured the post-RELEASE custody tail of the COMMITTING endpoint at
+# 3.174540 s (Δ=0) / 3.217283 s (Δ=0.2), and inside that regime the deferred
+# T3' read lands 15-16x BEFORE the tail ends, so its 'in progress' verdict is
+# the non-decisive refusal by construction — never engine physics (see the P0'
+# provenance below). The owner's Δ >= 3.5 s regime admits exactly ONE new
+# member: "4" — a 4 s deferred read crosses the measured maximum tail
+# (3.217283 s) with margin, so the single decisive read happens after the whole
+# custody window is over. The set stays CLOSED, the default stays the pinned
+# "0.2" (the exact v26/v27 behaviour when the env is absent), and the literal
+# style stays integer-without-decimal for integral values ("0", never "0.0"),
+# so "4.0", "4s", " 4", "4 ", "-4", "abc" and "" are ALL still loud import-time
+# refusals — fail-closed, zero silent fallback. Still bounded: at most 36
+# corners per run (9 stages x 2 endpoints x 2 phases) x 4 s = 144 s, far under
+# the 14-minute session window, and the per-read guard cap is untouched.
+_T3_DEFERRED_ENV = "MAEZO_NATIVE_T3_DEFERRED_SECONDS"
+_T3_DEFERRED_ALLOWED = frozenset({"0", "0.2", "4"})
+
+
+def _resolve_t3_deferred_seconds() -> float:
+    raw = os.environ.get(_T3_DEFERRED_ENV, "0.2")
+    if raw not in _T3_DEFERRED_ALLOWED:
+        raise runtime.NativeObservationError(
+            f"{_T3_DEFERRED_ENV}={raw!r} refused at import; closed set {sorted(_T3_DEFERRED_ALLOWED)}"
+        )
+    return float(raw)
+
+
+_T3_DEFERRED_SECONDS: float = _resolve_t3_deferred_seconds()
 
 
 def sha(raw: bytes) -> str:
@@ -188,27 +284,214 @@ def installed_measurement_origin(
     return present
 
 
-def full_xid(xid32: Any, active: Any) -> str | None:
+# v23 decisive full-XID sources (DESIGN-OPTION-REFUSAL-60-v1). Admission is
+# state-dependent and evaluated over ONE observation, never retried:
+# * exactly one xip candidate congruent to the witness modulo 2**32 AND equal to
+#   it, with an assigned non-contradictory backend_xid32 -> the em-progresso path
+#   'pg_snapshot_xip-in-progress' (unchanged evidence, the strongest kind);
+# * zero such candidates AND the same statement's pg_catalog.txid_status verdict
+#   == 'committed' (the authoritative persistent commit log — written by the
+#   commit path itself, immune to pg_stat_activity report lag) AND backend_xid32
+#   non-contradictory, where null means the lagging projection already cleared
+#   -> 'pg_xact_clog-committed';
+# * EVERY other state refuses with a discriminating reason: aborted, in progress
+#   (non-decisive: the clog zero-initializes a never-assigned recent xid as in
+#   progress, so 'in progress' without xip candidacy can never waive),
+#   subcommitted (a stage witness is top-level), None (clog horizon), ambiguous,
+#   epoch mismatch, or a backend_xid32 contradiction. Only the exact committed
+#   literal admits the clog path — never 'inprogress'/'in progress',
+#   'subcommitted' or NULL.
+# v25 (REFUSAL-63 straddle): the commit may land INSIDE the checkpoint's own
+#   window — T1 (the row statement) reads the in-progress literal while the
+#   fresh T2 snapshot no longer lists the witness. From the T1 verdict alone
+#   that state stays non-decisive and refused. At THAT exact corner only,
+#   acquire_pg_checkpoint performs ONE further decisive read (T3) of the same
+#   commit-log verdict AFTER the snapshot, on the same connection inside the
+#   same single read-only observation — never retried, never polled.
+#   v26/ADENDO 2 clarifies the wait doctrine: the T3 read is DEFERRED by one
+#   unconditional, bounded, protocol-derived delay (_T3_DEFERRED_SECONDS), so
+#   the verdict is read after the measured commit horizon and is terminal.
+#   Agendamento incondicional limitado ≠ retry/poll: no re-read loop, no
+#   conditional or repeated waiting exists. The exact committed literal admits
+#   through the T3 sub-source below; EVERY other T3 outcome is discarded and
+#   the T1 verdict keeps its exact refusal. Like the T1 verdict, the T3 value
+#   never enters the capture document; only the admitted source distinguishes
+#   it.
+#   v27/D2' fidelity repair (design §6; §6-1 completed per P4-RESULT-v1 §7-2,
+#   owner decision 2026-10-26 standalone repair): whenever the corner EXECUTED,
+#   the fidelity block (raw status, PG clock of the read, effectively waited Δ
+#   by monotonic) is built for EVERY verdict, never only the committed one. An
+#   ADMITTED corner capture banks it on the acquisition record/crosslink item —
+#   the sanctioned place for consumed verdicts; a REFUSED corner carries it on
+#   the refusal record (the raised NativeObservationError), so the measured Δ
+#   survives the raise and the divergence guard cannot go blind on refusals.
+#   The raw verdict also stays verbatim in the refusal text (never waived).
+#   Verdicts never enter the byte-stable capture document (§8-4), and the
+#   admitted record item still only ever sees the exact committed literal.
+XID_SOURCE_IN_PROGRESS = "pg_snapshot_xip-in-progress"
+XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
+# v25 REFUSAL-63 sub-source: a zero-candidate capture admitted by the T3
+# decisive read banks a DISTINCT source — the admission came from the verdict
+# read after the snapshot, not from the T1 statement and not from the xip.
+# Same terminal committed-clog evidence, different observation instant; banked
+# evidence must distinguish the two admission instants.
+XID_SOURCE_CLOG_COMMITTED_T3 = "pg_xact_clog-committed-t3-straddle"
+# Sentinel: full_xid called WITHOUT a live txid_status verdict is an offline
+# re-derivation of a stored capture (pair verdict checks and provenance
+# revalidation read artifacts, not the database). Zero-candidate captures can
+# only exist because the live committed guard admitted them at acquisition (the
+# non-decisive states refuse before any artifact is written) and the clog is
+# terminal, so the committed verdict is a stable property of such a capture.
+_LIVE_STATUS_UNSET = object()
+# v25 sentinel: acquire_pg_checkpoint passes _T3_COMMITTED only when the ONE
+# decisive post-snapshot read returned the exact committed literal in the
+# straddle corner. Like _LIVE_STATUS_UNSET it is unreachable from server data
+# (txid_status yields only text or NULL), so no captured verdict can forge it.
+_T3_COMMITTED = object()
+# v27 (§6 fidelity) sentinel: full_xid called with deferred_t3 == this value
+# means the ONE deferred straddle read did NOT run, so the in-progress refusal
+# keeps its exact never-waived text. Any other value is the raw T3' verdict
+# (txid_status text or NULL) and is carried verbatim into the refusal message —
+# the discriminator between a slow live transaction and an aborted one. Like
+# the other sentinels it is unreachable from server data.
+_T3_NOT_RUN = object()
+# P0' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §10.6; P0-CHANNEL-IDENTIFICATION-v1 §4)
+# declarative refusal-record provenance, attached to EVERY checkpoint refusal.
+# After a refusal the engine command unwinds through CommandContext.close() ->
+# closeSessions(...) -> JdbcTransaction.close() -> resetAutoCommit() ->
+# setAutoCommit(true), so ANY COMMIT that later shows up in the witness pid's
+# state_change is that IMPLICIT commit of the unwind — never an engine commit.
+# The honest engine-commit discriminator is the SEAL + STAGE_CLOSED pair of the
+# COMMITTING endpoint (ordinals 7/8 under the D2' early-RELEASE numbering);
+# until both are banked, no state_change reading counts as engine physics.
+# v29/D2 (DESIGN-D2-POST-COMMIT-v1 §2.4): under the post-commit consumption the
+# attribution above SURVIVES, and one effect is NEW and declared: a COMMIT after
+# a refusal now lands on an ALREADY TERMINAL transaction (the engine committed
+# before the consumption could fail), so the resetAutoCommit COMMIT is the idle
+# connection's no-op and the clog verdict CANNOT move — the witness pid shows no
+# state_change transition that any admissible reading could attribute to the
+# engine's commit path.
+REFUSAL_COMMIT_PROVENANCE = {
+    "post_refusal_commit_witness": (
+        "jdbc-transaction-resetautocommit-implicit-commit-on-aborted-command-unwind"
+    ),
+    "engine_commit_discriminator": "seal-and-stage-closed-committing-frames-7-and-8",
+    "d2_post_refusal_commit_effect": ("commit-after-refusal-on-already-terminal-transaction-is-a-clog-noop"),
+}
+
+
+def full_xid(
+    xid32: Any,
+    active: Any,
+    *,
+    witness: Any,
+    live_status: Any = _LIVE_STATUS_UNSET,
+    deferred_t3: Any = _T3_NOT_RUN,
+) -> tuple[str | None, str]:
     if type(active) is not list or len(active) > 4096 or len(set(active)) != len(active):
         raise runtime.NativeObservationError("Actual full-XID snapshot refused")
     for value in active:
         if type(value) is not str or re.fullmatch(r"[1-9][0-9]{0,19}", value) is None or int(value) >= 2**64:
             raise runtime.NativeObservationError("Actual snapshot XID refused")
-    if xid32 is None:
-        return None
-    if type(xid32) is not str or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None or int(xid32) >= 2**32:
+    if witness is None:
+        if xid32 is not None:
+            raise runtime.NativeObservationError(
+                "Actual unassigned witness contradicted by assigned backend xid32"
+            )
+        return None, XID_SOURCE_IN_PROGRESS
+    if (
+        type(witness) is not str
+        or re.fullmatch(r"[1-9][0-9]{0,19}", witness) is None
+        or int(witness) >= 2**64
+    ):
+        raise runtime.NativeObservationError("Actual witness full XID refused")
+    if xid32 is not None and (
+        type(xid32) is not str or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None or int(xid32) >= 2**32
+    ):
         raise runtime.NativeObservationError("Actual backend xid32 refused")
-    matches: list[str] = [value for value in active if int(value) % 2**32 == int(xid32)]
-    if len(matches) != 1:
-        raise runtime.NativeObservationError("Actual full-XID mapping absent/ambiguous")
-    return matches[0]
+    matches: list[str] = [value for value in active if int(value) % 2**32 == int(witness) % 2**32]
+    if len(matches) == 1 and matches[0] == witness:
+        if xid32 is None:
+            raise runtime.NativeObservationError(
+                "Actual witness in progress with cleared backend xid32 projection"
+            )
+        if int(xid32) != int(witness) % 2**32:
+            raise runtime.NativeObservationError("Actual backend xid32 differs from witness epoch")
+        return witness, XID_SOURCE_IN_PROGRESS
+    if len(matches) > 1:
+        raise runtime.NativeObservationError("Actual full-XID mapping ambiguous, never forced")
+    if matches:
+        raise runtime.NativeObservationError(
+            f"Actual full-XID candidate {matches[0]} differs from witness epoch"
+        )
+    if xid32 is not None and int(xid32) != int(witness) % 2**32:
+        raise runtime.NativeObservationError("Actual backend xid32 differs from witness epoch")
+    if live_status is _LIVE_STATUS_UNSET:
+        return witness, XID_SOURCE_CLOG_COMMITTED
+    if live_status is _T3_COMMITTED:
+        return witness, XID_SOURCE_CLOG_COMMITTED_T3
+    if live_status == "committed":
+        return witness, XID_SOURCE_CLOG_COMMITTED
+    if live_status == "aborted":
+        raise runtime.NativeObservationError("Actual witness transaction aborted in the clog")
+    if live_status in ("in progress", "inprogress"):
+        if deferred_t3 is not _T3_NOT_RUN:
+            # §6: when the ONE deferred straddle read ran, its raw verdict is the
+            # discriminator between a slow live transaction and an aborted one —
+            # the refusal text carries it verbatim and still never waives.
+            raise runtime.NativeObservationError(
+                "Actual witness clog in progress without xip candidacy "
+                f"(non-decisive; deferred T3 read {deferred_t3!r})"
+            )
+        raise runtime.NativeObservationError(
+            "Actual witness clog in progress without xip candidacy (non-decisive, never waived)"
+        )
+    if live_status == "subcommitted":
+        raise runtime.NativeObservationError("Actual witness transaction subcommitted")
+    if live_status is None:
+        raise runtime.NativeObservationError("Actual witness full XID outside the clog horizon")
+    raise runtime.NativeObservationError(f"Actual witness clog status {live_status!r} unknown")
 
 
-def session(capture: dict[str, Any]) -> dict[str, Any]:
+def session(
+    capture: dict[str, Any],
+    *,
+    witness: Any,
+    live_status: Any = _LIVE_STATUS_UNSET,
+    deferred_t3: Any = _T3_NOT_RUN,
+) -> dict[str, Any]:
+    mapping, _source = full_xid(
+        capture["backend_xid32"],
+        capture["active_full_xids"],
+        witness=witness,
+        live_status=live_status,
+        deferred_t3=deferred_t3,
+    )
     return {
         **{k: capture[k] for k in SESSION_KEYS if k != "transaction_id_if_assigned"},
-        "transaction_id_if_assigned": full_xid(capture["backend_xid32"], capture["active_full_xids"]),
+        "transaction_id_if_assigned": mapping,
     }
+
+
+def _witness_in_gap(active: Any, witness_txid: Any, live_status: Any) -> bool:
+    """Exact REFUSAL-63 straddle corner, and nothing else: an assigned witness,
+    a T1 verdict that is the in-progress literal, and a fresh T2 snapshot with
+    NO congruent candidate. Only this corner executes the single T3 read — the
+    xip-present and committed-in-T1 paths stay untouched. Any shape deviation
+    returns False so full_xid() keeps its own authoritative discriminating
+    refusal; the gate decides whether T3 runs, it never widens admission.
+    """
+    if live_status not in ("in progress", "inprogress") or witness_txid is None:
+        return False
+    if type(active) is not list or len(active) > 4096:
+        return False
+    try:
+        if len(set(active)) != len(active):
+            return False
+        witness = int(witness_txid) % 2**32
+        return all(type(value) is str and int(value) % 2**32 != witness for value in active)
+    except (TypeError, ValueError):
+        return False
 
 
 async def acquire_pg_checkpoint(
@@ -219,15 +502,35 @@ async def acquire_pg_checkpoint(
     phase: str,
     guard: runtime._ObservationWaitGuard,
     schema: dict[str, Any],
-) -> dict[str, Any]:
-    """One fresh read-only transaction; caller invokes exactly twice per HOLD."""
+    release: dict[str, Any] | None = None,
+    release_raw: bytes | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """One fresh read-only transaction; caller invokes exactly twice per HOLD.
+
+    D2' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §4.2): when the caller binds an
+    already dispatched RELEASE (the early COMMITTING shape), the capture
+    artifact carries the inverted certification pair release_raw_sha256 /
+    release_emitted_at — the pairing moves from the RELEASE frame into the
+    capture artifact, and the banked timestamps prove
+    hold.emitted_at <= release.emitted_at <= root_observed_at. Returns the
+    byte-stable capture document plus the fidelity block for the acquisition
+    record (any verdict the corner measured); on refusal the fidelity rides the
+    raised error's refusal record together with REFUSAL_COMMIT_PROVENANCE:
+    verdicts never enter the capture document (§8-4).
+    """
     guard.check()
+    # §6-1 fidelity of the ONE deferred straddle read, bound before any raise so
+    # the refusal record below can always reference it (None = corner not run).
+    fidelity: dict[str, Any] | None = None
     if (
         not isinstance(connection, asyncpg.Connection)
         or connection.is_in_transaction()
         or phase not in {"ROOT_FIRST", "ROOT_SECOND"}
+        or (release is None) != (release_raw is None)
     ):
         raise runtime.NativeObservationError("Actual clean independent PostgreSQL connection required")
+    if release is not None and (release.get("kind") != "RELEASE" or type(release_raw) is not bytes):
+        raise runtime.NativeObservationError("Inverted capture/RELEASE binding pair required")
     try:
         async with connection.transaction(isolation="read_committed", readonly=True):
             guard.check()
@@ -242,12 +545,82 @@ async def acquire_pg_checkpoint(
             ):
                 raise runtime.NativeObservationError("Actual PostgreSQL stats visibility unavailable")
             witness = hold["measurement"]["session_transaction"]
+            witness_txid = witness["transaction_id_if_assigned"]
+            # The xid8 decimal rendering IS the epoch<<32|xid encoding txid_status
+            # consumes; bigint is signed, so a witness beyond 2**63-1 (epoch >=
+            # 2**31) has no admissible txid_status encoding and refuses here.
+            if witness_txid is not None and int(witness_txid) >= 2**63:
+                raise runtime.NativeObservationError(
+                    "Actual witness full XID exceeds the txid_status bigint encoding"
+                )
             row = await connection.fetchrow(
-                _CHECKPOINT_SQL, int(witness["backend_pid"]), timeout=remaining(guard)
+                _CHECKPOINT_SQL,
+                int(witness["backend_pid"]),
+                None if witness_txid is None else int(witness_txid),
+                timeout=remaining(guard),
             )
             guard.check()
             if row is None:
                 raise runtime.NativeObservationError("Held PostgreSQL backend absent")
+            guard.check()
+            snapshot_row = await connection.fetchrow(_SNAPSHOT_SQL, timeout=remaining(guard))
+            guard.check()
+            if snapshot_row is None:
+                raise runtime.NativeObservationError("Actual full-XID snapshot refused")
+            row = dict(row)
+            witness_status = row["witness_xact_status"]
+            if row["transaction_started_at"] is None:
+                # A committed (or otherwise ended) backend no longer projects
+                # xact_start, while the HOLD witness measured
+                # transaction_timestamp() in-tx and can never be NULL: a NULL
+                # xact_start cannot BE the held enlisted session, so the D2'
+                # early-RELEASE corner refuses on the congruence message —
+                # fail-closed, never false adhesion (§4.2-riscos-2).
+                raise runtime.NativeObservationError("Root PG tuple differs from held enlisted session")
+            row["active_full_xids"] = list(snapshot_row["active_full_xids"])
+            # v25 REFUSAL-63, deferred per ADENDO 2: at the exact straddle
+            # corner only (T1 in progress, fresh snapshot without the assigned
+            # witness) ONE decisive re-read of the commit-log verdict runs AFTER
+            # the snapshot — same connection, same read-only transaction, no
+            # retry/wait/poll. The read is deferred by the unconditional,
+            # bounded _T3_DEFERRED_SECONDS wait (every path reaching this corner
+            # waits the same Δ exactly once, unconditioned on any prior read):
+            # v25 proved the immediate read loses the race against the commit
+            # itself (run 40160133432, commit = emit+37.2 ms vs T3 at T2+ε), so
+            # the deferred verdict is terminal. Under D2' the wait and the read
+            # are post-RELEASE discipline (the RELEASE is already dispatched),
+            # unchanged in semantics. The exact 'committed' literal admits via
+            # the T3 sub-source; every other outcome is discarded (never
+            # admitted) and the T1 verdict keeps its exact refusal inside
+            # full_xid(), carrying the raw T3' verdict in the refusal text (§6).
+            # The §6 fidelity block (raw status, PG clock of the read,
+            # EFFECTIVELY waited Δ by monotonic) is built for every verdict the
+            # corner measured: it goes to the acquisition record item when the
+            # capture admits and to the refusal record when the corner refuses —
+            # never into the capture document (§8-4).
+            deferred_t3: Any = _T3_NOT_RUN
+            if _witness_in_gap(row["active_full_xids"], witness_txid, witness_status):
+                deferred_started_ns = time.monotonic_ns()
+                await asyncio.sleep(_T3_DEFERRED_SECONDS)
+                deferred_ns = time.monotonic_ns() - deferred_started_ns
+                straddle_row = await connection.fetchrow(
+                    _STRADDLE_SQL, int(witness_txid), timeout=remaining(guard)
+                )
+                guard.check()
+                deferred_t3 = straddle_row["witness_xact_status"]
+                if deferred_t3 == "committed":
+                    witness_status = _T3_COMMITTED
+                # §6-1 (completed — P4-RESULT-v1 §7-2, owner decision
+                # 2026-10-26): the corner MEASURED, so the fidelity block is
+                # built for EVERY verdict. An admitted capture banks it on the
+                # acquisition record item; a refused one carries it on the
+                # refusal record below, so the effectively waited Δ is never
+                # discarded in the raise. Never into the capture document.
+                fidelity = dict(
+                    t3_straddle_raw_status=deferred_t3,
+                    t3_straddle_read_at=runtime.clock(straddle_row["read_at"]),
+                    t3_deferred_seconds=f"{deferred_ns // 10**9}.{deferred_ns % 10**9:09d}",
+                )
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
@@ -282,8 +655,17 @@ async def acquire_pg_checkpoint(
             capture["backend_start"] = runtime.clock(row["backend_start"])
             capture["transaction_started_at"] = runtime.clock(row["transaction_started_at"])
             capture["active_full_xids"] = list(row["active_full_xids"])
+            if release is not None and release_raw is not None:
+                # D2' inverted certification (§4.2): the already dispatched
+                # RELEASE is referenced BY the capture; with the banked
+                # timestamps this proves hold <= release <= capture after the
+                # fact, from evidence alone.
+                capture["release_raw_sha256"] = sha(release_raw)
+                capture["release_emitted_at"] = release["emitted_at"]
             validate(schema, "RootPgRawCapture", capture)
-            if session(capture) != {k: witness[k] for k in SESSION_KEYS}:
+            if session(
+                capture, witness=witness_txid, live_status=witness_status, deferred_t3=deferred_t3
+            ) != {k: witness[k] for k in SESSION_KEYS}:
                 raise runtime.NativeObservationError("Root PG tuple differs from held enlisted session")
             physical = hold["measurement"]["stable_database_projection"]
             if (
@@ -293,9 +675,25 @@ async def acquire_pg_checkpoint(
                 raise runtime.NativeObservationError("Root PG database/login differs")
             # stat.usename is login only. current_user remains separately sourced.
         guard.check()  # Includes transaction exit; no refreshed deadline.
-        return capture
+        return capture, fidelity
+    except runtime.NativeObservationError as error:
+        # §6-1/P0' refusal record: the raised refusal carries the measured
+        # fidelity of the corner (None when it never ran — honest absence, not
+        # a discarded measurement) and the declarative P0' commit provenance:
+        # any post-refusal COMMIT visible in the witness pid's state_change is
+        # the implicit commit of the JdbcTransaction resetAutoCommit on the
+        # abort unwind, never an engine commit (see REFUSAL_COMMIT_PROVENANCE).
+        # v29/D2: under the post-commit consumption the command unwinds over an
+        # already terminal transaction, so that unwind COMMIT is an idle
+        # connection no-op — the clog verdict cannot move (declared effect).
+        error.t3_fidelity = None if fidelity is None else dict(fidelity)
+        error.refusal_commit_provenance = dict(REFUSAL_COMMIT_PROVENANCE)
+        raise
     except (asyncpg.PostgresError, KeyError, TypeError, ValueError):
-        raise runtime.NativeObservationError("Actual PostgreSQL checkpoint unavailable") from None
+        refused = runtime.NativeObservationError("Actual PostgreSQL checkpoint unavailable")
+        refused.t3_fidelity = None
+        refused.refusal_commit_provenance = dict(REFUSAL_COMMIT_PROVENANCE)
+        raise refused from None
 
 
 def source_sha(*, guard: runtime._ObservationWaitGuard | None = None) -> str:
@@ -325,10 +723,60 @@ def source_sha(*, guard: runtime._ObservationWaitGuard | None = None) -> str:
 
 def remaining(guard: runtime._ObservationWaitGuard) -> float:
     guard.check()
+    # Per-read engineering cap, NOT a custody bound (the session deadline remains
+    # the true limit). The historical 5s fit the local lane's 3-4s instrument
+    # sweeps; a cold non-local lane (CI arm64) exceeds it between HOLD and the
+    # next frame, so the cap moves to 60s — still far under the 14-min window.
     return min(
-        5.0,
+        60.0,
         (guard.deadline - datetime.now(UTC)).total_seconds(),
         (guard.deadline - guard.start_wall).total_seconds() - (time.monotonic_ns() - guard.start_ns) / 1e9,
+    )
+
+
+def hold_to_release_ns(hold: dict[str, Any], release: dict[str, Any]) -> str:
+    """§8-6 bias doctrine, main side: banked HOLD→RELEASE dispatch latency.
+
+    The design (§4.2-riscos-1) keeps the recusable threshold X as a LANE
+    parameter; the collector only registers the per-stage value from the two
+    banked frames, with exact integer nanoseconds (timestamps are
+    microsecond-precision, so the arithmetic is exact and the replay can
+    recompute and require equality).
+    """
+    delta = runtime._observation_time(release["emitted_at"]) - runtime._observation_time(hold["emitted_at"])
+    if delta < timedelta(0):
+        raise runtime.NativeObservationError("Measurement HOLD/RELEASE clock order refused")
+    return str((delta // timedelta(microseconds=1)) * 1000)
+
+
+def _stage_close_chain_ok(stage_events: list, closed: dict[str, Any]) -> bool:
+    """v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-1/§2.4) re-pinned commit/close chain.
+
+    The GUARANTEED causal link is committed_marker_at <= SEAL-07.emitted_at: the
+    instrument's own COMMITTED listener is registered before the observer's, so
+    the marker is set inside fireTransactionEvent(COMMITTED) BEFORE the
+    consumption can seal — the banked positive proof of post-commit consumption
+    (the discriminator that ordinals 7/8 never banked in v27/v28).
+
+    RELEASE-06 <= committed_marker_at is the EXPECTED observation only — the
+    in-tx work after the ROOT dispatch is not ordered by construction against
+    the marker — so it is deliberately NOT a refusal condition here (the event
+    list's own monotonic clock order already pins RELEASE-06 <= SEAL-07, and no
+    threshold is pinned; a lane guard may pin one in a later release).
+
+    The rest of the chain is unchanged and required: marker <= SEAL-07.emitted_at
+    <= executor_return_at <= context_closed_at <= STAGE_CLOSED-08.emitted_at,
+    with the SEAL's banked marker identical to the STAGE_CLOSED's (one marker
+    instance, never a fabricated one).
+    """
+    if stage_events[5].get("committed_marker_at") != closed["committed_marker_at"]:
+        return False
+    return (
+        runtime._observation_time(closed["committed_marker_at"])
+        <= runtime._observation_time(stage_events[5]["emitted_at"])
+        <= runtime._observation_time(closed["executor_return_at"])
+        <= runtime._observation_time(closed["context_closed_at"])
+        <= runtime._observation_time(closed["emitted_at"])
     )
 
 
@@ -771,7 +1219,10 @@ class NativeMeasurementCollector:
             if match is not None:
                 socket_inodes.add(match[1])
             self.guard.check()
-        expected_address = ipaddress.ip_address(capture["client_address"])
+        # Refusal #52: pg_stat_activity.client_addr is inet; its text form may carry
+        # the netmask (e.g. '127.0.0.1/32'). inet semantics keep the HOST address
+        # under any mask — ip_interface, never ip_address (bare) or ip_network (masks).
+        expected_address = ipaddress.ip_interface(capture["client_address"]).ip
         if isinstance(expected_address, ipaddress.IPv6Address) and expected_address.ipv4_mapped is not None:
             expected_address = expected_address.ipv4_mapped
         matches = []
@@ -873,16 +1324,59 @@ class NativeMeasurementCollector:
                     ):
                         raise runtime.NativeObservationError("Contiguous stage/endpoint order refused")
                     self._event(hold, hold_raw, "JVM_TO_ROOT")
+                    # D2' (DESIGN-OPTION-REFUSAL-63-ROOT-v1 §4.2): the COMMITTING
+                    # RELEASE is dispatched BEFORE any capture — the ROOT's
+                    # reading/sleep pacing no longer retains the engine
+                    # transaction inside its own COMMITTING listener. The ENTRY
+                    # endpoint keeps the original order BY DESIGN: its
+                    # unassigned-witness capture must stay bracketed between the
+                    # HOLD and the RELEASE by construction (§3.1-1), so the
+                    # ENTRY release still embeds the two capture digests.
+                    release = {
+                        k: hold[k]
+                        for k in (
+                            "schema",
+                            "session_nonce",
+                            "request_sha256",
+                            "config_sha256",
+                            "original_deadline",
+                            "stage_sequence",
+                            "server_stage_execution_uuid",
+                            "endpoint",
+                        )
+                    }
+                    early_release = endpoint == "COMMITTING"
+                    release_raw: bytes | None = None
+                    if early_release:
+                        release.update(
+                            kind="RELEASE",
+                            event_ordinal=len(self.events) + 1,
+                            emitted_at=runtime.clock(datetime.now(UTC)),
+                            hold_raw_sha256=sha(hold_raw),
+                        )
+                        validate(self.schema, "RELEASE", release)
+                        release_raw = canonical(release)
+                        self.total_bytes += len(release_raw) + 4
+                        if self.total_bytes > MAX_BYTES:
+                            raise runtime.NativeObservationError("Measurement total byte ceiling")
+                        self._event(release, release_raw, "ROOT_TO_JVM")
+                        await self._wait(
+                            asyncio.get_running_loop().sock_sendall(
+                                peer, struct.pack("!I", len(release_raw)) + release_raw
+                            )
+                        )
                     captures = []
                     for phase in ("ROOT_FIRST", "ROOT_SECOND"):
                         self._check()
-                        capture = await acquire_pg_checkpoint(
+                        capture, fidelity = await acquire_pg_checkpoint(
                             connection,
                             hold=hold,
                             hold_raw=hold_raw,
                             phase=phase,
                             guard=self.guard,
                             schema=self.schema,
+                            release=release if early_release else None,
+                            release_raw=release_raw if early_release else None,
                         )
                         self._join_pg_process(capture)
                         self._check()
@@ -899,44 +1393,47 @@ class NativeMeasurementCollector:
                             phase=phase,
                             raw_artifact=ref,
                         )
+                        if fidelity is not None:
+                            # §6: raw T3' verdict, PG clock of the read and the
+                            # effectively waited Δ — acquisition record only.
+                            item.update(fidelity)
                         self.pg_captures.append(item)
                         captures.append(capture)
-                    if session(captures[0]) != session(captures[1]):
+                    if session(
+                        captures[0],
+                        witness=hold["measurement"]["session_transaction"]["transaction_id_if_assigned"],
+                    ) != session(
+                        captures[1],
+                        witness=hold["measurement"]["session_transaction"]["transaction_id_if_assigned"],
+                    ):
                         raise runtime.NativeObservationError(
                             "Held session changed between fresh ROOT snapshots"
                         )
-                    release = {
-                        k: hold[k]
-                        for k in (
-                            "schema",
-                            "session_nonce",
-                            "request_sha256",
-                            "config_sha256",
-                            "original_deadline",
-                            "stage_sequence",
-                            "server_stage_execution_uuid",
-                            "endpoint",
+                    if not early_release:
+                        release.update(
+                            kind="RELEASE",
+                            event_ordinal=len(self.events) + 1,
+                            emitted_at=runtime.clock(datetime.now(UTC)),
+                            hold_raw_sha256=sha(hold_raw),
+                            root_capture_before_raw_sha256=self.pg_captures[-2]["raw_artifact"]["sha256"],
+                            root_capture_after_raw_sha256=self.pg_captures[-1]["raw_artifact"]["sha256"],
                         )
-                    }
-                    release.update(
-                        kind="RELEASE",
-                        event_ordinal=len(self.events) + 1,
-                        emitted_at=runtime.clock(datetime.now(UTC)),
-                        hold_raw_sha256=sha(hold_raw),
-                        root_capture_before_raw_sha256=self.pg_captures[-2]["raw_artifact"]["sha256"],
-                        root_capture_after_raw_sha256=self.pg_captures[-1]["raw_artifact"]["sha256"],
-                    )
-                    validate(self.schema, "RELEASE", release)
-                    release_raw = canonical(release)
-                    self.total_bytes += len(release_raw) + 4
-                    if self.total_bytes > MAX_BYTES:
-                        raise runtime.NativeObservationError("Measurement total byte ceiling")
-                    self._event(release, release_raw, "ROOT_TO_JVM")
-                    await self._wait(
-                        asyncio.get_running_loop().sock_sendall(
-                            peer, struct.pack("!I", len(release_raw)) + release_raw
+                        validate(self.schema, "RELEASE", release)
+                        release_raw = canonical(release)
+                        self.total_bytes += len(release_raw) + 4
+                        if self.total_bytes > MAX_BYTES:
+                            raise runtime.NativeObservationError("Measurement total byte ceiling")
+                        self._event(release, release_raw, "ROOT_TO_JVM")
+                        await self._wait(
+                            asyncio.get_running_loop().sock_sendall(
+                                peer, struct.pack("!I", len(release_raw)) + release_raw
+                            )
                         )
-                    )
+                    # §4.2-riscos-1 / §8-6: the imposed HOLD→RELEASE latency is
+                    # registered per stage from the banked frames. The recusable
+                    # threshold X is a lane parameter, never a collector constant.
+                    for item in self.pg_captures[-2:]:
+                        item["hold_to_release_ns"] = hold_to_release_ns(hold, release)
                     seal, seal_raw = await self._read(peer, "SEAL")
                     self._event(seal, seal_raw, "JVM_TO_ROOT")
                     if (
@@ -1461,25 +1958,48 @@ class NativeMeasurementProvenance:
                     )
                     if any(capture[key] != value for key, value in expected.items()):
                         raise runtime.NativeObservationError("PG raw locator differs")
-                    field = (
-                        "root_capture_before_raw_sha256"
-                        if phase_index == 0
-                        else "root_capture_after_raw_sha256"
-                    )
-                    if release[field] != sha(capture_raw) or capture["hold_raw_sha256"] != sha(
-                        event_raw[raw_index]
-                    ):
-                        raise runtime.NativeObservationError("Release PG raw acquisition hash differs")
-                    witness = hold["measurement"]["session_transaction"]
-                    if session(capture) != {key: witness[key] for key in SESSION_KEYS}:
-                        raise runtime.NativeObservationError("Fresh real snapshot/session tuple differs")
+                    # D2' (§4.2): the two endpoints carry DIFFERENT binding
+                    # shapes, both refused crosswise — the ENTRY release still
+                    # embeds both capture digests and the ENTRY capture document
+                    # stays byte-stable (§8-4); the COMMITTING release carries NO
+                    # capture digests and each COMMITTING capture references the
+                    # already dispatched RELEASE, with banked timestamps proving
+                    # hold.emitted_at <= release.emitted_at <= root_observed_at.
+                    hold_at = runtime._observation_time(hold["emitted_at"])
+                    release_at = runtime._observation_time(release["emitted_at"])
                     at = runtime._observation_time(capture["root_observed_at"])
-                    if (
-                        not runtime._observation_time(hold["emitted_at"])
-                        <= at
-                        <= runtime._observation_time(release["emitted_at"])
-                    ):
-                        raise runtime.NativeObservationError("PG capture outside HOLD/RELEASE bracket")
+                    inverted_fields = ("release_raw_sha256", "release_emitted_at")
+                    if endpoint == "ENTRY":
+                        field = (
+                            "root_capture_before_raw_sha256"
+                            if phase_index == 0
+                            else "root_capture_after_raw_sha256"
+                        )
+                        if (
+                            release.get(field) != sha(capture_raw)
+                            or any(key in capture for key in inverted_fields)
+                            or capture["hold_raw_sha256"] != sha(event_raw[raw_index])
+                        ):
+                            raise runtime.NativeObservationError("Release PG raw acquisition hash differs")
+                        if not hold_at <= at <= release_at:
+                            raise runtime.NativeObservationError("PG capture outside HOLD/RELEASE bracket")
+                    else:
+                        if (
+                            {"root_capture_before_raw_sha256", "root_capture_after_raw_sha256"} & set(release)
+                            or capture.get("release_raw_sha256") != sha(event_raw[raw_index + 1])
+                            or capture.get("release_emitted_at") != release["emitted_at"]
+                            or capture["hold_raw_sha256"] != sha(event_raw[raw_index])
+                        ):
+                            raise runtime.NativeObservationError("Release PG raw acquisition hash differs")
+                        if not release_at <= at:
+                            raise runtime.NativeObservationError("PG capture outside HOLD/RELEASE bracket")
+                    if ref.get("hold_to_release_ns") != hold_to_release_ns(hold, release):
+                        raise runtime.NativeObservationError("HOLD/RELEASE latency registration differs")
+                    witness = hold["measurement"]["session_transaction"]
+                    if session(capture, witness=witness["transaction_id_if_assigned"]) != {
+                        key: witness[key] for key in SESSION_KEYS
+                    }:
+                        raise runtime.NativeObservationError("Fresh real snapshot/session tuple differs")
                     if (
                         any(
                             capture[k] != hold["measurement"]["stable_database_projection"][k]
@@ -1513,11 +2033,11 @@ class NativeMeasurementProvenance:
                 closed["ctx_reference_ordinal"] != seq + 1
                 or closed["connection_reference_ordinal"]
                 != stage_events[0]["measurement"]["connection_reference_ordinal"]
-                or not runtime._observation_time(stage_events[5]["emitted_at"])
-                <= runtime._observation_time(closed["committed_marker_at"])
-                <= runtime._observation_time(closed["executor_return_at"])
-                <= runtime._observation_time(closed["context_closed_at"])
-                <= runtime._observation_time(closed["emitted_at"])
+                # v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-1): the chain moved into
+                # the unit-testable helper below — the guaranteed link is now
+                # marker <= SEAL-07, and RELEASE-06 <= marker is an expected
+                # observation, never a refusal condition.
+                or not _stage_close_chain_ok(stage_events, closed)
             ):
                 raise runtime.NativeObservationError(
                     "Independent commit/executor/context close order differs"
@@ -1602,7 +2122,7 @@ class NativeMeasurementProvenance:
         before: datetime,
         after: datetime,
     ) -> None:
-        a, b = hold["measurement"], seal["measurement"]
+        a = hold["measurement"]
         stable = (
             "ctx_reference_ordinal",
             "connection_reference_ordinal",
@@ -1612,13 +2132,31 @@ class NativeMeasurementProvenance:
             "instrument_origin",
         )
         if (
-            any(a[k] != b[k] for k in stable)
-            or a["ctx_reference_ordinal"] != seq + 1
+            a["ctx_reference_ordinal"] != seq + 1
             or a["jvm_toolchain"] != vm
             or a["instrument_origin"] != origin
         ):
             raise runtime.NativeObservationError("Independent direct measurement identity/config changed")
-        for measurement in (a, b):
+        if seal["endpoint"] == "COMMITTING":
+            # v29 D2 (DESIGN-D2-POST-COMMIT-v1 §2.3-2/§3.3): the COMMITTING SEAL
+            # is custody-only — the schema already refuses `measurement` and the
+            # two re-measure const-trues on that endpoint, and the retained
+            # in-tx document of the stage is the HOLD itself (the last in-tx
+            # observation), never a post-commit "fresh" fabrication (NO-GO-2).
+            # The hold-side checks below still run in full.
+            if (
+                "measurement" in seal
+                or "stable_tuple_equal_after_wait" in seal
+                or "same_ctx_connection_after_wait" in seal
+            ):
+                raise runtime.NativeObservationError("COMMITTING custody-only SEAL cannot declare re-measure")
+            measurements = (a,)
+        else:
+            b = seal["measurement"]
+            if any(a[k] != b[k] for k in stable):
+                raise runtime.NativeObservationError("Independent direct measurement identity/config changed")
+            measurements = (a, b)
+        for measurement in measurements:
             session_value = measurement["session_transaction"]
             if (
                 {k: session_value[k] for k in SESSION_KEYS}

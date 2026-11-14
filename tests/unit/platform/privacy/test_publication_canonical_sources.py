@@ -53,11 +53,11 @@ def timer_bindings():
 def test_publication_sources_equal_exact_canonical_engine_ids():
     processes = canonical_processes()
     canonical_ids = {process.attrib["id"] for process in processes}
-    # 15 SP-OP agent-plane + 5 timer definitions do ANS-CRON + SP-OP-SUPP-001 (VW4/GP11).
-    assert len(processes) == len(canonical_ids) == 21
+    # 15 SP-OP agent-plane + 4 timer definitions do ANS-CRON (R-007: SIP removido) + SP-OP-SUPP-001.
+    assert len(processes) == len(canonical_ids) == 20
     assert canonical_ids == program_publication._PUBLICATION_PROCESS_KEYS
     timers = {source for source, _, _ in timer_bindings()}
-    assert len(timers) == 5
+    assert len(timers) == 4
     # Fontes de publicação NÃO agent-startable: os timers do ANS-CRON (iniciados por timer)
     # e SP-OP-SUPP-001 (iniciado pelo plano de aplicação sobre pedido EXTERNO do titular,
     # art. 7º IX + 18 §2º — nunca por agente; KNOWN_PROCESS_KEYS/ADR-0016 segue em 15).
@@ -90,6 +90,7 @@ async def test_all_canonical_timer_publishers_decode_and_publish(source, activit
     [
         "SP-OP-ANS-CRON-001",
         "SP-OP-ANS-CRON-001-UNKNOWN",
+        "SP-OP-ANS-CRON-001-RN124SIP",  # R-007: definition removida (RN 639/2025).
         "SP-OP-ANS-CRON-001-RN124SIP-extra",
         "SP-OP-ANS-CRON-001-RN124SIP ",
         " SP-OP-ANS-CRON-001-RN124SIP",

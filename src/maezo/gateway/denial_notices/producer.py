@@ -1,4 +1,12 @@
-"""The one owner of `operadora.auth.send_denial_notice` when the portal decides.
+"""Custody-basis composer for a portal denial — NOT an owner of any topic (R-004).
+
+STATUS (R-004 / F-032; owner decision DEC-01, issue #1081). WP-J1-06 installed this producer
+behind a second, out-of-contract owner of `operadora.auth.send_denial_notice`
+(`NativeDenialNoticeWorker`). That owner was removed: the contract's `SendDenialNoticeWorker`
+is the single owner. This module is kept, uninstalled, because the future written-notice
+channel of RN 623/2024 art. 14 must read the denial basis from PHI custody rather than from
+clinical strings in engine variables (ADR-0006) — and the rule below is that reading. The
+history that follows explains why it was written.
 
 ## Why a second producer exists at all
 
@@ -103,8 +111,8 @@ class DenialNoticeProducer:
     """Compose one formal-denial record from an admitted human decision.
 
     Pure: no I/O, no engine call, no clock. The transport that feeds it is the
-    external-task harness, and the exclusivity of this topic is enforced by whoever
-    installs it (`runtime/worker_runtime/denial_notices.py`).
+    external-task harness. Nothing installs it today (R-004): the topic's single owner,
+    asserted by `runtime/worker_runtime/denial_notices.py`, is `SendDenialNoticeWorker`.
     """
 
     topic = TOPIC

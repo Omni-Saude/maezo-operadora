@@ -269,7 +269,8 @@ class Condutor:
     ) -> int:
         """As mensagens fixas da persona de acesso; `{{LLM}}` = uma fala do modelo. Devolve quantas
         falas do modelo ja' foram usadas (contam no limite de turnos da persona)."""
-        assert plano.persona.roteiro_acesso is not None
+        if plano.persona.roteiro_acesso is None:
+            raise AssertionError("persona sem roteiro de acesso")
         falas = 0
         for passo in plano.persona.roteiro_acesso:
             if passo == MARCADOR_LLM:

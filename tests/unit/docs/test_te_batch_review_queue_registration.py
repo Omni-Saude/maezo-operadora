@@ -1,16 +1,18 @@
 """R-075 (`OWNER-DECISIONS-REGISTER`, gap `ADR-0030-TE-INADIMPLENCIA`, 2026-09-04,
 `APROVADO-APOS-REVISÃO-HUMANA`): registers the T-E-deferred code family (`inadimplencia`, `cred`,
-`cancel`) as a SINGLE enablement batch in `docs/review-queue.md` — no code change, no allowlist
-flip. This fence proves the registered code list is not a stale/hand-typed snapshot: it is
-RE-DERIVED from the live gate (`scripts/ci/check_bpmn_error_allowlist.py::run_gate`) every run, so
-a future code migration that changes the T-E-deferred set trips this fence instead of silently
-leaving the review-queue row wrong.
+`cancel`) as a SINGLE enablement batch in `docs/review-queue.md`. The batch was EXECUTED on
+2026-10-31 (owner decision "T-E lote unico: preparar o PR do lote agora"): the four codes moved from
+`te_deferred` to `TE_ENABLED_CODES` (gate) + `_TE_ENABLED_CODES` (service.py) in ONE PR, exactly the
+trigger the row registered. This fence re-derives the live state from the gate
+(`scripts/ci/check_bpmn_error_allowlist.py::run_gate`) every run, so the row cannot claim an
+enablement the code does not carry (or vice versa).
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 _REPO_ROOT = Path(__file__).parents[3]
 _REVIEW_QUEUE = _REPO_ROOT / "docs" / "review-queue.md"
@@ -38,46 +40,55 @@ def _review_queue_section() -> str:
     return text[start : end if end != -1 else None]
 
 
-def test_the_live_te_deferred_set_matches_the_three_named_families() -> None:
-    """Ground truth precondition: R-075's batch is inadimplencia + cred + cancel. If a future PR
-    adds or removes a T-E-deferred code (a new family, or one of these families completing T-E
-    enablement on its own), this must be re-derived and the review-queue row updated."""
-    codes = _live_te_deferred_codes()
-    expected = {
+_LOTE = frozenset(
+    {
         "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",  # inadimplencia
         "ERR_CANCEL_MANTER_NOT_HUMAN",  # cancel
         "ERR_CRED_DENIAL_NOT_HUMAN",  # cred
         "ERR_DECRED_NOT_HUMAN",  # cred
     }
-    assert codes == expected, (
-        f"T-E-deferred set drifted from R-075's batch -- live: {sorted(codes)}, "
-        f"expected: {sorted(expected)}. Update docs/review-queue.md's FILA-T-E-LOTE-UNICO row."
+)
+
+
+def _gate() -> Any:
+    if str(_SCRIPTS_CI) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_CI))
+    import check_bpmn_error_allowlist as gate  # deliberate late import, sys.path setup above
+
+    return gate
+
+
+def test_the_batch_was_enabled_as_one_unit_and_nothing_is_left_deferred() -> None:
+    """R-075's trigger, executed: the whole batch left `te_deferred` together (no code left behind,
+    no partial boundary-by-boundary enablement)."""
+    assert _live_te_deferred_codes() == frozenset(), (
+        f"T-E-deferred set should be empty after the batch -- live: {sorted(_live_te_deferred_codes())}"
     )
+    gate = _gate()
+    assert _LOTE <= gate.TE_ENABLED_CODES
 
 
-def test_review_queue_row_lists_every_live_te_deferred_code() -> None:
-    """The registered row must name every code the gate currently reports as T-E-deferred —
-    proven by re-deriving the live set, never by re-reading the row's own hardcoded prose."""
+def test_review_queue_row_lists_every_code_of_the_batch() -> None:
     section = _review_queue_section()
-    for code in _live_te_deferred_codes():
-        assert code in section, f"{code!r} (live T-E-deferred) is not named in the FILA-T-E row"
+    for code in _LOTE:
+        assert code in section, f"{code!r} (lote T-E) is not named in the FILA-T-E row"
 
 
-def test_review_queue_row_cites_r075_verbatim_and_does_not_flip_the_allowlist() -> None:
-    """`acao_seguinte`: register the batch + trigger; explicitly NO change to
-    `check_bpmn_error_allowlist.py` nor the production allowlist in this row."""
+def test_review_queue_row_cites_r075_verbatim_and_records_the_enablement() -> None:
     section = _review_queue_section()
     assert "R-075" in section
     assert "agrupar depois — manter `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` T-E-deferred" in section
     assert "Gatilho de habilitacao" in section
+    assert "HABILITACAO EXECUTADA" in section
+    assert "2026-10-31" in section
 
 
-def test_no_code_changed_the_te_enabled_allowlists() -> None:
-    """Sanity companion to the row's own claim: today's `TE_ENABLED_CODES` /
-    `_TE_ENABLED_CODES` must still be exactly the pre-existing single entry — this task made no
-    allowlist flip."""
-    if str(_SCRIPTS_CI) not in sys.path:
-        sys.path.insert(0, str(_SCRIPTS_CI))
-    import check_bpmn_error_allowlist as gate
+def test_the_two_te_enabled_lists_carry_exactly_auth_plus_the_batch() -> None:
+    """The gate list and its runtime mirror are identical and hold exactly the pre-existing AUTH
+    entry plus the batch — no other `*_NOT_HUMAN` rode along."""
+    from maezo.runtime.worker_runtime.service import _TE_ENABLED_CODES
 
-    assert frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"}) == gate.TE_ENABLED_CODES
+    gate = _gate()
+    expected = _LOTE | {"ERR_AUTH_DENIAL_INCOMPLETE"}
+    assert expected == gate.TE_ENABLED_CODES
+    assert expected == _TE_ENABLED_CODES

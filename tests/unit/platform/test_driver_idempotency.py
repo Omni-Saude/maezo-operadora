@@ -197,3 +197,21 @@ async def test_a_tenant_that_is_not_a_valid_schema_identifier_is_refused() -> No
     """Anti-injection: the tenant becomes a `SET search_path TO "..."` literal."""
     with pytest.raises(Exception, match="(?i)tenant|schema"):
         PostgresDriverIdempotencyRegistry(dsn=_DSN, tenant='amh"; DROP SCHEMA public; --')
+
+
+async def test_is_processed_is_tenant_scoped_and_reads_only_sealed_rows() -> None:
+    """F-092: `is_processed` distinguishes a sealed effect from an in-flight claim."""
+    from maezo.platform.driver_idempotency import PROCESSED_SQL
+
+    assert "status = 'processed'" in PROCESSED_SQL
+    assert "tenant = $2" in PROCESSED_SQL
+    assert "expires_at > now()" in PROCESSED_SQL
+
+
+async def test_mark_processed_and_release_are_tenant_scoped() -> None:
+    """Mutation guard (audit R-117 / F-190): the tenant is bound on seal and on release."""
+    conn = _FakeConn(["k1", "k1"])
+    registry = _registry(conn)
+    await registry.mark_processed("k1")
+    await registry.release("k1")
+    assert conn.calls == [(MARK_PROCESSED_SQL, ("k1", "amh")), (RELEASE_SQL, ("k1", "amh"))]

@@ -7,6 +7,7 @@ remain mandatory. Q2's closed models and callback API are deliberately untouched
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 from datetime import UTC, datetime
@@ -103,7 +104,9 @@ class Closed(BaseModel):
 
 
 def parse[T: Closed](cls: type[T], raw: bytes) -> T:
-    try:
+    # Engolir e' o contrato (B110 triado): qualquer defeito vira o mesmo `invalid`, levantado
+    # FORA do bloco suprimido.
+    with contextlib.suppress(Exception):
         obj = strict_loads(raw)
         if canonicalize(obj) != raw:
             raise ExternalCaseError("invalid")
@@ -112,8 +115,6 @@ def parse[T: Closed](cls: type[T], raw: bytes) -> T:
         if parsed.canonical() != raw:
             raise ExternalCaseError("invalid")
         return parsed
-    except Exception:
-        pass
     # Discard provider validation text, chained context and notes before raising outward.
     raise ExternalCaseError("invalid")
 
@@ -329,7 +330,8 @@ def bind_ingress(
         raise ExternalCaseError("invalid")
     packet_digest = hashlib.sha256(packet.canonical()).hexdigest()
     if isinstance(receipt, SourceIngressReceipt):
-        assert isinstance(packet, SourcePacket)
+        if not isinstance(packet, SourcePacket):
+            raise AssertionError("par recibo/pacote checado acima")
         statement = packet.statement
         upstream = digest(
             {

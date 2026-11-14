@@ -25,8 +25,8 @@ from maezo.agents.lucas.graph import (
     TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
+from maezo.domain.conversa.cobranca_foco import decidir_foco_da_cobranca
 from maezo.platform.webhooks.whatsapp.dispatch import _handoff_com_mes_do_texto
-from maezo.runtime.cobranca_foco import decidir_foco_da_cobranca
 from tests.unit.agents.test_lucas_simulador_rodada4 import _EM_DIA, _EMPRESA, _FECHO, _Conversa
 
 

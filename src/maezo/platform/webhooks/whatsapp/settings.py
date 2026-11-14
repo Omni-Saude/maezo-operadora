@@ -280,20 +280,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
     # POLITICA DE ATRASO do Lucas (decisao do dono, sessao de 14/10/2026): so' o atraso CRITICO de pagador PF
-    # abre caso humano — `meses_min` competencias sem pagamento OU mais de `dias_min` dias de atraso. Abaixo
-    # disso o Lucas responde os fatos e oferece uma pessoa. Padrao: 2 meses e 30 dias.
-    lucas_atraso_meses_min: int = Field(
-        default=2,
-        ge=1,
-        le=24,
-        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_MESES_MIN", "lucas_atraso_meses_min"),
-    )
-    lucas_atraso_dias_min: int = Field(
-        default=30,
-        ge=1,
-        le=365,
-        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_DIAS_MIN", "lucas_atraso_dias_min"),
-    )
+    # abre caso humano — 2 ou mais meses sem pagamento OU mais de 30 dias de atraso. Abaixo disso o Lucas
+    # responde os fatos e oferece uma pessoa.
+    #
+    # R-047/F-031 (decisao do dono de 29/10/2026, reconfirmada em 31/10 na #1084): o LIMIAR saiu deste
+    # arquivo e mora na DMN `lucas_billing_admissibility` (regras `lba_r_atraso_critico`, `>= 2` meses, e
+    # `lba_r_atraso_critico_dias`, `> 30` dias, ambas com `pagador_empresa=false`). O grafo do Lucas so'
+    # CONTA os fatos (`meses_vencidos`, `dias_atraso_max`) e a tabela decide.
+    #
+    # Os campos `lucas_atraso_meses_min`/`lucas_atraso_dias_min` (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`)
+    # deixaram de existir: mudar o limiar e' mudar a tabela — versionada, sob a cerca
+    # `spec/aprovacoes-de-regras.yaml` e com o sign-off financeiro/PO pendente —, nunca uma variavel de
+    # ambiente. Com `extra="ignore"` (acima), uma dessas variaveis ainda definida e' simplesmente ignorada.
+    # (Este bloco ocupa as mesmas 15 linhas dos dois campos removidos: as ancoras de linha do painel W7
+    # — `scripts/w7/shadow_deviation_dashboard.py` — apontam para campos abaixo e nao se movem.)
     # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
     # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
     # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer
@@ -342,21 +342,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_HISTORICO", "helena_historico"),
     )
-    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): experimento em DEV. DESLIGADA por padrao, e desligada
-    # e' a Helena de antes byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do
-    # turno depois dos portoes de seguranca (alarme, risco, pessoa, ANS/Procon, cobranca, plano): pergunta
-    # clinica sem sintoma deixa de abrir caso, sintoma faz ficha de ate' 3 perguntas e recebe o caminho.
-    # CONTEUDO CLINICO DRAFT, pendente do medico-auditor — nao ligar fora de dev sem a ratificacao.
+    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): a camada SAIU DO CODIGO na limpeza da saude, etapa 3
+    # (dono, 02/11/2026). A variavel ainda vem da task do dev: ACEITA E IGNORADA (nada a le); sai na etapa 4,
+    # junto com o terraform. Valor nenhum muda o comportamento.
+    #
+    #
     helena_triagem_v2: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_TRIAGEM_V2", "helena_triagem_v2"),
     )
-    # HELENA V4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono, SO' em DEV. DESLIGADA por
-    # padrao, e desligada e' a Helena de antes byte a byte. Ligada: o especialista e a carteirinha recebem
-    # texto fixo (onde marcar, prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta
-    # antes do caminho. Com ela ligada a nova triagem (`helena_triagem_v2`) fica inerte. CONTEUDO CLINICO
-    # DRAFT, pendente do medico-auditor; o prazo de 14 dias uteis (especialista) e' RASCUNHO a confirmar
-    # pelo juridico.
+    # HELENA V4 (DL-0115, 16/10/2026): a camada SAIU DO CODIGO na limpeza da saude, etapa 3 (dono,
+    # 02/11/2026); a carteirinha ficou com o plano, sem chave. A variavel ainda vem da task do dev: ACEITA E
+    # IGNORADA (nada a le); sai na etapa 4, junto com o terraform.
+    #
+    #
     helena_v4: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
@@ -379,21 +378,66 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_DEPENDENTES_NOME", "helena_dependentes_nome"),
     )
-    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
-    # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
-    # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
-    # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta antes do
-    # caso (com a v4 ligada); e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao.
-    # Revisao medica e juridica pendentes antes de producao.
+    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): a camada SAIU DO CODIGO na limpeza da
+    # saude, etapa 3 (dono, 02/11/2026); o encerramento do caso a pedido ficou sem chave (etapa 1). A variavel
+    # ainda vem da task do dev: ACEITA E IGNORADA (nada a le); sai na etapa 4, junto com o terraform.
+    #
+    #
+    #
     helena_base_saude: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
     )
-    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
-    # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
-    # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
-    # autorizou como DPO SO' para as conversas da allowlist abaixo, SO' em dev. DESLIGADA por padrao; so' tem
-    # efeito com `helena_base_saude` ligada. Fora da allowlist, a Helena de antes byte a byte.
+    # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134, dono, 21/10/2026, so' dev): `desligado` (padrao)
+    # e' a Helena de antes byte a byte; `sombra` (F1) roda o roteador e as travas em paralelo e so' registra a
+    # decisao no log, sem mudar resposta; `ativo` (F2, so' na allowlist) ainda vale como `sombra`.
+    helena_roteador: Literal["desligado", "sombra", "ativo"] = Field(
+        default="desligado",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR", "helena_roteador"),
+    )
+    # ORCAMENTO DO ROTEADOR (ADR-0066, 21/10/2026): o modelo (vazio = o da zona PHI), o prazo REAL da chamada
+    # (o
+    # tempo de leitura do cliente: a thread volta no prazo) e o teto de tokens de saida. Pool e concorrencia
+    # proprios (`helena_roteador_concorrencia`): com o limite cheio, o turno segue sem o roteador.
+    helena_roteador_modelo: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MODELO", "helena_roteador_modelo"),
+    )
+    helena_roteador_prazo_s: float = Field(
+        default=3.0,
+        ge=0.5,
+        le=10.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_PRAZO_S", "helena_roteador_prazo_s"),
+    )
+    helena_roteador_max_tokens: int = Field(
+        default=256,
+        ge=16,
+        le=1024,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MAX_TOKENS", "helena_roteador_max_tokens"),
+    )
+    helena_roteador_concorrencia: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONCORRENCIA", "helena_roteador_concorrencia"),
+    )
+    # F2 (ADR-0066, DL-0136): as conversas em que o roteador ATIVO decide (ids keyed por virgula; tambem
+    # precisam estar na rota global, `helena_saude_gerativa_conversas`). Vazia = ninguem.
+    helena_roteador_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONVERSAS", "helena_roteador_conversas"),
+    )
+    # COBERTURA (DL-0140): a cobertura saiu da Helena (DL-0154; o codigo, na limpeza da saude, etapa 3). A
+    # variavel ainda vem da task do dev: ACEITA E IGNORADA; sai na etapa 4, junto com o terraform.
+    helena_cobertura_modo: Literal["simples", "consulta"] = Field(
+        default="simples",
+        validation_alias=AliasChoices("MAEZO_HELENA_COBERTURA_MODO", "helena_cobertura_modo"),
+    )
+    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): a REDACAO saiu do codigo na limpeza da saude, etapa 3
+    # (dono, 02/11/2026). A variavel ainda vem da task do dev: ACEITA E IGNORADA; sai na etapa 4. A allowlist
+    # abaixo (`helena_saude_gerativa_conversas`) CONTINUA: e' a lista da ROTA GLOBAL do Haiku 5.5 (perfil
+    # GLOBAL do Bedrock, autorizado pelo DPO so' em dev; `runtime/inference/rota_global.py`): porta unica,
+    # roteador ativo e `modelo_allowlist`. Com `MAEZO_HELENA_ROTA_GLOBAL_TODAS`, todas as conversas keyed.
     helena_saude_gerativa: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_SAUDE_GERATIVA", "helena_saude_gerativa"),
@@ -405,9 +449,9 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
         ),
     )
-    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026, decisao do dono): embeddings de um modelo
-    # REGIONAL do Bedrock em sa-east-1 escolhem o APOIO da saude gerativa (nunca portao). So' tem efeito com a
-    # saude gerativa ligada e so' para a allowlist dela. DESLIGADA por padrao.
+    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026): SAIU DO CODIGO na limpeza da saude,
+    # etapa 3 (dono, 02/11/2026), com a base e os embeddings. As tres variaveis ainda vem da task do dev:
+    # ACEITAS E IGNORADAS; saem na etapa 4, junto com o terraform.
     helena_busca_semantica: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),
@@ -501,6 +545,25 @@ class WhatsAppWebhookSettings(BaseSettings):
     cancel_pf_v1: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
+    )
+    # REEMBOLSO PELO WHATSAPP (DL-0161/DL-0162; rascunho para dev, revisao juridica, DPO e operacao antes de
+    # producao). DESLIGADA por padrao, e desligada e' o canal de antes byte a byte (nenhuma coleta, nenhum
+    # arquivo recebido). Ligada: o pedido de reembolso e' conduzido pelo Lucas (perguntas fechadas, laco de
+    # documentos, confirmacao), o processo SP-OP-REEMBOLSO-001 nasce com `aviso_beneficiario_whatsapp=true`
+    # e devolve o resultado pela retomada (`agent_resume`). 100% dos pedidos vao a analise humana.
+    reembolso_v1: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_V1", "reembolso_v1"),
+    )
+    # DL-0163: a custodia dos anexos do reembolso (S3 com SSE-KMS, `deploy/.../reembolso-anexos.tf`). As duas
+    # vem juntas ou nenhuma; sem elas o reembolso nao e' construido (nunca se aceita um arquivo sem custodia).
+    reembolso_anexos_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_ANEXOS_BUCKET", "reembolso_anexos_bucket"),
+    )
+    reembolso_anexos_kms_key_arn: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_REEMBOLSO_ANEXOS_KMS_KEY_ARN", "reembolso_anexos_kms_key_arn"),
     )
 
     # LUCAS V4 (DL-0114, catalogo v4, aprovado pelo dono em 16/10/2026 para uso em dev; revisao juridica e do
@@ -733,6 +796,12 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_TINA_PROCEDIMENTOS_OPENAPI_PATH", "amh_tina_procedimentos_openapi_path"
         ),
     )
+    # O OpenAPI da CPT VIGENTE do proprio sujeito (`tina-cpt`, manifest v1.15; DL-0130). Opcional: falha de
+    # leitura/digest deixa so' a CPT de fora (a cobertura assistida responde sem o aviso de CPT).
+    amh_tina_cpt_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_TINA_CPT_OPENAPI_PATH", "amh_tina_cpt_openapi_path"),
+    )
     amh_tina_dependentes_nome_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
@@ -748,6 +817,31 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices(
             "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", "amh_tina_cobertura_openapi_path"
         ),
+    )
+
+    # MENSAGEM SEM `wamid` (F-147 / R-060; decisao do dono de 2026-10-31, #1084 Rodada 2), DESLIGADA
+    # por padrao. Ligada, a mensagem que chega sem o id da Meta continua sendo despachada, mas
+    # reivindica um slot de uma identidade de fallback KEYED no registro duravel
+    # (`driver_idempotency`, o mesmo do `wamid`): ate 2 entregas iguais passam, da 3a em diante a
+    # entrega e' suprimida em silencio (sem aviso ao beneficiario). Registro fora: despacha mesmo
+    # assim (manter despacho), anunciado e contado. Desligada = o comportamento de antes (despacha
+    # sem protecao), so' que agora medido em `maezo_webhook_mensagem_sem_wamid_total`. Ligar exige
+    # a confirmacao do DPO da classificacao do registro (nota em
+    # `spec/policies/retention/erasure-plan.template.yaml`, linha `driver_idempotency`).
+    sem_wamid_identidade_fallback: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK", "sem_wamid_identidade_fallback"),
+    )
+
+    # ROTA GLOBAL PARA TODAS AS CONVERSAS (limpeza da saude, etapa 2: dono, 02/11/2026; autorizacao do dono
+    # como DPO de 27/10/2026 para todos os numeros do dev). DESLIGADA por padrao, e desligada e' a Helena de
+    # antes: a rota global do Haiku 5.5, o roteador ativo e a porta unica da saude (DL-0160) valem so' nas
+    # conversas das listas. Ligada: valem para TODA conversa keyed (`wa:{tenant}:hk1_...`), sem lista — um
+    # interruptor booleano explicito, nunca um curinga na lista (`rota_global.conversas_autorizadas`).
+    # So' dev.
+    helena_rota_global_todas: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTA_GLOBAL_TODAS", "helena_rota_global_todas"),
     )
 
     @model_validator(mode="before")

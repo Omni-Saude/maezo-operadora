@@ -256,6 +256,9 @@ def test_transitive_correlation_money_and_human_guard_inputs_are_not_dropped() -
             "tenant_id",
             "numero_lote_tiss",
             "prestador_id",
+            # identidade da conta (chave PAGTO por conta, decisao do dono 2026-11-01, opcao A)
+            "numero_guia_tiss",
+            "numero_conta",
             "valor_apresentado_brl",
             "valor_liberado_brl",
             "fonte_valor",

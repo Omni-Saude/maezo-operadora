@@ -77,6 +77,21 @@ _BASELINE: dict[str, str] = {
     # describing/tracking THIS very gap and its history (evidence-ledger rows, review-queue rows).
     "docs/evidence-ledger.md": "self-referential ledger rows describing/tracking this gap's history.",
     "docs/review-queue.md": "self-referential tracking rows (:1804, :1806) for this exact gap.",
+    # Espelho rastreado do GAP-REGISTER (GOV-0.8, decisão D-31a do dono, 2026-10-23): cópia FIEL,
+    # linha a linha, do snapshot custodiado (tar docs-audits-maezo-deep-audit.tar.gz; sha256
+    # 5f0535e3422e5855bc5fe449cb85bde8b9f3f05ca0f248d12936dbf242f0ef02, verificado a cada CI por
+    # make check-compliance-doc-citations). As 5 ocorrências do caminho fantasma são AS PRÓPRIAS
+    # linhas do registro que ORIGINARAM esta cerca (linhas da fonte 1303-1307 = gap AF-04/ADR-0008;
+    # 4264-4279 = o gap de 11 documentos NAO-ADR que é o ancestral direto deste fence) — mesma
+    # espécie auto-refutante das entradas docs/reviews/ e docs/reports/ acima: citação histórica
+    # que DESCREVE o fantasma, nunca ponteiro para conteúdo. Editar o bloco custodiado para
+    # "consertar" o caminho quebraria a fidelidade byte-a-byte com a custódia (a cerca do espelho
+    # falha) — a saída correta desenhada para este caso é exatamente esta entrada justificada.
+    "docs/compliance/GAP-REGISTER.yaml": (
+        "espelho rastreado (D-31a) do snapshot custodiado do GAP-REGISTER; as ocorrencias sao "
+        "as linhas historicas do registro sobre o proprio gap do caminho fantasma (fonte "
+        "L1303-1307/L4264-4279), pinadas por sha256 e verificadas pela cerca do espelho."
+    ),
 }
 
 

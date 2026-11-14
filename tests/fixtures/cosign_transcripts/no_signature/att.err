@@ -1,0 +1,6 @@
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the attestation.
+
+Verification for 127.0.0.1:5000/w7/red@sha256:365a051f12e05767b598e643676f14a450fb678a75ccf2beb0052c95d5c73b83 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - The signatures were verified against the specified public key

@@ -59,12 +59,10 @@ to human review — never a silent auto_route (structurally: every `assess` bran
 prove a neutral, allow-listed DMN output returns `human_review`, mirroring Rafael's own
 "nothing ambiguous falls through to automatic by omission" invariant).
 
-`dentro_teto_l2` (and every other reembolso ceiling fact) arrives PRE-RESOLVED by
-`tools/workers/reembolso.py::calculate_value` (via `CeilingResolver`, T1.9) — this graph
-CONSUMES it, NEVER computes it (`tests/unit/sec/test_dentro_teto_source.py` scans
-`tools/workers/{reembolso,auth,pagto}.py` only; this module is deliberately out of that scan's
-scope because it never originates the fact in the first place — `_reembolso_facts` below is a
-pure pass-through of `state.get("dentro_teto_l2")`).
+REEMBOLSO (v0.2.0, DL-0161): the process has NO calculation, ceiling or auto-approval any more —
+every request is decided by a human. The only pre-resolved fact Marina carries for it is
+`situacao_prazo` (informative DMN `reembolso_prazo`); `_reembolso_facts` below is a pure
+pass-through of what the process already resolved and never computes anything.
 
 PHI discipline: Marina's `security_zone` is `phi` end-to-end (`spec/agents/marina/agent.yaml`) —
 the one LLM call per turn (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-0017/T1.7).
@@ -152,6 +150,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.domain.chave_de_negocio import BusinessKeyComponentError, contas_business_key
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -247,7 +246,7 @@ class PatientSummaryReader(Protocol):
 class MarinaState(TypedDict, total=False):
     """Case state. Every field here is pseudonymized (Zona PHI, ADR-0006) —
     `beneficiario_pseudo_id` NEVER carries a raw CPF/name/CNS. Boolean facts
-    (`divergencia_valor`/`item_conforme_tabela`/`dentro_prazo_recurso`/reembolso ceiling facts/
+    (`divergencia_valor`/`item_conforme_tabela`/`dentro_prazo_recurso`/
     ...) arrive PRE-RESOLVED by a deterministic upstream worker — Marina CONSUMES them, never
     computes them (module docstring's L0-hard invariant)."""
 
@@ -298,18 +297,10 @@ class MarinaState(TypedDict, total=False):
     # consulta | exame_simples | exame_especial | terapia | internacao | opme | alta_complexidade
     categoria_procedimento: str
     valor_solicitado_cents: int  # integer-centavos — NEVER float/BRL (contract SP-OP-REEMBOLSO-001)
-    # Pre-resolved/pre-calculated by SP-OP-REEMBOLSO-001's OWN BusinessRuleTasks
-    # (BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval) BEFORE this hop — Marina REPORTS them,
-    # never recomputes them.
-    cobertura_prevista: bool
-    documentacao_completa: bool
-    dentro_prazo: bool
-    beneficiario_ativo: bool
-    carencia_cumprida: bool
-    dentro_tabela: bool
-    dentro_teto_l2: bool
-    requer_avaliacao_clinica: bool
-    valor_calculado_tabela_cents: int  # output of BRT_Calculo (reembolso_calculo)
+    # Pre-resolved by SP-OP-REEMBOLSO-001 BEFORE this hop — Marina REPORTS them, never recomputes.
+    situacao_prazo: str  # output of BRT_PrazoInformativo (reembolso_prazo) — informative only
+    relacao_com_titular: str  # titular | dependente (never a name)
+    motivo_nao_rede: str  # closed set, never free text
 
     # FHIR reference for the dossier (patient summary). Never raw PHI.
     patient_summary_ref: str
@@ -365,6 +356,10 @@ def _business_key(state: MarinaState) -> str:
 
     CONTAS:    `CONTAS-{tenant}-{numero_lote_tiss}` (or, when adjudicating by guia/conta:
                `CONTAS-{tenant}-{numero_guia_tiss}-{numero_conta}`). Marina STARTS this instance.
+               Composed ONLY by `tools/process_business_keys.contas_business_key` (R-101 /
+               F-139), which RAISES `BusinessKeyComponentError` on an input that composes neither
+               form (e.g. guia without conta and without lote) instead of degenerating to the
+               shared key `CONTAS-{tenant}-`.
     RECURSO:   `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`. Marina STARTS this instance.
     REEMBOLSO: `REEMB-{tenant}-{protocolo_reembolso}` — the SAME format SP-OP-REEMBOLSO-001 itself
                uses (contract §Correlacao). Marina does NOT start this instance (already running
@@ -377,11 +372,27 @@ def _business_key(state: MarinaState) -> str:
         return f"RECURSO-{tenant}-{state.get('numero_guia_tiss', '')}-{state.get('glosa_id', '')}"
     if flow == "reembolso":
         return f"REEMB-{tenant}-{state.get('protocolo_reembolso', '')}"
-    guia = state.get("numero_guia_tiss", "")
-    conta = state.get("numero_conta", "")
-    if guia and conta:
-        return f"CONTAS-{tenant}-{guia}-{conta}"
-    return f"CONTAS-{tenant}-{state.get('numero_lote_tiss', '')}"
+    return contas_business_key(
+        tenant_id=tenant,
+        numero_lote_tiss=state.get("numero_lote_tiss", ""),
+        numero_guia_tiss=state.get("numero_guia_tiss", ""),
+        numero_conta=state.get("numero_conta", ""),
+    )
+
+
+def _has_contas_business_key(state: MarinaState) -> bool:
+    """True iff the single composer can build this CONTAS identity (R-101: one source of truth
+    for "is there a key?" — the seam and the graph ask the composer, never a parallel predicate)."""
+    try:
+        contas_business_key(
+            tenant_id=state.get("tenant_id", ""),
+            numero_lote_tiss=state.get("numero_lote_tiss", ""),
+            numero_guia_tiss=state.get("numero_guia_tiss", ""),
+            numero_conta=state.get("numero_conta", ""),
+        )
+    except BusinessKeyComponentError:
+        return False
+    return True
 
 
 def _process_key(state: MarinaState) -> str:
@@ -465,22 +476,15 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "dentro_prazo_recurso",
         "documentacao_recurso_completa",
         # --- REEMBOLSO inputs (SP-OP-REEMBOLSO-001) ---
-        # The booleans/`valor_calculado_tabela_cents` are outputs of the PROCESS's OWN
-        # BusinessRuleTasks (BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval) computed BEFORE
-        # this hop — inputs FROM MARINA'S POINT OF VIEW, which she REPORTS and never recomputes.
+        # `situacao_prazo` is the output of the process's OWN BusinessRuleTask (BRT_PrazoInformativo)
+        # computed BEFORE this hop — an input FROM MARINA'S POINT OF VIEW, which she REPORTS.
         "protocolo_reembolso",
         "tipo_reembolso",
         "categoria_procedimento",
         "valor_solicitado_cents",
-        "cobertura_prevista",
-        "documentacao_completa",
-        "dentro_prazo",
-        "beneficiario_ativo",
-        "carencia_cumprida",
-        "dentro_tabela",
-        "dentro_teto_l2",
-        "requer_avaliacao_clinica",
-        "valor_calculado_tabela_cents",
+        "situacao_prazo",
+        "relacao_com_titular",
+        "motivo_nao_rede",
         # FHIR reference consumed by `gather` (a pointer, never raw PHI).
         "patient_summary_ref",
     }
@@ -614,16 +618,10 @@ _FATOS_BOOLEANOS_RECURSO: Final[dict[str, str]] = {
     "documentacao_recurso_completa": "documentacao do recurso completa",
 }
 
-#: REEMBOLSO: todos pre-resolvidos pelas BusinessRuleTasks do SP-OP-REEMBOLSO-001 ANTES deste
-#: salto — a marina REPORTA. `dentro_teto_l2` incluso: aqui ele e' pass-through de fato de
-#: worker (docstring de `_reembolso_facts`), diferente do teto do rafael, que o motor computa
-#: DEPOIS do dossie e por isso nao e' fato daquele agente (C-02).
-_FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {
-    "cobertura_prevista": "cobertura prevista no contrato",
-    "dentro_prazo": "pedido dentro do prazo",
-    "dentro_tabela": "valor dentro da tabela",
-    "dentro_teto_l2": "valor dentro do teto de alcada L2",
-}
+#: REEMBOLSO (v0.2.0, DL-0161): nao ha fato booleano pre-resolvido — nao ha cobertura, tabela nem teto
+#: por maquina.
+#: `situacao_prazo` e texto (DENTRO | FORA | NAO_AVALIADO) e vai nos fatos, nao neste mapa de booleanos.
+_FATOS_BOOLEANOS_REEMBOLSO: Final[dict[str, str]] = {}
 
 #: Fluxo -> mapa. A montagem dos fatos ja' e' despachada por fluxo em `_build_dossier`; a
 #: renderizacao segue o mesmo despacho para nao anunciar rotulo de um fluxo em outro.
@@ -646,7 +644,14 @@ class MarinaGraph:
         audit_sink: AuditStartSink,
         fhir: PatientSummaryReader | None = None,
         agent_version: str = "marina@v0",
+        contas_start_dedup_exclusive: bool = False,
     ) -> None:
+        if type(contas_start_dedup_exclusive) is not bool:
+            raise TypeError(
+                "contas_start_dedup_exclusive must be a bool (dark flag, default off) — got "
+                f"{type(contas_start_dedup_exclusive).__name__}; a truthy string must never "
+                "silently arm the EXCLUSIVE start gate"
+            )
         self._llm = inference
         self._dmn = dmn
         self._cibseven = cibseven
@@ -655,6 +660,12 @@ class MarinaGraph:
         self._model_id = getattr(inference, "model_id", None)
         self._fhir = fhir
         self._agent_version = agent_version
+        # R-101 / F-139 — DARK (default off). When True, SP-OP-CONTAS-001 starts are promoted to
+        # the `EXCLUSIVE` start-dedup posture (`transport._FLAGGED_START_DEDUP_PROMOTIONS`):
+        # concurrent re-sends of the same lote/conta resolve to ONE instance against engine
+        # evidence instead of the TOCTOU-prone `find_active_instance` alone. The DL-0046 policy
+        # map keeps CONTAS `NON_STRICT` ("Human call"); flipping this flag is that human call.
+        self._contas_start_dedup_exclusive = contas_start_dedup_exclusive
 
     # -- Nodes ----------------------------------------------------------------------------
 
@@ -682,7 +693,9 @@ class MarinaGraph:
         elif flow == "reembolso":
             key_ok = bool(state.get("protocolo_reembolso"))
         else:
-            key_ok = bool(state.get("numero_lote_tiss") or state.get("numero_guia_tiss"))
+            # R-101 / F-139: the composer decides. Pre-fix this accepted `lote OR guia`, and a guia
+            # WITHOUT conta (and without lote) was stamped with the degenerate `CONTAS-{tenant}-`.
+            key_ok = _has_contas_business_key(state)
         if not tenant_ok or not key_ok:
             return {
                 **sanitized,
@@ -892,10 +905,9 @@ class MarinaGraph:
         """REEMBOLSO flow: factual dossier of an ALREADY-RUNNING SP-OP-REEMBOLSO-001 instance.
 
         Structurally different from CONTAS/RECURSO: Marina re-evaluates NO reembolso DMN
-        (`reembolso_admissibility`/`reembolso_calculo`/`reembolso_auto_approval` already ran in
-        the BPMN's own `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` BEFORE she is
-        convoked — the facts arrive pre-resolved in `cobertura_prevista`/`dentro_prazo`/
-        `dentro_tabela`/`dentro_teto_l2`/`valor_calculado_tabela_cents`) and never starts a
+        (`reembolso_prazo`/`reembolso_sla` already ran in the BPMN's own `BRT_PrazoInformativo`/
+        `BRT_SlaAnalise` BEFORE she is convoked — the fact arrives pre-resolved in
+        `situacao_prazo`) and never starts a
         process (`start_process` is a no-op outside `contas`/`recurso`). She only ASSEMBLES the
         factual dossier and ALWAYS routes to the `analise-reembolso` human group
         (`UT_AnaliseReembolso`) — NO `auto_route` variant exists for this flow: reembolso
@@ -969,6 +981,7 @@ class MarinaGraph:
                 variables=variables,
                 audit_sink=self._audit_sink,
                 provenance=provenance,
+                promote_start_dedup=self._contas_start_dedup_exclusive and _flow(state) == "contas",
             )
         except CibSevenError as exc:
             # CC-01: `start_failed_state` devolve as MESMAS tres chaves de antes mais o marcador
@@ -1292,8 +1305,8 @@ class MarinaGraph:
     def _reembolso_facts(state: MarinaState) -> dict[str, Any]:
         """REEMBOLSO facts — ALL pre-resolved by the process BEFORE this hop (Marina REPORTS
         them, never recomputes: `dmn_refs` is deliberately absent here — no DMN was evaluated by
-        her in this flow, unlike CONTAS/RECURSO. `dentro_teto_l2` in particular is a pure
-        pass-through of the pre-resolved worker fact — see module docstring's L0-hard invariant)."""
+        her in this flow, unlike CONTAS/RECURSO. `situacao_prazo` is a pure
+        pass-through of the pre-resolved DMN fact — see module docstring's L0-hard invariant)."""
         return {
             "protocolo_reembolso": state.get("protocolo_reembolso"),
             "numero_guia_tiss": state.get("numero_guia_tiss"),
@@ -1301,11 +1314,9 @@ class MarinaGraph:
             "categoria_procedimento": state.get("categoria_procedimento"),
             "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss"),
             "valor_solicitado_cents": state.get("valor_solicitado_cents"),
-            "valor_calculado_tabela_cents": state.get("valor_calculado_tabela_cents"),
-            "cobertura_prevista": state.get("cobertura_prevista"),
-            "dentro_prazo": state.get("dentro_prazo"),
-            "dentro_tabela": state.get("dentro_tabela"),
-            "dentro_teto_l2": state.get("dentro_teto_l2"),
+            "situacao_prazo": state.get("situacao_prazo"),
+            "relacao_com_titular": state.get("relacao_com_titular"),
+            "motivo_nao_rede": state.get("motivo_nao_rede"),
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
 
@@ -1375,6 +1386,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[MarinaState]:
             "audit_sink is the T-C2 fence — no process start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "marina@v0"))
+    contas_start_dedup_exclusive = cfg.get("contas_start_dedup_exclusive", False)
     return MarinaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -1382,6 +1394,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[MarinaState]:
         audit_sink=cast(AuditStartSink, audit_sink),
         fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
         agent_version=agent_version,
+        contas_start_dedup_exclusive=contas_start_dedup_exclusive,
     ).compile_graph()
 
 

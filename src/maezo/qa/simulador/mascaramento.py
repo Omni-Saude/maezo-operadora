@@ -68,6 +68,9 @@ _NOME_DE_DEPENDENTE = re.compile(
     r"(?m)((?:^|[;:]\s*|\n)\d{1,2}\) (?!(?:para )?(?:voc[eê]\b|o dependente \d))(?:para )?)"
     r"([^\W\d_][^()\n;:]{1,118}?)( \()"
 )
+#: DL-0131: o rotulo "Para <nome do dependente>, pelo cadastro..." da resposta de cobertura. "Para voce
+#: (titular)", "Para o seu filho" e o que ja' foi mascarado nao sao nomes.
+_ROTULO_PARA_QUEM = re.compile(r"(\b[Pp]ara )(?!voc[eê]\b|o seu\b|a sua\b|\[)([^,\n]{2,80})(, pelo cadastro)")
 #: So' nas duas mensagens fixas que listam dependentes (a lista de dependentes e o "para quem e'?").
 _LISTA_DE_DEPENDENTES = re.compile(r"dependentes? ativos?\b|e para quem\?")
 #: Rede de seguranca: 8+ digitos seguidos que nenhuma regra acima trocou (numero de carteirinha, CNS...).
@@ -153,6 +156,11 @@ class Mascarador:
         saida = _DIGITOS_8_OU_MAIS.sub(_digitos_ou_ans, saida)
         for padrao in self._nomes:
             saida = padrao.sub(TOKEN_NOME, saida)
+        # Avaliacao de 21/10/2026: o nome do dependente LIDO DA AMH neste processo sai mascarado em qualquer
+        # formato (o rotulo "Para <nome>", frases livres), alem das listas fixas acima.
+        saida = _ROTULO_PARA_QUEM.sub(lambda m: m.group(1) + TOKEN_NOME_DEPENDENTE + m.group(3), saida)
+        for padrao in _padroes_dos_nomes_lidos():
+            saida = padrao.sub(TOKEN_NOME_DEPENDENTE, saida)
         return saida
 
     def objeto(self, valor: Any) -> Any:
@@ -169,6 +177,26 @@ class Mascarador:
         if chave in {"numero_boleto", "boleto"} and isinstance(valor, str) and valor:
             return TOKEN_BOLETO
         return self.objeto(valor)
+
+
+_CACHE_DOS_NOMES: dict[frozenset[str], list[re.Pattern[str]]] = {}
+
+
+def _padroes_dos_nomes_lidos() -> list[re.Pattern[str]]:
+    """As partes (3+ letras, sem particula) dos nomes de dependente lidos da AMH neste processo."""
+    from maezo.agents.helena.consultas_plano import nomes_lidos
+
+    nomes = nomes_lidos()
+    if not nomes:
+        return []
+    if nomes not in _CACHE_DOS_NOMES:
+        partes = {p for n in nomes for p in re.split(r"\s+", n.strip()) if len(p) >= 3}
+        partes -= {p for p in partes if sem_acento(p) in _PARTICULAS}
+        _CACHE_DOS_NOMES.clear()
+        _CACHE_DOS_NOMES[nomes] = [
+            re.compile(_padrao_de_palavra(p), re.IGNORECASE) for p in sorted(partes, key=len, reverse=True)
+        ]
+    return _CACHE_DOS_NOMES[nomes]
 
 
 def _digitos_ou_ans(m: re.Match[str]) -> str:

@@ -31,7 +31,7 @@ subprocesso de cuidado: ao disparar, **interrompe** o subprocesso, dispara o wor
 **(C) No-adverse clinico — alta/desligamento do programa so por humano (ADR-0018).** O
 **desligamento clinico do programa** (`register_program_discharge` — alta por motivo clinico, que
 e uma decisao clinica e, por ADR-0008, **L0-hard "qualquer decisao clinica"**) so nasce numa User
-Task humana (`UT_DecisaoClinica`, grupo `coordenacao-clinica`/`equipe-cuidado`), com
+Task humana (`UT_DecisaoClinica`, grupo unico `coordenacao-clinica` — R-041 / #1084), com
 `decisao_programa == DESLIGAR_CLINICO` setado por humano. Nenhuma DMN deste processo possui saida
 de desligamento/alta clinica: a DMN `programa_routing` apenas **estratifica risco e sugere
 elegibilidade ao programa** (informativo); ela nunca produz `DESLIGAR`/`ALTA`/`NEGAR_CUIDADO`.
@@ -84,7 +84,7 @@ idempotente, sem duplicar enrollment do mesmo beneficiario no mesmo ciclo).
 | `programa_id` | string | sim | Id do programa de cuidado (ex.: cronicos/pre-natal/oncologia/APS — taxonomia DRAFT) |
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo do beneficiario (ADR-0006 — **NUNCA CPF/nome**) |
 | `ciclo` | string | sim | Ciclo de acompanhamento (compoe a business key) |
-| `gatilho` | string | sim | `canal_proativo` (start-signal-only PHI-minimizado — D9) \| `indicacao_clinica` \| `auto_inscricao_beneficiario` \| `estratificacao_populacional` |
+| `gatilho` | string | sim | `canal_proativo` (start-signal-only PHI-minimizado — D9) \| `indicacao_clinica` \| `auto_inscricao_beneficiario` \| `estratificacao_populacional`. **Vocabulario declarado, ainda NAO validado em codigo (F-136):** o esquema de start `valentina.programa.start.v1` o tipa so' como `String` e `agents/valentina/delegation.py` o repassa como texto; nenhum ponto recusa valor fora destes quatro |
 | `proactive_trigger_ref` | string | nao | Ref do `agents.events.proactive` que originou (D9: `{trigger_type, pseudonym/cohort/risk_band, source_ref, consent_checked, ts}` — **sem conteudo clinico cru**) |
 | `consent_scope` | string | sim | Escopo de consentimento requerido (`programa_cuidado` — fixo nesta fase) |
 | `consentimento_ativo` | boolean | sim* | Pre-resolvido por `operadora.programa.check_consent` (chokepoint): consentimento ativo e nao-revogado para `consent_scope` |
@@ -142,7 +142,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.proactive` | **consome (start)** | trigger proativo PHI-minimizado (D9: start-signal-only; `consent_checked==true` exigido) |
+| Kafka | `agents.events.proactive` | **consome (start)** | trigger proativo PHI-minimizado (D9: start-signal-only; `consent_checked==true` exigido). **ALVO, nao ligado (F-136):** nenhum codigo em `src/maezo/` assina este topico nem inicia o processo a partir dele |
 | Kafka | `agents.events.programa.received` | produz | apos start (enrollment iniciado; **sem PHI clinico cru**) |
 | Kafka | `agents.events.programa.consent_blocked` | produz | chokepoint barrou por falta de consentimento (auditoria LGPD) |
 | Kafka | `agents.events.programa.processing_stopped` | produz | processamento interrompido por revogacao (auditoria LGPD) |
@@ -154,7 +154,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.programa.build_care_plan` | consome (worker→A2A) | **ALVO (a ligar):** monta plano de cuidado / dossie para a User Task clinica (delegacao `care.enroll` a Valentina — **sem decidir alta**). **HOJE (ENROLL-BENEFICIARIO-SEM-EFEITO-REAL):** o worker `enroll_beneficiario` NAO monta plano de cuidado algum — sem chamada A2A, sem plano, sem dossie — e retorna exatamente `{enrollment_gap: enroll_a2a_nao_ligado}`. **NAO afirma `enrollment_realizado=true`** (antes retornava essa constante de um corpo cuja unica instrucao era `logger.info`) |
 | External task | `operadora.programa.proactive_contact` | consome (worker) | **ALVO (a ligar):** contato proativo com o beneficiario (so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9). **HOJE (NEW-A2-2):** o worker `proactive_contact` **nao contata ninguem** — nenhum canal de saida ao beneficiario esta ligado a esta task — e retorna exatamente `{contato_gap: contato_beneficiario_nao_ligado}`. **NAO afirma `contato_realizado=true`** (antes retornava essa constante em ambos os caminhos, inclusive no `kafka=None`, de um corpo cuja unica instrucao efetiva era `logger.info`). O guard de consentimento (`ERR_PROGRAMA_NO_CONSENT` como `ProgramaError` -> incidente, pois a task nao carrega error boundary) segue inalterado e fail-closed |
 | External task | `operadora.programa.stop_processing` | consome (worker) | **para o tratamento de PHI** apos revogacao (boundary interruptivo); registra cessacao (LGPD) |
-| External task | `operadora.programa.notify_sla_risk` | consome (worker) | worker `notify_sla_risk` + wrapper `make_notify_sla_risk_handler`: o wrapper publica o alerta em `operadora.notifications.internal` (`best_effort=False`) quando ha produtor Kafka, e AMBOS os caminhos retornam `{}` — **NAO afirmam `sla_risk_notified`** (FAB-SLA-RISK-NOTIFIED-SLICE4; antes o caminho `kafka is None` devolvia `True` sem ter publicado nada, e o registro interno e pedido de alerta, nunca prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada). Informativo e nunca adverso: `UT_DecisaoClinica` segue aberta |
+| External task | `operadora.programa.notify_sla_risk` | consome (worker) | worker `notify_sla_risk` + wrapper `make_notify_sla_risk_handler`: o wrapper publica o alerta em `operadora.notifications.internal` (`best_effort=False`) quando ha produtor Kafka, e AMBOS os caminhos retornam `{}` — **NAO afirmam `sla_risk_notified`** (FAB-SLA-RISK-NOTIFIED-SLICE4; antes o caminho `kafka is None` devolvia `True` sem ter publicado nada, e o registro interno e pedido de alerta, nunca prova de que a `coordenacao-clinica` foi avisada). Informativo e nunca adverso: `UT_DecisaoClinica` segue aberta |
 | External task | `operadora.programa.register_program_discharge` | consome (worker) | **efeito adverso gated (clinico)** — registra desligamento clinico; recusa sem decisao humana (`ERR_PROGRAM_DISCHARGE_NOT_HUMAN`); carrega `responsavel_clinico_id` |
 | Message BPMN | `msg.programa.consent_revoked` | **recebe (interruptivo)** | correlacao por business key — revogacao de consentimento (de SP-OP-LGPD-DSR-001 ou canal direto) → boundary event interrompe e para |
 | Message BPMN | `msg.programa.info_received` | recebe | correlacao por business key — info clinica solicitada pela User Task chegou |
@@ -185,7 +185,7 @@ SLA da decisao clinica (quando ha User Task). Prazos como string ISO — **DRAFT
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `coordenacao-clinica` | Coordenacao clinica / medico do programa | `UT_DecisaoClinica` (**desligamento clinico SO aqui**: `decisao_programa ∈ {ENROLL, MANTER_ACOMPANHAMENTO, DESLIGAR_CLINICO, SOLICITAR_INFO}`) |
-| `equipe-cuidado` | Equipe multiprofissional de cuidado | `UT_DecisaoClinica` (co-candidate group para decisao clinica de cuidado revisada) |
+| `equipe-cuidado` | Equipe multiprofissional de cuidado | nenhuma User Task desde R-041 / #1084 (saiu de `UT_DecisaoClinica`); consultivo — o insumo multiprofissional chega pelo dossie; nao registrado no engine |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). O desligamento clinico (decisao
 clinica L0-hard) NUNCA muda de natureza por estouro de SLA — `coordenacao-clinica` assume com os
@@ -307,6 +307,8 @@ zero DMN, zero processo) — nenhuma decisao nova nasce aqui (C3); so' o rotulo 
   (`consent_checked`, `cohort/risk_band`, `source_ref`), sem conteudo clinico cru; o consumidor
   re-busca PHI in-zone. `consent_checked==true` exigido antes de qualquer contato com o
   beneficiario.
+  **Estado hoje (F-136):** desenho ALVO — o consumidor deste topico NAO esta' implementado (nenhum
+  codigo o assina); ate' ser ligado, nenhuma instancia nasce com `gatilho=canal_proativo` por este canal.
 - **TASY write DROP** em todo worker: consumimos o CDC/Feature-Store do amh-data-platform; nunca
   escrevemos no Tasy (MEMORY/ADR-0013).
 
@@ -418,3 +420,19 @@ programa: primeiro consumidor exige contrato de saída e chamada de validação 
 Strings por instância conservam o comportamento atual; isto não é detector universal do
 conteúdo semântico de qualquer string. Consentimento, revogação e decisão clínica humana
 permanecem inalterados. Evidência offline não substitui CI/engine do head integrado.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-PROGRAMA-001` → `maezo-payer-programa-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - programa+beneficiário+ciclo: `{tenant_id}:programa-001:B-{programa_id}-{beneficiario_pseudo_id}-{ciclo}` em claro quando couber no charset; senão `hk1_<HMAC>`.
+- **Classificação (a confirmar pelo DPO):** já pseudônimo.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- As fontes de publicação de programa, hoje fixadas na process key vigente, passam a aceitar as duas durante a janela.

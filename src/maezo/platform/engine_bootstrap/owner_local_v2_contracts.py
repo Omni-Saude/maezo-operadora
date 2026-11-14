@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .controller_storage import canonical, digest, exact, parse_wire, require, scalar
+from .controller_storage import Refusal, canonical, digest, exact, parse_wire, require, scalar
 
 PROFILE = "maezo.d7-local-owner.initial-l1-l2.v2"
 PENDING = "UNQUALIFIED_OC_F01"
@@ -100,8 +100,8 @@ def role_parts(arn: Any) -> tuple[str, str, str]:
     """Return account, real IAM Path and RoleName; no AWS observation."""
     require(type(arn) is str and len(arn) <= 2048)
     match = re.fullmatch(r"arn:aws:iam::([0-9]{12}):role/([A-Za-z0-9_+=,.@/-]+)", arn)
-    require(match is not None)
-    assert match is not None
+    if match is None:
+        raise Refusal("INVALID_BODY")
     account, resource = match.groups()
     parts = resource.split("/")
     require(all(p not in {"", ".", ".."} for p in parts))

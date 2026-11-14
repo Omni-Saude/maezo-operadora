@@ -129,6 +129,7 @@ FINDINGS (see PR body / evidence-ledger for full detail):
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -139,6 +140,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.platform.calendario import vencimento_em_dias_uteis
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
@@ -157,7 +159,7 @@ from .conftest import (
     count_chain_rows_for_action,
     drain_topics,
 )
-from .engine_rest import EngineRest
+from .engine_rest import EngineRest, EngineRestError
 
 pytestmark = pytest.mark.integration
 
@@ -166,6 +168,7 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
 _DMN_ADMISS = _REPO / "spec/processes/dmn/auth_admissibility.dmn"
 _DMN_AUTO = _REPO / "spec/processes/dmn/auth_auto_approval.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/auth_sla.dmn"
+_DMN_JUNTA = _REPO / "spec/processes/dmn/auth_junta_admissibility.dmn"  # R-064 (RN 424 art. 3 I)
 
 # External task topics do contrato SP-OP-AUTH-001.
 _PUBLISH_TOPIC = "operadora.events.publish"
@@ -178,6 +181,9 @@ _JUNTA_TOPIC = "operadora.auth.convene_junta"
 # GAP-AUTH-4: o validador deterministico que roda ANTES de BRT_AutoApproval. Sem ele na lista
 # de drain a task nunca e servida e o token trava — nenhuma instancia alcanca UT/terminal.
 _VALIDATE_CRITERIA_TOPIC = "operadora.auth.validate_auto_criteria"
+# R-005 (F-018): prazo de resposta em dias uteis, imediatamente antes de UT_AnaliseMedicoAuditor.
+# Registrado SEMPRE (desligado escreve nulos); sem ele no drain o token trava antes da UT.
+_PRAZO_UTIL_TOPIC = "operadora.auth.compute_response_deadline"
 
 # Tópicos servidos pelos workers REAIS registrados no harness (drain genérico).
 # `_ANALYZE_TOPIC` é deliberadamente EXCLUÍDO: ver `_AnalyzeRequestStub` abaixo (donor fixture,
@@ -190,6 +196,7 @@ _AUTH_WORKER_TOPICS = [
     _NOTIFY_SLA_TOPIC,
     _JUNTA_TOPIC,
     _VALIDATE_CRITERIA_TOPIC,
+    _PRAZO_UTIL_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -449,18 +456,13 @@ class AuthEngineProbe:
 @pytest_asyncio.fixture
 async def deploy_artifacts(engine: EngineRest) -> str:
     """Deploya BPMN + 3 DMN de autorizacao da arvore no engine real."""
-    return await engine.deploy(_BPMN, _DMN_ADMISS, _DMN_AUTO, _DMN_SLA, name="SP-OP-AUTH-001-qa")
+    return await engine.deploy(_BPMN, _DMN_ADMISS, _DMN_AUTO, _DMN_SLA, _DMN_JUNTA, name="SP-OP-AUTH-001-qa")
 
 
-@pytest_asyncio.fixture
-async def auth_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
-) -> AsyncIterator[AuthEngineProbe]:
-    """Probe que serve as external tasks com os workers reais Phase-1 de auth.
-
-    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
-    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
-    """
+def _build_auth_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, **seams: Any
+) -> AuthEngineProbe:
+    """Monta o probe com os workers reais de auth; `seams` vai direto a `register_auth_workers`."""
     worker_id = f"qa-auth-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # T3.1 (auth-denial-hardening): ERR_AUTH_DENIAL_INCOMPLETE is catchable by SP-OP-AUTH-001's own
@@ -479,12 +481,12 @@ async def auth_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
-    register_auth_workers(harness, kafka)
+    register_auth_workers(harness, kafka, **seams)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
     # this BPMN routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
     analyze_stub = _AnalyzeRequestStub(transport, worker_id)
-    probe = AuthEngineProbe(
+    return AuthEngineProbe(
         engine=engine,
         harness=harness,
         transport=transport,
@@ -492,10 +494,58 @@ async def auth_probe(
         analyze_stub=analyze_stub,
         worker_id=worker_id,
     )
+
+
+@pytest_asyncio.fixture
+async def auth_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """Probe que serve as external tasks com os workers reais Phase-1 de auth.
+
+    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
+    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
+    """
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant)
     try:
         yield probe
     finally:
-        await transport.close()
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_written_notice(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-004: o mesmo probe, com `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` ligada no unico dono."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, denial_written_notice=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_junta_rn424(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-064: o mesmo probe, com `MAEZO_AUTH_JUNTA_RN424_GUARD` ligada em `convene_junta`."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, junta_rn424_guard=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
+async def auth_probe_prazo_util(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """R-005: o mesmo probe, com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada em `compute_response_deadline`."""
+    probe = _build_auth_probe(engine, audit_sink, audit_tenant, auth_prazo_dias_uteis=True)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
 
 
 def _unique_guia(prefix: str = "GUIA-TESTE") -> str:
@@ -1476,6 +1526,92 @@ async def test_junta_medica_parecer_nega(
 
 
 # ===========================================================================
+# R-064 — RN 424/2017 art. 3 I: junta vedada em urgencia/emergencia (dark)
+# ===========================================================================
+
+_BRT_JUNTA = "BRT_JuntaAdmissibilidade"
+
+
+async def _auditor_pede_junta(
+    engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any], carater: str
+) -> str:
+    inst = await start_auth(dut_atendida=False, carater_atendimento=carater)
+    iid = inst["id"]
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    ut = await engine.await_user_task(iid, _UT_AUDITOR)
+    await engine.complete_task_as_human(ut.id, {"decisao_auditor": "JUNTA_MEDICA"})
+    await probe.drain()
+    return str(iid)
+
+
+async def test_junta_rn424_guarda_desligada_urgencia_segue_para_a_junta_como_antes(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """DARK: sem a flag, a DMN e' avaliada (sombra) e o caso urgente vai a junta como hoje."""
+    iid = await _auditor_pede_junta(engine, auth_probe, start_auth, "urgencia")
+
+    ut_junta = await engine.await_user_task(iid, _UT_JUNTA)
+    ended = await engine.activity_instances_ended(iid)
+    assert {_ST_CONVOCAR_JUNTA, _BRT_JUNTA} <= ended, ended
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is False
+
+    await engine.complete_task_as_human(ut_junta.id, {"decisao_auditor": "APROVAR"})
+    await auth_probe.drain()
+    assert _END_AUDITOR in await _await_end(engine, iid)
+
+
+async def test_junta_rn424_guarda_ligada_urgencia_vedada_volta_a_coordenacao_humana(
+    engine: EngineRest,
+    auth_probe_junta_rn424: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Flag ON + urgencia: a junta NAO e' aberta; a coordenacao (humana) decide. Nada automatico."""
+    probe = auth_probe_junta_rn424
+    iid = await _auditor_pede_junta(engine, probe, start_auth, "urgencia")
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-auditoria-medica" in ut_coord.candidate_groups
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_JUNTA not in open_keys
+    ended = await engine.activity_instances_ended(iid)
+    assert _BRT_JUNTA in ended and _UT_JUNTA not in ended, ended
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is True
+    # nao e' um estouro de SLA: o ramo da junta vedada nao publica auth.sla_breached
+    assert not probe.has_event(_AUTH_SLA_BREACHED)
+
+    await engine.complete_task_as_human(
+        ut_coord.id, {"decisao_auditor": "APROVAR", "auditor_id": "coord-sint-01"}
+    )
+    await probe.drain()
+    ended = await _await_end(engine, iid)
+    assert _END_AUDITOR in ended
+    assert _UT_JUNTA not in ended
+    await _assert_no_denial_without_human_task(engine, iid)
+
+
+async def test_junta_rn424_guarda_ligada_eletivo_admite_a_junta(
+    engine: EngineRest,
+    auth_probe_junta_rn424: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Flag ON + eletivo: DMN ADMITIDA => UT_RegistrarParecerJunta, parecer humano decide."""
+    probe = auth_probe_junta_rn424
+    iid = await _auditor_pede_junta(engine, probe, start_auth, "eletivo")
+
+    ut_junta = await engine.await_user_task(iid, _UT_JUNTA)
+    assert "junta-medica" in ut_junta.candidate_groups
+    assert await engine.get_history_variable(iid, "junta_guarda_rn424_ativa") is True
+
+    await engine.complete_task_as_human(ut_junta.id, {"decisao_auditor": "APROVAR"})
+    await probe.drain()
+    assert _END_AUDITOR in await _await_end(engine, iid)
+
+
+# ===========================================================================
 # SOLICITAR_INFO => volta para pendencia
 # ===========================================================================
 
@@ -1530,7 +1666,7 @@ async def test_business_key_uma_instancia_por_guia(
     Nao depende de `auth_probe.drain()` progredir alem do primeiro publish — sobrevive ao
     gap de `operadora.events.publish` acima (nao marcado xfail, ao contrario dos demais).
     """
-    guia = "GUIA-TESTE-IDEM-001"
+    guia = f"GUIA-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"AUTH-amh-{guia}"
 
     first = await start_auth(numero_guia_tiss=guia)
@@ -1540,3 +1676,148 @@ async def test_business_key_uma_instancia_por_guia(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# R-004 (F-016) — entrega por escrito da negativa (RN 623/2024 art. 14), DARK
+# ===========================================================================
+
+
+async def _negar_pela_ut(engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any]) -> str:
+    inst = await start_auth(dut_atendida=False)
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    ut = await engine.await_user_task(inst["id"], _UT_AUDITOR)
+    assert "medico-auditor" in ut.candidate_groups
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_auditor": "NEGAR",
+            "justificativa_clinica": "Motivo sintetico (teste R-004)",
+            "cid10_referencia": "Z00.0",
+            "fundamentacao_dut": "Clausula sintetica 9.9 (teste R-004)",
+            "auditor_id": "auditor-sintetico-r004",
+        },
+    )
+    await probe.drain()
+    ended = await _await_end(engine, inst["id"])
+    assert _END_NEGADA in ended, f"negativa humana deve atingir End_NegadaAuditor. ended={ended}"
+    await _assert_no_denial_without_human_task(engine, inst["id"])
+    return str(inst["id"])
+
+
+async def test_r004_entrega_por_escrito_ligada_registra_entrega_manual_pendente(
+    engine: EngineRest,
+    auth_probe_written_notice: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira ON: o historico do engine diz "entrega manual pendente", nunca "entregue"."""
+    iid = await _negar_pela_ut(engine, auth_probe_written_notice, start_auth)
+    assert await engine.get_history_variable(iid, "entrega_negativa_status") == "entrega_manual_pendente"
+    assert await engine.get_history_variable(iid, "entrega_negativa_responsavel") == "medico_auditor"
+    assert await engine.get_history_variable(iid, "human_approved") is True
+    # O texto clinico continua redigido no engine (ADR-0006).
+    assert await engine.get_history_variable(iid, "justificativa_clinica") == REDACTED_PHI
+
+
+async def test_r004_entrega_por_escrito_desligada_nao_escreve_estado_de_entrega(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira OFF (padrao): nenhuma variavel de entrega no historico — a saida e' a de antes."""
+    iid = await _negar_pela_ut(engine, auth_probe, start_auth)
+    for name in ("entrega_negativa_status", "entrega_negativa_responsavel"):
+        with pytest.raises(EngineRestError):
+            await engine.get_history_variable(iid, name)
+
+
+# ===========================================================================
+# R-005 (F-018; DEC-02) — prazo de resposta em dias uteis (RN 623/2024 art. 12), DARK
+# ===========================================================================
+
+
+def _due(job: Any) -> dt.datetime:
+    """`dueDate` do Job REST (`2026-11-16T23:59:59.000-0300`) -> datetime com fuso."""
+    return dt.datetime.strptime(str(job.due_date), "%Y-%m-%dT%H:%M:%S.%f%z")
+
+
+async def _ate_a_analise_humana(
+    engine: EngineRest, probe: AuthEngineProbe, start_auth: Callable[..., Any], **overrides: Any
+) -> str:
+    inst = await start_auth(dut_atendida=False, **overrides)
+    iid = str(inst["id"])
+    await probe.drain()
+    await probe.drain_analyze()
+    await probe.drain()
+    await engine.await_user_task(iid, _UT_AUDITOR)
+    return iid
+
+
+async def test_r005_prazo_util_desligado_timer_segue_no_iso_da_dmn(
+    engine: EngineRest,
+    auth_probe: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira OFF (padrao): a task roda, escreve nulos, e BT_SlaAnalise vence em P5D corridos."""
+    antes = dt.datetime.now(dt.UTC)
+    iid = await _ate_a_analise_humana(engine, auth_probe, start_auth)
+    depois = dt.datetime.now(dt.UTC)
+    assert "ST_CalcularPrazoRespostaUtil" in await engine.activity_instances_ended(iid)
+    assert await engine.get_history_variable(iid, "prazo_resposta_duracao_util") is None
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    folga = dt.timedelta(seconds=5)
+    assert antes + dt.timedelta(days=5) - folga <= due <= depois + dt.timedelta(days=5) + folga
+
+
+async def test_r005_prazo_util_ligado_timer_vence_no_fim_do_quinto_dia_util(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Bandeira ON, eletivo padrao (DMN: 5 dias uteis), ancora ausente = relogio do worker."""
+    iid = await _ate_a_analise_humana(engine, auth_probe_prazo_util, start_auth, uf_beneficiario="SP")
+    esperado = vencimento_em_dias_uteis(dt.datetime.now(dt.UTC), 5, "SP")
+    vencimento = await engine.get_history_variable(iid, "prazo_resposta_vencimento_util_iso")
+    assert vencimento == esperado.isoformat()
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    # duracao arredondada para baixo + latencia worker->timer: nunca depois do vencimento + folga
+    assert esperado - dt.timedelta(seconds=60) <= due <= esperado + dt.timedelta(seconds=5)
+
+
+async def test_r005_prazo_util_ligado_pac_10_dias_uteis_com_ancora_da_solicitacao(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """PAC/internacao eletiva (DMN: 10 dias uteis) contado da data da solicitacao (passada)."""
+    ancora = dt.datetime.now(dt.UTC) - dt.timedelta(days=3)
+    iid = await _ate_a_analise_humana(
+        engine,
+        auth_probe_prazo_util,
+        start_auth,
+        categoria_procedimento="internacao",
+        data_solicitacao_iso=ancora.isoformat(),
+    )
+    esperado = vencimento_em_dias_uteis(ancora, 10)
+    vencimento = await engine.get_history_variable(iid, "prazo_resposta_vencimento_util_iso")
+    assert vencimento == esperado.isoformat()
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    assert esperado - dt.timedelta(seconds=60) <= due <= esperado + dt.timedelta(seconds=5)
+
+
+async def test_r005_prazo_util_ligado_urgencia_segue_imediata_da_dmn(
+    engine: EngineRest,
+    auth_probe_prazo_util: AuthEngineProbe,
+    start_auth: Callable[..., Any],
+) -> None:
+    """Urgencia: a DMN nao da dias uteis (resposta imediata) — o PT2H da DMN continua valendo."""
+    antes = dt.datetime.now(dt.UTC)
+    iid = await _ate_a_analise_humana(
+        engine, auth_probe_prazo_util, start_auth, carater_atendimento="urgencia"
+    )
+    assert await engine.get_history_variable(iid, "prazo_resposta_duracao_util") is None
+    due = _due(await engine.await_timer_job(iid, "BT_SlaAnalise"))
+    depois = dt.datetime.now(dt.UTC)
+    assert antes + dt.timedelta(hours=2) - dt.timedelta(seconds=5) <= due <= depois + dt.timedelta(hours=2)

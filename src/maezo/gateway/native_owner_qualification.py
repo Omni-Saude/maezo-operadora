@@ -215,11 +215,11 @@ class NativeQualificationOwner:
         except Exception as error:
             rollback_ok = cursor is None
             if cursor is not None:
-                try:
+                # Rollback best-effort (B110 triado): a falha NAO e' engolida em silencio — deixa
+                # `rollback_ok` falso e o desfecho sai UNKNOWN/PENDING_UNKNOWN logo abaixo.
+                with contextlib.suppress(Exception):
                     self.connection.rollback()
                     rollback_ok = True
-                except Exception:
-                    pass
             unknown = committing or not rollback_ok
             return QualificationResult(
                 "UNKNOWN" if unknown else "REFUSED",
@@ -302,8 +302,8 @@ class NativeQualificationOwner:
             # admission. It cannot later escalate into a qualification transaction.
             store.read_installation(cursor, self.pins)
             retained = store.read_operation(cursor, operation_id)
-            require(retained is not None, "UNAVAILABLE")
-            assert retained is not None
+            if retained is None:
+                raise Refusal("UNAVAILABLE")
             self.connection.rollback()
             return QualificationResult("HISTORICAL_COMMITTED", operation_id, retained[2])
         except Exception as error:

@@ -140,11 +140,17 @@ def test_helena_agent_yaml_has_required_fields() -> None:
     assert data.get("phase") == 0
 
 
-def test_helena_agent_yaml_marks_scheduling_out_of_scope_with_escalation_trigger() -> None:
+def test_helena_agent_yaml_marks_scheduling_out_of_scope_without_escalation_trigger() -> None:
     """GAP 9.2: the role no longer claims Helena performs scheduling — it is an explicit,
-    tracked out-of-scope item with its own escalation trigger, mirroring what `graph.py`'s
-    `schedule()` node actually does now (a real SP-OP-ESCALATION-001 handoff, not a silent
-    dead end after an honest-but-unrouted refusal)."""
+    tracked out-of-scope item.
+
+    DL-0052 (01/10/2026) then made scheduling an out-of-channel FIXED reply that opens NO
+    SP-OP-ESCALATION-001 (`_INTENTS_FORA_DO_CANAL`), so `intent: scheduling` stopped being an
+    escalation trigger in behavior. R-043/F-184 (2026-11-01) removed the stale declaration: a line
+    in `escalation.triggers` that does not escalate is a false contract, and the fleet-wide
+    trigger-coverage fence (`tests/evals/test_trigger_coverage.py`) would have had to be satisfied
+    by a golden proving the ABSENCE of escalation. A scheduling request that needs a person
+    escalates through `intent: human_request`, which stays declared."""
     agent_path = _AGENTS_ROOT / "helena" / "agent.yaml"
     with open(agent_path) as f:
         data = yaml.safe_load(f)
@@ -156,7 +162,8 @@ def test_helena_agent_yaml_marks_scheduling_out_of_scope_with_escalation_trigger
     assert "agendamento_direto" in out_of_scope_ids
 
     triggers = data["escalation"]["triggers"]
-    assert {"intent": "scheduling"} in triggers
+    assert {"intent": "scheduling"} not in triggers
+    assert {"intent": "human_request"} in triggers
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +264,8 @@ async def test_classify_red_flag_adult_escalates_red_flag_clinico() -> None:
     assert result["dmn_decision_ref"].startswith("triage_redflag_adult#")
 
 
-async def test_classify_no_red_flag_routes_inform() -> None:
+async def test_classify_no_red_flag_escalates_intencao_clinica() -> None:
+    """Limpeza da saude, etapa 3: sintoma sem bandeira da tabela vai a equipe (`intencao_clinica`)."""
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "prioridade": "-", "conduta": "CONTINUE"}])
     inference = _FakeInference(
@@ -267,7 +275,9 @@ async def test_classify_no_red_flag_routes_inform() -> None:
 
     result = await graph.classify(_base_state(message_body="febre leve"))
 
-    assert result["next_kind"] == "inform"
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "intencao_clinica"
+    assert result["escalation_severidade"] == "moderada"
 
 
 async def test_classify_llm_call_declares_task_kind_task_default() -> None:
@@ -692,7 +702,7 @@ async def test_classify_valid_numeric_string_age_passes_coerced_int_to_dmn() -> 
 
     result = await graph.classify(_base_state(message_body="febre, 42 anos"))
 
-    assert result["next_kind"] == "inform"  # no red flag
+    assert result["escalation_motivo"] == "intencao_clinica"  # no red flag: a equipe de saude
     assert dmn.calls[0][1]["idade_anos"] == 42
     assert isinstance(dmn.calls[0][1]["idade_anos"], int)
 
@@ -725,7 +735,7 @@ async def test_classify_absent_age_still_works() -> None:
 
     result = await graph.classify(_base_state(message_body="febre"))
 
-    assert result["next_kind"] == "inform"
+    assert result["escalation_motivo"] == "intencao_clinica"  # no red flag: a equipe de saude
     assert dmn.calls[0][1].get("idade_anos") is None
 
 
@@ -944,7 +954,9 @@ async def test_escalate_declares_task_kind_reasoning_and_sends_the_fixed_text() 
     )
     result = await graph.escalate(state)
 
-    assert inference.task_kinds == ["reasoning"]
+    # Rodada de 24/10/2026: no alarme GRAVE o resumo e' fixo (o 192 nao espera o modelo); fora dele o
+    # `_resumo_contexto` continua `reasoning` (cerca `test_llm_calls_declare_task_kind`).
+    assert inference.task_kinds == []
     assert result["response_text"] == RESPOSTA_ESCALONAMENTO_URGENTE
 
 

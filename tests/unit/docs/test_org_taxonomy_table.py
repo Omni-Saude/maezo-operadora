@@ -26,7 +26,19 @@ _MD_PATH = _PO_DIR / "ORG-TAXONOMY-TABLE.md"
 _PACKAGE_PATH = _PO_DIR / "PACKAGE.md"
 _CONTRACTS_DIR = _REPO_ROOT / "docs" / "processes" / "contracts"
 
-_OWNER_SCOPE = {"ESCALATION", "CANCEL", "ADEQUACAO", "CRED", "NIP", "PROGRAMA", "AUTH", "ANS-SUBMIT"}
+# R-034 fixou 8 processos; R-041 / DEC-21 (dono, #1084 rodadas 2 e 3, 2026-10-31: "Criar TODOS os
+# grupos ... e atualizar a tabela de taxonomia") estende a sessao a todo processo com User Task.
+_R034_SCOPE = {"ESCALATION", "CANCEL", "ADEQUACAO", "CRED", "NIP", "PROGRAMA", "AUTH", "ANS-SUBMIT"}
+_OWNER_SCOPE = _R034_SCOPE | {
+    "CONTAS",
+    "FRAUDE",
+    "INADIMPLENCIA",
+    "LGPD-DSR",
+    "PAGTO",
+    "RECURSO",
+    "REEMBOLSO",
+    "SUPP",
+}
 
 # The single row that legitimately names no real candidateGroups (SP-OP-ANS-CRON-001 is a pure
 # scheduler with zero `camunda:candidateGroups` occurrences — included only for the "inventory
@@ -61,9 +73,11 @@ def test_status_is_recommendation_pending_owner_naming_not_a_ratification() -> N
     assert "pendente de nomeacao" in md_text.lower() or "pendente de nomeação" in md_text.lower()
 
 
-def test_owner_scope_matches_r034_decision() -> None:
+def test_owner_scope_matches_r034_extended_by_r041() -> None:
     data = _load_yaml()
     assert set(data["escopo_do_dono"]) == _OWNER_SCOPE
+    assert _R034_SCOPE < _OWNER_SCOPE
+    assert "1084" in data["decisoes_do_dono"]
 
 
 def test_every_row_arquivo_linha_citation_resolves_and_contains_the_group_token() -> None:
@@ -118,21 +132,24 @@ def test_every_row_has_the_required_columns_populated() -> None:
         assert isinstance(row["proposto"], bool)
 
 
-def test_all_16_processes_are_represented() -> None:
-    """Task charter: 'inventory ALL 16 processes anyway and mark which are in scope.'"""
+def test_all_bpmn_processes_are_represented() -> None:
+    """Task charter: 'inventory ALL processes anyway and mark which are in scope.' R-041 added the
+    SP-OP-SUPP-001 row that was missing (17 BPMN files today)."""
     data = _load_yaml()
     processos = {row["processo"] for row in data["rows"]}
-    assert len(processos) == 16, f"expected 16 distinct processes, got {len(processos)}: {sorted(processos)}"
+    expected = {p.name.split("_")[0] for p in (_REPO_ROOT / "spec/processes/bpmn").glob("SP-OP-*.bpmn")}
+    assert len(expected) == 17
+    assert processos == expected, f"inventory drift: {sorted(processos ^ expected)}"
 
 
-def test_in_scope_rows_match_owner_8_process_scope() -> None:
+def test_in_scope_rows_match_owner_scope() -> None:
     data = _load_yaml()
     scope_suffixes = tuple(f"SP-OP-{name}-001" for name in _OWNER_SCOPE)
     for row in data["rows"]:
         expected_in_scope = row["processo"] in scope_suffixes
         assert row["em_escopo"] == expected_in_scope, (
             f"row {row['processo']}/{row['grupo_declarado']} em_escopo={row['em_escopo']} "
-            f"disagrees with the owner's 8-process scope"
+            f"disagrees with the owner's scope"
         )
 
 

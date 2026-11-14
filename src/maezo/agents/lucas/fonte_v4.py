@@ -43,8 +43,8 @@ from urllib.parse import quote
 import structlog
 
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento, ResolvedorDeSujeito
+from maezo.domain.conversa.competencia import competencia_valida
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
-from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
 logger = structlog.get_logger(__name__)

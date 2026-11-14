@@ -32,7 +32,8 @@ lifecycle would break anyway.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -40,13 +41,19 @@ import structlog
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
+    HistoricInstanceNotFoundError,
+    HistoricInstanceResolvingTransport,
+    HistoricVariableReadingTransport,
     HistoryQueryingTransport,
+    UserTaskAssigneeReadingTransport,
     require_engine_tenant_token,
 )
 
 if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import (
         CibSevenTransport,
+        HistoricInstanceRecord,
+        HistoricProcessVariables,
         ProcessInstance,
         ProcessStatus,
     )
@@ -124,6 +131,60 @@ class FreshClientCibSevenTransport:
         finally:
             await inner.close()
 
+    async def read_user_task_assignee(self, process_instance_id: str, task_definition_key: str) -> str | None:
+        """`UserTaskAssigneeReadingTransport` delegation (pendencia 40, DL-0152): quem assumiu a User
+        Task ativa. Inner sem a capacidade LEVANTA `CibSevenError` — o worker de escalonamento le isso
+        como leitura que falhou e ALERTA (lado seguro)."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, UserTaskAssigneeReadingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `read_user_task_assignee`"
+                )
+            return await inner.read_user_task_assignee(process_instance_id, task_definition_key)
+        finally:
+            await inner.close()
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        """`HistoricVariableReadingTransport` delegation. Existe para que `gate_cibseven` possa
+        expor a leitura seguinte (que exige as tres pernas do historico); inner sem a capacidade
+        LEVANTA `CibSevenError` — nunca uma leitura vazia lida como "nao ha nada"."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricVariableReadingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `read_historic_variables`"
+                )
+            return await inner.read_historic_variables(process_instance_id, names)
+        finally:
+            await inner.close()
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        """`HistoricInstanceResolvingTransport` delegation (pacote PAGTO PR-D): a costura de PR-C
+        chega ao daemon de workers SO' por aqui, e SO' atras do decorator cercado (C0
+        `consulta_processo`). Inner sem a capacidade LEVANTA `CibSevenError` (o consumidor,
+        `pagto_lastro.resolve_lastro`, le isso como `INDISPONIVEL`)."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoricInstanceResolvingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `resolve_historic_instance`"
+                )
+            return await inner.resolve_historic_instance(
+                process_key, business_key=business_key, variable_equals=variable_equals, names=names
+            )
+        finally:
+            await inner.close()
+
     async def start_process_instance(
         self,
         process_key: str,
@@ -167,4 +228,40 @@ class FreshClientCibSevenTransport:
     async def close(self) -> None:
         """No-op: no persistent client to close (fresh-client-per-call). Kept for
         `CibSevenTransport` lifecycle symmetry — the daemon calls it on drain."""
+        return None
+
+
+def resolver_instancia_historica(
+    engine: object,
+    process_key: str,
+    *,
+    business_key: str = "",
+    variable_equals: Mapping[str, str] | None = None,
+    names: tuple[str, ...] = (),
+) -> HistoricInstanceRecord | None:
+    """Ponte SINCRONA de um `FunctionWorker` para a costura de historico de PR-C (pacote PAGTO PR-D).
+
+    O worker que precisa do fato chega ao motor SO' por aqui — pela mesma costura `engine=` que o
+    daemon injeta (o decorator cercado sobre `FreshClientCibSevenTransport`), nunca importando o
+    transporte. Contrato reduzido ao que o consumidor precisa distinguir:
+
+      * `HistoricInstanceRecord` — a UNICA instancia que casou;
+      * `None` — o motor respondeu, bem-formado, que NENHUMA casa (o unico "nao existe");
+      * `CibSevenError` (um `RuntimeError`) — tudo o mais: costura ausente no `engine`, motor fora,
+        ambiguo, malformado, recusa do gate. "Nao sei", nunca "nao existe".
+
+    `asyncio.run` como em `inadimplencia`: o harness despacha o `FunctionWorker` numa thread propria,
+    e o `FreshClientCibSevenTransport` constroi o cliente dentro do loop desta chamada.
+    """
+    if not isinstance(engine, HistoricInstanceResolvingTransport):
+        raise CibSevenError(
+            f"engine seam {type(engine).__name__!r} does not implement `resolve_historic_instance`"
+        )
+    try:
+        return asyncio.run(
+            engine.resolve_historic_instance(
+                process_key, business_key=business_key, variable_equals=variable_equals, names=names
+            )
+        )
+    except HistoricInstanceNotFoundError:
         return None

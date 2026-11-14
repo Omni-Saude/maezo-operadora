@@ -130,19 +130,22 @@ class CertificationScore:
 
 
 def _s1(inputs: DimensionInput) -> float:
-    assert inputs.s1 is not None
+    if inputs.s1 is None:
+        raise AssertionError("s1 ausente (score_channel pula dimensao None)")
     n, exam = inputs.s1
     return 50.0 * min(1.0, n / CREDENTIAL_MIN_INDIVIDUALS) + 50.0 * (exam / 100.0)
 
 
 def _s2(inputs: DimensionInput) -> float:
-    assert inputs.s2 is not None
+    if inputs.s2 is None:
+        raise AssertionError("s2 ausente (score_channel pula dimensao None)")
     return 100.0 * min(1.0, inputs.s2 / ACTIVE_CONTRACTS_FLOOR)
 
 
 def _s3(inputs: DimensionInput) -> float:
     # Agregado da CARTEIRA (nunca por contrato; nunca dado clínico) — clip [0,100].
-    assert inputs.s3 is not None
+    if inputs.s3 is None:
+        raise AssertionError("s3 ausente (score_channel pula dimensao None)")
     return max(
         0.0,
         min(100.0, 100.0 * (SINISTRALITY_CEILING - inputs.s3) / (SINISTRALITY_CEILING - SINISTRALITY_TARGET)),
@@ -154,7 +157,8 @@ def _checklist(items: dict[str, bool], weights: dict[str, int]) -> float:
 
 
 def _s6(inputs: DimensionInput) -> float:
-    assert inputs.s6 is not None
+    if inputs.s6 is None:
+        raise AssertionError("s6 ausente (score_channel pula dimensao None)")
     return 100.0 * min(1.0, inputs.s6 / TENURE_MONTHS_FULL)
 
 

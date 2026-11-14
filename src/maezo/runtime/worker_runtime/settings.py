@@ -66,20 +66,20 @@ class WorkerRuntimeSettings(BaseSettings):
     # not consumed by this build (no T1.1-registered worker publishes PHI-adjacent values to
     # Kafka yet). Kept so a later worker-egress seam can read it without a settings-surface change.
     phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
-    # WP-J1-06 / V14 MAJOR-1. Installs the portal NEGAR owner
-    # (`NativeDenialNoticeWorker`) as the EXCLUSIVE owner of
-    # `operadora.auth.send_denial_notice`, displacing the generic
-    # `SendDenialNoticeWorker`. DARK BY DEFAULT: absent or false, the generic worker
-    # keeps the topic and the daemon is byte-for-byte what it is today. Flipping it is
-    # the whole activation — there is no other way to reach the native owner, and no
-    # deployment gets it by accident.
+    # TOMBSTONE (R-004 / F-032; decisao do dono DEC-01, issue #1081). WP-J1-06 usava esta
+    # bandeira para instalar um SEGUNDO dono de `operadora.auth.send_denial_notice`
+    # (`NativeDenialNoticeWorker`), fora do contrato SP-OP-AUTH-001. Esse dono foi REMOVIDO:
+    # o unico dono e' `SendDenialNoticeWorker`. O campo permanece (ancoras W7 rastreadas em
+    # `scripts/w7/shadow_deviation_dashboard.py` e `docs/plans/w5-5-1-flags-reancoragem.md`)
+    # apenas para RECUSAR: ligada, o daemon nao registra os workers
+    # (`refuse_retired_second_owner` -> `worker_harness_build_failed`, `/readyz` vermelho),
+    # em vez de ignorar em silencio um pedido por um dono que nao existe mais.
     #
-    # FAIL-CLOSED when on: the native owner reads the human-decision basis references
-    # from engine variables. Until the writer exists (PR-C's `ClassifiedDecision`), the
-    # references are blank, `read_basis` raises `DenialIncompleteError` and the worker
-    # raises `ERR_AUTH_DENIAL_INCOMPLETE` to `BE_NegativaIncompleta` -> the terminal
-    # `End_FundamentacaoIncompletaBloqueada` the process already reaches today. No new
-    # failure mode, and never a silent success.
+    # DESLIGADA (o padrao): nenhuma mudanca — o worker do contrato e' o dono, como sempre
+    # foi por padrao. A entrega por escrito da negativa (RN 623/2024 art. 14) tem a sua
+    # propria bandeira dark, `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`, abaixo. Nenhuma das duas
+    # decide negativa: a decisao e' sempre do medico auditor humano (item `hard`).
+    # Remover o campo exige re-ancorar o painel W7 no mesmo PR.
     denial_notice_owner: bool = Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")
 
     # --- Fetch-and-lock loop parameters (WorkerHarness, design §11) ---------------------------
@@ -139,6 +139,157 @@ class WorkerRuntimeSettings(BaseSettings):
     # declarar o topico ausente do conjunto esperado e as instancias param em
     # ST_SolicitarDocumentos, nunca uma entrega silenciosamente perdida.
     document_request_host_installed: bool = Field(default=False, alias="MAEZO_AUTH_DOCUMENT_REQUEST_HOST")
+
+    # Forensic audit F-092 (ADR-0024 claim/commit): when ON and DATABASE_URL is set, the generic
+    # `operadora.events.publish` handler records each task's publish in `driver_idempotency`, so a
+    # lock-expiry redelivery of the SAME external task does not publish a second time. DARK by
+    # default (ships OFF; flipping is a ROLL data change, never an agent act).
+    extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
+
+    # Forensic audit F-142 (roadmap R-053): when ON, `operadora.pagto.calculate_facts` writes the
+    # FACT `dados_pagamento_validos=False` for an absent/invalid `valor_pagamento_cents`, so the
+    # DMN `pagto_admissibility` routes it to PENDENTE_DADOS as SP-OP-PAGTO-001 declares (instead of
+    # the alcada catch-all). Both routes are human and non-releasing. DARK by default (ships OFF;
+    # flipping is a ROLL data change, never an agent act).
+    pagto_valor_invalido_pendente_dados: bool = Field(
+        default=False, alias="MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS"
+    )
+    # Forensic audit R-027 (F-001/F-038; owner DEC-10 — RN 593/2023 alterada pela RN 617/2024):
+    # liga, em SP-OP-INADIMPLENCIA-001, o pre-requisito de notificacao ate o 50o dia (gate BPMN ->
+    # timer `${purga.prazo_notificacao_previa}`), a contagem por competencia distinta e o guard
+    # estrito da suspensao (tier + antecedencia lida da DMN `inadimplencia_purga`). DARK by default:
+    # as User Tasks ainda nao coletam `tier`/`data_notificacao_iso`, e o flip exige assinatura
+    # juridica — ato humano (ROLL), nunca de agente.
+    inad_rn593_estrito: bool = Field(default=False, alias="MAEZO_INAD_RN593_ESTRITO")
+    # Forensic audit F-029 (roadmap R-063): fatos "pre-resolvidos" deixam de ecoar a entrada.
+    # PAGTO: `validate_payment_data` resolve `dados_pagamento_validos` (credor + instrumento no
+    # dominio do contrato) e nunca ecoa `lastro_confirmado` semeado (ADR-0040 I-PAGTO-1 -> toda
+    # ordem passa por `UT_AnaliseAdmissibilidade`). INAD: `resolve_facts` nunca ecoa
+    # `dentro_janela_purga` (so o timer BPMN encerra a janela de purga). Ambos fail-closed/humanos.
+    # DARK by default (ships OFF; flipping is a ROLL data change, never an agent act).
+    pagto_fatos_estritos: bool = Field(default=False, alias="MAEZO_PAGTO_FATOS_ESTRITOS")
+    inad_fatos_estritos: bool = Field(default=False, alias="MAEZO_INAD_FATOS_ESTRITOS")
+    # Forensic audit R-092 (F-081/F-042): aprovacao colegiada do comite em SP-OP-PAGTO-001.
+    # Ligada, `calculate_facts` escreve `pagto_comite_colegiado_ativo=true` e `GW_TipoAprovacao` leva
+    # as faixas cujo `quorum_comite` (DMN `pagto_alcada`, valor DRAFT) passa de 1 a
+    # `SP_AprovacaoComite` (UT_AprovacaoComite multi-instancia); `release_high_value_payment` passa a
+    # exigir o livro de votos (quorum, membros distintos, SoD). DARK by default: a UT_AprovacaoComite
+    # usa o formulario existente `pagto_aprovacao`, mas o quorum/composicao do comite nao foram
+    # decididos pelo dono (DRAFT na DMN), e ligar e' ato humano (ROLL), nunca de agente.
+    pagto_comite_colegiado: bool = Field(default=False, alias="MAEZO_PAGTO_COMITE_COLEGIADO")
+    # Forensic audit F-124 (roadmap R-027; decisao do DPO de 31/10/2026, #1082 opcao a): a business
+    # key `INAD-{tenant}-{numero_contrato}` exige o numero do contrato — sem fallback para
+    # `matricula_beneficiario` — e o start sem ele e' RECUSADO no chokepoint (fail-notify ADR-0045);
+    # `prepare_dossier` deixa de delegar ao Fernando sem contrato. DARK by default (ships OFF):
+    # starts sem contrato passam a exigir saneamento cadastral, e o flip e' ato humano (ROLL).
+    inad_chave_exige_contrato: bool = Field(default=False, alias="MAEZO_INAD_CHAVE_EXIGE_CONTRATO")
+    # Decisao do dono de 30/10/2026 (criterios de reembolso por beneficiario; desenho em
+    # docs/design/condicoes-reembolso-contratuais.md): liga a LEITURA das condicoes contratuais de
+    # reembolso pelo contrato AMH PROPOSTO `tina-reembolso`
+    # (`maezo.adapters.amh.tina.compor_condicoes_reembolso`).
+    # So' leitura de fatos, nunca decisao. DARK by default; ligada, ainda nao monta nada enquanto o
+    # contrato nao for publicado e pinado. Ligar e' ato humano (ROLL), nunca de agente.
+    reembolso_condicoes_contratuais: bool = Field(
+        default=False, alias="MAEZO_REEMBOLSO_CONDICOES_CONTRATUAIS"
+    )
+    # Pacote PAGTO PR-D (analise PAGTO §2 L1-L4, ADR-0040 I-PAGTO-1): `validate_payment_data`
+    # passa a conferir o lastro da ordem no HISTORICO do motor (instancia de CONTAS/RECURSO que a
+    # produziu: terminal, valor, credor) e acrescenta os FATOS `lastro_status`/`lastro_origem_tipo`
+    # + evidencia. Nao muda rota: `lastro_confirmado` segue como antes e a DMN que vai ler os fatos
+    # (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDISPONIVEL`). DARK by default
+    # (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
+    pagto_resolve_lastro: bool = Field(default=False, alias="MAEZO_PAGTO_RESOLVE_LASTRO")
+    # Pacote PAGTO PR-E (analise PAGTO §4 niveis 1-3; §8 D6(A) "razao append-only de pagamentos"):
+    # `validate_payment_data` passa a conferir a ordem contra a razao `pagto_obrigacao_ledger`
+    # (migracao 0034; exige DATABASE_URL) e acrescenta o FATO `duplicidade_status` + evidencia,
+    # classificado pela DMN `pagto_duplicidade` no motor; os dois workers de liberacao passam a
+    # gravar a `LIBERADA` DEPOIS do guard. Nao muda rota: `duplicidade_suspeita` segue como antes e a
+    # DMN que vai ler o fato (`pagto_admissibility` v0.2) e' o PR-F. Falha fechada (`INDETERMINADA`).
+    # O nivel 2 usa os fatos do PR-D (`MAEZO_PAGTO_RESOLVE_LASTRO`); sem eles o status e'
+    # `INDETERMINADA`. DARK by default (ships OFF; ligar e' ato humano, ROLL, nunca de agente).
+    pagto_detect_duplicidade: bool = Field(default=False, alias="MAEZO_PAGTO_DETECT_DUPLICIDADE")
+
+    # R-004 (F-016; RN 623/2024 art. 14 + art. 16 §3). Entrega por escrito da negativa ao
+    # beneficiario. Canal de entrega NAO existe neste build: ligada, o unico dono de
+    # `operadora.auth.send_denial_notice` passa a registrar o estado honesto da entrega —
+    # `entrega_negativa_status="entrega_manual_pendente"`, responsavel o medico auditor — e
+    # NUNCA um "entregue" sem recibo. DARK por padrao: desligada, a saida do worker e' a de
+    # sempre. Ligar e' ato da implantacao (ROLL), depois da assinatura do juridico sobre o
+    # termo (motivo, clausula/dispositivo, canais da Ouvidoria, formato imprimivel/baixavel).
+    auth_denial_written_notice: bool = Field(default=False, alias="MAEZO_AUTH_DENIAL_WRITTEN_NOTICE")
+
+    # R-107 (F-135, GAP-CONTAS-7): entrega REAL do alerta de risco de SLA de SP-OP-CONTAS-001 ao
+    # canal interno que o contrato nomeia (`operadora.notifications.internal`, o mesmo de
+    # auth/recurso/programa/lgpd), com `type=contas.notify_sla_risk` e falha de broker propagada
+    # (ADR-0030). DARK por padrao: desligada, o worker historico (so log, `{}`) segue byte-a-byte.
+    # O bridge ainda NAO roteia esse `type` a SP-OP-ESCALATION-001 (nova origem = decisao do dono);
+    # ate la a mensagem e contada/avisada como `unrecognised_shape`. Ligar e' ato humano (ROLL).
+    contas_sla_risk_entrega: bool = Field(default=False, alias="MAEZO_CONTAS_SLA_RISK_ENTREGA")
+    # Decisao do dono de 2026-11-01 (opcao A, "conta na chave de pagamento"; bug CONTAS->PAGTO de
+    # pagamento perdido). Fase da chave PAGTO cunhada por `operadora.contas.handoff_pagamento` quando
+    # CONTAS adjudicou por guia/conta: `legado` (padrao) = `PAGTO-{t}-{lote}-{prestador}`, byte-
+    # identico na chave — o defeito PERSISTE, mas a 2a conta do lote vira incidente auditado e
+    # alerta (DEC-30 D11) em vez de sucesso silencioso; `leitura_dupla` = escreve a legada e le
+    # antes a por conta; `escrita_alvo` = escreve `PAGTO-{t}-C-{prestador}-{guia}-{conta}` (DEC-30
+    # D13) e le antes a legada. Mudanca de FORMATO de chave: pertence a janela unica do ADR-0068
+    # (Accepted, DEC-29), emendado pelo ADR-0074 (Proposed, DEC-30 D12), que ABSORVE esta fase em
+    # `MAEZO_CHAVES_JANELA` no pacote da janela. Virar a fase e' ato do dono (ROLL), leitor antes
+    # de escritor (todas as replicas em `leitura_dupla` antes de qualquer `escrita_alvo`); nunca de
+    # agente. Plano: docs/runbooks/pagto-chave-por-conta-migracao.md.
+    pagto_chave_conta_fase: Literal["legado", "leitura_dupla", "escrita_alvo"] = Field(
+        default="legado", alias="MAEZO_PAGTO_CHAVE_CONTA_FASE"
+    )
+    # R-044 (F-062; ADR-0020 item 6; posicao do dono na issue #1081, R-131/DEC-12 -> R-030).
+    # Ligada, a eliminacao aprovada em `operadora.lgpd.execute_request` consulta o registro de
+    # legal-hold (`maezo.platform.lifecycle.legal_hold`, YAML em MAEZO_LEGAL_HOLD_REGISTRY_PATH)
+    # antes de executar: hold ativo OU registro indisponivel => eliminacao DIFERIDA com recusa
+    # auditada, nunca apagamento silencioso. DARK por padrao: desligada, nada muda. Ligar e' ato
+    # da implantacao (ROLL), depois da assinatura do juridico/DPO sobre o registro (R-030).
+    lgpd_legal_hold_predicate: bool = Field(default=False, alias="MAEZO_LGPD_LEGAL_HOLD_PREDICATE")
+
+    # R-064 (F-017; decisao do dono DEC-15, issue #1083 -> R-034). RN 424/2017 art. 3 I: junta
+    # medica vedada em urgencia/emergencia. A regra mora na DMN `auth_junta_admissibility`,
+    # avaliada pelo engine em SP-OP-AUTH-001; esta bandeira so' decide se o resultado ROTEIA
+    # (`GW_JuntaAdmissivel`): ligada, junta vedada ou carater indeterminado volta a coordenacao
+    # de auditoria medica (humana). DARK por padrao: desligada, o caso vai a junta como antes e o
+    # resultado da DMN fica em sombra. Ligar e' ato da implantacao (ROLL), depois da ratificacao
+    # do medico auditor; nunca de agente.
+    auth_junta_rn424_guard: bool = Field(default=False, alias="MAEZO_AUTH_JUNTA_RN424_GUARD")
+
+    # R-005 (F-018; DEC-02 do juridico via dono, 2026-10-31). RN 623/2024 art. 12: prazo de
+    # resposta em DIAS UTEIS (calendario versionado de feriados nacional + UF,
+    # `maezo.platform.calendario`). Ligada, `operadora.auth.compute_response_deadline` converte os
+    # dias uteis da DMN `auth_sla` na duracao que `BT_SlaAnalise` le. DARK por padrao: desligada, o
+    # worker escreve nulos e o timer segue no ISO corrido da DMN (teto temporario da D-05). Ligar e'
+    # ato da implantacao (ROLL), depois da conferencia juridica do calendario; nunca de agente.
+    auth_prazo_dias_uteis: bool = Field(default=False, alias="MAEZO_AUTH_PRAZO_DIAS_UTEIS")
+
+    # R-085 (decisao do dono 2026-10-31, issue #1084 Rodada 2 "Observabilidade"; ADR-0010). Ligada,
+    # o daemon roda o `engine_metrics.EngineMetricsPoller`: le do HISTORICO do engine o campo de
+    # decisao de cada User Task L1 encerrada e emite `maezo_l1_decision_total` (proxy da taxa de
+    # aprovacao humana). So' LEITURA, nunca efeito. DARK por padrao: desligada, nenhuma leitura de
+    # historico acontece. UMA replica por tenant (duas replicas ligadas contam duas vezes — limite
+    # declarado no modulo). Ligar e' ato da implantacao (ROLL), nunca de agente.
+    l1_decision_poller: bool = Field(default=False, alias="MAEZO_L1_DECISION_POLLER")
+    # Intervalo entre rodadas do poller, em segundos. Parametro operacional (latencia do sinal),
+    # nao limiar de negocio; o alerta de queda trabalha em DIAS, entao 60 s fica muito abaixo da
+    # resolucao que importa. TODO-OWNER: confirmar contra o TTL de limpeza do historico do engine.
+    l1_decision_poller_interval_s: float = Field(default=60.0, alias="MAEZO_L1_DECISION_POLLER_INTERVAL_S")
+
+    # MPTT P3 (analise PROVIDER-trust-tiers §2; decisao do dono D-T1(A): ledger = baseline AMH
+    # assinada + deltas de CRED/FRAUDE). Ligada, `python -m maezo.platform.prestador_status`
+    # importa a baseline atestada e reconcilia terminais de SP-OP-CRED-001/SP-OP-FRAUDE-001 no
+    # `prestador_status_ledger` (0032), so' pela costura de historico do PR #1167. DARK por
+    # padrao: desligada, as duas subcomandas que gravam recusam antes de qualquer rede/banco, e
+    # nenhum consumidor le o ledger (P6). Ligar e' ato da implantacao (ROLL), nunca de agente.
+    prestador_status_ledger: bool = Field(default=False, alias="MAEZO_PRESTADOR_STATUS_LEDGER")
+
+    @field_validator("l1_decision_poller_interval_s", mode="after")
+    @classmethod
+    def _positive_interval(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError(f"must be positive, got {value}")
+        return value
 
     @field_validator(
         "lock_duration_ms",

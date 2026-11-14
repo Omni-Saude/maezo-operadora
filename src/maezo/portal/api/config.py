@@ -33,7 +33,7 @@ class PortalSettings(BaseSettings):
     #: engine's REST surface instead of the signed durable relay ADR-0049 D5/D6/D7 designs.
     #: OFF by default, and `scripts/ci/check_portal_direct_completion.py` reproves any
     #: `deploy/**` that turns it on outside `dev-sa-east-1`. Deleting this flag — with the
-    #: relay of #427 in its place — is the intended end state.
+    #: relay of #1145 in its place — is the intended end state.
     direct_completion: bool = False
     #: INTERIM (DL-0049). Exact HTTPS origins, comma separated, that may call this BFF with
     #: credentials. EMPTY by default, which is "no cross-origin caller at all": the portal is
@@ -43,13 +43,86 @@ class PortalSettings(BaseSettings):
     #: and credentials are mutually exclusive in the browser, and an echoed Origin would make
     #: any site a caller.
     cors_origins: str = ""
+    #: W5 CLNT 5.2 (`docs/plans/maezo-completion-program.md`). Canal HTTP de DSR do titular
+    #: (`POST /api/v1/portal/dsr` -> SP-OP-LGPD-DSR-001). DARK: OFF por padrão — o programa é
+    #: shadow e virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeado
+    #: próprios. OFF responde 403 `operation_forbidden` antes de qualquer efeito; a rota segue
+    #: publicada no schema mesmo desligada (o leitor do contrato vê o canal antes de decidir
+    #: habilitá-lo). Nenhum `deploy/**` pode ligá-la neste programa.
+    lgpd_dsr_channel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.5). Painel staff READ-ONLY da área
+    #: `documents` (documentos e pedidos de documento do caso), sobre as rotas GET já montadas de
+    #: `documents.py` — nenhuma rota nova, nenhum byte novo fora do plano PHI. DARK: OFF por
+    #: padrão — o programa é shadow e virar esta chave é ato da onda ROLL, com janela de
+    #: evidência e revisor nomeados. OFF projeta a sessão sem o sinal, e o portal mantém o stub
+    #: exato de hoje: zero mudança de superfície visível. A autorização de leitura continua
+    #: inteira no plano publicado (`auth.document_context.read`); o sinal não concede nada.
+    #: Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_documents_panel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.6). Painel staff READ-ONLY da área
+    #: `operations` (recibos de comandos por tarefa e dependências do contexto da tarefa), sobre
+    #: rotas GET já montadas — `decisions.py` (contexto de assignment governado e recibo público
+    #: do comando) e `tasks.py` (contexto de escalonamento). Nenhuma rota nova, nenhum comando:
+    #: a tela não carrega corpo, CSRF nem método que não GET. DARK: OFF por padrão — o programa é
+    #: shadow e virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeados.
+    #: OFF projeta a sessão sem o sinal, e o portal mantém o stub exato de hoje: zero mudança de
+    #: superfície visível. A autorização de leitura continua inteira no plano publicado; o sinal
+    #: não concede nada. Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_operations_panel: bool = False
+    #: D-40 (decisão do dono, 2026-10-25). Painel staff READ-ONLY da área `administration`
+    #: (o roster de vínculos administrativos revisados: papéis/grupos, bindings por recurso,
+    #: revisão, prazo de revisão, revogação), sobre a única rota GET nova de
+    #: `admin_read.py` — `/api/v1/portal/administration/memberships`. ZERO mutação: o router
+    #: só monta GET, e a cerca `portal/admin/*` ("never public portal routes";
+    #: `assignments.py:1-8`: no BFF routes call this service) permanece — a conexão
+    #: administrativa independente continua sendo a única escritora. DARK: OFF por padrão —
+    #: virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeados, e
+    #: exige TAMBÉM o perfil de capabilities que nomeia `staff_admin_read` (abaixo; o
+    #: bootstrap SC1 de produção não consegue nomeá-lo). OFF projeta a sessão sem o sinal e o
+    #: portal mantém o stub exato de hoje. Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_admin_panel: bool = False
+    #: D-36 (decisão do dono, 2026-10-25). Superfície INTERNA de gestão de ESTRUTURAS de ajuste
+    #: de comissão (produto/canal/corretor; múltiplos ajustes, vigências, precedência), com
+    #: dados entrando no FUTURO — todo slot de valor é anulável e o único estado é `DRAFT`
+    #: (pinado também por CHECK na tabela `commission_adjustment_policies`, migração 0029).
+    #: Nada calcula, publica ou liquida: não existe endpoint de cálculo/ativação/liquidação por
+    #: desenho, e ativação é ato FUTURO que exige a ratificação A8 Forma 1 pelos três papéis
+    #: (`comercial` + `legal` + `DPO`) e chega como MIGRAÇÃO sucessora — nunca como update
+    #: nem por esta chave. DARK: OFF por padrão — virar esta chave é ato do dono, com janela de
+    #: evidência e revisor nomeados; OFF responde 403 `operation_forbidden` antes de qualquer
+    #: efeito, e o slot de fábrica segue sem default (503). Nenhum `deploy/**` pode ligá-la
+    #: neste programa.
+    staff_commission_policies: bool = False
+    #: REG-1.1 (`docs/plans/maezo-completion-program.md` §W1 REG; OP21 `legitimacy.screen`).
+    #: Superfície staff interna da triagem de legitimidade da pessoa jurídica contratante em
+    #: planos coletivos — o checklist FECHADO do parecer do Diretor Jurídico (2026-10-26,
+    #: snapshot canônico sha256 `d80740cc…`, registrado em
+    #: `docs/compliance/legal/PARECER-OP21-RESPOSTA-LUCAS-2026-10-26.md` sha256 `56b8887d…`),
+    #: desenhado em `OP21-LEGITIMACY-SCREEN-DESIGN-V1.md` (sha256 `5639f41d…`, §4 DECISÃO 3;
+    #: substrato já em main: migração 0030 e store, PR #1022). DARK: OFF por padrão — o
+    #: programa é shadow e virar esta chave é ato da onda ROLL, com janela de evidência e
+    #: revisor nomeados. OFF = nenhuma superfície: a resposta do caminho é byte-idêntica à de
+    #: hoje — a rota recusa 403 `operation_forbidden` (flag) / 503 `dependency_unavailable`
+    #: (slot de fábrica sem default, molde D-36) antes de qualquer efeito, e o BLOQUEIO
+    #: comercial nem existe por esta chave: a postura enforcing é classe sucessora com bind
+    #: explícito em composition root (desenho §4, PR 4), nunca knob de ambiente. Nenhum
+    #: `deploy/**` pode ligá-la neste programa.
+    collective_legitimacy_screen: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.
     #: The fourth profile exists since VW1-P4 (OP16 vendor submission route); the DEFAULT is
     #: untouched, so no deployment projects `vendor` without naming this exact string.
+    #: D-40 adds the administrative READ profile: `staff_admin_read` exists in NO default
+    #: profile and the SC1 production bootstrap (`PortalProductionSettings`) cannot name this
+    #: fifth string at all — a production-bootstrap deployment that sets it refuses to boot.
+    #: Naming it is a deliberate owner act (the D-* read-authority decision), never a default.
     capabilities: Literal[
-        "identity", "identity,staff_cases", "identity,staff_cases,human", "identity,staff_cases,human,vendor"
+        "identity",
+        "identity,staff_cases",
+        "identity,staff_cases,human",
+        "identity,staff_cases,human,vendor",
+        "identity,staff_cases,human,staff_admin_read",
     ] = "identity"
 
     @model_validator(mode="after")

@@ -106,8 +106,8 @@ def _need(value: bool) -> None:
 def _one(cursor: ReadbackCursor, query: str, params: tuple[Any, ...] = ()) -> tuple[Any, ...]:
     cursor.execute(query, params)
     row = cursor.fetchone()
-    _need(type(row) is tuple and cursor.fetchone() is None)
-    assert row is not None
+    if not (type(row) is tuple and cursor.fetchone() is None):
+        raise ReadbackError("native_installation_readback_unavailable")
     return row
 
 

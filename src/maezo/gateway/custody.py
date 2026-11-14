@@ -14,10 +14,14 @@ No PHI in custody: only pseudonymized pointers, never raw PHI (ADR-0006).
 from __future__ import annotations
 
 import hashlib
+import hmac
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+_LEAF_PREFIX = b"\x00"
+_NODE_PREFIX = b"\x01"
 
 
 class CustodyBundle:
@@ -48,18 +52,21 @@ class CustodyBundle:
             logger.info("custody_bundle_sealed_empty", root=root)
             return root
 
-        # Hash each individual evidence reference
-        leaves = [hashlib.sha256(ref.encode("utf-8")).digest() for ref in evidence_refs]
-
-        # Build Merkle tree bottom-up
-        while len(leaves) > 1:
+        # Merkle tree with RFC 6962 DOMAIN SEPARATION (tree SHAPE is not RFC 6962 — bottom-up pairs,
+        # odd node promoted; do not validate with a CT library): leaf = H(0x00 || ref), node =
+        # H(0x01 || left || right), and an odd node is PROMOTED unchanged to the next level. The
+        # previous construction duplicated the last node on odd levels, so [a, b, c] and
+        # [a, b, c, c] sealed to the SAME root (forensic audit F-003) — a duplicated evidence item
+        # was undetectable. Prefixes also stop a leaf from being confused with an inner node.
+        level = [hashlib.sha256(_LEAF_PREFIX + ref.encode("utf-8")).digest() for ref in evidence_refs]
+        while len(level) > 1:
             next_level: list[bytes] = []
-            for i in range(0, len(leaves), 2):
-                left = leaves[i]
-                right = leaves[i + 1] if i + 1 < len(leaves) else left
-                combined = left + right
-                next_level.append(hashlib.sha256(combined).digest())
-            leaves = next_level
+            for i in range(0, len(level) - 1, 2):
+                next_level.append(hashlib.sha256(_NODE_PREFIX + level[i] + level[i + 1]).digest())
+            if len(level) % 2 == 1:
+                next_level.append(level[-1])
+            level = next_level
+        leaves = level
 
         root = leaves[0].hex()
         logger.info(
@@ -80,7 +87,7 @@ class CustodyBundle:
         Returns:
             True if the recomputed root matches the bundle_root.
         """
-        if bundle_root is None:
+        if not isinstance(bundle_root, str) or not bundle_root:
             return False
         recomputed = CustodyBundle.seal_bundle(evidence_refs)
-        return recomputed == bundle_root
+        return recomputed is not None and hmac.compare_digest(recomputed, bundle_root)

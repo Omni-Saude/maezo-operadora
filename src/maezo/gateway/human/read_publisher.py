@@ -247,7 +247,8 @@ class PortalReadPublisher:
             await self._client.partition.prepare("portal-read-publication")
             admission = self._client.partition.admission
             signing = self._client.partition.signing
-            assert admission is not None and signing is not None
+            if admission is None or signing is None:
+                raise AssertionError("particao sem admission/signing apos prepare()")
             a = admission.record
             if (
                 source.source != source.lease.provenance
@@ -295,7 +296,8 @@ class PortalReadPublisher:
         await partition.prepare("portal-read-publication")
         now = partition.guard()
         signing, admission = partition.signing, partition.admission
-        assert signing is not None and admission is not None
+        if signing is None or admission is None:
+            raise AssertionError("particao sem signing/admission apos prepare()")
         pending.source.lease.live()
         until = min(
             signing.not_after,

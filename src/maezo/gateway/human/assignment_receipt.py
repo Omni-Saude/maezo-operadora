@@ -199,6 +199,7 @@ class NativeAssignmentReceiptAuthority(ReceiptResourceAuthority):
 
         async with self._engine.begin() as db:
             schema = schema_for_tenant(self.scope.tenant)
+            # nosemgrep: avoid-sqlalchemy-text # fonte: schema_for_tenant
             await db.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             actual_schema = (await db.execute(text("SELECT current_schema()"))).scalar_one()
             if actual_schema != schema:

@@ -1,0 +1,46 @@
+{
+  "schema": "commercial.java-fixture-third-repair-r2.v1",
+  "status": "FROZEN_PENDING_ORIGINAL_RECHECK_AND_LINUX_CI",
+  "finding": "JFIX-R1",
+  "owned_source": {
+    "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/RuntimeDefinitionObservationTest.java": "70124860fff71b68c7e69bef926b616ee79d6857745b0f83b86326f3917307b3"
+  },
+  "r1_source_sha256": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80",
+  "r1_handoff_manifest_unchanged": true,
+  "default_cleanup_budget_ms": 5000,
+  "timeout_behavior": "throw IOException before acquiring collection lock or closing any live-owned channel",
+  "test_budget_ms": 50,
+  "tests": {
+    "final_lifecycle": {
+      "tests": 2,
+      "passed": 2,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "explicit_unbounded_join_mutation": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "test_safety_release_seconds": 4
+    },
+    "whole_class_rerun": "NOT_RUN_R2; R1 exact-host baseline remains historical"
+  },
+  "original_59_cases_assertions_timeouts_assumption_unchanged": true,
+  "production_changes": false,
+  "host_java": "25.0.4",
+  "compiler_release": 17,
+  "linux_deployed_profile": "PENDING_ROOT_CI",
+  "original_ci_causal_link": "NOT_PROVEN",
+  "evidence_relative_to_delivery_dir": "repair-preimages.local/c6-java-fixture-r2",
+  "evidence": {
+    "RuntimeDefinitionObservationTest.r1-preimage.java": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80",
+    "RuntimeDefinitionObservationTest.repaired.java": "70124860fff71b68c7e69bef926b616ee79d6857745b0f83b86326f3917307b3",
+    "RuntimeDefinitionObservationTest.unbounded-mutant.java": "b1d37d33fa06c917d3aeeb8b18f85924afbe754d24358a6a180811ccde784d15",
+    "targeted-final.log": "d238724c252838f8eb7efe5389a66b89a4f4819a630e14170525839b0cf35776",
+    "targeted-final.xml": "c05ac6b37692db3bcda0d569a1c8f7ffb7dc1fe9b4a15640a2567de833c67b61",
+    "targeted-first.log": "2b74a7486112c3ec0be087d8b7c38039e33c7f3a009225da575a3c558c19664b",
+    "unbounded-negative.log": "13d024577082c6b95f0dd0ff62f1ed20178a15d90f23aa2cd30140fc51ac4d7c"
+  }
+}

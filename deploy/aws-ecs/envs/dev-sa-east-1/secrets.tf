@@ -99,7 +99,8 @@ data "aws_iam_policy_document" "task_bedrock" {
       # desenho e restringir a regiao ali quebraria a invocacao de forma intermitente. Aqui e'
       # o oposto: a regiao presa em `sa-east-1` e' a propria garantia de residencia, e um
       # `*` desfaria o que este provedor existe para dar.
-      "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${var.phi_model_id}",
+      # Excecao regional do dev (DPO, 21/10/2026): `local.phi_regiao` e' us-east-1 so' com a excecao ligada.
+      "arn:${data.aws_partition.current.partition}:bedrock:${local.phi_regiao}::foundation-model/${var.phi_model_id}",
     ]
   }
 }

@@ -144,7 +144,19 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # Apresentacao do canal (14/10/2026) appends 0026 (`apresentado_em` em `conversa_acesso_beneficiario`).
     # Lembrete de cobranca (14/10/2026) appends 0027 (idempotencia e opt-out); still linear.
     # Limite de falhas por CPF (D-04, 15/10/2026) appends 0028.
-    assert script.get_heads() == ["0028"]
+    # D-36 (dono, 25/10/2026) appends 0029 (estruturas de ajuste de comissao em rascunho); still linear.
+    # OP21/REG-1.1 (26/10/2026) appends 0030 (registro da verificacao de legitimidade da PJ,
+    # escuro no substrato); still linear.
+    # MPTT P3 (01/11/2026) appends 0032 (ledger append-only do status do prestador, escuro;
+    # revisa 0030 — re-apontada para 0031 se o PR #1074 entrar antes); still linear.
+    # DL-0162 (reembolso pelo WhatsApp) appends 0033 (`reembolso_coleta`) after 0032; still linear.
+    # PAGTO PR-E (01/11/2026) appends 0034 (razao append-only das obrigacoes de pagamento, escura)
+    # after 0033; still linear.
+    assert script.get_heads() == ["0034"]
+    assert script.get_revision("0034").down_revision == "0033"
+    assert script.get_revision("0033").down_revision == "0032"
+    assert script.get_revision("0032").down_revision == "0030"
+    assert script.get_revision("0030").down_revision == "0029"
     assert script.get_revision("0028").down_revision == "0027"
     assert script.get_revision("0027").down_revision == "0026"
     assert script.get_revision("0026").down_revision == "0025"

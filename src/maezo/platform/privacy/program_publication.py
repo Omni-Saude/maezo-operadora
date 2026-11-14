@@ -16,7 +16,8 @@ from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
 
 # Source identity comes from fetchAndLock metadata, not from outgoing event inputs.
 # SP-OP-ANS-CRON-001 is the contract/model family, not an engine process ID.
-# Its five timer definitions publish facts but remain intentionally not agent-startable
+# Its four timer definitions (R-007: SIP removed, the rest `isExecutable="false"` until a
+# COUNSEL opinion) publish facts but remain intentionally not agent-startable
 # (SP-OP-ANS-CRON-001 contract: topology per report_type; ADR-0003/ADR-0016).
 # SP-OP-SUPP-001 (VW4/GP11 wiring — insumos aceitos pelo dono 2026-10-07, sha ab262f7b…)
 # publica a família `agents.events.vendor.suppression.*` via o publicador genérico, mas é
@@ -25,7 +26,6 @@ from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
 # apenas como fonte de publicação (prova E2E-local: sem esta entrada, os publish tasks do
 # envelope falham `publication_source_unavailable` no engine real).
 _PUBLICATION_PROCESS_KEYS = KNOWN_PROCESS_KEYS | {
-    "SP-OP-ANS-CRON-001-RN124SIP",
     "SP-OP-ANS-CRON-001-RN209",
     "SP-OP-ANS-CRON-001-RN388",
     "SP-OP-ANS-CRON-001-RN424TISS",

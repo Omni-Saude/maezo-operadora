@@ -268,7 +268,11 @@ def test_cancel_task_rejects_cross_bound_existing_form(task_key: str) -> None:
             _decision(
                 task_key=task_key,
                 form_key="reembolso_decisao",
-                inputs={"kind": "reembolso_decisao", "decisao_reembolso": "SOLICITAR_INFO"},
+                inputs={
+                    "kind": "reembolso_decisao",
+                    "decisao_reembolso": "SOLICITAR_INFO",
+                    "info_solicitada": "x",
+                },
             )
         )
 
@@ -457,26 +461,48 @@ PREEXISTING_BINDINGS = [
     ),
     (
         "SP-OP-REEMBOLSO-001",
+        "UT_RegistrarPagamento",
+        "reembolso_pagamento",
+        ("data_pagamento",),
+        "BPMN_FORMDATA",
+        None,
+    ),
+    (
+        "SP-OP-REEMBOLSO-001",
         "UT_DecidirPendenciaExpirada",
         "reembolso_pendencia",
         ("decisao_pendencia",),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
         None,
     ),
     (
         "SP-OP-REEMBOLSO-001",
         "UT_AnaliseReembolso",
         "reembolso_decisao",
-        ("decisao_reembolso", "valor_reembolso_aprovado_cents", "justificativa", "fundamentacao_contratual"),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        (
+            "decisao_reembolso",
+            "valor_reembolso_aprovado_cents",
+            "justificativa",
+            "fundamentacao_contratual",
+            "info_solicitada",
+            "texto_ao_beneficiario",
+        ),
+        "BPMN_FORMDATA",
         None,
     ),
     (
         "SP-OP-REEMBOLSO-001",
         "UT_CoordenacaoReembolso",
         "reembolso_decisao",
-        ("decisao_reembolso", "valor_reembolso_aprovado_cents", "justificativa", "fundamentacao_contratual"),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        (
+            "decisao_reembolso",
+            "valor_reembolso_aprovado_cents",
+            "justificativa",
+            "fundamentacao_contratual",
+            "info_solicitada",
+            "texto_ao_beneficiario",
+        ),
+        "BPMN_FORMDATA",
         None,
     ),
     (
@@ -490,8 +516,18 @@ PREEXISTING_BINDINGS = [
             "fundamentacao_contratual",
             "cid10_referencia",
             "parecer_auditor",
+            "info_solicitada",
+            "texto_ao_beneficiario",
         ),
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
+        None,
+    ),
+    (
+        "SP-OP-REEMBOLSO-001",
+        "UT_RegistrarPagamento",
+        "reembolso_pagamento",
+        ("data_pagamento",),
+        "BPMN_FORMDATA",
         None,
     ),
 ]

@@ -197,7 +197,7 @@ def admitted_unit_case(tmp_path, request):
         support_jar=support_jar,
         pom={"repository_path": "pom.xml", "git_blob_sha256": "a" * 64},
         maven_compiler_plugin="3.16.0",
-        cibseven_version="2.1.0",
+        cibseven_version="2.2.0",
         image_id=boot_record["phase_a_image_id"],
         descriptor_sha256="c" * 64,
         database_tls_root=root_record,

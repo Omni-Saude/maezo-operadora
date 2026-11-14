@@ -44,6 +44,7 @@ from pathlib import Path
 import pytest
 
 from maezo.runtime.inference import MODEL_TASK_KINDS
+from tests.support.fontes_do_grafo import arquivos_de_grafo
 
 #: `MODEL_TASK_KINDS` inclui `"batch"` no runtime (ADR-0009 §2), mas nenhum sitio de grafo pode
 #: DECLARAR `task_kind="batch"` ate' o dono ratificar o ADR-0044 (mapeamento de tiers por
@@ -56,7 +57,8 @@ _TASK_KINDS_PERMITIDOS_NOS_GRAFOS = MODEL_TASK_KINDS - {"batch"}
 _RAIZ = Path(__file__).resolve().parents[3]
 _ARQUIVOS_AGENTES = sorted(
     {
-        *(_RAIZ / "src" / "maezo" / "agents").glob("*/graph.py"),
+        # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+        *arquivos_de_grafo(_RAIZ / "src" / "maezo" / "agents"),
         *(_RAIZ / "src" / "maezo" / "agents").glob("*/delegation.py"),
         *(_RAIZ / "src" / "maezo" / "agents").glob("*/adapters.py"),
     }
@@ -64,13 +66,25 @@ _ARQUIVOS_AGENTES = sorted(
 
 #: Os dois nomes de atributo sob os quais um grafo guarda seu seam de `InferenceProvider`
 #: (`self._llm = inference` em 10/11 agentes; `self._inference = inference` no `_template`).
-_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference")
+#: ADR-0066 (21/10/2026): `_roteador_llm` e' o provedor PROPRIO do roteador da Helena (prazo e teto curtos).
+_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference", "_roteador_llm")
 
 
 def _receptor_e_seam_de_inferencia(no: ast.expr) -> bool:
     """`no` e' `self._llm` / `self._inference` (ou `self.<algo>._llm`, para um dia em que um
     grafo delegue a um sub-objeto — a checagem e' pelo NOME do atributo terminal, nao pela
     cadeia inteira, entao cobre ambas as formas)."""
+    # DL-0155 (26/10/2026): o provedor escolhido por conversa (`modelo_allowlist.provedor_para(self,
+    # state, papel)`: GLM-5 de hoje ou o Haiku da allowlist) continua sendo o seam de inferencia do grafo.
+    if (
+        isinstance(no, ast.Call)
+        and isinstance(no.func, ast.Attribute | ast.Name)
+        and (no.func.attr if isinstance(no.func, ast.Attribute) else no.func.id) == "provedor_para"
+        and no.args
+        and isinstance(no.args[0], ast.Name)
+        and no.args[0].id == "self"
+    ):
+        return True
     return (
         isinstance(no, ast.Attribute)
         and no.attr in _ATRIBUTOS_DE_INFERENCIA

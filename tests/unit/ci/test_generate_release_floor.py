@@ -242,11 +242,14 @@ def test_real_tree_all_registered_fences_pass_today() -> None:
 
 
 def test_real_committed_floor_matches_the_measured_xfail_ground_truth() -> None:
-    """Pins the committed docs/release-capability-floor.json against the same ground truth
-    docs/xfail-census.json itself pins (22) — mirrors test_generate_xfail_census.py's real-tree
-    assertion. `unit_tests_passed` is deliberately NOT pinned to an exact number here: it grows
-    every time an unrelated PR adds a unit test, and this floor's whole point is a `>=` bound, not
-    an exact-match ledger — so this test only asserts the structural `>= committed` invariant."""
+    """Pins the committed docs/release-capability-floor.json's xfail dimension against the value
+    the floor was baselined at (22, the 2026-08-10 census; the live census is 8 since W8 W5-XFIX —
+    an improvement the non-strict floor deliberately absorbs without a rewrite, since the ratchet
+    is an explicit `--write` act). Mirrors test_generate_xfail_census.py's real-tree assertion in
+    SPIRIT (a pinned number, not a re-derivation); `unit_tests_passed` is deliberately NOT pinned
+    to an exact number here: it grows every time an unrelated PR adds a unit test, and this
+    floor's whole point is a `>=` bound, not an exact-match ledger — so this test only asserts the
+    structural `>= committed` invariant."""
     floor_path = _REPO_ROOT / "docs" / "release-capability-floor.json"
     assert floor_path.is_file(), "run `make release-floor-write` to (re)generate it"
     doc = json.loads(floor_path.read_text(encoding="utf-8"))

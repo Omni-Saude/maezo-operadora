@@ -1,10 +1,11 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada \
+        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada check-fronteira-agentes \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
         check-plans-counts \
         check-doc-symbol-citations \
+        check-compliance-doc-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -13,7 +14,8 @@
         check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
-        check-helm-entrypoints check-chart-env-reconciliation
+        check-helm-entrypoints check-chart-env-reconciliation \
+        check-program-dark-flags test-security
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
 TF_SMOKE_ENV       := deploy/terraform/envs/staging-sa-east-1
@@ -28,7 +30,7 @@ type:
 	.venv/bin/mypy
 
 test:             ## unit + invariantes de arquitetura (rapido, sem engine)
-	.venv/bin/python -m pytest tests/ -q -m "not integration"
+	.venv/bin/python -m pytest tests/ -q -m "not integration" || { rc=$$?; $(AMBIENT_ENV_HINT); exit $$rc; }
 
 test-integration: ## contra engine real (docker compose up antes)
 	.venv/bin/python -m pytest tests/ -q -m "integration and not chaos"
@@ -104,6 +106,19 @@ check-doc-symbol-citations: ## R-089: path::symbol / ImportFrom quotado / path:l
 	# exatas (1 tool-wiring + 4 inbound + 2 cross-repo) continuam finitas e auto-verificadas.
 	.venv/bin/python scripts/ci/check_doc_symbol_citations.py
 
+check-compliance-doc-citations: ## GOV-0.8 (D-31a): citacoes em docs/compliance/**.md resolvem na arvore + espelho GAP-REGISTER.yaml confere com a custodia
+	# A classe derrotada (GOV-0.8/D-31a, dono 2026-10-23): docs/Tarefas_Pendentes.md citava
+	# docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml — caminho em arvore gitignored
+	# ausente do checkout, a "citacao pendente". Escopo estreito e deliberado (precedente R-089):
+	# so docs/compliance/ (a casa dos espelhos rastreados) — alargar e decisao separada. Diferenca
+	# deliberada do R-089: AQUI nao ha isencao para caminho ausente sob arvore gitignored; apontar
+	# para arvore ignorada/ausente e exatamente a citacao pendente que a cerca mata. Segunda
+	# verificacao: integridade do espelho docs/compliance/GAP-REGISTER.yaml — recuo do bloco
+	# registro_custodiado revertido, sha256 recomputado contra fonte_sha256 e mapa por linha
+	# (gap id -> linhas da fonte) reextraido; divergencia = espelho deixou de ser copia fiel.
+	# Stdlib-only, sem git history; corpus vazio e espelho ausente/em modo nao-verificavel falham.
+	.venv/bin/python scripts/ci/check_compliance_doc_citations.py
+
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
 	# e o UNICO chokepoint de start de processo sancionado (emit-before-effect + idempotencia por
@@ -132,6 +147,12 @@ check-qa-isolada: ## Simulador de beneficiario: nenhum codigo de producao import
 	# maezo.qa ou string `maezo.qa...` fora de docstring (importlib) reprovam. O QA troca as bordas
 	# do receptor (Meta -> captura, ESC -> interceptado); em producao isso seria um caminho que finge.
 	.venv/bin/python scripts/ci/check_qa_isolada.py
+
+check-fronteira-agentes: ## ADR-0067: catraca da fronteira plataforma x agentes (nenhuma dependencia nova para dentro de um agente; a baseline so' encolhe)
+	# AST-scan de src/maezo (fora de qa/): plataforma importando maezo.agents.<id>, ou agente importando
+	# outro agente, reprova se nao estiver em scripts/ci/fronteira_agentes_baseline.txt; linha da baseline
+	# que ja' nao existe no codigo tambem reprova. Inventario: `--relatorio`.
+	.venv/bin/python scripts/ci/check_fronteira_agentes.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham
@@ -352,3 +373,80 @@ check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (
 	# Kafka em service-kafka.tf, o Spring datasource do CIB Seven em statefulset-cibseven.yaml) — ver
 	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
 	.venv/bin/python scripts/ci/check_chart_env_reconciliation.py
+
+check-program-dark-flags: ## W5 CLNT 5.1: as 6 flags dark do portal + as 2 pontes de erasure do programa seguem default-OFF no codigo e sem mencao nenhuma em deploy/** (flags provadamente OFF — a ROLL flipa)
+	# As seis flags de `PortalSettings` (lgpd_dsr_channel, staff_documents_panel,
+	# staff_operations_panel, staff_admin_panel, staff_commission_policies,
+	# collective_legitimacy_screen — #955/#960/#963/#985/#987/#1028) tem de continuar
+	# literalmente `False` sob o
+	# `env_prefix="MAEZO_PORTAL_"`, e as constantes de env das duas pontes de erasure
+	# (#965) têm de continuar valendo os nomes pinados. QUALQUER mencao a qualquer um dos 8
+	# nomes de env em `deploy/**` reprova: a docstring shipped de cada flag declara "nenhum
+	# `deploy/**` pode liga-la neste programa" — esta cerca mecaniza essa sentenca. Ver
+	# scripts/ci/check_program_dark_flags.py (desenho + escopo) e
+	# tests/unit/ci/test_check_program_dark_flags.py (provas negativas).
+	.venv/bin/python scripts/ci/check_program_dark_flags.py
+
+# F-192 (R-118; decisao do dono #1084, 2026-10-31: "PR pequeno"): os produtores historicos
+# do evidence ledger (scripts/dev/run_historical_unit_recipe.py, scripts/ci/
+# prepare_offline_fixture_cache.py) RECUSAM rodar com PYTHON*/UV_*/PYTEST_* no ambiente (ex.:
+# PYTHONDONTWRITEBYTECODE=1) — por desenho: o hash de captura tem de ser hermetico, e os
+# produtores sao pinados por sha. So' parte das recusas carrega a dica (#1091); tests/conftest.py
+# nao serve (entra no read-set do ledger). Entao a remediacao fica AQUI: quando o pytest de
+# `make test` / `make test-security` falha E ha variavel ambiente, imprime o comando exato
+# `env -u ... make <alvo>`. Nao isola o ambiente sozinho (nao muda a semantica do alvo) e
+# preserva o codigo de saida do pytest. Variavel definida no fim de proposito: recipes expandem
+# na execucao, e inserir linhas acima deslocaria as ancoras `Makefile:NN` citadas em
+# .github/CODEOWNERS e em ADRs. Mesmo filtro de chaves de run_historical_unit_recipe.environment().
+AMBIENT_ENV_HINT = amb=$$(env | grep -Eo '^(PYTHON|UV_|PYTEST_)[A-Za-z0-9_]*=' | tr -d '=' | grep -Ev '^PYTEST_(CURRENT_TEST|VERSION)$$' | sort -u); if [ -n "$$amb" ]; then echo "" >&2; echo "make $@: ha configuracao ambiente de Python/pytest/uv: $$(echo $$amb)." >&2; echo "  Se as falhas sao recusas CaptureRefusedError (ambient Python/pytest/uv configuration) dos testes historical/ledger, a causa e esta (F-192)." >&2; echo "  Reexecute sem ela:  env$$(printf ' -u %s' $$amb) make $@" >&2; fi
+
+# R-012 / F-116: PLANS.md M12 exige `make test-security` verde. Este alvo roda SO' suites de
+# seguranca que JA EXISTEM (unitarias, sem engine, -m "not integration"), agrupadas pelos itens
+# de verificacao do M12. NAO ha suite de penetracao nem de fuzzing no repo — este alvo nao as
+# declara nem as simula; a frase "penetracao, fuzzing, boundary escape" de PLANS.md continua
+# sem cobertura propria (dependencia: texto de PLANS.md, PR #1142, custodia do dono).
+#   - PHI nao vaza para a zona geral (ADR-0006): platform/privacy, completude/disposicoes PHI do
+#     spec, phi_vars dos workers, scrub PHI no start_process, guarda PHI de vendor, canario PHI
+#     da inferencia, matriz PHI x modelo dos agentes
+#   - log scrubbing (ADR-0006 §logs): scrubbers de log/erro do gateway, redacao de wamid e
+#     privacidade de log de erro do webhook WhatsApp
+#   - erasure (ADR-0002) e retencao de auditoria 5 anos (ADR-0007): erasure, plano de erasure,
+#     worker LGPD de erasure, retention
+#   - alcada / L0 hard / PEP (ADR-0008): tests/unit/sec (cercas L0, execucao de acao, valor de
+#     pagamento, teto), PEP + effect-PEP + enforcement, menor privilegio do Andre, guarda de
+#     negativa do AUTH
+#   - segredos e borda: cofre de credenciais, assinatura/seguranca do webhook WhatsApp
+# Lista explicita (nao glob de diretorio): arquivo renomeado/removido falha alto no pytest.
+SECURITY_TESTS = \
+	tests/unit/platform/privacy \
+	tests/unit/platform/test_validation_phi_completeness.py \
+	tests/unit/platform/test_phi_dispositions_manifest.py \
+	tests/unit/platform/test_phi_dispositions_yaml_keys.py \
+	tests/unit/tools/workers/test_phi_vars.py \
+	tests/unit/tools/test_start_process_phi_scrub.py \
+	tests/unit/gateway/test_vendor_submissions_phi_guard.py \
+	tests/unit/runtime/test_phi_inference_canary.py \
+	tests/unit/deploy/test_agent_phi_model_matrix.py \
+	tests/unit/gateway/test_log_scrubber.py \
+	tests/unit/gateway/test_error_log_scrubber.py \
+	tests/unit/platform/webhooks/whatsapp/test_wamid_log_redaction.py \
+	tests/unit/platform/webhooks/whatsapp/test_error_log_privacy.py \
+	tests/unit/platform/test_erasure.py \
+	tests/unit/platform/test_erasure_plan.py \
+	tests/unit/tools/workers/test_lgpd_erasure.py \
+	tests/unit/platform/test_retention.py \
+	tests/unit/sec \
+	tests/unit/gateway/test_pep.py \
+	tests/unit/gateway/test_pep_parse_mutation_guards.py \
+	tests/unit/gateway/test_pep_policy_unification.py \
+	tests/unit/gateway/test_effect_pep.py \
+	tests/unit/gateway/test_effect_pep_mirror_loadbearing.py \
+	tests/unit/gateway/test_effect_enforcement.py \
+	tests/unit/gateway/test_andre_least_privilege.py \
+	tests/unit/tools/workers/test_auth_denial_guard.py \
+	tests/unit/gateway/test_credential_vault.py \
+	tests/unit/gateway/test_credential_vault_composition.py \
+	tests/unit/platform/webhooks/whatsapp/test_security.py
+
+test-security:    ## M12 (PLANS.md) / R-012: suites de seguranca EXISTENTES (unitarias, sem engine) — ver SECURITY_TESTS acima
+	.venv/bin/python -m pytest $(SECURITY_TESTS) -q -m "not integration" || { rc=$$?; $(AMBIENT_ENV_HINT); exit $$rc; }

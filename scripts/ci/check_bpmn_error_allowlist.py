@@ -143,8 +143,30 @@ _BPMN_ERROR_EXC = "WorkerBpmnError"
 #: desfecho roteado (`BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada`) continua
 #: AUDITADO — que era a unica razao para o gate existir.
 #:
+#: LOTE T-E UNICO (decisao do dono 2026-10-31, executando o registro R-075 de
+#: `docs/review-queue.md` FILA-T-E-LOTE-UNICO; roadmap R-050 / R-059 CRED / R-119): os quatro
+#: `*_NOT_HUMAN` entram JUNTOS, num so' ato auditavel, usando os boundaries ja' modelados para os
+#: terminais neutros (nenhuma mudanca de BPMN):
+#:   ERR_CANCEL_MANTER_NOT_HUMAN        BE_ManterNaoConfirmado -> End_ManterNaoConfirmado
+#:   ERR_DECRED_NOT_HUMAN               BE_DecredNaoHumano     -> End_DecredBloqueadoNaoHumano
+#:   ERR_CRED_DENIAL_NOT_HUMAN          BE_CredDenialNaoHumano -> End_CredGuardBloqueadoNaoHumano
+#:   ERR_CONTRACT_SUSPENSION_NOT_HUMAN  BE_SuspensaoNaoHumano  -> End_SuspensaoBloqueadaNaoHumano
+#: Nada adverso passa a acontecer automaticamente: o worker RECUSA o efeito (como antes), a recusa
+#: e' gravada (`REFUSED`) e o caso termina no terminal neutro em vez de virar incident. A lista e'
+#: explicita — um `*_NOT_HUMAN` novo continua gated pelo sufixo.
+#:
 #: SAIR desta lista devolve o codigo ao caminho de incident. E' reversivel, e de proposito.
-TE_ENABLED_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
+#: ESPELHO: `src/maezo/runtime/worker_runtime/service.py::_TE_ENABLED_CODES` (identidade travada por
+#: `tests/unit/runtime/test_te_lote_not_human_habilitado.py`).
+TE_ENABLED_CODES: frozenset[str] = frozenset(
+    {
+        "ERR_AUTH_DENIAL_INCOMPLETE",
+        "ERR_CANCEL_MANTER_NOT_HUMAN",
+        "ERR_DECRED_NOT_HUMAN",
+        "ERR_CRED_DENIAL_NOT_HUMAN",
+        "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    }
+)
 
 
 def is_te_gated(code: str) -> bool:

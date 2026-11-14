@@ -26,5 +26,8 @@
       "grupo_humano": "gestao-contratos"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:cancelamento"
+  ]
 }

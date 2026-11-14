@@ -131,7 +131,17 @@ class TestCollectArtifacts:
         # nomes que ele traz e o balde de cada um.
         # 64 -> 65: `helena_triage_admissibility.dmn` (nova triagem da Helena, DL-0104, experimento
         # em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — publicada pelo deploy-processes como as demais.
-        assert len(dmn) == 65  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        # 65 -> 66: `auth_junta_admissibility.dmn` (R-064, #1121 — vedacao da junta medica em
+        # urgencia/emergencia, RN 424 art. 3 I; dark atras de `MAEZO_AUTH_JUNTA_RN424_GUARD`).
+        # 66 -> 65: DL-0161 (reembolso v2) -reembolso_calculo -reembolso_coverage +reembolso_prazo.
+        # 65 -> 67: `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5 — scorecard e tier de
+        # confianca do prestador, DRAFT e nao ligados; P6 liga). Publicados pelo deploy como os demais.
+        # 67 -> 68: `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de duplicidade, so' pela
+        # costura dmn= do detector, dark atras de `MAEZO_PAGTO_DETECT_DUPLICIDADE`; W DRAFT).
+        # 68 -> 69: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
+        # 69 -> 70: `pagto_comite_coordenacao.dmn` (DEC-31 D31-2 — assuncao do comite pela
+        # coordenacao apos SLA; avaliada so por BRT_AssuncaoComite, dark atras do comite colegiado).
+        assert len(dmn) == 70  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

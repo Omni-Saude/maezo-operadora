@@ -82,6 +82,16 @@ class CancelContratoInvalidoError(ValueError):
 _ERR_CANCEL_MANTER_NOT_HUMAN = "ERR_CANCEL_MANTER_NOT_HUMAN"
 _DECISAO_MANTER = "MANTER"
 
+#: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`, regra simples):
+#: `operadora.cancel.confirm_maintained_decision` e' consumido SO' por SP-OP-CANCEL-001, que declara
+#: este errorCode em `BE_ManterNaoConfirmado` (-> `End_ManterNaoConfirmado`, terminal NEUTRO).
+#: Unido em `worker_runtime/service.py::_GATE_PROVEN_BPMN_ERROR_CODES`, como
+#: `auth.AUTH_BPMN_ERROR_ALLOWLIST`. E' `*_NOT_HUMAN`: so' chega a producao porque esta' em
+#: `TE_ENABLED_CODES` (lote T-E unico, ADR-0030 §4, decisao do dono 2026-10-31 — R-050) e a recusa
+#: continua auditada (`harness.is_guard_refusal_code`). Tirar o codigo de `TE_ENABLED_CODES` o
+#: devolve ao incident sem tocar nesta constante.
+CANCEL_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_CANCEL_MANTER_NOT_HUMAN})
+
 
 # ---------------------------------------------------------------------------
 # Input / Output types

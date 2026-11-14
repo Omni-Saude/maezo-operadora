@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from maezo.runtime.cobranca_esclarecimento import e_pergunta_de_esclarecimento
+from maezo.domain.conversa.cobranca_esclarecimento import e_pergunta_de_esclarecimento
 
 
 @pytest.mark.parametrize(

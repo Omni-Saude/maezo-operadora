@@ -73,7 +73,7 @@ logger = structlog.get_logger(__name__)
 # `SET search_path` / advisory-lock statements. Intentionally conservative: lowercase
 # snake_case starting with a letter, matching the tenant ids used elsewhere in the platform
 # (e.g. "amh", "public").
-_SAFE_TENANT_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+_SAFE_TENANT_ID = re.compile(r"\A[a-z][a-z0-9_]*\Z")
 
 
 class AuditPersistenceError(RuntimeError):
@@ -91,7 +91,7 @@ def schema_for_tenant(tenant_id: str) -> str:
     identifier — this string is interpolated into `SET search_path` / advisory-lock
     statements, so it must never carry attacker- or bug-controlled SQL.
     """
-    if not _SAFE_TENANT_ID.match(tenant_id):
+    if not _SAFE_TENANT_ID.fullmatch(tenant_id):
         raise ValueError(
             f"tenant_id {tenant_id!r} is not a valid schema identifier "
             "(expected [a-z][a-z0-9_]*, matching platform/migrations/env.py's tenant convention)"
@@ -131,7 +131,12 @@ _INSERT_PLACEHOLDERS = ", ".join(
     f"${i}::jsonb" if col in ("decision_basis", "dmn_versions") else f"${i}"
     for i, col in enumerate(_COLUMNS, start=1)
 )
-INSERT_SQL = f"INSERT INTO audit_chain ({', '.join(_COLUMNS)}) VALUES ({_INSERT_PLACEHOLDERS})"
+# R-110: so' identificadores de `_COLUMNS` (tupla literal acima) e placeholders `$n` gerados aqui;
+# nenhum valor entra no texto do SQL.
+INSERT_SQL = (
+    f"INSERT INTO audit_chain ({', '.join(_COLUMNS)}) "  # nosec B608 # fonte: _COLUMNS (tupla literal)
+    f"VALUES ({_INSERT_PLACEHOLDERS})"
+)
 
 # Per-tenant transactional advisory lock — released automatically at COMMIT/ROLLBACK. Serializes
 # the read-tail -> compute-hash -> insert critical section for one tenant's chain; see module

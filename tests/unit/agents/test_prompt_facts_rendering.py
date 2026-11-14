@@ -48,8 +48,11 @@ from typing import Any
 
 import pytest
 
+from tests.support.fontes_do_grafo import arquivos_de_grafo
+
 _RAIZ = Path(__file__).resolve().parents[3]
-_GRAFOS = sorted((_RAIZ / "src" / "maezo" / "agents").glob("*/graph.py"))
+#: ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+_GRAFOS = arquivos_de_grafo(_RAIZ / "src" / "maezo" / "agents")
 
 #: Os dois nomes de campo sob os quais um dicionario de fatos ja' viajou cru para um prompt.
 #: `fatos_agregados` e' o do andre (agregados k-anon) — mesma forma, mesmo defeito.
@@ -364,19 +367,9 @@ def _sitios() -> list[_Sitio]:
             },
             "ausente": "SEM DADO",
         },
-        {
-            "sitio": "marina._build_dossier/reembolso",
-            "constroi": lambda llm: _com_deps(MarinaGraph, llm),
-            "monta": dossie_com_rota,
-            "base": {"flow": "reembolso"},
-            "booleanos": {
-                "cobertura_prevista": "cobertura prevista no contrato",
-                "dentro_prazo": "pedido dentro do prazo",
-                "dentro_tabela": "valor dentro da tabela",
-                "dentro_teto_l2": "valor dentro do teto de alcada L2",
-            },
-            "ausente": "SEM DADO",
-        },
+        # `marina._build_dossier/reembolso` saiu em 28/10/2026 (DL-0161): o reembolso v2 nao tem fato booleano
+        # pre-resolvido (sem cobertura, tabela nem teto por maquina), entao nao ha rotulo de SIM/NAO/SEM
+        # DADO a provar.
         {
             "sitio": "valentina._build_dossier",
             "constroi": lambda llm: _com_deps(ValentinaGraph, llm),

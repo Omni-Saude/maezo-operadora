@@ -136,8 +136,8 @@ class PostgresProviderMembershipAdministration:
             .mappings()
             .one_or_none()
         )
-        require(schema is not None, AdministrationReason.SOURCE_UNAVAILABLE)
-        assert schema is not None
+        if schema is None:
+            raise ProviderAdministrationError(AdministrationReason.SOURCE_UNAVAILABLE)
         require(
             (schema["oid"], schema["owner"]) == (d.schema_oid, d.owner_role)
             and not schema["extra_acl"]
@@ -164,8 +164,8 @@ class PostgresProviderMembershipAdministration:
                 .mappings()
                 .one_or_none()
             )
-            require(flags is not None, AdministrationReason.SOURCE_UNAVAILABLE)
-            assert flags is not None
+            if flags is None:
+                raise ProviderAdministrationError(AdministrationReason.SOURCE_UNAVAILABLE)
             require(
                 not any(
                     flags[k]
@@ -206,8 +206,8 @@ class PostgresProviderMembershipAdministration:
                 .mappings()
                 .one_or_none()
             )
-            require(relation is not None, AdministrationReason.SOURCE_UNAVAILABLE)
-            assert relation is not None
+            if relation is None:
+                raise ProviderAdministrationError(AdministrationReason.SOURCE_UNAVAILABLE)
             require(
                 (relation["oid"], relation["owner"], relation["kind"]) == (pin.oid, pin.owner, "r")
                 and not any(
@@ -261,8 +261,8 @@ class PostgresProviderMembershipAdministration:
             .mappings()
             .one_or_none()
         )
-        require(function is not None, AdministrationReason.SOURCE_UNAVAILABLE)
-        assert function is not None
+        if function is None:
+            raise ProviderAdministrationError(AdministrationReason.SOURCE_UNAVAILABLE)
         require(
             (function["oid"], function["owner"], function["prosecdef"], function["can_execute"])
             == (d.function_oid, d.owner_role, True, True)
@@ -308,6 +308,7 @@ class PostgresProviderMembershipAdministration:
                 await self._qualify(db, binding)
                 outcome = (
                     await db.execute(
+                        # nosemgrep: avoid-sqlalchemy-text # fonte: descriptor.schema_name (Identifier)
                         text(
                             f'SELECT "{self.descriptor.schema_name}".record_provider_administration('
                             ":tenant,:actor,:session,:source,:policy,:install,:until,:payload,:act,:audit)"

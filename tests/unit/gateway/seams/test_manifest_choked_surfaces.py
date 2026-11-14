@@ -34,7 +34,7 @@ import pytest
 import yaml
 
 from maezo.gateway import effect_classes
-from maezo.gateway.effect_pep import DecisionContext
+from maezo.gateway.effect_pep import PHI_ZONE_PHI, DecisionContext
 from maezo.gateway.seams import SeamContext, is_gated_seam
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -76,6 +76,7 @@ _SEAM_CHOKED_SURFACES: dict[str, tuple[str, ...]] = {
     "src/maezo/tools/mcp_cibseven/transport.py:278": ("cibseven.find_active_instance",),
     "src/maezo/tools/mcp_cibseven/transport.py:307": ("cibseven.find_any_instance",),
     "src/maezo/tools/mcp_cibseven/transport.py:485": ("cibseven.read_historic_variables",),
+    "src/maezo/tools/mcp_cibseven/transport.py:757": ("cibseven.resolve_historic_instance",),
     "src/maezo/tools/mcp_cibseven/transport.py:387": ("cibseven.correlate_message",),
     "src/maezo/tools/mcp_cibseven/transport.py:420": ("cibseven.get_process_status",),
     "src/maezo/agents/rafael/graph.py:548": ("dmn.evaluate",),
@@ -219,7 +220,8 @@ def test_every_seam_factory_returns_a_gated_instance() -> None:
     """The table in (1) names operations; this proves the objects behind them are actually gated."""
     from maezo.gateway import tool_registry
 
-    seam = SeamContext(tenant="amh", principal="rafael", decision=DecisionContext())
+    # Zona PHI: desde a ADR-0071 I-5 `build_fhir_seam` recusa construir para principal fora dela.
+    seam = SeamContext(tenant="amh", principal="rafael", phi_zone=PHI_ZONE_PHI, decision=DecisionContext())
     inner = object()
     built = [
         tool_registry.build_fhir_seam(seam=seam, base_url="http://fhir.invalid"),

@@ -328,3 +328,65 @@ async def test_no_row_carries_a_raw_phone_number_or_a_raw_wamid(
         assert _PHONE not in key
         assert _WAMID not in key
         assert "wamid." not in key
+
+
+# ---------------------------------------------------------------------------
+# 7. Mensagem SEM wamid — identidade de fallback (F-147 / R-060, decisao do dono 2026-10-31)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_fallback_slot_limit_survives_a_registry_restart_and_stores_no_raw_phi(
+    pg_dsn: str, tenant_schema: str
+) -> None:
+    """Ate 2 entregas iguais sem wamid passam; a 3a e' suprimida MESMO depois de um "reinicio"
+    (registro e pool novos, mesma chave do vault). E nenhuma linha guarda telefone ou texto cru."""
+    from maezo.gateway.pseudonymizer import Pseudonymizer
+    from maezo.platform.webhooks.whatsapp.dedup import FALLBACK_MAX_ENTREGAS, WhatsAppDedupGuard
+    from maezo.platform.webhooks.whatsapp.dispatch import InboundMessage
+
+    body = "meu cpf e 12345678909"
+    message = InboundMessage(from_number=_PHONE, text=body, message_id="", timestamp="1730419200")
+
+    def _guard(store: PostgresDriverIdempotencyRegistry) -> WhatsAppDedupGuard:
+        return WhatsAppDedupGuard(
+            registry=store,
+            pseudonymizer=Pseudonymizer.from_settings(
+                phi_hmac_key="integration-test-key-not-a-secret", production=False, tenant_id=tenant_schema
+            ),
+            tenant=tenant_schema,
+        )
+
+    first = PostgresDriverIdempotencyRegistry(dsn=pg_dsn, tenant=tenant_schema)
+    guard = _guard(first)
+    identity = guard.fallback_identity(message)
+    won = [await guard.claim_without_wamid(identity) for _ in range(FALLBACK_MAX_ENTREGAS)]
+    assert all(won) and len(set(won)) == FALLBACK_MAX_ENTREGAS
+    for key in won:
+        assert key is not None
+        await guard.seal_key(key)
+    await first.aclose()
+
+    restarted = PostgresDriverIdempotencyRegistry(dsn=pg_dsn, tenant=tenant_schema)
+    try:
+        guard = _guard(restarted)
+        assert guard.fallback_identity(message) == identity, "mesma chave do vault -> mesma identidade"
+        assert await guard.claim_without_wamid(identity) is None, "a 3a entrega continua suprimida"
+    finally:
+        await restarted.aclose()
+
+    conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_schema}"')
+        keys = [
+            row["key"]
+            for row in await conn.fetch(
+                f"SELECT key FROM {DEDUP_TABLE} WHERE key LIKE 'wa:inbound-sem-wamid:%'"
+            )
+        ]
+    finally:
+        await conn.close()
+
+    assert len(keys) == FALLBACK_MAX_ENTREGAS
+    for key in keys:
+        assert _PHONE not in key and _PHONE[2:] not in key
+        assert "12345678909" not in key and body not in key

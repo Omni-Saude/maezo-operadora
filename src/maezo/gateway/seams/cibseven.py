@@ -42,12 +42,14 @@ is running" — which is precisely the anti-dupla-terminação hole the class ex
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from maezo.gateway.seams._base import GatedSeam, SeamContext, gate
 
 if TYPE_CHECKING:  # pragma: no cover - types only; the runtime import stays branch-local
     from maezo.tools.mcp_cibseven.transport import (
+        HistoricInstanceRecord,
         HistoricProcessVariables,
         ProcessInstance,
         ProcessStatus,
@@ -58,6 +60,7 @@ _OP_FIND_ANY = "cibseven.find_any_instance"
 _OP_CORRELATE = "cibseven.correlate_message"
 _OP_STATUS = "cibseven.get_process_status"
 _OP_READ_HISTORIC_VARIABLES = "cibseven.read_historic_variables"
+_OP_RESOLVE_HISTORIC_INSTANCE = "cibseven.resolve_historic_instance"
 
 
 class GatedCibSevenTransport(GatedSeam):
@@ -158,15 +161,46 @@ class GatedHistoryReadingCibSevenTransport(GatedHistoryQueryingCibSevenTransport
         return found
 
 
+class GatedHistoryResolvingCibSevenTransport(GatedHistoryReadingCibSevenTransport):
+    """Adds `resolve_historic_instance` (PAGTO PR-C / MPTT P2) — built ONLY when the inner has
+    all three history legs.
+
+    Same rule as the parents: the gated object exposes the read only when the inner really has it,
+    so a caller's `isinstance(..., HistoricInstanceResolvingTransport)` probe stays honest. C0
+    `consulta_processo`: it moves nothing in the engine. A denial RAISES (a `CibSevenError`
+    subclass) and is never readable as `HistoricInstanceNotFoundError` — "denied" is "unknown",
+    never "absent".
+    """
+
+    __slots__ = ()
+
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Mapping[str, str] | None = None,
+        names: tuple[str, ...] = (),
+    ) -> HistoricInstanceRecord:
+        await gate(self._seam, _OP_RESOLVE_HISTORIC_INSTANCE)
+        found: HistoricInstanceRecord = await self._inner.resolve_historic_instance(
+            process_key, business_key=business_key, variable_equals=variable_equals, names=names
+        )
+        return found
+
+
 def gate_cibseven(inner: Any, seam: SeamContext) -> GatedCibSevenTransport:
     """The ONLY sanctioned way to build one. Preserves the inner's history-reading Protocols."""
     from maezo.tools.mcp_cibseven.transport import (
+        HistoricInstanceResolvingTransport,
         HistoricVariableReadingTransport,
         HistoryQueryingTransport,
     )
 
     if isinstance(inner, HistoryQueryingTransport):
         if isinstance(inner, HistoricVariableReadingTransport):
+            if isinstance(inner, HistoricInstanceResolvingTransport):
+                return GatedHistoryResolvingCibSevenTransport(inner, seam=seam)
             return GatedHistoryReadingCibSevenTransport(inner, seam=seam)
         return GatedHistoryQueryingCibSevenTransport(inner, seam=seam)
     return GatedCibSevenTransport(inner, seam=seam)
@@ -176,5 +210,6 @@ __all__ = [
     "GatedCibSevenTransport",
     "GatedHistoryQueryingCibSevenTransport",
     "GatedHistoryReadingCibSevenTransport",
+    "GatedHistoryResolvingCibSevenTransport",
     "gate_cibseven",
 ]

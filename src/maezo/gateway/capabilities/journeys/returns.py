@@ -137,7 +137,8 @@ class JourneyReplyBoundary:
         ceiling: datetime,
     ) -> tuple[ReplyAuthority, datetime] | CapabilityRefusalReason:
         """Keep one private authorization/request and all observed validity ceilings."""
-        assert self.authority is not None
+        if self.authority is None:
+            raise AssertionError("authority ausente no retorno de jornada")
         # Keep the anchor out of external ports; frozen DTOs still permit unsafe object revival/mutation.
         port_authority = VerifiedAuthority.model_validate(dict(authorized[0].__dict__))
         port_currentness = VerifiedCurrentness.model_validate(dict(previous[1].__dict__))
@@ -258,7 +259,8 @@ class JourneyReplyBoundary:
                 if isinstance(checked, CapabilityRefusalReason):
                     return checked
                 current, ceiling = checked
-                assert fenced.delivery_ref is not None
+                if fenced.delivery_ref is None:
+                    raise AssertionError("outbox cercado sem delivery_ref")
                 recorded = await self.journal.record_outbox_ack(
                     binding, outbox_ref, fenced.delivery_ref, ack, fenced.journal_revision
                 )

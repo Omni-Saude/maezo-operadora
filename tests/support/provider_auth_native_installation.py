@@ -397,7 +397,7 @@ _DEFINITIONS = {
             "binding": {"$ref": "#/$defs/Binding"},
             "boot_switch": {"$ref": "#/$defs/Artifact"},
             "candidate_sha": {"pattern": "^[a-f0-9]{40}$", "type": "string"},
-            "cibseven_version": {"const": "2.1.0"},
+            "cibseven_version": {"const": "2.2.0"},
             "client_ca_sha256": {"pattern": "^[a-f0-9]{64}$", "type": "string"},
             "clock_database": {
                 "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",

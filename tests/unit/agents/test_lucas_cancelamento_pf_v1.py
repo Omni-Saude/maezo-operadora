@@ -36,7 +36,6 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
     ref_de_resposta,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.ports.errors import PortResult
 from maezo.ports.tina import ElegibilidadeView, VinculoPlano
 from maezo.qa.simulador.checagens import frases_longas, palavras_proibidas, problemas_de_tom
@@ -127,7 +126,6 @@ async def _turno(
         audit_sink=sink or FakeStartAuditSink(),
         whatsapp=envio,
         hoje=lambda: date(2026, 10, 15),
-        limiares_atraso=LimiaresDeAtraso(),
         **kwargs,
     )
     final = dict(await grafo.compile_graph().compile().ainvoke(estado))
@@ -322,7 +320,6 @@ async def test_portao_de_dedup_nao_avaliavel_propaga_com_a_chave_ligada() -> Non
         audit_sink=_SinkSemDedup(),
         whatsapp=envio,
         hoje=lambda: date(2026, 10, 15),
-        limiares_atraso=LimiaresDeAtraso(),
         cancelamento_pf_v1=True,
     )
     with pytest.raises(StartDedupGateUnavailableError):
@@ -715,7 +712,6 @@ async def test_aviso_de_falha_que_nao_foi_entregue_nao_conta_como_enviado(envio:
         audit_sink=FakeStartAuditSink(),
         whatsapp=remetente,
         hoje=lambda: date(2026, 10, 15),
-        limiares_atraso=LimiaresDeAtraso(),
         cancelamento_pf_v1=True,
     )
     final = dict(

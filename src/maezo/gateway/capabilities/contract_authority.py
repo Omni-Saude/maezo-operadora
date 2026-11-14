@@ -283,7 +283,8 @@ class ContractAuthoritySource:
             _deny(CapabilityRefusalReason.SOURCE_UNAVAILABLE)
         if self.verifier is None:
             _deny(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
-        assert self.reader is not None and self.verifier is not None
+        if self.reader is None or self.verifier is None:
+            raise AssertionError("reader/verifier checados acima")
         snapshot = ContractSnapshot.model_validate(
             await self.reader.resolve(scope, timeout_seconds=timeout_seconds)
         )

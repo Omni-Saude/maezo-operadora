@@ -88,7 +88,6 @@ import os
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -119,13 +118,9 @@ from maezo.platform.notification_bridge import (
 )
 from maezo.platform.topic_registry import TopicRegistry, dlq_topic_for
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
-from maezo.tools.workers.ans_cron import parse_competencia_referencia_iso, register_ans_cron_workers
-from maezo.tools.workers.events import make_publish_event_handler, register_events_workers
+from maezo.tools.workers.events import make_publish_event_handler
 from maezo.tools.workers.harness import (
-    CibSevenWorkerTransport,
     ExternalTask,
-    TopicSubscription,
-    WorkerHarness,
 )
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 from tests.support.engine_tenant_deploy import deploy_for_tenant
@@ -1224,272 +1219,44 @@ async def _fetch_audit_rows(dsn: str, tenant_id: str, action: str) -> list[Any]:
         await conn.close()
 
 
-async def _lock_own_external_task(
-    engine_client: httpx.AsyncClient,
-    transport: CibSevenWorkerTransport,
-    *,
-    worker_id: str,
-    instance_id: str,
-    topic: str,
-    lock_duration_ms: int,
-) -> ExternalTask:
-    """Lock and return THE external task that `instance_id` itself parked on `topic`.
-
-    ROOT CAUSE this replaces (full-lane failure, round 3 of PR-A's CI-equivalent
-    `-m integration` run). The previous code chose the task to handle by TOPIC ALONE —
-    `fetch_and_lock(worker_id, [TopicSubscription(topic, ...)], max_tasks=1)` — and only
-    afterwards asserted that whatever came back belonged to this test's instance. `fetchAndLock`
-    has NO process-instance filter: `harness.py::CibSevenWorkerTransport.fetch_and_lock` puts
-    exactly `topicName` + `lockDuration` (+ optional `variables`) on the wire. And both topics
-    this test drains are SHARED surfaces, not per-variant ones: all five
-    `SP-OP-ANS-CRON-001-{RN124SIP,RN209,RN388,RN424TISS,DIOPS}` variants live in ONE BPMN whose
-    ten service tasks declare only `operadora.ans_cron.trigger_submissions` and
-    `operadora.events.publish`, and the latter is the generic publish topic nearly every SP-OP-*
-    process uses. So ANY unlocked task some other instance left parked on either topic satisfied
-    the old lookup, and the test then compared its own freshly created instance id against a
-    stranger's. Run standalone the file passes (nothing else is parked on those topics); run in
-    the full lane, alongside every other suite on the one shared engine, it does not.
-
-    Why this replacement is DETERMINISTIC, rather than a narrower race:
-
-    * the task is guaranteed to already exist when it is queried: the cron BPMN declares no
-      `camunda:asyncBefore`/`asyncAfter` at all (zero occurrences in
-      `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn`), so
-      `POST /job/{id}/execute` and each worker `complete` advance the instance to its next
-      external task SYNCHRONOUSLY, inside the call. Nothing here polls, sleeps or retries;
-    * the task id is resolved by IDENTITY — the engine's own task list read at instance scope —
-      never by "whichever task is sitting on the topic";
-    * `max_tasks` is derived from the engine's live task list for this topic, so the single
-      `fetchAndLock` batch necessarily contains every task on it that is currently unlockable,
-      ours included; and the returned task is matched by id, so a batch full of strangers can
-      no longer masquerade as this instance's work;
-    * any foreign task that batch happened to lock is unlocked again BEFORE any assertion runs,
-      so this helper leaves engine state exactly as it found it even on the failing path.
-
-    Only engine calls already exercised live by this repo are used: `GET /external-task`
-    (`_assert_native_fraude_effect` above), `fetch_and_lock`, and `unlock`
-    (`test_worker_runtime_spine.py`).
-    """
-    listed = await engine_client.get("/external-task")
-    listed.raise_for_status()
-    on_topic = [row for row in listed.json() if row["topicName"] == topic]
-    own = [row for row in on_topic if row["processInstanceId"] == instance_id]
-    assert len(own) == 1, (
-        f"instance {instance_id} must have exactly one pending task on {topic}; saw {len(own)}"
-    )
-    own_task_id = str(own[0]["id"])
-
-    batch = await transport.fetch_and_lock(
-        worker_id,
-        [TopicSubscription(topic, lock_duration_ms)],
-        max_tasks=len(on_topic),
-        async_response_timeout_ms=5_000,
-    )
-    mine = [task for task in batch if task.task_id == own_task_id]
-    for task in batch:
-        if task.task_id != own_task_id:
-            # Never hold a stranger's task: hand it straight back, before asserting anything, so
-            # neither the passing nor the failing path perturbs whichever suite owns it.
-            await transport.unlock(task.task_id)
-    assert len(mine) == 1, (
-        f"fetchAndLock on {topic} returned {len(batch)} task(s), none of them {own_task_id} — "
-        f"the task this instance parked there"
-    )
-    return mine[0]
-
-
-@pytest.mark.parametrize(
-    ("suffix", "activity_suffix", "report_type", "periodicidade"),
-    [
-        ("RN124SIP", "Rn124Sip", "RN_124_SIP", "mensal"),
-        ("RN209", "Rn209", "RN_209_UTILIZACAO", "mensal"),
-        ("RN388", "Rn388", "RN_388_QUALIDADE", "anual"),
-        ("RN424TISS", "Rn424Tiss", "RN_424_TISS_MONITORAMENTO", "mensal"),
-        ("DIOPS", "Diops", "DIOPS_TRIMESTRAL", "trimestral"),
-    ],
-)
 @pytest.mark.asyncio
-async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
-    kafka_bootstrap_servers: str,
-    pg_tenant_schema: tuple[str, str],
+async def test_canonical_deploy_carries_cron_bytes_but_no_ans_timer(
     engine_client: httpx.AsyncClient,
-    suffix: str,
-    activity_suffix: str,
-    report_type: str,
-    periodicidade: str,
 ) -> None:
-    """Execute a genuine deployed timer job; prove its publication path, not punctuality.
+    """R-007 (F-002; decisao do dono DEC-03): calendario ANS automatico DESLIGADO.
 
-    SP-OP-ANS-CRON-001 permits timer dispatch only. No agent/manual process start,
-    rewritten timer or synthetic RN_TEST publication supplies this proof. Period
-    conventions remain the existing DRAFT contract, not regulatory ratification.
+    Substitui `test_deployed_ans_timer_reaches_source_guard_and_real_kafka`, que executava o job
+    de timer-start de cada `SP-OP-ANS-CRON-001-*` deployado. A definition do SIP saiu do BPMN
+    (RN 639/2025) e as 4 restantes estao `isExecutable="false"` (sem norma primaria verificada),
+    entao nao ha mais definition nem job para executar. A prova aqui e a do estado desligado,
+    no deploy canonico da lane (`make deploy-artifacts`, deployment `maezo-spec-processes`): o
+    deployment mais recente que carrega o BPMN do agendador tem EXATAMENTE os bytes da spec e
+    nenhuma process definition `SP-OP-ANS-CRON-001-*`. O caminho resolver -> publicador ->
+    fato `ans.cron_due` segue coberto no job unitario (`tests/unit/tools/workers/
+    test_events_ans_timer_identity.py`) e volta para ca quando um gatilho for religado por
+    parecer COUNSEL (R-006).
     """
-    from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
-
-    dsn, tenant_id = pg_tenant_schema
-    process_key = f"SP-OP-ANS-CRON-001-{suffix}"
-    definition_response = await engine_client.get(f"/process-definition/key/{process_key}")
-    definition_response.raise_for_status()
-    definition = definition_response.json()
-    assert definition["key"] == process_key
-    definition_id = definition["id"]
-    xml_response = await engine_client.get(f"/process-definition/{definition_id}/xml")
-    xml_response.raise_for_status()
     source_xml = await asyncio.to_thread(_CRON_BPMN.read_bytes)
-    assert (
-        hashlib.sha256(xml_response.json()["bpmn20Xml"].encode()).digest()
-        == hashlib.sha256(source_xml).digest()
+    deployments = await engine_client.get(
+        "/deployment",
+        params={"name": "maezo-spec-processes", "sortBy": "deploymentTime", "sortOrder": "desc"},
     )
-    start_activity = f"Start_Cron{activity_suffix}"
-    # Escopo por `processDefinitionId`, nao pela activity so' (03/10/2026): a lane canonical agora
-    # deploya o MESMO BPMN no tenant `amh` E na copia compartilhada (`make deploy-artifacts` ==
-    # `--tenant amh --shared all`), e cada copia tem o SEU timer-start job pendente para esta
-    # activity. A consulta sem escopo via 2 jobs (o da copia alheia + o nosso) e quebrava o
-    # "exactly one" sem que nada aqui tivesse mudado. A definicao resolvida acima por
-    # `/process-definition/key/{key}` E o alvo canonico deste teste (a compartilhada, `tenantId`
-    # null) — o mesmo escopo que as consultas de instancia abaixo ja' usam — entao contar jobs
-    # DENTRO dela mantem o invariante inteiro: exatamente UM job pendente de timer-start para a
-    # definicao sob teste, so' que agora identificado por deployment e nao por colisao de activity.
-    jobs_response = await engine_client.get(
-        "/job", params={"processDefinitionId": definition_id, "activityId": start_activity}
-    )
-    jobs_response.raise_for_status()
-    jobs = jobs_response.json()
-    assert len(jobs) == 1, f"exactly one canonical pending timer-start job is required for {definition_id}"
-    job = jobs[0]
-    assert job["processDefinitionId"] == definition_id
-    assert job["processInstanceId"] is None
-    before_response = await engine_client.get(
-        "/process-instance", params={"processDefinitionId": definition_id}
-    )
-    before_response.raise_for_status()
-    before = {row["id"] for row in before_response.json()}
-
-    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
-    consumer = AIOKafkaConsumer(
-        NOTIFICATIONS_TOPIC,
-        bootstrap_servers=kafka_bootstrap_servers,
-        group_id=f"native-cron-{uuid.uuid4().hex}",
-        auto_offset_reset="latest",
-    )
-    producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
-    transport = CibSevenWorkerTransport(str(engine_client.base_url))
-    audit_sink = PostgresAuditSink(dsn, tenant_id)
-    worker_id = f"native-cron-worker-{uuid.uuid4().hex}"
-    harness = WorkerHarness(
-        transport, worker_id=worker_id, tenant=tenant_id, lock_duration_ms=10_000, audit_sink=audit_sink
-    )
-    register_ans_cron_workers(harness, producer, tenant_id=tenant_id)
-    register_events_workers(harness, producer, tenant_id=tenant_id)
-    instance_id: str | None = None
-    await consumer.start()
-    try:
-        await _await_assigned(consumer)
-        await consumer.seek_to_end()
-        earliest_publication_date = datetime.now(UTC).date()
-        tick = await engine_client.post(f"/job/{job['id']}/execute")
-        assert tick.status_code in (200, 204)
-        after_response = await engine_client.get(
-            "/process-instance", params={"processDefinitionId": definition_id}
-        )
-        after_response.raise_for_status()
-        created = {row["id"] for row in after_response.json()} - before
-        assert len(created) == 1
-        instance_id = created.pop()
-        handled_activities = []
-        for topic, activity in (
-            ("operadora.ans_cron.trigger_submissions", f"ST_ResolverCompetencia{activity_suffix}"),
-            ("operadora.events.publish", f"ST_PublishCronDue{activity_suffix}"),
-        ):
-            task = await _lock_own_external_task(
-                engine_client,
-                transport,
-                worker_id=worker_id,
-                instance_id=instance_id,
-                topic=topic,
-                lock_duration_ms=10_000,
+    deployments.raise_for_status()
+    carrier: str | None = None
+    for deployment in deployments.json():
+        resources = await engine_client.get(f"/deployment/{deployment['id']}/resources")
+        resources.raise_for_status()
+        cron = [r for r in resources.json() if r["name"] == _CRON_BPMN.name]
+        if cron:
+            data = await engine_client.get(f"/deployment/{deployment['id']}/resources/{cron[0]['id']}/data")
+            data.raise_for_status()
+            assert hashlib.sha256(data.content).digest() == hashlib.sha256(source_xml).digest(), (
+                "o deployment mais recente do agendador nao tem os bytes da spec"
             )
-            # Kept as a cross-check between the two engine surfaces (the instance-scoped task
-            # list the id was resolved from, and `fetchAndLock`'s own `processInstanceId`
-            # field) — it is no longer the mechanism deciding WHICH task gets handled.
-            assert task.process_instance_id == instance_id
-            assert task.process_definition_key == process_key
-            assert task.activity_id == activity
-            handled_activities.append(activity)
-            await harness._handle(task)
-            assert len(await _fetch_audit_rows(dsn, tenant_id, topic)) == 1
-
-        record = await asyncio.wait_for(consumer.__anext__(), timeout=15.0)
-        fact = json.loads(record.value.decode())
-        assert set(fact) == {
-            "type",
-            "tenant_id",
-            "report_type",
-            "periodicidade",
-            "origem_envio",
-            "competencia",
-            "competencia_referencia_iso",
-            "ans_cron_reference_date_iso",
-            "_business_key",
-            "_process_instance_id",
-            "_worker_topic",
-        }
-        # Native timer starts have no caller-assigned business key; the worker
-        # transport normalizes native null to an empty string (harness.py).
-        assert fact["_business_key"] == ""
-        assert fact["_process_instance_id"] == instance_id
-        assert fact["_worker_topic"] == "operadora.events.publish"
-        assert fact["type"] == "ans.cron_due"
-        assert fact["tenant_id"] == tenant_id
-        assert fact["report_type"] == report_type
-        assert fact["periodicidade"] == periodicidade
-        assert fact["origem_envio"] == "calendario"
-        anchor = parse_competencia_referencia_iso(fact["competencia_referencia_iso"])
-        assert anchor.utcoffset() is not None
-        if periodicidade == "anual":
-            closed_period = date(anchor.year - 1, 1, 1)
-        elif periodicidade == "trimestral":
-            current_quarter = date(anchor.year, 1 + 3 * ((anchor.month - 1) // 3), 1)
-            closed_quarter_end = current_quarter - timedelta(days=1)
-            closed_period = closed_quarter_end.replace(month=closed_quarter_end.month - 2, day=1)
-        else:
-            closed_period = date(anchor.year, anchor.month, 1) - timedelta(days=1)
-        assert fact["competencia"] == closed_period.strftime("%Y-%m")
-        assert (
-            earliest_publication_date
-            <= date.fromisoformat(fact["ans_cron_reference_date_iso"])
-            <= datetime.now(UTC).date()
-        )
-        # Exactly one record within the observed publication window, not an unbounded claim.
-        extra = await consumer.getmany(timeout_ms=1_000, max_records=10)
-        assert sum(len(records) for records in extra.values()) == 0
-        history = await engine_client.get(f"/history/process-instance/{instance_id}")
-        history.raise_for_status()
-        assert history.json()["processDefinitionId"] == definition_id
-        assert history.json()["businessKey"] is None
-        assert history.json()["state"] == "COMPLETED"
-        activities = await engine_client.get(
-            "/history/activity-instance", params={"processInstanceId": instance_id, "finished": "true"}
-        )
-        activities.raise_for_status()
-        ended = {row["activityId"] for row in activities.json()}
-        assert {start_activity, *handled_activities, f"End_Cron{activity_suffix}"} <= ended
-        native_variables = await engine_client.get(
-            "/history/variable-instance", params={"processInstanceId": instance_id}
-        )
-        native_variables.raise_for_status()
-        values = {row["name"]: row["value"] for row in native_variables.json()}
-        for name in ("report_type", "periodicidade", "competencia", "competencia_referencia_iso"):
-            assert values[name] == fact[name]
-    finally:
-        await producer.close()
-        await consumer.stop()
-        await transport.close()
-        await audit_sink.aclose()
-        if instance_id is not None:
-            remaining = await engine_client.get(f"/process-instance/{instance_id}")
-            if remaining.status_code != 404:
-                remaining.raise_for_status()
-                assert remaining.json()["definitionId"] == definition_id
-                removed = await engine_client.delete(f"/process-instance/{instance_id}")
-                assert removed.status_code == 204
+            carrier = str(deployment["id"])
+            break
+    assert carrier is not None, "o deploy canonico deveria carregar o BPMN do agendador"
+    definitions = await engine_client.get("/process-definition", params={"deploymentId": carrier})
+    definitions.raise_for_status()
+    cron_keys = {d["key"] for d in definitions.json() if d["key"].startswith("SP-OP-ANS-CRON-001")}
+    assert cron_keys == set(), f"calendario automatico deveria estar desligado; definitions: {cron_keys}"

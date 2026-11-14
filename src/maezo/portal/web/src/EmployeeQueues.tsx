@@ -2,6 +2,7 @@ import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { TaskOwnershipControls } from "./TaskOwnershipControls";
+import { ReembolsoBlocosIndisponiveis, ReembolsoTaskPanel } from "./ReembolsoTaskPanel";
 import { TaskCompletionControls } from "./TaskCompletionControls";
 import { TaskContextPanel } from "./TaskContextPanel";
 
@@ -16,6 +17,7 @@ import {
 } from "./taskReadClient";
 
 import { expiryDelay, isCurrent, retainedCeiling } from "./taskReadTime";
+import { formatCents, processLabel, taskLabel } from "./queueLabels";
 
 const REFRESH_MS = 10_000;
 
@@ -87,30 +89,32 @@ function QueueTable({
             <th scope="col">Processo</th>
             <th scope="col">Responsabilidade</th>
             <th scope="col">Prazo</th>
-            <th scope="col">Revisão</th>
             <th scope="col"><span className="visually-hidden">Abrir tarefa</span></th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
-            <tr key={item.task_id}>
-              <th scope="row">{item.task_definition_key}</th>
-              <td>{item.process_definition_key}</td>
-              <td>{ownershipLabels[item.ownership]}</td>
-              <td>{item.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(item.engine_due_at)}</td>
-              <td className="exact-value">{item.task_revision}</td>
-              <td>
-                <button
-                  className="table-action"
-                  type="button"
-                  onClick={() => onRead(item.task_id)}
-                  aria-label={`Abrir detalhes de ${item.task_definition_key}`}
-                >
-                  Ver detalhes
-                </button>
-              </td>
-            </tr>
-          ))}
+          {items.map((item) => {
+            const name = taskLabel(item.process_definition_key, item.task_definition_key);
+            return (
+              <tr key={item.task_id}>
+                <th scope="row">{name}</th>
+                <td>{processLabel(item.process_definition_key)}</td>
+                <td>{ownershipLabels[item.ownership]}</td>
+                <td>{item.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(item.engine_due_at)}</td>
+                <td>
+                  {/* WCAG 2.5.3: o nome acessivel COMECA pelo texto visivel. */}
+                  <button
+                    className="table-action"
+                    type="button"
+                    onClick={() => onRead(item.task_id)}
+                    aria-label={`Ver detalhes: ${name}`}
+                  >
+                    Ver detalhes
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -127,7 +131,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
     return (
       <section className="task-detail" aria-live="polite">
         <h2>Carregando detalhes</h2>
-        <p>Consultando o snapshot autorizado da tarefa.</p>
+        <p>Consultando o <span lang="en">snapshot</span> autorizado da tarefa.</p>
       </section>
     );
   }
@@ -151,8 +155,8 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
     <section className="task-detail" aria-labelledby="task-detail-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Snapshot somente leitura</p>
-          <h2 id="task-detail-heading">{task.task_definition_key}</h2>
+          <p className="eyebrow"><span lang="en">Snapshot</span> somente leitura</p>
+          <h2 id="task-detail-heading">{taskLabel(task.process_definition_key, task.task_definition_key)}</h2>
         </div>
         <p className="freshness">Consultado em {formatTimestamp(state.observedAt)}</p>
       </div>
@@ -161,21 +165,22 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
       </p>
       {prepare && <button type="button" className="primary-action" onClick={() => prepare(task.task_id)}>Preparar decisão humana</button>}
       <dl className="task-facts">
-        <div><dt>Processo</dt><dd>{task.process_definition_key}</dd></div>
+        <div><dt>Processo</dt><dd>{processLabel(task.process_definition_key)}</dd></div>
+        <div><dt>Identificador da tarefa</dt><dd className="exact-value">{task.task_definition_key}</dd></div>
         <div><dt>Versão do processo</dt><dd className="exact-value">{task.process_definition_version}</dd></div>
         <div><dt>Formulário</dt><dd>{task.form_key}</dd></div>
         <div><dt>Versão do formulário</dt><dd className="exact-value">{task.form_version}</dd></div>
         <div><dt>Revisão da tarefa</dt><dd className="exact-value">{task.task_revision}</dd></div>
         <div><dt>Revisão da evidência</dt><dd className="exact-value">{task.evidence_revision}</dd></div>
         <div><dt>Responsável atual</dt><dd>{task.assignee_ref ?? "Sem responsável"}</dd></div>
-        <div><dt>Prazo do engine</dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
+        <div><dt>Prazo do <span lang="en">engine</span></dt><dd>{task.engine_due_at === null ? "Sem prazo informado" : formatTimestamp(task.engine_due_at)}</dd></div>
       </dl>
       {evidence !== null && (
         <section className="evidence-card" aria-labelledby="evidence-heading">
           <h3 id="evidence-heading">Evidência de admissibilidade</h3>
           <p>A evidência é informativa e não confirma obrigação nem autoriza pagamento.</p>
           <dl className="task-facts">
-            <div><dt>Valor em centavos</dt><dd className="exact-value">{evidence.valor_pagamento_cents}</dd></div>
+            <div><dt>Valor do pagamento</dt><dd className="exact-value">{formatCents(evidence.valor_pagamento_cents)}</dd></div>
             <div><dt>Dados válidos</dt><dd><BooleanValue value={evidence.dados_pagamento_validos} /></dd></div>
             <div><dt>Lastro confirmado</dt><dd><BooleanValue value={evidence.lastro_confirmado} /></dd></div>
             <div><dt>Duplicidade suspeita</dt><dd><BooleanValue value={evidence.duplicidade_suspeita} /></dd></div>
@@ -216,6 +221,10 @@ export function EmployeeQueues({
   const [contextTask, setContextTask] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
+  // WCAG 2.2.2 (F-100): a atualizacao automatica comeca ligada, como antes, e o
+  // usuario pode pausa-la. Pausar NAO estende a validade informada pelo servidor:
+  // a fila vencida continua sendo retirada da tela (cerca de frescor intacta).
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
   const queueEpoch = useRef(0);
   const detailEpoch = useRef(0);
@@ -419,11 +428,12 @@ export function EmployeeQueues({
   }, [invalidateWorkspace, loadFirstPage, sessionBinding]);
 
   useEffect(() => {
+    if (!autoRefresh) return;
     const timer = window.setInterval(() => {
       if (!suspended.current) void loadFirstPage();
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [loadFirstPage, sessionBinding]);
+  }, [autoRefresh, loadFirstPage, sessionBinding]);
 
   useEffect(() => {
     if (queueState.kind !== "ready") return;
@@ -447,7 +457,7 @@ export function EmployeeQueues({
     <section className="queue-workspace" id="work" aria-labelledby="queue-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Workspace operacional</p>
+          <p className="eyebrow"><span lang="en">Workspace</span> operacional</p>
           <h2 id="queue-heading">Tarefas elegíveis</h2>
         </div>
         {queueState.kind === "ready" && (
@@ -466,6 +476,12 @@ export function EmployeeQueues({
         </button>
       </nav>}
 
+      <p className="freshness-detail">
+        {autoRefresh
+          ? `A fila é atualizada automaticamente a cada ${REFRESH_MS / 1000} segundos.`
+          : "Atualização automática pausada. Com a validade vencida, a fila sai da tela até você atualizar."}
+      </p>
+
       {queueState.kind === "loading" && <p className="queue-message" role="status">Carregando fila autorizada…</p>}
       {queueState.kind === "error" && <QueueError error={queueState.error} retry={() => void loadFirstPage()} />}
       {queueState.kind === "ready" && (
@@ -477,6 +493,9 @@ export function EmployeeQueues({
           <div className="queue-actions">
             <button className="secondary-action" type="button" onClick={() => void loadFirstPage()} disabled={queueState.refreshing}>
               Atualizar agora
+            </button>
+            <button className="secondary-action" type="button" aria-pressed={!autoRefresh} onClick={() => setAutoRefresh((on) => !on)}>
+              Pausar atualização automática
             </button>
             {queueState.page.next_cursor !== null && (
               <button className="secondary-action" type="button" onClick={() => void loadNextPage()} disabled={queueState.refreshing}>
@@ -503,7 +522,19 @@ export function EmployeeQueues({
           onSessionUnavailable={clearForSessionFailure}
         />
       )}
-      {completionTask && csrfToken && (
+      {/* DL-0163: a tarefa do reembolso tem painel proprio (dados do pedido, anexos e o formulario dela). */}
+      {completionTask && completionForm.startsWith("reembolso_") && (
+        <ReembolsoTaskPanel
+          key={`reembolso ${sessionBinding} ${completionTask}`}
+          taskId={completionTask}
+          formKey={completionForm}
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+          onCompleted={() => void loadFirstPage()}
+        />
+      )}
+      {completionTask && csrfToken && !completionForm.startsWith("reembolso_") && (
         <TaskCompletionControls
           key={`conclusao\u0000${sessionBinding}\u0000${completionTask}`}
           taskId={completionTask}
@@ -514,7 +545,14 @@ export function EmployeeQueues({
           onCompleted={() => void loadFirstPage()}
         />
       )}
-      {ownershipTask && csrfToken && (
+      {/* DL-0163: na tarefa de reembolso os dois blocos abaixo aparecem desligados, com o motivo. */}
+      {completionTask && completionForm.startsWith("reembolso_") && (
+        <ReembolsoBlocosIndisponiveis
+          responsabilidade={ownershipTask === completionTask}
+          decisao={decisionTask === completionTask}
+        />
+      )}
+      {ownershipTask && csrfToken && !(ownershipTask === completionTask && completionForm.startsWith("reembolso_")) && (
         <TaskOwnershipControls
           key={`responsabilidade\u0000${sessionBinding}\u0000${ownershipTask}`}
           taskId={ownershipTask}
@@ -524,7 +562,7 @@ export function EmployeeQueues({
           onCommitted={() => void loadFirstPage()}
         />
       )}
-      {decisionTask && csrfToken && <DecisionWorkspace key={`decisao\u0000${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
+      {decisionTask && csrfToken && !(decisionTask === completionTask && completionForm.startsWith("reembolso_")) && <DecisionWorkspace key={`decisao\u0000${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );
 }

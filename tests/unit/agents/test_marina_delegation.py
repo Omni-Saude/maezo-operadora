@@ -321,15 +321,18 @@ def test_contas_guias_without_a_conta_collide_and_the_seam_refuses_them() -> Non
     this test dies. Two DIFFERENT guias with no conta derive the SAME degenerate `task_id`, so
     the dispatcher would treat the second case as an idempotent REPLAY of the first and hand back
     the first case's result — `output_ref` anchored to a process that is not this case's. The
-    seam must refuse the ambiguous form; the guia+conta form it DOES accept is collision-free."""
-    degenerate = [
-        build_marina_analysis_envelope(
-            tenant="amh", task_type=TASK_TYPE_GLOSA_ANALYSIS, case_meta={"numero_guia_tiss": guia}
-        )
-        for guia in ("GUIA-001", "GUIA-002")
-    ]
-    assert degenerate[0].task_id == degenerate[1].task_id == "CONTAS-amh-"
-    for envelope in degenerate:
+    seam must refuse the ambiguous form; the guia+conta form it DOES accept is collision-free.
+
+    R-101 / F-139: the degenerate `CONTAS-amh-` can no longer even be MINTED — the single
+    composer (`process_business_keys.contas_business_key`) refuses it at the origin builder too,
+    and the receiving seam still refuses a foreign producer's guia-only meta."""
+    for guia in ("GUIA-001", "GUIA-002"):
+        with pytest.raises(ValueError):
+            build_marina_analysis_envelope(
+                tenant="amh", task_type=TASK_TYPE_GLOSA_ANALYSIS, case_meta={"numero_guia_tiss": guia}
+            )
+        envelope = _envelope(TASK_TYPE_GLOSA_ANALYSIS)
+        object.__setattr__(envelope, "payload_meta", {"numero_guia_tiss": guia})  # foreign producer
         with pytest.raises(ValueError, match="business-key identity"):
             state_from_envelope(envelope)
 

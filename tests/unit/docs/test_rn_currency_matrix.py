@@ -64,6 +64,29 @@ def _load_rows() -> list[dict]:
     return rows
 
 
+_REMOVED_STATUS_PREFIX = "citação removida em "
+"""Status prescrito por `test_every_row_cited_line_matches_within_drift_window` (e pela secao
+'Manutenção / re-ancoragem' de RN-CURRENCY-MATRIX.md) para uma citacao que saiu do arquivo: em vez
+de adivinhar uma linha nova, a linha da matriz ganha `status: "citação removida em <sha> ..."`."""
+
+
+def _removed_row_problem(row: dict, lines: list[str]) -> str | None:
+    """Para uma linha marcada como removida: `None` se a remocao e REAL (o `norma_token` nao aparece
+    em NENHUMA linha do arquivo citado); senao, a mensagem de falha. A marcacao nunca esconde drift:
+    se o token ainda existe no arquivo, a linha precisa ser re-ancorada, nao marcada como removida."""
+    hits = [i + 1 for i, line in enumerate(lines) if row["norma_token"] in line]
+    if not hits:
+        return None
+    return (
+        f"{row['norma_citada']!r} @ {row['arquivo']} is marked {row['status']!r} but token "
+        f"{row['norma_token']!r} is still present at linha(s) {hits} -- re-anchor instead"
+    )
+
+
+def _is_marked_removed(row: dict) -> bool:
+    return str(row.get("status", "")).startswith(_REMOVED_STATUS_PREFIX)
+
+
 def test_matrix_files_exist() -> None:
     assert _MATRIX_YAML.is_file()
     assert _MATRIX_MD.is_file()
@@ -108,6 +131,11 @@ def test_every_row_cited_line_actually_contains_the_norma_token() -> None:
     for row in rows:
         p = _REPO_ROOT / row["arquivo"]
         lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if _is_marked_removed(row):
+            problem = _removed_row_problem(row, lines)
+            if problem is not None:
+                drift.append(problem)
+            continue
         cited_line = lines[row["linha"] - 1]
         if row["norma_token"] not in cited_line:
             drift.append(
@@ -149,6 +177,11 @@ def test_every_row_cited_line_matches_within_drift_window() -> None:
     for row in rows:
         p = _REPO_ROOT / row["arquivo"]
         lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if _is_marked_removed(row):
+            problem = _removed_row_problem(row, lines)
+            if problem is not None:
+                unresolved.append(problem)
+            continue
         declared = row["linha"]
         cited_line = lines[declared - 1] if 1 <= declared <= len(lines) else ""
         if row["norma_token"] in cited_line:
@@ -226,3 +259,18 @@ def test_rn_currency_review_carries_a_dated_pointer_to_the_matrix() -> None:
     text = _RN_CURRENCY_REVIEW.read_text(encoding="utf-8")
     assert "RN-CURRENCY-MATRIX.md" in text
     assert "R-171" in text
+
+
+def test_removed_status_never_hides_a_token_still_in_the_file() -> None:
+    """Teste negativo da marcacao `citação removida`: marcar como removida uma citacao cujo token
+    ainda aparece no arquivo FALHA (pede re-ancoragem); so a remocao real passa."""
+    row = {
+        "norma_citada": "RN 999/2099",
+        "arquivo": "x.dmn",
+        "norma_token": "RN 999",
+        "status": "citação removida em deadbeef",
+    }
+    assert _is_marked_removed(row)
+    assert _removed_row_problem(row, ["<a/>", "RN 999 ainda aqui"]) is not None
+    assert _removed_row_problem(row, ["<a/>", "RN 593 apenas"]) is None
+    assert not _is_marked_removed({**row, "status": "revogada"})

@@ -67,6 +67,21 @@ SAIDA_PREPARO = 2
 SAIDA_MOTOR_SUJO = 3
 
 
+def _telefones_da_linha(valor: str) -> tuple[int, ...] | None:
+    """`--telefones`: "790", "790,791" ou "790-792" -> os numeros (faixa do simulador); vazio -> `None`."""
+    numeros: list[int] = []
+    for parte in (valor or "").split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        if "-" in parte:
+            inicio, fim = (int(x) for x in parte.split("-", 1))
+            numeros.extend(range(inicio, fim + 1))
+        else:
+            numeros.append(int(parte))
+    return tuple(numeros) or None
+
+
 def construir_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m maezo.qa.simulador", description=__doc__)
     p.add_argument("--conversas", type=int, default=10)
@@ -83,6 +98,9 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--taxa-falha-tecnica-max", type=float, default=0.05)
     p.add_argument("--sem-juiz", action="store_true")
     p.add_argument("--roteiro", choices=sorted(aceite.ROTEIROS), default=None, metavar="NOME")
+    # Roteiros em PARALELO (22/10/2026): cada roteiro nos SEUS telefones ("790", "790,791" ou "790-792"),
+    # usados em rodizio pelos segmentos (a conversa e' limpa no fim de cada segmento). Vazio = o de sempre.
+    p.add_argument("--telefones", default="", metavar="LISTA")
     return p
 
 
@@ -236,25 +254,6 @@ def _extras(
     }
 
 
-async def _preparar_catalogo(dispatcher: Any, prazo_s: float = 480.0) -> None:
-    """Carrega o catalogo de procedimentos e espera o indice (DL-0128). Nunca levanta: sem catalogo, o roteiro
-    roda com a busca por texto da propria rota de cobertura."""
-    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
-    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
-    if busca is None or leitor is None:
-        logger.warning("simulador_catalogo_ausente")
-        return
-    try:
-        itens, versao = await leitor()
-        if itens:
-            busca.carregar(itens, versao)
-        pronto = await busca.esperar_indice(prazo_s)
-    except Exception as exc:  # o roteiro segue sem o catalogo
-        logger.warning("simulador_catalogo_falhou", error_type=type(exc).__name__)
-        return
-    logger.info("simulador_catalogo_pronto", itens=len(itens), indice=pronto)
-
-
 async def _executar_roteiro(args: argparse.Namespace, armazenamento: ArmazenamentoS3) -> int:
     """`--roteiro NOME`: o roteiro de aceite do dono (`aceite.py`), com o despachante real."""
     roteiro = aceite.ROTEIROS[args.roteiro]
@@ -303,7 +302,9 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             config=ConfigDoCondutor(concorrencia=1, intervalo_min_s=args.intervalo_min_s),
         )
         # ADR-0065: um roteiro com telefones PROPRIOS (a allowlist da saude gerativa) nao usa a faixa comum.
-        proprios = aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        proprios = _telefones_da_linha(args.telefones) or aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        if proprios is not None and args.telefones:
+            proprios = tuple(proprios[i % len(proprios)] for i in range(len(roteiro)))
         if proprios is not None and len(proprios) < len(roteiro):
             raise RuntimeError("simulador: o roteiro tem mais segmentos que telefones proprios")
         planos = [
@@ -336,10 +337,6 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             "conversation_ids": conversation_ids,
         }
         await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
-        if str(args.roteiro).startswith("helena_cobertura"):
-            # DL-0128: o roteiro da cobertura assistida mede a traducao para o nome oficial, entao espera o
-            # catalogo e o indice por significado ficarem prontos (no receptor isso acontece na subida).
-            await _preparar_catalogo(composicao.dispatcher)
         logger.info("simulador_roteiro_iniciado", run_id=run_id, roteiro=args.roteiro, segmentos=len(roteiro))
         for segmento, plano, cid in zip(roteiro, planos, conversation_ids, strict=True):
             conversa = await condutor.preparar_conversa(plano)
@@ -517,12 +514,9 @@ async def executar(args: argparse.Namespace) -> int:
             )
         )
         avaliacoes = await _julgar(juiz, conversas, args.concorrencia)
-        # D13 (caso evitavel) vale com a nova triagem (v2) OU a Helena v4 ligada (DL-0104, DL-0115).
-        triagem_v2 = (
-            getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
-            or getattr(composicao.estado.settings, "helena_v4", False) is True
-        )
-        itens = [_item(c, avaliacoes.get(c.id), triagem_v2=triagem_v2) for c in conversas]
+        # D13 (caso evitavel) valia com a nova triagem (v2) ou a Helena v4 ligadas; as duas sairam do codigo
+        # (limpeza da saude, etapa 3), entao a checagem nao se aplica mais.
+        itens = [_item(c, avaliacoes.get(c.id)) for c in conversas]
         execucao = checar_execucao(conversas, Limites(args.latencia_p95_max_s, args.taxa_falha_tecnica_max))
         dados = resumo(
             itens,
@@ -614,6 +608,11 @@ def argumentos_do_ambiente(argv: Sequence[str] | None) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argumentos_do_ambiente(argv))
+    # Avaliacao de 21/10/2026 (privacidade): todo nome de dependente lido da AMH neste processo entra no
+    # mascarador de TODA saida gravada (relatorio, transcricao, log), em qualquer formato de texto.
+    from maezo.agents.helena.consultas_plano import registrar_nomes_lidos
+
+    registrar_nomes_lidos()
     try:
         return asyncio.run(executar(args))
     except Exception as exc:

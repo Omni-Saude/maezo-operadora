@@ -161,3 +161,29 @@ module "cost_guardrails" {
 
   tags = local.base_tags
 }
+
+# ---------------------------------------------------------------------------
+# Observabilidade gerenciada AMP/AMG (ADR-0014; F-070 / R-075)
+# DARK por default: enable_observability=false => count=0, nenhum recurso, custo zero.
+# Ligar e' decisao do dono (ADR-0014 estima ~$30-50/mes na escala Phase 0-1).
+# ---------------------------------------------------------------------------
+module "observability" {
+  source = "../../modules/observability"
+  count  = var.enable_observability ? 1 : 0
+
+  name_prefix           = local.name_prefix
+  environment           = local.env
+  aws_region            = var.aws_region
+  eks_oidc_provider_url = module.eks.oidc_issuer_url
+  # module.eks.oidc_provider_arn e' null quando create_cluster=false (cluster compartilhado
+  # AMH): o ARN do provider OIDC vem do data source abaixo, resolvido pela URL do issuer.
+  eks_oidc_provider_arn = data.aws_iam_openid_connect_provider.eks[0].arn
+  alert_rules_content   = file("${path.root}/../../../observability/alert-rules.yml")
+  kms_key_arn           = aws_kms_key.secrets.arn
+  tags                  = local.base_tags
+}
+
+data "aws_iam_openid_connect_provider" "eks" {
+  count = var.enable_observability ? 1 : 0
+  url   = module.eks.oidc_issuer_url
+}

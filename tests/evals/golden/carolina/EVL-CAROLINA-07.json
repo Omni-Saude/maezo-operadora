@@ -59,5 +59,10 @@
       "prazo_notificacao": "P30D"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:cred_admissibility=ANALISE_HUMANA",
+    "dmn:cred_route=ANALISE_HUMANA",
+    "signal:ambiguity"
+  ]
 }

@@ -46,6 +46,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -273,7 +274,7 @@ def setup_observability(
     # LOWER-case — `grep -i` — which was already true of the pre-wiring default), and TTY-aware
     # colours are what keep `topic=t` an unbroken substring in a container's log stream.
     log_level = os.environ.get("MAEZO_LOG_LEVEL", "NOTSET").upper()
-    from maezo.gateway.log_scrubber import ErrorLogScrubber
+    from maezo.gateway.log_scrubber import ErrorLogScrubber, PhiLogRedactor
 
     scrubber = _build_key_scrubber()
     processors: list[Any] = [
@@ -285,6 +286,9 @@ def setup_observability(
         # Keep the policy-gated business-key pass after context/metadata enrichment.
         # Error minimization below adds only class/code metadata, never a business key.
         processors.append(scrubber)
+    # Always redact PHI-named fields / free-text / PHI-shaped values (key-less; F-063), then minimize
+    # arbitrary errors, both independently of the business-key migration policy.
+    processors.append(PhiLogRedactor())
     # Always minimize arbitrary errors, independently of the business-key migration policy.
     # This processor renders class/frames without ever stringifying exception values.
     processors.append(ErrorLogScrubber())
@@ -658,6 +662,177 @@ def record_a2a_handler_error(*, target: str, error_type: str) -> None:
         logger.debug("a2a_handler_error_metric_emit_failed", exc_info=True)
 
 
+#: R-085: vocabulario FECHADO do rotulo `guard` de `maezo_a2a_guard_refusal_total` — as tres
+#: guardas estruturais de ADR-0003 (`a2a.delegation`) mais o fallback para uma subclasse futura de
+#: `DelegationError` sem token proprio. Um valor fora do conjunto vira `outro`, nunca o valor cru.
+A2A_GUARD_OUTRO: Final[str] = "outro"
+A2A_GUARDS: Final[frozenset[str]] = frozenset({"budget_exhausted", "max_hops", "cyclic", A2A_GUARD_OUTRO})
+
+
+def record_a2a_guard_refusal(*, target: str, guard: str) -> None:
+    """Count ONE A2A delegation refused by a structural anti-loop guard — R-085 / F-090.
+
+    `maezo_a2a_guard_refusal_total{target,guard}`. ADR-0010 promete o alerta "budget A2A
+    estourado"; ADR-0003 define as guardas (aciclicidade, `max_hops`, orcamento por salto). Um
+    unico sitio de chamada: o ramo `DelegationError` de
+    `a2a.dispatcher.DelegationDispatcher._finish_handler` — uma contagem por delegacao recusada.
+
+    Best-effort: a telemetria nunca mascara a rejeicao estruturada que ela conta.
+    """
+    rotulo = guard if guard in A2A_GUARDS else A2A_GUARD_OUTRO
+    try:
+        _get_metrics_collector().a2a_guard_refusal.labels(target=target, guard=rotulo).inc()
+    except Exception:  # never mask the delegation rejection this is counting.
+        logger.debug("a2a_guard_refusal_metric_emit_failed", exc_info=True)
+
+
+def preinit_a2a_guard_refusals(*, targets: Iterable[str]) -> None:
+    """Pre-initialise `maezo_a2a_guard_refusal_total` at 0 for every registered target x guard.
+
+    R-085 (decisao do dono 2026-10-31, "pre-inicializar contadores raros"). Um contador rotulado
+    so nasce no primeiro `.inc()`, e `increase()`/`rate()` nao enxergam esse primeiro incremento
+    — para um evento RARO por desenho (a recusa por orcamento A2A) isso esconde justamente o
+    unico evento que `MaezoA2ABudgetExhausted` existe para ver. Chamado UMA vez pelo construtor de
+    `a2a.dispatcher.DelegationDispatcher` com os targets que ele registra (conjunto limitado) e o
+    vocabulario fechado `A2A_GUARDS`. Best-effort: nunca impede a construcao do dispatcher.
+    """
+    try:
+        counter = _get_metrics_collector().a2a_guard_refusal
+        for target in targets:
+            for guard in A2A_GUARDS:
+                counter.labels(target=target, guard=guard)
+    except Exception:  # telemetry must never break dispatcher construction.
+        logger.debug("a2a_guard_refusal_preinit_failed", exc_info=True)
+
+
+#: R-085: tokens SENTINELA de `decisao` em `maezo_l1_decision_total`, minusculos para nunca
+#: colidirem com um token BPMN (todos MAIUSCULOS). `sem_decisao`: a User Task terminou sem ser
+#: concluida (timer interruptivo, cancelamento da instancia — `deleteReason != completed`).
+#: `desconhecido`: o valor lido esta fora do vocabulario declarado da tarefa (ou ausente) — o
+#: valor cru NUNCA vira rotulo.
+L1_DECISAO_SEM_DECISAO: Final[str] = "sem_decisao"
+L1_DECISAO_DESCONHECIDA: Final[str] = "desconhecido"
+
+
+def record_l1_decision(*, tenant: str, agent_id: str, action_class: str, decisao: str) -> None:
+    """Count ONE human decision at an L1 approval User Task — `maezo_l1_decision_total` (R-085).
+
+    O proxy de "taxa de aprovacao humana de propostas L1" de ADR-0010, decidido pelo dono em
+    2026-10-31 (#1084, Rodada 2): poller do historico do engine, um campo de decisao por tarefa,
+    rotulos fechados. UNICO sitio de chamada: `worker_runtime.engine_metrics.EngineMetricsPoller`,
+    que ja normalizou `decisao` para o vocabulario declarado da tarefa ou um dos dois sentinelas
+    acima. Best-effort: telemetria nunca derruba o poller.
+    """
+    try:
+        _get_metrics_collector().l1_decision_total.labels(
+            tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("l1_decision_metric_emit_failed", exc_info=True)
+
+
+def preinit_l1_decisions(*, tenant: str, label_sets: Iterable[tuple[str, str, str]]) -> None:
+    """Pre-initialise `maezo_l1_decision_total` at 0 for every closed (agent_id, action_class,
+    decisao) the poller can emit, so the FIRST decision of each class is visible to `increase()`.
+    Same rationale as :func:`preinit_a2a_guard_refusals`; L1 volume is low by nature."""
+    try:
+        counter = _get_metrics_collector().l1_decision_total
+        for agent_id, action_class, decisao in label_sets:
+            counter.labels(tenant=tenant, agent_id=agent_id, action_class=action_class, decisao=decisao)
+    except Exception:  # telemetry must never break the poller's construction.
+        logger.debug("l1_decision_preinit_failed", exc_info=True)
+
+
+#: R-085: desfechos fechados de `maezo_engine_metrics_poll_total`.
+ENGINE_POLL_OK: Final[str] = "ok"
+ENGINE_POLL_ERRO: Final[str] = "erro"
+
+
+def record_engine_metrics_poll(*, ok: bool) -> None:
+    """Count ONE engine-history poller round — `maezo_engine_metrics_poll_total{outcome}` (R-085)."""
+    try:
+        _get_metrics_collector().engine_metrics_poll_total.labels(
+            outcome=ENGINE_POLL_OK if ok else ENGINE_POLL_ERRO
+        ).inc()
+    except Exception:  # never let telemetry stop the poller.
+        logger.debug("engine_metrics_poll_metric_emit_failed", exc_info=True)
+
+
+#: DEC-30 D11: vocabularios FECHADOS de `maezo_contas_pagto_ordem_recusada_total`. `veredito` e'
+#: o de `contas._comparar_identidade_da_conta` que recusa (`mesma` nunca recusa); `fase` e' o
+#: dominio de `MAEZO_PAGTO_CHAVE_CONTA_FASE` (`contas.FASES_CHAVE_CONTA`). Um valor fora do
+#: conjunto vira `outro`, nunca o valor cru (paridade com `contas` fixada em teste).
+CONTAS_PAGTO_ROTULO_OUTRO: Final[str] = "outro"
+CONTAS_PAGTO_VEREDITOS: Final[frozenset[str]] = frozenset({"outra", "indeterminada"})
+CONTAS_PAGTO_FASES: Final[frozenset[str]] = frozenset({"legado", "leitura_dupla", "escrita_alvo"})
+
+
+def record_contas_pagto_ordem_recusada(*, veredito: str, fase: str) -> None:
+    """Count ONE refused CONTAS->PAGTO handoff — `maezo_contas_pagto_ordem_recusada_total` (DEC-30 D11).
+
+    Unico sitio de chamada: `tools.workers.contas._recusar_ordem_de_outra_conta`, ANTES do raise
+    que vira incidente em `ST_HandoffPagamento*`. Rotulos fechados; nunca guia, conta, chave,
+    lote, tenant ou instancia (ADR-0006). Best-effort: a telemetria nunca impede a recusa.
+    """
+    rotulo_veredito = veredito if veredito in CONTAS_PAGTO_VEREDITOS else CONTAS_PAGTO_ROTULO_OUTRO
+    rotulo_fase = fase if fase in CONTAS_PAGTO_FASES else CONTAS_PAGTO_ROTULO_OUTRO
+    try:
+        _get_metrics_collector().contas_pagto_ordem_recusada.labels(
+            veredito=rotulo_veredito, fase=rotulo_fase
+        ).inc()
+    except Exception:  # never let telemetry stop the refusal it is counting.
+        logger.debug("contas_pagto_ordem_recusada_metric_emit_failed", exc_info=True)
+
+
+def preinit_contas_pagto_ordem_recusada() -> None:
+    """Pre-initialise `maezo_contas_pagto_ordem_recusada_total` at 0 for every closed
+    (veredito, fase), so the FIRST refusal is visible to `increase()` (mesma razao de
+    :func:`preinit_a2a_guard_refusals`). Chamado por `contas.register_contas_workers`."""
+    try:
+        counter = _get_metrics_collector().contas_pagto_ordem_recusada
+        for veredito in CONTAS_PAGTO_VEREDITOS:
+            for fase in CONTAS_PAGTO_FASES:
+                counter.labels(veredito=veredito, fase=fase)
+    except Exception:  # telemetry must never break worker registration.
+        logger.debug("contas_pagto_ordem_recusada_preinit_failed", exc_info=True)
+
+
+#: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
+PEP_DECISION_ALLOW: Final[str] = "allow"
+PEP_DECISION_DENY: Final[str] = "deny"
+PEP_REASON_OUTRO: Final[str] = "outro"
+
+
+def record_pep_decision(
+    *, tenant: str, principal: str, allow: bool, layer: str, reason: str, enforced: bool
+) -> None:
+    """Count ONE effect-PEP decision — `maezo_gateway_pep_decision_total` (R-085 / F-090).
+
+    ADR-0010 (metricas por agente) e o runbook `docs/runbooks/devops-stack.md` "PEP deny spike".
+    Um unico sitio de chamada: `gateway.seams._base.gate`, o ponto por onde toda chamada gated
+    passa exatamente uma vez. O chamador ja normalizou `layer`/`reason` para os vocabularios
+    fechados do PEP (`EffectLayer`, razoes do PEP ou `outro`); nenhum argumento da chamada, nenhum
+    identificador de negocio e nenhum PHI chega a um rotulo (ADR-0006).
+
+    `enforced` separa a recusa que BLOQUEIA (modo `enforcing`) da recusa-sombra (`WOULD_DENY`):
+    com o manifesto ainda DRAFT toda classe nega em sombra, e um alerta sobre recusas-sombra
+    paginaria por todo trafego normal.
+
+    Best-effort: a telemetria nunca derruba a chamada de efeito.
+    """
+    try:
+        _get_metrics_collector().gateway_pep_decision.labels(
+            tenant=tenant,
+            principal=principal,
+            decision=PEP_DECISION_ALLOW if allow else PEP_DECISION_DENY,
+            layer=layer,
+            reason=reason,
+            enforced="true" if enforced else "false",
+        ).inc()
+    except Exception:  # a metric error must never break an effect call.
+        logger.debug("pep_decision_metric_emit_failed", exc_info=True)
+
+
 def record_llm_tier_resolution(*, task_kind: str, tier: str, resolution: str) -> None:
     """Record how ONE `task_kind` resolved to a model — `maezo_llm_tier_resolution_total` (AF-12).
 
@@ -860,6 +1035,38 @@ def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
         logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
 
 
+#: O que o receptor fez com uma mensagem SEM `wamid` (F-147 / R-060). Fechado: um valor fora vira
+#: `desconhecido`, nunca uma serie nova.
+#:   * `nao_registrada`        — flag `WHATSAPP_WEBHOOK_SEM_WAMID_FALLBACK` desligada: despachada
+#:                               sem protecao contra duplicata (o comportamento de antes, agora medido);
+#:   * `registrada`            — flag ligada: identidade de fallback gravada no registro duravel
+#:                               (1a ou 2a entrega) e a mensagem despachada;
+#:   * `suprimida`             — flag ligada: 3a entrega em diante, suprimida em silencio;
+#:   * `registro_indisponivel` — flag ligada, registro fora: despachada mesmo assim (decisao do dono:
+#:                               manter despacho), sem protecao.
+#:   * `sem_timestamp`         — flag ligada, mas a mensagem nao traz o `timestamp` da Meta: despachada
+#:                               sem protecao (a identidade nao separaria repeticoes reais).
+MENSAGEM_SEM_WAMID_DESFECHOS: frozenset[str] = frozenset(
+    {"nao_registrada", "registrada", "suprimida", "registro_indisponivel", "sem_timestamp", "desconhecido"}
+)
+
+
+def record_mensagem_sem_wamid(*, tenant: str, desfecho: str) -> None:
+    """Record ONE inbound message that arrived without a `wamid` (F-147 / R-060).
+
+    O QUE ISTO MEDE. Ate aqui a unica pegada desse caminho era uma linha de log so' com o tenant:
+    ninguem conseguia dizer se F-147 acontece em producao (os dois produtores internos sempre poem
+    `id`). Este contador e' a medida — com a flag desligada ele conta o risco, ligada ele conta a
+    supressao. Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    rotulo = desfecho if desfecho in MENSAGEM_SEM_WAMID_DESFECHOS else "desconhecido"
+    try:
+        collector = _get_metrics_collector()
+        collector.mensagem_sem_wamid.labels(tenant=tenant, desfecho=rotulo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("mensagem_sem_wamid_metric_failed", tenant=tenant, exc_info=True)
+
+
 #: Os tipos de falha do roteador do numero unico (ADR-0062). Fechado: um valor fora vira `outro`.
 ROTEAMENTO_FALHA_TIPOS: frozenset[str] = frozenset({"leitura", "registro", "pre_roteamento", "lucas_turno"})
 
@@ -987,7 +1194,8 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     durable business key. That count, and not an argument, is what the owner ratifies against.
 
     CONTENT-FREE. All three labels are closed vocabularies (`family` in {CANCEL, INAD}, `modo`
-    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo}). NEVER pass a
+    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo, ausente} —
+    `ausente` = F-124 refusal, contract required and absent, nothing minted on PHI). NEVER pass a
     tenant id, a business key, or a matricula here — same rule `record_worker_task_outcome` and
     `record_llm_token_usage` document above. A per-instance identifier on this metric would
     recreate, in Prometheus, exactly the leak the metric exists to measure.

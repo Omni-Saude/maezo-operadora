@@ -33,9 +33,8 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Worker execution time p95 (SLA: 5s — MaezoSLAWorkerLatencyHigh)",
-      "description": "Mesma expressao de MaezoSLAWorkerLatencyHigh (alert-rules.yml), com o limiar de 5s marcado como threshold do painel.",
-      "maezo_mirrors_alert": "MaezoSLAWorkerLatencyHigh",
+      "title": "Worker execution time p95 (base de MaezoSLAWorkerLatencyHigh, limiar 5s)",
+      "description": "p95 agregado por (le, worker, topic), a serie que MaezoSLAWorkerLatencyHigh avalia (R-085). Nao espelha o alerta byte a byte: o alerta acrescenta a guarda de volume minimo (TODO-OWNER P1).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -74,7 +73,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(maezo_worker_execution_time_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le, worker, topic) (rate(maezo_worker_execution_time_seconds_bucket[5m])))",
           "legendFormat": "{{worker}} / {{topic}}",
           "refId": "A",
           "datasource": {
@@ -87,8 +86,8 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Worker error rate (crash-loop proxy: MaezoWorkerCrashLoop > 0.01/s)",
-      "description": "Mesma serie de MaezoWorkerCrashLoop.",
+      "title": "Worker container restarts em 15m (MaezoWorkerCrashLoop >= 3)",
+      "description": "Mesma expressao de MaezoWorkerCrashLoop, rebaseado em reinicio do container worker-daemon (kube-state-metrics; R-085, 2026-10-31). Sem serie fora de Kubernetes.",
       "maezo_mirrors_alert": "MaezoWorkerCrashLoop",
       "datasource": {
         "type": "prometheus",
@@ -128,8 +127,8 @@
       },
       "targets": [
         {
-          "expr": "rate(maezo_worker_error_count_total[5m])",
-          "legendFormat": "{{worker}} / {{topic}} / {{error_type}}",
+          "expr": "sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{container=\"worker-daemon\"}[15m])) >= 3",
+          "legendFormat": "{{namespace}}/{{pod}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -141,9 +140,8 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Worker error ratio (SLA: 5% — MaezoSLAWorkerErrorRateHigh)",
-      "description": "Mesma expressao de MaezoSLAWorkerErrorRateHigh; espelha o alerta. ALERT-RULES-VECTOR-MATCH-MISMATCH CORRIGIDO nesta linha: a divisao antiga (sem `sum by` em nenhum lado, label sets divergentes worker,topic,error_type vs worker,topic) produzia vetor sempre vazio; agora ambos os lados agregam `sum by (worker, topic)`, igual ao padrao ja usado por MaezoSLAAgentErrorRateHigh (ALERT-COUNTER-LABELS/R-063).",
-      "maezo_mirrors_alert": "MaezoSLAWorkerErrorRateHigh",
+      "title": "Worker dispatch failure ratio (base de MaezoSLAWorkerErrorRateHigh, limiar 5%)",
+      "description": "Despachos failed|incident / todos os despachos por (tenant, topic) em maezo_worker_task_total, a razao que MaezoSLAWorkerErrorRateHigh avalia (R-085: o denominador antigo contava so sucessos). Nao espelha o alerta byte a byte: o alerta acrescenta volume minimo (TODO-OWNER P3).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -182,8 +180,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (worker, topic) (rate(maezo_worker_error_count_total[5m])) / sum by (worker, topic) (rate(maezo_worker_execution_time_seconds_count[5m]))",
-          "legendFormat": "{{worker}} / {{topic}}",
+          "expr": "sum by (tenant, topic) (rate(maezo_worker_task_total{outcome=~\"failed|incident\"}[5m])) / sum by (tenant, topic) (rate(maezo_worker_task_total[5m]))",
+          "legendFormat": "{{tenant}} / {{topic}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",

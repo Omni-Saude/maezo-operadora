@@ -195,7 +195,7 @@ _CASES: list[tuple[str, str, dict[str, Any], str, str, dict[str, Any]]] = [
     (
         "gustavo",
         "GustavoGraph",
-        {"fhir": None},
+        {},
         "start_process",
         NODE_FALHA,
         {

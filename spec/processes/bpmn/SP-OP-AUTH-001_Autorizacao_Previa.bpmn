@@ -42,7 +42,7 @@ a frente. DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao huma
 
 GATILHO REGULATORIO: RN 259/2011 (garantia de atendimento; consolidacao posterior ANS —
 DRAFT/verify), RN 395/2016 (prazo de resposta a solicitacoes e negativa por escrito —
-DRAFT/verify), RN 424/2017 (junta medica em divergencia — DRAFT/verify), Lei 9.656/1998
+DRAFT/verify), RN 424/2017 (junta medica SO em divergencia e vedada em urgencia/emergencia, art. 3 I — R-064, dark; DRAFT/verify), Lei 9.656/1998
 art. 35-C (urgencia/emergencia).
 
 INVARIANTE L0 HARD (ADR-0005/0008, L0-core.yaml: authorization_denial): NEGATIVA de
@@ -317,7 +317,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
                       camunda:type="external" camunda:topic="operadora.auth.analyze_request">
       <bpmn:documentation>Convoca Rafael (ADR-0005): recomendacao estruturada + evidencias + regras DMN avaliadas. O dossie OTIMIZA a decisao humana, nunca a substitui.</bpmn:documentation>
       <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
-      <bpmn:outgoing>Flow_Dossie_UTAuditor</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Dossie_PrazoUtil</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <bpmn:userTask id="UT_AnaliseMedicoAuditor" name="Analise do medico auditor"
@@ -390,7 +390,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
           </camunda:formField>
         </camunda:formData>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Dossie_UTAuditor</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoUtil_UTAuditor</bpmn:incoming>
       <bpmn:outgoing>Flow_UTAuditor_GW</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -415,7 +415,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 259 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseMedicoAuditor">
       <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TD_SlaAnalise">
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${execution.getVariable('prazo_resposta_duracao_util') != null ? execution.getVariable('prazo_resposta_duracao_util') : sla.sla_analise}</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: auth.sla_breached"
@@ -476,14 +476,14 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
           </camunda:formField>
         </camunda:formData>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:incoming>Flow_CoordMerge_UTCoord</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
     </bpmn:userTask>
 
     <bpmn:exclusiveGateway id="GW_DecisaoAuditor" name="Decisao do auditor" default="Flow_GWDec_Invalida">
-      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
-      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
-      <bpmn:incoming>Flow_Junta_GWDec</bpmn:incoming>
+      <bpmn:incoming>Flow_DecisaoMerge_GW</bpmn:incoming>
+      <!-- R-064: as tres decisoes humanas (auditor, coordenacao, junta) convergem antes, em
+           GW_DecisaoMerge; este gateway so bifurca (bpmnlint no-gateway-join-fork). -->
       <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Negar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
@@ -563,15 +563,15 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       <bpmn:incoming>Flow_PubNegada_End</bpmn:incoming>
     </bpmn:endEvent>
 
-    <!-- Junta medica (RN 424 — DRAFT) -->
+    <!-- Junta medica (RN 424 — DRAFT): vedada em urgencia/emergencia (art. 3 I) por BRT_JuntaAdmissibilidade + GW_JuntaAdmissivel (R-064, dark) -->
     <bpmn:serviceTask id="ST_ConvocarJunta" name="Convocar junta medica (RN 424)"
                       camunda:type="external" camunda:topic="operadora.auth.convene_junta">
       <bpmn:incoming>Flow_GWDec_Junta</bpmn:incoming>
-      <bpmn:outgoing>Flow_Convocar_UTJunta</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Convocar_BrtJunta</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_RegistrarParecerJunta" name="Registrar parecer da junta medica"
                    camunda:candidateGroups="junta-medica">
-      <bpmn:documentation>DRAFT — fluxo de junta simplificado; detalhar com juridico/regulatorio (prazos e desempate RN 424). Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante) + auditor_id, a identidade do medico relator do parecer na trilha de auditoria (ADR-0007).</bpmn:documentation>
+      <bpmn:documentation>DRAFT — junta medica (RN 424/2017) SO em divergencia tecnico-assistencial declarada pelo ato humano JUNTA_MEDICA e NUNCA em urgencia/emergencia (art. 3 I; decisao do dono DEC-15): com MAEZO_AUTH_JUNTA_RN424_GUARD ligada, GW_JuntaAdmissivel devolve o caso vedado ou de carater indeterminado a coordenacao de auditoria medica ANTES desta task (R-064). NAO modelados, pendentes de juridico/regulatorio + medico auditor: suspensao de prazo do art. 4 par. 2, prazos da junta e escolha do desempatador — sem texto-base no repo nem clausula no contrato. Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante) + auditor_id, a identidade do medico relator do parecer na trilha de auditoria (ADR-0007).</bpmn:documentation>
       <!-- GAP-AUTH-3 (M2a): formData estrutural para junta medica. decisao_auditor restrito a
            {APROVAR, NEGAR} (parecer vinculante, sem SOLICITAR_INFO nem JUNTA_MEDICA recursiva).
            Se NEGAR, exige justificativa_clinica, cid10_referencia, fundamentacao_dut e auditor_id
@@ -614,7 +614,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
           </camunda:formField>
         </camunda:formData>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Convocar_UTJunta</bpmn:incoming>
+      <bpmn:incoming>Flow_GWJunta_UTJunta</bpmn:incoming>
       <bpmn:outgoing>Flow_Junta_GWDec</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -625,8 +625,57 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
          LGPD-DSR End_ErrDecisaoInvalida (GAP-LGPD-4). -->
     <bpmn:endEvent id="End_ErrDecisaoInvalida" name="Erro: decisao do auditor ausente ou desconhecida (ERR_AUTH_DECISION_INVALID)">
       <bpmn:documentation>Fail-closed (GAP-AUTH-3, ADR-0005): decisao_auditor fora de {APROVAR, NEGAR, SOLICITAR_INFO, JUNTA_MEDICA} (incluindo ausente/em branco) NUNCA aprova por omissao — incidente tecnico/operacional que exige correcao humana. Nenhuma autorizacao foi emitida; nenhuma negativa foi enviada.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Invalida</bpmn:incoming>
       <bpmn:errorEventDefinition id="EED_AuthDecisaoInvalida" errorRef="Error_AuthDecisaoInvalida"/>
     </bpmn:endEvent>
+
+    <!-- R-064 (F-017; decisao do dono DEC-15, issue #1083 -> R-034): RN 424/2017 art. 3 I — "Nao se
+         admite a realizacao de junta medica ou odontologica nas seguintes situacoes: I - urgencia ou
+         emergencia". A regra e' a DMN auth_junta_admissibility; o roteamento so vale com a guarda
+         ligada (MAEZO_AUTH_JUNTA_RN424_GUARD, publicada por ST_ConvocarJunta em
+         junta_guarda_rn424_ativa). Nenhum caminho daqui aprova ou nega: junta admitida vai a
+         UT_RegistrarParecerJunta; vedada/indeterminada volta a UT_CoordenacaoAssume (humana). -->
+    <bpmn:businessRuleTask id="BRT_JuntaAdmissibilidade" name="Avaliar admissibilidade da junta (DMN auth_junta_admissibility)"
+                           camunda:decisionRef="auth_junta_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="junta_admissibilidade">
+      <bpmn:documentation>RN 424/2017 art. 3 I (R-064): saidas ADMITIDA | VEDADA_URGENCIA_EMERGENCIA | CARATER_INDETERMINADO, a partir de carater_atendimento. Nao existe saida de aprovacao nem de negativa (L0 hard). Sempre avaliada: com a guarda desligada o resultado fica so em sombra (historico da decisao) e o caso segue para a junta como antes.</bpmn:documentation>
+      <bpmn:incoming>Flow_Convocar_BrtJunta</bpmn:incoming>
+      <bpmn:outgoing>Flow_BrtJunta_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="GW_JuntaAdmissivel" name="Junta admissivel (RN 424 art. 3 I)?" default="Flow_GWJunta_Vedada">
+      <bpmn:documentation>Fail-closed: so a junta ADMITIDA pela DMN, ou a guarda desligada (dark), chega a UT_RegistrarParecerJunta. Vedada, indeterminada ou qualquer valor inesperado cai no default, a decisao humana da coordenacao de auditoria medica. Laco possivel e so humano: se a coordenacao escolher JUNTA_MEDICA de novo num caso urgente, a junta e' vedada de novo.</bpmn:documentation>
+      <bpmn:incoming>Flow_BrtJunta_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWJunta_UTJunta</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWJunta_Vedada</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="GW_CoordenacaoMerge" name="Coordenacao assume (SLA ou junta vedada)">
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:incoming>Flow_GWJunta_Vedada</bpmn:incoming>
+      <bpmn:outgoing>Flow_CoordMerge_UTCoord</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="GW_DecisaoMerge" name="Decisao humana registrada">
+      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_Junta_GWDec</bpmn:incoming>
+      <bpmn:outgoing>Flow_DecisaoMerge_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- R-005 (F-018; DEC-02 do juridico via dono, 2026-10-31) — DARK atras de
+         MAEZO_AUTH_PRAZO_DIAS_UTEIS. RN 623/2024 art. 12 conta o prazo de resposta em dias uteis.
+         Esta task roda IMEDIATAMENTE antes de UT_AnaliseMedicoAuditor para que a duracao calculada
+         valha a partir do instante em que o timer BT_SlaAnalise e criado. -->
+    <bpmn:serviceTask id="ST_CalcularPrazoRespostaUtil" name="Calcular prazo de resposta em dias uteis (RN 623/2024 art. 12)"
+                      camunda:type="external" camunda:topic="operadora.auth.compute_response_deadline">
+      <bpmn:documentation>R-005 / F-018 (DEC-02): aritmetica de calendario apenas. QUANTOS dias uteis vem da DMN auth_sla (coluna prazo_resposta_dias_uteis, copiada pelo inputParameter abaixo para uma variavel LOCAL desta task, que sombreia qualquer homonima semeada no start); o worker conta os dias uteis com o calendario versionado de feriados nacionais + os da UF do beneficiario (maezo.platform.calendario) a partir da data da solicitacao (ausente: o instante desta task, a mesma ancora do timer ISO de hoje) e escreve a duracao ISO que BT_SlaAnalise le, mais o vencimento e a versao do calendario para auditoria. Desligado (padrao) ou sem dias uteis na DMN (urgencia: resposta imediata), escreve nulos e o timer segue no ISO corrido da DMN — o teto temporario mais rigido da D-05. Nada aqui aprova, nega ou decide cobertura.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="prazo_resposta_dias_uteis">${sla.prazo_resposta_dias_uteis}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Dossie_PrazoUtil</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoUtil_UTAuditor</bpmn:outgoing>
+    </bpmn:serviceTask>
 
     <!-- FLOWS -->
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoRecebida" targetRef="ST_PublishReceived"/>
@@ -643,8 +692,8 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE (default)" sourceRef="GW_Admissibilidade" targetRef="BRT_SlaAnalise"/>
     <bpmn:sequenceFlow id="Flow_Solicitar_PubPended" sourceRef="ST_SolicitarDocumentos" targetRef="ST_PublishAuthPended"/>
     <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishAuthPended" targetRef="GW_AguardarDocs"/>
-    <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
-    <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
+    <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" name="documentacao chega" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
+    <bpmn:sequenceFlow id="Flow_Wait_Timer" name="prazo expira" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
     <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_PrazoPendencia_UT" sourceRef="ICE_PrazoPendencia" targetRef="UT_DecidirPendenciaExpirada"/>
     <bpmn:sequenceFlow id="Flow_UTPend_GW" sourceRef="UT_DecidirPendenciaExpirada" targetRef="GW_PendenciaExpirada"/>
@@ -668,13 +717,14 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default)" sourceRef="GW_AutoAprovacao" targetRef="ST_PrepararDossie"/>
     <bpmn:sequenceFlow id="Flow_EmitirAuto_Pub" sourceRef="ST_EmitirAutorizacaoAuto" targetRef="ST_PublishAprovadaAuto"/>
     <bpmn:sequenceFlow id="Flow_PubAuto_End" sourceRef="ST_PublishAprovadaAuto" targetRef="End_AprovadaAutomatica"/>
-    <bpmn:sequenceFlow id="Flow_Dossie_UTAuditor" sourceRef="ST_PrepararDossie" targetRef="UT_AnaliseMedicoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_PrazoUtil" sourceRef="ST_PrepararDossie" targetRef="ST_CalcularPrazoRespostaUtil"/>
+    <bpmn:sequenceFlow id="Flow_PrazoUtil_UTAuditor" sourceRef="ST_CalcularPrazoRespostaUtil" targetRef="UT_AnaliseMedicoAuditor"/>
     <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
     <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
-    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoAssume"/>
-    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_AnaliseMedicoAuditor" targetRef="GW_DecisaoAuditor"/>
-    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAssume" targetRef="GW_DecisaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="GW_CoordenacaoMerge"/>
+    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_AnaliseMedicoAuditor" targetRef="GW_DecisaoMerge"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAssume" targetRef="GW_DecisaoMerge"/>
     <!-- ENGINE-09005 fix (T1.3 artifact-repair): esta flow nao e' o default do gateway
          (default="Flow_GWDec_Invalida", GAP-AUTH-3 fail-closed) e por isso PRECISA de
          conditionExpression propria — espelha o padrao das flows-irma (Negar/SolicitarInfo/
@@ -700,358 +750,122 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmn:sequenceFlow id="Flow_Negativa_Pub" sourceRef="ST_EnviarNegativaFormal" targetRef="ST_PublishNegada"/>
     <bpmn:sequenceFlow id="Flow_NegativaIncompleta_End" sourceRef="BE_NegativaIncompleta" targetRef="End_FundamentacaoIncompletaBloqueada"/>
     <bpmn:sequenceFlow id="Flow_PubNegada_End" sourceRef="ST_PublishNegada" targetRef="End_NegadaAuditor"/>
-    <bpmn:sequenceFlow id="Flow_Convocar_UTJunta" sourceRef="ST_ConvocarJunta" targetRef="UT_RegistrarParecerJunta"/>
-    <bpmn:sequenceFlow id="Flow_Junta_GWDec" sourceRef="UT_RegistrarParecerJunta" targetRef="GW_DecisaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Convocar_BrtJunta" sourceRef="ST_ConvocarJunta" targetRef="BRT_JuntaAdmissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_BrtJunta_GW" sourceRef="BRT_JuntaAdmissibilidade" targetRef="GW_JuntaAdmissivel"/>
+    <!-- R-064: JUEL `or` curto-circuita — com a guarda desligada (ou ausente, worker anterior ao
+         R-064) a resultVariable nem e' lida e o caso vai a junta como antes. -->
+    <bpmn:sequenceFlow id="Flow_GWJunta_UTJunta" name="ADMITIDA ou guarda desligada" sourceRef="GW_JuntaAdmissivel" targetRef="UT_RegistrarParecerJunta">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('junta_guarda_rn424_ativa') != true or junta_admissibilidade.resultado == 'ADMITIDA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWJunta_Vedada" name="vedada/indeterminada (default)" sourceRef="GW_JuntaAdmissivel" targetRef="GW_CoordenacaoMerge"/>
+    <bpmn:sequenceFlow id="Flow_CoordMerge_UTCoord" name="coordenacao decide" sourceRef="GW_CoordenacaoMerge" targetRef="UT_CoordenacaoAssume"/>
+    <bpmn:sequenceFlow id="Flow_Junta_GWDec" sourceRef="UT_RegistrarParecerJunta" targetRef="GW_DecisaoMerge"/>
+    <bpmn:sequenceFlow id="Flow_DecisaoMerge_GW" name="decisao humana" sourceRef="GW_DecisaoMerge" targetRef="GW_DecisaoAuditor"/>
     <!-- GAP-AUTH-3 (M2a): default do GW_DecisaoAuditor — decisao_auditor invalida/ausente → terminal de erro -->
     <bpmn:sequenceFlow id="Flow_GWDec_Invalida" name="invalida/ausente (default → ERR_AUTH_DECISION_INVALID)" sourceRef="GW_DecisaoAuditor" targetRef="End_ErrDecisaoInvalida"/>
   </bpmn:process>
 
-  <bpmndi:BPMNDiagram id="Diagram_SP-OP-AUTH-001">
-    <bpmndi:BPMNPlane id="Plane_SP-OP-AUTH-001" bpmnElement="SP-OP-AUTH-001">
-      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoRecebida" bpmnElement="Start_SolicitacaoRecebida">
-        <dc:Bounds x="72" y="62" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_Start_IntakePortal" bpmnElement="Start_IntakePortal">
-        <dc:Bounds x="72" y="112" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
-        <dc:Bounds x="220" y="40" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
-        <dc:Bounds x="400" y="40" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
-        <dc:Bounds x="580" y="55" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNaoRequer" bpmnElement="ST_PublishNaoRequer">
-        <dc:Bounds x="710" y="40" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_NaoRequerAutorizacao" bpmnElement="End_NaoRequerAutorizacao">
-        <dc:Bounds x="897" y="62" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
-        <dc:Bounds x="710" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAuthPended" bpmnElement="ST_PublishAuthPended">
-        <dc:Bounds x="710" y="280" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
-        <dc:Bounds x="890" y="175" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ICE_DocsRecebidos" bpmnElement="ICE_DocsRecebidos">
-        <dc:Bounds x="1020" y="182" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ICE_PrazoPendencia" bpmnElement="ICE_PrazoPendencia">
-        <dc:Bounds x="1020" y="314" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_DecidirPendenciaExpirada" bpmnElement="UT_DecidirPendenciaExpirada">
-        <dc:Bounds x="1136" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_PendenciaExpirada" bpmnElement="GW_PendenciaExpirada" isMarkerVisible="true">
-        <dc:Bounds x="1316" y="307" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishCancelada" bpmnElement="ST_PublishCancelada">
-        <dc:Bounds x="1446" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia">
-        <dc:Bounds x="1838" y="314" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise">
-        <dc:Bounds x="1446" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ValidateAutoApprovalCriteria" bpmnElement="ST_ValidateAutoApprovalCriteria">
-        <dc:Bounds x="1626" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval">
-        <dc:Bounds x="1806" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true">
-        <dc:Bounds x="1986" y="175" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuto" bpmnElement="ST_EmitirAutorizacaoAuto">
-        <dc:Bounds x="2116" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto">
-        <dc:Bounds x="2296" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica">
-        <dc:Bounds x="2483" y="182" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
-        <dc:Bounds x="2116" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor">
-        <dc:Bounds x="2296" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
-        <dc:Bounds x="2311" y="354" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
-        <dc:Bounds x="40" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
-        <dc:Bounds x="252" y="182" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
-        <dc:Bounds x="2344" y="354" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
-        <dc:Bounds x="40" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAssume" bpmnElement="UT_CoordenacaoAssume">
-        <dc:Bounds x="220" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true">
-        <dc:Bounds x="2476" y="307" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor">
-        <dc:Bounds x="2606" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor">
-        <dc:Bounds x="2786" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor">
-        <dc:Bounds x="2966" y="314" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal">
-        <dc:Bounds x="2606" y="436" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta">
-        <dc:Bounds x="2638" y="498" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada">
-        <dc:Bounds x="72" y="458" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada">
-        <dc:Bounds x="2786" y="436" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor">
-        <dc:Bounds x="2966" y="458" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta">
-        <dc:Bounds x="2606" y="568" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta">
-        <dc:Bounds x="2786" y="568" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <!-- GAP-AUTH-3 (M2a): DI para o terminal de erro fail-safe -->
-      <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida">
-        <dc:Bounds x="2966" y="644" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
-        <di:waypoint x="108" y="80"/>
-        <di:waypoint x="220" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_IntakePortal_PubReceived" bpmnElement="Flow_IntakePortal_PubReceived">
-        <di:waypoint x="108" y="130"/>
-        <di:waypoint x="164" y="130"/>
-        <di:waypoint x="164" y="80"/>
-        <di:waypoint x="220" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss">
-        <di:waypoint x="320" y="80"/>
-        <di:waypoint x="400" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
-        <di:waypoint x="500" y="80"/>
-        <di:waypoint x="580" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_NaoRequer" bpmnElement="Flow_GW_NaoRequer">
-        <di:waypoint x="630" y="80"/>
-        <di:waypoint x="710" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoRequer_End" bpmnElement="Flow_PubNaoRequer_End">
-        <di:waypoint x="810" y="80"/>
-        <di:waypoint x="897" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendencia" bpmnElement="Flow_GW_Pendencia">
-        <di:waypoint x="630" y="80"/>
-        <di:waypoint x="670" y="80"/>
-        <di:waypoint x="670" y="200"/>
-        <di:waypoint x="710" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
-        <di:waypoint x="630" y="80"/>
-        <di:waypoint x="1038" y="80"/>
-        <di:waypoint x="1038" y="200"/>
-        <di:waypoint x="1446" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_PubPended" bpmnElement="Flow_Solicitar_PubPended">
-        <di:waypoint x="760" y="240"/>
-        <di:waypoint x="760" y="280"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs">
-        <di:waypoint x="810" y="320"/>
-        <di:waypoint x="850" y="320"/>
-        <di:waypoint x="850" y="200"/>
-        <di:waypoint x="890" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
-        <di:waypoint x="940" y="200"/>
-        <di:waypoint x="1020" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Wait_Timer" bpmnElement="Flow_Wait_Timer">
-        <di:waypoint x="940" y="200"/>
-        <di:waypoint x="980" y="200"/>
-        <di:waypoint x="980" y="332"/>
-        <di:waypoint x="1020" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_DocsOk_Admiss" bpmnElement="Flow_DocsOk_Admiss">
-        <di:waypoint x="1038" y="218"/>
-        <di:waypoint x="1038" y="278"/>
-        <di:waypoint x="400" y="278"/>
-        <di:waypoint x="400" y="80"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PrazoPendencia_UT" bpmnElement="Flow_PrazoPendencia_UT">
-        <di:waypoint x="1056" y="332"/>
-        <di:waypoint x="1136" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTPend_GW" bpmnElement="Flow_UTPend_GW">
-        <di:waypoint x="1236" y="332"/>
-        <di:waypoint x="1316" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_Cancelar" bpmnElement="Flow_GWPend_Cancelar">
-        <di:waypoint x="1366" y="332"/>
-        <di:waypoint x="1446" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra">
-        <di:waypoint x="1366" y="332"/>
-        <di:waypoint x="1406" y="332"/>
-        <di:waypoint x="1406" y="200"/>
-        <di:waypoint x="1446" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise">
-        <di:waypoint x="1366" y="332"/>
-        <di:waypoint x="1406" y="332"/>
-        <di:waypoint x="1406" y="200"/>
-        <di:waypoint x="1446" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End">
-        <di:waypoint x="1546" y="332"/>
-        <di:waypoint x="1838" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Sla_ValidateCriteria" bpmnElement="Flow_Sla_ValidateCriteria">
-        <di:waypoint x="1546" y="200"/>
-        <di:waypoint x="1626" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_ValidateCriteria_AutoApproval" bpmnElement="Flow_ValidateCriteria_AutoApproval">
-        <di:waypoint x="1726" y="200"/>
-        <di:waypoint x="1806" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW">
-        <di:waypoint x="1906" y="200"/>
-        <di:waypoint x="1986" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar">
-        <di:waypoint x="2036" y="200"/>
-        <di:waypoint x="2116" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
-        <di:waypoint x="2036" y="200"/>
-        <di:waypoint x="2076" y="200"/>
-        <di:waypoint x="2076" y="332"/>
-        <di:waypoint x="2116" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub">
-        <di:waypoint x="2216" y="200"/>
-        <di:waypoint x="2296" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End">
-        <di:waypoint x="2396" y="200"/>
-        <di:waypoint x="2483" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAuditor" bpmnElement="Flow_Dossie_UTAuditor">
-        <di:waypoint x="2216" y="332"/>
-        <di:waypoint x="2296" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
-        <di:waypoint x="2329" y="390"/>
-        <di:waypoint x="2329" y="450"/>
-        <di:waypoint x="40" y="450"/>
-        <di:waypoint x="40" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
-        <di:waypoint x="140" y="200"/>
-        <di:waypoint x="252" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
-        <di:waypoint x="2362" y="390"/>
-        <di:waypoint x="2362" y="450"/>
-        <di:waypoint x="40" y="450"/>
-        <di:waypoint x="40" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
-        <di:waypoint x="140" y="332"/>
-        <di:waypoint x="220" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW">
-        <di:waypoint x="2396" y="332"/>
-        <di:waypoint x="2476" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
-        <di:waypoint x="320" y="332"/>
-        <di:waypoint x="2476" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
-        <di:waypoint x="2526" y="332"/>
-        <di:waypoint x="2606" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar">
-        <di:waypoint x="2526" y="332"/>
-        <di:waypoint x="2566" y="332"/>
-        <di:waypoint x="2566" y="476"/>
-        <di:waypoint x="2606" y="476"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
-        <di:waypoint x="2501" y="357"/>
-        <di:waypoint x="2501" y="417"/>
-        <di:waypoint x="710" y="417"/>
-        <di:waypoint x="710" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta">
-        <di:waypoint x="2526" y="332"/>
-        <di:waypoint x="2566" y="332"/>
-        <di:waypoint x="2566" y="608"/>
-        <di:waypoint x="2606" y="608"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub">
-        <di:waypoint x="2706" y="332"/>
-        <di:waypoint x="2786" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End">
-        <di:waypoint x="2886" y="332"/>
-        <di:waypoint x="2966" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub">
-        <di:waypoint x="2706" y="476"/>
-        <di:waypoint x="2786" y="476"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End">
-        <di:waypoint x="2656" y="534"/>
-        <di:waypoint x="2656" y="594"/>
-        <di:waypoint x="72" y="594"/>
-        <di:waypoint x="72" y="476"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End">
-        <di:waypoint x="2886" y="476"/>
-        <di:waypoint x="2966" y="476"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Convocar_UTJunta" bpmnElement="Flow_Convocar_UTJunta">
-        <di:waypoint x="2706" y="608"/>
-        <di:waypoint x="2786" y="608"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec">
-        <di:waypoint x="2836" y="648"/>
-        <di:waypoint x="2836" y="708"/>
-        <di:waypoint x="2476" y="708"/>
-        <di:waypoint x="2476" y="332"/>
-      </bpmndi:BPMNEdge>
-      <!-- GAP-AUTH-3 (M2a): DI edge para o terminal de erro fail-safe -->
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida">
-        <di:waypoint x="2501" y="357"/>
-        <di:waypoint x="2501" y="662"/>
-        <di:waypoint x="2966" y="662"/>
-      </bpmndi:BPMNEdge>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SP-OP-AUTH-001">
+    <bpmndi:BPMNPlane id="BPMNPlane_SP-OP-AUTH-001" bpmnElement="SP-OP-AUTH-001">
+      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoRecebida" bpmnElement="Start_SolicitacaoRecebida"><dc:Bounds x="232" y="212" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="202" y="254" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_IntakePortal" bpmnElement="Start_IntakePortal"><dc:Bounds x="232" y="342" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="202" y="384" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived"><dc:Bounds x="390" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade"><dc:Bounds x="580" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true"><dc:Bounds x="795" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="772" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNaoRequer" bpmnElement="ST_PublishNaoRequer"><dc:Bounds x="960" y="60" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NaoRequerAutorizacao" bpmnElement="End_NaoRequerAutorizacao"><dc:Bounds x="1182" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1152" y="124" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos"><dc:Bounds x="770" y="450" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAuthPended" bpmnElement="ST_PublishAuthPended"><dc:Bounds x="960" y="450" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true"><dc:Bounds x="1175" y="465" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1152" y="431" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_DocsRecebidos" bpmnElement="ICE_DocsRecebidos"><dc:Bounds x="1372" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1342" y="514" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoPendencia" bpmnElement="ICE_PrazoPendencia"><dc:Bounds x="1372" y="602" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1342" y="644" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecidirPendenciaExpirada" bpmnElement="UT_DecidirPendenciaExpirada"><dc:Bounds x="1530" y="580" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_PendenciaExpirada" bpmnElement="GW_PendenciaExpirada" isMarkerVisible="true"><dc:Bounds x="1745" y="595" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1722" y="561" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCancelada" bpmnElement="ST_PublishCancelada"><dc:Bounds x="1720" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia"><dc:Bounds x="2082" y="732" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2052" y="774" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise"><dc:Bounds x="960" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ValidateAutoApprovalCriteria" bpmnElement="ST_ValidateAutoApprovalCriteria"><dc:Bounds x="1150" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval"><dc:Bounds x="1340" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true"><dc:Bounds x="1555" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1532" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuto" bpmnElement="ST_EmitirAutorizacaoAuto"><dc:Bounds x="1720" y="60" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto"><dc:Bounds x="2050" y="60" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica"><dc:Bounds x="2272" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="124" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie"><dc:Bounds x="1720" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalcularPrazoRespostaUtil" bpmnElement="ST_CalcularPrazoRespostaUtil"><dc:Bounds x="1910" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor"><dc:Bounds x="2050" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla"><dc:Bounds x="1530" y="320" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado"><dc:Bounds x="1562" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1532" y="514" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach"><dc:Bounds x="2050" y="580" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAssume" bpmnElement="UT_CoordenacaoAssume"><dc:Bounds x="2240" y="450" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true"><dc:Bounds x="2455" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2432" y="171" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor"><dc:Bounds x="2620" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor"><dc:Bounds x="2810" y="190" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor"><dc:Bounds x="3032" y="212" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="254" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal"><dc:Bounds x="2620" y="320" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada"><dc:Bounds x="2652" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2622" y="514" width="96" height="112" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada"><dc:Bounds x="2810" y="320" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor"><dc:Bounds x="3032" y="342" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="384" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta"><dc:Bounds x="2620" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta"><dc:Bounds x="3190" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida"><dc:Bounds x="2652" y="82" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2622" y="124" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_JuntaAdmissibilidade" bpmnElement="BRT_JuntaAdmissibilidade"><dc:Bounds x="2810" y="710" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_JuntaAdmissivel" bpmnElement="GW_JuntaAdmissivel" isMarkerVisible="true"><dc:Bounds x="3025" y="725" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="3002" y="663" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_CoordenacaoMerge" bpmnElement="GW_CoordenacaoMerge" isMarkerVisible="true"><dc:Bounds x="2265" y="595" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="533" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoMerge" bpmnElement="GW_DecisaoMerge" isMarkerVisible="true"><dc:Bounds x="2265" y="205" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2242" y="157" width="96" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla"><dc:Bounds x="2056" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1972" y="290" width="96" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise"><dc:Bounds x="2108" y="252" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2138" y="290" width="96" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta"><dc:Bounds x="2652" y="382" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2568" y="420" width="96" height="70" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived"><di:waypoint x="268" y="230" /><di:waypoint x="390" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IntakePortal_PubReceived" bpmnElement="Flow_IntakePortal_PubReceived"><di:waypoint x="268" y="360" /><di:waypoint x="345" y="360" /><di:waypoint x="345" y="230" /><di:waypoint x="390" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss"><di:waypoint x="490" y="230" /><di:waypoint x="580" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW"><di:waypoint x="680" y="230" /><di:waypoint x="795" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_NaoRequer" bpmnElement="Flow_GW_NaoRequer"><di:waypoint x="820" y="205" /><di:waypoint x="820" y="100" /><di:waypoint x="960" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="840" y="74" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoRequer_End" bpmnElement="Flow_PubNaoRequer_End"><di:waypoint x="1060" y="100" /><di:waypoint x="1182" y="100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendencia" bpmnElement="Flow_GW_Pendencia"><di:waypoint x="820" y="255" /><di:waypoint x="820" y="450" /><bpmndi:BPMNLabel><dc:Bounds x="828" y="338" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise"><di:waypoint x="845" y="230" /><di:waypoint x="960" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="852" y="190" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_PubPended" bpmnElement="Flow_Solicitar_PubPended"><di:waypoint x="870" y="490" /><di:waypoint x="960" y="490" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs"><di:waypoint x="1060" y="490" /><di:waypoint x="1175" y="490" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg"><di:waypoint x="1225" y="490" /><di:waypoint x="1372" y="490" /><bpmndi:BPMNLabel><dc:Bounds x="1248" y="450" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_Timer" bpmnElement="Flow_Wait_Timer"><di:waypoint x="1200" y="515" /><di:waypoint x="1200" y="620" /><di:waypoint x="1372" y="620" /><bpmndi:BPMNLabel><dc:Bounds x="1236" y="594" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DocsOk_Admiss" bpmnElement="Flow_DocsOk_Admiss"><di:waypoint x="1390" y="472" /><di:waypoint x="1390" y="360" /><di:waypoint x="630" y="360" /><di:waypoint x="630" y="270" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoPendencia_UT" bpmnElement="Flow_PrazoPendencia_UT"><di:waypoint x="1408" y="620" /><di:waypoint x="1530" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTPend_GW" bpmnElement="Flow_UTPend_GW"><di:waypoint x="1630" y="620" /><di:waypoint x="1745" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_Cancelar" bpmnElement="Flow_GWPend_Cancelar"><di:waypoint x="1770" y="645" /><di:waypoint x="1770" y="710" /><bpmndi:BPMNLabel><dc:Bounds x="1778" y="670" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra"><di:waypoint x="1770" y="595" /><di:waypoint x="1770" y="425" /><di:waypoint x="1010" y="425" /><di:waypoint x="1010" y="270" /><bpmndi:BPMNLabel><dc:Bounds x="1340" y="385" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise"><di:waypoint x="1770" y="595" /><di:waypoint x="1770" y="399" /><di:waypoint x="1010" y="399" /><di:waypoint x="1010" y="270" /><bpmndi:BPMNLabel><dc:Bounds x="1340" y="345" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End"><di:waypoint x="1820" y="750" /><di:waypoint x="2082" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_ValidateCriteria" bpmnElement="Flow_Sla_ValidateCriteria"><di:waypoint x="1060" y="230" /><di:waypoint x="1150" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ValidateCriteria_AutoApproval" bpmnElement="Flow_ValidateCriteria_AutoApproval"><di:waypoint x="1250" y="230" /><di:waypoint x="1340" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW"><di:waypoint x="1440" y="230" /><di:waypoint x="1555" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar"><di:waypoint x="1580" y="205" /><di:waypoint x="1580" y="100" /><di:waypoint x="1720" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="1600" y="60" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana"><di:waypoint x="1605" y="230" /><di:waypoint x="1720" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="1612" y="176" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub"><di:waypoint x="1820" y="100" /><di:waypoint x="2050" y="100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End"><di:waypoint x="2150" y="100" /><di:waypoint x="2272" y="100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_PrazoUtil" bpmnElement="Flow_Dossie_PrazoUtil"><di:waypoint x="1820" y="230" /><di:waypoint x="1910" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoUtil_UTAuditor" bpmnElement="Flow_PrazoUtil_UTAuditor"><di:waypoint x="2010" y="230" /><di:waypoint x="2050" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify"><di:waypoint x="2074" y="288" /><di:waypoint x="2074" y="360" /><di:waypoint x="1630" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta"><di:waypoint x="1580" y="400" /><di:waypoint x="1580" y="472" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub"><di:waypoint x="2126" y="288" /><di:waypoint x="2126" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord"><di:waypoint x="2150" y="620" /><di:waypoint x="2265" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW"><di:waypoint x="2150" y="230" /><di:waypoint x="2265" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW"><di:waypoint x="2290" y="450" /><di:waypoint x="2290" y="255" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar"><di:waypoint x="2505" y="230" /><di:waypoint x="2620" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2512" y="204" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="360" /><di:waypoint x="2620" y="360" /><bpmndi:BPMNLabel><dc:Bounds x="2500" y="306" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="945" /><di:waypoint x="820" y="945" /><di:waypoint x="820" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="1530" y="905" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta"><di:waypoint x="2480" y="255" /><di:waypoint x="2480" y="750" /><di:waypoint x="2620" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="2500" y="724" width="100" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub"><di:waypoint x="2720" y="230" /><di:waypoint x="2810" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End"><di:waypoint x="2910" y="230" /><di:waypoint x="3032" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub"><di:waypoint x="2720" y="360" /><di:waypoint x="2810" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End"><di:waypoint x="2670" y="418" /><di:waypoint x="2670" y="472" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End"><di:waypoint x="2910" y="360" /><di:waypoint x="3032" y="360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Convocar_BrtJunta" bpmnElement="Flow_Convocar_BrtJunta"><di:waypoint x="2720" y="750" /><di:waypoint x="2810" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtJunta_GW" bpmnElement="Flow_BrtJunta_GW"><di:waypoint x="2910" y="750" /><di:waypoint x="3025" y="750" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_UTJunta" bpmnElement="Flow_GWJunta_UTJunta"><di:waypoint x="3075" y="750" /><di:waypoint x="3190" y="750" /><bpmndi:BPMNLabel><dc:Bounds x="3082" y="696" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWJunta_Vedada" bpmnElement="Flow_GWJunta_Vedada"><di:waypoint x="3050" y="775" /><di:waypoint x="3050" y="880" /><di:waypoint x="2290" y="880" /><di:waypoint x="2290" y="645" /><bpmndi:BPMNLabel><dc:Bounds x="2620" y="826" width="100" height="42" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CoordMerge_UTCoord" bpmnElement="Flow_CoordMerge_UTCoord"><di:waypoint x="2290" y="595" /><di:waypoint x="2290" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="2298" y="548" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec"><di:waypoint x="3240" y="710" /><di:waypoint x="3240" y="165" /><di:waypoint x="2290" y="165" /><di:waypoint x="2290" y="205" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DecisaoMerge_GW" bpmnElement="Flow_DecisaoMerge_GW"><di:waypoint x="2315" y="230" /><di:waypoint x="2455" y="230" /><bpmndi:BPMNLabel><dc:Bounds x="2335" y="190" width="100" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida"><di:waypoint x="2480" y="205" /><di:waypoint x="2480" y="100" /><di:waypoint x="2652" y="100" /><bpmndi:BPMNLabel><dc:Bounds x="2516" y="32" width="100" height="56" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>

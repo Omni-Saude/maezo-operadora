@@ -1,0 +1,2 @@
+
+[{"critical":{"identity":{"docker-reference":"127.0.0.1:5000/w7/red"},"image":{"docker-manifest-digest":"sha256:365a051f12e05767b598e643676f14a450fb678a75ccf2beb0052c95d5c73b83"},"type":"cosign container image signature"},"optional":null}]

@@ -1,0 +1,85 @@
+{
+  "schema": "maezo-c6-portal-listener-fixture-repair.v1",
+  "baseline": "ddb7116223067b32c123afcd24f3cb5a0bdd3c27",
+  "original_ci": {
+    "run": 39851012097,
+    "job": 120076853709,
+    "total": 670,
+    "passed": 669,
+    "failed": 1,
+    "cause": "NOT_PROVEN",
+    "raw_log_sha256": "2fd84b791bd8a0a9cc61e4eb062dfbb360db785249dd95abfe4382e5f6b800cc",
+    "raw_log_bytes": 92540
+  },
+  "classification": "THIRD_FIXTURE_REPAIR_FOR_ORIGINAL_REVIEWER_RECHECK_NOT_SELF_APPROVAL",
+  "files": [
+    {
+      "path": "src/maezo/portal/web/src/App.test.tsx",
+      "sha256": "d4ef473b81699558210df90488eb8c2b6c115a2376bd5081651777f8da9698ca",
+      "bytes": 27863
+    }
+  ],
+  "unchanged_production_app": {
+    "path": "src/maezo/portal/web/src/App.tsx",
+    "sha256": "9ec73770b0fcce826b9637b630ffac0372094063efeb7620962ff77058861b7c",
+    "bytes": 10384
+  },
+  "unchanged_diagnosis": [
+    {
+      "path": "docs/delivery/commercial-platform/reviews/maezo-portal-ci-diagnosis.md",
+      "sha256": "644ca4f028b8c62c4099b52f2f80496d095d84aef9a6bfc72ad89aad3b9a8f73",
+      "bytes": 4657
+    },
+    {
+      "path": "docs/delivery/commercial-platform/reviews/maezo-portal-ci-diagnosis.json",
+      "sha256": "a5fc29b935340f11330ce1390b465dd05a5969194d8311c4a11cd6c2cdb71d3f",
+      "bytes": 1920
+    }
+  ],
+  "unchanged_context": [
+    {
+      "path": "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn",
+      "sha256": "e3574b8553f990aa8c4e488826e92eca92b2b0494b9968bdda3b52acfa482a86",
+      "bytes": 81581
+    },
+    {
+      "path": "spec/processes/dmn/escalation_routing.dmn",
+      "sha256": "8becf511ea2bea2a19dc6e0b09781d94b8e6e498b81f966f173149ca936dbea1",
+      "bytes": 5512
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-ESCALATION-001.md",
+      "sha256": "8751b834f36ca1f215f2f53b1b3927b24cd8d1de87a8a48ba54f91a95420c37c",
+      "bytes": 33874
+    }
+  ],
+  "private_equivalence": {
+    "portal_files": 91,
+    "portal_graph_sha256": "08966649502b0add326860c4664bcb33add933e84b7c74dd7c632f7d8dcc5f07",
+    "only_changed_portal_path": "src/maezo/portal/web/src/App.test.tsx",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "vitest": "5.0.5",
+    "vite": "8.3.4",
+    "lock_sha256": "6494fe65234b32e1cbf0c94055d185db335eb0c474acb079f3b0ed875e3fce39",
+    "installed_locked_packages": 138,
+    "installed_dependency_file_graph_sha256": "d804e6d665e33ac9b80a91d6bdc72bb58ef9669329952ca1167c5e6deab00a89",
+    "old_copied_graph_pass": "UNQUALIFIED_VERSION_DRIFT_NOT_CAUSAL_EVIDENCE"
+  },
+  "validation": {
+    "qualified_preimage_target": "PASS; 1 case selected, 24 filtered",
+    "qualified_successor_target": "PASS; 1 case selected, 24 filtered",
+    "controlled_withheld_registration": "EXPECTED_FAIL at listener readiness before event; synthetic experiment only",
+    "npm_verify": {
+      "check_generated": "PASS",
+      "typecheck": "PASS",
+      "files": 31,
+      "tests_passed": 670,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "vite_build": "PASS",
+      "warning": "existing >500kB chunk advisory"
+    }
+  },
+  "payload_manifest_sha256": "72b138bad2fce040bbc98117144d4e210dcd72a2d255c9e20b4b35388dd1a22c"
+}

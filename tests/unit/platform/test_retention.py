@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from maezo.platform.retention import DEFAULT_RETENTION_YEARS, RetentionManager
+import pytest
+
+from maezo.platform.retention import _RETENTION_DELETE_SQL, DEFAULT_RETENTION_YEARS, RetentionManager
 
 
 def test_retention_policy_default_years() -> None:
@@ -165,23 +167,46 @@ def test_filter_expired_none_ts_retained() -> None:
 
 
 def test_retention_query_generates_sql() -> None:
-    """retention_query must generate a valid DELETE SQL statement."""
+    """retention_query devolve o DELETE literal com o cutoff como parametro ligado (R-110 / F-151)."""
     manager = RetentionManager(retention_years=5)
+    reference_floor = manager.cutoff_timestamp()
 
-    query = manager.retention_query(table_name="audit_chain", ts_column="ts")
+    statement, params = manager.retention_query(table_name="audit_chain", ts_column="ts")
 
-    assert "DELETE FROM audit_chain" in query
-    assert "WHERE ts <" in query
-    assert "T" in query  # ISO timestamp includes 'T'
+    assert statement == "DELETE FROM audit_chain WHERE ts < :cutoff"
+    assert set(params) == {"cutoff"}
+    cutoff = params["cutoff"]
+    assert cutoff.tzinfo is not None
+    assert reference_floor <= cutoff <= manager.cutoff_timestamp()
+    # O valor nunca vira texto dentro do SQL (antes: literal ISO entre aspas).
+    assert cutoff.isoformat() not in statement
+    assert "'" not in statement
 
 
-def test_retention_query_custom_table() -> None:
-    """retention_query must use custom table and column names."""
-    manager = RetentionManager()
-    query = manager.retention_query(table_name="events", ts_column="created_at")
+def test_retention_query_defaults_are_the_audit_chain_pair() -> None:
+    statement, _ = RetentionManager().retention_query()
+    assert statement == "DELETE FROM audit_chain WHERE ts < :cutoff"
 
-    assert "DELETE FROM events" in query
-    assert "WHERE created_at <" in query
+
+@pytest.mark.parametrize(
+    ("table_name", "ts_column"),
+    [
+        ("events", "created_at"),
+        ("audit_chain", "created_at"),
+        ("audit_chain; DROP TABLE audit_chain; --", "ts"),
+        ("audit_chain", "ts OR 1=1"),
+        ("AUDIT_CHAIN", "ts"),
+    ],
+)
+def test_retention_query_refuses_pairs_outside_the_closed_map(table_name: str, ts_column: str) -> None:
+    """Teste negativo: identificador fora de `_RETENTION_DELETE_SQL` e' recusado antes de existir SQL."""
+    with pytest.raises(ValueError, match="mapa fechado"):
+        RetentionManager().retention_query(table_name=table_name, ts_column=ts_column)
+
+
+def test_retention_delete_map_is_closed_and_literal() -> None:
+    """O mapa e' a unica fonte do SQL: chaves sao identificadores simples e cada valor so' liga `:cutoff`."""
+    assert _RETENTION_DELETE_SQL == {("audit_chain", "ts"): "DELETE FROM audit_chain WHERE ts < :cutoff"}
 
 
 def test_retention_years_constant() -> None:

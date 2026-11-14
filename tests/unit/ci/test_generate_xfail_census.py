@@ -3,11 +3,14 @@
 Three layers:
 
 1. **Real-tree** tests run the full scan against `tests/integration/processes/` and assert the
-   generator independently reproduces the ground truth confirmed 2026-08-10 (22 markers; 14
-   ans_submit / 3 lgpd_dsr / 2 cred / 1 auth / 1 reembolso / 1 adequacao; six distinct `_*_REASON`
+   generator independently reproduces the ground truth confirmed 2026-10-28 (8 markers; 3
+   lgpd_dsr / 2 cred / 1 auth / 1 reembolso / 1 adequacao; five distinct `_*_REASON`
    constants, one per suite) — this is the load-bearing regression fence: if a future PR adds or
    flips a strict-xfail marker without updating the committed ledger, THIS test (and `make
-   xfail-census-check`) is what turns that into a red CI run.
+   xfail-census-check`) is what turns that into a red CI run. (Prior ground truth 2026-08-10 was
+   22 markers incl. 14 ans_submit TISS; all 14 were flipped live by W8 W5-XFIX — 13 test-side
+   pins in PR-1, the last one `test_happy_path_envio_aprovado_e_acked` together with the FINDING
+   C src fix in PR-2.)
 2. **Synthetic-tree** tests build throwaway `tmp_path` modules to drive each fail-closed path in
    isolation: multiline decorator parsing, reversed-kwarg-order/extra-kwargs canonical recognition,
    an unclassified reason constant, a stale REASON_CLASSIFICATION entry, drift detection between a
@@ -68,30 +71,29 @@ def test_real_tree_reproduces_the_confirmed_census() -> None:
     assert not stale, [v.render() for v in stale]
 
     census = build_census(records, DEFAULT_TESTS_DIR)
-    assert census["total"] == 22
+    # DL-0161 + R-076 (#1149): o strict-xfail REEMBOLSO_D07 saiu; a faixa B dormente tem prova positiva so' no
+    # probe (teto/fonte/R-058 abertos so' no teste), sem xfail — 6 -> 5.
+    assert census["total"] == 5
     assert census["per_suite"] == {
         "adequacao": 1,
-        "ans_submit": 14,
         "auth": 1,
-        "cred": 2,
         "lgpd_dsr": 3,
-        "reembolso": 1,
     }
     assert census["per_classification"] == {
         "ADEQUACAO_RN259": 1,
         "AUTH_D07": 1,
-        "CRED_GUARD_SHAPE_TE": 2,
         "LGPD_DPO": 3,
-        "REEMBOLSO_D07": 1,
-        "TISS_XSD_SME": 14,
     }
 
 
 def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite() -> None:
-    """Ground-truth shape check: today, each of the 6 suites carrying strict-xfails cites exactly
-    ONE `_*_REASON` constant (ans_submit's 14 markers all cite `_NOTIFY_REGULATORIO_GAP_REASON`,
-    etc.) — pin that shape so a future PR that splits a suite's reason mid-flight is visible here,
-    not just in the opaque total."""
+    """Ground-truth shape check: today, each of the 4 suites carrying strict-xfails cites exactly
+    ONE `_*_REASON` constant (the ans_submit suite carries NONE anymore — its 14 TISS markers were
+    flipped live by W8 W5-XFIX, and the cred suite carries NONE anymore — its 2 guard-shape markers
+    were flipped live by the owner's Opção D-2, 2026-10-29; the retired `_NOTIFY_REGULATORIO_GAP_`
+    and `_CRED_GUARD_SHAPE_MISMATCH_` constants remain in the tree only as regime documentation,
+    cited by no marker) — pin that shape so a future PR that splits a suite's reason mid-flight is
+    visible here, not just in the opaque total."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
     records, violations = classify_markers(scan.markers)
     assert not violations
@@ -102,11 +104,8 @@ def test_real_tree_every_marker_reason_constant_is_a_distinct_reason_per_suite()
 
     assert reasons_by_suite == {
         "adequacao": {"_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON"},
-        "ans_submit": {"_NOTIFY_REGULATORIO_GAP_REASON"},
         "auth": {"_AUTH_CEILING_D07_REASON"},
-        "cred": {"_CRED_GUARD_SHAPE_MISMATCH_REASON"},
         "lgpd_dsr": {"_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON"},
-        "reembolso": {"_REEMBOLSO_CEILING_D07_REASON"},
     }
 
 
@@ -115,7 +114,7 @@ def test_real_tree_no_non_strict_xfail_decorators_are_miscounted() -> None:
     under this directory — if one ever appears, it must be silently skipped (out of scope for this
     census), never crash the parser or get miscounted as a strict marker."""
     scan = scan_tree(_TESTS_DIR, _REPO_ROOT)
-    assert len(scan.markers) == 22
+    assert len(scan.markers) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +431,7 @@ def test_real_reason_classification_has_no_stale_entries() -> None:
     stale = check_stale_classification_entries(scan.assigned_names)
     assert stale == [], [v.render() for v in stale]
     # Non-vacuity: the mapping isn't accidentally empty.
-    assert len(REASON_CLASSIFICATION) == 6
+    assert len(REASON_CLASSIFICATION) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -506,9 +505,10 @@ def test_build_census_derives_content_from_arguments_variant_a() -> None:
             },
         ],
     }
-    # Real-tree total is 22 — this synthetic total must not accidentally coincide with it, or a
-    # partially-hardcoded mutant (e.g. one keyed off `len(records) == 22`) could slip through.
-    assert census["total"] != 22
+    # The real-tree total (8 since W8 W5-XFIX) — this synthetic total must not accidentally
+    # coincide with it, or a partially-hardcoded mutant keyed off the live count could slip
+    # through.
+    assert census["total"] != 8
 
 
 def test_build_census_derives_content_from_arguments_variant_b() -> None:
@@ -541,7 +541,7 @@ def test_build_census_derives_content_from_arguments_variant_b() -> None:
             },
         ],
     }
-    assert census["total"] != 22
+    assert census["total"] != 8
 
 
 def test_build_census_orders_markers_by_file_then_line_regardless_of_input_order() -> None:

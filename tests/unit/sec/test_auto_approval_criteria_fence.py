@@ -254,7 +254,7 @@ def test_every_failure_and_shadow_token_is_a_bounded_non_phi_token() -> None:
     tokens = _all_criteria_tokens()
     assert tokens, "token vocabulary must not be empty"
     for token in tokens:
-        assert _ENUM_TOKEN_RE.match(token), f"{token!r} is not a bounded audit token"
+        assert _ENUM_TOKEN_RE.fullmatch(token), f"{token!r} is not a bounded audit token"
         assert _is_bounded_token(token)
 
 

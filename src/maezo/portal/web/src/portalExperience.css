@@ -191,6 +191,33 @@
   opacity: 0.6;
 }
 
+/* DL-0163: o painel do reembolso usa este mesmo bloco; o valor e a data sao os unicos campos de linha. */
+.task-completion > form > label input {
+  max-width: 16rem;
+  min-height: 2.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #7b9990;
+  border-radius: 0.6rem;
+  font: inherit;
+  color: #173e33;
+  background: #fff;
+}
+
+.task-completion > form > label input:read-only {
+  background: #f1f6f3;
+}
+
+.task-completion h4 {
+  margin: 1.25rem 0 0.5rem;
+  color: #143d31;
+}
+
+.reembolso-anexos {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.8;
+}
+
 .ownership-controls h3,
 .ownership-controls h4 {
   margin-top: 0;
@@ -280,6 +307,19 @@
 .staff-panel-stack > .portal-area-panel { min-width: 0; }
 .staff-cases { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
 .staff-cases > .compact-action { justify-self: start; }
+/* Documentos do colaborador: consulta read-only por caso (W5 CLNT 5.5). */
+.staff-documents { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.document-type-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.2rem; }
+/* Operações do colaborador: consulta read-only por tarefa (W5 CLNT 5.5). */
+.staff-operations { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.dependency-detail { margin: 0; display: grid; gap: 0.4rem; }
+.dependency-detail > div { display: grid; grid-template-columns: minmax(9rem, max-content) 1fr; gap: 0.5rem; }
+.dependency-detail dt { font-weight: 600; }
+.dependency-detail dd { margin: 0; overflow-wrap: anywhere; }
+.dependency-summary { border-left: 0.2rem solid currentcolor; margin: 0; padding-left: 0.75rem; white-space: pre-wrap; }
+/* Administração do colaborador: roster read-only de vínculos (D-40). */
+.staff-admin { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.admin-vinculo { border-top: 1px solid color-mix(in srgb, currentcolor 25%, transparent); padding-top: 0.75rem; display: grid; gap: 0.5rem; }
 .case-queue-heading,
 .case-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .case-queue-heading h2 { margin-bottom: 0.35rem; }
@@ -362,3 +402,8 @@
   .case-detail-heading { flex-direction: column; }
   .case-lookup-row .primary-action { width: 100%; }
 }
+
+/* F-159: ajuda consistente — mesma posição relativa (fim da página) em todo estado. */
+.portal-help { width: min(100% - 2rem, 78rem); margin: 0 auto; padding: 1.5rem 0 2rem; border-top: 1px solid #cadbd3; color: #18302b; }
+.portal-help h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.portal-help p { max-width: 62rem; margin: 0.3rem 0; }

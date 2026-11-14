@@ -70,6 +70,7 @@ import maezo.ports as ports_pkg
 _EXPECTED_MODULES: frozenset[str] = frozenset(
     {
         "__init__",  # public surface (re-exports only)
+        "commercial",  # C6 proposed opaque command/authority seams; stdlib-only, not source admission
         "envelope",  # the 28 frozen envelope fields, in the pinned order
         "errors",  # the ONE closed refusal taxonomy + the pinned timeout default
         "work_items",  # WorkItemSource
@@ -308,7 +309,7 @@ def test_port_modules_discovered() -> None:
         "Adding/removing a port module is a deliberate change to the boundary's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 14, f"expected exactly 14 port modules, found {sorted(mods)}"
+    assert len(mods) == 15, f"expected exactly 15 port modules, found {sorted(mods)}"
 
 
 def test_import_extraction_is_not_vacuous() -> None:
@@ -510,8 +511,13 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     # +2 (19/10/2026): nomes dos dependentes TINA v1.13 (DependenteNominal, DependentesNominaisView).
     # +2 (19/10/2026, DL-0128): catalogo de procedimentos TINA v1.14 (ProcedimentoCatalogo,
     # CatalogoProcedimentosView).
-    assert len(value_types) == 46, (
-        f"expected 46 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +1 (20/10/2026, DL-0130): CPT vigente TINA v1.15 (CptVigenteView).
+    # +15 (22/10/2026, C6): opaque commercial scope, proof and command value types.
+    # +5 (30/10/2026): condicoes contratuais de reembolso, contrato AMH PROPOSTO `tina-reembolso`
+    # (CondicoesReembolsoView, CoparticipacaoReembolso, LimiteReembolso, RegraValorReembolso,
+    # VinculoReembolso).
+    assert len(value_types) == 67, (
+        f"expected 67 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -534,7 +540,9 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 16, f"expected exactly 16 port Protocols, found {sorted(protocols)}"
+    # +1 (20/10/2026, DL-0130): TinaCptPort.
+    # +1 (30/10/2026): TinaReembolsoPort (contrato AMH PROPOSTO `tina-reembolso`).
+    assert len(protocols) == 18, f"expected exactly 18 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

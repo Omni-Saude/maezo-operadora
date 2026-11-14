@@ -89,12 +89,14 @@ async def test_caso_encerrado_recebe_a_despedida_comum_nunca_a_de_caso_aberto(mo
     assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in whatsapp.enviados
 
 
-async def test_caso_ativo_no_motor_recebe_a_despedida_de_caso_aberto() -> None:
+async def test_caso_ativo_no_motor_nao_vai_de_carona_na_despedida() -> None:
+    """Teste do dono (25/10/2026, noite): a despedida nao leva "seu caso continua com a equipe"."""
     grafo, whatsapp, _, _ = _grafo(
         [_classify(intent="human_request")], cib=_caso_aberto("solicitacao_humano")
     )
     await grafo.ainvoke(_entrada(_DESPEDIDA, [RESPOSTA_HANDOFF_RECUSADA]))
-    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA_CASO_ABERTO]
+    assert whatsapp.enviados == [RESPOSTA_DESPEDIDA]
+    assert RESPOSTA_DESPEDIDA_CASO_ABERTO not in whatsapp.enviados
 
 
 async def test_leitura_que_falha_nao_afirma_e_nao_derruba_o_turno() -> None:
@@ -104,7 +106,7 @@ async def test_leitura_que_falha_nao_afirma_e_nao_derruba_o_turno() -> None:
     assert whatsapp.enviados == [RESPOSTA_DESPEDIDA]
 
 
-# --- navegacao: so' com caso CLINICO ativo ----------------------------------------------------------
+# --- navegacao: nunca com o caso de carona (teste do dono de 25/10/2026, noite) ---------------------
 
 
 @pytest.mark.parametrize(
@@ -115,10 +117,13 @@ async def test_leitura_que_falha_nao_afirma_e_nao_derruba_o_turno() -> None:
         pytest.param(_clinico_paralelo, id="clin_paralelo_ativo"),
     ],
 )
-async def test_navegacao_cita_o_caso_de_saude_so_com_instancia_clinica_ativa(motor: Any) -> None:
+async def test_navegacao_com_caso_clinico_ativo_nao_cita_o_caso(motor: Any) -> None:
+    """Teste do dono (25/10/2026, noite): a pergunta de onde ir recebe as opcoes, sem o caso de carona."""
     grafo, whatsapp, _, _ = _grafo([_classify()], cib=motor())
-    await grafo.ainvoke(_entrada(_NAVEGACAO, [RESPOSTA_ESCALONAMENTO_URGENTE]))
-    assert whatsapp.enviados == [RESPOSTA_NAVEGACAO_CASO_ABERTO]
+    resultado = await grafo.ainvoke(_entrada(_NAVEGACAO, [RESPOSTA_ESCALONAMENTO_URGENTE]))
+    assert resultado.get("escalation_motivo") != "red_flag_clinico"
+    assert whatsapp.enviados == [RESPOSTA_NAVEGACAO]
+    assert RESPOSTA_NAVEGACAO_CASO_ABERTO not in whatsapp.enviados
 
 
 @pytest.mark.parametrize(
@@ -163,8 +168,11 @@ async def test_inform_recusado_com_caso_ativo_diz_que_o_caso_continua() -> None:
     "motor", [FakeCibSevenTransport, _MotorQueNaoLe], ids=["sem_instancia", "leitura_falha"]
 )
 async def test_emergencia_com_historico_clinico_e_motor_sem_caso_continua_escalando(motor: Any) -> None:
-    """DL-0072 intacto: o sinal de emergencia com caso clinico no historico NAO espera o motor."""
-    grafo, _, _, _ = _grafo([_classify()], cib=motor())
+    """DL-0072 intacto: o sinal de emergencia com caso clinico no historico NAO espera o motor.
+
+    Limpeza da saude, etapa 3: sem palavras de alarme, o sinal vem do classificador e a tabela decide."""
+    extracao = _classify(intent="symptom", population="adult", sintoma_codigo="dispneia", intensidade="grave")
+    grafo, _, _, _ = _grafo([extracao], cib=motor())
     resultado = await grafo.ainvoke(
         _entrada("ELE TA ROXO, PARANDO DE RESPIRAR", [RESPOSTA_ESCALONAMENTO_URGENTE])
     )

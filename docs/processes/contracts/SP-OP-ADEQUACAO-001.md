@@ -2,11 +2,11 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (medico-auditor/juridico/DPO/regulatorio/financas/PO) before any deploy` (docs/review-queue.md)
 **Fase:** 3 (Wave W-C; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`
-**Gatilho regulatorio:** **RN 259/2011** (garantia de atendimento — **tempos e distancias maximas de acesso** a rede assistencial) e consolidacoes posteriores ANS (**DRAFT/verify** com regulatorio — RN 259 pode ter sido consolidada/atualizada); RN 566 (dimensionamento/regras de rede — **DRAFT/verify**); Lei 9.656/1998. Disponibilidade de rede adequada e obrigacao da operadora; a falha de adequacao dispara remediacao e, no limite, **compromisso financeiro de fallback** (livre escolha / reembolso garantido).
+**Gatilho regulatorio:** **RN 566/2022** (garantia de atendimento — prazos maximos; **sucede a RN 259/2011, revogada pela RN 566, art. 16, I** — errata ADR-0073 §B, aprovada pelo dono em 2026-10-31, ratificacao juridica pendente em R-054 L6/L9; a RN 566 **nao traz criterio de distancia**, entao o componente "distancias maximas de acesso" deste contrato fica sem ancora normativa e segue **DRAFT/verify**; nenhum valor muda por esta errata); RN 566 tambem citada para dimensionamento/regras de rede (**DRAFT/verify**); Lei 9.656/1998. Disponibilidade de rede adequada e obrigacao da operadora; a falha de adequacao dispara remediacao e, no limite, **compromisso financeiro de fallback** (livre escolha / reembolso garantido).
 
 > **Processo majoritariamente L3 (monitoramento autonomo com telemetria — ADR-0008), MAS com um
 > efeito adverso human-gated:** o **compromisso financeiro de fallback** (garantir livre escolha /
-> reembolso ao beneficiario quando a rede nao atende os tempos/distancias RN 259) e uma obrigacao
+> reembolso ao beneficiario quando a rede nao atende os tempos/distancias RN 566 — ex-RN 259, revogada) e uma obrigacao
 > financeira da operadora e DEVE nascer numa User Task humana — mesmo num processo cujo grosso e
 > L3. "Menos obvio como negativa-like, mas o compromisso de fallback e adverso (custo) e segue o
 > padrao das cinco partes" (phase3-plan §processos, linha ADEQUACAO).
@@ -17,7 +17,7 @@ O **registro de um compromisso financeiro de fallback** (`register_fallback_comm
 garantir livre escolha / reembolso garantido / contratacao ad-hoc com custo para a operadora)
 so nasce numa User Task humana (`UT_DecisaoFallback`, ou `UT_CoordenacaoRede` no estouro de SLA),
 com `decisao_remediacao == COMPROMISSO_FALLBACK` setado por humano do grupo `gestao-rede`
-(ou `coordenacao-rede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
+(`coordenacao-rede` so na escalacao `UT_CoordenacaoRede`). Nenhuma DMN deste processo possui saida que **firme/autorize** o
 compromisso financeiro: a DMN `adequacao_gap` apenas **mede o gap de adequacao e classifica a
 severidade/roteamento de remediacao**; ela nunca produz `COMPROMETER`/`GARANTIR_REEMBOLSO`/
 `CONTRATAR`. Gap ambiguo, severidade alta, dados de geolocalizacao insuficientes,
@@ -40,7 +40,7 @@ passa pela User Task.
 |---|---|---|
 | `End_CompromissoFallbackHumano` | **ADVERSO (custo/compromisso financeiro)** — livre escolha / reembolso garantido / contratacao ad-hoc | `UT_DecisaoFallback` / `UT_CoordenacaoRede` com `decisao_remediacao=COMPROMISSO_FALLBACK` humano |
 | `End_RemediacaoEncaminhada` | neutro — gap encaminhado para credenciamento (handoff a SP-OP-CRED-001) sem compromisso de caixa | caminho L3 (DMN `roteamento_remediacao=ENCAMINHAR_CREDENCIAMENTO`) ou User Task |
-| `End_AdequacaoConforme` | neutro — rede dentro dos tempos/distancias RN 259; nada a remediar | caminho L3 (`adequacao_gap` sem gap) |
+| `End_AdequacaoConforme` | neutro — rede dentro dos tempos/distancias RN 566 (ex-RN 259, revogada); nada a remediar | caminho L3 (`adequacao_gap` sem gap) |
 | `End_MonitoramentoAtualizado` | neutro — plano de monitoramento atualizado; segue observando (gap leve sob acompanhamento) | caminho L3 |
 
 O terminal ADVERSO `End_CompromissoFallbackHumano` NUNCA aparece na history do engine sem uma
@@ -91,7 +91,7 @@ como "implementado" ate essa decisao.
 | `prestador_id` | string | Prestador afetado (dado cadastral PJ/PF — nao PHI de beneficiario) |
 | `tipo_prestador` | string | `pessoa_fisica` \| `clinica` \| `hospital` \| `laboratorio` \| `sadt` \| `opme` |
 | `especialidade` | string | Especialidade/servico da celula afetada (taxonomia TUSS/CBO — DRAFT) |
-| `regiao_saude` | string | Regiao de saude / area de atuacao (granularidade geografica RN 259 — DRAFT; substitui o `municipio_ibge` do STUB — **nunca endereco cru de beneficiario**, ADR-0006) |
+| `regiao_saude` | string | Regiao de saude / area de atuacao (granularidade geografica RN 566, ex-RN 259 revogada — DRAFT; substitui o `municipio_ibge` do STUB — **nunca endereco cru de beneficiario**, ADR-0006) |
 | `data_efeito_iso` | string | Data de efeito (`YYYY-MM-DD`; substitui o `effective_date` do STUB) — a ponte deriva `ciclo_avaliacao` (trimestre `YYYY-Qn`) dela |
 | `_business_key` | string | bk da instancia CRED de origem (injetada pelo worker generico de publish) — vira `network_change_ref` (substitui o `event_id` do STUB; a idempotencia do consumo vem da bk deterministica de ADEQUACAO, nao de um event_id) |
 
@@ -175,7 +175,7 @@ duplicar avaliacao de adequacao da mesma celula).
 | `prestadores_disponiveis` | integer | sim* | Pre-resolvido por worker: contagem de prestadores ativos da especialidade na regiao |
 | `cobertura_geo_suficiente` | boolean | sim* | Pre-resolvido por worker (geoanalise): cobertura atende dimensionamento RN 566 (DRAFT) |
 | `dados_geo_completos` | boolean | sim* | Pre-resolvido por worker: dados de geolocalizacao/rede suficientes para avaliar |
-| `tipo_carater` | string | sim | `eletivo` \| `urgencia_emergencia` (tempos maximos diferem — RN 259) |
+| `tipo_carater` | string | sim | `eletivo` \| `urgencia_emergencia` (tempos maximos diferem — RN 566, ex-RN 259 revogada) |
 | `prestador_id` | string | nao‡ | **PERSP-ADEQ-CRED-HANDOFF.** Prestador candidato ja identificado para fechar o gap da celula (dado cadastral PJ/PF — nao PHI de beneficiario, ADR-0006). Compoe a business key do handoff (`CRED-{tenant}-{prestador_id}`). "Buscar prestador" (nota L3 acima) e atividade de negocio ANTERIOR a este task (prospeccao pela area de rede / analytics) — este contrato **NAO** define essa fonte (DRAFT/verify, ver Pendencias); sem ele, `start_credenciamento` RECUSA (fail-closed) em vez de fabricar um handoff |
 | `tipo_prestador` | string | nao | `pessoa_fisica` \| `clinica` \| `hospital` \| `laboratorio` \| `sadt` \| `opme` — carregado no payload do handoff quando conhecido (contrato `SP-OP-CRED-001.md`); ausente, CRED-001 roteia pelo seu proprio catch-all (`ANALISE_HUMANA`), nunca decide por dado incompleto |
 
@@ -195,8 +195,8 @@ duplicar avaliacao de adequacao da mesma celula).
 | `roteamento_remediacao` | string | `MONITORAR` \| `ENCAMINHAR_CREDENCIAMENTO` \| `ANALISE_HUMANA` (roteamento; **sem variante COMPROMETER/GARANTIR**) |
 | `decisao_remediacao` | string | `MONITORAR_OK` \| `ENCAMINHAR_CRED` \| `COMPROMISSO_FALLBACK` \| `SOLICITAR_INFO` (preenchida SO por User Task humana quando ha decisao adversa) |
 | `tipo_fallback` | string | **Obrigatoria se `COMPROMISSO_FALLBACK`** — `livre_escolha` \| `reembolso_garantido` \| `contratacao_ad_hoc` |
-| `justificativa_fallback` | string | **Obrigatoria se `COMPROMISSO_FALLBACK`** — fundamentacao do compromisso (gap apurado, RN 259, impacto ao beneficiario) |
-| `referencia_regulatoria` | string | **Obrigatoria se `COMPROMISSO_FALLBACK`** — RN citada (ex.: RN 259 — **DRAFT/verify**) |
+| `justificativa_fallback` | string | **Obrigatoria se `COMPROMISSO_FALLBACK`** — fundamentacao do compromisso (gap apurado, RN 566 — ex-RN 259, revogada —, impacto ao beneficiario) |
+| `referencia_regulatoria` | string | **Obrigatoria se `COMPROMISSO_FALLBACK`** — RN citada (ex.: RN 566/2022, que revogou a RN 259 — **DRAFT/verify**) |
 | `estimativa_custo_cents` | integer | Estimativa de custo do compromisso, em centavos BRL (inteiro — nunca `number`; informativa, registrada na auditoria) |
 | `responsavel_id` | string | Humano que decidiu o compromisso (cadeia de auditoria ADR-0007); carregado no worker do efeito adverso |
 | `decisao_coordenacao` | string | `assumir_decisao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-rede`) |
@@ -227,10 +227,10 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 
 Shape engine-deployavel (§4-bis-A, ADR-0018 parte 2): `typeRef ∈ {string, boolean, integer, long, double, date}` — **`number` e invalido**; distancia → `double`; tempo/contagem → `integer`; dias/SLA → string ISO 8601; BRL (estimativa) → inteiro-centavos. Toda `decisionTable` com `hitPolicy`; toda tabela com row catch-all → caminho humano conservador. `camunda:historyTimeToLive` namespaced (`P###D`) em cada `<decision>`. **Nenhuma DMN tem coluna de saida que firme/autorize compromisso financeiro.**
 
-### `adequacao_gap` (hitPolicy FIRST — DRAFT; thresholds RN 259 **DRAFT/verify regulatorio**)
+### `adequacao_gap` (hitPolicy FIRST — DRAFT; thresholds RN 566 (ex-RN 259, revogada) **DRAFT/verify regulatorio**)
 in: `tipo_carater: string`, `tempo_acesso_apurado_min: integer`, `distancia_apurada_km: double`, `prestadores_disponiveis: integer`, `cobertura_geo_suficiente: boolean`
 out: `gap_adequacao: string` (`CONFORME` | `GAP_LEVE` | `GAP_MODERADO` | `GAP_CRITICO`), `motivo: string`
-**Apenas mede a severidade do gap — sem saida que comprometa caixa.** Thresholds de tempo/distancia maximos por `tipo_carater` (eletivo vs urgencia) sao **DRAFT/verify** contra RN 259 vigente. Catch-all (dados insuficientes/combinacao nao coberta) → `GAP_CRITICO` (conservador → humano a jusante).
+**Apenas mede a severidade do gap — sem saida que comprometa caixa.** Thresholds de tempo/distancia maximos por `tipo_carater` (eletivo vs urgencia) sao **DRAFT/verify** contra a RN 566/2022 (a RN 259 foi revogada; a RN 566 nao traz distancia — errata ADR-0073 §B). Catch-all (dados insuficientes/combinacao nao coberta) → `GAP_CRITICO` (conservador → humano a jusante).
 
 ### `adequacao_remediation_routing` (hitPolicy FIRST — DRAFT)
 in: `gap_adequacao: string`, `dados_geo_completos: boolean`
@@ -245,7 +245,7 @@ out: `roteamento_remediacao: string` (`MONITORAR` | `ENCAMINHAR_CREDENCIAMENTO` 
 ### `adequacao_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify; PERSP-B5-HITPOLICY: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/adequacao_sla.dmn:29`)
 in: `gap_adequacao: string`, `tipo_carater: string`
 out: `sla_remediacao: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte_regulatoria: string`
-Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/verify regulatorio** (RN 259 garantia de atendimento).
+Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/verify regulatorio** (RN 566 garantia de atendimento — ex-RN 259, revogada).
 
 ## Papeis humanos (candidate groups)
 
@@ -255,7 +255,7 @@ Gap critico / urgencia tem SLA mais curto. Prazos como string ISO — **DRAFT/ve
 | Grupo | Papel | Tarefa |
 |---|---|---|
 | `gestao-rede` | Gestao de rede credenciada | `UT_DecisaoFallback` (**compromisso financeiro de fallback SO aqui**: `decisao_remediacao ∈ {MONITORAR_OK, ENCAMINHAR_CRED, COMPROMISSO_FALLBACK, SOLICITAR_INFO}`) |
-| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
+| `coordenacao-rede` | Coordenacao de rede / regulacao | `UT_CoordenacaoRede` (deixou de ser co-candidato de `UT_DecisaoFallback` — R-041 / #1084; SLA de remediacao estourado — assume a decisao, que continua humana; herda os mesmos campos obrigatorios de `UT_DecisaoFallback`) |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa (compromisso
 de fallback) NUNCA muda de natureza por estouro de SLA.
@@ -292,7 +292,7 @@ re-landed com este hardening + o teste do #108 alinhado ao contrato (`assumir_de
 | Timer | Valor (DRAFT/verify) | Tipo | Fonte |
 |---|---|---|---|
 | Alerta de risco (`BT_AlertaSlaAdequacao`) | 60–70% de `${sla.sla_alerta}` (DMN `adequacao_sla`) | nao-interruptivo → `operadora.adequacao.notify_sla_risk` | politica interna |
-| Remediacao (`BT_SlaRemediacao`) | `${sla.sla_remediacao}` (ex.: **P30D** gap moderado, mais curto p/ critico/urgencia — **DRAFT/verify** RN 259) | interruptivo → publica `adequacao.sla_breached` → (se ha decisao humana pendente) cancela `UT_DecisaoFallback`, cria `UT_CoordenacaoRede` | RN 259 (garantia de atendimento) — **DRAFT/verify** |
+| Remediacao (`BT_SlaRemediacao`) | `${sla.sla_remediacao}` (ex.: **P30D** gap moderado, mais curto p/ critico/urgencia — **DRAFT/verify** RN 566, ex-RN 259 revogada) | interruptivo → publica `adequacao.sla_breached` → (se ha decisao humana pendente) cancela `UT_DecisaoFallback`, cria `UT_CoordenacaoRede` | RN 566 (garantia de atendimento; ex-RN 259, revogada) — **DRAFT/verify** |
 
 Nota: o caminho L3 de monitoramento e majoritario (sem timer interruptivo de decisao humana —
 apenas observa/encaminha). O timer interruptivo de remediacao so e relevante quando o fluxo entrou
@@ -353,7 +353,7 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
   **Restam para review humana**: periodicidade do `ciclo_avaliacao` derivado (trimestre de
   `data_efeito_iso` vs mensal — RN 259/566) e a fonte cadastral de `regiao_saude`/`especialidade`
   do prestador no start de CRED (base de rede) — docs/review-queue.md.
-- **Sign-off regulatorio dos thresholds de tempo/distancia** (`adequacao_gap`) contra RN 259
+- **Sign-off regulatorio dos thresholds de tempo/distancia** (`adequacao_gap`) contra RN 566 (RN 259 revogada)
   vigente (e consolidacoes) por `tipo_carater`; periodicidade de avaliacao (`ciclo_avaliacao`) —
   todos DRAFT/verify.
 - Confirmacao da citacao RN 259/RN 566 contra texto vigente ANS (podem ter sido consolidadas) —
@@ -364,3 +364,18 @@ auto-compromisso por timeout** (o compromisso financeiro nunca nasce de um timer
   fallback gerar pagamento, interacao com SP-OP-REEMBOLSO-001 no reembolso garantido) — **DRAFT**.
 - Taxonomia de especialidade (TUSS/CBO) e granularidade geografica (regiao de saude vs municipio
   IBGE) — alinhar com a base de rede e a RN.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-ADEQUACAO-001` → `maezo-payer-adequacao-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - célula: `{tenant_id}:adequacao-001:A-{regiao_saude}-{especialidade}[-{ciclo_avaliacao}]` (em claro no motor).
+- **Classificação (a confirmar pelo DPO):** não pessoal.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).

@@ -862,6 +862,64 @@ variable "helena_base_saude" {
   nullable    = false
 }
 
+variable "helena_cobertura_modo" {
+  description = <<-EOT
+    Modo da cobertura da Helena (decisao do dono de 22/10/2026, DL-0140): `MAEZO_HELENA_COBERTURA_MODO`.
+    `simples` (default) = nunca consulta catalogo/AMH por procedimento; explica o geral (Rol x segmentacao,
+    carencia, autorizacao e indicacao medica) e oferece a equipe, que confirma (caso so' com "sim").
+    `consulta` = a consulta automatica por procedimento (o codigo continua, atras da chave).
+  EOT
+  type        = string
+  default     = "simples"
+  nullable    = false
+  validation {
+    condition     = contains(["simples", "consulta"], var.helena_cobertura_modo)
+    error_message = "helena_cobertura_modo: simples ou consulta."
+  }
+}
+
+variable "helena_roteador" {
+  description = <<-EOT
+    Roteador de habilidades da Helena (ADR-0066, DL-0134, 21/10/2026): `MAEZO_HELENA_ROTEADOR`.
+    `desligado` (default) = a Helena de antes, byte a byte. `sombra` (F1) roda o roteador (GLM-5 regional) e as
+    travas de entrada EM PARALELO e so' registra a decisao no log `helena_roteador_sombra`, sem mudar resposta,
+    estado, caso ou envio. `ativo` (F2, so' na allowlist) ainda vale como `sombra`. SO' EM DEV.
+  EOT
+  type        = string
+  default     = "desligado"
+  nullable    = false
+  validation {
+    condition     = contains(["desligado", "sombra", "ativo"], var.helena_roteador)
+    error_message = "helena_roteador: desligado, sombra ou ativo."
+  }
+}
+
+variable "helena_roteador_modelo" {
+  description = <<-EOT
+    Modelo PROPRIO do roteador de habilidades da Helena (ADR-0066, DL-0137): `MAEZO_HELENA_ROTEADOR_MODELO`. Modelo de
+    base REGIONAL de sa-east-1 (zona PHI). Vazio = o mesmo da zona PHI (`phi_model_id`). Fixado explicitamente para o
+    roteador nao mudar de modelo quando a zona PHI mudar. A permissao vem de `roteador-modelo.tf` (os quatro papeis).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = var.helena_roteador_modelo == "" || can(regex("^[a-z0-9-]+\\.[a-z0-9.:-]+$", var.helena_roteador_modelo))
+    error_message = "helena_roteador_modelo: um id de modelo de base (ex.: mistral.mistral-large-3-675b-instruct) ou vazio."
+  }
+}
+
+variable "helena_roteador_conversas" {
+  description = <<-EOT
+    F2 do roteador de habilidades (ADR-0066, DL-0136): as conversas (ids keyed `wa:amh:hk1_...`) em que o roteador
+    ATIVO decide. Precisam estar tambem em `helena_saude_gerativa_conversas`. Vira `MAEZO_HELENA_ROTEADOR_CONVERSAS`.
+    Vazia = ninguem. Na F2 so' as conversas do simulador; a lista de teste das pessoas entra so' na F4, com o OK do dono.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "helena_saude_gerativa" {
   description = <<-EOT
     SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
@@ -978,6 +1036,13 @@ variable "amh_tina_carteirinha_openapi_path" {
   nullable    = false
 }
 
+variable "amh_tina_cpt_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cpt` (manifest v1.15, DL-0130: CPT vigente do proprio sujeito; o digest tem de estar no bloco manifest_v1_15 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota: a Helena nao da' o aviso de CPT; falha de leitura/digest deixa so' a CPT de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
 variable "amh_tina_cobertura_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
   type        = string
@@ -1034,6 +1099,37 @@ variable "cancel_pf_v1" {
   validation {
     condition     = !var.cancel_pf_v1 || var.lucas_fonte_cobranca == "amh"
     error_message = "cancel_pf_v1 exige lucas_fonte_cobranca = \"amh\" (os fatos do cancelamento vem dos contratos da AMH)."
+  }
+}
+
+variable "reembolso_v1" {
+  description = <<-EOT
+    Reembolso pelo WhatsApp (DL-0161/DL-0162, SP-OP-REEMBOLSO-001 v0.2.0): `MAEZO_REEMBOLSO_V1`. Default
+    `false` = o canal de antes, byte a byte (nenhuma coleta, nenhum arquivo recebido). Ligada, o Lucas
+    conduz o pedido (perguntas fechadas, laco de documentos, confirmacao), o processo abre com
+    `aviso_beneficiario_whatsapp=true` e devolve o resultado pela retomada. 100% dos pedidos vao a analise
+    humana. SO' dev; revisao juridica dos textos, DPO (retencao de anexos PHI) e operacao antes de producao.
+    Ordem de subida: plugin do motor, catalogo do portal, depois esta chave. Runbook: docs/runbooks/reembolso-001.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "reembolso_anexos_enabled" {
+  description = <<-EOT
+    Custodia dos anexos do reembolso (DL-0163): bucket S3 privado com SSE-KMS de chave propria, receptor so' grava,
+    portal so' le. DEFAULT false — com false nenhum recurso de `reembolso-anexos.tf` existe e o plan nao muda. Dado de
+    saude (Zona PHI): NAO LIGAR sem ciencia registrada do DPO. Exige `recipient_vault_enabled = true` (a role propria
+    do receptor so' existe com o cofre do telefone; sem ela a permissao iria para a role compartilhada).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.reembolso_anexos_enabled || var.recipient_vault_enabled
+    error_message = "reembolso_anexos_enabled exige recipient_vault_enabled = true (role propria do receptor)."
   }
 }
 

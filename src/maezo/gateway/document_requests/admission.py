@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from maezo.gateway.communications.models import CommunicationScope, alive
+from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
 from maezo.gateway.human.read_profile import digest
 
@@ -33,12 +34,22 @@ async def lock_key(c: AsyncConnection, value: object) -> None:
     await c.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"), {"key": digest(value)})
 
 
+# R-110 / F-151: o modo de lock escolhe um SQL literal deste mapa fechado; nada e' concatenado.
+_HEAD_SELECT = (
+    "SELECT revision,publication_ref,payload FROM portal_document_request.authority_head "
+    "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access"
+)
+_HEAD_SQL: dict[str, str] = {
+    " FOR SHARE": _HEAD_SELECT + " FOR SHARE",
+    " FOR UPDATE": _HEAD_SELECT + " FOR UPDATE",
+}
+
+
 async def head(c: AsyncConnection, access: SystemAccess, lock: str = " FOR SHARE") -> Any:
-    require(lock in {" FOR SHARE", " FOR UPDATE"})
+    require(lock in _HEAD_SQL)
     return await one(
         c,
-        "SELECT revision,publication_ref,payload FROM portal_document_request.authority_head "
-        "WHERE tenant=:tenant AND environment=:environment AND access_digest=:access" + lock,
+        _HEAD_SQL[lock],
         dict(**access.scope.model_dump(), access=digest(access)),
     )
 
@@ -53,8 +64,8 @@ def current(row: Any, access: SystemAccess) -> tuple[SystemGrant, datetime]:
         "unavailable",
     )
     grant = publication.grant
-    require(grant is not None)
-    assert grant is not None
+    if grant is None:
+        raise ExternalCaseError("denied")
     require(
         grant.access == access
         and publication.source_receipt_ref == grant.source.receipt_ref
@@ -81,13 +92,14 @@ class AdmissionLifetime:
         return alive(self._ceiling)
 
     def current(self) -> None:
-        require(self._ceiling is not None, "unavailable")
-        assert self._ceiling is not None
+        if self._ceiling is None:
+            raise ExternalCaseError("unavailable")
         alive(self._ceiling)
 
     def deadline(self) -> datetime:
         self.current()
-        assert self._ceiling is not None
+        if self._ceiling is None:
+            raise AssertionError("teto ausente apos current()")
         return self._ceiling
 
 

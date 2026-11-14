@@ -178,8 +178,8 @@ async def test_all_five_source_bound_events_still_publish(activity, destination)
             "escalation.requested",
         ),
         (
-            "SP-OP-ANS-CRON-001-RN124SIP",
-            "ST_PublishCronDueRn124Sip",
+            "SP-OP-ANS-CRON-001-RN209",
+            "ST_PublishCronDueRn209",
             "operadora.notifications.internal",
             "ans.cron_due",
         ),

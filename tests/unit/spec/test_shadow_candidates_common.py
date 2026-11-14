@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 65
+    assert len(dmns) == 70
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -234,6 +234,36 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
         "o censo subiu para 65 por causa de `helena_triage_admissibility.dmn` (nova triagem da Helena, "
         "DL-0104, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
+    # DL-0161 (reembolso v2): sairam `reembolso_calculo.dmn` e `reembolso_coverage.dmn` e entrou
+    # `reembolso_prazo.dmn` (66 -> 65, ja' contando `auth_junta_admissibility.dmn`). Os tres de reembolso
+    # sao nomeados aqui para o censo nao mudar calado.
+    assert "reembolso_prazo.dmn" in dmns
+    assert not {"reembolso_calculo.dmn", "reembolso_coverage.dmn"} & dmns
+    # R-076 (#1149, decisao do dono de 2026-11-01): 68 -> 69 com `reembolso_auto_approval.dmn`
+    # (apos `pagto_duplicidade.dmn`), a faixa B
+    # do R-070 DORMENTE sobre a v2 (teto 0 + R-058); nomeada aqui para o censo nao mudar calado.
+    assert "reembolso_auto_approval.dmn" in dmns
+    # DEC-31 D31-2 (dono, #1084, 2026-11-02): 69 -> 70 com `pagto_comite_coordenacao.dmn` — a regra
+    # de assuncao do comite de pagamentos pela coordenacao apos o SLA (BRT_AssuncaoComite, dark atras
+    # do comite colegiado); nomeada aqui para o censo nao mudar calado.
+    assert "pagto_comite_coordenacao.dmn" in dmns
+    assert "auth_junta_admissibility.dmn" in dmns, (
+        "o censo subiu para 66 por causa de `auth_junta_admissibility.dmn` (R-064, #1121 — RN 424/2017 "
+        "art. 3 I, junta medica vedada em urgencia/emergencia; dark atras de "
+        "`MAEZO_AUTH_JUNTA_RN424_GUARD`, DRAFT ate a ratificacao do medico auditor) — se ele nao esta "
+        "mais ai, quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
+    for mptt in ("prestador_trust_scorecard.dmn", "prestador_tier.dmn"):
+        assert mptt in dmns, (
+            f"o censo subiu para 68 por causa de `{mptt}` (MPTT P5 — scorecard/tier de confianca do "
+            "prestador, DRAFT e nao ligados ate o P6) — se ele nao esta mais ai, quem subiu o numero "
+            "foi outra coisa, e essa outra coisa precisa se nomear aqui"
+        )
+    assert "pagto_duplicidade.dmn" in dmns, (
+        "o censo subiu para 68 por causa de `pagto_duplicidade.dmn` (PAGTO PR-E — classificacao de "
+        "duplicidade da ordem, avaliada so' pela costura dmn= do detector dark; W DRAFT) — se ele nao "
+        "esta mais ai, quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
     bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
     assert len(bpmn_names) == 17

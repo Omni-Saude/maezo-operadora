@@ -312,11 +312,13 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
         await cibseven.close()
 
 
-async def test_non_red_flag_message_never_starts_escalation(
+async def test_non_red_flag_symptom_opens_a_moderate_case_for_the_health_team(
     engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
-    """(b) non-red-flag input -> Helena's `inform` path — no SP-OP-ESCALATION-001 instance is
-    ever started for this conversation's business key."""
+    """(b) non-red-flag symptom -> the REAL red-flag table says no flag, and the symptom goes to the
+    health team: SP-OP-ESCALATION-001 with `intencao_clinica`/`moderada` (escalation_routing r4 ->
+    `enfermagem-triagem`), never an automatic answer. Limpeza da saude, etapa 3 (02/11/2026, DL-0165):
+    the fixed "sintoma sem alerta" text left the code; never a red flag P1 either."""
     conversation_id = f"wa:{audit_tenant}:t111-inform-{_RUN_ID}"
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
@@ -353,15 +355,18 @@ async def test_non_red_flag_message_never_starts_escalation(
             }
         )
 
-        assert result["next_kind"] == "inform"
-        assert result.get("escalation_started") is not True
-        assert result["response_kind"] == "inform"
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "intencao_clinica"
+        assert result["escalation_severidade"] == "moderada"
+        assert result["escalation_started"] is True
         assert whatsapp.sent
 
         actives = await active_instances(engine_client, business_key)
-        assert actives == [], (
-            f"non-red-flag turn must NEVER start SP-OP-ESCALATION-001 — found active instance(s) "
-            f"for business_key={business_key!r}: {actives}"
+        assert actives, f"the symptom case for business_key={business_key!r} was not started"
+        task = await wait_for_task(engine_client, str(actives[0]["id"]))
+        groups = await candidate_groups(engine_client, task["id"])
+        assert groups == {"enfermagem-triagem"}, (
+            f"expected 'enfermagem-triagem' (intencao_clinica -> escalation_routing r4 -> P2), got {groups!r}"
         )
     finally:
         await dmn.close()
@@ -581,6 +586,96 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
         instance_id = str(actives[0]["id"])
         task = await wait_for_task(engine_client, instance_id)
         await _assert_falha_tecnica_roteada_pela_r6_com_severidade_nula(engine_client, instance_id, task)
+    finally:
+        await dmn.close()
+        await cibseven.close()
+
+
+class _CountingRaisingInference(_RaisingInference):
+    """`_RaisingInference` que CONTA as chamadas ao classificador (o unico prompt que pede
+    `psychosocial_risk` de volta)."""
+
+    def __init__(self) -> None:
+        self.chamadas_ao_classify = 0
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        task_kind: str | None = None,
+    ) -> str:
+        if '"psychosocial_risk"' in prompt:
+            self.chamadas_ao_classify += 1
+        return await super().generate(
+            prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id, task_kind=task_kind
+        )
+
+
+async def test_risco_pelo_texto_com_classificador_caido_escala_risco_psicossocial_p1_live(
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
+) -> None:
+    """Pendencia 15 (DL-0151), contra o motor REAL: com o modelo FORA DO AR o turno inteiro,
+    "quero me matar" abre SP-OP-ESCALATION-001 como `risco_psicossocial` — `escalation_routing` r2
+    (P1, `plantao-clinico`) —, NUNCA `falha_tecnica` (r6: P3, atendimento-humano). O termo de risco
+    no texto decide ANTES do modelo: o classificador nem e' chamado, e a pessoa recebe o texto fixo
+    com o CVV 188."""
+    from maezo.agents.helena.graph import RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
+
+    conversation_id = f"wa:{audit_tenant}:p15-risco-sem-modelo-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}-clin"
+
+    dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
+    whatsapp = _FakeWhatsAppSender()
+    inference = _CountingRaisingInference()
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": audit_sink,
+        }
+    )
+    compiled = graph.compile()
+
+    try:
+        result = await compiled.ainvoke(
+            {
+                "tenant_id": audit_tenant,
+                "conversation_id": conversation_id,
+                "canal": "whatsapp",
+                "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-p15",
+                "message_body": "quero me matar",
+            }
+        )
+
+        assert inference.chamadas_ao_classify == 0, "o risco pelo texto decide antes do modelo"
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "risco_psicossocial"
+        assert not result.get("error"), "nao e' falha tecnica"
+        assert result["escalation_started"] is True
+        assert [texto for _, texto in whatsapp.sent] == [RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL]
+
+        chave = result["escalation_business_key"]
+        assert chave in {business_key, business_key.removesuffix("-clin")}
+        actives = await active_instances(engine_client, chave)
+        assert actives, f"nenhuma instancia ativa para {chave!r}"
+        instance_id = str(actives[0]["id"])
+        variaveis = await process_variables(engine_client, instance_id)
+        assert variaveis["motivo_categoria"]["value"] == "risco_psicossocial"
+        task = await wait_for_task(engine_client, instance_id)
+        assert task["taskDefinitionKey"] == "UT_TratarEscalonamento"
+        tabela = read_live_table(DMN_DIR / "escalation_routing.dmn")
+        r2 = evaluate(
+            tabela,
+            {"motivo_categoria": "risco_psicossocial", "severidade": variaveis["severidade"]["value"]},
+        )
+        assert r2.regra == "r2" and r2.saidas["prioridade"] == "P1"
+        assert await candidate_groups(engine_client, task["id"]) == {"plantao-clinico"}
     finally:
         await dmn.close()
         await cibseven.close()

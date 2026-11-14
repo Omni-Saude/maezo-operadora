@@ -43,8 +43,8 @@ from typing import Any, Final, Literal, Protocol, get_args
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
+from maezo.domain.conversa.competencia import competencia_valida
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
-from maezo.runtime.competencia import competencia_valida
 
 from .pre_roteamento import PreRoteamento, SinaisLexicos
 
@@ -378,19 +378,19 @@ _COLUNAS: Final[str] = (
     "lucas_competencia, ativo_desde, ultimo_turno_em, expira_em, lucas_ultima_resposta, "
     "lucas_avisos_caso_aberto"
 )
-_SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"
+_SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
 _INSERT_SQL: Final[str] = (
-    f"INSERT INTO {TABELA} (tenant, {_COLUNAS}) VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11) "
+    f"INSERT INTO {TABELA} (tenant, {_COLUNAS}) VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11) "  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
     "ON CONFLICT (tenant, conversation_id) DO NOTHING"
 )
 _UPDATE_SQL: Final[str] = (
-    f"UPDATE {TABELA} SET agente_ativo = $3, revisao = revisao + 1, transicao_motivo = $4, "
+    f"UPDATE {TABELA} SET agente_ativo = $3, revisao = revisao + 1, transicao_motivo = $4, "  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
     "lucas_cobranca_subtipo = $5, lucas_competencia = $6, ativo_desde = $7, ultimo_turno_em = $8, "
     "expira_em = $9, lucas_ultima_resposta = $10, lucas_avisos_caso_aberto = $11 "
     "WHERE tenant = $1 AND conversation_id = $2 AND revisao = $12"
 )
 _PURGE_SQL: Final[str] = (
-    f"DELETE FROM {TABELA} WHERE tenant = $1 AND conversation_id IN ("
+    f"DELETE FROM {TABELA} WHERE tenant = $1 AND conversation_id IN ("  # nosec B608 # fonte: TABELA/_COLUNAS (constantes Final)
     f"SELECT conversation_id FROM {TABELA} WHERE tenant = $1 AND ultimo_turno_em < $2 "
     "ORDER BY ultimo_turno_em LIMIT $3)"
 )
@@ -562,7 +562,8 @@ class ConversaRouter:
         self, conversation_id: str
     ) -> tuple[CobrancaSubtipo | None, str | None] | None:
         """O ASSUNTO e o MES da ultima resposta do Lucas (`lucas_cobranca_subtipo`, `lucas_competencia`),
-        para uma pergunta de esclarecimento (`runtime/cobranca_esclarecimento.py`). `None` quando o Lucas
+        para uma pergunta de esclarecimento (`domain/conversa/cobranca_esclarecimento.py`). `None` quando o
+        Lucas
         nao esta' com a conversa (linha ausente, vencida ou da Helena). So' LEITURA."""
         atual = await self._store.ler(conversation_id)
         if atual is None or atual.expira_em < self._relogio() or atual.agente_ativo != "lucas":

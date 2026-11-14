@@ -1,5 +1,7 @@
 # Helena — base de conhecimento de saúde (só em dev) — `MAEZO_HELENA_BASE_SAUDE`
 
+> **REMOVIDO do código em 02/11/2026** (limpeza da saúde, etapa 3 — DL-0165, adendo de 02/11/2026; decisão do dono). A base de conhecimento de saúde (e a saúde gerativa e a busca por significado que dependiam dela) não existe mais no código; a chave `MAEZO_HELENA_BASE_SAUDE` (e `MAEZO_HELENA_SAUDE_GERATIVA`, `MAEZO_HELENA_BUSCA_SEMANTICA*`) ainda vem da task/pacote do dev e é **aceita e ignorada** até a etapa 4. A saúde de todas as conversas com a rota do modelo vai pela porta única (`docs/runbooks/helena-saude-original.md`). Este runbook fica só como histórico.
+
 **Status:** MODELO DE TESTE do dono, SÓ no ambiente de desenvolvimento (dev). Decisão do dono (17/10/2026):
 ADR-0064 e DL-0118. **Conteúdo RASCUNHO aprovado pelo dono só para dev; revisão médica e jurídica antes de
 produção.** Não ligar em outro ambiente.
@@ -43,6 +45,9 @@ alerta). Criança, gestante e saúde mental não mudam. A DMN não muda.
 2. **Antes de ligar:** deploy-processes do `SP-OP-ESCALATION-001` v1.1.0 (a mensagem
    `msg.escalation.withdrawn`), como no runbook `dmn-bpmn-deployment.md`. Sem isso, o encerramento a pedido
    falha honestamente ("Não consegui encerrar o seu atendimento agora...") e o caso continua aberto.
+   **No mesmo corte, repinar a admissão do portal** para a versão nova (`material-staff-na-aws.md`, passo 5, "Versão
+   nova de processo já admitido"): sem isso os casos novos ficam fora de TODAS as filas do portal (17/10/2026: a v3
+   subiu por este passo e os casos P1 de 22/10 ficaram invisíveis até o repin de 23/10).
 3. Apply direcionado (com as tags de imagem de sempre):
 
    ```
@@ -273,4 +278,43 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
 - **Estado:** `helena_cobertura_resposta` (pendência e leitura: sim/nao/nao_sei/encerrar).
 - **Capacidade:** a cobertura lida fica em memória por (titular, código) por 5 min. `helena_cobertura_lida
   motivo=rate_limited` = limite por sujeito da rota da AMH.
+- **Desfazer:** revert do PR.
+
+## 20. CPT vigente (DL-0130, 20/10/2026)
+
+- **O que faz (só na allowlist):** numa resposta de cobertura para o **titular** com CPT vigente no cadastro (rota
+  AMH `tina-cpt`, manifest v1.15), a Helena acrescenta UM aviso geral: "Pelo cadastro, o seu plano tem uma cobertura
+  parcial temporária (CPT) válida até DD/MM/AAAA. [...] Quem confirma, caso a caso, é a análise da autorização."
+  Nunca cita doença; sem CPT, falha, dependente ou terceiro, não fala de CPT. Texto pendente de revisão jurídica.
+- **Logs:** `helena_cpt_lida motivo=ok|not_found|rate_limited|prazo_estourado|rota_nao_carregada|...` (leitura) e
+  `helena_cobertura_cpt aviso=True|False` (se o aviso saiu). Nenhum conteúdo da CPT vai a log. No boot,
+  `amh_interop_cpt_fora motivo=leitura|composicao|contrato` = a rota ficou de fora (o resto sobe).
+- **Capacidade:** a leitura fica em memória por titular por 5 min (o limite por sujeito da AMH é compartilhado
+  com a cobertura).
+- **Desligar:** `amh_tina_cpt_openapi_path = ""` (tfvars do dev) + apply direcionado do receptor.
+- **Desfazer:** revert do PR.
+
+## 21. Conversa simples da cobertura (DL-0131) e batida na cabeça (DL-0132), 20/10/2026
+
+- **Titular por padrão:** `helena_cobertura_extraida` seguido de `helena_cobertura_respondida` sem
+  `helena_dependentes_nome_lidos` = respondeu para o titular sem perguntar. A pessoa escolhida fica em memória por
+  conversa (2 h).
+- **Pendência:** `helena_cobertura_pendencia_escapou pendencia=COB2:...` = pergunta nova saiu da pendência para o
+  roteamento normal. `helena_cobertura_desculpa` = irritação com pedido de desculpas e nova tentativa.
+  `helena_reclamacao_sem_caso` = o modelo leu pedido de pessoa numa reclamação e o caso não abriu.
+- **Lista:** `helena_cobertura_varios termos=N respondidos=N nao_localizados=N excedente=N`.
+- **Recusa:** na allowlist, `helena_base_saude_encerramento resposta=sim encerrados=N` logo depois da recusa.
+- **Batida na cabeça:** `helena_v4_sintoma_leve grupo=sin-batida-na-cabeca`.
+- **Desfazer:** revert do PR (DL-0131); apagar `spec/conhecimento/saude/sintoma/sin-batida-na-cabeca.yaml`
+  (DL-0132).
+
+## 22. Fluxo da conversa e sintoma em curso (DL-0133), 21/10/2026
+
+- **Sintoma em curso:** `helena_base_saude_alarme_do_sintoma` logo depois de `V4_ALERTA:sin-...` = o sinal dito no turno
+  seguinte escalou pelo assunto em curso.
+- **Depois da resposta:** `helena_cobertura_pendencia_escapou pendencia=COB2:RESPONDIDO` = fala de outro
+  assunto foi ao roteamento normal; `helena_cobertura_troca_de_pessoa decidiu=True|False` = a pessoa dita
+  depois da resposta.
+- **Lote:** `helena_cobertura_lote_refeito itens=N` = itens fracos do lote refeitos um a um.
+- **Simulador:** o nome do dependente lido no turno sai como `[NOME-DEPENDENTE]` em toda saida.
 - **Desfazer:** revert do PR.

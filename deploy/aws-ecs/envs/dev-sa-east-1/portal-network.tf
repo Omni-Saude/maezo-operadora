@@ -228,7 +228,7 @@ resource "aws_vpc_security_group_egress_rule" "portal_staff_native_database" {
 # `POST {engine}/task/{id}/complete` no cibseven (8080, `MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN`).
 # O SG `tasks` so' admitia a 8080 de si mesmo (`security_groups.tf::interno_8080`), entao o par
 # abaixo e' o minimo: saida SO' para o SG `tasks` na 8080 a partir do portal, e entrada SO' do SG do
-# portal no `tasks`. Sai junto com a flag quando o rele' D6 (#427) existir.
+# portal no `tasks`. Sai junto com a flag quando o rele' D6 (#1145) existir.
 resource "aws_vpc_security_group_egress_rule" "portal_engine_direct_completion" {
   for_each                     = local.portal_config
   security_group_id            = aws_security_group.portal[each.key].id

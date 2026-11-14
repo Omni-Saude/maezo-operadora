@@ -22,15 +22,24 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - busca_por_significado              # Titan v2 regional sa-east-1 (DL-0121, MAEZO_HELENA_BUSCA_SEMANTICA)
   - perguntas_de_alerta_e_especialista # Helena v4 (DL-0115): perguntas de alerta na dor sem alarme, especialista e carteirinha por texto fixo
   - encerramento_de_caso_a_pedido      # recusa explicita com caso P2/P3 aberto encerra com confirmacao (DL-0118)
-  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14, so' itens assistenciais), escolha do GLM-5 entre os candidatos com confirmacao de uma linha (DL-0129), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"
+  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14, so' itens assistenciais), escolha do GLM-5 entre os candidatos com confirmacao de uma linha (DL-0129), conversa simples com o titular por padrao e a lista inteira (DL-0131), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"; aviso GERAL de CPT so' para o titular com CPT vigente no cadastro (TINA cpt v1.15, DL-0130; nunca cita doenca; sem CPT, nada sobre CPT)
   - carteirinha_completa_do_proprio    # numero completo so' do proprio verificado, so' no envio (v1.12, MAEZO_HELENA_CARTEIRINHA_COMPLETA)
   - nome_completo_dos_dependentes      # so' dos dependentes do proprio titular, so' no envio (v1.13, DL-0127, MAEZO_HELENA_DEPENDENTES_NOME)
   - passagem_cancelamento              # pedido de cancelamento -> Lucas (CANCEL-001 PF, DL-0111)
+  # NOVA ARQUITETURA (ADR-0066, DL-0134, decisao do dono de 21/10/2026; so' dev, chave MAEZO_HELENA_ROTEADOR
+  # desligado|sombra|ativo, default desligado = a Helena de antes byte a byte). Fluxo por turno: TRAVAS DE ENTRADA
+  # fixas (consentimento/identificacao -> alarme pela DMN 192/CVV 188 -> risco psicossocial -> dados pessoais) ->
+  # ROTEADOR (GLM-5 sa-east-1, ultimas mensagens + pergunta pendente, UMA habilidade com confianca; na duvida
+  # pergunta "X ou Y?") -> UMA HABILIDADE fechada (cobertura, plano, saude, sintoma, equipe, pedidos, cobranca,
+  # conversa) -> TRAVAS DE SAIDA fixas (sem promessa/negativa de cobertura, sem dose/diagnostico, sem link, caso
+  # so' com "sim" ou pedido explicito, nome de dependente so' do proprio titular). Contrato:
+  # spec/agents/helena/roteador.yaml (roteador_contrato.py). Fases F0..F5 na ADR; habilidades novas pausadas ate' F4.
+  - roteador_de_habilidades            # F0: contrato; F1: em sombra (so' registra); F2: ativo so' na allowlist
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
     disposicao: "DL-0052 (01/10/2026): texto fixo fora do canal, sem caso; quem pede uma pessoa escala por human_request"
-    onde: "graph.py:schedule() -> _start_escalation() (node dedicado; ver escalation.triggers abaixo)"
+    onde: "graph.py:_INTENTS_FORA_DO_CANAL -> RESPOSTA_FORA_DO_CANAL (inform, sem caso; nao e' gatilho de escalation)"
   - id: orientacao_ou_diagnostico_clinico   # a Helena nunca orienta conduta nem diagnostica (L0 hard, ADR-0012)
     fase: 0
     disposicao: "sintoma -> tabela de red flag (DMN) e, se for o caso, escalonamento; pergunta clinica -> intencao_clinica"
@@ -41,8 +50,8 @@ out_of_scope:                          # o que Helena NAO faz, rastreado (nao e 
     onde: "graph.py:handoff_cobranca()"
   - id: confirmacao_de_cobertura_de_procedimento_especifico   # a confirmacao OFICIAL e' a autorizacao
     fase: 0
-    disposicao: "na allowlist (DL-0128) a Helena diz o que CONSTA no cadastro, nunca promete nem encerra com 'nao cobre'; a confirmacao oficial e' a analise da autorizacao. Fora da allowlist, RESPOSTA_COBERTURA_ESPECIFICA"
-    onde: "graph.py:consultar_plano() -> _cobertura_assistida() (cobertura_fluxo.py)"
+    disposicao: "DL-0154 (dono, 23/10/2026): a Helena nao trata de cobertura; toda pergunta de cobertura recebe so' o aviso com os canais da empresa (aplicativo Austa Clinicas, portal, central), sem consulta, sem Rol/carencia e sem oferta da equipe"
+    onde: "habilidades/cobertura_fora (graph.py: _cobertura_fora, consultar_plano, roteador ativo)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
@@ -64,7 +73,7 @@ reports_to: "gestor.atendimento@amh"
 # antes seria a quinta casca vazia deste projeto.
 owners:
   tecnico: "Leonardo Silva <lsilva@austa.com.br>"
-  clinico: ""   # preenchido pelo mesmo ato que assina as 34 regras (Frente 4)
+  clinico: ""   # preenchido pelo mesmo ato que assina as 40 regras (Frente 4)
   runbook_incidente: docs/runbooks/helena-erro-com-beneficiario.md
 security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
@@ -92,7 +101,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v14              # 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
+  response: response-v15              # 25/10/2026: sem ordem de contar palavras; so' texto (sem convite a
+                                     # mandar foto/audio/arquivo). v14 — 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
                                      # forma aprovada. v13 — 13/10/2026 (DL-0089): uma assistente virtual; nunca negar dado de
                                      # cobranca; nunca recomendar conduta clinica; regua de tom mais dura.
                                      # v12 — 12/10/2026 (DL-0088): nunca dizer que nao ve dado nenhum da pessoa;
@@ -132,9 +142,10 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # do dado lembrado + orientacao por populacao (v4-memoria).
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
-  coleta: coleta-v2                   # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
-                                     # pessoa; recem-nascido). v1 — passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v11         # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
+                                     # `coleta` (coleta-v2, no `collect`) saiu na limpeza da saude, etapa 3 (02/11/2026).
+  recusa_de_saida: recusa-v12         # 25/10/2026 (r5b): "vou te encaminhar"/"a equipe vai te responder" sao
+                                      # mencao de encaminhamento (sem caso = troca pelo texto honesto).
+                                      # v11 e antes — 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
                                       # sobre o tratamento dos dados (DL-0064).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
@@ -186,7 +197,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # clinica, promessa de humano e de capacidade (PR #395).
   classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
   response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
-  classify_consultas: classify-consultas-v2  # 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
+  classify_consultas: classify-consultas-v3  # 22/10/2026: dependentes = quem mais esta' no plano. v2: 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
                                      # SO' com MAEZO_HELENA_CONSULTAS_AMH ligada: intent
                                      # `consulta_plano` + `consulta_subtipo` (elegibilidade,
                                      # carteirinha, carencia, autorizacao). Desligada, o classify
@@ -195,6 +206,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
+  roteador: roteador-v7                # 22/10/2026: especialista = saude. v5: 22/10/2026 (DL-0136): saude x cobertura (exames indicados p/ idade
+                                     # = saude). v4: F2 (duvida pendente; depois
+                                     # da cobertura). v3: enxuto (DL-0137); v1: sombra (DL-0135).
 
 model:
   task_default: { tier: fast }        # triagem/classificacao
@@ -264,6 +278,7 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
                                        # requisicoes) pelo contrato AMH `tina` (manifest v1.2, DRAFT);
                                        # L3 leitura, mesma classe/governanca da acao acima; sem tool MCP;
                                        # DESLIGADA por padrao (MAEZO_HELENA_CONSULTAS_AMH, DL de 07/10/2026)
+                                       # (tambem a CPT vigente `tina-cpt`, manifest v1.15, DL-0130)
   - read_member_card_number           # numero COMPLETO da carteirinha do PROPRIO verificado pelo contrato AMH
                                        # `tina-carteirinha` (manifest v1.12), so' por texto fixo; L3 leitura;
                                        # sem tool MCP; DESLIGADA por padrao (MAEZO_HELENA_CARTEIRINHA_COMPLETA,
@@ -289,11 +304,15 @@ kpis:
   - { name: nps, target: ">75" }                   # CSAT/NPS placeholder (hook no encerramento)
 escalation:
   process: SP-OP-ESCALATION-001       # rota humana garantida
-  triggers:                           # 6 gatilhos -> motivo_categoria do contrato
+  triggers:                           # 5 gatilhos -> motivo_categoria do contrato
     - dmn: triage_redflag_*           # red_flag=true        -> red_flag_clinico
     - intent: clinical_question       # pergunta clinica     -> intencao_clinica (L0 hard)
     - intent: human_request           # pedido de humano     -> solicitacao_humano
-    - intent: scheduling              # DL-0052 (01/10/2026): NAO escala mais; texto fixo fora do canal (RESPOSTA_FORA_DO_CANAL)
+    # `intent: scheduling` SAIU desta lista (R-043/F-184, 2026-11-01): desde DL-0052 (01/10/2026)
+    # agendamento recebe o texto fixo fora do canal (RESPOSTA_FORA_DO_CANAL, `_INTENTS_FORA_DO_CANAL`)
+    # e NAO inicia SP-OP-ESCALATION-001 — uma entrada em `escalation.triggers` que nao escala era
+    # declaracao falsa. Quem precisa de uma pessoa e pede escala por `intent: human_request`.
+    # Cerca: tests/evals/test_trigger_coverage.py (todo gatilho declarado tem golden que ESCALA).
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
       # ALCANCE (22/09/2026, ADR-0059 — PROPOSTO, NAO RATIFICADO). A RECUSA DA CERCA DE SAIDA
       # DEIXOU DE SER `tool_failure` PARA 3 DOS 4 GRUPOS. Entre 13/09 e 21/09, qualquer rascunho
@@ -316,8 +335,10 @@ escalation:
       # "loop" deste gatilho (e da regra `r6` de escalation_routing.dmn, "Falha tecnica do agente
       # (loop, tool down)") e' a Helena prestes a mandar, pela N+1-esima vez SEGUIDA, a MESMA resposta
       # (>= 60 caracteres, comparada sem o prefixo de variacao) que ja' saiu nas N falas anteriores dela
-      # no historico curto. Escala `falha_tecnica`, severidade `null` (HEL-04), pelo mesmo start
-      # idempotente e com o mesmo texto fixo de handoff; nunca com caso ja' aberto na conversa.
+      # no historico curto. REVISTO na avaliacao r5 (25/10/2026): o loop NAO abre caso sozinho; a Helena
+      # OFERECE a equipe (pendencia `EQ_OFERTA`) e o caso so' abre com o "sim" da pessoa
+      # (`solicitacao_humano`). O aviso fixo da cobertura (DL-0154) nunca conta como loop; nunca com caso
+      # ja' aberto na conversa.
       # A pessoa repetindo a pergunta NAO conta aqui (e' o "frustracao 2x" de AGJ-HELENA-TRIAGE,
       # `solicitacao_humano`, outro gatilho). O parametro mora em `escalation.loop` logo abaixo (cada
       # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).

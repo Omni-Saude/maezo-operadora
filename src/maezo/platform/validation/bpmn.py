@@ -199,4 +199,30 @@ def validate_file(path: Path, report: Report) -> BpmnFile | None:
         else:
             result.decision_refs.add(ref)
 
+    _validate_multi_instance_io(root, path, report)
+
     return result
+
+
+def _validate_multi_instance_io(root: Element, path: Path, report: Report) -> None:
+    """Engine rule ENGINE-09005: no `camunda:outputParameter` on a multi-instance construct.
+
+    CIB Seven / Camunda 7 rejects the WHOLE deployment ("camunda:outputParameter not allowed for
+    multi-instance constructs") when an activity that carries `multiInstanceLoopCharacteristics`
+    also declares an output mapping; input mappings are allowed (applied per inner instance).
+    Caught statically here so the defect never reaches the engine deploy step (R-092, PR #1172:
+    only the CI integration deploy saw it). The mapping belongs on an inner activity instead.
+    """
+    for element in root.iter():
+        if element.find(_q("multiInstanceLoopCharacteristics")) is None:
+            continue
+        outputs = element.findall(
+            f"{_q('extensionElements')}/{{{CAMUNDA_NS}}}inputOutput/{{{CAMUNDA_NS}}}outputParameter"
+        )
+        if outputs:
+            eid = element.get("id", "<no-id>")
+            report.error(
+                path,
+                f"multi-instance activity '{eid}' declares camunda:outputParameter — the engine rejects "
+                "the deployment (ENGINE-09005); map the outputs on an inner activity",
+            )

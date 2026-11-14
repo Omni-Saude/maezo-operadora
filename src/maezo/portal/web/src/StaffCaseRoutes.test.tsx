@@ -35,6 +35,7 @@ function session() {
     expires_at: new Date(Date.now() + 60_000).toISOString(),
     csrf_token: "csrf-secret",
     capabilities: ["identity", "staff_cases", "human"],
+    flags: [],
   } as const;
 }
 

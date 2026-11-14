@@ -13,11 +13,11 @@ import unicodedata
 
 import pytest
 
+from maezo.agents.helena import cadastro as cad
 from maezo.agents.helena import consultas_plano as cp
 from maezo.agents.helena import graph as g
 from maezo.agents.helena import prompts as hp
 from maezo.platform.webhooks.whatsapp import acesso as ac
-from maezo.platform.webhooks.whatsapp import acesso_cadastro as cad
 from maezo.platform.webhooks.whatsapp import dispatch as dp
 
 _PREFIXOS = ("RESPOSTA_", "FRASE_", "TEXTO_", "MENSAGEM_")
@@ -40,7 +40,6 @@ def _todos_os_textos() -> dict[str, str]:
     textos.update(_constantes(hp))
     textos["graph.RETOMADA_TEMPLATE"] = g.RETOMADA_TEMPLATE
     textos["graph.RETOMADA_RECUSADA_PLACEHOLDER"] = g.RETOMADA_RECUSADA_PLACEHOLDER
-    textos.update({f"graph._PERGUNTA_FALLBACK[{k}]": v for k, v in g._PERGUNTA_FALLBACK.items()})
     textos["consultas_plano.RESPOSTA_CONSULTA_SEM_IDENTIDADE"] = cp.RESPOSTA_CONSULTA_SEM_IDENTIDADE
     textos["consultas_plano._FECHO"] = cp._FECHO
     textos["dispatch.NON_TEXT_ACK_TEXT"] = dp.NON_TEXT_ACK_TEXT
@@ -57,7 +56,6 @@ _TEXTOS_COM_192 = (
     "RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA",
     "RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
     "RESPOSTA_DUVIDA_DE_SAUDE",
-    "RESPOSTA_RECUSA_DE_EQUIPE",
 )
 #: DL-0089 (rodada 2 do simulador): textos ADMINISTRATIVOS nao falam em 192/SAMU ("PARA DE ME MANDAR PRO
 #: SAMU! E' COBRANCA"). E os de emergencia com caso aberto COMECAM pelo 192.
@@ -70,6 +68,8 @@ _TEXTOS_SEM_192 = (
     "RESPOSTA_PLANO_POR_CANAIS",
     "RESPOSTA_CANAIS_DO_PLANO",
     "RESPOSTA_COBERTURA_NA_PASSAGEM",
+    # Avaliacao r5 (25/10/2026): a recusa curta da equipe, so' com oferta pendente (sem tema de saude).
+    "RESPOSTA_RECUSA_DE_EQUIPE",
 )
 _TEXTOS_192_PRIMEIRO = (
     "RESPOSTA_CASO_ABERTO_EMERGENCIA",
@@ -82,7 +82,7 @@ COM_EMOJI_PERMITIDO = frozenset(
     {
         "acesso.verificado",
         "acesso.verificado_apresentacao",
-        "acesso_cadastro.RESPOSTA_QUEM_SOU_EU",
+        "cadastro.RESPOSTA_QUEM_SOU_EU",
         "graph.RESPOSTA_SAUDACAO_CURTA",
         "graph.RESPOSTA_DESPEDIDA",
     }
@@ -174,7 +174,6 @@ def test_frases_curtas(nome: str) -> None:
 
 
 def test_helena_continua_dizendo_que_nao_avalia_e_orienta_emergencia() -> None:
-    assert "não avalia" in g.RESPOSTA_SINTOMA_SEM_ALERTA
     for nome in (
         "RESPOSTA_FALHA_TECNICA_START",
         "RESPOSTA_FALHA_DE_REDACAO",

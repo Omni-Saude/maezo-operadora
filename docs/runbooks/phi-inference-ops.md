@@ -225,3 +225,37 @@ lucas_v4_nao_pagador 4/4), igual a linha de base do Mistral; zero erros de servi
 Bedrock; latencia por chamada p50 1,46 s / p95 1,68 s (Mistral: 0,75 s / 0,92 s); ~3,7 mil tokens de
 entrada e ~96 de saida por chamada. As respostas ao beneficiario sao quase todas gabarito (a mesma redacao
 nos dois modelos): o modelo so' classifica/extrai e redige poucas perguntas de coleta.
+
+## 7. Protecoes e alarme das chamadas (22/10/2026)
+
+Depois das duas paradas dos modelos grandes regionais (GLM-5 em 21/10, Mistral Large 3 em 21-22/10), em que as
+chamadas ficavam penduradas SEM erro nem metrica no `AWS/Bedrock` (a chamada que nao termina nao conta):
+
+- **Prazo real** de cada chamada = tempo de leitura do cliente boto (`MAEZO_INFERENCE_TIMEOUT_S`, `inferencia_prazo_s`,
+  20 s): a thread volta no prazo. **Teto de saida** por chamada (`MAEZO_INFERENCE_MAX_TOKENS`, 1024). **Pool proprio**
+  de threads (`MAEZO_INFERENCE_DEDICATED_WORKERS`, 16). Vale para Helena e Lucas (receptor, agentes, retomada).
+- **Contador:** uma linha `inferencia_chamada modelo=... resultado=ok|falha|prazo ms=... tokens_entrada=...
+  tokens_saida=...` por chamada (so' numeros e vocabulario fechado).
+- **Alarme:** `maezo-operadora-dev-inferencia-falhas-<modelo>` = falha + prazo >= `inferencia_alarme_limiar` (5) em
+  5 min no log do receptor, um por modelo (o da zona PHI e o do roteador). Destino: o topico `staff_alerts`.
+- **O que fazer:** conferir um prompt trivial numa tarefa do simulador (`C:/vc/sonda_saude_regiao.py`); se o modelo
+  nao responde e os menores da regiao respondem, trocar a zona PHI pelo §6 e registrar no DL.
+- **Diagnostico de 22/10/2026 (cota):** as cotas on-demand do GLM-5 e do Mistral Large 3 em sa-east-1 sao 100 M
+  tokens/min e 10 mil requisicoes/min, sem cota diaria; nenhum `InvocationThrottles` nas horas das paradas. Nao foi cota.
+
+## 8. Excecao regional do dev: GLM-5 em us-east-1 (DPO, 21/10/2026) — e como voltar a Sao Paulo
+
+- **Por que:** GLM-5 e Mistral Large 3 em sa-east-1 fora (CloudTrail: `InternalServerException`/`ServiceUnavailableException`
+  desde 21/10/2026) e nenhum modelo regional de Sao Paulo passou no criterio do classificador (0 erro de risco
+  psicossocial nos dois sentidos, intencao >= 90%, JSON valido, latencia). O DONO, como DPO, autorizou o GLM-5 em
+  us-east-1 so' no dev: "se nao funcionar o 1... tem que ir pro 2, desde que funcione e resolva". Producao fora.
+- **Como esta' ligada:** `phi_excecao_regional` = `excecao_us_east_1_autorizada_dpo_2026-10-21` (rotulo literal; o
+  codigo so' liga com ele), `phi_endpoint_url` = us-east-1, `phi_model_id`/`helena_roteador_modelo` = `zai.glm-5`.
+  A resposta e' atestada como `us-east-1` (nunca Brasil); toda linha `inferencia_chamada` traz `regiao=us-east-1`;
+  no boot, `inference_phi_excecao_regional_ativa`.
+- **Sonda periodica de Sao Paulo:** rodar `C:/vc/sonda_saude_regiao.py` (ou a sonda do classificador) numa tarefa
+  do simulador uma vez por dia; quando o GLM-5 (ou o Mistral) de sa-east-1 responder de novo em ~1-2 s e passar no
+  criterio do classificador, VOLTAR.
+- **Voltar a Sao Paulo:** PR com `phi_excecao_regional = ""`, `phi_endpoint_url` de sa-east-1 e o modelo regional
+  em `phi_model_id`/`helena_roteador_modelo`; apply direcionado dos QUATRO papeis da `task_bedrock`, dos quatro do
+  modelo do roteador e das task definitions/servicos (§6); conferir `inference_phi_excecao_regional_ativa` ausente.

@@ -10,6 +10,11 @@ is a NEW record carrying `revoked=true` (`portal/api/records.py`), never a DELET
 in-place mutation of what a human may already have acted on. Mirrors
 `provider_membership_administration.py` (PW1-B) shape for shape; that module stays a read-only
 molde and is never edited from here.
+
+Registry provenance (W6 DISC 6.2, F-M04): this module is the substrate of OP13 (VW-IDENT
+`channel.register`; `OP-REGISTRY-VENDOR-V1.md` L35-46, namespace OP13+) — the administrative act
+of channel identity (registration + accreditation/appointment + contract taxonomy). This marker
+is provenance only: it publishes no OP13 identifier, route or contract surface.
 """
 
 from __future__ import annotations
@@ -224,14 +229,11 @@ class VendorMembershipAdministration:
             )
             # The authorized source must EXIST and know this channel: absent store or absent row
             # is unknown, never an empty set to act over.
-            require(
-                self.channels is not None and self.store is not None,
-                VendorAdministrationReason.SOURCE_UNAVAILABLE,
-            )
-            assert self.channels is not None and self.store is not None  # narrowed, fail-closed source check
+            if self.channels is None or self.store is None:  # fail-closed source check
+                raise VendorAdministrationError(VendorAdministrationReason.SOURCE_UNAVAILABLE)
             channel = await self.channels.channel(self.binding.tenant, command.channel_ref)
-            require(channel is not None, VendorAdministrationReason.SOURCE_UNAVAILABLE)
-            assert channel is not None
+            if channel is None:
+                raise VendorAdministrationError(VendorAdministrationReason.SOURCE_UNAVAILABLE)
             require(
                 (channel.tenant, channel.status) == (self.binding.tenant, "active")
                 and channel.revision == command.expected_revision,

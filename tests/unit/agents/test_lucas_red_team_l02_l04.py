@@ -25,7 +25,7 @@ from maezo.agents.lucas.graph import (
     TEXTO_LINK_SUSPEITO_CURTO,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
-from maezo.runtime.cobranca_foco import COBRANCA_FOCOS, decidir_foco_da_cobranca, foco_valido
+from maezo.domain.conversa.cobranca_foco import COBRANCA_FOCOS, decidir_foco_da_cobranca, foco_valido
 from tests.unit.agents.test_lucas_simulador_rodada4 import _Conversa
 from tests.unit.agents.test_lucas_simulador_rodada6 import _COM_OUTUBRO_NO_PRAZO, _mes
 

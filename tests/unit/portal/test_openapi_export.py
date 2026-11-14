@@ -19,6 +19,13 @@ EXPORTER = ROOT / "scripts/dev/export_portal_openapi.py"
 # The train's earlier set stopped at the D4-D6 routes; every path below is served by
 # `create_app` today and PR-B's generated client is checked against this export.
 EXPECTED_PATHS = {
+    # C6 proposed machine boundaries are documented even while default composition refuses.
+    "/api/v1/sales/commercial",
+    "/api/v1/sales/public/catalog",
+    # D-40: the administrative READ roster ships DOCUMENTED and DARK — GET-only, never a
+    # `portal/admin/*` proxy; the `staff_admin_panel` flag plus the `staff_admin_read`
+    # profile decide whether it ANSWERS, never whether the contract is published.
+    "/api/v1/portal/administration/memberships",
     "/api/v1/portal/auth/callback",
     "/api/v1/portal/auth/login",
     "/api/v1/portal/auth/logout",
@@ -30,10 +37,19 @@ EXPECTED_PATHS = {
     "/api/v1/portal/cases/{case_ref}/document-uploads",
     "/api/v1/portal/cases/{case_ref}/documents",
     "/api/v1/portal/cases/{case_ref}/history",
+    # D-36 (dono, 2026-10-25): the internal commission ADJUSTMENT-STRUCTURE draft surface
+    # ships DOCUMENTED and DARK — the routes always publish in the schema; the
+    # `staff_commission_policies` flag (OFF) decides whether they ANSWER. DRAFT CRUD only:
+    # no calculation/activation/liquidation path exists to publish.
+    "/api/v1/portal/commission-adjustments",
+    "/api/v1/portal/commission-adjustments/{policy_ref}",
     "/api/v1/portal/commands/{command_id}",
     "/api/v1/portal/commands/{command_id}/receipt",
     "/api/v1/portal/document-uploads/{upload_ref}/complete",
     "/api/v1/portal/documents/{document_ref}/content",
+    # W5 CLNT 5.2: the titular DSR channel ships DOCUMENTED and DARK — the route always
+    # publishes in the schema; the `lgpd_dsr_channel` flag (OFF) decides whether it ANSWERS.
+    "/api/v1/portal/dsr",
     "/api/v1/portal/intake-recovery",
     "/api/v1/portal/intake-recovery/commands/{command_id}",
     "/api/v1/portal/intakes/auth",
@@ -41,6 +57,16 @@ EXPECTED_PATHS = {
     "/api/v1/portal/intakes/auth/links",
     "/api/v1/portal/intakes/{intake_ref}",
     "/api/v1/portal/intakes/{intake_ref}/document-uploads",
+    # REG-1.1 (OP21 `legitimacy.screen`): the collective-legitimacy staff surface ships
+    # DOCUMENTED and DARK — the routes always publish in the schema; the
+    # `collective_legitimacy_screen` flag (OFF) decides whether they ANSWER. The checklist is
+    # CLOSED (the five parecer §5 criteria) and NO commercial blocking path exists by
+    # construction (enforcing is a successor class, design §4).
+    "/api/v1/portal/legitimacy-screens",
+    "/api/v1/portal/legitimacy-screens/{screen_ref}",
+    "/api/v1/portal/legitimacy-screens/{screen_ref}/{screen_revision}",
+    "/api/v1/portal/legitimacy-screens/checklist",
+    "/api/v1/portal/legitimacy-screens/contratante/{legal_entity_ref}",
     # Provider notice read and explicit acknowledgement; no delivery on GET.
     "/api/v1/portal/provider-notices/{notice_ref}",
     "/api/v1/portal/provider-notices/{notice_ref}/acknowledgements",
@@ -52,6 +78,8 @@ EXPECTED_PATHS = {
     # reader of the contract can see what the interim path is before deciding to enable it.
     "/api/v1/portal/tasks/{task_id}/completion",
     "/api/v1/portal/tasks/{task_id}/context",
+    "/api/v1/portal/tasks/{task_id}/reembolso",
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}",
     "/api/v1/portal/tasks/{task_id}/assignment-candidates",
     "/api/v1/portal/tasks/{task_id}/assignment-context",
     "/api/v1/portal/tasks/{task_id}/assignments",

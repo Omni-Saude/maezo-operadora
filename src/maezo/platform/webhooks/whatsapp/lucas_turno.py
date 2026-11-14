@@ -82,16 +82,15 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
     ref_de_resposta,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
+from maezo.domain.conversa.cobranca_foco import FOCO_GERAL, foco_valido
+from maezo.domain.conversa.cobranca_intencao import confirmacao_valida
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista, lista_do_handoff
+from maezo.domain.conversa.cobranca_reclamacao import reclamacao_valida
+from maezo.domain.conversa.competencia import competencia_valida
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
-from maezo.runtime.cobranca_foco import FOCO_GERAL, foco_valido
-from maezo.runtime.cobranca_intencao import confirmacao_valida
-from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
-from maezo.runtime.cobranca_reclamacao import reclamacao_valida
-from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
@@ -114,11 +113,12 @@ CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
     {"para", "cobranca_subtipo", "competencia", "cobranca_foco", "message_ref"}
 )
 #: Chaves OPCIONAIS do handoff. `cobranca_lista` (12/10/2026): o pedido de varios meses
-#: (`runtime/cobranca_lista.py`), que o despachante acrescenta em `_turno_do_lucas` quando o texto pede
+#: (`domain/conversa/cobranca_lista.py`), que o despachante acrescenta em `_turno_do_lucas` quando o texto
+#: pede
 #: lista. Ausente = um mes so', o comportamento de antes.
 #: Rodada 12 (14/10/2026): `cobranca_negociacao` (negociar/parcelar; `True`) e `cobranca_confirmacao`
 #: ("confirma"/"nega", a resposta a "Voce quer pedir o cancelamento do seu plano?") — enums fechados
-#: decididos sobre o texto (`runtime/cobranca_intencao.py`), nunca o texto.
+#: decididos sobre o texto (`domain/conversa/cobranca_intencao.py`), nunca o texto.
 CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset(
     {"cobranca_lista", "cobranca_reclamacao", "cobranca_negociacao", "cobranca_confirmacao"}
 )
@@ -176,11 +176,12 @@ class HandoffValidado:
     cobranca_subtipo: str
     competencia: str | None
     message_ref: str
-    #: DL-0087: o campo perguntado (`runtime/cobranca_foco.py`). Nao e' persistido pelo roteador.
+    #: DL-0087: o campo perguntado (`domain/conversa/cobranca_foco.py`). Nao e' persistido pelo roteador.
     cobranca_foco: str = "geral"
-    #: 12/10/2026: o pedido de varios meses (`runtime/cobranca_lista.py`); `None` = um mes so'.
+    #: 12/10/2026: o pedido de varios meses (`domain/conversa/cobranca_lista.py`); `None` = um mes so'.
     cobranca_lista: PedidoDeLista | None = None
-    #: Rodada 4 (13/10/2026): o tipo da reclamacao (`runtime/cobranca_reclamacao.py`); `None` = nenhum.
+    #: Rodada 4 (13/10/2026): o tipo da reclamacao (`domain/conversa/cobranca_reclamacao.py`); `None` =
+    #: nenhum.
     cobranca_reclamacao: str | None = None
     #: Rodada 12: pedido de negociacao/parcelamento (`True`) e confirmacao do cancelamento (enum).
     cobranca_negociacao: bool = False
@@ -438,8 +439,6 @@ class LucasTurno:
     hash_telefone_amh: Callable[[str], str | None] | None = field(default=None, repr=False)
     #: Drenagem dos recursos da fonte (os executores do gateway da fonte AMH). `None` na simulada.
     fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
-    #: Rodada 12: quando o atraso abre caso humano (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`).
-    limiares_atraso: LimiaresDeAtraso = field(default_factory=LimiaresDeAtraso)
     #: DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), o turno e' o de antes byte a byte.
     cancelamento_pf_v1: bool = False
     #: DL-0111: a fonte dos fatos do cancelamento (TINA elegibilidade). So' com a chave e a fonte AMH;
@@ -468,7 +467,6 @@ class LucasTurno:
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
                 "agent_version": self.agent_version,
-                "limiares_atraso": self.limiares_atraso,
                 "cancelamento_pf_v1": self.cancelamento_pf_v1 is True,
                 "lucas_v4": self.lucas_v4 is True,
             }

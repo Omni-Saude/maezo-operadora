@@ -152,9 +152,7 @@ from maezo.agents.lucas.fonte_v4 import (
     SEGUNDA_VIA_COM_CODIGO,
     SEGUNDA_VIA_SEM_CODIGO,
 )
-from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
-from maezo.platform.observability import record_resposta_recusada
-from maezo.runtime.cobranca_foco import (
+from maezo.domain.conversa.cobranca_foco import (
     FOCO_COMO_PAGAR,
     FOCO_CONSEQUENCIA_DO_ATRASO,
     FOCO_ESCLARECIMENTO,
@@ -163,11 +161,13 @@ from maezo.runtime.cobranca_foco import (
     FOCO_JA_PAGUEI,
     FOCO_LINK_SUSPEITO,
     FOCO_PAGAMENTO_AO_PRESTADOR,
+    FOCO_PROTOCOLO,
     FOCO_ULTIMA,
     foco_valido,
 )
-from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
-from maezo.runtime.cobranca_reclamacao import reclamacao_valida
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista, lista_do_handoff
+from maezo.domain.conversa.cobranca_reclamacao import reclamacao_valida
+from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -206,8 +206,13 @@ from .cancelamento_pf import (
     TEXTO_PEDIDO_JA_REGISTRADO,
     TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_RECEBIDO,
+    TEXTO_PROTOCOLO_DO_PEDIDO,
+    TEXTO_PROTOCOLO_DO_PEDIDO_CURTO,
+    TEXTO_PROTOCOLO_INDISPONIVEL,
+    TEXTO_PROTOCOLO_SEM_PEDIDO,
     TIPOS_PLANO_PF,
     protocolo_do_cancelamento,
+    protocolo_valido,
 )
 from .prompts import (
     COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
@@ -370,6 +375,7 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "caso_aberto_cobranca": False,
     "avisos_de_caso_aberto": 0,
     "cancelamento_resposta": "",
+    "cancelamento_protocolo": "",
     "iniciar_cancelamento": False,
     "resposta_sem_dados": False,
     "resposta_memoria_ref": "",
@@ -421,11 +427,11 @@ class LucasState(TypedDict, total=False):
     tipo_solicitacao: str  # boleto | 2a_via | vencimento | status_pagamento | consulta_valores
     numero_boleto: str
     competencia: str  # YYYY-MM
-    #: DL-0087 (10/10/2026): o campo perguntado numa `consulta_valores` (`runtime/cobranca_foco.py`),
+    #: DL-0087 (10/10/2026): o campo perguntado numa `consulta_valores` (`domain/conversa/cobranca_foco.py`),
     #: decidido pela Helena sobre o texto. Valor fora do dominio vira `geral` (`_foco_da_pergunta`).
     cobranca_foco: str
     #: 12/10/2026 (teste real do dono): o PEDIDO DE LISTA ("as ultimas tres pagas", "de julho a setembro",
-    #: `runtime/cobranca_lista.py`), decidido sobre o texto antes do Lucas. Forma errada e' ignorada.
+    #: `domain/conversa/cobranca_lista.py`), decidido sobre o texto antes do Lucas. Forma errada e' ignorada.
     cobranca_lista: dict[str, Any]
     #: 13/10/2026 (simulador): a VARIANTE de redacao deste turno (a revisao do roteador, que sobe uma por
     #: mensagem). Alterna os textos que poderiam se repetir (caso aberto, 2a via de novo).
@@ -434,9 +440,11 @@ class LucasState(TypedDict, total=False):
     #: conversa e quantos avisos de caso aberto ele ja' deu (migration 0025). Nunca o texto.
     resposta_anterior_ref: str
     avisos_anteriores: int
-    #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`runtime/cobranca_reclamacao.py`), enum.
+    #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`domain/conversa/cobranca_reclamacao.py`),
+    #: enum.
     cobranca_reclamacao: str
-    #: Rodada 12 (14/10/2026): o beneficiario pediu para NEGOCIAR/PARCELAR (`runtime/cobranca_intencao.py`).
+    #: Rodada 12 (14/10/2026): o beneficiario pediu para NEGOCIAR/PARCELAR
+    #: (`domain/conversa/cobranca_intencao.py`).
     #: O Lucas nunca negocia: abre o caso humano.
     pedido_negociacao: bool
     #: Rodada 12: "confirma"/"nega" — a resposta do beneficiario a "Voce quer pedir o cancelamento do seu
@@ -496,6 +504,9 @@ class LucasState(TypedDict, total=False):
     #: Rodada 12: o que o Lucas responde a um pedido de CANCELAMENTO sem abrir o processo: `empresa`,
     #: `administradora` (o titulo e' de terceiro), `confirmar` (a pergunta unica) ou `desistiu`.
     cancelamento_resposta: str
+    #: Avaliacao r5b (25/10/2026): o protocolo LIDO da instancia viva do pedido (`CAN-XXXX-XXXX`) quando a
+    #: pessoa pergunta por ele (`cancelamento_resposta="protocolo"`). Nunca do chamador.
+    cancelamento_protocolo: str
     #: Rodada 12: o pedido foi CONFIRMADO (PF, pergunta pendente) — `start_process` inicia SP-OP-CANCEL-001.
     iniciar_cancelamento: bool
     #: Rodada 12: a fonte nao entregou fatos (indisponivel): a resposta e' a constante honesta, sem caso.
@@ -1253,17 +1264,14 @@ def titulo_de_terceiro(state: LucasState) -> bool:
     return pagador_empresa(state) or cobranca_administradora(state)
 
 
-def atraso_critico(state: LucasState, limiares: LimiaresDeAtraso) -> bool:
-    """A entrada `atraso_critico` da DMN (rodada 12, decisao do dono de 14/10/2026): o atraso e' REAL o
-    bastante para abrir caso humano? So' para pagador PF (o titulo e' do beneficiario); contrato de empresa e
-    adesao nunca. `ciclos_sem_conciliacao` e as competencias `vencida` contam os MESES sem pagamento; o maior
-    atraso e' `dias_atraso_max`. Apurado dos fatos, nunca pelo modelo (`politica_atraso.py`)."""
-    if titulo_de_terceiro(state):
-        return False
+def meses_vencidos(state: LucasState) -> int:
+    """A entrada `meses_vencidos` da DMN (R-047/F-031): quantos MESES sem pagamento os fatos mostram — o
+    maior entre `ciclos_sem_conciliacao` e o numero de competencias `vencida`. E' uma CONTAGEM dos fatos da
+    fonte, nunca do modelo; o LIMIAR (>= 2 meses ou > 30 dias, decisao do dono de 14/10/2026) e a exclusao do
+    titulo de terceiro (`pagador_empresa`) moram na tabela `lucas_billing_admissibility`, nao aqui."""
     vencidas = sum(1 for c in _competencias_dos_fatos(state) if c["situacao"] == "vencida")
     ciclos = _ciclos_sem_conciliacao(state)
-    meses = max(0 if ciclos is None else ciclos, vencidas)
-    return limiares.critico(meses_vencidos=meses, dias_atraso_max=_dias_atraso_max(state))
+    return max(0 if ciclos is None else ciclos, vencidas)
 
 
 def pede_cancelamento(state: LucasState) -> bool:
@@ -2161,7 +2169,8 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
 # insistencia. Decisao do dono: havendo o dado, o Lucas LISTA (mes com ano, valor, data); faltando, diz o
 # que tem ("Encontrei so' 2 ..."); e quando o assunto nao tem lista (2a via, vencimento, status), diz
 # "Consigo te mostrar um mes por vez." e responde o mes de sempre. O pedido vem pronto no handoff
-# (`runtime/cobranca_lista.py`); aqui ele so' SELECIONA competencias dos fatos e copia os campos delas.
+# (`domain/conversa/cobranca_lista.py`); aqui ele so' SELECIONA competencias dos fatos e copia os campos
+# delas.
 
 #: Quando o assunto nao tem resposta em lista: o aviso antes da resposta de um mes so'.
 UM_MES_POR_VEZ: Final[str] = "Consigo te mostrar um mês por vez."
@@ -2305,7 +2314,9 @@ def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
     primeiro) e a data da fonte. Com menos meses do que o pedido, o cabecalho diz quantos achou; sem
     nenhum, diz que nao achou e responde o mes mais recente, como a pergunta de um mes."""
     lista = lista_do_handoff(facts.get("lista"))
-    assert lista is not None  # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    if lista is None:
+        raise AssertionError("lista do handoff ausente (so existe com pedido valido)")
     foco = str(facts["foco"]) if foco_valido(facts.get("foco")) else FOCO_GERAL
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
     # Contagem ausente ou fora da forma vale "nenhum mes listado" (a resposta de um mes so', honesta).
@@ -3331,7 +3342,6 @@ class LucasGraph:
         whatsapp: WhatsAppSender,
         agent_version: str = "lucas@v0",
         hoje: Callable[[], date] | None = None,
-        limiares_atraso: LimiaresDeAtraso | None = None,
         cancelamento_pf_v1: bool = False,
         lucas_v4: bool = False,
     ) -> None:
@@ -3340,8 +3350,6 @@ class LucasGraph:
         self._v4 = lucas_v4 is True
         # DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), NENHUM ramo novo roda: byte a byte o de antes.
         self._cancel_pf_v1 = cancelamento_pf_v1 is True
-        # Rodada 12: quando o atraso abre caso humano (so' o critico). Padrao: 2 meses ou > 30 dias.
-        self._limiares_atraso = limiares_atraso or LimiaresDeAtraso()
         # Relogio injetavel (testes): so' o texto de vencimento o le' ("vence" x "venceu").
         self._hoje = hoje or _hoje_em_brasilia
         self._dmn = dmn
@@ -3507,10 +3515,12 @@ class LucasGraph:
             # DL-0114 (`MAEZO_LUCAS_V4`): o titulo do PF que NAO e' o pagador tambem e' de terceiro (o do
             # responsavel financeiro): o atraso dele nunca escala quem nao e' o pagador.
             "pagador_empresa": titulo_de_terceiro(state) or self._nao_pagador_v4(state),
-            # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO (>= 2 meses ou > 30 dias, PF;
-            # configuravel) abre caso. Um mes sem pagamento e' resposta com fatos e a oferta de uma pessoa.
-            "atraso_critico": atraso_critico(state, self._limiares_atraso)
-            and not self._nao_pagador_v4(state),
+            # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO de PF abre caso. R-047/F-031: o
+            # LIMIAR (>= 2 meses ou > 30 dias) mora na tabela; aqui vao so' os FATOS contados. A exclusao
+            # do titulo de terceiro (empresa, adesao, nao pagador v4) e' `pagador_empresa=true` acima.
+            "meses_vencidos": meses_vencidos(state),
+            # `None` quando a fonte nao informa: a regra `> 30` nao casa — nunca se presume atraso.
+            "dias_atraso_max": _dias_atraso_max(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -3562,6 +3572,10 @@ class LucasGraph:
         conta como PF mesmo sem o pagador. Desligada, nada disto roda.
         """
         v1 = self._cancel_pf_v1
+        if _foco_da_pergunta(state) == FOCO_PROTOCOLO:
+            # Avaliacao r5b (25/10/2026): "qual meu protocolo mesmo?" — o protocolo do pedido JA' feito, lido
+            # do motor. Nunca a pergunta de confirmacao de novo, nunca um protocolo inventado.
+            return await self._responder_protocolo(state, dmn_refs)
         if (
             v1
             and state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
@@ -3589,6 +3603,29 @@ class LucasGraph:
         if pendente and confirmacao == "nega":
             return self._responder_cancelamento("desistiu", dmn_refs)
         return self._responder_cancelamento("confirmar", dmn_refs)
+
+    async def _responder_protocolo(self, state: LucasState, dmn_refs: dict[str, str]) -> dict[str, Any]:
+        """O protocolo do pedido de cancelamento DESTA pessoa: a instancia VIVA de SP-OP-CANCEL-001 na chave
+        `CANCEL-{tenant}-{identidade}` (a mesma do start) da' o protocolo (`protocolo_do_cancelamento`, igual
+        do recebimento). Sem instancia viva: "nao encontrei". Chave desligada, transporte sem leitura ou falha
+        de leitura: a verdade ("nao consegui consultar agora") e os canais — nunca um protocolo inventado."""
+        resposta, protocolo = "protocolo_indisponivel", ""
+        buscar = getattr(self._cibseven, "find_active_instance", None)
+        if self._cancel_pf_v1 and callable(buscar):
+            try:
+                ativa = await buscar(self._chave_do_cancelamento(state))
+                if ativa is None:
+                    resposta = "protocolo_sem_pedido"
+                else:
+                    instance_id = getattr(ativa, "instance_id", None)
+                    if isinstance(instance_id, str) and instance_id.strip():
+                        resposta, protocolo = "protocolo", protocolo_do_cancelamento(instance_id)
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:
+                logger.warning("lucas_protocolo_leitura_falhou", error_type=type(exc).__name__)
+        logger.info("lucas_protocolo_do_pedido", resposta=resposta)
+        return {**self._responder_cancelamento(resposta, dmn_refs), "cancelamento_protocolo": protocolo}
 
     @staticmethod
     def _responder_cancelamento(resposta: str, dmn_refs: dict[str, str]) -> dict[str, Any]:
@@ -3865,6 +3902,18 @@ class LucasGraph:
             "conversation_id": str(state.get("conversation_id", "")),
         }
 
+    @staticmethod
+    def _chave_do_cancelamento(state: LucasState) -> str:
+        """`CANCEL-{tenant}-{identidade}`: a chave do pedido de cancelamento (start e leitura)."""
+        pseudo = str(state.get("beneficiario_pseudo_id", ""))
+        return mint_contract_business_key(
+            CANCEL_KEY_FAMILY,
+            str(state.get("tenant_id", "")),
+            numero_contrato="",
+            matricula_beneficiario=pseudo,
+            beneficiario_pseudo_id=pseudo,
+        )
+
     async def _start_cancelamento(self, state: LucasState) -> dict[str, Any]:
         """Inicia SP-OP-CANCEL-001 (pedido do beneficiario, confirmado) pelo start idempotente e auditado.
 
@@ -3877,13 +3926,7 @@ class LucasGraph:
         (`individual`), a confirmar pela analise humana."""
         tenant = str(state.get("tenant_id", ""))
         pseudo = str(state.get("beneficiario_pseudo_id", ""))
-        business_key = mint_contract_business_key(
-            CANCEL_KEY_FAMILY,
-            tenant,
-            numero_contrato="",
-            matricula_beneficiario=pseudo,
-            beneficiario_pseudo_id=pseudo,
-        )
+        business_key = self._chave_do_cancelamento(state)
         variables: dict[str, Any] = {
             "tenant_id": tenant,
             "source_agent_id": AGENT_ID_LUCAS,
@@ -4415,6 +4458,15 @@ class LucasGraph:
         """A resposta a um pedido de cancelamento que NAO abre processo (rodada 12). A pergunta de confirmacao
         grava a propria referencia como memoria — e' o que torna a confirmacao seguinte valida."""
         resposta = state.get("cancelamento_resposta")
+        protocolo = state.get("cancelamento_protocolo")
+        if resposta == "protocolo" and not protocolo_valido(protocolo):
+            resposta = "protocolo_indisponivel"  # nunca um protocolo fora da forma
+        if resposta == "protocolo":
+            mensagem = self._mensagem(
+                TEXTO_PROTOCOLO_DO_PEDIDO.format(protocolo=protocolo), facts, VALORES_PROMPT_VERSION, state
+            )
+            mensagem["curta"] = TEXTO_PROTOCOLO_DO_PEDIDO_CURTO.format(protocolo=protocolo)
+            return mensagem
         texto = {
             "empresa": TEXTO_CANCELAMENTO_EMPRESA,
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
@@ -4422,6 +4474,8 @@ class LucasGraph:
             "desistiu": TEXTO_PEDIDO_NAO_REGISTRADO if self._cancel_pf_v1 else TEXTO_CANCELAMENTO_DESISTIU,
             # DL-0111 (so' com a chave): o pedido e' do titular; oferta de pessoa, sem processo.
             "dependente": TEXTO_DEPENDENTE,
+            "protocolo_sem_pedido": TEXTO_PROTOCOLO_SEM_PEDIDO,
+            "protocolo_indisponivel": TEXTO_PROTOCOLO_INDISPONIVEL,
         }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)
         mensagem = self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
         if resposta == "confirmar":
@@ -4878,13 +4932,11 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
             "injected; audit_sink is the T-C2 fence — no escalation start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "lucas@v0"))
-    limiares = cfg.get("limiares_atraso")
     return LucasGraph(
         # DL-0111: `MAEZO_CANCEL_PF_V1` (so' `True` literal liga; qualquer outra coisa e' desligada).
         cancelamento_pf_v1=cfg.get("cancelamento_pf_v1") is True,
         # DL-0114: `MAEZO_LUCAS_V4` (so' `True` literal liga).
         lucas_v4=cfg.get("lucas_v4") is True,
-        limiares_atraso=limiares if isinstance(limiares, LimiaresDeAtraso) else None,
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
         cibseven=cast(CibSevenTransport, cibseven),

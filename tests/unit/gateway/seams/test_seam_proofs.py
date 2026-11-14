@@ -163,6 +163,23 @@ class FakeCibSeven(_Recorder):
         self._record("read_historic_variables", process_instance_id, names)
         return None
 
+    async def resolve_historic_instance(
+        self,
+        process_key: str,
+        *,
+        business_key: str = "",
+        variable_equals: Any = None,
+        names: tuple[str, ...] = (),
+    ) -> Any:
+        self._record(
+            "resolve_historic_instance",
+            process_key,
+            business_key=business_key,
+            variable_equals=variable_equals,
+            names=names,
+        )
+        return None
+
     async def start_process_instance(
         self, process_key: str, business_key: str, variables: dict[str, Any]
     ) -> Any:
@@ -383,6 +400,11 @@ _METHOD_MATRIX: tuple[tuple[str, Any, bool], ...] = (
     ("find_active_instance", lambda s: s.find_active_instance("ESC-amh-1"), True),
     ("find_any_instance", lambda s: s.find_any_instance("ESC-amh-1", process_key="SP-OP-AUTH-001"), True),
     ("read_historic_variables", lambda s: s.read_historic_variables("pi-1", ("notas_resolucao",)), True),
+    (
+        "resolve_historic_instance",
+        lambda s: s.resolve_historic_instance("SP-OP-CONTAS-001", business_key="CONTAS-amh-1", names=("x",)),
+        True,
+    ),
     ("correlate_message", lambda s: s.correlate_message("msg", "ESC-amh-1", {"a": 1}), True),
     ("get_process_status", lambda s: s.get_process_status("ESC-amh-1"), True),
     ("start_process_instance", lambda s: s.start_process_instance("SP-OP-AUTH-001", "ESC-amh-1", {}), False),
@@ -564,6 +586,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_dependentes_nome",
         "amh.tina_get_catalogo_procedimentos",
         "amh.tina_get_cobertura",
+        "amh.tina_get_cpt_vigente",
         "amh.verify_subject",
         "amh.record_consent",
         "amh.resolve_by_document",
@@ -768,6 +791,21 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
+    # CPT vigente do proprio sujeito (dono e DPO, C1 de 20/10/2026, DL-0130; manifest v1.15): executor proprio
+    cpt = amh_interop.AmhTinaCptExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await cpt.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_cpt_vigente",
+                path="/interop/tina/v1/subjects/subject1/cpt",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+            )
+        )
+    )
     results.append(
         await verificacao.execute(
             GovernedSubjectVerificationRequest(
@@ -857,7 +895,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 16
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 17
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811
@@ -935,6 +973,7 @@ async def test_dmn_denial_lands_on_the_nodes_declared_dmn_unavailable_path(tmp_p
         ("find_active_instance", ("ESC-amh-1",), {}),
         ("find_any_instance", ("ESC-amh-1",), {"process_key": "SP-OP-AUTH-001"}),
         ("read_historic_variables", ("pi-1", ("notas_resolucao",)), {}),
+        ("resolve_historic_instance", ("SP-OP-CONTAS-001",), {"business_key": "CONTAS-amh-1"}),
         ("get_process_status", ("ESC-amh-1",), {}),
         ("correlate_message", ("msg", "ESC-amh-1", {}), {}),
     ],
@@ -961,6 +1000,34 @@ async def test_engine_denial_raises_and_is_never_readable_as_no_active_instance(
         assert exc.decision.denial_shape in {"LEITURA_INCONCLUSIVA", "INCIDENTE_FALHA_FECHADA"}
     assert result == "<not raised>", f"{method} returned {result!r} instead of refusing — a denied "
     assert inner.calls == [], "the inner transport must not be reached on an enforced deny"
+
+
+async def test_denied_history_resolution_is_never_readable_as_not_found(tmp_path: Path) -> None:
+    """PAGTO PR-C / MPTT P2: a DENIED `resolve_historic_instance` is "unknown", never "absent".
+
+    The consumers (`resolve_lastro` -> `INDISPONIVEL` vs `NAO_ENCONTRADO`) branch on
+    `HistoricInstanceNotFoundError`; a denial that subclassed it would turn a refused read into a
+    definite "the source adjudication does not exist". And the gated object advertises the read only
+    when its inner has it, so the consumer's `isinstance` probe stays honest.
+    """
+    from maezo.tools.mcp_cibseven.transport import (
+        CibSevenError,
+        HistoricInstanceNotFoundError,
+        HistoricInstanceResolvingTransport,
+    )
+
+    inner = FakeCibSeven()
+    seam = gate_cibseven(inner, _denying_seam(tmp_path))
+    assert isinstance(seam, HistoricInstanceResolvingTransport)
+    with pytest.raises(CibSevenError) as info:
+        await seam.resolve_historic_instance("SP-OP-CONTAS-001", business_key="CONTAS-amh-1")
+    assert not isinstance(info.value, HistoricInstanceNotFoundError)
+    assert inner.calls == []
+
+    class _NoResolution(FakeCibSeven):
+        resolve_historic_instance = None  # type: ignore[assignment]
+
+    assert not isinstance(gate_cibseven(_NoResolution(), _shipped_seam()), HistoricInstanceResolvingTransport)
 
 
 @pytest.mark.parametrize(
@@ -1244,7 +1311,12 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Same designed outcome.
     # Re-derived 2026-09-25 (GAP-XHITL-4): the `read_historic_variables` surface (+6) and the
     # wrapped surface-count line (+1) moved the unmapped-topics passage by +7. Same outcome.
-    ("gateway/effect_classes.py", "672-675", "decisão humana, não inferência de agente"),
+    # Re-derived 2026-10-20 (DL-0150): the `notificacao_interna_equipe` class block moved the
+    # unmapped-topics passage by +27 (672-675 -> 699-702). Same designed outcome.
+    # Re-derived 2026-11-01 (PAGTO PR-C / MPTT P2): the `resolve_historic_instance` surface (+7)
+    # and the wrapped surface-count line (+1) moved the unmapped-topics passage by +8
+    # (699-702 -> 707-710). Same designed outcome.
+    ("gateway/effect_classes.py", "707-710", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 

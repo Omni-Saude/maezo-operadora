@@ -4,6 +4,17 @@
 **Data:** 2026-06-13
 **Area:** Seguranca
 
+**ADENDO DE STATUS 2026-10-31 (R-020 / DEC-11, decisao do dono C1) — SUPERSEDE PARCIAL por ADR-0071:**
+o corpo abaixo NAO foi editado (`docs/adr/README.md:8` proibe reescrita in-loco de ADR `Accepted`).
+A secao "Invariante de pseudonimizacao no ToolRegistry" e a frase sobre o `ToolRegistry` auditar a
+recusa da allowlist descrevem um `ToolRegistry`/`PhiZoneGateway` que nunca existiram (achado F-007).
+O desenho real — a fabrica de seams `src/maezo/gateway/tool_registry.py` como autoridade unica, o
+`effect_pep`, a `ProcessAllowlist`, as guardas `ERR_*_NOT_HUMAN`, os scrubbers de egresso e a cerca
+de zona na construcao (invariantes I-1..I-7) — esta em
+`docs/adr/0071-desenho-real-da-barreira-de-efeitos-e-cerca-de-zona.md`. A decisao da allowlist de
+`process_key` (conjunto congelado, adicao por tenant so dentro do universo conhecido, `ensure_allowed`
+fail-closed) CONTINUA valendo. Este adendo nao ratifica a ADR-0071 (segue `Proposed`).
+
 ## Contexto
 
 Phase 0 identificou dois riscos de segurança catalogados como "Phase 1 SEC flags" no

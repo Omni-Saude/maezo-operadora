@@ -1,0 +1,45 @@
+{
+  "archive": {
+    "bytes": 102554,
+    "final_url": "https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/PadroTISSComunicao_202511.zip",
+    "http_status": 200,
+    "retrieved_utc": "2026-10-30T10:41:00Z",
+    "same_archive_as": "spec/schemas/tiss/04.03.00/provider-source-pin.json (archive.sha256 identico)",
+    "sha256": "db8640e1c3b87085892f54f838bfcea9934439ff365798c8428559f88c13d62d",
+    "source_type": "official_public_ANS_original_bytes",
+    "url": "https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/PadroTISSComunicao_202511.zip"
+  },
+  "catalogue_text": "Componente de Comunicacao 04.03.00 e 01.06.00 (pagina publicada 30/09/2026 10h09, atualizada 06/10/2026 10h23)",
+  "catalogue_text_verified_utc": "2026-10-30T10:46:10Z",
+  "catalogue_url": "https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-setembro-2026",
+  "catalogue_version": "01.06.00",
+  "decision": "DEC-17 / R-036: posicao do dono registrada na issue #1081 (2026-10-29): pinar 04.03.00/01.06.00 no worker de submissao; R-068 executa o pin",
+  "entrypoint": "tissMonitoramentoV1_06_00.xsd",
+  "file_header_version_comment": "VERSAO TISS 1.06.00",
+  "files": {
+    "tissComplexTypesMonitoramentoV1_06_00.xsd": "056f126cff4db753412fb88d9d5fe9b72f4a1bfafc870c309578c479acaeca57",
+    "tissMonitoramentoV1_06_00.xsd": "bacfca7054c85b89b1f6ec559b2ed1d39ece9bb4f05caa052e706e7db8698611",
+    "tissSimpleTypesMonitoramentoV1_06_00.xsd": "dd7f82015f8a4be7c84ac4595cc9cc79a8d12c49c3edf66fdc9966037548a3c1"
+  },
+  "license": {
+    "not_legal_opinion": true,
+    "notice_source": "rodape gov.br da pagina de catalogo; bytes originais nao modificados",
+    "notice_url": "https://creativecommons.org/licenses/by-nd/3.0/deed.pt_BR",
+    "site_notice": "Creative Commons Attribution-NoDerivatives 3.0 Unported"
+  },
+  "no_transmission_or_signature_claim": true,
+  "official_archive_directory": "Padr\u255eo TISS Comunica\u00e7\u255eo 010601",
+  "professional_ratification_claimed": false,
+  "root_qname": "{http://www.ans.gov.br/padroes/tiss/schemas}mensagemEnvioANS",
+  "runtime_admitted": false,
+  "schema": "maezo.ans-tiss-monitoramento-public-source.v1",
+  "source_status": "PUBLIC_BYTES_INCOMPLETE_DEPENDENCY_CLOSURE",
+  "unresolved_dependencies": [
+    {
+      "included_by": "tissComplexTypesMonitoramentoV1_06_00.xsd",
+      "note": "o arquivo oficial inclui um tipo simples 1.05.01 que nao vem no zip; nao ha alias, remapeamento nem fallback (mesma regra de docs/design/provider/tiss-provider-schema.md)",
+      "present_in_official_archive": false,
+      "schemaLocation": "tissSimpleTypesMonitoramentoV1_05_01.xsd"
+    }
+  ]
+}

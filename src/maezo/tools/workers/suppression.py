@@ -141,7 +141,9 @@ def make_verify_subject_handler(store: Any | None) -> TaskHandler:
                 "verify_subject: identificador opaco ausente (tenant_id/subject_ref/"
                 "contact_channel) — UNKNOWN, nunca zero.",
             )
-        assert store is not None  # narrowed pelo guarda de seam
+        # narrowed pelo guarda de seam
+        if store is None:
+            raise AssertionError("store checado pelo guarda de seam")
         suppression_ref = suppression_ref_of(subject_ref, contact_channel)
         try:
             record = await store.resolve(tenant, suppression_ref)
@@ -199,7 +201,9 @@ def make_route_handler(transport: Any | None) -> TaskHandler:
             "celula_tamanho": celula if type(celula) is int else None,
             "k_piso": K_ANON_FLOOR,
         }
-        assert transport is not None  # narrowed pelo guarda de seam
+        # narrowed pelo guarda de seam
+        if transport is None:
+            raise AssertionError("transport checado pelo guarda de seam")
         try:
             rows, version = await transport.evaluate(SUPPRESSION_ROUTING_DMN, inputs)
             row = first_row(rows, SUPPRESSION_ROUTING_DMN, inputs)

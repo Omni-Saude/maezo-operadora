@@ -2,8 +2,10 @@
   "id": "EVL-HELENA-19",
   "agent": "helena",
   "class": "GC",
-  "tier": ["A"],
-  "description": "ORDEM NATURAL DA CONVERSA (item 3 da revisao de 21/09/2026: os 24 casos golden nao cobriam a sequencia sintoma -> idade -> detalhe, que e' a que mais vai acontecer na vida real). Este e' o TERCEIRO turno do caso D2 da bateria: a mae disse 'meu filho esta com febre', depois '3 anos', e agora so' 'desde ontem'. O bloco `memoria_clinica` e' o que a conversa ja sabia (populacao pediatrica, 36 meses, e uma avaliacao de febre ja feita); o `recorded_llm[0]` traz `population=adult`, que e' EXATAMENTE o que o modelo devolveu na medicao — nao porque 'desde ontem' diga algo sobre um adulto, mas porque o campo e' obrigatorio no schema fechado e sem ninguem na mensagem o modelo preenche com o valor mais comum. O caso reprova se essa populacao SEM LASTRO (nenhuma idade a acompanha) trocar o paciente: a tabela pediatrica e' a UNICA registrada no `dmn_fixture`, entao uma escolha pela tabela de adulto quebra o turno alto em vez de passar calada. Pina tambem a frase de confirmacao em ANOS ('sua crianca de 3 anos', nunca 'seu bebe de 36 meses'). Dados sinteticos apenas (tenant amh, pseudo id).",
+  "tier": [
+    "A"
+  ],
+  "description": "ORDEM NATURAL DA CONVERSA (item 3 da revisao de 21/09/2026: os 24 casos golden nao cobriam a sequencia sintoma -> idade -> detalhe, que e' a que mais vai acontecer na vida real). Este e' o TERCEIRO turno do caso D2 da bateria: a mae disse 'meu filho esta com febre', depois '3 anos', e agora so' 'desde ontem'. O bloco `memoria_clinica` e' o que a conversa ja sabia (populacao pediatrica, 36 meses, e uma avaliacao de febre ja feita); o `recorded_llm[0]` traz `population=adult`, que e' EXATAMENTE o que o modelo devolveu na medicao — nao porque 'desde ontem' diga algo sobre um adulto, mas porque o campo e' obrigatorio no schema fechado e sem ninguem na mensagem o modelo preenche com o valor mais comum. O caso reprova se essa populacao SEM LASTRO (nenhuma idade a acompanha) trocar o paciente: a tabela pediatrica e' a UNICA registrada no `dmn_fixture`, entao uma escolha pela tabela de adulto quebra o turno alto em vez de passar calada. Pina tambem a frase de confirmacao em ANOS ('sua crianca de 3 anos', nunca 'seu bebe de 36 meses'). Dados sinteticos apenas (tenant amh, pseudo id). Limpeza da saude, etapa 3 (02/11/2026, DL-0165): o sintoma sem bandeira da tabela vai a equipe de saude (`intencao_clinica` moderado), nunca a resposta automatica.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -21,7 +23,8 @@
     "intensidade_avaliada": "moderada"
   },
   "recorded_llm": [
-    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"moderada\", \"idade_anos\": null, \"idade_meses\": null}"
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"moderada\", \"idade_anos\": null, \"idade_meses\": null}",
+    "Beneficiario relatou um sintoma sem sinal de alerta na tabela; encaminhado para a equipe de saude."
   ],
   "dmn_fixture": {
     "triage_redflag_pediatric": {
@@ -32,7 +35,7 @@
     }
   },
   "expect": {
-    "next_kind": "inform",
+    "next_kind": "escalate",
     "fields": {
       "intent": "symptom",
       "population": "pediatric",
@@ -41,10 +44,14 @@
       "sintoma_codigo": "febre",
       "dmn_table": "triage_redflag_pediatric",
       "memoria_a_confirmar": "entendi que voce esta falando sobre sua crianca de 3 anos, certo?",
-      "response_kind": "inform",
-      "escalation_started": false,
-      "start_desfecho": "nao_tentado"
+      "response_kind": "escalate",
+      "escalation_motivo": "intencao_clinica",
+      "escalation_severidade": "moderada"
     }
   },
-  "leak_canaries": ["triage_redflag_adult", "36 meses", "seu bebe"]
+  "leak_canaries": [
+    "triage_redflag_adult",
+    "36 meses",
+    "seu bebe"
+  ]
 }

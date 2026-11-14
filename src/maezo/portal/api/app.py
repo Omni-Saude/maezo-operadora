@@ -17,13 +17,37 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
+from maezo.gateway.commercial_legitimacy_guard import (
+    LegitimacyScreenGuardFactory,
+    collective_legitimacy_shadow,
+)
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.portal.api import spa
+from maezo.portal.api.admin_read import (
+    AdminReadServiceFactory,
+    admin_read_error,
+    admin_read_router,
+    is_admin_read_request,
+)
 from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
+from maezo.portal.api.commercial import (
+    commercial_error,
+    commercial_router,
+    is_commercial_request,
+    is_public_catalog_request,
+    public_catalog_error,
+)
+from maezo.portal.api.commission_policies import (
+    CommissionPolicyServiceFactory,
+    commission_policy_error,
+    commission_policy_router,
+    is_commission_policy_request,
+)
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
     communication_router,
@@ -37,12 +61,22 @@ from maezo.portal.api.decisions import (
     is_decision_request,
 )
 from maezo.portal.api.documents import DocumentServiceFactory, document_router
+from maezo.portal.api.dsr import (
+    DsrServiceFactory,
+    dsr_error,
+    dsr_router,
+    is_dsr_request,
+)
 from maezo.portal.api.intake_recovery import (
     IntakeRecoveryFactory,
     intake_recovery_router,
     is_intake_recovery_request,
 )
 from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_router, is_product_request
+from maezo.portal.api.legitimacy_screen import (
+    LegitimacyScreenServiceFactory,
+    legitimacy_screen_router,
+)
 from maezo.portal.api.records import LogoutDTO, SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
@@ -223,6 +257,13 @@ def create_app(
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
+    dsr_service_factory: DsrServiceFactory | None = None,
+    admin_read_service_factory: AdminReadServiceFactory | None = None,
+    commission_policy_service_factory: CommissionPolicyServiceFactory | None = None,
+    legitimacy_screen_service_factory: LegitimacyScreenServiceFactory | None = None,
+    legitimacy_screen_guard_factory: LegitimacyScreenGuardFactory | None = None,
+    commercial_gateway: CommercialGateway | None = None,
+    public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
@@ -327,6 +368,49 @@ def create_app(
     # refuses (403 capability / 503 unbound slot) until the vendor plane is adopted.
     app.state.vendor_submission_service_factory = vendor_submission_service_factory
     app.include_router(vendor_router)
+    # W5 CLNT 5.2: the titular DSR channel ships DOCUMENTED and DARK — `lgpd_dsr_channel` is
+    # OFF and no default factory exists, so the route refuses (403 flag / 503 unbound slot)
+    # before any effect until the ROLL wave binds an audited engine start.
+    app.state.dsr_service_factory = dsr_service_factory
+    app.include_router(dsr_router)
+    # D-40: the administrative READ roster ships DOCUMENTED and DARK — `staff_admin_panel` is
+    # OFF, no default profile names `staff_admin_read` (the SC1 production bootstrap cannot
+    # even name it) and no default factory exists, so the route refuses (403 flag/profile /
+    # 503 unbound slot) before any effect. The router mounts GET only and never imports
+    # `maezo.portal.admin`: the fence and the independently granted administrative connection
+    # (the only writer) stand.
+    app.state.admin_read_service_factory = admin_read_service_factory
+    app.include_router(admin_read_router)
+    # D-36 (dono, 2026-10-25): the internal commission ADJUSTMENT-STRUCTURE surface ships
+    # DOCUMENTED and DARK — `staff_commission_policies` is OFF, no default factory exists and
+    # the router carries DRAFT CRUD only (no calculation/activation/liquidation endpoint
+    # exists by construction), so the routes refuse (403 flag / 503 unbound slot) before any
+    # effect. Flipping is the owner's future act, after the A8 Forma 1 ratification.
+    app.state.commission_policy_service_factory = commission_policy_service_factory
+    app.include_router(commission_policy_router)
+    # REG-1.1 (OP21 `legitimacy.screen`): the collective-legitimacy staff surface ships
+    # DOCUMENTED and DARK — `collective_legitimacy_screen` is OFF, no default factory exists
+    # and the checklist is CLOSED (exactly the five parecer §5 criteria; NO commercial
+    # blocking path exists by construction — enforcing is a successor class with an explicit
+    # composition-root bind, design §4), so the routes refuse (403 flag / 503 unbound slot)
+    # before any effect. Mount only, per the D-36 precedent (#987) for this frozen-list file;
+    # the 0030 substrate (#1022) is the receipt.
+    app.state.legitimacy_screen_service_factory = legitimacy_screen_service_factory
+    app.include_router(legitimacy_screen_router)
+    # Commercial sources remain unbound by default. Admission precedes body intake.
+    # REG-1.1 (OP21, PR 3/5): the DARK `collective_legitimacy_screen` flag is the ONLY road
+    # to the SHADOW guard (`collective_legitimacy_shadow`) — OFF (shipped) passes the object
+    # through untouched (byte-identical path); ON wraps the bound gateway (evaluate,
+    # register, signal art. 39 — never altering the commercial response, design §4) and
+    # REQUIRES the no-default guard factory. The enforcing posture is a successor class
+    # with its own explicit bind (design §4): unreachable by this flag, never named here.
+    app.state.commercial_gateway = collective_legitimacy_shadow(
+        commercial_gateway,
+        enabled=config.collective_legitimacy_screen,
+        guard_factory=legitimacy_screen_guard_factory,
+    )
+    app.state.public_catalog_gateway = public_catalog_gateway
+    app.include_router(commercial_router)
 
     # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
     # the LAST call is the outermost: registering CORS first leaves it INSIDE the host check,
@@ -352,12 +436,22 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
+            if is_public_catalog_request(request):
+                return public_catalog_error()
+            if is_commercial_request(request):
+                return commercial_error("denied", "invalid_request", http_status=400)
             if (
                 is_product_request(request)
                 or is_communication_request(request)
                 or is_intake_recovery_request(request)
             ):
                 return intake_error("invalid_request")
+            if is_dsr_request(request):
+                return dsr_error("invalid_request")
+            if is_admin_read_request(request):
+                return admin_read_error("invalid_request")
+            if is_commission_policy_request(request):
+                return commission_policy_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
             # Completion first: its path lives under the read prefix, so `is_task_read` also
@@ -379,6 +473,12 @@ def create_app(
             or is_intake_recovery_request(request)
         ):
             return intake_error("invalid_request")
+        if is_dsr_request(request):
+            return dsr_error("invalid_request")
+        if is_admin_read_request(request):
+            return admin_read_error("invalid_request")
+        if is_commission_policy_request(request):
+            return commission_policy_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
         # 422 with this route's own schema: a body whose `resultado` is absent or outside the
@@ -411,10 +511,21 @@ def create_app(
     async def session(request: Request) -> SessionDTO:
         _query(request, set())
         capabilities = cast(
-            'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
+            'tuple[Literal["identity", "staff_cases", "human", "vendor", "staff_admin_read"], ...]',
             tuple(config.capabilities.split(",")),
         )
-        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
+        # Same deployment-owned projection as `capabilities` above: the shadow-panel signals
+        # name surfaces only and grant nothing. Empty is the shipped, dark state; the tuple
+        # order is the literal's canonical order (documents, operations, admin).
+        flags = cast(
+            'tuple[Literal["staff_documents_panel", "staff_operations_panel", "staff_admin_panel"], ...]',
+            (
+                *(("staff_documents_panel",) if config.staff_documents_panel else ()),
+                *(("staff_operations_panel",) if config.staff_operations_panel else ()),
+                *(("staff_admin_panel",) if config.staff_admin_panel else ()),
+            ),
+        )
+        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities, flags=flags)
 
     # Config-only, never derived from the request: ends the Cognito Hosted UI session too.
     idp_logout_url = f"{config.cognito_origin}/logout?" + urlencode(

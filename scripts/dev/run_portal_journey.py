@@ -205,7 +205,6 @@ class StaticOrigin:
         self.app = app
         self.dist = dist
         self._overlay = overlay or {}
-        self._spa = {"/", "/portal", "/portal/"}
 
     def _bundle(self, path: str) -> tuple[bytes, str] | None:
         overlaid = self._overlay.get(path)
@@ -216,7 +215,12 @@ class StaticOrigin:
             return None
         if candidate.is_file():
             return candidate.read_bytes(), self._type(candidate.name)
-        if path in self._spa:
+        # Approximates the production fallback (`maezo.portal.api.spa.WebBundle.respond`), not
+        # byte-for-byte: an extensionless path outside /assets/ is a client route
+        # (e.g. /portal/cases/:ref) and gets index.html.
+        if path == "/api":
+            return None
+        if "." not in PurePosixPath(path).name and not path.startswith("/assets/"):
             return (self.dist / "index.html").read_bytes(), self._type("index.html")
         return None
 
@@ -291,6 +295,13 @@ def session_leg(arguments: argparse.Namespace) -> int:
         client_purpose="dedicated-human-code-pkce",
         public_origin=PUBLIC_HOST_HEADER,
         mode="local-test",
+        # R-071: every staff area must render its REAL panel for the axe sweep, not the
+        # "not enabled" notice — so this local-test session names the full staff profile and
+        # turns the panel flags on. Harness-only: production defaults stay off.
+        capabilities="identity,staff_cases,human,staff_admin_read",
+        staff_documents_panel=True,
+        staff_operations_panel=True,
+        staff_admin_panel=True,
     )
     store = seeded_store(identity)
     app = build_app(store, settings)

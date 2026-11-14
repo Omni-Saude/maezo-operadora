@@ -1,0 +1,43 @@
+# promtool rule unit test for MaezoHITLApprovalRateDrop (R-085). Separate file because the alert
+# works in DAYS: a 1h evaluation interval keeps the 35-day simulation fast. Synthetic series only.
+rule_files:
+  - ../../../../deploy/observability/alert-rules.yml
+
+evaluation_interval: 1h
+
+tests:
+  # HITL L1: approval share drops from 80% (28-day baseline) to 20% (last 7 days) -> fires;
+  # a stable share does not.
+  - interval: 1h
+    input_series:
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="andre", action_class="high_value_payment", decisao="APROVAR"}'
+        values: '0+4x672 2692+1x168'
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="andre", action_class="high_value_payment", decisao="RECUSAR"}'
+        values: '0+1x672 676+4x168'
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="gustavo", action_class="ans_official_submission", decisao="APROVAR_ENVIO"}'
+        values: '0+4x840'
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="gustavo", action_class="ans_official_submission", decisao="CORRIGIR_PENDENCIA"}'
+        values: '0+1x840'
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="gustavo", action_class="ans_official_submission", decisao="sem_decisao"}'
+        values: '0+50x840'
+    alert_rule_test:
+      - eval_time: 35d
+        alertname: MaezoHITLApprovalRateDrop
+        exp_alerts:
+          - exp_labels: {tenant: t1, agent_id: andre, action_class: high_value_payment, severity: warning, category: hitl, component: agents}
+            exp_annotations:
+              summary: "L1 human approval share dropped for andre / high_value_payment"
+              description: "Over the last 7 days the share of L1 decisions that executed the action (high_value_payment, dossier by andre, tenant t1) fell to 20%, more than 3 binomial standard errors below its own 28-day baseline. Quality/drift signal (ADR-0010), not user impact: review recent dossiers and case mix before touching the agent.\n"
+              runbook_url: "docs/runbooks/alerts/MaezoHITLApprovalRateDrop.md"
+
+  # MaezoHITLApprovalRateDrop (P10 = 30 decisions/7d): an 80% -> 20% drop on ~25 decisions must NOT fire.
+  - interval: 1h
+    input_series:
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="carolina", action_class="provider_decredentialing", decisao="DESCREDENCIAR"}'
+        values: '0+0.12x672 80.64+0.03x168'
+      - series: 'maezo_l1_decision_total{tenant="t1", agent_id="carolina", action_class="provider_decredentialing", decisao="MANTER"}'
+        values: '0+0.03x672 20.16+0.12x168'
+    alert_rule_test:
+      - eval_time: 35d
+        alertname: MaezoHITLApprovalRateDrop
+        exp_alerts: []

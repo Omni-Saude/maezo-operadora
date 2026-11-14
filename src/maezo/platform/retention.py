@@ -129,12 +129,15 @@ class RetentionManager:
 
         return expired, retained
 
-    def retention_query(self, table_name: str = "audit_chain", ts_column: str = "ts") -> str:
+    def retention_query(
+        self, table_name: str = "audit_chain", ts_column: str = "ts"
+    ) -> tuple[str, dict[str, datetime]]:
         """Generate a SQL DELETE query for expired records.
 
         WARNING — BLOCKED / DO NOT CALL IN PRODUCTION [T2.8]. This builds an
-        UNCONDITIONAL ``DELETE FROM audit_chain WHERE ts < cutoff`` with (a) NO
-        legal-hold predicate (deleting held evidence is a spoliation risk;
+        UNCONDITIONAL ``DELETE FROM audit_chain WHERE ts < cutoff`` with (a) no
+        consultation of the legal-hold predicate (``platform/lifecycle/legal_hold.py``,
+        R-044 — dark and unratified; deleting held evidence is a spoliation risk;
         ADR-0020 item 6) and (b) NO chain re-anchoring (a prune severs
         ``verify_chain()``'s genesis contiguity, so both verifiers report the
         surviving chain as corrupted — ``gateway/audit.py:310-344`` fails at
@@ -146,12 +149,29 @@ class RetentionManager:
         (legal-hold registry) and ``docs/adr/0029-audit-chain-pruning-reanchor.md``
         (signed-checkpoint re-anchor) are ratified.
 
+        R-110 / F-151 (bandit B608): the statement is a LITERAL picked from the closed map
+        `_RETENTION_DELETE_SQL` — no identifier and no value is ever interpolated. The cutoff
+        travels as the bound parameter ``:cutoff`` (never as text inside the SQL), and a
+        (table, column) pair outside the map raises ``ValueError`` before any SQL exists.
+
         Args:
-            table_name: The audit table name (default: 'audit_chain').
-            ts_column: The timestamp column name (default: 'ts').
+            table_name: The audit table name (default: 'audit_chain'); must be a key of
+                `_RETENTION_DELETE_SQL`.
+            ts_column: The timestamp column name (default: 'ts'); idem.
 
         Returns:
-            SQL DELETE statement with cutoff placeholder.
+            ``(statement, params)`` — the DELETE with the ``:cutoff`` placeholder and the
+            parameter mapping ``{"cutoff": <aware UTC datetime>}`` to bind it.
         """
-        cutoff = self.cutoff_timestamp()
-        return f"DELETE FROM {table_name} WHERE {ts_column} < '{cutoff.isoformat()}'"
+        statement = _RETENTION_DELETE_SQL.get((table_name, ts_column))
+        if statement is None:
+            raise ValueError("retention_query: (table, column) fora do mapa fechado _RETENTION_DELETE_SQL")
+        return statement, {"cutoff": self.cutoff_timestamp()}
+
+
+# R-110 / F-151: closed map (table, timestamp column) -> literal DELETE with the cutoff bound as
+# `:cutoff`. Nothing is interpolated into SQL; extending retention to another table is a reviewed
+# edit of this literal, never a caller-supplied identifier.
+_RETENTION_DELETE_SQL: dict[tuple[str, str], str] = {
+    ("audit_chain", "ts"): "DELETE FROM audit_chain WHERE ts < :cutoff",
+}

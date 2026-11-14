@@ -76,7 +76,7 @@ from typing import Any, Final, Protocol
 
 import structlog
 
-from maezo.gateway import effect_classes, rate_limit
+from maezo.gateway import action_execution, effect_classes, rate_limit
 from maezo.gateway.effect_classes import (
     SHAPE_DEGRADACAO_SEM_DOSSIE,
     SHAPE_ESCALONAMENTO_HUMANO,
@@ -88,10 +88,12 @@ from maezo.gateway.effect_classes import (
     agent_action_ref,
 )
 from maezo.gateway.effect_pep import (
+    EFFECT_REASONS,
     PHI_ZONE_GENERAL,
     DecisionContext,
     EffectCall,
     EffectDecision,
+    EffectLayer,
     decide_effect,
     log_effect_decision,
 )
@@ -556,6 +558,51 @@ def _count_rate_limited(seam: SeamContext) -> None:
         logger.debug("effect_seam_rate_limit_metric_failed", exc_info=True)
 
 
+#: R-085: o vocabulario FECHADO que pode virar rotulo `reason`/`layer` de
+#: `maezo_gateway_pep_decision_total` — as razoes que o proprio PEP origina mais as que a camada L-5
+#: (`action_execution`) repassa verbatim. Qualquer outro valor vira `outro`: nunca um token cru.
+_PEP_METRIC_REASONS: Final[frozenset[str]] = EFFECT_REASONS | frozenset(
+    {
+        action_execution.REASON_APPROVED,
+        action_execution.REASON_MANIFEST_UNAVAILABLE,
+        action_execution.REASON_MANIFEST_DRAFT,
+        action_execution.REASON_ACTION_UNMAPPED,
+        action_execution.REASON_ACTION_UNDECLARED,
+        action_execution.REASON_DOMAINS_EMPTY,
+        action_execution.REASON_DOMAIN_UNKNOWN,
+        action_execution.REASON_DOMAINS_INCOMPLETE,
+        action_execution.REASON_APPROVAL_PENDING,
+        action_execution.REASON_APPROVAL_INCOMPLETE,
+        action_execution.REASON_INTERNAL_ERROR,
+        action_execution.REASON_OVERRIDE_NOT_ENFORCEABLE,
+    }
+)
+_PEP_METRIC_LAYERS: Final[frozenset[str]] = frozenset(layer.value for layer in EffectLayer)
+_PEP_METRIC_FALLBACK: Final[str] = "outro"
+
+
+def _count_pep_decision(seam: SeamContext, decision: EffectDecision) -> None:
+    """Increment `maezo_gateway_pep_decision_total` for ONE decision (R-085). Never raises.
+
+    Mesma disciplina de `_count_tool_call`: import local (o nucleo de politica nao ganha acoplamento
+    de import com a pilha de observabilidade) e guarda larga (telemetria nunca chega a um caminho de
+    cuidado). `layer`/`reason` sao normalizados para os vocabularios fechados acima.
+    """
+    try:
+        from maezo.platform.observability import record_pep_decision  # lazy
+
+        record_pep_decision(
+            tenant=seam.tenant,
+            principal=seam.principal,
+            allow=decision.allow,
+            layer=decision.layer if decision.layer in _PEP_METRIC_LAYERS else _PEP_METRIC_FALLBACK,
+            reason=decision.reason if decision.reason in _PEP_METRIC_REASONS else _PEP_METRIC_FALLBACK,
+            enforced=decision.enforced,
+        )
+    except Exception:  # a metric error must never break an effect call.
+        logger.debug("effect_seam_pep_decision_metric_failed", exc_info=True)
+
+
 def _count_tool_call(operation: str, *, agent: str) -> None:
     """Increment `maezo_tool_calls_total` for ONE gated invocation. Never raises onto the effect path.
 
@@ -632,6 +679,7 @@ async def gate(
         phi_zone=seam.phi_zone,
     )
     _emit(seam, decision, operation, process_key, value_cents)
+    _count_pep_decision(seam, decision)
     if decision.enforced and not decision.allow:
         raise denial_for(decision)
     if not within_rate:

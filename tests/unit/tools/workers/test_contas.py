@@ -12,7 +12,12 @@ import pytest
 import structlog
 
 from maezo.agents.andre.keys import key_segment
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
+from maezo.tools.mcp_cibseven.transport import (
+    FakeCibSevenTransport,
+    HistoricInstanceRecord,
+    ProcessInstance,
+    start_dedup_key,
+)
 from maezo.tools.workers.contas import (
     COMUNICACAO_TIPOS,
     FRAUDE_PROCESS_KEY,
@@ -960,12 +965,14 @@ def test_handoff_pagamento_nunca_semeia_os_fatos_de_admissibilidade_de_pagto() -
     payload = asyncio.run(engine.get_process_status(_PAGTO_KEY)).variables
     for forbidden in HANDOFF_PAGTO_FORBIDDEN_KEYS:
         assert forbidden not in payload, forbidden
+    # Os quatro originais continuam no conjunto; a igualdade do conjunto ampliado (pacote PAGTO
+    # PR-B) e pinada em tests/unit/agents/test_andre_i_pagto_1.py contra a fonte unica.
     assert {
         "lastro_confirmado",
         "dados_pagamento_validos",
         "duplicidade_suspeita",
         "dentro_teto_l2",
-    } == HANDOFF_PAGTO_FORBIDDEN_KEYS
+    } <= HANDOFF_PAGTO_FORBIDDEN_KEYS
     # Even when the caller PASSES them explicitly, they are dropped — the allowlist is the payload,
     # not a filter over the inbound variables.
     assert set(payload) == HANDOFF_PAGTO_SEEDED_KEYS
@@ -1119,8 +1126,10 @@ def test_handoff_pagamento_recusa_fonte_valor_desconhecida() -> None:
 def test_handoff_pagamento_recusa_valor_zero_ausente_ou_nao_numerico(valor: object) -> None:
     """The `0.0` case is REAL, not theoretical: `marina/graph.py` seeds
     `float(state.get("valor_apresentado_brl", 0.0))`, so a state missing the field produces `0.0`,
-    and 0 cents would sail through PAGTO's `r_dentro_teto_l2` (`0 <= 10000000`) creating a silent
-    R$ 0,00 order. `_parse_valor_monetario` NEVER defaults to 0."""
+    and 0 cents would have sailed through PAGTO's `r_dentro_teto_l2` when that row still repeated
+    the ceiling (`<= 10000000`), creating a silent R$ 0,00 order. `pagto_alcada` v0.1.1 no longer
+    repeats it (the row reads `> 0` plus `dentro_teto_l2`; the `ceilings.py` resolver is the only
+    source of the R$ 100k teto). `_parse_valor_monetario` NEVER defaults to 0."""
     engine = FakeCibSevenTransport()
     sink = FakeStartAuditSink()
     with pytest.raises(ContasHandoffPagamentoInvalidoError, match="valor_apresentado_brl"):
@@ -1149,7 +1158,12 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
     """A PAGTO-001 already active for this lote is returned unchanged — never a second order.
 
     This is what makes a re-delivered handoff (or a second decision on the same lote after a
-    `Msg_ContasLinhasAtualizadas` round-trip) converge instead of paying twice."""
+    `Msg_ContasLinhasAtualizadas` round-trip) converge instead of paying twice.
+
+    Decisao do dono 2026-11-01 (opcao A): "ja existe" so' e' sucesso quando a ordem existente e'
+    DESTA conta — conferido no HISTORICO do motor (`resolve_historic_instance`). Por isso a ordem
+    pre-existente e' semeada tambem no historico, com a identidade (prestador/guia/conta — DEC-30
+    D13) desta conta; sem ela o handoff recusa (`test_contas_pagto_chave_por_conta.py`)."""
     engine = FakeCibSevenTransport()
     engine.seed_instance(
         ProcessInstance(
@@ -1158,6 +1172,16 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
             business_key=_PAGTO_KEY,
             state="ACTIVE",
             already_existed=True,
+        )
+    )
+    engine.seed_historic_instance_record(
+        HistoricInstanceRecord(
+            instance_id="pre-existing-pagto",
+            business_key=_PAGTO_KEY,
+            process_key=PAGTO_PROCESS_KEY,
+            state="ACTIVE",
+            end_activity_id=None,
+            variables={"prestador_id": "prov:teste-0001", "numero_guia_tiss": "GUIA-7", "numero_conta": ""},
         )
     )
     result = handoff_pagamento(

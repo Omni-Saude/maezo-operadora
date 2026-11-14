@@ -26,7 +26,7 @@ from maezo.agents.helena.graph import (
     HelenaGraph,
     new_helena_state,
 )
-from maezo.runtime.caso_clinico import chave_do_escalonamento
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink

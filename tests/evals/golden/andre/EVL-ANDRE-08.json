@@ -5,7 +5,7 @@
   "tier": [
     "A"
   ],
-  "description": "AND-06: pagto_admissibility resolves ANALISE_HUMANA with duplicidade_suspeita=true -- the DMN-decided duplicity precedence (module docstring divergence #1) refines the bounded class token to motivo_humano=duplicidade_suspeita (never an auto-cancel), routed to coordenacao-financeira. Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for andre's declared `dmn: pagto_admissibility=ANALISE_HUMANA` trigger AND the audit's own named 'duplicidade_suspeita=true routing' gap. Synthetic data only.",
+  "description": "AND-06: pagto_admissibility resolves ANALISE_HUMANA with duplicidade_suspeita=true -- the DMN-decided duplicity precedence (module docstring divergence #1) refines the bounded class token to motivo_humano=duplicidade_suspeita (never an auto-cancel), routed to analise-contas-pagar (R-041: checker split from approval). Closes the fleet-wide GOLDEN-MISSING-SCENARIO gap for andre's declared `dmn: pagto_admissibility=ANALISE_HUMANA` trigger AND the audit's own named 'duplicidade_suspeita=true routing' gap. Synthetic data only.",
   "input": {
     "state": {
       "flow": "pagto_dossier",
@@ -38,7 +38,7 @@
     "fields": {
       "route": "human_review",
       "motivo_humano": "duplicidade_suspeita",
-      "grupo_humano": "coordenacao-financeira",
+      "grupo_humano": "analise-contas-pagar",
       "admissibilidade": "ANALISE_HUMANA",
       "desfecho": "dossie_aprovacao_humana"
     }

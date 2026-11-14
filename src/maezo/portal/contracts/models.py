@@ -111,7 +111,7 @@ the existing engine/worker refusal boundaries before any effect.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
@@ -162,6 +162,8 @@ FormKey = Literal[
     "reembolso_pendencia",
     "reembolso_decisao",
     "reembolso_auditor",
+    # DL-0161 (SP-OP-REEMBOLSO-001 v0.2.0): o financeiro registra o pagamento feito fora do sistema.
+    "reembolso_pagamento",
     "cancel_decisao",
     "inad_decisao",
     "programa_decisao",
@@ -218,6 +220,9 @@ AllowedInput = Literal[
     "valor_reembolso_aprovado_cents",
     "justificativa",
     "fundamentacao_contratual",
+    "info_solicitada",
+    "texto_ao_beneficiario",
+    "data_pagamento",
     "decisao_cancelamento",
     "decisao_inadimplencia",
     "comprovacao_periodo_minimo",
@@ -601,12 +606,21 @@ class _ReembolsoDecisionFields(_FrozenContract):
     valor_reembolso_aprovado_cents: Centavos | None = None
     justificativa: RequiredText | None = None
     fundamentacao_contratual: RequiredText | None = None
+    # DL-0161: texto ao beneficiario (negativa/reducao) e pergunta ao beneficiario (pedir informacao),
+    # ambos escritos pelo analista; `justificativa`/`fundamentacao_contratual` seguem internas.
+    info_solicitada: RequiredText | None = None
+    texto_ao_beneficiario: RequiredText | None = None
 
     def _validate_reembolso_outcome(self, decision: str) -> None:
+        if decision == "SOLICITAR_INFO" and (
+            self.info_solicitada is None or not self.info_solicitada.strip()
+        ):
+            raise ValueError("SOLICITAR_INFO requires info_solicitada")
         if decision in {"NEGAR", "APROVAR_PARCIAL"}:
             for field, value in (
                 ("justificativa", self.justificativa),
                 ("fundamentacao_contratual", self.fundamentacao_contratual),
+                ("texto_ao_beneficiario", self.texto_ao_beneficiario),
             ):
                 if value is None or not value.strip():
                     raise ValueError(f"{decision} requires {field}")
@@ -653,6 +667,24 @@ class ReembolsoAuditorInputs(_ReembolsoDecisionFields):
             ):
                 if value is None or not value.strip():
                     raise ValueError(f"{self.decisao_reembolso} requires {field}")
+        return self
+
+
+class ReembolsoPagamentoInputs(_FrozenContract):
+    """Registro do pagamento feito fora do sistema (DL-0161, ``UT_RegistrarPagamento``).
+
+    O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
+    """
+
+    kind: Literal["reembolso_pagamento"]
+    data_pagamento: Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+
+    @model_validator(mode="after")
+    def _data_pagamento_e_data_valida(self) -> Self:
+        try:
+            date.fromisoformat(self.data_pagamento)
+        except ValueError as exc:
+            raise ValueError("data_pagamento must be a valid ISO date") from exc
         return self
 
 
@@ -1213,11 +1245,12 @@ class AnsSubmissionCorrectionInputs(_FrozenContract):
 
 
 class AnsNackInputs(_FrozenContract):
-    """UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+    """UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).
 
-    The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
-    not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
-    runtime binding remains unavailable until this contract/consumer gap is reconciled.
+    GW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to
+    UT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new
+    human sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other
+    value reopens the task. Recording retransmitir_manual does not itself retransmit.
     """
 
     kind: Literal["ans_nack"]
@@ -1237,6 +1270,7 @@ DecisionInputs = Annotated[
     | ReembolsoPendingInputs
     | ReembolsoDecisionInputs
     | ReembolsoAuditorInputs
+    | ReembolsoPagamentoInputs
     | CancelDecisionInputs
     | CancelExecucaoInputs
     | InadDecisionInputs
@@ -1298,19 +1332,23 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-REEMBOLSO-001", "UT_DecidirPendenciaExpirada"): (
         "reembolso_pendencia",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_AnaliseReembolso"): (
         "reembolso_decisao",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_CoordenacaoReembolso"): (
         "reembolso_decisao",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
+    ),
+    ("SP-OP-REEMBOLSO-001", "UT_RegistrarPagamento"): (
+        "reembolso_pagamento",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-REEMBOLSO-001", "UT_RevisaoAuditorMedico"): (
         "reembolso_auditor",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        "BPMN_FORMDATA",
     ),
     ("SP-OP-CANCEL-001", "UT_AnaliseRescisao"): (
         "cancel_decisao",
@@ -1389,6 +1427,13 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     # against the deployed definition instead of prose task documentation.
     ("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada"): ("auth_pendencia", "BPMN_FORMDATA"),
     ("SP-OP-PAGTO-001", "UT_AprovacaoAlcada"): (
+        "pagto_aprovacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    # R-092 (F-081): o voto de cada membro do comite usa o MESMO formulario fechado da aprovacao
+    # de alcada (mesmos campos; a UT_AprovacaoComite so existe atras da flag dark
+    # MAEZO_PAGTO_COMITE_COLEGIADO). Validar o formulario nao aprova nem libera nada.
+    ("SP-OP-PAGTO-001", "UT_AprovacaoComite"): (
         "pagto_aprovacao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
@@ -1491,7 +1536,10 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "valor_reembolso_aprovado_cents",
         "justificativa",
         "fundamentacao_contratual",
+        "info_solicitada",
+        "texto_ao_beneficiario",
     ),
+    "reembolso_pagamento": ("data_pagamento",),
     "reembolso_auditor": (
         "decisao_reembolso",
         "valor_reembolso_aprovado_cents",
@@ -1499,6 +1547,8 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "fundamentacao_contratual",
         "cid10_referencia",
         "parecer_auditor",
+        "info_solicitada",
+        "texto_ao_beneficiario",
     ),
     "cancel_decisao": (
         "decisao_cancelamento",

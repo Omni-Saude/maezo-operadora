@@ -149,6 +149,7 @@ from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
     OP_CARTEIRINHA,
     OP_COBERTURA,
+    OP_CPT,
     OP_DEPENDENTES,
     OP_DEPENDENTES_NOME,
     OP_ELEGIBILIDADE,
@@ -156,6 +157,7 @@ from maezo.adapters.amh.tina import (
     OP_REQUISICOES,
     PURPOSE_CARTEIRINHA,
     PURPOSE_COBERTURA,
+    PURPOSE_CPT,
     PURPOSE_DEPENDENTES_NOME,
     PURPOSE_PROCEDIMENTOS,
     AmhTinaAdapter,
@@ -216,6 +218,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_COBERTURA: SCOPE_TINA,
     OP_DEPENDENTES_NOME: SCOPE_TINA_DEPENDENTES_NOME,
     OP_PROCEDIMENTOS: SCOPE_TINA,
+    OP_CPT: SCOPE_TINA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -255,6 +258,7 @@ _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_CARTEIRINHA: "/carteirinha",
     OP_COBERTURA: "/cobertura",
     OP_DEPENDENTES_NOME: "/dependentes/nomes",
+    OP_CPT: "/cpt",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
@@ -265,6 +269,7 @@ _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_CARTEIRINHA: frozenset({"purpose_of_use"}),
     OP_COBERTURA: frozenset({"purpose_of_use", "procedimento", "limite"}),
     OP_DEPENDENTES_NOME: frozenset({"purpose_of_use"}),
+    OP_CPT: frozenset({"purpose_of_use"}),
 }
 #: `procedimento` da cobertura: codigo (so' digitos, 1 a 10) OU termo (3 a 80; letras, numeros e espaco).
 #: O MESMO padrao do parametro do contrato `tina-cobertura`, conferido de novo aqui.
@@ -1098,6 +1103,25 @@ class AmhTinaCoberturaExecutor(AmhTinaExecutor):
             raise AmhInteropCompositionError()
 
 
+class AmhTinaCptExecutor(AmhTinaExecutor):
+    """`GovernedTinaExecutor` real da CPT VIGENTE do proprio sujeito (caso C1 do dono e DPO de 20/10/2026,
+    DL-0130; manifest v1.15).
+
+    So' UMA operacao (`amh.tina_get_cpt_vigente`), composta SO' quando o artefato `tina-cpt` foi carregado.
+    Mesmo caminho e mesma validacao do executor TINA de sempre (rota fixa `.../subjects/{ref}/cpt`, query
+    so' `purpose_of_use`), finalidade FIXA do contrato (`atendimento_whatsapp`: a composicao recusa outra) e
+    o escopo `interop/tina.read` no token. O limite por sujeito e' COMPARTILHADO com a cobertura na AMH:
+    quem consome guarda a leitura em memoria (nunca no estado nem em log).
+    """
+
+    registered_operations = frozenset({OP_CPT})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_CPT or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+
 class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
     """`GovernedTinaExecutor` real da CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, so' dev;
     manifest v1.12).
@@ -1636,6 +1660,7 @@ __all__ = [
     "AmhTinaCatalogoExecutor",
     "AmhTinaDependentesNomeExecutor",
     "AmhTinaCoberturaExecutor",
+    "AmhTinaCptExecutor",
     "AmhTinaExecutor",
     "AmhV4Executor",
     "OPERATION_DETALHAMENTO",

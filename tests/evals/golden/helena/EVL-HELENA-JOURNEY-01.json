@@ -14,8 +14,7 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"dor_toracica\", \"intensidade\": \"grave\", \"idade_anos\": 61}",
-    "Beneficiario adulto relatando dor toracica intensa com falta de ar; encaminhado para avaliacao humana urgente."
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"dor_toracica\", \"intensidade\": \"grave\", \"idade_anos\": 61}"
   ],
   "dmn_fixture": {
     "triage_redflag_adult": {

@@ -453,6 +453,8 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         # Lembrete de cobranca (0027): idempotencia e opt-out, keyed by conversation_id.
         "lembrete_cobranca_enviado",
         "lembrete_cobranca_optout",
+        # DL-0161: a coleta do pedido de reembolso pelo WhatsApp, keyed by conversation_id.
+        "reembolso_coleta",
     ]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
@@ -819,9 +821,28 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # VW4/GP11 wiring grew it by one (`portal_vendor_suppressions`, migration 0021, OP20 —
     # insumos aceitos pelo dono, sha ab262f7b…).
     # D-04 (15/10/2026) grew it by one (`acesso_falhas_por_cpf`, migration 0028).
-    assert len(camadas) == 41, [entry["tabela"] for entry in camadas]
+    # D-36 (25/10/2026) grew it by one (`commission_adjustment_policies`, migration 0029) —
+    # draft STRUCTURE only, `SEM_COLUNA_DE_TITULAR`: no titular column exists (the symbolic
+    # target id and the internal editor principal_ref reach no data subject), the surface is
+    # DARK and the table empty by default.
+    # OP21/REG-1.1 (26/10/2026) grew it by one (`portal_legitimacy_screens`, migration 0030) —
+    # verification of a LEGAL ENTITY only, `SEM_COLUNA_DE_TITULAR`: no titular column exists
+    # (the PJ refs, closed criteria JSONB with typed evidence references — never document
+    # bytes — and the internal editor principal_ref reach no data subject), the substrate is
+    # DARK and the table empty by default.
+    # MPTT P3 (01/11/2026) grew it by one (`prestador_status_ledger`, migration 0032) — the
+    # append-only legal STATUS of a PROVIDER, `SEM_COLUNA_DE_TITULAR`: no beneficiary column
+    # exists (provider id + closed enums + engine/baseline refs); the PF-provider question is
+    # left OPEN for the DPO in the row itself; DARK behind a flag and empty by default.
+    # DL-0162 (reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1 desligada) grew it by one
+    # (`reembolso_coleta`, migration 0033) - `PONTE_AUSENTE`: keyed conversation pseudonym only.
+    # PAGTO PR-E (01/11/2026) grew it by one (`pagto_obrigacao_ledger`, migration 0034) — the
+    # append-only payment-obligation ledger, `SEM_COLUNA_DE_TITULAR`: no beneficiary column exists
+    # (order/provider ids, lote, competencia, cents, closed enums; guia/glosa only inside the key
+    # digest); the PF-provider question is left OPEN for the DPO; DARK behind a flag, empty by default.
+    assert len(camadas) == 46, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 41, pendentes
+    assert len(pendentes) == 46, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:
@@ -1057,6 +1078,74 @@ def test_an_ordem_drift_is_actually_caught_by_the_check_above(tmp_path: Path) ->
 
     mismatches = _resolution_and_order_drift(reloaded["camadas"])
     assert any(m.startswith("erasure_log:") and "ordem" in m for m in mismatches), mismatches
+
+
+# ---------------------------------------------------------------------------
+# Owner retention PROPOSALS (`proposta_dono`) — recorded, never a DPO decision
+# ---------------------------------------------------------------------------
+
+
+def _owner_proposal_drift(camadas: list[dict[str, Any]]) -> list[str]:
+    """`proposta_dono` per relation, artifact vs code (absent in both = None in both)."""
+    code = {layer.tabela: layer.proposta_dono for layer in ep.PERSISTENCE_LAYERS}
+    return [
+        f"{entry['tabela']}: proposta_dono artifact={entry.get('proposta_dono')!r} "
+        f"code={code[entry['tabela']]!r}"
+        for entry in camadas
+        if entry.get("proposta_dono") != code[entry["tabela"]]
+    ]
+
+
+def test_the_owner_proposals_match_between_artifact_and_code() -> None:
+    """Anti-drift: an owner proposal lives in BOTH halves with the same text, or in neither."""
+    assert _owner_proposal_drift(_shipped_raw()["camadas"]) == []
+
+
+def test_an_owner_proposal_drift_is_actually_caught(tmp_path: Path) -> None:
+    """Negative control on a SCRATCH COPY: drop the ledger proposal and add one to another row."""
+    data = _shipped_raw()
+    for layer in data["camadas"]:
+        if layer["tabela"] == "pagto_obrigacao_ledger":
+            del layer["proposta_dono"]
+        if layer["tabela"] == "erasure_log":
+            layer["proposta_dono"] = "fabricated proposal"
+    mutated_path = tmp_path / "mutated-proposta.yaml"
+    mutated_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    mismatches = _owner_proposal_drift(yaml.safe_load(mutated_path.read_text(encoding="utf-8"))["camadas"])
+    assert {m.split(":")[0] for m in mismatches} == {"pagto_obrigacao_ledger", "erasure_log"}, mismatches
+
+
+def test_d31_5_ledger_retention_is_the_owner_proposal_and_the_dpo_fields_stay_blank() -> None:
+    """DEC-31 D31-5 (dono, #1084, 2026-11-02): `pagto_obrigacao_ledger` retida 5 anos (1825 dias),
+    alinhada ao historico do motor e ao CC art. 206 par. 5 I; linhas de prestador PF eliminadas ao
+    fim. E' PROPOSTA do dono: `decisao_dpo` segue PENDENTE e base legal/retencao seguem marcadas
+    PENDENTE-RATIFICACAO-DPO — o DPO formaliza e assina; nenhum agente decide por ele."""
+    code = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    proposta = code["pagto_obrigacao_ledger"].proposta_dono
+    assert proposta is not None
+    for token in ("DEC-31 D31-5", "#1084", "5 anos", "1825 dias", "206", "PF", "DPO"):
+        assert token in proposta, token
+    assert not any(token in proposta for token in ep.DECISION_VOCABULARY)
+    entry = {e["tabela"]: e for e in _shipped_raw()["camadas"]}["pagto_obrigacao_ledger"]
+    assert entry["decisao_dpo"] == "PENDENTE"
+    assert entry["base_legal"].startswith("PENDENTE-RATIFICACAO-DPO")
+    assert entry["retencao"].startswith("PENDENTE-RATIFICACAO-DPO")
+    assert "1825 dias" in entry["retencao"] and "DEC-31 D31-5" in entry["retencao"]
+    data = _shipped_raw()
+    assert (data["status"], data["ratificado"], data["dpo_review"]) == ("DRAFT", False, "PENDENTE")
+    for field in ("dpo_reviewer", "dpo_review_date", "evidence_ref", "notes"):
+        assert str(data[field]).startswith("PENDENTE"), field
+
+
+def test_an_owner_proposal_is_documentation_the_loader_never_reads(tmp_path: Path) -> None:
+    """Ratification still comes ONLY from the DPO fields: a ratified fixture that keeps the
+    owner proposal loads, and the decision carries the DPO's `retencao`, never the proposal."""
+    plan = ep.load_erasure_plan(_write_plan(tmp_path, _ratified_yaml()))
+    decision = plan.get("pagto_obrigacao_ledger")
+    assert decision is not None
+    assert decision.retencao == "5 anos (fixture value)"
+    assert not hasattr(decision, "proposta_dono")
+    assert "proposta_dono" not in ep.REQUIRED_LAYER_FIELDS
 
 
 # ---------------------------------------------------------------------------

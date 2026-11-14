@@ -288,6 +288,17 @@ escopo_b:
         carimbos e o canal de envio (idempotencia) e o PARAR do beneficiario — nenhum telefone,
         valor ou texto; PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o
         alcanca); sem decisao de retencao ratificada e sem varredor
+    - camada: coleta_reembolso
+      tabelas: [reembolso_coleta]
+      motivo: >-
+        fora do escopo B; 0033 (DL-0161/DL-0162, reembolso pelo WhatsApp, flag MAEZO_REEMBOLSO_V1
+        desligada por padrao) guarda so' o conversation_id pseudonimo keyed, a etapa e as respostas
+        FECHADAS da coleta (relacao com o titular, categoria, tipo, motivo), a data do atendimento,
+        o valor pedido em centavos, a lista de {tipo, document_ref} com a referencia OPACA (o arquivo
+        vive na custodia PHI) e o protocolo — nenhum telefone, CPF, nome ou texto livre;
+        PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); a coleta
+        nao concluida vence em expira_em (PROPOSTA de engenharia); a retencao dos anexos PHI (5 anos,
+        segundo a planilha do dono) e' decisao do DPO, sem ratificacao
     - camada: acesso_beneficiario
       tabelas: [acesso_falhas_por_cpf]
       motivo: >-
@@ -296,6 +307,65 @@ escopo_b:
         contagem, dois carimbos e se a janela anterior bloqueou — nenhum CPF, nascimento, nome, telefone ou texto; sem coluna de
         titular e sem ponte (a chave e' uma derivacao do CPF, nao alcanca conversation_id nem a
         referencia DSR); a linha e' apagada sozinha uma janela depois de a de 6 h passar (12 h)
+    - camada: comissao_rascunho
+      tabelas: [commission_adjustment_policies]
+      motivo: >-
+        fora do escopo B; 0029 (superficie INTERNA de estruturas de ajuste de comissao, D-36,
+        decisao do dono de 25/10/2026) guarda so' a ESTRUTURA de rascunho — dimensao, id simbolico do
+        alvo (charset fechado, nunca nome/dado pessoal), tipo de ajuste, espacos de valor anulaveis,
+        janelas de vigencia, precedencia, revisao otimista — e os carimbos de auditoria do operador
+        staff interno (principal_ref); nenhum CPF, nascimento, nome, telefone ou texto. A linha so'
+        pode existir em status `DRAFT` (CHECK no banco), a superficie e' DARK (flag
+        `staff_commission_policies` OFF, tabela vazia por padrao) e ativação exige a ratificacao A8
+        Forma 1 pelos tres papeis (comercial+legal+DPO) como MIGRACAO sucessora; sem coluna de
+        titular e sem ponte (o id do alvo e o principal_ref do editor nao alcanca conversation_id nem
+        a referencia DSR); retencao a ratificar quando a habilitacao do dono criar prazo relevante
+    - camada: legitimidade_tela
+      tabelas: [portal_legitimacy_screens]
+      motivo: >-
+        fora do escopo B; 0030 (substrato DARK do screen de legitimidade da PJ contratante em planos
+        coletivos, OP21/REG-1.1, desenho e parecer do juridico de 26/10/2026) guarda so' a VERIFICACAO
+        (criterio→resultado→referencia tipada em JSONB FECHADO: id do criterio, resultado, ancora
+        normativa limitada, referencias kind+locator+sha256 — NUNCA bytes de documento; a custodia fica
+        com a operadora/administradora, RN 557/2022 arts. 12 e 15 §3º), refs opacas da PJ contratante e
+        da oportunidade, enums de tipo/forma de contratacao, estado da verificacao, would_block, a
+        sinalizacao do art. 39 com ancora literal e os carimbos de auditoria do operador staff interno
+        (created_by); beneficiario nao e' titular aqui — nenhum CPF, nascimento, nome, telefone, dado de
+        saude (o firewall PHI mantem dado clinico fora do insumo comercial) ou texto livre. A linha so'
+        pode existir em status `valid/invalid/pending` (CHECK no banco), enforcing e' postura sucessora
+        (nunca estado), revalidacao = nova screen_revision; a superficie e' DARK (nenhum escritor no
+        substrato, tabela vazia por padrao); sem coluna de titular e sem ponte (as refs de PJ e o
+        created_by do editor nao alcanca conversation_id nem a referencia DSR); retencao a ratificar
+        quando a habilitacao do dono criar prazo relevante
+    - camada: status_prestador
+      tabelas: [prestador_status_ledger]
+      motivo: >-
+        fora do escopo B; 0032 (ledger append-only do status do prestador, MPTT P3, decisao do dono
+        D-T1(A): baseline AMH assinada + deltas dos terminais de SP-OP-CRED-001/SP-OP-FRAUDE-001) guarda
+        so' o STATUS LEGAL de um PRESTADOR — prestador_id (id cadastral/pseudonimo, Zona Geral), enums
+        fechados de origem/dimensao/valor, data de efeito, id da instancia do motor ou sha256 da baseline,
+        business key ou referencia ao documento assinado pela AMH e atributos cadastrais
+        (tipo_prestador/especialidade/regiao_saude); beneficiario nao e' titular aqui — nenhum CPF, nome,
+        dado de saude, texto livre ou beneficiario_pseudo_id. Append-only por trigger, DARK atras de
+        MAEZO_PRESTADOR_STATUS_LEDGER (tabela vazia por padrao); sem coluna de titular de beneficiario e
+        sem ponte DSR. PERGUNTA ABERTA (nao decidida aqui): prestador pessoa fisica e' titular (LGPD
+        art. 5 V) e prestador_id pode identifica-lo; retencao a ratificar (o historico do motor expira
+        em 1825 dias; a projecao e' de longa vida por desenho)
+    - camada: razao_obrigacoes_pagamento
+      tabelas: [pagto_obrigacao_ledger]
+      motivo: >-
+        fora do escopo B; 0034 (razao append-only das obrigacoes de pagamento, pacote PAGTO PR-E,
+        analise PAGTO §4/§8 D6(A) aceita pelo dono) guarda so' o que uma ordem de PAGTO ja carrega como
+        Zona Geral — id da ordem, prestador_id, lote TISS, competencia, valor em centavos, enums fechados
+        de origem/evento, id da instancia de origem no motor e a chave da obrigacao (digest; guia/glosa
+        so' dentro dele); beneficiario nao e' titular aqui — nenhum CPF, nome, dado de saude, texto livre
+        ou beneficiario_pseudo_id. Append-only por trigger, DARK atras de MAEZO_PAGTO_DETECT_DUPLICIDADE
+        (tabela vazia por padrao); sem coluna de titular de beneficiario e sem ponte DSR. PERGUNTA ABERTA
+        (a mesma da 0032, nao decidida aqui): prestador pessoa fisica e' titular (LGPD art. 5 V) e
+        prestador_id pode identifica-lo; retencao a ratificar (prova de pagamento de longa vida) —
+        PROPOSTA do dono (DEC-31 D31-5, #1084, 2026-11-02; campo proposta_dono do template do plano de
+        eliminacao): 5 anos (1825 dias), alinhada ao historico do motor e ao Codigo Civil art. 206
+        par. 5, I, com as linhas de prestador PF eliminadas ao fim; a decisao e a assinatura seguem do DPO
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

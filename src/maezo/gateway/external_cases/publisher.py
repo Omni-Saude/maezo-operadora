@@ -114,7 +114,8 @@ def bind_receipt(request: PublicationRequest, receipt: PublicationReceipt) -> No
         if getattr(ingress, field) != getattr(receipt, field):
             raise ExternalCaseError("conflict")
     if isinstance(receipt, CheckpointPublicationReceipt):
-        assert isinstance(request.packet, CheckpointPacket)
+        if not isinstance(request.packet, CheckpointPacket):
+            raise ExternalCaseError("conflict")
         if (
             request.packet.statement.heads_count != receipt.heads_count
             or request.packet.statement.heads_digest != receipt.heads_digest
@@ -164,8 +165,9 @@ class PostgresExternalCasePublicationSource:
                 row = (
                     (
                         await connection.execute(
+                            # nosemgrep: avoid-sqlalchemy-text # fonte: kind em Kind, validado em capture()
                             text(
-                                "SELECT * FROM maezo_external.capture_external_"
+                                "SELECT * FROM maezo_external.capture_external_"  # nosec B608 # fonte: kind validado em capture()
                                 + kind
                                 + "(CAST(:scope AS jsonb),:publication,:claimant,:deadline)"
                             ),
@@ -329,6 +331,7 @@ class ExternalPublicationLease:
         failure = None
         try:
             await self._connection.execute(
+                # nosemgrep: avoid-sqlalchemy-text # fonte: kind em Kind, validado em capture()
                 text(
                     "SELECT maezo_external.persist_external_"
                     + self.snapshot.kind
@@ -369,6 +372,7 @@ class ExternalPublicationLease:
         async with transaction(self.source.engine, self.source.seconds) as connection:
             result = (
                 await connection.execute(
+                    # nosemgrep: avoid-sqlalchemy-text # fonte: kind em Kind, validado em capture()
                     text(
                         "SELECT maezo_external.transition_external_"
                         + self.snapshot.kind

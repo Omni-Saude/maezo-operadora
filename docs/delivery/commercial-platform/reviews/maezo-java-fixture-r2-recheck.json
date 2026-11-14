@@ -1,0 +1,28 @@
+{
+  "schema": "commercial.java-fixture-original-r2-recheck.v1",
+  "verdict": "APPROVE_NARROW_FIXTURE_LIFECYCLE",
+  "closed_findings": ["JFIX-R1"],
+  "new_findings": [],
+  "verified_before_and_after": {
+    "RuntimeDefinitionObservationTest.java": "70124860fff71b68c7e69bef926b616ee79d6857745b0f83b86326f3917307b3",
+    "MAEZO-C6-JAVA-FIXTURE-REPAIR-R2.md": "3e8ce93af0db6538af8afd0e03073ba3581b82c9bb1e0a34c8e856c197fcd035",
+    "MAEZO-C6-JAVA-FIXTURE-REPAIR-R2-MANIFEST.json": "cfb49b2681c64c40fad70af13f2f6b91909ab8a97ebf496ede94a359212c907c"
+  },
+  "independently_verified_private_evidence": {"r1_hashes": 14, "r2_hashes": 7, "all_matched": true, "xml_and_negative_logs_inspected": true},
+  "qualified_preserved_executions": {
+    "r2_lifecycle": {"tests": 2, "pass": 2, "fail": 0, "error": 0, "skip": 0},
+    "r2_unbounded_join_mutation": {"tests": 1, "fail": 1, "error": 0, "skip": 0, "observed_failure": "finite-budget IOException absent"},
+    "r1_original_host": {"tests": 59, "pass": 41, "fail": 2, "error": 15, "skip": 1},
+    "r1_repaired_host": {"tests": 60, "pass": 42, "fail": 2, "error": 15, "skip": 1},
+    "original_named_cases_missing": [],
+    "original_named_case_outcomes_changed": []
+  },
+  "source_preservation": {"original_prefix_and_suffix_byte_equal": true, "original_churn_assumption_and_census_assertion_retained": true, "original_case_count_retained": 59},
+  "finite_cleanup": {"monotonic": true, "default_budget_ms": 5000, "timeout_before_collection_lock_or_close": true, "interruption_restored": true, "regression_joins_finite": true},
+  "reviewer_execution": "NOT_RUN_READ_ONLY_ARTIFACT_RECHECK",
+  "whole_class_r2": "NOT_RUN",
+  "linux_and_deployed_profile": "PENDING_ROOT_FINAL_EXACT_HEAD_CI",
+  "original_ci_causal_link": "NOT_PROVEN",
+  "source_or_operational_completion": "NOT_CLAIMED",
+  "next_gate": "ROOT final integration, current-main refresh and exact-head whole Java/deployed-profile CI"
+}

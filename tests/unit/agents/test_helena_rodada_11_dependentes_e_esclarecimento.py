@@ -23,10 +23,10 @@ from maezo.agents.helena.consultas_plano import (
     resposta_deterministica,
 )
 from maezo.agents.helena.graph import RESPONSE_KIND_HANDOFF, RESPOSTA_DEPENDENTES, HelenaGraph
+from maezo.domain.conversa.cobranca_esclarecimento import e_seguimento_de_cobranca
 from maezo.platform.webhooks.whatsapp.helena_consultas import ConsultasPlanoAmh
 from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import DependenteAnonimo, DependentesView
-from maezo.runtime.cobranca_esclarecimento import e_seguimento_de_cobranca
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink

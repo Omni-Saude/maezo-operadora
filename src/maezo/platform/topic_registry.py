@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # Convention: {dominio}.{contexto}.{acao}
-_TOPIC_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+_TOPIC_PATTERN: re.Pattern[str] = re.compile(r"\A[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\Z")
 
 # Versioned boundary-topic convention (ADR-0037 XRD-04): {dominio}.{contexto}.{acao}.v{N}, with an
 # OPTIONAL ".quarantine.v{N}" dead-letter suffix. {dominio}/{contexto} keep the original
@@ -57,8 +57,8 @@ _TOPIC_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*
 # config/integrations/amh/contracts.lock.json:topics[].name/.quarantine and the lock-anchored proof
 # in tests/unit/platform/test_topic_registry.py::TestAmhBoundaryTopicsFromLock.
 _VERSIONED_BOUNDARY_TOPIC_PATTERN: re.Pattern[str] = re.compile(
-    r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.v[0-9]+"
-    r"(?:\.quarantine\.v[0-9]+)?$"
+    r"\A[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.v[0-9]+"
+    r"(?:\.quarantine\.v[0-9]+)?\Z"
 )
 
 # Kafka's own hard limit on a topic name (org.apache.kafka.common.internals.Topic,
@@ -268,7 +268,7 @@ class TopicRegistry:
             if topic.startswith(prefix) and topic != "agents.audit":
                 # agents.events.X.Y or agents.audit.X.Y
                 suffix = topic[len(prefix) + 1 :]  # skip the dot
-                if suffix and _TOPIC_PATTERN.match(f"agents.{suffix}"):
+                if suffix and _TOPIC_PATTERN.fullmatch(f"agents.{suffix}"):
                     # Valid: agents.events.contas.glosa or agents.audit.write
                     # Reconstruct and validate as 3-segment
                     parts = topic.split(".")
@@ -285,7 +285,7 @@ class TopicRegistry:
                     raise TopicValidationError(topic, f"Reserved prefix '{prefix}' used with invalid suffix")
 
         # Standard 3-segment convention, OR the versioned boundary-topic convention (ADR-0037 XRD-04).
-        if _TOPIC_PATTERN.match(topic) or _VERSIONED_BOUNDARY_TOPIC_PATTERN.match(topic):
+        if _TOPIC_PATTERN.fullmatch(topic) or _VERSIONED_BOUNDARY_TOPIC_PATTERN.fullmatch(topic):
             return
 
         raise TopicValidationError(
@@ -443,7 +443,7 @@ class TopicRegistry:
 
 def _is_valid_segment(segment: str) -> bool:
     """Check if a single topic segment is valid: [a-z][a-z0-9_]*."""
-    return bool(re.match(r"^[a-z][a-z0-9_]*$", segment))
+    return bool(re.fullmatch(r"[a-z][a-z0-9_]*", segment))
 
 
 def _pii_zone_rank(zone: str) -> int | None:

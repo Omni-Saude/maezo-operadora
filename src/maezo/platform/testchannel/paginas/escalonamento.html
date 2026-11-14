@@ -382,9 +382,11 @@
     <div class="duas" id="caminhos" style="display:none">
       <div class="caminho mot">
         <h4><span class="selo mot">MOTOR</span> Concluir pelo motor</h4>
-        <p class="nota">Chama <code>POST /engine/task/{id}/complete</code> direto, como esta tela
-          sempre fez. É a <b>referência</b>: o desfecho que o processo produz sem portal nenhum.</p>
+        <p class="nota">Chama <code>POST /engine/task/{id}/complete</code> direto. É a
+          <b>referência</b>: o desfecho que o processo produz sem portal nenhum. <b>Desligado por
+          padrão</b>: o canal só conclui pelo motor com <code>CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1</code>.</p>
         <div class="botoes" id="botoesMotor"></div>
+        <div id="avisoMotor"></div>
       </div>
       <div class="caminho por">
         <h4><span class="selo por">PORTAL</span> Concluir pelo portal</h4>
@@ -419,6 +421,14 @@
    validacao mora la', nao aqui: tela nenhuma e' lugar de cerca. */
 window.PORTAL_PUBLIC_ORIGIN = "__PORTAL_PUBLIC_ORIGIN__";
 var PORTAL = String(window.PORTAL_PUBLIC_ORIGIN || "");
+
+/* CONCLUIR PELO MOTOR ESTA DESLIGADO POR PADRAO (pendencia 48, DL-0153). O proxy `/engine` deste
+   canal RECUSA (403) concluir, assumir ou atribuir tarefa humana, salvo com
+   `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1` no servidor - que troca o marcador abaixo por `true`/`false`.
+   Desligado, os botoes do MOTOR ficam desabilitados e a tela orienta "Concluir pelo portal". A cerca
+   e' do servidor; isto so' evita um botao que sempre volta 403. Marcador nao trocado = desligado. */
+window.CANAL_MOTOR_CONCLUI = "__CANAL_MOTOR_CONCLUI__";
+var MOTOR_CONCLUI = window.CANAL_MOTOR_CONCLUI === true;
 
 /* ------------------------------------------------------------------ estado */
 
@@ -855,8 +865,12 @@ function montarCaminhos(tid){
   $("caminhos").style.display = "grid";
   $("botoesMotor").innerHTML = RESULTADOS.map(function(r){
     return '<button class="' + r.classe + '" onclick="concluirMotor(\'' + tid + '\',\'' + r.valor +
-           '\')">' + r.rotulo + "</button>";
+           '\')"' + (MOTOR_CONCLUI ? "" : " disabled") + ">" + r.rotulo + "</button>";
   }).join("");
+  $("avisoMotor").innerHTML = MOTOR_CONCLUI
+    ? ""
+    : '<div class="erro"><b>Concluir pelo portal.</b><br>Este canal não conclui tarefa humana pelo ' +
+      'motor (<code>CANAL_PERMITE_CONCLUIR_PELO_MOTOR</code> desligada): use o caminho do portal ao lado.</div>';
   $("botoesPortal").innerHTML = RESULTADOS.map(function(r){
     return '<button class="' + r.classe + '" onclick="concluirPortal(\'' + tid + '\',\'' + r.valor +
            '\')"' + (PORTAL ? "" : " disabled") + ">" + r.rotulo + "</button>";
@@ -871,6 +885,7 @@ function montarCaminhos(tid){
 /* --------------------------------------------------- caminho 1: pelo motor */
 
 function concluirMotor(tid, resultado){
+  if (!MOTOR_CONCLUI) return;
   botoesAtivos(false);
   $("vTarefa").innerHTML += '<p class="vazio">Concluindo pelo motor…</p>';
   api("/engine/task/" + tid + "/complete", {variables:{
@@ -1725,7 +1740,8 @@ var TAREFAS_HUMANAS = ["UT_TratarEscalonamento", "UT_SupervisorAssume"];
 function botoesAtivos(ligado){
   var alvos = document.querySelectorAll("#botoesMotor button, #botoesPortal button");
   for (var i = 0; i < alvos.length; i++){
-    alvos[i].disabled = !ligado || (!PORTAL && alvos[i].parentNode.id === "botoesPortal");
+    alvos[i].disabled = !ligado || (!PORTAL && alvos[i].parentNode.id === "botoesPortal") ||
+                        (!MOTOR_CONCLUI && alvos[i].parentNode.id === "botoesMotor");
   }
 }
 

@@ -312,3 +312,27 @@ def test_c2_declared_without_tuple_refuses_the_whole_egress_fail_closed() -> Non
     assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
     assert telemetry._attempts[SuppressionEgressAttempt.EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE] == 1
     assert telemetry.phi_egress_violations == 0  # contenção ≠ violação (§4e critério 4)
+
+
+@pytest.mark.parametrize("k", [0, -1])
+def test_k_anon_floor_must_be_positive(k: int) -> None:
+    """Mutation guard (audit R-117): `k > 0` — k=0 or negative is a contract mismatch."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=k)
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+
+
+@pytest.mark.parametrize("k", [True, 100.0])
+def test_k_must_be_a_real_int(k: object) -> None:
+    """Mutation guard (audit R-117): `type(k) is int` — bool/float k is a contract mismatch."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=EGRESS_AUDIENCE_GATE_MINIMUM, k=k)  # type: ignore[arg-type]
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+
+
+@pytest.mark.parametrize("audience_size", [-1, 300.0, True])
+def test_audience_size_must_be_a_non_negative_int(audience_size: object) -> None:
+    """Mutation guard (audit R-117): `audience_size >= 0 and type(audience_size) is int`."""
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export([], audience_size=audience_size)  # type: ignore[arg-type]
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH

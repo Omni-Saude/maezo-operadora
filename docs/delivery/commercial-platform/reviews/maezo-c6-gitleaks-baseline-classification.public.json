@@ -1,0 +1,211 @@
+{
+  "schema": "maezo-commercial-gitleaks-baseline-classification.v1",
+  "reviewer_role": "commercial_arch_security_verifier",
+  "disposition": "BASELINE_NONSECRET_MATCHES_RETAINED_NO_NEW_WAIVERS",
+  "date": "2026-10-22",
+  "native_full_current_tree_findings": 14,
+  "known_new_report_finding": 1,
+  "additional_baseline_findings": 13,
+  "baseline_result_sha256": "387eae1e205de89d08c0bcbd208b93f18db5542d519e571a29e9c8afa012ab67",
+  "baseline_log_sha256": "472e4eb3571f6f68607e13a35ea15bf5e0923c54bead268ff9e33d8a13ac15b3",
+  "source_snapshot_refs": [
+    "4fbdc3c86562cfd0f080bc5d0e9765dc70b18190",
+    "5f64f0e07f8cd13ee2ef6607c7f7652e1507ba80",
+    "6a7c0d9bb093a438d27f0fd7dfdb253c81d41722"
+  ],
+  "files_verified_at_each_snapshot": 8,
+  "remote_byte_comparisons_matched": 24,
+  "files": [
+    {
+      "path": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars",
+      "file_digest": "b970ec696bcaf2e6644cbc4627e327baf2d44eac5b85e2b17087ff3df576ceb7"
+    },
+    {
+      "path": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json",
+      "file_digest": "70ce085625a1918ec31fe4fb1c79e6aa1c0202854e4d3b50bf73f25f16e2479a"
+    },
+    {
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "file_digest": "176fde7df51624d94737baa6c94e5f078b17fbe187c4798a22e811ac131b71ad"
+    },
+    {
+      "path": "src/maezo/gateway/human/credentials.py",
+      "file_digest": "0fe7db9b165422be869cbb28511cab01807ac4f8866652a25ff4079fb4f00cf0"
+    },
+    {
+      "path": "src/maezo/gateway/document_requests/composition.py",
+      "file_digest": "f2d6e697059fc9deca578fed74893bd5bd7a79ba537582db0d7b4f1230c2a1e4"
+    },
+    {
+      "path": "src/maezo/gateway/human/auth_transport.py",
+      "file_digest": "9ae1bb09df509722f28293413d2f01ce37def136e8cc345230a6333e1579cbdf"
+    },
+    {
+      "path": "src/maezo/gateway/human/read_credentials.py",
+      "file_digest": "e5c920f28368e17f2610738fe59ec277e6ec6eedf6dbdbb55986c0959dfd6d9e"
+    },
+    {
+      "path": "src/maezo/gateway/staff_cases/publisher.py",
+      "file_digest": "c500498ab8e3f8d2861df8d61fe491e04032a0ec4804df034a3288136e384861"
+    }
+  ],
+  "findings": [
+    {
+      "rule": "generic-api-key",
+      "path": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars",
+      "line": 93,
+      "fingerprint": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93",
+      "classification": "SECRETS_MANAGER_VERSION_IDENTIFIER_NOT_PAYLOAD",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars",
+      "line": 114,
+      "fingerprint": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:114",
+      "classification": "SECRETS_MANAGER_VERSION_IDENTIFIER_NOT_PAYLOAD",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json",
+      "line": 11,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:11",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json",
+      "line": 12,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:12",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 23,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:23",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 126,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:126",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 162,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:162",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 164,
+      "fingerprint": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:164",
+      "classification": "AUDIT_ARTIFACT_OR_RECEIPT_DIGEST_METADATA",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/credentials.py",
+      "line": 72,
+      "fingerprint": "src/maezo/gateway/human/credentials.py:generic-api-key:72",
+      "classification": "PYTHON_IDENTIFIER_OR_TYPE_NO_STRING_LITERAL",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/document_requests/composition.py",
+      "line": 267,
+      "fingerprint": "src/maezo/gateway/document_requests/composition.py:generic-api-key:267",
+      "classification": "PYTHON_IDENTIFIER_OR_TYPE_NO_STRING_LITERAL",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/auth_transport.py",
+      "line": 65,
+      "fingerprint": "src/maezo/gateway/human/auth_transport.py:generic-api-key:65",
+      "classification": "PYTHON_IDENTIFIER_OR_TYPE_NO_STRING_LITERAL",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/read_credentials.py",
+      "line": 108,
+      "fingerprint": "src/maezo/gateway/human/read_credentials.py:generic-api-key:108",
+      "classification": "PYTHON_IDENTIFIER_OR_TYPE_NO_STRING_LITERAL",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/staff_cases/publisher.py",
+      "line": 48,
+      "fingerprint": "src/maezo/gateway/staff_cases/publisher.py:generic-api-key:48",
+      "classification": "PYTHON_IDENTIFIER_OR_TYPE_NO_STRING_LITERAL",
+      "actual_credential_literal_identified": false,
+      "in_curated54_or_new_publication_delta": false
+    }
+  ],
+  "classification_evidence": {
+    "python_matched_statements_without_string_literals": 5,
+    "version_identifiers_uuid_shaped_and_used_in_ecs_value_from": 2,
+    "digest_metadata_matches": 6,
+    "published_api_artifact_digest_independently_recomputed": true,
+    "private_original_artifact_or_receipt_contents_retrieved": false
+  },
+  "new_delta_contains_these_files": false,
+  "additional_waivers_recommended": false,
+  "native_full_zero_claim": false,
+  "actual_credential_gating_risk_identified": false,
+  "raw_matched_values_printed": false,
+  "native_scan_executed_by_reviewer": false,
+  "source_or_scanner_mutations": false,
+  "cloud_secret_access": false,
+  "git_mutations": false,
+  "final_configuration_acceptance": "PENDING_FROZEN_AUTHOR_EVIDENCE",
+  "merge_ready": false,
+  "publication_projection": {
+    "schema": "maezo-baseline-classification-publication-projection.v1",
+    "publication_role": "VALUE_PRESERVING_DERIVATIVE_NOT_ORIGINAL_RAW_BYTES",
+    "admission_owner": "ROOT",
+    "original_filename": "maezo-c6-gitleaks-baseline-classification.json",
+    "original_raw_sha256": "c804604a0df11e2f9f2b4a5050f3b4a23dd449301109bec0ead95745e0c34cde",
+    "original_markdown_filename": "maezo-c6-gitleaks-baseline-classification.md",
+    "original_markdown_raw_sha256": "73f2f98ca74a6aca0edcbaa038cd59a21a05cd2d356a1f0c8ebc3a2e2de1abfa",
+    "private_custody_relative_path": "../repair-preimages.local/maezo-c6-baseline-publication-projection/originals/maezo-c6-gitleaks-baseline-classification.json",
+    "transformed_field": "/files",
+    "original_shape": "object mapping path to digest",
+    "public_shape": "array of records with exact path and file_digest values",
+    "other_original_facts_and_values_preserved": true,
+    "inverse_reconstruction_algorithm": [
+      "Deep-copy this decoded JSON object and remove only publication_projection.",
+      "Require files to be a list of records whose exact keys are path and file_digest and whose paths are unique.",
+      "Replace files with an object mapping each record.path to the same record.file_digest, retaining list order.",
+      "The entire reconstructed decoded object must deep-equal the original decoded JSON. Original raw bytes remain separately preserved and hash-verified in private custody."
+    ],
+    "raw_original_and_markdown_modified_by_projection_author": false,
+    "scanner_configuration_or_waiver_changes": false
+  }
+}

@@ -28,6 +28,9 @@ Configuração por ambiente, nada cravado:
     RECEPTOR_URL          — base do receptor de webhook (só para `/receptor/simular`)
     WHATSAPP_APP_SECRET   — segredo da Meta, usado para ASSINAR o envelope sintético
     CANAL_SIMULAR_RECEPTOR — "1" LIGA `/receptor/simular`; ausente = rota inexistente
+    CANAL_PERMITE_CONCLUIR_PELO_MOTOR — "1" deixa o proxy `/engine` concluir/assumir tarefa humana e
+                            fazer DELETE; ausente = recusa (403), salvo a excecao de SP-OP-AUTH-001
+                            (ver `_recusa_do_motor`, DL-0153)
     MAEZO_ENV             — ambiente, pelo nome que o resto do repo usa; só `dev` libera o portal
     PORTAL_PUBLIC_ORIGIN  — origem do Portal Maezo entregue à página; RECUSADA fora de `dev`
     MAEZO_TESTCHANNEL_RESULT_ALLOWLIST — números de teste (E.164) cujos casos a página de
@@ -52,6 +55,7 @@ import hashlib
 import hmac
 import json
 import os
+import posixpath
 import re
 import urllib.error
 import urllib.parse
@@ -95,6 +99,33 @@ APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET", "")
 #: na task definition — que e' onde a cerca de CI (`scripts/ci/check_canal_simular.py`)
 #: consegue ver e reprovar fora de `dev-sa-east-1`.
 SIMULAR_LIGADO = os.environ.get("CANAL_SIMULAR_RECEPTOR", "") == "1"
+
+#: O CANAL NAO CONCLUI PELO MOTOR (pendencia 48, DL-0153). O proxy `/engine/*` RECUSA (403), por
+#: padrao, QUALQUER `POST /task/{id}/<sub-recurso>` (complete, claim, unclaim, assignee, delegate,
+#: resolve, submit-form, identity-links, variables, localVariables, bpmnError, bpmnEscalation,
+#: comment/create, attachment/create, ...), o `POST /task/create` e QUALQUER `DELETE`: concluir,
+#: assumir, atribuir, delegar ou alterar uma tarefa humana e' do PORTAL (que autentica, audita e
+#: confere o grupo), nunca de uma pagina sem autenticacao propria. E' RECUSA POR PADRAO, nao lista
+#: de acoes: no engine-rest todo `POST` em `task/{id}/...` muda a tarefa (revisao do #869: a lista
+#: fechada deixava `delegate` passar). `PUT`/`PATCH` nao passam porque o proxy nao os implementa. So' `"1"` liga — e ligar e' um ato
+#: visivel na task definition (`service-canal-teste.tf` NAO declara a chave: desligado em dev).
+PERMITE_CONCLUIR_PELO_MOTOR = os.environ.get("CANAL_PERMITE_CONCLUIR_PELO_MOTOR", "") == "1"
+
+#: `POST /task/{id}/<sub-recurso>`: grupo 1 = id da tarefa, grupo 2 = primeiro segmento do
+#: sub-recurso (o nome da acao). Qualquer sub-recurso casa: a recusa e' por padrao.
+_RE_ACAO_DE_TAREFA = re.compile(r"(?:^|/)task/([^/?#]+)/([^/?#]+)", re.IGNORECASE)
+#: `POST /task/create` cria tarefa humana avulsa fora do processo: tambem e' do portal, nunca do canal.
+_RE_CRIAR_TAREFA = re.compile(r"(?:^|/)task/create/?(?:[?#]|$)", re.IGNORECASE)
+
+#: EXCECAO EXPLICITA, LISTA FECHADA: a pagina `autorizacao.html` testa a mesa do medico auditor de
+#: SP-OP-AUTH-001 e so' tem o motor para registrar a decisao (nao ha conclusao pelo portal para ela
+#: hoje). Para esses processos — e so' `complete` — o proxy deixa passar mesmo sem a chave. O
+#: processo e' lido NO MOTOR (`GET /task/{id}` -> `GET /process-definition/{id}`), nunca do pedido:
+#: o que a pagina diz sobre si mesma nao e' prova. Leitura que falha = recusa.
+PROCESSOS_QUE_CONCLUEM_PELO_MOTOR: frozenset[str] = frozenset({"SP-OP-AUTH-001"})
+ACOES_DA_EXCECAO: frozenset[str] = frozenset({"complete"})
+#: Literal JavaScript que as paginas declaram e o servidor troca por `true`/`false` (a chave acima).
+MARCA_MOTOR_CONCLUI_LITERAL = '"__CANAL_MOTOR_CONCLUI__"'
 
 #: SEGUNDA CERCA: a faixa de telefone de teste, ancorada nas DUAS pontas e com
 #: comprimento exato. `startswith` sozinho aceitaria `5511900000` seguido de qualquer
@@ -513,7 +544,97 @@ def _corpo_do_receptor(bruto: bytes) -> dict[str, object]:
     return corpo
 
 
+def _caminho_normalizado(caminho: str) -> str:
+    """O caminho como o MOTOR o leria: sem query/fragmento, decodificado (ate' tres camadas de `%`),
+    barra invertida como barra, sem parametro de matriz (`;x`), `.`/`..` resolvidos e barras
+    repetidas colapsadas. A cerca compara ESTE caminho — `/task/x/../x/complete`, `/task/x/%63omplete`
+    e `/default/task/x/complete` (motor nomeado) caem na mesma regra que `/task/x/complete`."""
+    so_caminho = caminho.split("?", 1)[0].split("#", 1)[0]
+    for _ in range(3):
+        decodificado = urllib.parse.unquote(so_caminho)
+        if decodificado == so_caminho:
+            break
+        so_caminho = decodificado
+    so_caminho = re.sub(r";[^/]*", "", so_caminho.replace("\\", "/"))
+    return re.sub(r"/+", "/", posixpath.normpath("/" + so_caminho))
+
+
+def _processo_da_tarefa(tarefa_id: str) -> str | None:
+    """A CHAVE do processo da tarefa, lida no motor; `None` se a leitura falhar ou vier torta."""
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", tarefa_id):
+        return None
+    try:
+        with urllib.request.urlopen(f"{ENGINE}/task/{tarefa_id}", timeout=10) as r:
+            tarefa = json.loads(r.read())
+        definicao = tarefa.get("processDefinitionId") if isinstance(tarefa, dict) else None
+        if not isinstance(definicao, str) or not definicao:
+            return None
+        url = f"{ENGINE}/process-definition/{urllib.parse.quote(definicao, safe='')}"
+        with urllib.request.urlopen(url, timeout=10) as r:
+            processo = json.loads(r.read())
+    except (OSError, ValueError):
+        return None
+    chave = processo.get("key") if isinstance(processo, dict) else None
+    return chave if isinstance(chave, str) and chave else None
+
+
+def _recusa_do_motor(metodo: str, caminho: str) -> str | None:
+    """Por que o proxy `/engine` RECUSA este pedido, ou `None` se ele passa (pendencia 48, DL-0153).
+
+    `caminho` e' o que vai depois de `/engine`. GET sempre passa. Com `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1`
+    tudo passa, como antes. Sem a chave: `DELETE` em qualquer caminho, `POST /task/create` e QUALQUER
+    `POST /task/{id}/<sub-recurso>` sao recusados (recusa por padrao), salvo `complete` de tarefa de
+    processo da lista fechada
+    `PROCESSOS_QUE_CONCLUEM_PELO_MOTOR` (a pagina de autorizacao), conferido no motor."""
+    if PERMITE_CONCLUIR_PELO_MOTOR or metodo == "GET":
+        return None
+    if metodo == "DELETE":
+        return "DELETE pelo Canal de Teste esta desligado (CANAL_PERMITE_CONCLUIR_PELO_MOTOR)."
+    normalizado = _caminho_normalizado(caminho)
+    if _RE_CRIAR_TAREFA.search(normalizado):
+        return (
+            "O Canal de Teste nao cria tarefa humana pelo motor: isso e' do portal "
+            "(CANAL_PERMITE_CONCLUIR_PELO_MOTOR desligada)."
+        )
+    acao = _RE_ACAO_DE_TAREFA.search(normalizado)
+    if acao is None:
+        return None
+    tarefa_id, nome_da_acao = acao.group(1), acao.group(2).lower()
+    if (
+        nome_da_acao in ACOES_DA_EXCECAO
+        and _processo_da_tarefa(tarefa_id) in PROCESSOS_QUE_CONCLUEM_PELO_MOTOR
+    ):
+        return None
+    return (
+        f"O Canal de Teste nao faz '{nome_da_acao}' de tarefa humana pelo motor: conclua pelo portal "
+        "(CANAL_PERMITE_CONCLUIR_PELO_MOTOR desligada)."
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _proxy_motor(self) -> None:
+        """O proxy `/engine` com a cerca de `_recusa_do_motor` na frente (403 com o motivo)."""
+        recusa = _recusa_do_motor(self.command, self.path[len("/engine") :])
+        if recusa is not None:
+            # Le e descarta o corpo antes de responder: corpo nao lido na conexao faz o cliente receber
+            # o reset (ConnectionAbortedError no Windows) em vez do 403 com o motivo.
+            restante = int(self.headers.get("Content-Length", 0) or 0)
+            while restante > 0:
+                lido = self.rfile.read(min(restante, 65536))
+                if not lido:
+                    break
+                restante -= len(lido)
+            self._responder_json(
+                403,
+                {
+                    "erro": recusa,
+                    "orientacao": "Concluir pelo portal",
+                    "chave": "CANAL_PERMITE_CONCLUIR_PELO_MOTOR",
+                },
+            )
+            return
+        self._proxy(ENGINE, "/engine")
+
     def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
 
@@ -582,6 +703,11 @@ class Handler(BaseHTTPRequestHandler):
             # com seguranca; ela cai para "portal nao configurado" em vez de receber o marcador
             # cru, que e' string TRUTHY e faria a tela chamar `https://__PORTAL_.../api/v1/...`.
             dados = dados.replace(MARCA_PORTAL.encode(), b"")
+            # Pendencia 48 (DL-0153): a pagina so' liga os botoes do MOTOR com a chave ligada. Literal
+            # inteiro trocado por `true`/`false` (mesma tecnica do marcador do portal).
+            dados = dados.replace(
+                MARCA_MOTOR_CONCLUI_LITERAL.encode(), json.dumps(PERMITE_CONCLUIR_PELO_MOTOR).encode()
+            )
         self.send_response(200)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(dados)))
@@ -590,7 +716,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
         if self.path.startswith("/engine"):
-            self._proxy(ENGINE, "/engine")
+            self._proxy_motor()
             return
         if self.path.split("?")[0] == "/resultados/api/caso":
             self._resultados_caso()
@@ -613,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path.startswith("/engine"):
-            self._proxy(ENGINE, "/engine")
+            self._proxy_motor()
             return
         # Rota ESTREITA e comparacao EXATA: `startswith` deixaria `/receptor/simular/algo`
         # cair aqui tambem, e esta e' a ultima rota onde se quer folga.
@@ -630,6 +756,14 @@ class Handler(BaseHTTPRequestHandler):
             # 180s: um turno com modelo real pode levar dezenas de segundos, e o que se quer
             # ver e' exatamente esse caso.
             self._proxy(AGENTE, "/agente", timeout=180)
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        # Pendencia 48 (DL-0153): DELETE no motor so' com `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1`.
+        if self.path.startswith("/engine"):
+            self._proxy_motor()
             return
         self.send_response(404)
         self.end_headers()
@@ -811,7 +945,8 @@ def main() -> None:
         f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'} "
         f"| /receptor/simular: {'LIGADA -> ' + RECEPTOR if SIMULAR_LIGADO and RECEPTOR and APP_SECRET else 'desligada'} "
         f"| ambiente: {AMBIENTE or '(ausente)'} | portal: {PORTAL_ORIGIN or PORTAL_MOTIVO} "
-        f"| resultados: {RESULTADOS_MOTIVO}",
+        f"| resultados: {RESULTADOS_MOTIVO} "
+        f"| concluir pelo motor: {'LIGADO' if PERMITE_CONCLUIR_PELO_MOTOR else 'desligado (so SP-OP-AUTH-001 complete)'}",
         flush=True,
     )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

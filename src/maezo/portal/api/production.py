@@ -157,6 +157,7 @@ def _interim_completion(settings: PortalProductionSettings) -> InterimCompletion
     return InterimCompletionConfig(
         engine_origin=settings.direct_completion_engine_origin,
         timeout_seconds=settings.direct_completion_timeout_seconds,
+        reembolso_anexos_bucket=settings.reembolso_anexos_bucket,
     )
 
 

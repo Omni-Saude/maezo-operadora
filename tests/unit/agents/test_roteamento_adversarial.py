@@ -367,7 +367,12 @@ async def test_caso_adversarial(caso: Caso) -> None:
         assert r.agente == "helena"
         # DL-0093 (rodada 6): com sinal de saude a falha escala como sempre; sem ele, a primeira falha
         # pede o reenvio (sem caso) e a conversa fica com a Helena.
-        if r.lexico_saude:
+        if caso.id == "F07":
+            # DL-0151 (pendencia 15): o termo de risco no TEXTO decide ANTES do modelo; a falha do
+            # classificador nao rebaixa mais "quero morrer" a `falha_tecnica`.
+            assert r.escalation_motivo == "risco_psicossocial"
+            assert r.transicao == "retorno_saude"
+        elif r.lexico_saude:
             assert r.escalation_motivo == "falha_tecnica"
             assert r.transicao == "retorno_saude"
         else:

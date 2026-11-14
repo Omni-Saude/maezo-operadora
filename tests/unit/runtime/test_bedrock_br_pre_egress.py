@@ -350,6 +350,9 @@ def test_sdk_timeout_and_retry_configuration_are_preserved(monkeypatch: pytest.M
     args, kwargs = calls[0]
     assert args == ("bedrock-runtime",)
     assert kwargs["region_name"] == "sa-east-1"
-    assert kwargs["config"].read_timeout == 4.5
-    assert kwargs["config"].connect_timeout == 4.5
+    # DL-0139 (22/10/2026): conexao + leitura cabem no prazo TOTAL (antes cada um tinha 4,5 s; a chamada podia
+    # levar a soma); a tentativa continua unica.
+    assert kwargs["config"].connect_timeout == pytest.approx(0.9)
+    # 22/10/2026: a leitura corre duas vezes quando o modelo nao responde (medido na AWS); metade do resto.
+    assert 2 * kwargs["config"].read_timeout + kwargs["config"].connect_timeout == pytest.approx(4.5)
     assert kwargs["config"].retries == {"max_attempts": 1, "mode": "standard"}

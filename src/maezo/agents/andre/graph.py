@@ -65,8 +65,8 @@ highest human tier (comite) — never a silent auto_route. KPI invariants:
 workers (`operadora.pagto.validate_payment_data`/`calculate_facts` via `CeilingResolver`, T1.9)
 — this graph CONSUMES them, NEVER computes them (`tests/unit/sec/test_dentro_teto_source.py`
 scans `tools/workers/{reembolso,auth,pagto}.py`; this module never originates the ceiling fact —
-every occurrence below is a pure pass-through of `state.get("dentro_teto_l2")` into the DMN input
-or the contract variables).
+every occurrence below is a pure pass-through of `state.get("dentro_teto_l2")` into the DMN input;
+since the PAGTO PR-B package it is NEVER seeded into the contract variables — I-PAGTO-1).
 
 EGRESS STRUCTURAL GUARDRAIL (Andre is the PHI egress chokepoint; ADR-0006/0019): the population/
 lake client is INJECTED (Protocol `PopulationFeatureClient`) and returns ONLY k-anon aggregates
@@ -133,9 +133,10 @@ DIVERGENCES FROM DONOR (disclosed, spec wins per this task's charter):
    value, with that faixa as input; admissibility human shortcuts terminate before it (mirrors
    `UT_AnaliseAdmissibilidade`'s branch, which has no SLA task). Informative-only either way —
    SLA failure never blocks routing (mirrors Rafael's `auth_sla`).
-3. **Admissibility-branch human group is `coordenacao-financeira`, not comite.** The BPMN's
+3. **Admissibility-branch human group is `analise-contas-pagar`, not comite.** The BPMN's
    `UT_AnaliseAdmissibilidade` (the target of the non-admissible branch) declares
-   `camunda:candidateGroups="coordenacao-financeira"`; the donor sent `PENDENTE_DADOS`/
+   `camunda:candidateGroups="analise-contas-pagar"` (R-041 / #1084: checker split from
+   approval); the donor sent `PENDENTE_DADOS`/
    admissibility-`ANALISE_HUMANA` to `comite-financeiro`. This graph follows the BPMN. DMN-down/
    ambiguity/out-of-allowlist still go to the conservative `comite-financeiro` (highest tier).
 4. **The clerical path echoes the DMN's own `grupo_aprovador` output verbatim**
@@ -278,8 +279,10 @@ MotivoHumano = Literal[
 ]
 
 # Human candidate groups of the alcada ladder (contract DRAFT — value-driven by pagto_alcada).
-# CLOSED set (ADR-0018 part 3): no group outside this list is ever emitted as a human destination
-# on the pagto flow.
+# CLOSED set of APPROVER groups (ADR-0018 part 3): `_resolve_grupo` never emits an approver group
+# outside this list. The only other human destination on the pagto flow is the admissibility
+# checker `_GRUPO_ADMISSIBILIDADE` (`analise-contas-pagar`), kept deliberately OUTSIDE this set
+# (R-041 / #1084, SoD S5 — the checker is never an approver).
 _GRUPOS_VALIDOS: frozenset[str] = frozenset(
     {
         "aprovacao-financeira-l1",
@@ -297,8 +300,9 @@ _FAIXA_TO_GRUPO: dict[str, str] = {
     "ANALISE_HUMANA": "comite-financeiro",  # conservative catch-all -> highest tier
 }
 _GRUPO_CONSERVADOR = "comite-financeiro"
-# BPMN `UT_AnaliseAdmissibilidade`'s candidate group (module docstring divergence #3).
-_GRUPO_ADMISSIBILIDADE = "coordenacao-financeira"
+# BPMN `UT_AnaliseAdmissibilidade`'s candidate group (module docstring divergence #3). Deliberately
+# OUTSIDE `_GRUPOS_VALIDOS`: the checker is never an approver (R-041 / #1084, SoD S5).
+_GRUPO_ADMISSIBILIDADE = "analise-contas-pagar"
 # Human group of the adequacao_dossier flow: the factual remediation dossier feeds
 # `UT_DecisaoFallback` of SP-OP-ADEQUACAO-001 (candidate group per that contract).
 _GRUPO_GESTAO_REDE = "gestao-rede"
@@ -1038,7 +1042,7 @@ class AndreGraph:
         base: dict[str, Any] = {"admissibilidade": admissibilidade, "dmn_refs": dmn_refs}
 
         if admissibilidade == "PENDENTE_DADOS":
-            # BPMN: non-admissible branch -> UT_AnaliseAdmissibilidade (coordenacao-financeira,
+            # BPMN: non-admissible branch -> UT_AnaliseAdmissibilidade (analise-contas-pagar, R-041;
             # divergence #3); terminates BEFORE pagto_alcada/pagto_sla.
             return {**base, **self._route_human("pendencia_dados", dmn_refs, _GRUPO_ADMISSIBILIDADE)}
         if admissibilidade == "ANALISE_HUMANA":
@@ -1328,8 +1332,9 @@ class AndreGraph:
 
         Includes Andre's risk dossier as `dossie_andre` (instruction) and `motivo_encaminhamento`
         /`grupo_destino` when routed to human — NEVER a payment release nor a price decision.
-        `valor_pagamento_cents` travels as INTEGER-CENTAVOS; `dentro_teto_l2` is the
-        worker-pre-resolved fact passed through verbatim (consumed, never computed).
+        `valor_pagamento_cents` travels as INTEGER-CENTAVOS. The admissibility/alcada FACTS
+        (`pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE`, incl. `dentro_teto_l2`) are NEVER seeded —
+        I-PAGTO-1, ADR-0040 OQ-13 correction D-m1: SP-OP-PAGTO-001 resolves them itself.
         `data_vencimento` is seeded per GAP-PAGTO-7 (contract :72). Only called for
         `pagto_dossier` (`start_process` no-ops before this for every other flow).
         """
@@ -1344,10 +1349,11 @@ class AndreGraph:
             "data_vencimento": state.get("data_vencimento", ""),  # deadline anchor (GAP-PAGTO-7)
             "conta_origem_ref": str(state.get("conta_origem_ref", "")),  # token, never raw account
             "instrumento_pagamento": str(state.get("instrumento_pagamento", "")),
-            "dados_pagamento_validos": bool(state.get("dados_pagamento_validos", False)),
-            "lastro_confirmado": bool(state.get("lastro_confirmado", False)),
-            "dentro_teto_l2": bool(state.get("dentro_teto_l2", False)),  # pure pass-through
-            "duplicidade_suspeita": bool(state.get("duplicidade_suspeita", False)),
+            # I-PAGTO-1 (ADR-0040 D6-bis; OQ-13 correcao D-m1; pacote PAGTO PR-B): NENHUM fato de
+            # `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` e semeado aqui — `dados_pagamento_validos`/
+            # `lastro_confirmado`/`dentro_teto_l2`/`duplicidade_suspeita` (e os fatos novos do
+            # pacote) sao resolvidos DENTRO de SP-OP-PAGTO-001 pelos proprios workers/DMNs. Andre
+            # os LE do payload A2A para o proprio dossie/roteamento, nunca os embarca no start.
             # Agent provenance (ADR-0007/0015 — contract §Variaveis de proveniencia).
             "source_agent_id": "andre",
             "source_agent_version": self._agent_version,

@@ -165,6 +165,7 @@ import itertools
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -515,11 +516,16 @@ async def deploy_artifacts(engine: EngineRest) -> str:
     return deployment_id
 
 
-@pytest_asyncio.fixture
-async def contas_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+@asynccontextmanager
+async def _contas_probe_ctx(
+    engine: EngineRest,
+    audit_sink: Any,
+    audit_tenant: str,
+    audit_pg: tuple[str, str],
+    **flags: bool | str,
 ) -> AsyncIterator[ContasEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de contas."""
+    """Corpo do `contas_probe`; `flags` sao as bandeiras escuras repassadas ao bootstrap REAL
+    (`register_contas_workers(**seams)`), ex. `contas_sla_risk_entrega=True` (R-107)."""
     worker_id = f"qa-contas-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # Nenhum WorkerBpmnError e lancado por contas.py (FINDING 3: os guards sao PermissionError/
@@ -545,7 +551,9 @@ async def contas_probe(
     deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-PAGTO-001", "SP-OP-FRAUDE-001")
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
-    register_contas_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
+    register_contas_workers(
+        harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink, **flags
+    )
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's — verbatim style): todo topico contas.* registrado no harness
@@ -565,6 +573,39 @@ async def contas_probe(
         await dmn.close()
 
 
+@pytest_asyncio.fixture
+async def contas_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe que serve as external tasks com os workers reais de contas."""
+    async with _contas_probe_ctx(engine, audit_sink, audit_tenant, audit_pg) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def contas_probe_entrega(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe com `MAEZO_CONTAS_SLA_RISK_ENTREGA` ligada (R-107 / F-135): o alerta de SLA de CONTAS
+    e publicado no canal interno `operadora.notifications.internal`."""
+    async with _contas_probe_ctx(
+        engine, audit_sink, audit_tenant, audit_pg, contas_sla_risk_entrega=True
+    ) as probe:
+        yield probe
+
+
+@pytest_asyncio.fixture
+async def contas_probe_chave_por_conta(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
+) -> AsyncIterator[ContasEngineProbe]:
+    """Probe com `MAEZO_PAGTO_CHAVE_CONTA_FASE=escrita_alvo` (decisao do dono 2026-11-01, opcao A):
+    o handoff escreve a chave PAGTO por conta `PAGTO-{t}-C-{guia}-{conta}` na forma guia/conta."""
+    async with _contas_probe_ctx(
+        engine, audit_sink, audit_tenant, audit_pg, pagto_chave_conta_fase="escrita_alvo"
+    ) as probe:
+        yield probe
+
+
 #: Topicos que `register_pagto_workers` REALMENTE registra (espelha `_PAGTO_WORKER_TOPICS` de
 #: `test_sp_op_recurso_001.py` — o irmao de origem-RECURSO desta mesma prova). Sem drenar os
 #: workers de PAGTO a instancia de destino ESTACIONA na sua primeira external task e toda
@@ -579,6 +620,7 @@ _PAGTO_WORKER_TOPICS = [
     "operadora.pagto.notify_sla_risk",
     "operadora.pagto.register_payment_refusal",
     "operadora.pagto.prepare_approval_dossier",
+    "operadora.pagto.register_committee_vote",
 ]
 
 _UT_PAGTO_ADMISSIBILIDADE = "UT_AnaliseAdmissibilidade"
@@ -690,8 +732,10 @@ async def start_contas(engine: EngineRest, deploy_artifacts: str) -> Callable[..
             "documentacao_anexa": True,
             "indicio_fraude_sinalizado": False,
         }
+        # Forma guia/conta (chave PAGTO por conta, decisao do dono 2026-11-01): o teste pode dar a
+        # instancia a chave contratual `CONTAS-amh-{guia}-{conta}`; o padrao segue a forma lote.
+        business_key = str(overrides.pop("business_key", f"CONTAS-amh-{lote}"))
         variables.update(overrides)
-        business_key = f"CONTAS-amh-{lote}"
         inst = await engine.start_by_key(_PROCESS_KEY, business_key, variables)
         # Proveniencia da definicao que ESTA instancia carrega (nao a latest do momento): imune a
         # um deploy alheio que chegue depois do start, e o unico ponto onde a versao executada e
@@ -1157,7 +1201,7 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     definindo o booleano como "conta adjudicada" — e a ordem cairia direto na faixa clerical
     `DENTRO_TETO_L2` (`ST_ReleaseLowValue`, sem User Task nenhuma), que NAO e coberta por
     `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Com ela, `pagto_admissibility` le o lastro ausente =>
-    `ANALISE_HUMANA` => a ordem PARA na fila de `coordenacao-financeira`.
+    `ANALISE_HUMANA` => a ordem PARA na fila de `analise-contas-pagar` (R-041).
 
     Este e o caso MAIS FORTE dos dois: aqui nao houve humano NENHUM do lado da origem, entao a
     User Task de admissibilidade e o UNICO humano no caminho inteiro do dinheiro.
@@ -1192,7 +1236,7 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     await pagto_drain.drain()
 
     pagto_ut = await engine.await_user_task(pagto_iid, _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups, (
+    assert pagto_ut.candidate_groups == frozenset({"analise-contas-pagar"}), (
         "a ordem tem de parar na fila HUMANA de admissibilidade — a adjudicacao automatica da "
         "conta nao confirma o lastro da ordem que ela produziu (I-PAGTO-1)"
     )
@@ -1225,28 +1269,21 @@ async def test_conta_originada_em_contas_nunca_alcanca_liberacao_automatica_sem_
     )
 
 
-async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
+async def test_m4_categoria_desconhecida_roteia_a_analista_de_contas(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
-    pagto_drain: PagtoDrainProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """OQ-10 / M-4: a DIVULGACAO OBRIGATORIA de ADR-0040, tornada um fato verificavel.
+    """M-4 / F-033 FECHADO por DEC-14 (dono, 2026-10-31, #1084, opcao (a) "rotear a humano"; R-062).
 
-    O achado M-4 NAO foi fechado por este redesenho — a row permissiva da `glosa_triage` continua
-    com o conjunto negativo que admite `categoria_normalizada="desconhecida"`, e fecha-lo e ato do
-    dono da tabela. O que MUDOU e a CONSEQUENCIA, e ela tem de ser dita nos dois sentidos:
-
-      ANTES: o input defeituoso terminava num terminal sem efeito e sem revisor.
-      DEPOIS: ele emite um demonstrativo ao prestador E cria uma ordem em SP-OP-PAGTO-001 —
-              que PARA na fila humana de `UT_AnaliseAdmissibilidade`.
-
-    Ou seja o raio vai de zero-efeito-e-invisivel para ordem-visivel-e-humano-gated: MAIS
-    exposicao de artefato, MAIS visibilidade humana, NENHUM dinheiro automatico. O que NAO melhora
-    e o lado da operadora — a conta e adjudicada "pagar integralmente" sem que um analista de
-    contas a veja. Esse residuo e OQ-10, e este teste o deixa medido em vez de argumentado.
+    Antes, `r_pagar` (row 1) gateava `categoria_normalizada` em `not("tecnica","clinica")`, que
+    admitia `"desconhecida"`: a conta era adjudicada PAGAR sem analista de contas (o residuo OQ-10
+    que a versao anterior deste teste MEDIA). Agora `r_pagar` usa o conjunto POSITIVO fechado
+    `{documental, administrativa, valor}` e a categoria desconhecida desce ao catch-all ->
+    `ANALISE_HUMANA` -> fluxo default de `GW_Triagem` -> `ST_PrepareTriageDossier` ->
+    `UT_AnalistaContas`. Prova no motor: a instancia PARA na User Task humana; nenhum demonstrativo
+    integral, nenhum terminal de aprovacao integral, nenhuma ordem em SP-OP-PAGTO-001.
     """
-    await _deploy_pagto(engine)
     inst = await start_contas(
         categoria_normalizada="desconhecida",
         item_conforme_tabela=True,
@@ -1257,30 +1294,15 @@ async def test_m4_categoria_desconhecida_para_em_admissibilidade_humana(
     iid = inst["id"]
 
     await contas_probe.drain()
-    ended = await _await_end(engine, iid)
+    task = await engine.await_user_task(iid, _UT_ANALISTA)
+    assert task is not None, "M-4: categoria desconhecida tem de parar no analista de contas"
 
-    # O RESIDUO, medido: nenhum analista de contas viu esta conta.
-    assert _END_APROVADA_INTEGRAL in ended, (
-        f"M-4: a categoria fora do dominio declarado ainda e adjudicada como PAGAR. ended={ended}"
-    )
-    assert not await engine.list_user_tasks(iid), (
-        "M-4 (OQ-10): o residuo E este — nenhuma User Task de contas foi criada"
-    )
-
-    # O QUE MELHOROU: existe artefato, e ele para num humano.
-    assert "ST_EmitirDemonstrativoIntegral" in ended, "o prestador passa a ser comunicado"
-    # `get_history_variable` pelo mesmo motivo do teste anterior: a instancia de CONTAS ja
-    # terminou em `End_ContaAprovadaIntegral` e o endpoint de runtime devolve 500.
-    lote = await engine.get_history_variable(iid, "numero_lote_tiss")
-    pagto = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
-    assert len(pagto) == 1
-    await pagto_drain.drain()
-    pagto_ut = await engine.await_user_task(pagto[0]["id"], _UT_PAGTO_ADMISSIBILIDADE)
-    assert "coordenacao-financeira" in pagto_ut.candidate_groups
-    pagto_ended = await engine.activity_instances_ended(pagto[0]["id"])
-    assert "End_PagamentoLiberadoAutomatico" not in pagto_ended, (
-        "o input defeituoso de M-4 produz uma ordem PENDENTE de humano, nunca uma liberacao"
-    )
+    ended = await engine.activity_instances_ended(iid)
+    assert "BRT_TriagemGlosa" in ended
+    assert "ST_PrepareTriageDossier" in ended, "o fluxo default (humano) de GW_Triagem foi tomado"
+    assert _END_APROVADA_INTEGRAL not in ended, f"M-4 reaberto: PAGAR sem analista. ended={ended}"
+    assert "ST_EmitirDemonstrativoIntegral" not in ended, ended
+    assert "ST_HandoffPagamentoAuto" not in ended, ended
 
 
 async def test_happy_path_encaminhar_fraude_handoff_fraude(
@@ -1746,6 +1768,37 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
+async def test_timer_alerta_sla_entrega_ao_canal_interno_com_a_bandeira_ligada(
+    engine: EngineRest,
+    contas_probe_entrega: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """R-107 / F-135 (bandeira `MAEZO_CONTAS_SLA_RISK_ENTREGA` ligada): o timer nao-interruptivo
+    `BT_AlertaSlaContas` dispara, `ST_NotificarRiscoSla` completa no motor e o alerta e REALMENTE
+    publicado no canal interno, com payload fechado (sem PHI); a UT humana segue aberta."""
+    inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True)
+    iid = inst["id"]
+
+    await _drive_to_analista(engine, contas_probe_entrega, iid)
+    assert contas_probe_entrega.notifications_of_type("contas.notify_sla_risk") == []
+
+    job = await engine.await_timer_job(iid, "BT_AlertaSlaContas")
+    await engine.execute_job(job.id)
+    await contas_probe_entrega.drain()
+
+    assert "ST_NotificarRiscoSla" in await engine.activity_instances_ended(iid)
+    alertas = contas_probe_entrega.notifications_of_type("contas.notify_sla_risk")
+    assert len(alertas) == 1
+    assert set(alertas[0]) == {"type", "tenant_id", "numero_lote_tiss"}
+    assert alertas[0]["tenant_id"] == "amh"
+    assert alertas[0]["numero_lote_tiss"]
+    canais = [t for (t, v, _k) in contas_probe_entrega.kafka.published if v is alertas[0]]
+    assert canais == [_NOTIFICATIONS_TOPIC]
+
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
+
+
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -1941,7 +1994,7 @@ async def test_business_key_uma_instancia_por_lote(
     start_contas: Callable[..., Any],
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    lote = "LOTE-TESTE-IDEM-001"
+    lote = f"LOTE-TESTE-IDEM-{uuid.uuid4().hex[:8]}"
     business_key = f"CONTAS-amh-{lote}"
 
     first = await start_contas(numero_lote_tiss=lote, categoria_normalizada="tecnica", has_glosas=True)
@@ -1951,3 +2004,163 @@ async def test_business_key_uma_instancia_por_lote(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# Chave PAGTO por conta — pagamento perdido da 2a conta do mesmo lote (decisao do dono 2026-11-01)
+# ===========================================================================
+
+
+def _conta_unica() -> tuple[str, str]:
+    """Guia SEM `-` (decisao do dono R-101: a chave por conta a recusa) e conta unicas por execucao:
+    a reivindicacao PERMANENT de PAGTO e' duravel, e uma chave repetida entre execucoes provaria o
+    dedup de OUTRA execucao, nao o desta."""
+    sufixo = uuid.uuid4().hex[:10].upper()
+    return f"GUIA{sufixo}", f"CONTA{sufixo}"
+
+
+#: Prestador SEM `-` (DEC-30 D13: na chave por conta o prestador e' segmento do meio e `-` nele e'
+#: recusado). O padrao `PRESTADOR-TESTE-001` do `start_contas` so' serve a forma lote/legado.
+_PRESTADOR_CHAVE_CONTA = "PRESTADORTESTE001"
+
+
+def _chave_por_conta(guia: str, conta: str, prestador: str = _PRESTADOR_CHAVE_CONTA) -> str:
+    """`PAGTO-{t}-C-{prestador}-{guia}-{conta}` (DEC-30 D13; ADR-0074)."""
+    return f"PAGTO-amh-C-{prestador}-{guia}-{conta}"
+
+
+async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas_ordens(
+    engine: EngineRest,
+    contas_probe_chave_por_conta: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """A REGRESSAO do defeito, ponta a ponta no motor: duas instancias CONTAS na forma guia/conta,
+    mesmo prestador, MESMO lote, adjudicadas pela perna automatica -> DUAS instancias de
+    SP-OP-PAGTO-001, uma por conta (`PAGTO-amh-C-{prestador}-{guia}-{conta}`, DEC-30 D13), e nenhuma
+    na chave lote."""
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-CHAVE-CONTA")
+    guia, conta_1 = _conta_unica()
+    conta_2 = f"{conta_1}B"
+
+    inst_1 = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=conta_1,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
+        business_key=f"CONTAS-amh-{guia}-{conta_1}",
+        has_glosas=False,
+    )
+    inst_2 = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=conta_2,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
+        business_key=f"CONTAS-amh-{guia}-{conta_2}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+
+    for inst in (inst_1, inst_2):
+        ended = await _await_end(engine, inst["id"])
+        assert _END_APROVADA_INTEGRAL in ended, f"as duas contas fecham a perna automatica. ended={ended}"
+        assert not await engine.incidents(inst["id"]), "nenhuma das duas contas pode virar incidente"
+
+    ordem_1 = await engine.find_active_instances(_chave_por_conta(guia, conta_1))
+    ordem_2 = await engine.find_active_instances(_chave_por_conta(guia, conta_2))
+    assert len(ordem_1) == 1, f"a 1a conta tem a SUA ordem; veio {ordem_1}"
+    assert len(ordem_2) == 1, f"a 2a conta tem a SUA ordem (antes ficava sem); veio {ordem_2}"
+    assert ordem_1[0]["id"] != ordem_2[0]["id"]
+    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-{_PRESTADOR_CHAVE_CONTA}"), (
+        "na fase escrita_alvo nenhuma ordem da forma guia/conta nasce na chave lote"
+    )
+
+
+async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_ordem_so(
+    engine: EngineRest,
+    contas_probe_chave_por_conta: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """Dedup ESTRITO preservado: a MESMA conta adjudicada duas vezes (inclusive reapresentada noutro
+    lote) converge numa ordem so' — a chave por conta nao inclui o lote, como a de CONTAS (inclui o
+    prestador, DEC-30 D13, que e' o mesmo)."""
+    await _deploy_pagto(engine)
+    guia, conta = _conta_unica()
+
+    primeira = await start_contas(
+        numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-A"),
+        numero_guia_tiss=guia,
+        numero_conta=conta,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
+        business_key=f"CONTAS-amh-{guia}-{conta}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+    assert _END_APROVADA_INTEGRAL in await _await_end(engine, primeira["id"])
+
+    segunda = await start_contas(
+        numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-B"),
+        numero_guia_tiss=guia,
+        numero_conta=conta,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
+        business_key=f"CONTAS-amh-{guia}-{conta}",
+        has_glosas=False,
+    )
+    await contas_probe_chave_por_conta.drain()
+    ended = await _await_end(engine, segunda["id"])
+
+    assert _END_APROVADA_INTEGRAL in ended, f"o reenvio da mesma conta e' sucesso idempotente. ended={ended}"
+    assert not await engine.incidents(segunda["id"])
+    ordens = await engine.find_active_instances(_chave_por_conta(guia, conta))
+    assert len(ordens) == 1, f"a mesma conta nunca ganha uma 2a ordem (PERMANENT); veio {ordens}"
+
+
+async def test_legado_segunda_conta_do_mesmo_lote_vira_incidente_em_vez_de_sucesso_silencioso(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """Fase padrao `legado`: a chave NAO muda e o defeito PERSISTE ate a janela do ADR-0068 — mas a
+    2a conta deixa de sair como sucesso: o handoff le no historico do motor que a ordem existente e'
+    de OUTRA conta e abre um incidente que nomeia o motivo. Continua existindo UMA ordem."""
+    await _deploy_pagto(engine)
+    lote = _unique_lote("LOTE-LEGADO-CONTA")
+    guia, conta_1 = _conta_unica()
+
+    primeira = await start_contas(
+        numero_lote_tiss=lote, numero_guia_tiss=guia, numero_conta=conta_1, has_glosas=False
+    )
+    await contas_probe.drain()
+    assert _END_APROVADA_INTEGRAL in await _await_end(engine, primeira["id"])
+
+    from maezo.platform.observability import get_metrics_collector
+
+    def _recusas() -> float:
+        # DEC-30 D11: o sinal do alerta `MaezoContasPagtoOrdemDeOutraConta` (rotulos fechados).
+        valor = get_metrics_collector().registry.get_sample_value(
+            "maezo_contas_pagto_ordem_recusada_total", {"veredito": "outra", "fase": "legado"}
+        )
+        return float(valor or 0.0)
+
+    recusas_antes = _recusas()
+    segunda = await start_contas(
+        numero_lote_tiss=lote,
+        numero_guia_tiss=guia,
+        numero_conta=f"{conta_1}B",
+        business_key=f"CONTAS-amh-{guia}-{conta_1}B",
+        has_glosas=False,
+    )
+    await contas_probe.drain()
+
+    ended = await engine.activity_instances_ended(segunda["id"])
+    assert _END_APROVADA_INTEGRAL not in ended, "a 2a conta NAO pode ser dada por paga sem ordem propria"
+    incidentes = [
+        i for i in await engine.incidents(segunda["id"]) if i.get("activityId") == "ST_HandoffPagamentoAuto"
+    ]
+    assert incidentes, "a recusa tem de ser VISIVEL: incidente em ST_HandoffPagamentoAuto"
+    assert any("comprovadamente desta conta" in (i.get("incidentMessage") or "") for i in incidentes), (
+        f"o incidente nomeia o motivo: {incidentes}"
+    )
+    ordens = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
+    assert len(ordens) == 1, f"PERMANENT intocado: uma ordem so' (a da 1a conta); veio {ordens}"
+    assert _recusas() > recusas_antes, "a recusa tem de alimentar o contador do alerta (DEC-30 D11)"

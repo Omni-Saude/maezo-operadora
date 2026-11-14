@@ -18,17 +18,24 @@ pattern as the `lgpd_anonimizado` echo, GAP-ANS-5, `docs/review-queue.md:115`). 
   `maezo.agents.resolve_spec_dir` — same resolution `ceilings.py`'s `CeilingResolver` uses for
   the autonomy matrix; override via `MAEZO_TISS_SCHEMA_ROOT`, a test-pinning hook mirroring
   `ceilings.py`'s `AUTONOMY_CORE_PATH`).
-- **EXTERNAL-DEPENDENCY FINDING (report this to the R1 verifier — not fabricated here):** the
-  real ANS "Padrão TISS" XSD set is NOT vendored in this repo today. ANS publishes it as a
-  downloadable ZIP bundle (public, per design §2.B), but sourcing + checksum-pinning the
-  concrete version is out of scope for this task (SME-gated: which version, and whether DIOPS
-  even flows through TISS XSD at all — design §2.B/§7). This module ships the SEAM — loader +
-  validator + fail-closed wiring — proven against a minimal, clearly-labeled FIXTURE XSD in
-  `tests/unit/tools/workers/test_tiss_schema.py` (NOT a real TISS schema). Until the real
-  vendored set + version land, `MAEZO_TISS_SCHEMA_VERSION` stays unset in every environment, so
-  `TissSchemaValidator` fails closed everywhere — the correct posture per design §2.B ("Because
-  assemble is a stub today ... there is no real XML to validate → validation stays False →
-  human").
+- **Version pin (R-068, F-066/PEND-050; owner position DEC-17 -> R-036, issue #1081,
+  2026-10-29).** The worker pins the Padrao TISS edition Setembro/2026, Componente de Comunicacao
+  `04.03.00` and `01.06.00` (`PINNED_TISS_SCHEMA_VERSIONS`). `MAEZO_TISS_SCHEMA_VERSION` only
+  SELECTS inside that closed set; any other environment value fails closed. `04.03.00` shares its
+  literal and source-pin digest with the provider gateway (`gateway/tiss/provider_schema.py`), so
+  there is one version path, not two. `01.06.00` (Monitoramento TISS) is vendored byte-for-byte
+  from the official ANS zip in `<spec>/schemas/tiss/01.06.00/` with provenance and sha256 in
+  `ans-source-pin.json`. A pinned version binds validation to BYTES: the provenance manifest
+  must match the code digest, every file it lists must match on disk, and the `<report_type>.xsd`
+  must be one of those files. The env var stays UNSET by default (dark), so production keeps
+  the fail-closed posture below.
+- **What the pin does NOT do (declared limits).** No report_type of the contract maps to an
+  official XSD today (`RN_424_TISS_MONITORAMENTO` -> `tissMonitoramentoV1_06_00.xsd` is an
+  SME/regulatory mapping, not decided here), and the official `01.06.00` set is itself
+  incomplete: `tissComplexTypesMonitoramentoV1_06_00.xsd` includes
+  `tissSimpleTypesMonitoramentoV1_05_01.xsd`, absent from the zip (recorded in the manifest; no
+  alias, remap or fallback). So even pinned, `schema_valid` stays False for real payloads. The
+  ratification-gated pin in `spec/policies/ans/tiss-schema-pin.yaml` is a separate human act.
 - **`dataset_ref` as a local-file resolution (provisional, documented).** The contract describes
   `dataset_ref` as a "ponteiro de storage" (`SP-OP-ANS-SUBMIT-001.md:60`) — in a fully-wired
   future it would resolve via the same blocked `mcp-regdata` channel `prepare_submission`
@@ -71,26 +78,52 @@ validate3 report):**
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import stat
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 import structlog
 from lxml import etree
 
 from maezo.agents import resolve_spec_dir
+from maezo.gateway.tiss.provider_schema import CATALOGUE_VERSION as BILATERAL_CATALOGUE_VERSION
+from maezo.gateway.tiss.provider_schema import SOURCE_PIN_SHA256 as BILATERAL_SOURCE_PIN_SHA256
 
 logger = structlog.get_logger(__name__)
 
 #: Config seam (design §2.B: "Store the pinned version in config, not hardcoded in the
-#: worker"). The padrão-TISS version in force is an OPEN SME QUESTION (design §7) — unset =>
+#: worker"). Since R-068 the value only SELECTS inside `PINNED_TISS_SCHEMA_VERSIONS`; unset =>
 #: fail-closed (no schema resolved, never a guessed version).
 TISS_SCHEMA_VERSION_ENV = "MAEZO_TISS_SCHEMA_VERSION"
 
+#: R-068: Componente de Comunicacao Monitoramento TISS, edicao Setembro/2026 (catalogo ANS
+#: "04.03.00 e 01.06.00"). Bytes vendorizados em `<spec>/schemas/tiss/01.06.00/`.
+MONITORAMENTO_CATALOGUE_VERSION = "01.06.00"
+MONITORAMENTO_SOURCE_PIN_SHA256 = "33e3afa7ee5fe6bfd5bba7dc901d269f9923b7ebe44ca33247d5a18ea743a48a"
+
+#: R-068 (DEC-17 -> R-036, posicao do dono na issue #1081): versao -> (manifesto de proveniencia
+#: dentro de `<root>/<versao>/`, sha256 desse manifesto). Lista FECHADA; trocar a edicao e um
+#: change revisado, nunca um valor de ambiente.
+PINNED_TISS_SCHEMA_VERSIONS: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {
+        BILATERAL_CATALOGUE_VERSION: ("provider-source-pin.json", BILATERAL_SOURCE_PIN_SHA256),
+        MONITORAMENTO_CATALOGUE_VERSION: ("ans-source-pin.json", MONITORAMENTO_SOURCE_PIN_SHA256),
+    }
+)
+
+#: Teto por arquivo do conjunto pinado (o maior XSD oficial tem ~174 KB).
+_MAX_PINNED_FILE_BYTES = 2 * 1024 * 1024
+
 #: Vendored-schema-root override — test-pinning hook, mirrors `ceilings.py`'s
 #: `AUTONOMY_CORE_PATH`. Default resolves to `<spec>/schemas/tiss/` via `resolve_spec_dir()`.
-#: Real ANS TISS XSDs are NOT vendored there today (external dependency — see module docstring).
+#: Official ANS bytes for the pinned versions live there (R-068); no report_type XSD is mapped yet.
 TISS_SCHEMA_ROOT_ENV = "MAEZO_TISS_SCHEMA_ROOT"
 
 
@@ -108,16 +141,113 @@ class TissValidationResult:
     tiss_schema_version: str | None
 
 
+def _hardened_parser() -> etree.XMLParser:
+    """Same posture as `gateway/tiss/provider_schema.py::_parser()`: no entity resolution, no DTD
+    loading, no network, no huge trees."""
+    return etree.XMLParser(
+        resolve_entities=False,
+        load_dtd=False,
+        no_network=True,
+        huge_tree=False,
+        remove_comments=False,
+        strip_cdata=False,
+    )
+
+
+class _PinnedFilesResolver(etree.Resolver):
+    """Resolves `xs:include`/`xs:import` ONLY from the already-verified bytes of the pinned set."""
+
+    def __init__(self, files: Mapping[str, bytes]) -> None:
+        super().__init__()
+        self._files = files
+
+    def resolve(self, url: str, pubid: str | None, context: object) -> object:  # type: ignore[override]
+        name = url.rsplit("/", 1)[-1]
+        if name not in self._files:
+            raise etree.XMLSchemaParseError(f"include fora do conjunto pinado: {name}")
+        return self.resolve_string(self._files[name], context, base_url=f"tiss-pin:///{name}")
+
+
+def _read_regular_file(path: Path) -> bytes | None:
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return None
+    if not stat.S_ISREG(mode):
+        return None
+    with path.open("rb") as source:
+        data = source.read(_MAX_PINNED_FILE_BYTES + 1)
+    return data if len(data) <= _MAX_PINNED_FILE_BYTES else None
+
+
+def _manifest_file_digests(manifest: Any) -> dict[str, str]:
+    """`files` maps of a provenance manifest: top level (ans-source-pin.json) or per profile
+    (provider-source-pin.json)."""
+    maps: list[Any] = []
+    if isinstance(manifest, dict):
+        maps.append(manifest.get("files"))
+        profiles = manifest.get("profiles")
+        if isinstance(profiles, list):
+            maps.extend(p.get("files") for p in profiles if isinstance(p, dict))
+    digests: dict[str, str] = {}
+    for mapping in maps:
+        if isinstance(mapping, dict):
+            for name, digest in mapping.items():
+                if isinstance(name, str) and isinstance(digest, str):
+                    digests[name] = digest
+    return digests
+
+
+def _verified_pinned_files(
+    version_dir: Path, manifest_name: str, manifest_sha256: str
+) -> dict[str, bytes] | None:
+    """Bytes of every file the pinned provenance manifest lists, or `None` if the manifest is
+    missing/altered or any listed file is missing/altered/not a regular file."""
+    if version_dir.is_symlink():
+        return None
+    manifest_bytes = _read_regular_file(version_dir / manifest_name)
+    if manifest_bytes is None or hashlib.sha256(manifest_bytes).hexdigest() != manifest_sha256:
+        return None
+    try:
+        digests = _manifest_file_digests(json.loads(manifest_bytes))
+    except ValueError:
+        return None
+    if not digests:
+        return None
+    files: dict[str, bytes] = {}
+    for name, digest in digests.items():
+        if "/" in name or "\\" in name or name in {"", ".", ".."}:
+            return None
+        data = _read_regular_file(version_dir / name)
+        if data is None or hashlib.sha256(data).hexdigest() != digest:
+            return None
+        files[name] = data
+    return files
+
+
+def _compile_pinned_schema(files: Mapping[str, bytes], entrypoint: str) -> etree.XMLSchema | None:
+    """Compile from the verified in-memory bytes (no re-read from disk, no TOCTOU)."""
+    parser = _hardened_parser()
+    parser.resolvers.add(_PinnedFilesResolver(files))
+    try:
+        root = etree.fromstring(files[entrypoint], parser, base_url=f"tiss-pin:///{entrypoint}")
+        return etree.XMLSchema(root)
+    except (ValueError, etree.LxmlError) as exc:
+        logger.warning("tiss_schema.pinned_xsd_unloadable", entrypoint=entrypoint, error=str(exc))
+        return None
+
+
 @lru_cache(maxsize=64)
 def _load_schema_cached(xsd_path: str) -> etree.XMLSchema | None:
     """Parse + compile an XSD (cached by resolved path — schemas are static vendored files).
 
+    Used only for versions OUTSIDE the pin passed through the explicit constructor test seam.
     `None` on any load failure (missing/malformed XSD) — the caller fails closed. Mirrors
     `ceilings.py`'s `_load_matrix_cached` "swallow-to-None, cache the failure" posture: static
     config, so a persisted `None` reflects reality until a process restart.
     """
     try:
-        return etree.XMLSchema(etree.parse(xsd_path))
+        return etree.XMLSchema(etree.parse(xsd_path, _hardened_parser()))
     except OSError as exc:
         logger.warning("tiss_schema.xsd_unreadable", xsd_path=xsd_path, error=str(exc))
         return None
@@ -147,10 +277,11 @@ class TissSchemaValidator:
         self._schema_root_override: str | None = str(schema_root) if schema_root is not None else None
         self._version_override = version
 
-    def _resolved_version(self) -> str | None:
+    def _resolved_version(self) -> tuple[str | None, bool]:
+        """(version, came_from_environment)."""
         if self._version_override:
-            return self._version_override
-        return os.environ.get(TISS_SCHEMA_VERSION_ENV) or None
+            return self._version_override, False
+        return (os.environ.get(TISS_SCHEMA_VERSION_ENV) or None), True
 
     def _resolved_schema_root(self) -> Path:
         if self._schema_root_override:
@@ -163,7 +294,7 @@ class TissSchemaValidator:
     def validate(self, *, report_type: str, dataset_ref: str) -> TissValidationResult:
         """Validate `dataset_ref`'s XML against the pinned `report_type` XSD. Never raises for a
         data/config problem — every branch returns a `TissValidationResult` (fail-closed)."""
-        version = self._resolved_version()
+        version, from_env = self._resolved_version()
         if not version:
             return TissValidationResult(
                 schema_valid=False,
@@ -184,17 +315,54 @@ class TissSchemaValidator:
                 tiss_schema_version=version,
             )
 
-        xsd_path = schema_root / version / f"{report_type}.xsd"
-        if not xsd_path.is_file():
+        pin = PINNED_TISS_SCHEMA_VERSIONS.get(version)
+        if pin is None and from_env:
+            # R-068: the environment only selects INSIDE the pinned edition.
             return TissValidationResult(
                 schema_valid=False,
                 errors=(
-                    f"XSD nao vendorizado para report_type={report_type!r} versao={version!r} ({xsd_path})",
+                    f"versao padrao-TISS {version!r} fora do pin R-068 "
+                    f"({', '.join(sorted(PINNED_TISS_SCHEMA_VERSIONS))}), fail-closed",
                 ),
                 tiss_schema_version=version,
             )
 
-        schema = _load_schema_cached(str(xsd_path))
+        xsd_name = f"{report_type}.xsd"
+        xsd_path = schema_root / version / xsd_name
+        schema: etree.XMLSchema | None
+        if pin is not None:
+            manifest_name, manifest_sha256 = pin
+            files = _verified_pinned_files(schema_root / version, manifest_name, manifest_sha256)
+            if files is None:
+                return TissValidationResult(
+                    schema_valid=False,
+                    errors=(
+                        f"proveniencia do conjunto pinado {version!r} ausente ou alterada "
+                        f"({manifest_name}), fail-closed",
+                    ),
+                    tiss_schema_version=version,
+                )
+            if xsd_name not in files:
+                return TissValidationResult(
+                    schema_valid=False,
+                    errors=(
+                        f"XSD para report_type={report_type!r} fora do manifesto pinado da versao "
+                        f"{version!r} (nenhum XSD oficial mapeado), fail-closed",
+                    ),
+                    tiss_schema_version=version,
+                )
+            schema = _compile_pinned_schema(files, xsd_name)
+        else:
+            if not xsd_path.is_file():
+                return TissValidationResult(
+                    schema_valid=False,
+                    errors=(
+                        f"XSD nao vendorizado para report_type={report_type!r} "
+                        f"versao={version!r} ({xsd_path})",
+                    ),
+                    tiss_schema_version=version,
+                )
+            schema = _load_schema_cached(str(xsd_path))
         if schema is None:
             return TissValidationResult(
                 schema_valid=False,
@@ -218,11 +386,17 @@ class TissSchemaValidator:
             )
 
         try:
-            xml_doc = etree.parse(str(dataset_path))
+            xml_doc = etree.parse(str(dataset_path), _hardened_parser())
         except etree.XMLSyntaxError as exc:
             return TissValidationResult(
                 schema_valid=False,
                 errors=(f"XML malformado em {dataset_ref!r}: {exc}",),
+                tiss_schema_version=version,
+            )
+        if xml_doc.docinfo.doctype:  # type: ignore[union-attr]
+            return TissValidationResult(
+                schema_valid=False,
+                errors=(f"DOCTYPE recusado em {dataset_ref!r} (parser endurecido, sem DTD/entidades)",),
                 tiss_schema_version=version,
             )
 

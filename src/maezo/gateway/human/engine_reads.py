@@ -21,6 +21,7 @@ from .completion import (
     AnyCompletionOutcome,
     CompletionAck,
     CompletionAuditSink,
+    CompletionExtras,
     DirectTaskCompletion,
     PseudonymizedNotes,
 )
@@ -53,6 +54,7 @@ from .read_profile import (
     wire,
 )
 from .read_transport import PortalReadClient, ReadResult
+from .reembolso_context import LeitorDeAnexos
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -126,7 +128,8 @@ class EngineReadBundle:
         self.guard()
         c = ct.claims
         admission, signing = self.client.partition.admission, self.client.partition.signing
-        assert admission is not None and signing is not None
+        if admission is None or signing is None:
+            raise AssertionError("particao sem admission/signing apos guard()")
         a, b = admission.record, c.binding
         if (
             c.stage != stage
@@ -290,6 +293,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         notes: PseudonymizedNotes | None,
         expected_task_revision: int,
         form_key: str = COMPLETION_FORM_KEY,
+        extras: CompletionExtras | None = None,
     ) -> CompletionAck:
         """INTERIM (DL-0049): the one write this Q2 read transport performs.
 
@@ -305,7 +309,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         `purpose=portal-task-read` envelopes for the six read routes and nothing here changes
         that. The completion travels on its own explicitly composed client. What it lacks — a
         signed envelope, a receipt, an outbox row, an engine-side optimistic fence — is the
-        debt DL-0049 registers and the D6 relay of #427 pays.
+        debt DL-0049 registers and the D6 relay of #1145 pays.
         """
         try:
             if self._completion is None or self._completion.scope != self.scope:
@@ -321,12 +325,15 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 raise unavailable()
             self._b.guard()
             self._b._completed.add(task_id)  # reserve before the first await
+            # DL-0163: `extras` so' quando existe (os formularios de sempre seguem a chamada de antes).
+            com_extras = {} if extras is None else {"extras": extras}
             ack = await self._completion.complete(
                 task_id=task_id,
                 resultado=resultado,
                 notes=notes,
                 expected_task_revision=expected_task_revision,
                 form_key=form_key,
+                **com_extras,
             )
             if (
                 type(ack) is not CompletionAck
@@ -452,6 +459,7 @@ class EngineReadComposition:
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
         read_audit: ReadAccessAuditSink | None = None,
+        reembolso_anexos: LeitorDeAnexos | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
@@ -468,6 +476,7 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
+        self._reembolso_anexos = reembolso_anexos
         # DL-0149 (owner's decision, best-effort): a context source without the access record is
         # composed anyway; the absence is logged here once and again on every read.
         if escalation_context is not None and read_audit is None:
@@ -508,6 +517,7 @@ class EngineReadComposition:
             ),
             completion_audit=self._completion_audit,
             escalation_context=self._escalation_context,
+            reembolso_anexos=self._reembolso_anexos,
             read_audit=self._read_audit,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),

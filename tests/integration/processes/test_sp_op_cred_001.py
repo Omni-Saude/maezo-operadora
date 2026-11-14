@@ -190,7 +190,14 @@ already-fixed cross-family facts unless they apply):
      regression. In THIS suite both affected donor tests are ALSO blocked earlier by finding 1
      (`prepare_dossier` missing, so the instance never even reaches the UT to submit the
      incomplete decision) — finding 4 is the SECOND, independent blocker that would remain even
-     after finding 1 is fixed. `_CRED_GUARD_SHAPE_MISMATCH_REASON` below.
+     after finding 1 is fixed. **UPDATE (Opção D-2 do dono, 2026-10-29 — live-proven): BOTH
+     blockers are closed — finding 1 by t2-dossier-a2a #178 (prepare_dossier registered +
+     drained, ST_PrepareDossier no longer stalls) and finding 4 by t5-workers-f2 (the modeled
+     WorkerBpmnError raise shape) plus a TEST-SCOPED enablement of the two adverse codes in
+     THIS probe's harness allowlist (src/ untouched — production keeps both codes T-E-deferred
+     per ADR-0030 §4, rota adversa fail-closed a incidente auditado). Both strict-xfail markers
+     were removed in the same PR; `_CRED_GUARD_SHAPE_MISMATCH_REASON` remains below as retired
+     regime documentation, cited by no marker.**
   5. Kafka-publish gap (Step 3 systemic fact #1) — was VERIFIED N/A as an INDEPENDENT blocker at
      port-authoring time: `grep -rn "kafka[.]publish(" src/maezo/tools/workers/credenciamento.py`
      returned zero hits (consistent with `register_credenciamento_workers`'s own `del kafka  #
@@ -264,11 +271,10 @@ _DMN_PRIOR_NOTICE = _REPO / "spec/processes/dmn/cred_prior_notice.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/cred_sla.dmn"
 
 # External task topics do contrato SP-OP-CRED-001 — 9 declarados no BPMN (grep
-# camunda:topic="operadora.cred.*"). T2.5-p2b (this port's follow-up task) BUILT 3 of the
-# original 4 missing workers (notify_doc_pendente / register_credenciamento / notify_sla_risk) —
-# SOMENTE operadora.cred.prepare_dossier permanece sem worker registrado (Carolina A2A
-# integration, separately gated, genuinely out of scope for T2.5-p2b — module bootstrap
-# docstring documents this explicitly; NOT fabricated here either).
+# camunda:topic="operadora.cred.*"). T2.5-p2b BUILT 3 of the original 4 missing workers
+# (notify_doc_pendente / register_credenciamento / notify_sla_risk); t2-dossier-a2a #178 fechou o
+# último (prepare_dossier — real Carolina A2A delegation, DL-0033/DL-0037): os 9 topicos do
+# contrato têm worker registrado e entram no drain 1:1 (o drift guard abaixo fecha a cerca).
 _PUBLISH_TOPIC = "operadora.events.publish"
 _VERIFY_CRED_TOPIC = "operadora.cred.verify_credentials"
 _CHECK_NETWORK_TOPIC = "operadora.cred.check_network_criteria"
@@ -279,12 +285,11 @@ _REGISTER_DENIAL_TOPIC = "operadora.cred.register_cred_denial"
 _REGISTER_CREDENCIAMENTO_TOPIC = "operadora.cred.register_credenciamento"  # registrado desde T2.5-p2b
 _NOTIFY_SLA_TOPIC = "operadora.cred.notify_sla_risk"  # registrado desde T2.5-p2b
 
-# Declarado no BPMN, SEM worker registrado em `register_credenciamento_workers`
-# (credenciamento.py bootstrap docstring, "Carolina A2A integration, separately gated") — NAO
-# incluido no drain: o drain so deve poll topicos com handler real (poll-lo sem handler so
-# mudaria o SINTOMA do stall, nao o resultado). Mantido aqui, documentado, para o finding 1
-# residual e para os textos de xfail abaixo.
-_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # DL-0033 stub (registered; not drained here)
+# DL-0033 (t5) + t2-dossier-a2a #178: worker REAL registrado (raw async handler — Carolina A2A
+# delegation com gap marker fail-neutro quando o dispatcher nao esta plugado, NUNCA levanta) e
+# INCLUIDO no drain desde #178; o drift guard abaixo fecha a cerca 1:1 contra
+# `register_credenciamento_workers`.
+_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — espelha 1:1 o
 # que `register_credenciamento_workers` de fato registra (credenciamento.py, T2.5-p2b) + o
@@ -434,24 +439,27 @@ _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
 )
 
 _CRED_GUARD_SHAPE_MISMATCH_REASON = (
-    "GUARD-SHAPE finding 4 is RESOLVED in src (t5-workers-f2): register_descredenciamento/"
-    "register_cred_denial now raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/"
-    "WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED bpmn errors — instead of a bespoke "
-    "CredError (which FunctionWorker.execute reclassified to a bare ValueError -> generic "
-    "failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire). "
-    "The boundary is now REACHABLE — gate-proven/consumption-covered by "
-    "scripts/ci/check_bpmn_error_allowlist.py and proven at the harness layer by "
-    "tests/unit/tools/workers/test_credenciamento.py::test_decred_guard_reaches_boundary_when_"
-    "allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN). This ENGINE test nonetheless stays xfail on "
-    "the STILL-open finding 1 (_CRED_MISSING_WORKERS_REASON): operadora.cred.prepare_dossier is not "
-    "in this probe's _CRED_WORKER_TOPICS drain (a local stub worker now exists in the production "
-    "bootstrap per DL-0033/t5, but wiring it into THIS probe's drain + flipping this engine xfail "
-    "needs a dedicated live-engine proof, out of scope here), so the instance still stalls at "
-    "ST_PrepareDossier before ever reaching the UT to submit the incomplete decision. (The "
-    "credenciamento-direction sibling is additionally blocked by finding 2, the documentos_refs "
-    "overwrite.) The two adverse guard codes stay T-E-deferred out of PRODUCTION_BPMN_ERROR_"
-    "ALLOWLIST until T-E, so on a live engine today the guard still fails closed to an audited "
-    "incident — identical runtime effect, boundary now reachable the moment T-E flips the allowlist."
+    "RETIRED (decisão do dono 2026-10-29, Opção D-2 do plano W8-W5-XFAIL-PLAN-v1 §4 — live-proven "
+    "em engine local CIB Seven; constant kept as regime documentation, cited by no marker — mirrors "
+    "the retired _NOTIFY_REGULATORIO_GAP_REASON): the guard shape is RESOLVED in src since "
+    "t5-workers-f2 (register_descredenciamento/register_cred_denial raise "
+    "WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED "
+    "bpmn errors — instead of a bespoke CredError reclassified to ValueError -> generic "
+    "failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire); "
+    "gate-proven/consumption-covered by scripts/ci/check_bpmn_error_allowlist.py and proven at the "
+    "harness layer by tests/unit/tools/workers/test_credenciamento.py::"
+    "test_decred_guard_reaches_boundary_when_allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN); "
+    "and the drain gap is RESOLVED since t2-dossier-a2a #178 (operadora.cred.prepare_dossier "
+    "registered + drained — the instance reaches the UT to submit the incomplete decision). The two "
+    "strict-xfail ENGINE markers (test_descredenciar_exige_campos_worker_guard / "
+    "test_negar_exige_campos_worker_guard) were REMOVED in the same PR that enabled the two adverse "
+    "codes — TEST-SCOPED ONLY (dono D-2): the enablement lives in THIS probe's harness "
+    "(bpmn_error_allowlist = CRED_BPMN_ERROR_ALLOWLIST | {ERR_DECRED_NOT_HUMAN, "
+    "ERR_CRED_DENIAL_NOT_HUMAN}); src/ stays untouched, PRODUCTION_BPMN_ERROR_ALLOWLIST keeps both "
+    "codes T-E-deferred per ADR-0030 §4 (cerca: tests/unit/tools/workers/test_credenciamento.py), "
+    "so on a live production engine the guard still fails closed to an audited incident (ADR-0007 "
+    "mitigation — human-visible, never a silent clean end). "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 
@@ -522,7 +530,16 @@ async def cred_probe(
         # ADR-0030: mirror the production allowlist (credenciamento.CRED_BPMN_ERROR_ALLOWLIST ->
         # service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST) so ERR_CRED_INVALID_PRESTADOR fires the
         # modeled BE_PrestadorInvalido boundary instead of demoting to an incident.
-        bpmn_error_allowlist=CRED_BPMN_ERROR_ALLOWLIST,
+        # DIVERGENCIA probe x producao — decisão do dono 2026-10-29 (Opção D-2, "Par CRED —
+        # Executar D-2 test-scoped", plano W8-W5-XFAIL-PLAN-v1 §4): os 2 códigos adversos
+        # *_NOT_HUMAN (ADR-0030 §4, T-E-deferred) são habilitados SOMENTE NESTE PROBE. src/ NÃO é
+        # tocado — `credenciamento.CRED_BPMN_ERROR_ALLOWLIST` e o union de produção em
+        # worker_runtime/service.py continuam SEM os 2 códigos (cerca:
+        # tests/unit/tools/workers/test_credenciamento.py::208-209), então a rota adversa em
+        # produção segue fail-closed para incidente AUDITADO (postura ADR-0007/T-E inalterada —
+        # recusa humana-visível garantida, nunca um fim limpo silencioso). Este union existe
+        # apenas no harness deste arquivo de teste.
+        bpmn_error_allowlist=CRED_BPMN_ERROR_ALLOWLIST | {ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN},
     )
     kafka = FakeKafkaPublisher()
     # ADR-0028 §1 DMN-evaluation seam: assess_admissibility (operadora.cred.check_network_
@@ -539,15 +556,11 @@ async def cred_probe(
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors test_sp_op_cancel_001.py's cancel_probe fixture, verbatim technique):
     # todo topico operadora.cred.* registrado no harness DEVE estar na lista de drain — falha
-    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 8
-    # topicos que register_credenciamento_workers de fato registra desde T2.5-p2b — finding 1
-    # narrowed to the single remaining operadora.cred.prepare_dossier gap).
+    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 9
+    # topicos que register_credenciamento_workers de fato registra desde t2-dossier-a2a #178 —
+    # os 8 T2.5-p2b + operadora.cred.prepare_dossier). Sem exclusões: a cerca é estrita.
     cred_registered = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
-    # DL-0033 (t5): operadora.cred.prepare_dossier is now a REGISTERED local stub, but this probe
-    # deliberately does NOT drain it (keeps the guard-shape/HITL engine xfails valid pending a
-    # dedicated live-engine proof that would flip them). Exclude it explicitly from the drift check;
-    # the guard still catches any OTHER registered-but-undrained worker.
-    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS) - {_PREPARE_DOSSIER_TOPIC}
+    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS)
     assert not missing_from_drain, (
         f"_CRED_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )
@@ -851,7 +864,7 @@ async def test_happy_path_descredenciamento_humano(
     iid = inst["id"]
 
     ut = await _drive_to_descred(engine, cred_probe, iid)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(ut.id, {"decisao_cred": "DESCREDENCIAR", **_CAMPOS_DESCRED})
     await cred_probe.drain()
@@ -1007,7 +1020,6 @@ async def test_happy_path_credenciamento_aprovado_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_GUARD_SHAPE_MISMATCH_REASON, strict=True)
 async def test_descredenciar_exige_campos_worker_guard(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1019,6 +1031,10 @@ async def test_descredenciar_exige_campos_worker_guard(
     (#96): o boundary catch BE_DecredNaoHumano captura ERR_DECRED_NOT_HUMAN e termina a instancia de
     forma LIMPA em End_DecredBloqueadoNaoHumano (guard/fail-safe NEUTRO) — antes do fix, o mesmo
     cenario deixava a instancia com incidente TRAVADO (sem nenhum end event atingido).
+
+    Enablement dos 2 códigos adversos é TEST-SCOPED (Opção D-2 do dono 2026-10-29): o union vive
+    só no allowlist do probe (fixture `cred_probe`); src/ e a postura de produção ficam intocados
+    (ADR-0030 §4/T-E; ADR-0007) — ver `_CRED_GUARD_SHAPE_MISMATCH_REASON` (retired).
     """
     inst = await start_cred(direcao="descredenciamento", tem_beneficiarios_vinculados=False)
     iid = inst["id"]
@@ -1039,7 +1055,6 @@ async def test_descredenciar_exige_campos_worker_guard(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_GUARD_SHAPE_MISMATCH_REASON, strict=True)
 async def test_negar_exige_campos_worker_guard(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1049,6 +1064,10 @@ async def test_negar_exige_campos_worker_guard(
 
     Regressao GAP-CRED-1 (#96): o boundary catch BE_CredDenialNaoHumano captura ERR_CRED_DENIAL_NOT_HUMAN
     e termina a instancia de forma LIMPA em End_CredGuardBloqueadoNaoHumano (guard/fail-safe NEUTRO).
+
+    Enablement dos 2 códigos adversos é TEST-SCOPED (Opção D-2 do dono 2026-10-29): o union vive
+    só no allowlist do probe (fixture `cred_probe`); src/ e a postura de produção ficam intocados
+    (ADR-0030 §4/T-E; ADR-0007) — ver `_CRED_GUARD_SHAPE_MISMATCH_REASON` (retired).
     """
     inst = await start_cred(
         direcao="credenciamento",
@@ -1273,7 +1292,7 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_descredencia(
     await cred_probe.drain()
 
     ut = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Expiracao do prazo NUNCA auto-descredencia (L1)"
@@ -1304,7 +1323,7 @@ async def test_notificacao_ack_destrava_analise(
 
     await cred_probe.drain()
     ut = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut.candidate_groups or "juridico-rede" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Ack de notificacao nunca auto-descredencia (L1)"
@@ -1577,7 +1596,7 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     start_cred: Callable[..., Any],
 ) -> None:
     """GAP-CRED-4: cred_route catch-all ANALISE_HUMANA (direcao nao mapeada/ambigua) deve rotear para
-    o ramo de CO-REVIEW (UT_AnaliseDescredenciamento — candidate groups gestao-rede+juridico-rede),
+    o ramo de descredenciamento (UT_AnaliseDescredenciamento — decisor unico juridico-rede, R-041),
     NUNCA para o ramo credenciamento-only (UT_AnaliseCredenciamento — so gestao-rede). A ambiguidade
     tambem deve passar pela obrigacao de notificacao previa RN 567 (cure-window), nunca pula-la
     (regressao conjunta com GAP-CRED-6).
@@ -1590,9 +1609,9 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     iid = inst["id"]
 
     ut = await _drive_to_descred(engine, cred_probe, iid)
-    assert {"gestao-rede", "juridico-rede"}.issubset(ut.candidate_groups), (
-        f"GAP-CRED-4: catch-all ANALISE_HUMANA deve cair no ramo de co-review (ambos os grupos). "
-        f"groups={ut.candidate_groups}"
+    assert ut.candidate_groups == frozenset({"juridico-rede"}), (
+        f"GAP-CRED-4 + R-041: catch-all ANALISE_HUMANA cai no ramo de descredenciamento, cujo "
+        f"decisor unico e juridico-rede (#1084). groups={ut.candidate_groups}"
     )
     # Engine-side (kafka-echo morto pos-#178): o serviceTask check_prior_notice executou.
     assert "ST_CheckPriorNotice" in await engine.activity_instances_ended(iid), (
@@ -1674,7 +1693,7 @@ async def test_solicitar_info_descredenciamento_aguarda_e_retoma_ut(
     await cred_probe.drain()
 
     ut2 = await engine.await_user_task(iid, _UT_DESCRED)
-    assert "gestao-rede" in ut2.candidate_groups or "juridico-rede" in ut2.candidate_groups
+    assert ut2.candidate_groups == frozenset({"juridico-rede"})  # decisor unico (R-041)
 
     await engine.complete_task_as_human(
         ut2.id,
@@ -1739,3 +1758,119 @@ async def test_solicitar_info_credenciamento_aguarda_e_retoma_ut(
     ended2 = await _await_end(engine, iid)
     assert _END_CREDENCIADO in ended2
     assert not (ended2 & _ENDS_ADVERSOS)
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): nos criticos nunca executados no motor
+# ===========================================================================
+#
+# A medicao de cobertura de nos (bundle FORENSIC-COMPLETENESS-2026-10, COBERTURA-FLUXO-ENGINE.md)
+# achou os timers e a mensagem de informacao da analise de CREDENCIAMENTO sem nenhuma execucao: a
+# suite so' disparava os irmaos do ramo de descredenciamento (BT_*Descred). Os testes abaixo usam o
+# mesmo caso de credenciamento que chega a UT_AnaliseCredenciamento (licenca irregular -> humano).
+
+_CRED_ANALISE_HUMANA: dict[str, Any] = {
+    "direcao": "credenciamento",
+    "tipo_prestador": "clinica",
+    "documentacao_completa": True,
+    "licenca_valida": False,
+    "dentro_criterios_rede": True,
+}
+
+
+async def _correlacionar_info_cred(business_key: str) -> None:
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.cred.info_received", "businessKey": business_key}
+        )
+        assert resp.status_code in (200, 204), (
+            f"msg.cred.info_received [{resp.status_code}]: {resp.text[:200]}"
+        )
+
+
+async def test_r119_alerta_sla_credenciamento_nao_interrompe_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BT_AlertaSlaCred (nao-interruptivo): notify_sla_risk executa e a analise segue aberta."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    await _drive_to_cred(engine, cred_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_AlertaSlaCred")
+    await engine.execute_job(job.id)
+    await cred_probe.drain()
+
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_AlertaSlaCred", "ST_NotifySlaRisk"} <= ended, ended
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_CRED in open_keys, "Timer nao-interruptivo nao deve cancelar a analise de credenciamento"
+    assert not (ended & _ENDS_ADVERSOS)
+
+
+async def test_r119_sla_credenciamento_estourado_coordenacao_assume(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BT_SlaCred (interruptivo): cred.sla_breached; a coordenacao assume; nada e' negado por prazo."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    await _drive_to_cred(engine, cred_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_SlaCred")
+    await engine.execute_job(job.id)
+    await cred_probe.drain()
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORD_CRED)
+    assert "coordenacao-rede" in ut_coord.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert {"BT_SlaCred", "ST_PublishSlaBreachCred"} <= ended, ended
+    assert cred_probe.has_event(_CRED_SLA_BREACHED)
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_CRED not in open_keys, "UT_AnaliseCredenciamento deve ser cancelada (interruptivo)"
+    assert not (ended & _ENDS_ADVERSOS), "Estouro de SLA nunca auto-nega credenciamento (L1)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_r119_info_recebida_com_analise_de_credenciamento_aberta_reabre_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BME_InfoCred: a informacao chega com a analise aberta; a UT e' recriada para gestao-rede."""
+    inst = await start_cred(**_CRED_ANALISE_HUMANA)
+    iid = inst["id"]
+    ut = await _drive_to_cred(engine, cred_probe, iid)
+
+    await _correlacionar_info_cred(inst["businessKey"])
+    ut2 = await engine.await_user_task(iid, _UT_CRED)
+
+    assert ut2.id != ut.id
+    assert "gestao-rede" in ut2.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoCred" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_CRED) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+
+
+async def test_r119_info_recebida_com_analise_de_descredenciamento_aberta_reabre_a_analise(
+    engine: EngineRest,
+    cred_probe: CredEngineProbe,
+    start_cred: Callable[..., Any],
+) -> None:
+    """BME_InfoDescred: idem no ramo de descredenciamento; nunca descredencia sozinho."""
+    inst = await start_cred(direcao="descredenciamento", tem_beneficiarios_vinculados=False)
+    iid = inst["id"]
+    ut = await _drive_to_descred(engine, cred_probe, iid)
+
+    await _correlacionar_info_cred(inst["businessKey"])
+    ut2 = await engine.await_user_task(iid, _UT_DESCRED)
+
+    assert ut2.id != ut.id
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoDescred" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_DESCRED) == 2
+    assert not (ended & _ENDS_ADVERSOS)
+    await _assert_no_adverse_without_human_task(engine, iid)

@@ -1,6 +1,6 @@
 # Guia de equipe e operação — os 4 processos CA (COMPRA · UTILIZAÇÃO · SUPORTE · SERVIÇOS COMPARTILHADOS)
 
-**Versão:** 1.1 — refinamento dos adaptados v4 · **Data:** 2026-10 · **Objetivo:** O3 (operação e dimensionamento de equipe)
+**Versão:** 1.2 — sincronização com a onda CORP (S4_T_Ouvidoria userTask; captor do sinal de alerta; processo de monitoramento) · **Data:** 2026-10-23 · **Objetivo:** O3 (operação e dimensionamento de equipe)
 
 **Propósito.** Este guia orienta a leitura dos quatro modelos adaptados v4 e suas 57 lanes, preservando a autoria dos originais v3. Cada lane representa responsabilidade no desenho, sem provar pessoa, equipe física, capacidade instalada ou executor registrado. O guia distingue decisões humanas explícitas, automação e contratos externos esperados. As perguntas são checklist educativo para avaliação futura; a devolutiva foi preparada autonomamente, sem esperar participação da equipe autora.
 
@@ -107,7 +107,7 @@ Lane **Dados e CRM (consolidação de perfil)** (`LN_CA0_H3_DadosECrm`) — **vo
 Lane **Modelagem e growth (motor de recomendação)** (`LN_CA0_H3_ModelagemEGrowth`) — **volume: Média** (1 gateway: `H3_GW_Modelo`)
 - **Decide:** se o modelo atingiu métricas mínimas para ir a produção (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_GW_Modelo`).
 - **Executa:** retreino, promoção ao registro de produção e retenção do modelo anterior (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_T_Retreinar`, `CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_T_Promover`).
-- **Acompanha/recebe:** o alerta à equipe de dados quando as métricas falham (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_EV_AlertaDS`, sinal) e o desfecho de modelo retido (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_End_ModeloRetido`).
+- **Acompanha/recebe:** o alerta à equipe de dados quando as métricas falham (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_EV_AlertaDS`, sinal — **consumido in-corpus** pelo processo `Process_CA_DS_Monitoramento`, onda CORP PR #932: não há mais sinal sem captor no conjunto) e o desfecho de modelo retido (`CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn#H3_End_ModeloRetido`).
 - **Pré-requisitos:** ciência de dados aplicada a recomendação; **governança de modelo com aprovação humana antes de falar com cliente** — hoje a promoção é automática após métricas mínimas, e esse é um ponto de discussão (Q1); LGPD art. 11 §5º.
 
 Lane **Disponibilização de insumos** (`LN_CA0_H3_DisponibilizacaoDeInsumos`) — **volume: Baixa**
@@ -523,9 +523,9 @@ Lane **Qualidade e melhoria contínua** (`LN_CA3_S4_Qualidade`) — **volume: M�
 - **Acompanha/recebe:** o timer de 24h sem reação (`CA_3_SUPORTE_v4_adaptado.bpmn#S4_B_Silencio`) e o fim de reencaminhamento (`CA_3_SUPORTE_v4_adaptado.bpmn#S4_End_Reencaminhar`).
 - **Pré-requisitos:** análise de causa e curadoria de dataset — o "aprendizado" só vale se alguém é dono do dado e do consentimento de uso; e a decisão consciente sobre **encerrar sem confirmação** (ver pergunta 1).
 
-Lane **Resolução e encaminhamento** (`LN_CA3_S4_Resolucao`) — **volume: Baixa** (tarefa abstrata com lane, sem binding de executor)
+Lane **Resolução e encaminhamento** (`LN_CA3_S4_Resolucao`) — **volume: Baixa** (userTask com lane, sem binding de executor — tipada pela onda CORP, PR #930; IA-09 resolvida para este elemento)
 - **Decide:** nada modelado como decisão.
-- **Executa:** o encaminhamento à ouvidoria/ANS com retorno (`CA_3_SUPORTE_v4_adaptado.bpmn#S4_T_Ouvidoria` — tarefa abstrata **com lane responsável, sem binding de executor/alçada/conclusão**).
+- **Executa:** o encaminhamento à ouvidoria/ANS com retorno (`CA_3_SUPORTE_v4_adaptado.bpmn#S4_T_Ouvidoria` — userTask **com lane responsável, sem binding de executor/alçada/conclusão**).
 - **Acompanha/recebe:** o caso cujo cliente contestou.
 - **Pré-requisitos:** classificação do rito e prazo aplicável antes da operação; a lane já responde pelo encaminhamento, mas executor/alçada/conclusão não têm binding. Nem todo caso de Suporte é NIP formal.
 
@@ -590,13 +590,13 @@ Transversal a todas: **um módulo de treinamento único sobre as seis direções
 
 | Assert | Resultado |
 |---|---|
-| Processos cobertos | **21/21** (6 CA_0 + 5 CA_1 + 5 CA_2 + 5 CA_3), cada um com seção própria e perguntas |
+| Processos cobertos | **21/21 processos com lane e equipe** (6 CA_0 + 5 CA_1 + 5 CA_2 + 5 CA_3), cada um com seção própria e perguntas — **+ 1 processo de monitoramento sem lane/equipe** (`Process_CA_DS_Monitoramento`, CA_0, onda CORP PR #932; consumo do sinal de alerta de dados; casa funcional em `MAPA-ELEMENTOS-V4.md` §3) |
 | LaneSets / lanes | **21 laneSets / 57 lanes** (23 nomes distintos), todas listadas com volume indicativo |
 | Toda lane com Decidir/Executar/Acompanhar + pré-requisitos | Cobertura editorial nominal de 57/57; verificar conteúdo contra os bytes atuais nos gates finais |
 | Perguntas por processo | **63** (3 por processo, 21 processos) |
 | Processos sem userTask de equipe | 12 (H2.1, H1, H3, H3.1, COMPRA, C1, UTILIZAÇÃO, U2, U3, S1, S2, SUPORTE) — cobertura por gateways de decisão; C2/C4/U1/U4/S4 têm tarefas humanas atribuídas ao cliente |
 | Tarefas humanas atribuídas ao cliente sinalizadas | 5/5 (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#C2_T_Aceite`, `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#C4_T_Confirmar`, `CA_2_UTILIZACAO_v4_adaptado.bpmn#U1_T_CheckIn`, `CA_2_UTILIZACAO_v4_adaptado.bpmn#U4_T_Pesquisa`, `CA_3_SUPORTE_v4_adaptado.bpmn#S4_T_Confirmar`) |
-| Tarefas abstratas com lane, mas sem binding executivo, sinalizadas | 2/2 (`CA_2_UTILIZACAO_v4_adaptado.bpmn#U4_T_Liquidar`, `CA_3_SUPORTE_v4_adaptado.bpmn#S4_T_Ouvidoria`) |
+| Tarefas abstratas com lane, mas sem binding executivo, sinalizadas | **1/1** (`CA_2_UTILIZACAO_v4_adaptado.bpmn#U4_T_Liquidar`) — `S4_T_Ouvidoria` foi **tipada `userTask`** pela onda CORP (PR #930; IA-09 resolvida) e sai desta lista, permanecendo sem binding de executor/alçada/conclusão |
 | Escopo desta revisão | Quatro BPMNs refinados por autores por arquivo; documentos alinhados ao resultado, sem implantação ou execução de delegates |
 
 ## 7. Leitura operacional do v4 refinado
@@ -633,7 +633,7 @@ As dez tarefas estão nas lanes existentes e seguem timers não interruptivos: o
 - UT_ES_Cancelamento mantém o cancelamento do cliente; UT_ES_CancelamentoPrestador contém o cancelamento do prestador. Ambos preservam suas mensagens e são ramos distintos, com DI próprio. Separar container não muda cancelar consumo para cancelar contrato.
 - U4_GW_EscapePesquisa converge resposta ou timeout antes de U4_GW_Join. O join espera duas entradas correspondentes aos dois ramos do fork. Pesquisa ausente não é satisfação positiva nem negativa e não recebe NPS fictício. U4_T_Pesquisa declara produção pelo formulário, ainda não executado.
 - C4 confirma um slot; C2 registra aceite comercial; C3 distingue matrícula/base do direito de autorização assistencial; S4 registra confirmação de resolução. Compartilhar interface/recibo não permite substituir uma decisão pela outra.
-- U4_T_Liquidar e S4_T_Ouvidoria têm lanes responsáveis e tipos abstratos preservados. Executor, alçada e conclusão permanecem não vinculados; isso é diferente de ausência de equipe no desenho.
+- U4_T_Liquidar preserva o tipo abstrato (IA-09 residual — a única do corpus); S4_T_Ouvidoria é `userTask` desde a onda CORP (PR #930), sem binding de executor/alçada/conclusão. Isso é diferente de ausência de equipe no desenho.
 - Loops e esperas mantêm seus prazos/budgets declarados ou propostos, com contratos anotados; não se demonstra término global por ter timer nem se fabricou limite para passar checker.
 
 As 57 lanes continuam cobertas pelas seções anteriores. O cancelamento ganhou um container, não nova lane ou novo processo top-level. C4 agenda e U4 liquidação têm score 0/Baixa; S4 qualidade tem score 2/Média. Mesmo nome de lane não impõe uma única equipe física. Antes de dimensionar, medir chegada, duração, concorrência, capacidade e gravidade.

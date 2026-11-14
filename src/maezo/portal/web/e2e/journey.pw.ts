@@ -52,6 +52,8 @@ function runtime(): Runtime {
 let shared: BrowserContext;
 let storageSnapshots: { when: string; snapshot: StorageSnapshot }[] = [];
 let axeResults: { when: string; result: AxeResult }[] = [];
+// `notEnabledMessage` in src/PortalSessionExperience.tsx — the UnavailableArea placeholder.
+const UNAVAILABLE_AREA_NOTICE = "Esta área ainda não está habilitada neste ambiente.";
 const observation: TargetObservation = { thirdPartyRequests: [], syntheticAuthorizeHits: 0 };
 
 test.describe("portal session journey", () => {
@@ -83,6 +85,9 @@ test.describe("portal session journey", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       config.fixture.expectations.signed_out_heading,
     );
+    // R-089 F-104/F-159: the state names itself in the title and the help region closes the page.
+    await expect(page).toHaveTitle("Sua sessão não está ativa · Portal Maezo");
+    await expect(page.getByRole("contentinfo").getByRole("heading", { name: "Ajuda" })).toBeVisible();
     axeResults.push({ when: "signed-out", result: await scanAxe(page) });
     const focused = await tabTo(page, config.fixture.expectations.sign_in_label);
     await assertFocusIsVisible(focused);
@@ -112,6 +117,66 @@ test.describe("portal session journey", () => {
     if (new URL(page.url()).search !== "") {
       throw new Error(`the browser kept a query string after login: ${page.url()}`);
     }
+    await page.close();
+  });
+
+  // R-071 (forensic audit): every staff area the navigation offers is scanned, not only the
+  // landing view. The harness session names the full staff profile and enables every panel,
+  // so each area must render its REAL panel — the "not enabled" notice fails the test before
+  // the scan, otherwise the sweep would only ever cover that placeholder.
+  test("every staff area renders and scans clean", async () => {
+    const config = runtime();
+    await install();
+    const page = await shared.newPage();
+    await page.goto(`${config.portalOrigin}/`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      config.fixture.expectations.signed_in_heading,
+      { timeout: 20_000 },
+    );
+    const tabs = page.getByRole("tablist", { name: "Áreas de trabalho" }).getByRole("tab");
+    const panels = await tabs.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("aria-controls") ?? ""),
+    );
+    if (panels.length === 0) throw new Error("staff navigation exposed no areas to scan");
+    // R-089 F-156 (WCAG 4.1.2): every tab's aria-controls resolves to exactly one tabpanel.
+    for (const controls of panels) {
+      await expect(page.locator(`#${controls}[role='tabpanel']`)).toHaveCount(1);
+    }
+    for (const controls of panels) {
+      const tab = page.locator(`[role='tab'][aria-controls='${controls}']`);
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      // R-089 F-104 (WCAG 2.4.2): the title names the active area, not only the application.
+      const areaLabel = (await tab.locator("span").first().innerText()).replace(/\s*Em breve$/, "").trim();
+      await expect(page).toHaveTitle(`${areaLabel} · Área de colaboradores · Portal Maezo`);
+      await page.waitForLoadState("networkidle");
+      await expect(page.locator(`#${controls}`)).not.toContainText(UNAVAILABLE_AREA_NOTICE);
+      // Flag-off stubs use other wording: no UnavailableArea and no operations guidance may render.
+      await expect(
+        page.locator(`#${controls} .portal-unavailable, #${controls} #operations-heading`),
+      ).toHaveCount(0);
+      axeResults.push({ when: `staff-area:${controls}`, result: await scanAxe(page) });
+    }
+    await page.goto(`${config.portalOrigin}/portal/cases`);
+    // The deep link must land on the SPA's Cases area, not on a blank or error page.
+    await expect(page.locator("#navigation-cases")).toHaveAttribute("aria-selected", "true", {
+      timeout: 20_000,
+    });
+    await page.waitForLoadState("networkidle");
+    const casesPanel = page.locator(
+      `#${(await page.locator("#navigation-cases").getAttribute("aria-controls")) ?? ""}`,
+    );
+    await expect(casesPanel).not.toContainText(UNAVAILABLE_AREA_NOTICE);
+    axeResults.push({ when: "staff-route:/portal/cases", result: await scanAxe(page) });
+    // The case-detail route: a deep link into one case lands on the real case workspace.
+    await page.goto(`${config.portalOrigin}/portal/cases/case-synthetic-0000000001`);
+    await expect(page.locator("#navigation-cases")).toHaveAttribute("aria-selected", "true", {
+      timeout: 20_000,
+    });
+    await page.waitForLoadState("networkidle");
+    await expect(casesPanel).not.toContainText(UNAVAILABLE_AREA_NOTICE);
+    axeResults.push({ when: "staff-route:/portal/cases/:ref", result: await scanAxe(page) });
+    storageSnapshots.push({ when: "staff-areas", snapshot: await readStorage(page) });
     await page.close();
   });
 

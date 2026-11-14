@@ -184,3 +184,25 @@ def test_helena_identidade_prazo_fora_da_faixa_recusa_no_boot(
 def test_helena_identidade_prazo_nas_bordas_da_faixa(prazo: float, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
     assert _settings(helena_identidade_prazo_s=prazo).helena_identidade_prazo_s == prazo
+
+
+def test_dl_0137_roteador_nasce_com_prazo_3s_teto_256_e_concorrencia_4(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DL-0137: o provedor PROPRIO do roteador nasce com prazo 3 s (`MAEZO_HELENA_ROTEADOR_PRAZO_S`), teto de
+    256 tokens de saida e concorrencia 4. Sao os DEFAULTS das settings; o pacote da Helena pode sobrepor por
+    medicao (R-115 registra a divergencia, nao a decide)."""
+    for nome in (
+        "MAEZO_HELENA_ROTEADOR_PRAZO_S",
+        "MAEZO_HELENA_ROTEADOR_MAX_TOKENS",
+        "MAEZO_HELENA_ROTEADOR_CONCORRENCIA",
+    ):
+        monkeypatch.delenv(nome, raising=False)
+    s = _settings()
+    assert (s.helena_roteador_prazo_s, s.helena_roteador_max_tokens, s.helena_roteador_concorrencia) == (
+        3.0,
+        256,
+        4,
+    )
+    monkeypatch.setenv("MAEZO_HELENA_ROTEADOR_PRAZO_S", "2.5")
+    assert _settings().helena_roteador_prazo_s == 2.5, "o nome canonico do ambiente e' lido"

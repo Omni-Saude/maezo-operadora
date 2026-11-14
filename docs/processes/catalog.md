@@ -9,13 +9,13 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-ESCALATION-001 | Escalonamento humano universal | Seguranca assistencial | 0 | modelado FINAL v1.1.0 (emenda DL-0118: encerramento a pedido do beneficiario; SLAs em review-queue) |
 | SP-OP-AUTH-001 | Autorizacao previa | RN 259; negativa = medico auditor (L0 hard) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-LGPD-DSR-001 | Direitos do titular | LGPD art. 18 (15 dias) | 1 | DRAFT — requires human review before any deploy |
-| SP-OP-CONTAS-001 | Análise e adjudicação de conta médica (glosa) | Padrão TISS (RN 501/2022 — DRAFT/verify); prazo contratual; Lei 9.656 art. 18 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-CONTAS-001 | Análise e adjudicação de conta médica (glosa) | Padrão TISS (RN 501/2022, art. 3º, I — DRAFT/verify); prazo contratual (RN 503/2022, art. 14, II e parágrafo único; Lei 9.656, art. 17-A, § 2º, II — DRAFT/verify: âncora proposta em `docs/compliance/legal/R-054-RATIFICACAO-CITACOES-POR-LINHA.md` L4, ratificação do jurídico pendente) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-RECURSO-001 | Análise de recurso de glosa (resposta ao recurso) | Prazo contratual de resposta; Padrão TISS (RN 501/2022 — DRAFT/verify) | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite de integração planejada — T3.1; DMN ans_sla adicionado ao contrato) |
 | SP-OP-ANS-CRON-001 | Agendador dos envios ANS (5 definitions, 1 timer por report_type) | Calendario regulatorio (RN 124/209/388/424, DIOPS — DRAFT/verify) | 2 | modelado (agendador puro, NAO negativa-like; sem DMN propria e sem User Task propria — ver a nota sobre a quadrupla abaixo) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite de integração planejada — T3.1) |
-| SP-OP-REEMBOLSO-001** | Reembolso | RN 259 | 2 | modelado (suite de integração planejada — T3.1) |
+| SP-OP-REEMBOLSO-001** | Reembolso | RN 566/2022 (DRAFT/verify) | 2 | modelado — v0.2.0, 100% análise humana (DL-0161); suite de integração no CI |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-CRED-001 | (Des)credenciamento | RN 567 | 3 | modelado (suite de integração planejada — T3.1) |
 | SP-OP-ADEQUACAO-001 | Adequacao de rede | RN 259 geografia | 3 | modelado (suite de integração planejada — T3.1) |
@@ -85,15 +85,15 @@ A familia irma que devolve `published: True` sob a mesma forma (`ans_submit`, `c
 proprio mapa de consumidores a refazer, e cerca-los sem corrigi-los exigiria seis entradas de baseline
 que pareceriam cobertura sem nada ter mudado.
 
-\*\* SP-OP-REEMBOLSO-001: nenhum `agent.yaml` declara este processo em `process_keys`
-(`grep -rn REEMBOLSO spec/agents/*/agent.yaml` -> 0 hits) — arbitrado como MENOR PRIVILEGIO
-CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC). Marina serve o processo
+\*\* SP-OP-REEMBOLSO-001 (v0.2.0, DL-0161/DL-0162): **so o Lucas** declara este processo em `process_keys:` (abre o pedido
+pelo WhatsApp, flag `MAEZO_REEMBOLSO_V1`); a Marina NAO declara — arbitrado como MENOR PRIVILEGIO
+CORRETO, nao lacuna (PERSP-REEMBOLSO-BINDING, WP-AGENT-BINDINGS-EXEC; reproducao estrutural por parse de YAML, nao por grep). Marina serve o processo
 via A2A (`operadora.reembolso.analyze_request`) mas nunca o INICIA: seu node `start_process` é
 NO-OP nesse fluxo — `grep -n start_process src/maezo/agents/marina/graph.py` mostra o comentario
 "`start_process` is a NO-OP (Marina never starts a second instance)" na linha 33, e o corpo real
 do guard em `graph.py:685` (`if _flow(state) == "reembolso": return {}  # SP-OP-REEMBOLSO-001 is
 already running`). Ela é convocada de DENTRO de uma instância já em execução
-(`ST_PrepararDossie`, depois de `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` já terem
+(`ST_PrepararDossie`, depois de `BRT_PrazoInformativo`/`BRT_SlaAnalise` já terem
 rodado) — nunca abre uma instância nova. `process_keys` é o allowlist do effect-PEP
 (`effect_pep.py:487,493-494` — `declared_keys & KNOWN_PROCESS_KEYS`, consultado por
 `allows_process_key`), logo a ausência de SP-OP-REEMBOLSO-001 ali é exatamente o comportamento
@@ -211,7 +211,7 @@ Fonte: [SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn](../../spec/processes/bp
 - Gatilhos: `Start_DespachoEnvio` (contract start); `Start_Retry` (contract start).
 - Humanos (5): `UT_CorrigirPendenciaEnvio` → `regulatorio-ans`; `UT_RevisarEnvioJuridico` → `juridico-regulatorio`; `UT_RevisarEnvio` → `regulatorio-ans`; `UT_CoordenacaoEnvioAssume` → `coordenacao-regulatorio`; `UT_TratarNack` → `regulatorio-ans`.
 - DMNs: `ans_calendar`, `ans_retry_policy`, `ans_sla`, `ans_submission_admissibility`. Workers: `operadora.events.publish`, `regulatorio.anssubmit.assemble`, `regulatorio.anssubmit.notify_regulatorio`, `regulatorio.anssubmit.retransmit`, `regulatorio.anssubmit.submit`, `regulatorio.anssubmit.track_protocol`, `regulatorio.anssubmit.validate`.
-- Esperas/timers: `TD_DeadlineRiskPendencia` = `${sla.sla_alerta}`; `TD_DueDatePendencia` = `${sla.sla_analise}`; `TD_DeadlineRiskJuridico` = `${sla.sla_alerta}`; `TD_DueDateJuridico` = `${sla.sla_analise}`; `TD_DeadlineRisk` = `${sla.sla_alerta}`; `TD_DueDate` = `${sla.sla_analise}`; `TD_AguardarAck` = `P1D`; `TD_Backoff` = `${retry.backoff}`. Mensagens: `msg.anssubmit.ack_received`.
+- Esperas/timers: `TD_DeadlineRiskPendencia` = `${sla.sla_alerta}`; `TD_DueDatePendencia` = `${sla.sla_analise}`; `TD_DeadlineRiskJuridico` = `${sla.sla_alerta}`; `TD_DueDateJuridico` = `${sla.sla_analise}`; `TD_DeadlineRisk` = `${sla.sla_alerta}`; `TD_DueDate` = `${sla.sla_analise}`; `TD_DeadlineRiskNack` = `${sla.sla_alerta}`; `TD_AguardarAck` = `P1D`; `TD_Backoff` = `${retry.backoff}`. Mensagens: `msg.anssubmit.ack_received`.
 - Eventos: `agents.events.anssubmit.acked`, `agents.events.anssubmit.completed`, `agents.events.anssubmit.deadline_risk`, `agents.events.anssubmit.failed`, `agents.events.anssubmit.generated`, `agents.events.anssubmit.received`, `agents.events.anssubmit.submitted`. Call activities: —.
 - Terminais (inclusive neutros/técnicos, não todos decisões de negócio): `End_DeadlineRiskNotificado` (Risco de prazo notificado (revisao segue)); `End_EnviadoAck` (Enviado e ACK recebido (assinado por humano)); `End_EnviadoPendenteAck` (Enviado, ACK pendente (nao trava)); `End_RetryOk` (Retransmissao OK (resume aguardo de ACK)); `End_RetryEsgotado` (Retry esgotado (erro -> tratamento humano)); `End_FalhaRetransmissao` (Falha de retransmissao (tratada por humano)); `End_AdiadoHumano` (Envio adiado (decisao humana registrada)).
 
@@ -319,7 +319,7 @@ Fonte: [SP-OP-NIP-001_Resposta_NIP.bpmn](../../spec/processes/bpmn/SP-OP-NIP-001
 Fonte: [SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn](../../spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-PAGTO-001.md).
 
 - Gatilhos: `Start_OrdemPagamentoRecebida` (contract start).
-- Humanos (3): `UT_AnaliseAdmissibilidade` → `coordenacao-financeira`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
+- Humanos (3): `UT_AnaliseAdmissibilidade` → `analise-contas-pagar`; `UT_AprovacaoAlcada` → `${pagto_alcada.grupo_aprovador}`; `UT_CoordenacaoAlcada` → `coordenacao-financeira`.
 - DMNs: `pagto_admissibility`, `pagto_alcada`, `pagto_sla`. Workers: `operadora.events.publish`, `operadora.pagto.calculate_facts`, `operadora.pagto.notify_sla_risk`, `operadora.pagto.prepare_approval_dossier`, `operadora.pagto.register_payment_refusal`, `operadora.pagto.release_high_value_payment`, `operadora.pagto.release_low_value_payment`, `operadora.pagto.validate_payment_data`.
 - Esperas/timers: `TD_AlertaSlaPagto` = `${sla.sla_alerta}`; `TD_SlaAprovacao` = `${sla.sla_aprovacao}`. Mensagens: `msg.pagto.dados_corrigidos`.
 - Eventos: `agents.events.pagto.completed`, `agents.events.pagto.received`, `agents.events.pagto.routed`, `agents.events.pagto.sla_breached`. Call activities: —.
@@ -352,11 +352,11 @@ Fonte: [SP-OP-RECURSO-001_Recurso_Glosa.bpmn](../../spec/processes/bpmn/SP-OP-RE
 Fonte: [SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn](../../spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn); [contrato e inputs autoritativos](contracts/SP-OP-REEMBOLSO-001.md).
 
 - Gatilhos: `Start_SolicitacaoReembolso` (contract start).
-- Humanos (4): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`.
-- DMNs: `reembolso_admissibility`, `reembolso_auto_approval`, `reembolso_calculo`, `reembolso_sla`. Workers: `operadora.events.publish`, `operadora.reembolso.analyze_request`, `operadora.reembolso.calculate_amount`, `operadora.reembolso.check_coverage`, `operadora.reembolso.check_prazo`, `operadora.reembolso.issue_payment`, `operadora.reembolso.notify_sla_risk`, `operadora.reembolso.request_documents`, `operadora.reembolso.send_reembolso_denial`.
+- Humanos (5): `UT_DecidirPendenciaExpirada` → `analise-reembolso`; `UT_AnaliseReembolso` → `analise-reembolso`; `UT_CoordenacaoReembolso` → `coordenacao-reembolso`; `UT_RevisaoAuditorMedico` → `medico-auditor`; `UT_RegistrarPagamento` → `analise-contas-pagar` (paga fora do sistema e registra `data_pagamento`; DEC-30 D14, #1084).
+- DMNs: `reembolso_prazo` (informativa), `reembolso_sla`. Workers: `operadora.events.publish`, `operadora.reembolso.analyze_request`, `operadora.reembolso.check_coverage`, `operadora.reembolso.notify_sla_risk`, `operadora.reembolso.request_documents`, `operadora.reembolso.send_reembolso_denial`.
 - Esperas/timers: `TD_PrazoPendencia` = `P5D`; `TD_AlertaSla` = `${sla.sla_alerta}`; `TD_SlaAnalise` = `${sla.sla_analise}`. Mensagens: `msg.reembolso.docs_received`.
 - Eventos: `agents.events.reembolso.completed`, `agents.events.reembolso.pended`, `agents.events.reembolso.received`, `agents.events.reembolso.sla_breached`. Call activities: —.
-- Terminais (inclusive neutros/técnicos, não todos decisões de negócio): `End_ReembolsoProtocoloInvalido` (Solicitacao com protocolo/guia inconsistente na origem — validacao barrou (fail-safe, nao adverso)); `End_ReembolsoCancelado` (Cancelado por pendencia (decisao humana — nao adverso)); `End_ReembolsoAprovadoAutomatico` (Reembolso aprovado automaticamente (L2 — integral)); `End_RiscoSlaNotificado` (Risco de SLA notificado (analise segue)); `End_ReembolsoAprovadoAnalista` (Reembolso aprovado pelo analista/auditor); `End_ReembolsoNegado` (Reembolso negado (L0 — humano-gated)); `End_ReembolsoParcial` (Reembolso aprovado parcial (L0 — humano-gated, reducao adversa)).
+- Terminais (inclusive neutros/técnicos, não todos decisões de negócio): `End_ReembolsoProtocoloInvalido` (Solicitacao com protocolo/guia inconsistente na origem — validacao barrou (fail-safe, nao adverso)); `End_ReembolsoCancelado` (Cancelado por pendencia (decisao humana — nao adverso)); `End_RiscoSlaNotificado` (Risco de SLA notificado (analise segue)); `End_ReembolsoAprovadoAnalista` (Reembolso aprovado pelo analista/auditor e pago); `End_ReembolsoNegado` (Reembolso negado (L0 — humano-gated)); `End_ReembolsoParcial` (Reembolso aprovado parcial (L0 — humano-gated, reducao adversa)).
 
 ### Convenção BPMNDI e limite da prova
 

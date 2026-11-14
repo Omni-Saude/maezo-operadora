@@ -21,5 +21,8 @@
       "error": "classify LLM returned unparseable JSON"
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "signal:tool_failure"
+  ]
 }

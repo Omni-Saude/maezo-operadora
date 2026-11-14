@@ -1,0 +1,129 @@
+{
+  "schema": "maezo-commercial-exact-ci-prequalification.v1",
+  "reviewer_role": "commercial_arch_security_verifier",
+  "checked_at_utc": "2026-10-22T22:24:17Z",
+  "disposition": "PASS_EXACT_RUN_PREQUALIFICATION_NOT_MERGE_READY",
+  "head_sha": "5f64f0e07f8cd13ee2ef6607c7f7652e1507ba80",
+  "tested_merge_sha": "b087524b74fe0c534350ca295cd3dbfcb6e64824",
+  "tested_merge_tree": "8069c7c45c30b58695220128baab21cf0a2d8618",
+  "tested_base_sha": "4fbdc3c86562cfd0f080bc5d0e9765dc70b18190",
+  "source_freeze": {
+    "path": "SOURCE-FREEZE-C6-4-MAEZO-R2.json",
+    "sha256": "cd18c7a041a331901c753ab7a0ede2b65afc36541ab3824a5715facbf50417b3",
+    "local_paths_verified": 52,
+    "tested_merge_remote_paths_verified": 52,
+    "hash_or_size_mismatches": 0,
+    "contract_sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+    "requirements": 35,
+    "prior_subchecks_preserved": 122,
+    "additional_original_plan_checks": 8
+  },
+  "ci": {
+    "run_id": 39858315833,
+    "event": "pull_request",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "updated_at": "2026-10-22T22:17:36Z",
+    "jobs": {"total": 29, "success": 28, "scheduled_only_skipped": 1},
+    "steps": {"total": 483, "success": 448, "skipped": 35},
+    "successful_job_logs_qualified": 28,
+    "unit": {"passed": 36964, "skipped": 135, "xfailed": 5, "commercial_cases": 255, "commercial_failed": 0, "commercial_skipped": 0},
+    "portal_web": {"files": 31, "passed": 670, "failed": 0, "skipped": 0},
+    "portal_e2e": {"passed": 3},
+    "java": {
+      "unit": {"tests": 746, "skipped": 1},
+      "engine_integration": {"tests": 156, "skipped": 0},
+      "read_provider_unit": {"tests": 42, "skipped": 0},
+      "read_provider_integration": {"tests": 79, "skipped": 0},
+      "RuntimeDefinitionObservationTest": {"tests": 61, "failures": 0, "errors": 0, "skipped": 0}
+    },
+    "runner_unit": {"passed": 18, "skipped": 0},
+    "engine_regression": [
+      {"shard": "restante", "passed": 653, "xfailed_executed": 2, "inactive_companion": 0},
+      {"shard": "reembolso", "passed": 37, "xfailed_executed": 4, "inactive_companion": 0},
+      {"shard": "cancel-contas", "passed": 112, "xfailed_executed": 0, "inactive_companion": 0},
+      {"shard": "recurso-nip", "passed": 123, "xfailed_executed": 0, "inactive_companion": 2},
+      {"shard": "cred-ans", "passed": 76, "xfailed_executed": 20, "inactive_companion": 0}
+    ],
+    "chaos_pg": {"passed": 13, "inactive_companion": 4},
+    "evals": {"passed": 292, "skipped": 18, "deselected": 3},
+    "nonexecuted_limits": ["schedule-only nightly eval", "FHIR/Tasy simulator absent and explicitly skipped", "NetworkPolicy egress step skipped", "documented optional/environment test skips", "inactive mutation companions not counted as PASS"],
+    "existing_engine_is_commercial_tasy_qualification": false
+  },
+  "security": {
+    "run_id": 39858315784,
+    "successful_jobs": 6,
+    "gitleaks_pr_diff": "NO_LEAKS",
+    "full_history_scan": "NOT_RUN_PR_CONDITION",
+    "dependency_review": "RAN_NO_NEW_HIGH_OR_ABOVE",
+    "osv": {"findings": 3, "nonallowlisted_high_or_above": 0},
+    "codeql_java_results": 0,
+    "codeql_python_results": [
+      {"rule": "py/bad-tag-filter", "path": "tests/unit/platform/test_canal_escalonamento_js.py", "line": 565},
+      {"rule": "py/incomplete-url-substring-sanitization", "path": "src/maezo/conhecimento/base_saude.py", "line": 270},
+      {"rule": "py/incomplete-url-substring-sanitization", "path": "src/maezo/conhecimento/base_saude.py", "line": 276}
+    ],
+    "python_results_in_curated_52_paths": 0,
+    "python_result_level": "default_warning",
+    "trivy_results": 0,
+    "trivy_gate_policy": "WARNING_ONLY",
+    "sarif_uploads": "ACTUALLY_SUCCEEDED",
+    "zero_findings_claim": false
+  },
+  "other_workflows": [
+    {"run_id": 39858315787, "name": "flip-path-review-gate", "conclusion": "success", "reason": "no CODEOWNERS-owned path touched; not human approval"},
+    {"run_id": 39858315794, "name": "Evidence Ledger Gate", "conclusion": "success", "reason": "no task ID; ledger entry not required"},
+    {"run_id": 39863374105, "name": "Evidence Ledger Gate", "conclusion": "success", "reason": "later PR-body event, no task ID; not source sign-off"}
+  ],
+  "artifacts": {
+    "ci_inventory_count": 31,
+    "security_inventory_count": 3,
+    "archives_independently_digest_verified": [
+      {"id": 12463081731, "kind": "integration-restante", "sha256": "11b5992601045aa22f900d89de7274aec570c6911d170fab8acd24a61b7d3b4b"},
+      {"id": 12462057772, "kind": "integration-reembolso", "sha256": "176fac75c1a153516de953e26fed7dc6a9c6f5deb4a563aae72a9549da9f58c1"},
+      {"id": 12461938337, "kind": "integration-cancel-contas", "sha256": "51ee6e13246ce0d6dcc47b5902679a08d2de8840213b87d9206bb43755fb64a0"},
+      {"id": 12461877938, "kind": "integration-recurso-nip", "sha256": "84ff22197a86f3d4e4559663d4e32b3d01d2cda4256ea23b60a782278c545f9f"},
+      {"id": 12461514504, "kind": "integration-cred-ans", "sha256": "63b5fec1de2953172b4ce92bae27d07c9a2dc0cee5f4afe8d2c88d208f93a45d"},
+      {"id": 12460513590, "kind": "chaos", "sha256": "0d1dbeb1d45861b04b211f94bc369ffa7cc416e0f4284ef66c51f1101fa6f92d"},
+      {"id": 12460998189, "kind": "unit-aggregate", "sha256": "94c9e63fe9b54f45d683bea4a3754f7b8656a5b92f0ff714977be721a9d8d2e9"},
+      {"id": 12460816277, "kind": "portal-evidence", "sha256": "1ddcf7701ba2c939dab3549aa254d6ce4320701077b60f3c128354f5bb4334e5"},
+      {"id": 12460936580, "kind": "codeql-java", "sha256": "29fcebb8372080949562f42f49bcd7b1bf58bbfbe53ce67a99a98a0d14d9af42"},
+      {"id": 12460452935, "kind": "codeql-python", "sha256": "12b2115cd8049b45ddde5c9770d0fc3b99d559441eb3908e968ebdd4b9743fb7"},
+      {"id": 12460338072, "kind": "trivy", "sha256": "42efcbf19a084c096588f749b5a7cacc805a774c9bbef958f892ef1c92a0eccf"}
+    ],
+    "raw_artifacts_persisted_by_reviewer": false
+  },
+  "diagnosis_projection": {
+    "disposition": "PASS_EXACT_PROJECTION",
+    "original_sha256": "0243067531b560d99786245a368f38d6cd936ea7e4aecdfc8b0727a949717860",
+    "original_bytes": 6604,
+    "public_sha256": "6766af8f9187ec0d7c1e3d024605c9221285c5f374f4d00113bb90df545746b5",
+    "removed_keys": ["checkout"],
+    "added_keys": ["publication_projection"],
+    "changed_common_keys": [],
+    "original_manifest_sha256": "b3f2c186dd9a6cd7c7e6bb6d34b4775e64a621d9f5a48bc104fb8c7d3c991378",
+    "original_manifest_still_refs_private_original": true,
+    "private_checkout_value_disclosed": false
+  },
+  "main_seam_namespace_only": {
+    "api_compare": "4fbdc3c86562cfd0f080bc5d0e9765dc70b18190...62a0754c",
+    "returned_paths": 11,
+    "namespaces": ["docs/decisions-log.md", "spec/agents/helena", "src/maezo/agents/helena", "src/maezo/qa/simulador", "tests/unit/agents"],
+    "curated_overlap": [],
+    "ROOT_reported_merge_incoming_paths": 13,
+    "different_comparison_scopes_not_reconciled_as_identical": true,
+    "ROOT_reported_new_candidate": "0f1602d2259cb5e374d8163df1bbd5540fff255d",
+    "other_PR_author_review_performed": false,
+    "new_exact_head_CI_required": true
+  },
+  "new_blocking_findings_in_bounded_scope": [],
+  "main_origin_AMH_receipt": "PENDING",
+  "merge_ready": false,
+  "commercial_external_integration": "NOT_RUN",
+  "source_or_human_acceptance": "NOT_QUALIFIED",
+  "production": "NOT_QUALIFIED",
+  "reviewer_executed_tests_builds_or_runtime": false,
+  "reviewer_source_or_git_mutations": false,
+  "next_gate": "Current-main and AMH-main origin receipt integration; new exact-head CI and final integration/source gates"
+}

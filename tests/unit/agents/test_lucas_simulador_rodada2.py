@@ -28,7 +28,7 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
-from maezo.runtime.cobranca_foco import decidir_foco_da_cobranca
+from maezo.domain.conversa.cobranca_foco import decidir_foco_da_cobranca
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink

@@ -33,7 +33,7 @@
     candidateGroups ESTATICO ("juridico-regulatorio,medico-auditor") por design: essa User Task tem
     TRES incoming flows (roteamento direto REVISAO_JURIDICA/PENDENTE_INFO, encaminhamento
     pos-elaboracao via GW_Minuta, e retomada apos ICE_PrazoInfo) — nos dois ultimos `grupo_humano`
-    ainda carregaria o valor da rodada de ELABORAR_RESPOSTA (nucleo-ans/regulatorio-ans), NAO
+    ainda carregaria o valor da rodada de ELABORAR_RESPOSTA (regulatorio-ans), NAO
     juridico-regulatorio; wireing dinamico ali quebraria o invariante L0 (revisao juridica sempre
     juridico-regulatorio).
     O output `sla_alerta_iso` (antes calculado aqui, nunca lido por nenhum consumidor — nem BPMN
@@ -53,11 +53,11 @@
       <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="out_grupo_humano" label="grupo_humano" name="grupo_humano" typeRef="string"/>
       <rule id="r_nao_assistencial_elaborar">
-        <description>NIP nao-assistencial com documentacao suficiente -> elaborar resposta clerical (nucleo-ans); decisao final na UT humana</description>
+        <description>NIP nao-assistencial com documentacao suficiente -> elaborar resposta clerical (regulatorio-ans; nucleo-ans fundido, #1084); decisao final na UT humana</description>
         <inputEntry id="r_nao_assistencial_elaborar_i1"><text>"NAO_ASSISTENCIAL"</text></inputEntry>
         <inputEntry id="r_nao_assistencial_elaborar_i2"><text>true</text></inputEntry>
         <outputEntry id="r_nao_assistencial_elaborar_o1"><text>"ELABORAR_RESPOSTA"</text></outputEntry>
-        <outputEntry id="r_nao_assistencial_elaborar_o2"><text>"nucleo-ans"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_elaborar_o2"><text>"regulatorio-ans"</text></outputEntry>
       </rule>
       <rule id="r_assistencial_outro_elaborar">
         <description>NIP assistencial que nao contesta negativa, com documentacao -> elaborar resposta (regulatorio-ans); decisao final na UT humana</description>

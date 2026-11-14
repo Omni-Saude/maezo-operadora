@@ -1,35 +1,15 @@
-"""DEPRECATED (T1.5, ADR-0028 §"Fate of mcp_dmn") — do NOT use for any runtime decision.
+"""MCP server `dmn` — catalog anchor for `mcp-dmn.evaluate` (ADR-0012, ADR-0028).
 
-The in-process XML `DmnServer` here cannot evaluate FEEL comparison (`>=`,`<=`,`>`,`<`), range
-(`[a..b]`), list (`"A","B"`) or `not(...)` tests — 13 of the 55 deployed decisions are
-mis-evaluated or unsupported by it, and another 13 list-disjunction tables silently return the
-WRONG (catch-all) row (ADR-0028 §"comparison-operator inventory", live-verified). It never had a
-production consumer (ADR-0028 Contexto fact 1). AF-08: its no-match tail used to `return {}`
-(fail OPEN, silently); it now raises instead (fail-closed), so an accidental re-adoption cannot
-silently pass through a non-decision — but the FEEL/comparison gaps above are unfixed and are
-the actual reason nothing may call this evaluator for a real decision.
+This package directory is what registers the `dmn` server in the closed MCP catalog
+(`maezo.platform.validation.agent_def.known_mcp_servers` derives it from
+`src/maezo/tools/mcp_<name>/`); the agents' `mcp-dmn.evaluate` tool declarations validate
+against it.
 
-Runtime DMN evaluation is ENGINE-SIDE ONLY: use
+There is NO DMN evaluator here. Runtime DMN evaluation is ENGINE-SIDE ONLY (ADR-0028): the
+CIB Seven engine evaluates every decision table through
 `maezo.tools.workers.dmn_transport.DmnTransport` (`CibSevenDmnTransport` in production,
-`FakeDmnTransport` — fail-closed on unregistered keys — in tests). See ADR-0028 and the T1.5
-migration (all former Python DMN re-implementations now call the engine through that seam).
-
-Importing this package emits a loud `DeprecationWarning` (ADR-0028 §"Fate": the fail-open
-evaluator must not remain importable WITHOUT loud deprecation). The module is retained only so
-any out-of-tree import fails loudly-but-informatively instead of with a bare ImportError;
-removal outright is a follow-up once the deprecation has been through one release cycle.
+`FakeDmnTransport` — fail-closed on unregistered keys — in tests). The former in-process XML
+`DmnServer` (deprecated by T1.5, unable to evaluate FEEL comparison/range/list tests) finished
+its deprecation cycle and was removed (R-097 / F-115); `tests/unit/tools/test_dmn_engine_side_only.py`
+fences it from coming back.
 """
-
-import warnings
-
-from maezo.tools.mcp_dmn.server import DmnServer
-
-warnings.warn(
-    "maezo.tools.mcp_dmn is DEPRECATED (T1.5/ADR-0028): the in-process XML DmnServer cannot "
-    "evaluate FEEL comparison/range/list tests (fails closed on no-match, AF-08). Use "
-    "maezo.tools.workers.dmn_transport (engine-side, fail-closed) instead.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-__all__ = ["DmnServer"]

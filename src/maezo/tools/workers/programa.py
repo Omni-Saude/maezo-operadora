@@ -358,7 +358,7 @@ def register_discharge(variables: dict[str, Any]) -> dict[str, Any]:
     """Register clinical discharge from program.
 
     GUARDED: ERR_PROGRAM_DISCHARGE_NOT_HUMAN (L0-hard).
-    Clinical decision MUST come from a human (coordenacao-clinica / equipe-cuidado).
+    Clinical decision MUST come from a human (coordenacao-clinica, sole decider since R-041).
     """
     return _register_program_discharge(variables)
 
@@ -434,16 +434,36 @@ def stop_processing(variables: dict[str, Any]) -> dict[str, Any]:
 
     This is NOT adverse — stopping PHI processing upon revocation is
     the safe/legal behavior. Terminal: End_ProcessamentoInterrompidoRevogacao.
+
+    R-013 / F-008 (achado C5-10): o contrato (SP-OP-PROGRAMA-001, "Topicos": `stop_processing`
+    "registra cessacao (LGPD)"; "Variaveis de saida": `consent_event_ref`, a referencia ao registro
+    de consentimento/revogacao que liga a SP-OP-LGPD-DSR-001) pede que a cessacao fique AMARRADA ao
+    evento de consentimento — antes o worker so logava e devolvia uma constante. Agora o retorno
+    re-ecoa `consent_event_ref` quando a instancia o carrega (string nao vazia, sem espacos nas
+    bordas): o `complete` da harness grava a variavel no escopo e no historico da task de cessacao,
+    e a cessacao passa a citar QUAL consentimento cessou. Ausente/forma invalida => a chave nao e
+    devolvida (nunca um valor inventado). O valor e uma referencia ja presente no escopo (campo
+    obrigatorio do start `valentina.programa.start.v1`), nao amplia a superficie de PHI, e NAO entra
+    em log. Purga de dados do titular NAO e efeito deste worker: eliminacao e direito separado
+    (art. 18, VI), pedido pelo DSR e executado pela cascata DARK de `platform.erasure`.
     """
     logger.warning(
         "programa_stop_processing_revogacao",
         beneficiario=variables.get("beneficiario_pseudo_id"),
     )
 
-    return {
+    result: dict[str, Any] = {
         "processamento_parado": True,
         "motivo": "revogacao_consentimento",
     }
+    consent_event_ref = variables.get("consent_event_ref")
+    if (
+        isinstance(consent_event_ref, str)
+        and consent_event_ref.strip()
+        and consent_event_ref == consent_event_ref.strip()
+    ):
+        result["consent_event_ref"] = consent_event_ref
+    return result
 
 
 # ---------------------------------------------------------------
@@ -566,7 +586,7 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
     quem publica e `make_notify_sla_risk_handler` abaixo, e SO quando ha produtor Kafka. No
     caminho `kafka is None` o wrapper devolvia este mesmo `True` sem ter publicado coisa alguma.
     Mesmo com produtor, o publish e um registro INTERNO em `operadora.notifications.internal` — um
-    PEDIDO de alerta, nunca a prova de que a `coordenacao-clinica`/`equipe-cuidado` foi avisada.
+    PEDIDO de alerta, nunca a prova de que a `coordenacao-clinica` foi avisada.
     Os DOIS caminhos passam a devolver `{}`; o publish observavel segue intacto.
 
     ZERO CONSUMIDORES: `sla_risk_notified` nao aparece em `conditionExpression` de BPMN,

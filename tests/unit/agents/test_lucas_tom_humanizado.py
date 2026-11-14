@@ -45,7 +45,7 @@ from maezo.agents.lucas.prompts import (
     message_prompt,
     motivo_de_recusa,
 )
-from maezo.runtime.cobranca_lista import PedidoDeLista
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista
 
 _HOJE = date(2026, 10, 10)
 

@@ -49,7 +49,7 @@
 # placeholder awaiting cleanup, it is the honest recorded state of the three open gates.
 #
 # CODEOWNERS-LISTED (not gated): covered by `/spec/policies/autonomy/` AND by an explicit
-# last-match line for this file in `.github/CODEOWNERS` (@rodrigotaquino @Omni-Saude/security).
+# last-match line for this file in `.github/CODEOWNERS` (@rodaquino-OMNI @Omni-Saude/security-team).
 # Server-side enforcement is NOT currently active on `main` (branch protection 404, rulesets
 # empty), so the listing REQUESTS a security reviewer without being able to REQUIRE one — the
 # owner finding is already recorded in evidence-ledger row `mzo-000` (restoration is the owner's
@@ -233,7 +233,7 @@ acoes:
       - referencia: "src/maezo/tools/workers/auth.py:1369"
         detalhe: "SendDenialNoticeWorker — topic operadora.auth.send_denial_notice"
         choked: true
-      - referencia: "src/maezo/tools/workers/reembolso.py:813"
+      - referencia: "src/maezo/tools/workers/reembolso.py:653"
         detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1488"
@@ -242,10 +242,10 @@ acoes:
       - referencia: "src/maezo/tools/workers/recurso.py:1506"
         detalhe: "topic operadora.recurso.comunicar_resposta (raw handler — resposta ao recurso emitida ao prestador)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1722"
+      - referencia: "src/maezo/tools/workers/contas.py:492"
         detalhe: "topic operadora.contas.registrar_glosa (GUARDED — ERR_CONTAS_GLOSA_NOT_HUMAN)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1728"
+      - referencia: "src/maezo/tools/workers/contas.py:870"
         detalhe: "topic operadora.contas.emitir_demonstrativo (demonstrativo de analise / devolucao emitidos ao prestador)"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
@@ -279,17 +279,14 @@ acoes:
   pagamento_emissao:
     enforcement: shadow
     descricao: >-
-      Liberação de pagamento (prestador ou reembolso ao beneficiário). Efeito financeiro
+      Liberação de pagamento (prestador). O reembolso ao beneficiário não emite pagamento pelo sistema desde a v0.2.0 (DL-0161): o financeiro paga fora e registra a data. Efeito financeiro
       irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
     superficies:
-      - referencia: "src/maezo/tools/workers/pagto.py:896"
+      - referencia: "src/maezo/tools/workers/pagto.py:616"
         detalhe: "topic operadora.pagto.release_low_value_payment"
         choked: true
-      - referencia: "src/maezo/tools/workers/pagto.py:898"
+      - referencia: "src/maezo/tools/workers/pagto.py:798"
         detalhe: "topic operadora.pagto.release_high_value_payment"
-        choked: true
-      - referencia: "src/maezo/tools/workers/reembolso.py:808"
-        detalhe: "topic operadora.reembolso.issue_payment"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -369,6 +366,33 @@ acoes:
       ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
+  # DL-0150 (2026-10-20): classe DECLARADA, NÃO APROVADA. O único efeito é a telemetria de sombra dos
+  # dois tópicos de aviso do SP-OP-ESCALATION-001 deixar de ser `ACAO_NAO_MAPEADA` e passar a nomear
+  # esta classe (ainda WOULD_DENY, `MANIFESTO_NAO_RATIFICADO`). `operadora.events.publish` NÃO é
+  # mapeado aqui: aparece em 17 BPMNs com cargas de natureza diferente e pede classe própria.
+  notificacao_interna_equipe:
+    enforcement: shadow
+    descricao: >-
+      Aviso INTERNO à equipe de atendimento ou ao supervisor (escalonamento humano e alerta de SLA do
+      SP-OP-ESCALATION-001). Publica em `operadora.notifications.internal`, o barramento interno da
+      plataforma; não sai da plataforma e não toca o beneficiário — é por isso que não é
+      `comunicacao_beneficiario`. Degrau C1; recusa enforçada = incidente fail-closed (retries=0), e a
+      falha de publicação segue no fallback que o BPMN já modela (`ERR_ESC_NOTIFY_FAILED`).
+    superficies:
+      - referencia: "src/maezo/tools/workers/escalation.py:541"
+        detalhe: "make_notify_team_handler — topic operadora.escalation.notify_team (raw handler,
+          ST_NotificarTime)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/escalation.py:720"
+        detalhe: "make_notify_supervisor_handler — topic operadora.escalation.notify_supervisor (raw
+          handler, ST_NotificarSupervisor e ST_NotificarFallback)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
   inicio_processo_regulatorio:
     enforcement: shadow
     descricao: >-
@@ -376,10 +400,10 @@ acoes:
       agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
       fence próprio (allowlist ADR-0016) e auditoria de start (T-C2).
     superficies:
-      - referencia: "src/maezo/tools/workers/contas.py:1744"
+      - referencia: "src/maezo/tools/workers/contas.py:1236"
         detalhe: "topic operadora.contas.handoff_pagamento (inicia SP-OP-PAGTO-001 — conta adjudicada)"
         choked: true
-      - referencia: "src/maezo/tools/workers/contas.py:1750"
+      - referencia: "src/maezo/tools/workers/contas.py:644"
         detalhe: "topic operadora.contas.start_fraude"
         choked: true
       - referencia: "src/maezo/tools/workers/recurso.py:1499"
@@ -532,8 +556,9 @@ acoes:
       ITEM DE MAIOR RISCO DO RUNG C0: uma leitura NEGADA não pode ser lida como "não há instância
       ativa". A consulta anti-dupla-terminação tem de falhar FECHADA (pular), igual ao
       comportamento de hoje quando o engine está ausente.
-      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 4 superfícies estão choked
-      (a 4a, `read_historic_variables`, entrou com GAP-XHITL-4).
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 5 superfícies estão choked
+      (a 4a, `read_historic_variables`, entrou com GAP-XHITL-4; a 5a,
+      `resolve_historic_instance`, com PAGTO PR-C / MPTT P2).
       ⚠ PRÉ-CONDIÇÃO 1 DA VIRADA — RESÍDUO PÓS-CLAIM (detalhe em
       `src/maezo/gateway/seams/cibseven.py:29-35`): `find_active_instance` está gated e é chamada
       em `src/maezo/tools/mcp_cibseven/transport.py:1182`, que é o passo 3 do
@@ -569,6 +594,13 @@ acoes:
         detalhe: "read_historic_variables (GAP-XHITL-4) — leitura de variáveis do HISTÓRICO por
           instância, usada pelo consumidor de retomada para buscar `notas_resolucao` na Zona PHI.
           Via GatedHistoryReadingCibSevenTransport, construído SÓ quando o inner tem as duas
+          pernas de histórico"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:757"
+        detalhe: "resolve_historic_instance (PAGTO PR-C / MPTT P2) — UMA instância do HISTÓRICO
+          por chave de negócio e/ou filtro de variável: estado, endActivityId e variáveis por
+          nome, falha fechada (padrão DL-0050; nomes PHI recusados antes da rede). Via
+          GatedHistoryResolvingCibSevenTransport, construído SÓ quando o inner tem as três
           pernas de histórico"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
@@ -672,7 +704,8 @@ acoes:
 # DELIBERADAMENTE INCOMPLETO. Só estão mapeados os tópicos cujo efeito externo é inequívoco a
 # partir do próprio worker (os `superficies[].choked: true` acima). Os ~80 tópicos restantes de
 # `spec/processes/bpmn/**` — cálculo, triagem, leitura de fatos, notificações internas de SLA —
-# NÃO estão mapeados, e classificá-los é decisão humana, não inferência de agente.
+# NÃO estão mapeados, e classificá-los é decisão humana, não inferência de agente. (Exceção datada:
+# os dois avisos internos de escalonamento, DL-0150, sob classe própria e igualmente não aprovada.)
 #
 # CONSEQUÊNCIA SOB `modo: enforcing`: um tópico NÃO mapeado é DENY, com o motivo
 # `ACAO_NAO_MAPEADA` (ADR-0037 XRD-09: "ação/política desconhecida ... negam"). Isto é
@@ -697,7 +730,6 @@ mapeamento_topicos:
 
   operadora.pagto.release_low_value_payment: pagamento_emissao
   operadora.pagto.release_high_value_payment: pagamento_emissao
-  operadora.reembolso.issue_payment: pagamento_emissao
 
   operadora.inadimplencia.register_contract_suspension: vinculo_contratual_mudanca
   operadora.cancel.effectuate_member_request: vinculo_contratual_mudanca
@@ -710,6 +742,10 @@ mapeamento_topicos:
   operadora.programa.proactive_contact: comunicacao_beneficiario
   operadora.lgpd.send_response: comunicacao_beneficiario
   operadora.lgpd.request_additional_proof: comunicacao_beneficiario
+
+  # DL-0150: avisos internos do SP-OP-ESCALATION-001. `operadora.events.publish` segue SEM mapa.
+  operadora.escalation.notify_team: notificacao_interna_equipe
+  operadora.escalation.notify_supervisor: notificacao_interna_equipe
 
   operadora.contas.handoff_pagamento: inicio_processo_regulatorio
   operadora.contas.start_fraude: inicio_processo_regulatorio
@@ -759,6 +795,7 @@ mapeamento_acoes:
   agente.amh.tina_get_carteirinha: leitura_phi_clinica
   agente.amh.tina_get_dependentes_nome: leitura_phi_clinica
   agente.amh.tina_get_catalogo_procedimentos: leitura_phi_clinica
+  agente.amh.tina_get_cpt_vigente: leitura_phi_clinica
   agente.amh.verify_subject: leitura_phi_clinica
   agente.amh.resolve_by_document: leitura_phi_clinica
   agente.amh.record_consent: registro_consentimento
@@ -773,6 +810,7 @@ mapeamento_acoes:
   agente.cibseven.find_active_instance: consulta_processo
   agente.cibseven.find_any_instance: consulta_processo
   agente.cibseven.read_historic_variables: consulta_processo
+  agente.cibseven.resolve_historic_instance: consulta_processo
 
   agente.dmn.evaluate: avaliacao_dmn
 
@@ -902,3 +940,57 @@ vocabulario_l0_canonico:
       ratificador: PENDENTE
       data: PENDENTE
       evidencia_ref: PENDENTE
+
+# ---------------------------------------------------------------------------------------------
+# concessoes_principal — capacidade C0 concedida pelo dono a um DAEMON sem `agent.yaml`.
+# [ADITIVO — 2026-11-02, DEC-30 D19 (A); issue #1084]
+#
+# O QUE ISTO É. O registro, como DADO, da resposta do dono à PRÉ-CONDIÇÃO 2 da classe
+# `consulta_processo` (descricao acima): "o enforcement é por classe, não por principal" — o
+# `worker_runtime` não tem `agent.yaml`, então, virada a classe, toda leitura de engine da perna de
+# worker negaria em L-1 com `CAPACIDADE_INDISPONIVEL`. Das duas saídas que a pré-condição oferece,
+# o dono escolheu a primeira (registro de capacidade para o daemon), ESCOPADA ao mínimo: SÓ
+# leitura, SÓ a operação de histórico que o PAGTO PR-D (`resolve_lastro`) usa, SÓ os dois
+# processos de origem em que ele procura o lastro. O PR-E (`detect_duplicidade`) não chama o
+# engine: o nível 2 dele consome os fatos do lastro do PR-D, então é coberto por esta mesma linha.
+#
+# O QUE ISTO NÃO É.
+#   * NÃO é aprovação de classe: os três blocos `aprovacoes` de `consulta_processo` seguem
+#     `PENDENTE`, a classe segue `enforcement: shadow`, o arquivo segue `status: DRAFT` — com ou
+#     sem esta concessão, L-5 continua negando. Esta linha só remove o motivo L-1 da negativa.
+#   * NÃO é lida pelo runtime HOJE: `build_worker_seam_context` (`src/maezo/gateway/
+#     tool_registry.py:486`) ainda passa `capabilities=None` ao daemon. Ligar o loader a este
+#     bloco é mudança de código (PR próprio, antes de qualquer virada C0); até lá a telemetria de
+#     sombra da perna de worker segue registrando `CAPACIDADE_INDISPONIVEL`, honestamente.
+#   * NÃO cobre `avaliacao_dmn` (a costura `dmn=` do mesmo daemon tem a mesma pré-condição e não
+#     foi decidida em D19), nem `find_active_instance`/`find_any_instance`/`read_historic_variables`
+#     /`get_process_status`/`correlate_message` — alargar exige nova decisão do dono.
+#   * NÃO cobre os OUTROS consumidores `worker_runtime` da MESMA operação na main: o
+#     `handoff_pagamento` do CONTAS (`src/maezo/tools/workers/contas.py:1169`, `_ordem_existente`,
+#     lê `SP-OP-PAGTO-001`) e o reconciliador de status do prestador
+#     (`src/maezo/platform/prestador_status/reconciliador.py:183`, lê `SP-OP-CRED-001`/
+#     `SP-OP-FRAUDE-001`; principal `worker_runtime` via `prestador_status/cli.py:90`). Ligada a
+#     fiação e virada a classe, essas leituras seguem negando (`process_keys` fora do escopo) —
+#     alargar é decisão nova do dono.
+#
+# NENHUM AGENTE PODE ALARGAR ESTE BLOCO — operação, processo ou principal novo é decisão do dono.
+# ---------------------------------------------------------------------------------------------
+concessoes_principal:
+
+  worker_runtime:
+    consulta_processo:
+      somente_leitura: true
+      operacoes: ["cibseven.resolve_historic_instance"]
+      process_keys: ["SP-OP-CONTAS-001", "SP-OP-RECURSO-001"]
+      superficie: "src/maezo/tools/mcp_cibseven/transport.py:757"
+      consumidores:
+        - referencia: "src/maezo/tools/workers/pagto_lastro.py:269"
+          detalhe: "resolve_lastro — PAGTO PR-D, topic operadora.pagto.validate_payment_data
+            (dark: MAEZO_PAGTO_RESOLVE_LASTRO)"
+        - referencia: "src/maezo/tools/workers/pagto_duplicidade.py:259"
+          detalhe: "detect_duplicidade — PAGTO PR-E, mesmo topic (dark:
+            MAEZO_PAGTO_DETECT_DUPLICIDADE); lê os fatos do lastro do PR-D, não o engine"
+      decidido_por: "dono (rodaquino-OMNI)"
+      decidido_em: "2026-11-02"
+      decisao_ref: "DEC-30 D19 (A) — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6575240466"
+      fiacao_runtime: PENDENTE

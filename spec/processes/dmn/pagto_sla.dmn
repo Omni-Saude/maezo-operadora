@@ -11,7 +11,9 @@
     tiers mais altos podem ter SLA maior, mais aprovadores). docs/review-queue.md. Consumida por
     SP-OP-PAGTO-001 e mcp-dmn.
     NOTA: prazos como string ISO 8601 (sla_aprovacao, sla_alerta); fonte e a politica interna
-    citada (registrada para auditoria). Prazo de governanca vive AQUI (DMN) e no timer BPMN —
+    citada (registrada para auditoria). sla_alerta = 2/3 (~67%) de sla_aprovacao em TODA regra,
+    dentro da faixa 60-70% do contrato SP-OP-PAGTO-001 (secao SLAs; R-053/F-109 — antes 50/67/75/80%);
+    por isso horas (PT32H/PT64H/PT80H) onde dias inteiros nao cabem. sla_aprovacao inalterado. Prazo de governanca vive AQUI (DMN) e no timer BPMN —
     nunca em Python (CONTRIBUTING).
     INVARIANTE L1 (no-adverse): esta tabela NAO tem saida adversa; no estouro de SLA a
     coordenacao financeira humana (tier-adequada) assume — NUNCA auto-libera por timeout
@@ -38,7 +40,7 @@
         <inputEntry id="r_l1_i1"><text>"ALCADA_L1"</text></inputEntry>
         <inputEntry id="r_l1_i2"><text>-</text></inputEntry>
         <outputEntry id="r_l1_o1"><text>"P2D"</text></outputEntry>
-        <outputEntry id="r_l1_o2"><text>"P1D"</text></outputEntry>
+        <outputEntry id="r_l1_o2"><text>"PT32H"</text></outputEntry>
         <outputEntry id="r_l1_o3"><text>"Politica financeira interna — alcada L1 ~2 dias: DRAFT/verify financas"</text></outputEntry>
       </rule>
       <rule id="r_l2">
@@ -54,7 +56,7 @@
         <inputEntry id="r_l3_i1"><text>"ALCADA_L3"</text></inputEntry>
         <inputEntry id="r_l3_i2"><text>-</text></inputEntry>
         <outputEntry id="r_l3_o1"><text>"P4D"</text></outputEntry>
-        <outputEntry id="r_l3_o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_l3_o2"><text>"PT64H"</text></outputEntry>
         <outputEntry id="r_l3_o3"><text>"Politica financeira interna — alcada L3 ~4 dias: DRAFT/verify financas"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
@@ -62,7 +64,7 @@
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>"P5D"</text></outputEntry>
-        <outputEntry id="r_catchall_o2"><text>"P4D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"PT80H"</text></outputEntry>
         <outputEntry id="r_catchall_o3"><text>"Politica financeira interna — comite/ANALISE_HUMANA (tier mais alto) ~5 dias: DRAFT/verify financas"</text></outputEntry>
       </rule>
     </decisionTable>

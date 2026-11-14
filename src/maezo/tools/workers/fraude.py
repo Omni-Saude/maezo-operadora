@@ -16,13 +16,17 @@ spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn).
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import functools
 import math
+import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.gateway.custody import CustodyBundle
+from maezo.gateway.pseudonymizer import PHI_FIELDS
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import (
     CANCEL_KEY_FAMILY,
@@ -579,6 +583,46 @@ def assemble_dossier(variables: dict[str, Any]) -> dict[str, Any]:
     return {"dossie_gap": GAP_BEATRIZ_A2A_NAO_LIGADO}
 
 
+#: Shapes that are PHI on sight and cannot occur in a hash/pointer ref (hex digests carry no '.',
+#: '-' between digit groups or '@'): formatted CPF and e-mail. Unformatted digit runs are NOT
+#: matched here on purpose — a SHA-256 hex ref can legitimately end in a long digit run.
+_PHI_SHAPES = (
+    re.compile(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b"),
+    re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b"),
+)
+
+
+def _phi_hit(ref: Any, depth: int = 0) -> str | None:
+    """First PHI marker found in an evidence ref (str, or dict/list walked recursively), or None."""
+    if depth > 6:
+        return "estrutura_profunda"
+    if isinstance(ref, (int, float)) and not isinstance(ref, bool):
+        ref = str(ref)
+    if isinstance(ref, str):
+        lowered = ref.lower()
+        for marker in _PHI_MARKERS:
+            if marker in lowered:
+                return marker
+        for shape in _PHI_SHAPES:
+            if shape.search(ref):
+                return "padrao_phi"
+        return None
+    if isinstance(ref, dict):
+        for key, value in ref.items():
+            if key in PHI_FIELDS:
+                return "campo_phi"
+            hit = _phi_hit(str(key), depth + 1) or _phi_hit(value, depth + 1)
+            if hit:
+                return hit
+        return None
+    if isinstance(ref, (list, tuple)):
+        for item in ref:
+            hit = _phi_hit(item, depth + 1)
+            if hit:
+                return hit
+    return None
+
+
 # ---------------------------------------------------------------
 # seal_custody_bundle — Merkle seal BEFORE human decision
 # ---------------------------------------------------------------
@@ -597,20 +641,17 @@ def seal_custody_bundle(variables: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(evidencia_refs, list):
         evidencia_refs = []
 
-    # Check for PHI in evidence (ADR-0006)
-    for ref in evidencia_refs:
-        if isinstance(ref, str):
-            for marker in _PHI_MARKERS:
-                if marker in ref.lower():
-                    logger.error(
-                        "fraude_phi_in_custody_detected",
-                        ref=ref,
-                        marker=marker,
-                    )
-                    raise FraudeError(
-                        ERR_PHI_IN_CUSTODY,
-                        f"PHI marker '{marker}' detected in evidence reference",
-                    )
+    # Check for PHI in evidence (ADR-0006). Structured refs (dict/list) are walked too: before
+    # forensic audit F-058 only `str` refs were inspected and a `{"cpf": ...}` ref sealed silently.
+    for index, ref in enumerate(evidencia_refs):
+        marker = _phi_hit(ref)
+        if marker is not None:
+            # Never log the ref itself: it is exactly the value suspected of carrying PHI.
+            logger.error("fraude_phi_in_custody_detected", ref_index=index, marker=marker)
+            raise FraudeError(
+                ERR_PHI_IN_CUSTODY,
+                f"PHI marker '{marker}' detected in evidence reference",
+            )
 
     # Compute Merkle root over ordered evidence references
     bundle_root = CustodyBundle.seal_bundle([str(r) for r in evidencia_refs])
@@ -983,11 +1024,56 @@ def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
     return f"CRED-{tenant_id}-{prestador_id}"
 
 
+#: F-077 (R-077). Valores do seed do handoff FRAUDE->CRED, tirados dos contratos (nunca inventados):
+#: `SP-OP-FRAUDE-001.md` — o handoff "inicia SP-OP-CRED-001 (descredenciamento)"; `operadora` e' o
+#: valor do dominio fechado `origem_solicitacao` de `SP-OP-CRED-001.md` para a investigacao da
+#: propria operadora (o mesmo dos handoffs sistemicos `adequacao`/`inadimplencia`).
+CRED_DIRECAO_HANDOFF_FRAUDE = "descredenciamento"
+CRED_ORIGEM_HANDOFF_FRAUDE = "operadora"
+
+
+def _hoje_civil_brasil() -> dt.date:
+    """Data civil em America/Sao_Paulo (UTC-3 fixo se a imagem nao trouxer `tzdata`)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz: dt.tzinfo = ZoneInfo("America/Sao_Paulo")
+    except Exception:  # imagem slim sem banco de fusos: sem horario de verao desde 2019
+        tz = dt.timezone(dt.timedelta(hours=-3), "America/Sao_Paulo")
+    return dt.datetime.now(tz).date()
+
+
+def cred_start_seed_from_fraude(source: Mapping[str, Any], *, hoje: dt.date | None = None) -> dict[str, Any]:
+    """Variaveis OBRIGATORIAS de SP-OP-CRED-001 que o handoff da FRAUDE semeia no start (F-077).
+
+    Contrato `SP-OP-CRED-001.md` §Variaveis de entrada: `direcao`, `tipo_prestador`,
+    `origem_solicitacao`, `data_solicitacao_iso` e `documentos_refs` sao `sim`. Usado pelos DOIS
+    start sites do handoff — o worker in-flow `start_credenciamento` e a regra-espelho FRAUDE->CRED
+    do `notification_bridge` — que convergem na MESMA business key: quem chegar primeiro cria a
+    instancia, entao os dois precisam semear o mesmo conjunto. So' fatos pre-decisao: nunca
+    `decisao_cred` nem saida do CRED (a UT humana do CRED decide).
+
+    `tipo_prestador` e' ECOADO da origem; o FRAUDE nao o carrega hoje, entao vai `""` (nao
+    informado) — as DMN do CRED levam isso ao ramo conservador (`cred_prior_notice`/`cred_sla`
+    catch-all). `documentos_refs` vai vazio (o contrato admite): o bundle de custodia nao e'
+    documentacao de credenciamento e segue em `bundle_root`.
+    """
+    tipo = source.get("tipo_prestador")
+    return {
+        "direcao": CRED_DIRECAO_HANDOFF_FRAUDE,
+        "tipo_prestador": tipo.strip() if isinstance(tipo, str) else "",
+        "origem_solicitacao": CRED_ORIGEM_HANDOFF_FRAUDE,
+        "data_solicitacao_iso": (hoje or _hoje_civil_brasil()).isoformat(),
+        "documentos_refs": [],
+    }
+
+
 def start_credenciamento(
     variables: dict[str, Any],
     *,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    hoje: dt.date | None = None,
 ) -> dict[str, Any]:
     """Handoff: idempotently START SP-OP-CRED-001 for provider de-credentialing.
 
@@ -997,7 +1083,9 @@ def start_credenciamento(
     fenced ``start_process_idempotent`` chokepoint (ADR-0007 emit-before-effect, T-C2). Was a stub
     returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
     blank/None ``tenant_id``/``prestador_id`` anchor (EB-4 R1: validated with the SHARED
-    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``)."""
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``).
+    F-077: also seeds CRED-001's contract-mandatory inputs via `cred_start_seed_from_fraude`
+    (``hoje`` injectable for tests; default = civil date in America/Sao_Paulo)."""
     # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
     if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
         logger.error(
@@ -1019,6 +1107,7 @@ def start_credenciamento(
         "numero_caso": str(variables.get("numero_caso", "")),
         "bundle_root": str(variables.get("bundle_root", "")),
         "origem_encaminhamento": "fraude",
+        **cred_start_seed_from_fraude(variables, hoje=hoje),
     }
     instance_id, already_existed = _fenced_start(
         process_key=CRED_PROCESS_KEY,

@@ -46,6 +46,16 @@ ROOT_FIXTURE_SUITES = [
     "tests/integration/test_staff_installer_live_pg.py",
 ]
 
+#: Orcamento de relogio de UM `discover` completo do repositorio real: clone + checkout + venv
+#: proprio do `uv run` + SEIS coletas completas do pytest. A descoberta canonica e a POLUIDA sao a
+#: MESMA operacao (o runner descarta o ambiente herdado antes de cada filho), entao dividem o
+#: mesmo orcamento — o teto de 120 s da variante poluida era a metade do da canonica e, com a
+#: arvore de testes de out/2026, a descoberta passou a medir perto disso no runner do CI
+#: (`TimeoutExpired` sem saida porque o runner so escreve ao terminar). A operacao e' finita por
+#: construcao: cada filho do runner tem teto proprio (clone/checkout 120 s, sonda 180 s, cada
+#: coleta 180 s), e este teto externo e' apenas o do conjunto.
+DISCOVERY_TIMEOUT = 300.0
+
 
 def _run(
     *args: str,
@@ -94,7 +104,7 @@ def baseline_discovery(tmp_path_factory: pytest.TempPathFactory) -> dict[str, An
         _head_sha(),
         "--results-dir",
         str(directory),
-        timeout=300,
+        timeout=DISCOVERY_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     payload: dict[str, Any] = json.loads((directory / "discovery.json").read_text())
@@ -287,10 +297,30 @@ def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tm
     )
     try:
         _wait_for(lock_dir / "owner.json")
+        initial_owner = json.loads((lock_dir / "owner.json").read_bytes())
+        assert initial_owner["pid"] == owner.pid
         _wait_for(child_pid_file)
         _wait_for(child_log)
         child_pid = int(child_pid_file.read_text())
-        original_owner = (lock_dir / "owner.json").read_bytes()
+        # child.pid can precede the supervisor's post-Popen ownership update.
+        # Snapshot only the matching published state; retain those exact bytes.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            assert owner.poll() is None
+            owner_bytes = (lock_dir / "owner.json").read_bytes()
+            owner_state = json.loads(owner_bytes)
+            assert owner_state["pid"] == owner.pid
+            assert owner_state["token"] == initial_owner["token"]
+            if (
+                owner_state.get("checkpoint") == "subprocess_running"
+                and owner_state.get("pending_pgids") == [child_pid]
+                and owner_state.get("subprocess_quiescent") is False
+            ):
+                original_owner = owner_bytes
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("owner did not publish the matching running child state")
 
         contender = _run(
             "lock-probe",
@@ -456,7 +486,7 @@ def test_discovery_ignores_ambient_pytest_selectors_and_plugins(
         sha,
         "--results-dir",
         str(polluted_dir),
-        timeout=120,
+        timeout=DISCOVERY_TIMEOUT,
         extra_env={
             "PYTEST_ADDOPTS": "-k not\\ test_alerta_interno_nao_interruptivo",
             "PYTHONPATH": str(plugin_dir),

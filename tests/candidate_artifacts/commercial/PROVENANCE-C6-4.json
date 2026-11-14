@@ -1,0 +1,19 @@
+{
+  "schema": "commercial-candidate-test-custody.v1",
+  "classification": "IMMUTABLE_CANDIDATE_TEST_ARTIFACT_NOT_CANONICAL_OR_PUBLISHED",
+  "source_repository": "Omni-Saude/amh-data-platform",
+  "source_commit": "b3ab95a07a016526aa5dc09ead22aafccd630b45",
+  "source_path": "schemas/proposals/maezo/commercial-v1/shared-contract-c6-4.proposed.v1.json",
+  "source_blob": "08e4d70dae5605d9000ad23db7df355eaa5fc940",
+  "source_sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+  "bytes": 320163,
+  "imported_at": "2026-10-22T18:49:36.419649+00:00",
+  "source_verified": "GitHub connector full UTF-8 response exactly equals immutable local Git object",
+  "publication": "NOT_PUBLISHED",
+  "runtime_admission": "UNBOUND",
+  "purpose": "Mandatory candidate codec UNIT conformance only",
+  "canonical_editor": "AMH only; successor artifacts require new custody and independent gates",
+  "runtime_import_allowed": false,
+  "existing_published_pin_modified": false,
+  "historical_artifacts_unchanged": true
+}

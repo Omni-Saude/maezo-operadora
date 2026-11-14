@@ -252,6 +252,9 @@ de contrato.
 
 **5. Publicar os processos** no engine (task `maezo-operadora-dev-deploy-processes`).
 Idempotente pelo nome do deployment: rodar de novo reporta `skipped (duplicate): 78`.
+Antes, `python scripts/ci/check_portal_admissao.py`: se ele AVISA `AGUARDANDO admissao`, este deploy cria uma versao
+de processo com fila no portal que a admissao Q2 nao nomeia, e as tarefas novas somem das filas. Faca o repin no mesmo
+corte (`material-staff-na-aws.md`, passo 5, "Versao nova de processo ja admitido").
 
 **6. Escalar os serviços**: `-var=cibseven_desired_count=1 -var=worker_desired_count=1`.
 

@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/portal/administration/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Admin Vinculos */
+        get: operations["read_admin_vinculos_api_v1_portal_administration_memberships_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/auth/callback": {
         parameters: {
             query?: never;
@@ -226,6 +243,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/commission-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Commission Adjustment Drafts */
+        get: operations["list_commission_adjustment_drafts_api_v1_portal_commission_adjustments_get"];
+        put?: never;
+        /** Create Commission Adjustment Draft */
+        post: operations["create_commission_adjustment_draft_api_v1_portal_commission_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/commission-adjustments/{policy_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Commission Adjustment Draft */
+        get: operations["read_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__get"];
+        put?: never;
+        /** Replace Commission Adjustment Draft */
+        post: operations["replace_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/document-uploads/{upload_ref}/complete": {
         parameters: {
             query?: never;
@@ -254,6 +307,23 @@ export interface paths {
         get: operations["download_api_v1_portal_documents__document_ref__content_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/dsr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Dsr */
+        post: operations["submit_dsr_api_v1_portal_dsr_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -356,6 +426,91 @@ export interface paths {
         put?: never;
         /** Intake Upload */
         post: operations["intake_upload_api_v1_portal_intakes__intake_ref__document_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Legitimacy Screen */
+        post: operations["create_legitimacy_screen_api_v1_portal_legitimacy_screens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Legitimacy Checklist */
+        get: operations["read_legitimacy_checklist_api_v1_portal_legitimacy_screens_checklist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/contratante/{legal_entity_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Latest Legitimacy Screen */
+        get: operations["read_latest_legitimacy_screen_api_v1_portal_legitimacy_screens_contratante__legal_entity_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/{screen_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revalidate Legitimacy Screen */
+        post: operations["revalidate_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/legitimacy-screens/{screen_ref}/{screen_revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Legitimacy Screen */
+        get: operations["read_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref___screen_revision__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -590,6 +745,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/reembolso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso
+         * @description INTERIM (DL-0163): os dados fechados do pedido de reembolso e a lista de anexos da tarefa.
+         *
+         *     Nenhuma logica de autorizacao aqui: `HumanGateway.read_reembolso_context` prova a sessao `staff` e que
+         *     a membership pode ler ESTA tarefa antes de perguntar ao motor. Aqui e' transporte: o portao, o pedido
+         *     fechado, o mapa de erros e `no-store` (o middleware do app).
+         */
+        get: operations["read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}/reembolso/anexos/{document_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Reembolso Anexo
+         * @description INTERIM (DL-0163): os BYTES de um anexo do pedido. Sem nome de arquivo, `no-store`, `nosniff`, e
+         *     `attachment` para nunca renderizar no mesmo origin. A referencia so' vale se estiver no `documentos_refs`
+         *     da instancia DESTA tarefa e o sha256 do objeto conferir com o registrado no processo.
+         */
+        get: operations["read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/vendor/submissions": {
         parameters: {
             query?: never;
@@ -616,6 +817,40 @@ export interface paths {
         };
         /** Read */
         get: operations["read_api_v1_portal_vendor_submissions__submission_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/commercial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commercial Command */
+        post: operations["commercial_command_api_v1_sales_commercial_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/public/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Catalog */
+        get: operations["public_catalog_api_v1_sales_public_catalog_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -689,11 +924,12 @@ export interface components {
         };
         /**
          * AnsNackInputs
-         * @description UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+         * @description UT_TratarNack's documented choice, still DRAFT; consumed by the engine (R-066).
          *
-         *     The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
-         *     not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
-         *     runtime binding remains unavailable until this contract/consumer gap is reconciled.
+         *     GW_DecisaoNack routes on decisao_nack: retransmitir_manual returns the case to
+         *     UT_CorrigirPendenciaEnvio and clears the prior approval, so nothing is re-filed without a new
+         *     human sign-off; registrar_falha publishes anssubmit.completed and ends the instance; any other
+         *     value reopens the task. Recording retransmitir_manual does not itself retransmit.
          */
         AnsNackInputs: {
             /**
@@ -819,7 +1055,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Process Definition Digest */
@@ -1016,11 +1252,11 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Inputs */
-            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["CancelExecucaoInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["SuppressionEncarregadoDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
+            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["ReembolsoPagamentoInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["CancelExecucaoInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["SuppressionEncarregadoDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
             /** Process Definition Digest */
             process_definition_digest: string;
             /** Process Definition Id */
@@ -1280,6 +1516,61 @@ export interface components {
             /** Submission Ref */
             submission_ref: string;
         };
+        /**
+         * ChecklistCriterion
+         * @description Um critério do parecer §5 — o rótulo é o VERBATIM do parecer, nunca paráfrase.
+         *
+         *     `estrutural=True` marca o critério que o ESTADO bloqueante aplica (art. 29 §1º): ele é
+         *     EXIBIDO e nunca é campo de entrada (desenho §5: "nunca um checkbox").
+         */
+        ChecklistCriterion: {
+            /**
+             * Campos
+             * @default []
+             */
+            campos: components["schemas"]["ChecklistField"][];
+            /** Criterion Id */
+            criterion_id: string;
+            /**
+             * Estrutural
+             * @default false
+             */
+            estrutural: boolean;
+            /** Norm Anchor */
+            norm_anchor: string;
+            /**
+             * Opcoes
+             * @default []
+             */
+            opcoes: components["schemas"]["ChecklistOption"][];
+            /** Rotulo */
+            rotulo: string;
+        };
+        /**
+         * ChecklistField
+         * @description Um campo do checklist com a âncora normativa QUE A TELA EXIBE para ele.
+         *
+         *     `norm_anchor` é sempre artigo PRÓPRIO da RN 557/2022 (parecer §4 — desdobro por
+         *     assunto); `condicao_estrutural` carrega a derivação do art. 16 quando existe.
+         */
+        ChecklistField: {
+            /** Campo Id */
+            campo_id: string;
+            /** Condicao Estrutural */
+            condicao_estrutural?: string | null;
+            /** Norm Anchor */
+            norm_anchor: string;
+        };
+        /**
+         * ChecklistOption
+         * @description Uma opção fechada de campo, com o rótulo exibido — sem texto livre de operador.
+         */
+        ChecklistOption: {
+            /** Rotulo */
+            rotulo: string;
+            /** Valor */
+            valor: string;
+        };
         /** ClaimAssignment */
         ClaimAssignment: {
             /** Command Id */
@@ -1300,7 +1591,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -1322,6 +1613,178 @@ export interface components {
             task_definition_key: string;
             /** Task Id */
             task_id: string;
+        };
+        /**
+         * CommissionAdjustmentDraft
+         * @description What the surface PROVES back: the stored structure, always `DRAFT`. Never a verdict.
+         *
+         *     No computed field exists — no total, no effective rate, no currency conversion, no
+         *     ranking, no "next step". The audit columns are WHO/WHEN of the draft edit, not an
+         *     approval: nobody approves anything here, and no field claims otherwise.
+         */
+        CommissionAdjustmentDraft: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Atualizado Em
+             * Format: date-time
+             */
+            atualizado_em: string;
+            /** Atualizado Por */
+            atualizado_por: string;
+            /**
+             * Criado Em
+             * Format: date-time
+             */
+            criado_em: string;
+            /** Criado Por */
+            criado_por: string;
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Policy Ref */
+            policy_ref: string;
+            /** Precedencia */
+            precedencia: number;
+            /** Revision */
+            revision: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Status
+             * @default DRAFT
+             * @constant
+             */
+            status: "DRAFT";
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
+        };
+        /**
+         * CommissionAdjustmentDraftPage
+         * @description The draft list: server-ordered (precedencia, dimensao, policy_ref), no pagination.
+         *
+         *     Dark internal surface, drafts only — the store returns the tenant's whole draft set in
+         *     the declared order; a pagination contract is a future need, not an invented one.
+         */
+        CommissionAdjustmentDraftPage: {
+            /** Count */
+            count: number;
+            /** Drafts */
+            drafts: components["schemas"]["CommissionAdjustmentDraft"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
+         * CommissionAdjustmentDraftReplacement
+         * @description REPLACE a draft's structure (POST-only house posture): full shape + expected revision.
+         *
+         *     The replacement is idempotent over the WHOLE editable structure — absent slots clear
+         *     values (they are nullable by design). `revision` must match the stored one exactly
+         *     (`stale_revision` otherwise, 409): two operators editing the same draft is a conflict to
+         *     surface, never a silent last-write. `status` is NOT an input on this surface at all.
+         */
+        CommissionAdjustmentDraftReplacement: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Precedencia */
+            precedencia: number;
+            /** Revision */
+            revision: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
+        };
+        /**
+         * CommissionAdjustmentDraftSubmission
+         * @description CREATE a draft: what an internal operator may register. Nothing else is an input.
+         */
+        CommissionAdjustmentDraftSubmission: {
+            /**
+             * Ajuste Tipo
+             * @enum {string}
+             */
+            ajuste_tipo: "percentual" | "valor" | "faixa";
+            /**
+             * Dimensao
+             * @enum {string}
+             */
+            dimensao: "produto" | "canal" | "corretor";
+            /** Dimensao Ref */
+            dimensao_ref: string;
+            /** Faixa Max */
+            faixa_max?: string | null;
+            /** Faixa Min */
+            faixa_min?: string | null;
+            /** Moeda */
+            moeda?: string | null;
+            /** Percentual */
+            percentual?: string | null;
+            /** Precedencia */
+            precedencia: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Valor */
+            valor?: string | null;
+            /** Vigencia Fim */
+            vigencia_fim?: string | null;
+            /** Vigencia Inicio */
+            vigencia_inicio?: string | null;
         };
         /** CommunicationPage */
         CommunicationPage: {
@@ -1495,6 +1958,29 @@ export interface components {
             /** Referencia Regulatoria */
             referencia_regulatoria?: string | null;
         };
+        /**
+         * CriterionCheck
+         * @description O estado DECLARADO de um critério: resultado no closed set do substrato + referências.
+         *
+         *     O operador declara; nada aqui infere, pondera ou aprova. As evidências são referências
+         *     tipadas do substrato (custódia `operadora`/`administradora`, RN 557/2022 art. 12) —
+         *     nunca bytes de documento. No WIRE a sequência chega como LISTA e é ACEITA SÓ AÍ: o modo
+         *     strict do pydantic não converge lista→tupla no caminho python do ASGI (o mesmo motivo
+         *     pelo qual o substrato hidrata via JSON), então o validador `before` fecha a tupla
+         *     ANTES da validação — o campo persiste tupla fechada e imutável, como no recibo.
+         */
+        CriterionCheck: {
+            /**
+             * Evidence Refs
+             * @default []
+             */
+            evidence_refs: components["schemas"]["LegitimacyEvidenceRef"][];
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "proven" | "not_proven" | "not_applicable" | "pending";
+        };
         /** DecisionContextResponse */
         DecisionContextResponse: {
             /** Binding Digest */
@@ -1573,7 +2059,7 @@ export interface components {
                 "decision"
             ];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "info_solicitada" | "texto_ao_beneficiario" | "data_pagamento" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -1590,7 +2076,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /**
              * Form Source Status
              * @enum {string}
@@ -1700,6 +2186,54 @@ export interface components {
             document_ref: string;
             /** Document Type Ref */
             document_type_ref: string;
+        };
+        /**
+         * DsrReceipt
+         * @description Stage receipt: received and staged for the engine start. NEVER a DSR outcome.
+         */
+        DsrReceipt: {
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Request Ref */
+            request_ref: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Status
+             * @default received
+             * @constant
+             */
+            status: "received";
+            /**
+             * Tipo Requisicao
+             * @enum {string}
+             */
+            tipo_requisicao: "confirmacao_acesso" | "correcao" | "eliminacao" | "portabilidade" | "info_compartilhamento" | "revogacao_consentimento";
+        };
+        /**
+         * DsrSubmission
+         * @description What the authenticated titular may ask for. Nothing else is an input on this surface.
+         */
+        DsrSubmission: {
+            /** Detalhes Requisicao */
+            detalhes_requisicao: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tipo Requisicao
+             * @enum {string}
+             */
+            tipo_requisicao: "confirmacao_acesso" | "correcao" | "eliminacao" | "portabilidade" | "info_compartilhamento" | "revogacao_consentimento";
         };
         /** EscalationDecisionInputs */
         EscalationDecisionInputs: {
@@ -1814,7 +2348,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /** Generation Digest */
@@ -1899,7 +2433,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -2147,6 +2681,237 @@ export interface components {
              * @constant
              */
             scope: "actor_admissions";
+        };
+        /**
+         * LegitimacyChecklistManifest
+         * @description O checklist FECHADO que a tela renderiza — os 5 critérios do parecer §5 e nada mais.
+         *
+         *     `penalidade_anchor` é a forma CURTA (a única forma de tela, parecer §1);
+         *     `norma_contratacao` é a RN 557/2022 desdobrada por assunto; `escopo="integral"` fixa o
+         *     parecer §2 (conteúdo integral desde a v1). Nenhum texto deste manifesto atribui papel
+         *     jurídico a figura alguma de venda (parecer §3) — cerca mecânica no teste da superfície.
+         */
+        LegitimacyChecklistManifest: {
+            /** Criterios */
+            criterios: components["schemas"]["ChecklistCriterion"][];
+            /**
+             * Escopo
+             * @default integral
+             * @constant
+             */
+            escopo: "integral";
+            /**
+             * Norma Contratacao
+             * @default RN 557/2022
+             * @constant
+             */
+            norma_contratacao: "RN 557/2022";
+            /**
+             * Penalidade Anchor
+             * @default RN 489/2022, art. 23-A
+             * @constant
+             */
+            penalidade_anchor: "RN 489/2022, art. 23-A";
+            /** Resultados */
+            resultados: components["schemas"]["ChecklistOption"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
+         * LegitimacyCriterion
+         * @description Um critério verificado: critério→resultado→referências, com a âncora normativa.
+         *
+         *     A enumeração FECHADA dos critérios (os campos exatos da tela) é a superfície do PR 2
+         *     (desenho §5); o substrato fixa a FORMA: id simbólico fechado, resultado no closed set,
+         *     âncora por artigo PRÓPRIO da norma de contratação (RN 557/2022) — ou da penalidade
+         *     (RN 489/2022, art. 23-A, redação dada pela RN 659/2025) quando o critério é de infração —
+         *     e referências tipadas. `pending` é um resultado declarado, nunca inferido.
+         */
+        LegitimacyCriterion: {
+            /** Criterion Id */
+            criterion_id: string;
+            /**
+             * Evidence Refs
+             * @default []
+             */
+            evidence_refs: components["schemas"]["LegitimacyEvidenceRef"][];
+            /** Norm Anchor */
+            norm_anchor: string;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "proven" | "not_proven" | "not_applicable" | "pending";
+        };
+        /**
+         * LegitimacyEvidenceRef
+         * @description Referência TIPADA a um documento sob custódia — nunca o documento.
+         *
+         *     Exatamente três campos e nenhum outro (o fechado é a fronteira anti-custódia: não
+         *     existe slot para conteúdo, preview, base64 ou "só o primeiro parágrafo"). `kind` diz
+         *     quem tem a GUARDA do art. 12; `locator` é o ponteiro opaco no repositório DO
+         *     CUSTODIANTE; `document_sha256` é o digest do documento apontado, que permite conferir
+         *     integridade SEM transportar o objeto. Custódia é da operadora e/ou da administradora
+         *     (RN 557/2022, art. 12; parecer §5 "Registros").
+         */
+        LegitimacyEvidenceRef: {
+            /** Document Sha256 */
+            document_sha256: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operadora" | "administradora";
+            /** Locator */
+            locator: string;
+        };
+        /**
+         * LegitimacyScreenRecord
+         * @description A verificação persistida — o recibo que o banco guarda, linha por revisão.
+         *
+         *     Imutável por revisão: revalidação por evento (renovação, reajuste, troca de
+         *     contratante) é NOVA `screen_revision` (nova linha), nunca UPDATE de revisão (desenho
+         *     §3). `would_block` registra o que a postura enforcing DECIDIRIA — registrável em shadow,
+         *     nunca aplicador de efeito aqui. A sinalização do art. 39 é par exclusivo com a âncora
+         *     literal: sinalizada ⟺ âncora presente (CHECK espelhado da 0030). `reconfirmation_due_at`
+         *     materializa o art. 10 (aniversário do contrato) quando o regime exige.
+         */
+        LegitimacyScreenRecord: {
+            /** Art39 Anchor */
+            art39_anchor?: "RN 557/2022, art. 39" | null;
+            /** Art39 Signaled */
+            art39_signaled: boolean;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Criteria */
+            criteria: components["schemas"]["LegitimacyCriterion"][];
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /**
+             * Operation
+             * @default legitimacy_screen
+             * @constant
+             */
+            operation: "legitimacy_screen";
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default legitimacy-screen-record.v1
+             * @constant
+             */
+            schema_version: "legitimacy-screen-record.v1";
+            /** Screen Ref */
+            screen_ref: string;
+            /** Screen Revision */
+            screen_revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "valid" | "invalid" | "pending";
+            /** Tenant */
+            tenant: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Would Block */
+            would_block: boolean;
+        };
+        /**
+         * LegitimacyScreenRevalidation
+         * @description REVALIDATE por evento (renovação, reajuste, troca de contratante): checklist COMPLETO
+         *     de novo + a revisão conhecida (molde D-36 `revision`).
+         *
+         *     A revisão persistida é SEMPRE `screen_revision + 1`, mintada pelo servidor — revalidação
+         *     é NOVA `screen_revision` (nova linha do substrato), nunca update de revisão (desenho §3).
+         */
+        LegitimacyScreenRevalidation: {
+            constituida_um_ano?: components["schemas"]["CriterionCheck"] | null;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /** Contratante Lista Art15 */
+            contratante_lista_art15?: ("inciso_i" | "inciso_ii" | "inciso_iii" | "inciso_iv" | "inciso_v" | "inciso_vi") | null;
+            documentos_art9?: components["schemas"]["CriterionCheck"] | null;
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            reconfirmacao_anual?: components["schemas"]["CriterionCheck"] | null;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Screen Revision */
+            screen_revision: number;
+            vinculo_beneficiario_contratante?: components["schemas"]["CriterionCheck"] | null;
+        };
+        /**
+         * LegitimacyScreenSubmission
+         * @description CREATE a screen: what an internal operator declares. Nothing else is an input.
+         */
+        LegitimacyScreenSubmission: {
+            constituida_um_ano?: components["schemas"]["CriterionCheck"] | null;
+            /**
+             * Contract Kind
+             * @enum {string}
+             */
+            contract_kind: "empresarial" | "adesao" | "empresario_individual";
+            /**
+             * Contracting Form
+             * @enum {string}
+             */
+            contracting_form: "direta" | "administradora" | "coestipulante";
+            /** Contratante Lista Art15 */
+            contratante_lista_art15?: ("inciso_i" | "inciso_ii" | "inciso_iii" | "inciso_iv" | "inciso_v" | "inciso_vi") | null;
+            documentos_art9?: components["schemas"]["CriterionCheck"] | null;
+            /** Legal Entity Ref */
+            legal_entity_ref: string;
+            /** Opportunity Ref */
+            opportunity_ref: string;
+            reconfirmacao_anual?: components["schemas"]["CriterionCheck"] | null;
+            /** Reconfirmation Due At */
+            reconfirmation_due_at?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            vinculo_beneficiario_contratante?: components["schemas"]["CriterionCheck"] | null;
         };
         /**
          * LgpdDsrDecisionInputs
@@ -2409,6 +3174,25 @@ export interface components {
             /** Workload Ref */
             workload_ref: string;
         };
+        /** PortalAdminReadError */
+        PortalAdminReadError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "admin_read_unavailable";
+        };
+        /**
+         * PortalCommissionPolicyError
+         * @description The closed refusal vocabulary of this boundary. Nothing here suggests a next state.
+         */
+        PortalCommissionPolicyError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "commission_policy_fabricated" | "field_not_client_owned" | "resource_unavailable" | "stale_revision" | "dependency_unavailable";
+        };
         /** PortalCompletionError */
         PortalCompletionError: {
             /**
@@ -2453,6 +3237,14 @@ export interface components {
              */
             schema_version: "portal-decision-error.v1";
         };
+        /** PortalDsrError */
+        PortalDsrError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "dependency_unavailable";
+        };
         /** PortalIntakeError */
         PortalIntakeError: {
             /**
@@ -2460,6 +3252,17 @@ export interface components {
              * @enum {string}
              */
             code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "resource_unavailable" | "conflict" | "dependency_unavailable";
+        };
+        /**
+         * PortalLegitimacyScreenError
+         * @description The closed refusal vocabulary of this boundary. Nothing here suggests a next state.
+         */
+        PortalLegitimacyScreenError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "field_not_client_owned" | "resource_unavailable" | "screen_conflict" | "stale_revision" | "dependency_unavailable";
         };
         /** PortalReadError */
         PortalReadError: {
@@ -2662,7 +3465,7 @@ export interface components {
              */
             allowed_actions: unknown[];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "info_solicitada" | "texto_ao_beneficiario" | "data_pagamento" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack" | "execucao_cadastro")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -2679,7 +3482,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /**
              * Form Source Status
              * @enum {string}
@@ -2810,6 +3613,43 @@ export interface components {
             valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
             valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
         };
+        /** ReembolsoAnexoRef */
+        ReembolsoAnexoRef: {
+            /** Document Ref */
+            document_ref: string;
+            /**
+             * Tipo
+             * @enum {string}
+             */
+            tipo: "pedido_medico" | "nota_fiscal" | "complemento";
+        };
+        /**
+         * ReembolsoAuditorCompletionSubmission
+         * @description Medico auditor (`reembolso_auditor`).
+         */
+        ReembolsoAuditorCompletionSubmission: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_auditor";
+            /** Parecer Auditor */
+            parecer_auditor?: string | null;
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
         /**
          * ReembolsoAuditorInputs
          * @description Medical-merit form (BPMN 383-388); no clinical content is inferred.
@@ -2824,6 +3664,8 @@ export interface components {
             decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
             /** Fundamentacao Contratual */
             fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
             /** Justificativa */
             justificativa?: string | null;
             /**
@@ -2833,6 +3675,33 @@ export interface components {
             kind: "reembolso_auditor";
             /** Parecer Auditor */
             parecer_auditor?: string | null;
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoDecisaoCompletionSubmission
+         * @description Analise e coordenacao (`reembolso_decisao`).
+         */
+        ReembolsoDecisaoCompletionSubmission: {
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_decisao";
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
         };
         /**
@@ -2847,6 +3716,8 @@ export interface components {
             decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
             /** Fundamentacao Contratual */
             fundamentacao_contratual?: string | null;
+            /** Info Solicitada */
+            info_solicitada?: string | null;
             /** Justificativa */
             justificativa?: string | null;
             /**
@@ -2854,7 +3725,53 @@ export interface components {
              * @enum {string}
              */
             kind: "reembolso_decisao";
+            /** Texto Ao Beneficiario */
+            texto_ao_beneficiario?: string | null;
             valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoPagamentoCompletionSubmission
+         * @description Registro do pagamento feito fora do sistema (`reembolso_pagamento`).
+         */
+        ReembolsoPagamentoCompletionSubmission: {
+            /** Data Pagamento */
+            data_pagamento: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pagamento";
+        };
+        /**
+         * ReembolsoPagamentoInputs
+         * @description Registro do pagamento feito fora do sistema (DL-0161, ``UT_RegistrarPagamento``).
+         *
+         *     O sistema nao paga nem calcula: o financeiro informa a data em que pagou (ISO ``AAAA-MM-DD``).
+         */
+        ReembolsoPagamentoInputs: {
+            /** Data Pagamento */
+            data_pagamento: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reembolso_pagamento";
+        };
+        /**
+         * ReembolsoPendenciaCompletionSubmission
+         * @description Pendencia expirada (`reembolso_pendencia`).
+         */
+        ReembolsoPendenciaCompletionSubmission: {
+            /**
+             * Decisao Pendencia
+             * @enum {string}
+             */
+            decisao_pendencia: "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "reembolso_pendencia";
         };
         /**
          * ReembolsoPendingInputs
@@ -2892,7 +3809,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Form Version */
             form_version: string;
             /**
@@ -2926,7 +3843,7 @@ export interface components {
              */
             audience: "staff" | "beneficiary" | "provider" | "vendor";
             /** Capabilities */
-            capabilities: ("identity" | "staff_cases" | "human" | "vendor")[];
+            capabilities: ("identity" | "staff_cases" | "human" | "vendor" | "staff_admin_read")[];
             /** Csrf Token */
             csrf_token: string;
             /**
@@ -2934,6 +3851,11 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /**
+             * Flags
+             * @default []
+             */
+            flags: ("staff_documents_panel" | "staff_operations_panel" | "staff_admin_panel")[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */
@@ -2944,6 +3866,78 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+        };
+        /**
+         * StaffAdminBinding
+         * @description One server-verified resource relationship of the reviewed record (opaque reference).
+         */
+        StaffAdminBinding: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "beneficiary" | "provider" | "vendor";
+            /** Resource Ref */
+            resource_ref: string;
+        };
+        /**
+         * StaffAdminMembership
+         * @description One governed permission block of the reviewed record, exactly as reviewed.
+         */
+        StaffAdminMembership: {
+            /** Groups */
+            groups: string[];
+            /** Membership Ref */
+            membership_ref: string;
+            /** Roles */
+            roles: string[];
+        };
+        /**
+         * StaffAdminVinculo
+         * @description The reviewed vínculo of one staff principal, with its review facts. Read-only.
+         */
+        StaffAdminVinculo: {
+            /** Membership Revision */
+            membership_revision: number;
+            /** Memberships */
+            memberships: components["schemas"]["StaffAdminMembership"][];
+            /** Principal Ref */
+            principal_ref: string;
+            /**
+             * Reviewed Until
+             * Format: date-time
+             */
+            reviewed_until: string;
+            /** Revoked */
+            revoked: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked";
+            /** Subject Bindings */
+            subject_bindings: components["schemas"]["StaffAdminBinding"][];
+        };
+        /**
+         * StaffAdminVinculos
+         * @description The whole read-only roster answer: every reviewed staff vínculo of this tenant.
+         */
+        StaffAdminVinculos: {
+            /** Count */
+            count: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Vinculos */
+            vinculos: components["schemas"]["StaffAdminVinculo"][];
         };
         /**
          * StaffDetail
@@ -3093,13 +4087,13 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "reembolso_pagamento" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado" | "cancel_execucao";
             /** Process Definition Key */
             process_definition_key: string;
             /** Process Definition Version */
             process_definition_version: string;
             /** Resultado */
-            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO");
+            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO") | ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR" | "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise" | "PAGO");
             /**
              * Schema
              * @default portal-task-completion.v1
@@ -3217,6 +4211,53 @@ export interface components {
             schema: "portal-task-read.v1";
             task: components["schemas"]["PublicTaskSnapshot"];
         };
+        /** TaskReembolsoContextResponse */
+        TaskReembolsoContextResponse: {
+            /** Anexos */
+            anexos: components["schemas"]["ReembolsoAnexoRef"][];
+            /** Categoria Procedimento */
+            categoria_procedimento: ("consulta" | "exame" | "terapia") | null;
+            /** Data Atendimento */
+            data_atendimento: string | null;
+            /** Data Solicitacao */
+            data_solicitacao: string | null;
+            /** Decisao Reembolso */
+            decisao_reembolso: ("APROVAR" | "APROVAR_PARCIAL" | "NEGAR" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR") | null;
+            /** Dias Desde Atendimento */
+            dias_desde_atendimento: number | null;
+            /** Motivo Nao Rede */
+            motivo_nao_rede: ("urgencia" | "sem_prestador_no_prazo" | "preferencia_fora_rede") | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Protocolo */
+            protocolo: string | null;
+            /** Relacao Com Titular */
+            relacao_com_titular: ("titular" | "dependente") | null;
+            /** Resposta Beneficiario */
+            resposta_beneficiario?: string | null;
+            /**
+             * Schema
+             * @default portal-task-reembolso.v1
+             * @constant
+             */
+            schema: "portal-task-reembolso.v1";
+            /** Situacao Prazo */
+            situacao_prazo?: ("DENTRO" | "FORA" | "NAO_AVALIADO") | null;
+            /**
+             * Task Definition Key
+             * @enum {string}
+             */
+            task_definition_key: "UT_AnaliseReembolso" | "UT_CoordenacaoReembolso" | "UT_RevisaoAuditorMedico" | "UT_DecidirPendenciaExpirada" | "UT_RegistrarPagamento";
+            /** Task Id */
+            task_id: string;
+            /** Tipo Reembolso */
+            tipo_reembolso: ("livre_escolha" | "fora_rede" | "urgencia_emergencia" | "indisponibilidade_rede") | null;
+            valor_reembolso_aprovado_cents: components["schemas"]["Centavos"] | null;
+            valor_solicitado_cents: components["schemas"]["Centavos"] | null;
+        };
         /** UploadCompletion */
         UploadCompletion: {
             /** Command Id */
@@ -3265,6 +4306,62 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_admin_vinculos_api_v1_portal_administration_memberships_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAdminVinculos"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+        };
+    };
     callback_api_v1_portal_auth_callback_get: {
         parameters: {
             query?: never;
@@ -4260,6 +5357,341 @@ export interface operations {
             };
         };
     };
+    list_commission_adjustment_drafts_api_v1_portal_commission_adjustments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraftPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    create_commission_adjustment_draft_api_v1_portal_commission_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommissionAdjustmentDraftSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    read_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
+    replace_commission_adjustment_draft_api_v1_portal_commission_adjustments__policy_ref__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommissionAdjustmentDraftReplacement"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionAdjustmentDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCommissionPolicyError"];
+                };
+            };
+        };
+    };
     complete_upload_api_v1_portal_document_uploads__upload_ref__complete_post: {
         parameters: {
             query?: never;
@@ -4430,6 +5862,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    submit_dsr_api_v1_portal_dsr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DsrSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DsrReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
                 };
             };
         };
@@ -4926,6 +6427,427 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    create_legitimacy_screen_api_v1_portal_legitimacy_screens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegitimacyScreenSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_legitimacy_checklist_api_v1_portal_legitimacy_screens_checklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyChecklistManifest"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_latest_legitimacy_screen_api_v1_portal_legitimacy_screens_contratante__legal_entity_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                legal_entity_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    revalidate_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                screen_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegitimacyScreenRevalidation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+        };
+    };
+    read_legitimacy_screen_api_v1_portal_legitimacy_screens__screen_ref___screen_revision__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                screen_ref: string;
+                screen_revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegitimacyScreenRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLegitimacyScreenError"];
                 };
             };
         };
@@ -5526,7 +7448,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"];
+                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"] | components["schemas"]["ReembolsoDecisaoCompletionSubmission"] | components["schemas"]["ReembolsoAuditorCompletionSubmission"] | components["schemas"]["ReembolsoPendenciaCompletionSubmission"] | components["schemas"]["ReembolsoPagamentoCompletionSubmission"];
             };
         };
         responses: {
@@ -5863,6 +7785,195 @@ export interface operations {
             };
         };
     };
+    read_task_reembolso_api_v1_portal_tasks__task_id__reembolso_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReembolsoContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+        };
+    };
+    read_task_reembolso_anexo_api_v1_portal_tasks__task_id__reembolso_anexos__document_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                document_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+        };
+    };
     submit_api_v1_portal_vendor_submissions_post: {
         parameters: {
             query?: never;
@@ -6031,6 +8142,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+        };
+    };
+    commercial_command_api_v1_sales_commercial_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    public_catalog_api_v1_sales_public_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

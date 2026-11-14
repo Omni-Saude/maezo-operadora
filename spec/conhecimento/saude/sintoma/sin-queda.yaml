@@ -1,0 +1,73 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Criado em 25/10/2026 (teste do dono, item 7): a queda recebia as perguntas de alerta genéricas (peito/AVC).
+# PENDENTE DO MÉDICO-AUDITOR (DL-0123): as perguntas e os sinais saem SÓ das fontes abaixo — quedas podem causar
+# fraturas e traumatismo craniano (Ministério da Saúde, Saúde de A a Z); desmaio e confusão (tabela de sinais de
+# alarme do adulto e o arquivo da batida na cabeça). NÃO entraram, para o médico-auditor decidir: não conseguir
+# levantar/andar/apoiar sem ajuda (a Secretaria de Estado da Saúde de Goiás diz que pede avaliação, mas a fonte está
+# fora da lista fechada do ADR-0064), dor intensa e deformidade (sem fonte oficial encontrada). A batida na cabeça
+# citada junto tem precedência (sin-batida-na-cabeca).
+# Revisão médica e revisão jurídica PENDENTES antes de qualquer uso em produção. Texto informativo: não
+# diagnostica, não indica conduta nem dose e não promete cobertura do plano.
+id: sin-queda
+categoria: sintoma
+titulo: Queda ou tombo
+sinonimos:
+- sofri uma queda
+- tive uma queda
+- levei uma queda
+- levei um tombo
+- tomei um tombo
+- cai da escada
+- caí da escada
+- caiu da escada
+- cai no chao
+- caí no chão
+- caiu no chao
+- caiu no chão
+- escorreguei e cai
+- escorreguei e caí
+- tropecei e cai
+- tropecei e caí
+texto: Sem sinais de alarme, o caminho é marcar uma consulta com clínico geral ou pediatra para avaliar a queda. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Saúde da pessoa idosa, quedas (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/saude-da-pessoa-idosa
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-25
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn)
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- Depois da queda, desmaiou, ficou confuso ou muito sonolento?
+- Acha que pode ter quebrado algum osso ou bateu a cabeça com força na queda?
+sinais_alarme:
+- desmaio
+- desmaiou
+- desmaiei
+- apagou
+- apaguei
+- desacordado
+- desacordada
+- perdeu a consciencia
+- perdeu a consciência
+- confuso
+- confusa
+- muito sonolento
+- muito sonolenta
+- quebrei
+- quebrou
+- fratura
+- fraturou
+- osso quebrado
+populacao: todos
+combinacoes:
+- [cai, caí, caiu, caindo, cair, tombo, queda, escorreguei, escorregou, tropecei, tropecou, tropeçou]
+- [escada, escadas, degrau, chao, chão, cama, sofa, sofá, cadeira, banheiro, banho, calcada, calçada, rua, moto, bicicleta, altura, telhado, laje, trocador, berco, berço]
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (25/10/2026, teste do dono, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-25

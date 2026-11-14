@@ -69,3 +69,9 @@ variable "cost_alert_email" {
   description = "E-mail que recebe alertas de orcamento e de anomalia de custo. Sem default."
   type        = string
 }
+
+variable "enable_observability" {
+  description = "Instancia o modulo observability (AMP/AMG, ADR-0014). Default false: dark, custo zero; ligar e' decisao do dono."
+  type        = bool
+  default     = false
+}

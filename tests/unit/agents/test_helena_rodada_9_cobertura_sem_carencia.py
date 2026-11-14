@@ -5,6 +5,9 @@ depois de "Estou em carencia?" recebeu "No seu cadastro nao consta nenhuma caren
 confirmar, SEM a segmentacao. A causa: com o historico, o modelo devolveu `consulta_plano`/`carencia` para a
 pergunta ("parto" e' tema de carencia), e o grafo confiou no subtipo do modelo. O subtipo de uma pergunta de
 cobertura agora e' decidido pelo TEXTO.
+
+DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena. A pergunta de cobertura recebe so' o aviso (sem
+consulta nenhuma); com outro dado do plano na mesma mensagem, o dado e' respondido e o aviso vai junto.
 """
 
 from __future__ import annotations
@@ -13,19 +16,14 @@ from typing import Any, cast
 
 import pytest
 
-from maezo.agents.helena.graph import (
-    MODELO_SEGMENTACAO_DO_CADASTRO,
-    RESPOSTA_COBERTURA_ESPECIFICA,
-)
+from maezo.agents.helena.graph import RESPOSTA_COBERTURA_ESPECIFICA
 from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
 from tests.unit.agents.test_helena_rodada_3_simulador import _classify, _entrada, _grafo
-from tests.unit.agents.test_helena_rodada_8_teste_real import SEGMENTACAO, SEM_CARENCIAS, _Fonte
+from tests.unit.agents.test_helena_rodada_8_teste_real import SEM_CARENCIAS, _Fonte
 
 #: O historico do roteiro: tipo do plano (passo 1) e carencia (passo 2), ambos com dados do plano.
 HISTORICO_DO_ROTEIRO = [MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO]
-SO_A_COBERTURA = (
-    f"{MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=SEGMENTACAO)} {RESPOSTA_COBERTURA_ESPECIFICA}"
-)
+SO_A_COBERTURA = RESPOSTA_COBERTURA_ESPECIFICA
 
 
 @pytest.mark.parametrize("subtipo_do_modelo", ["carencia", "carteirinha", "autorizacao", "elegibilidade"])
@@ -37,10 +35,9 @@ async def test_cobre_parto_depois_da_carencia_responde_so_a_cobertura(subtipo_do
     resultado = await grafo.ainvoke(_entrada("Meu plano cobre parto?", HISTORICO_DO_ROTEIRO))
 
     assert resultado["response_kind"] == "inform"
-    assert fonte.chamadas == ["elegibilidade"], "a carencia nao e' consultada de novo"
+    assert fonte.chamadas == [], "nem a carencia nem a segmentacao sao consultadas"
     assert whatsapp.enviados == [SO_A_COBERTURA]
     assert "carência" not in whatsapp.enviados[0]
-    assert "Obstetrícia" in whatsapp.enviados[0]
     assert sum(len(v) for v in cib._history.values()) == 0
 
 
@@ -50,7 +47,7 @@ async def test_o_mesmo_roteiro_com_o_modelo_dizendo_information_da_a_mesma_respo
 
     await grafo.ainvoke(_entrada("Meu plano cobre parto?", HISTORICO_DO_ROTEIRO))
 
-    assert fonte.chamadas == ["elegibilidade"]
+    assert fonte.chamadas == []
     assert whatsapp.enviados == [SO_A_COBERTURA]
 
 

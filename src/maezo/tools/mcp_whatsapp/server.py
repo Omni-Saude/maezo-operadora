@@ -1,5 +1,6 @@
 """MCP WhatsApp server — WhatsApp Business API client (ADR-0006: WhatsApp is a BLOCKED
-channel for PHI; the ToolRegistry PEP enforces that at the gateway, not here). Credential
+channel for PHI; the gated seam built by `gateway/tool_registry.py` — PEP via `effect_pep` — enforces
+that at the gateway, not here; ADR-0071). Credential
 handling (auditoria 09, achados 9.3/9.4) is specified per method.
 
 WHATSAPP-ENV-PREFIX-b / R-061 (OWNER-DECISIONS-REGISTER, APROVADO-APOS-REVISAO-HUMANA):
@@ -37,6 +38,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from maezo.platform.driver_idempotency import DedupRegistry
 from maezo.platform.observability import get_metrics_collector
+from maezo.tools.mcp_whatsapp.media import (
+    PEDACO_BYTES,
+    TAMANHO_MAXIMO_BYTES,
+    MidiaBaixada,
+    MidiaRecusada,
+    mime_aceito,
+    mime_limpo,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -143,8 +152,9 @@ class WhatsAppServer:
     """MCP server for WhatsApp Business API — in-process (ADR-0022).
 
     Wraps the WhatsApp Cloud API with async httpx calls.
-    Tools are registered via register_tools() for integration
-    with the ToolRegistry (ADR-0016).
+    The uncalled registration hook ADR-0022 §4 called load-bearing was removed (ADR-0071): the
+    single construction authority is `gateway/tool_registry.py`, which wraps this server in a gated
+    seam.
 
     Usage:
         server = WhatsAppServer()  # WHATSAPP_* env; unset credentials => refuses
@@ -177,7 +187,11 @@ class WhatsAppServer:
         logger.info("whatsapp_server_initialized")
 
     def list_tools(self) -> list[dict[str, str]]:
-        """Return tool definitions for registration with ToolRegistry.
+        """Return this server's tool definitions (descriptive inventory; ADR-0071).
+
+        Nothing registers them: there is no `ToolRegistry`. Agents reach the transport through the
+        gated seams built by `gateway/tool_registry.py`, and tool identity lives in the closed
+        operation catalogue (`gateway/effect_classes.py`) plus each `agent.yaml` `tools:` list.
 
         Returns:
             List of tool dicts with 'name' and 'description' keys.
@@ -192,16 +206,6 @@ class WhatsAppServer:
                 "description": "Verify a WhatsApp webhook challenge for endpoint registration.",
             },
         ]
-
-    def register_tools(self, registry: Any) -> None:
-        """Register WhatsApp tools with the given ToolRegistry (ADR-0022, ADR-0016).
-
-        Args:
-            registry: A ToolRegistry instance that accepts register(name, handler).
-        """
-        registry.register("send_message", self.send_message)
-        registry.register("verify_webhook", self.verify_webhook)
-        logger.info("whatsapp_tools_registered", count=2)
 
     def verify_webhook(self, verify_token: str, challenge: str) -> str:
         """Verify a WhatsApp webhook challenge (GET from Meta), returning the challenge.
@@ -473,3 +477,66 @@ class WhatsAppServer:
         # telemetry; the untouched provider response remains available to the caller.
         logger.info("whatsapp_message_sent")
         return data
+
+
+# DL-0162: download da midia (foto/PDF do pedido de reembolso). Mesmo modulo do cliente httpx da Meta.
+class WhatsAppMediaClient:
+    """`BaixadorDeMidia` sobre httpx. `transport` e' injetavel (testes usam `httpx.MockTransport`)."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        token: str,
+        timeout_s: float = 30.0,
+        max_bytes: int = TAMANHO_MAXIMO_BYTES,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        if not token:
+            raise ValueError("WhatsAppMediaClient: token ausente")
+        self._base_url = base_url.rstrip("/")
+        self._headers = {"Authorization": f"Bearer {token}"}
+        self._timeout = timeout_s
+        self._max_bytes = max_bytes
+        self._transport = transport
+
+    def __repr__(self) -> str:  # o token nunca aparece
+        return "WhatsAppMediaClient(...)"
+
+    async def baixar(self, media_id: str) -> MidiaBaixada:
+        if not media_id or not media_id.isalnum():
+            raise MidiaRecusada("id_invalido")
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport, follow_redirects=False
+            ) as client:
+                meta = await client.get(f"{self._base_url}/{media_id}", headers=self._headers)
+                meta.raise_for_status()
+                info: dict[str, Any] = meta.json()
+                url, mime = info.get("url"), info.get("mime_type")
+                if not isinstance(url, str) or not url.startswith("https://"):
+                    raise MidiaRecusada("indisponivel")
+                if not mime_aceito(mime):
+                    raise MidiaRecusada("mime")
+                declarado = info.get("file_size")
+                if isinstance(declarado, int) and declarado > self._max_bytes:
+                    raise MidiaRecusada("tamanho")
+                partes: list[bytes] = []
+                total = 0
+                async with client.stream("GET", url, headers=self._headers) as resposta:
+                    resposta.raise_for_status()
+                    async for pedaco in resposta.aiter_bytes(PEDACO_BYTES):
+                        total += len(pedaco)
+                        if total > self._max_bytes:
+                            raise MidiaRecusada("tamanho")
+                        partes.append(pedaco)
+        except MidiaRecusada:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError):
+            # Nada da excecao original sai: ela pode trazer a URL da Meta (com o id da midia).
+            logger.warning("whatsapp_media_download_failed")
+            raise MidiaRecusada("indisponivel") from None
+        conteudo = b"".join(partes)
+        if not conteudo:
+            raise MidiaRecusada("indisponivel")
+        return MidiaBaixada(conteudo=conteudo, mime=mime_limpo(str(mime)))

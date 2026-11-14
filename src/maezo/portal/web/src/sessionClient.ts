@@ -20,28 +20,46 @@ const exactSessionKeys = [
   "expires_at",
   "csrf_token",
   "capabilities",
+  "flags",
 ] as const;
 
 export type PortalCapability = SessionDTO["capabilities"][number];
+export type PortalSessionFlag = SessionDTO["flags"][number];
 
 const canonicalCapabilities: readonly PortalCapability[] = [
   "identity",
   "staff_cases",
   "human",
   "vendor",
+  // D-40: the administrative READ capability. No default profile projects it; a session can
+  // only carry it when the deployment deliberately named the fifth profile string.
+  "staff_admin_read",
 ];
 
-// Canonical order, no duplicates, nothing outside the four literals. `vendor` is type-level
-// only here: no deployment config can produce it yet (default-off), so no session carries it.
-function isCapabilityList(value: unknown): value is PortalCapability[] {
+// Same closed discipline as capabilities: canonical order, no duplicates, nothing outside
+// the shadow-panel literals. An unknown signal can only ever refuse to render.
+const canonicalFlags: readonly PortalSessionFlag[] = [
+  "staff_documents_panel",
+  "staff_operations_panel",
+  "staff_admin_panel",
+];
+
+function isCanonicalList<T extends string>(value: unknown, canonical: readonly T[]): value is T[] {
   if (!Array.isArray(value)) return false;
   let previous = -1;
   return value.every((item) => {
-    const index = canonicalCapabilities.indexOf(item as PortalCapability);
+    const index = canonical.indexOf(item as T);
     if (index <= previous) return false;
     previous = index;
     return true;
   });
+}
+
+// Canonical order, no duplicates, nothing outside the five literals. `vendor` and
+// `staff_admin_read` are type-level only here: no default deployment config can produce them
+// (default-off), so no ordinary session carries either.
+function isCapabilityList(value: unknown): value is PortalCapability[] {
+  return isCanonicalList(value, canonicalCapabilities);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,7 +94,8 @@ export function validateSession(value: unknown): SessionDTO | null {
     !isAwareTimestamp(value.expires_at) ||
     typeof value.csrf_token !== "string" ||
     value.csrf_token.length === 0 ||
-    !isCapabilityList(value.capabilities)
+    !isCapabilityList(value.capabilities) ||
+    !isCanonicalList(value.flags, canonicalFlags)
   ) {
     return null;
   }

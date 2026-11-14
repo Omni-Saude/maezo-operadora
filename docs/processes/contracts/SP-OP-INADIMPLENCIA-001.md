@@ -28,7 +28,7 @@
 ## Invariante L0-HARD (no-adverse — nao negociavel; ADR-0018; covers EVERY adverse effect)
 
 `contract_termination` e **L0-hard** (`_hard_frozen.yaml`, CI-enforced). NENHUM caminho automatizado suspende NEM rescinde um contrato por inadimplencia. Ambos os efeitos adversos SO nascem em User Task humana:
-- Suspensao → `UT_AnaliseInadimplencia` (grupo `juridico-contratos` / `gestao-cobranca`), `decisao_inadimplencia == SUSPENDER`.
+- Suspensao → `UT_AnaliseInadimplencia` (grupo unico `juridico-contratos` — R-041 / #1084), `decisao_inadimplencia == SUSPENDER`.
 - Rescisao → `UT_AnaliseInadimplencia`, `decisao_inadimplencia == ENCAMINHAR_RESCISAO` — **NAO materializa a rescisao aqui** (DRAFT-A shipped, §Harmonizacao): dispara o worker NEUTRO `handoff_rescisao`, que inicia/correlaciona SP-OP-CANCEL-001 (unico detentor do terminal `End_ContratoRescindido`); a instancia de INADIMPLENCIA termina no terminal neutro `End_RescisaoHandoffCancel`.
 
 Nenhuma DMN deste processo possui saida que suspenda/rescinda. As DMN apenas **classificam o estado de inadimplencia e roteiam** (sem variante adversa). Inadimplencia aparente, prazo de purga expirado, notificacao previa ausente, ambiguidade de valor/competencia, contrato coletivo e indisponibilidade da DMN **todos fail-safe para a User Task humana** (catch-all conservador → `ANALISE_HUMANA`, allowlist fechada `frozenset`). O UNICO efeito adverso local e materializado pelo worker `operadora.inadimplencia.register_contract_suspension`, guardado por `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` (carrega `responsavel_id`+tier — cadeia de auditoria ADR-0007; verifica tambem `ja_em_rescisao_cancel`, anti-dupla-terminacao cross-process, GAP-INAD-1). O terminal adverso so e alcancavel apos a User Task humana concluida na history. INADIMPLENCIA-001 **NAO** implementa `register_contract_rescission`/`Error_ContractRescissionNotHuman` — a rescisao e propriedade exclusiva de CANCEL-001 (ver §Harmonizacao).
@@ -65,6 +65,14 @@ INAD-{tenant_id}-{numero_contrato}
 
 > **Coordenacao com CANCEL-001 (RESOLVIDA — DRAFT-A shipped):** CANCEL-001 chaveia por `CANCEL-{tenant_id}-{numero_contrato}`; INADIMPLENCIA por `INAD-{tenant_id}-{numero_contrato}` — **prefixos distintos para o MESMO contrato**. Isto evita colisao de instancia mas **NAO evita por si dupla-rescisao** (duas instancias, dois terminais adversos sobre o mesmo `contract_termination`) — por isso a garantia anti-dupla-rescisao vem, em camadas (§Harmonizacao): (1) topologia — INADIMPLENCIA nao declara terminal de rescisao; (2) `mcp-cibseven.start_process`/`start_by_key` consulta a business key antes de iniciar (idempotencia de instancia); (3) o worker adverso `register_contract_suspension` CONSULTA em runtime se ja existe rescisao/suspensao ativa em CANCEL-001 para `{tenant}-{numero_contrato}` (`ja_em_rescisao_cancel`, resolvido por `resolve_facts` via `CibSevenTransport.find_active_instance`, FAIL-CLOSED se a consulta falhar — GAP-INAD-1) e recusa (`ERR_CONTRACT_SUSPENSION_NOT_HUMAN`) antes de materializar o efeito.
 
+> **Sem fallback para a matricula (F-124 — decisao do DPO de 31/10/2026, #1082 opcao a; implementado DARK atras de `MAEZO_INAD_CHAVE_EXIGE_CONTRATO`, default OFF).** A chave e' **sempre** a forma de contrato acima. Em plano individual/familiar sem `numero_contrato` o start de INADIMPLENCIA e' **RECUSADO** e o caso exige saneamento cadastral — a chave **nunca** e' cunhada sobre `matricula_beneficiario` (nome `PHI_PROCESS_VARS`, DL-0043 perna c) nem sobre `beneficiario_pseudo_id`. Com a flag ligada:
+>
+> * `FernandoGraph` cunha a chave so' sobre `numero_contrato` (`_business_key(..., exige_contrato=True)`), seu `receive` exige o numero do contrato (`missing_contract_key`) e a variavel de start `numero_contrato` deixa de receber a matricula como substituto;
+> * a recusa acontece no chokepoint de start, no MESMO ponto e com a MESMA postura da recusa de tenant: `start_process_idempotent(..., require_contract_key=True)` levanta `CibSevenStartKeyError` (subclasse de `CibSevenError`) ANTES do scrub, do claim duravel e do POST — nenhuma linha de audit, nenhuma chave presa — e o grafo segue pelo fail-notify ja existente (ADR-0045): `start_failed_state` -> `notify_start_failure` -> desfecho `erro_inicio_processo`, `agent_process_start_failed` (business key degenerada `INAD-{tenant}-`, sem matricula) e `maezo_agent_errors_total`; o handler A2A levanta `StartProcessFailedError` (RAF-02);
+> * `operadora.inadimplencia.prepare_dossier` so' delega `arrears.followup` ao Fernando com `numero_contrato` (sem ele: lacuna `missing_business_identifiers`, a UT humana abre do mesmo jeito).
+>
+> Com a flag desligada (default) o comportamento e' o de hoje, byte a byte: fallback `numero_contrato or matricula_beneficiario`. A documentacao `BUSINESS KEY` do BPMN ainda descreve a variante com fallback — o BPMN nao foi tocado nesta mudanca (bytes do processo inalterados); a variante vale so' com a flag OFF. **Fora de escopo:** a chave CANCEL cunhada pelo handoff de rescisao (`inadimplencia._cancel_business_key`, ainda com fallback) e a guarda `ERR_INAD_INVALID_CONTRATO` pertencem a CANCEL-001. Ligar a flag e' ato humano (ROLL), precedido do saneamento cadastral dos contratos individuais/familiares sem numero.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |
@@ -81,12 +89,13 @@ INAD-{tenant_id}-{numero_contrato}
 | `competencias_em_aberto` | json | sim | Lista de competencias (`YYYY-MM`) em aberto (FATO; alimenta a contagem) |
 | `meses_inadimplencia` | integer | sim* | Pre-resolvido por worker (`operadora.inadimplencia.resolve_facts`): contagem de meses em aberto (integer — **nunca `number`**) |
 | `valor_total_devido_cents` | integer | sim* | Pre-resolvido por worker: debito total em centavos de BRL (inteiro — **nunca `number`**) |
-| `dentro_periodo_minimo` | boolean | sim* | Pre-resolvido por worker: inadimplencia atingiu o periodo minimo legal (ex.: 60 dias — **DRAFT/verify** RN 593/Lei 9.656) |
+| `dentro_periodo_minimo` | boolean | sim* | Pre-resolvido por worker: atingido o minimo de **2 mensalidades nao pagas, consecutivas ou nao, SEM janela de 12 meses** (RN 593/2023 alterada pela RN 617/2024 — direcao do dono DEC-10, R-027). A regra vive na DMN `inadimplencia_status` (`r_segue_analise`: `meses_inadimplencia >= 2`); o limiar do worker (`MENSALIDADES_MINIMAS_INADIMPLIDAS`) e preso a ela por teste de paridade. Sob `MAEZO_INAD_RN593_ESTRITO` a contagem e por competencia `YYYY-MM` distinta |
 | `notificacao_previa_feita` | boolean | nao‡ | **NAO e resolvido nem confirmado por nenhum worker** (GAP-INAD-8). Seedavel por quem inicia o processo e atualizavel pela correlacao `msg.inadimplencia.notificacao_ack` (`processVariables`) — a mesma exigencia que `SP-OP-CANCEL-001.md:107-117` (GAP-CANCEL-4) ja documenta para o processo irmao. Ausente ⇒ tratado como `false` pela `inadimplencia_status` (row `r_pendente_notificacao` ⇒ `PENDENTE_NOTIFICACAO`, nunca adverso). Antes de GAP-INAD-8, `operadora.inadimplencia.check_prior_notice` retornava um `True` constante fabricado — sem canal, sem entrega observada — que a harness gravava no escopo do processo, tornando `PENDENTE_NOTIFICACAO` inalcancavel. A comprovacao real e humana: `comprovacao_notificacao_previa` (variavel DIFERENTE desta), exigida pelo guard de `_register_contract_suspension`. RN 593 / art. 13, par. unico, II da Lei 9.656/98 — **DRAFT/verify** |
-| `dentro_janela_purga` | boolean | sim* | Pre-resolvido por worker: ainda dentro da janela de cura/purga (RN 593 — **DRAFT/verify**) |
+| `dentro_janela_purga` | boolean | sim* | Pre-resolvido por worker: ainda dentro da janela de cura/purga (RN 593 — **DRAFT/verify**). **Hoje (flag dark `MAEZO_INAD_FATOS_ESTRITOS` desligada) e ECO da semente/correlacao** (default `true`; F-029). Com a flag: sempre `true` — o worker nao mede a janela; so o timer BPMN `ICE_PrazoPurga` (`${purga.prazo_purga}`) a encerra e roteia a humano (R-063, AGENTS.md regra 5) |
 | `data_solicitacao_iso` | string | sim | Data (`YYYY-MM-DD`) |
 | `documentos_refs` | json | sim | Referencias de anexos/comprovantes (faturas, notificacoes; pode ser vazio) |
 | `ja_em_rescisao_cancel` | boolean | nao | Pre-resolvido por worker (correlacao cross-process): existe instancia CANCEL-001 ativa rescindindo/suspendendo este contrato (anti-dupla-rescisao) |
+| `rn593_prerequisito_notificacao` | boolean | nao | Pre-resolvido por `resolve_facts` (R-027): `true` SO com a flag dark `MAEZO_INAD_RN593_ESTRITO` ligada. Lido por `GW_NotificacaoPrerequisito`: com `true` e sem `notificacao_previa_feita=true` o caso vai a `GW_JanelaNotificacao50` (timer do 50o dia). Ausente/`false` => cure-window de hoje. Nao e decisao adversa |
 
 \* Pre-resolvido por worker de fatos antes da `businessRuleTask` (aritmetica/conferencia/contagem; **sem decisao adversa**). Valores monetarios em **inteiro-centavos** (`integer`), nunca `number`.
 
@@ -141,7 +150,9 @@ literalmente. Fechar isso e trabalho separado (mesma forma dos dois campos acima
 | `comprovacao_notificacao_previa` | string | **Obrigatoria** se `SUSPENDER`/`ENCAMINHAR_RESCISAO` — referencia ao comprovante de notificacao previa (RN 593) |
 | `comprovacao_periodo_minimo` | string | **Obrigatoria** se `SUSPENDER`/`ENCAMINHAR_RESCISAO` — comprovacao do periodo minimo de inadimplencia e da janela de purga decorrida |
 | `responsavel_id` | string | Aprovador humano (cadeia de auditoria ADR-0007) + tier; carregado nos workers adversos |
-| `data_efeito_iso` | string | Data de efeito (suspensao/rescisao), respeitada a antecedencia regulatoria |
+| `tier` | string | Alcada do aprovador humano. **Exigido** pelo guard estrito de `register_contract_suspension` (R-027 / F-038; flag `MAEZO_INAD_RN593_ESTRITO`). Hoje nenhuma UT o coleta (GAP-INAD-3) — por isso o guard implantado segue o legado ate o formulario coletar e o juridico assinar |
+| `data_notificacao_iso` | string | Data (`YYYY-MM-DD`) da notificacao comprovada (prova inequivoca — RN 593). **Exigida** pelo guard estrito (R-027): nao pode estar no futuro, e `data_efeito_iso >= data_notificacao_iso + inadimplencia_purga.prazo_purga` (10 dias individual/familiar). Notificacao TARDIA (depois do 50o dia) vale se garantir esse prazo (RN 617/2024). Mesma ressalva de coleta de `tier` |
+| `data_efeito_iso` | string | Data de efeito (suspensao/rescisao), respeitada a antecedencia regulatoria — o guard estrito (R-027 / F-038) recusa data invalida, retroativa ou anterior a `data_notificacao_iso + prazo_purga` |
 | `decisao_coordenacao` | string | `assumir_analise` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano `coordenacao-cobranca`) |
 
 ## Variaveis de proveniencia do agente (Fernando — ADR-0007/ADR-0015)
@@ -211,11 +222,11 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 ### `inadimplencia_status` (hitPolicy FIRST — DRAFT; coracao adverso-like)
 - **in:** `meses_inadimplencia: integer`, `dentro_periodo_minimo: boolean`, `notificacao_previa_feita: boolean`, `dentro_janela_purga: boolean`, `tipo_plano: string`
 - **out:** `roteamento: string` (`AGUARDA_PURGA` \| `PENDENTE_NOTIFICACAO` \| `SEGUE_ANALISE` \| `ANALISE_HUMANA`), `motivo: string`
-- **Sem saida `SUSPENDER`/`ENCAMINHAR_RESCISAO` por design.** `dentro_janela_purga=true` → `AGUARDA_PURGA` (cure-window; nunca adverso). `notificacao_previa_feita=false` → `PENDENTE_NOTIFICACAO`. `dentro_periodo_minimo=true` + notificacao feita + purga decorrida → `SEGUE_ANALISE` (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER). `tipo_plano ∈ {coletivo_empresarial, coletivo_adesao}` → `ANALISE_HUMANA` (regras do estipulante; nunca auto-decide). Catch-all → `ANALISE_HUMANA`.
+- **Sem saida `SUSPENDER`/`ENCAMINHAR_RESCISAO` por design.** `dentro_janela_purga=true` → `AGUARDA_PURGA` (cure-window; nunca adverso). `notificacao_previa_feita=false` → `PENDENTE_NOTIFICACAO`. `meses_inadimplencia >= 2` (minimo de 2 mensalidades, sem janela de 12 meses — R-027) + `dentro_periodo_minimo=true` + notificacao feita + purga decorrida → `SEGUE_ANALISE` (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER). `tipo_plano ∈ {coletivo_empresarial, coletivo_adesao}` → `ANALISE_HUMANA` (regras do estipulante; nunca auto-decide). Catch-all → `ANALISE_HUMANA`.
 
 ### `inadimplencia_purga` (hitPolicy FIRST — DRAFT; RN 593)
 - **in:** `tipo_plano: string`
-- **out:** `prazo_purga: string` (ISO 8601, ex.: `P10D` apos notificacao — **DRAFT/verify** RN 593), `prazo_notificacao_previa: string` (ISO 8601, ex.: ate 50o dia — **DRAFT/verify**), `periodo_minimo: string` (ISO 8601, ex.: `P60D` — **DRAFT/verify**), `fonte_regulatoria: string`
+- **out:** `prazo_purga: string` (ISO 8601 — prazo minimo ENTRE a notificacao comprovada e o efeito: `P10D` individual/familiar; `P15D` coletivo/catch-all conservador **HERDADO de `d4e61891` sem fonte primaria — DRAFT, a confirmar com o juridico antes do flip** (o guard estrito o torna vinculante); lido pelo timer do cure-window E pelo guard estrito), `prazo_notificacao_previa: string` (ISO 8601 — `P50D` em todas as linhas; e a DURACAO do timer `ICE_PrazoNotificacao50`, contada da **entrada em `GW_JanelaNotificacao50`** e **reiniciada a cada `notificacao_ack`** — NAO do 1o dia de inadimplencia, logo ainda NAO e o teto absoluto do 50o dia da norma; ancorar no vencimento exige o fato `data_inicio_inadimplencia_iso`, **pendencia juridico/produto obrigatoria antes do flip**), `periodo_minimo: string` (ISO 8601, `P60D` — **DRAFT/verify**), `fonte_regulatoria: string`. Direcao do dono DEC-10 / R-027 (RN 593/2023 alterada pela RN 617/2024); o antigo worker Python `calculate_purge` (copia divergente desta tabela, F-001) foi **removido** — o prazo vive SO aqui
 - **Apenas determina prazos regulatorios** (janela de purga/cura + notificacao previa + periodo minimo). **Nao decide suspender/rescindir.** O cure-window (event gateway) e dirigido por `prazo_purga`. Catch-all → prazos conservadores (maiores) + `fonte_regulatoria="DRAFT_DEFAULT"`.
 
 ### `inadimplencia_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify)
@@ -230,10 +241,10 @@ Shape engine-deployavel (§4-bis-A): `typeRef ∈ {string, boolean, integer, lon
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos (compartilhado com CANCEL-001) | `UT_AnaliseInadimplencia` (**suspensao/encaminhamento de rescisao SO aqui**: `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO, MANTER, SOLICITAR_INFO}`) |
-| `gestao-cobranca` | Gestao de cobranca/financeiro | `UT_AnaliseInadimplencia` (co-candidate para o merito de cobranca) |
+| `gestao-cobranca` | Gestao de cobranca/financeiro | nenhuma User Task desde R-041 / #1084 (saiu de `UT_AnaliseInadimplencia`); consultivo — os fatos de cobranca chegam pelo dossie; nao registrado no engine |
 | `coordenacao-cobranca` | Coordenacao de cobranca | `UT_CoordenacaoCobranca` (SLA de analise estourado — assume a decisao, que continua humana) |
 
-A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios.
+A decisao adversa NUNCA muda de natureza por estouro de SLA: `UT_CoordenacaoCobranca` herda os mesmos campos obrigatorios. Q1 (R-041 / #1084): o coordenador so reatribui/prorroga/MANTER; SUSPENDER/ENCAMINHAR_RESCISAO ficam com `juridico-contratos` — guarda a entregar (ainda NAO aplicada).
 
 Campos obrigatorios por decisao adversa (validacao de formulario/listener da User Task — sem eles a task NAO completa):
 - `decisao_inadimplencia ∈ {SUSPENDER, ENCAMINHAR_RESCISAO}` → `fundamentacao_contratual` + `referencia_regulatoria` + `comprovacao_notificacao_previa` + `comprovacao_periodo_minimo`.
@@ -245,7 +256,7 @@ Campos obrigatorios por decisao adversa (validacao de formulario/listener da Use
 | Timer | Valor (DRAFT/verify) | Tipo | Fonte |
 |---|---|---|---|
 | Janela de purga / cure-window (`${inadimplencia_purga.prazo_purga}`) | event gateway: `msg.inadimplencia.pagamento_recebido` **vs** timer → `UT_AnaliseInadimplencia` (humano decide; expiracao NUNCA auto-suspende/auto-rescinde) | RN 593 (cura/purga) — **DRAFT/verify** |
-| Notificacao previa (`${inadimplencia_purga.prazo_notificacao_previa}`) | event gateway: `msg.inadimplencia.notificacao_ack` **vs** timer → reavaliacao | RN 593 (notificacao ate o 50o dia) — **DRAFT/verify** |
+| Notificacao previa ate o 50o dia (`${purga.prazo_notificacao_previa}` = `P50D`, `ICE_PrazoNotificacao50`; duracao contada da ENTRADA no gateway e reiniciada a cada `notificacao_ack` — NAO do 1o dia de inadimplencia; ancorar no vencimento exige `data_inicio_inadimplencia_iso`, pendencia juridico/produto antes do flip) | event gateway `GW_JanelaNotificacao50` (so com `rn593_prerequisito_notificacao=true` e sem notificacao comprovada): `msg.inadimplencia.pagamento_recebido` (purga) **vs** `msg.inadimplencia.notificacao_ack` (reavalia; o cure-window de `prazo_purga` so corre depois dela) **vs** timer → analise HUMANA (nunca adverso) | RN 593/2023 alterada pela RN 617/2024 — pre-requisito (DEC-10 / R-027); DARK atras de `MAEZO_INAD_RN593_ESTRITO`; assinatura juridica antes do flip |
 | Analise (`${inadimplencia_sla.sla_analise}`) | interruptivo → `agents.events.inadimplencia.sla_breached` + `UT_CoordenacaoCobranca` assume | politica interna / RN 593 — **DRAFT/verify** |
 | Alerta de risco (`${inadimplencia_sla.sla_alerta}`) | ~50–70% do SLA | nao-interruptivo → `operadora.inadimplencia.notify_sla_risk` | politica interna — **DRAFT** |
 
@@ -325,7 +336,7 @@ _DESFECHO_LEMBRETE}`; vocabulario fechado de telemetria em
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` | worker-guard em `operadora.inadimplencia.register_contract_suspension` | recusa executar (lanca BPMN error) sem `decisao_inadimplencia == SUSPENDER` setado por humano **e** sem `responsavel_id` (ADR-0007); tambem recusa se faltar `fundamentacao_contratual`/`referencia_regulatoria`/`comprovacao_notificacao_previa`/`comprovacao_periodo_minimo`, **ou** se `ja_em_rescisao_cancel=true` (anti-dupla-rescisao/suspensao). `tier` NAO e exigido (GAP-INAD-3 — nenhuma UT o coleta); repassado na trilha de auditoria quando presente. A instancia nao atinge `End_ContratoSuspenso_Inad`. Declarar `Error_ContractSuspensionNotHuman`. |
+| `ERR_CONTRACT_SUSPENSION_NOT_HUMAN` | worker-guard em `operadora.inadimplencia.register_contract_suspension` | recusa executar (lanca BPMN error) sem `decisao_inadimplencia == SUSPENDER` setado por humano **e** sem `responsavel_id` (ADR-0007); tambem recusa se faltar `fundamentacao_contratual`/`referencia_regulatoria`/`comprovacao_notificacao_previa`/`comprovacao_periodo_minimo`, **ou** se `ja_em_rescisao_cancel=true` (anti-dupla-rescisao/suspensao). `tier` NAO e exigido pelo worker IMPLANTADO (GAP-INAD-3 — nenhuma UT o coleta); com a flag dark `MAEZO_INAD_RN593_ESTRITO` (R-027 / F-038) o guard passa a exigir `tier`, `data_notificacao_iso` e `data_efeito_iso` nao retroativa com antecedencia `>= inadimplencia_purga.prazo_purga` apos a notificacao (DMN avaliada pela costura `dmn`; DMN ausente => recusa). A instancia nao atinge `End_ContratoSuspenso_Inad`. Declarar `Error_ContractSuspensionNotHuman`. |
 | `ERR_INAD_INVALID_CONTRATO` | worker-guard em `operadora.inadimplencia.handoff_rescisao` (`InadContratoInvalidoError`) | recusa iniciar CANCEL-001 sem `tenant_id` (nao ausente/em branco/`None`) **e** sem `numero_contrato`/`matricula_beneficiario`. **Correcao (D3-01, WP-ADR-0030-COMPLETION):** `Error_InadContratoInvalido` esta declarado no catalogo `<bpmn:error>` do BPMN mas SEM `boundaryEvent`+`errorEventDefinition` o referenciando em lugar nenhum do arquivo (mesmo padrao dead-model de `CONTAS-DEAD-ERROR-CATALOG`) — o worker portanto NAO lanca um `WorkerBpmnError`/bpmn error modelado (faria `check_bpmn_error_allowlist.py` falhar clausula (b), raise nao-provado); e uma falha tecnica (`ValueError`), reportada como `failure(retries=0)` — incidente imediato, nunca reentregue. Se um boundary vier a ser modelado no futuro, a migracao para `WorkerBpmnError` e follow-up separado (decisao de programa, mesma postura de `CONTAS-DEAD-ERROR-CATALOG`). |
 
 > **`ERR_CONTRACT_RESCISSION_NOT_HUMAN` / `Error_ContractRescissionNotHuman` — DROPPED (GAP-INAD-5,
@@ -386,3 +397,19 @@ NAO bloqueia arquitetura nem deploy do engine):**
 ## Registro de topicos exigido (REPORTE — nao editar `topic_registry.yaml` aqui)
 
 **JA REGISTRADO** em `config/topic_registry.yaml` (dono: W0.2/orquestrador) — Kafka `agents.events.inadimplencia.*`: `received`, `notified`, `sla_breached`, `completed`. External-task `operadora.inadimplencia.*`: `resolve_facts`, `check_prior_notice`, `prepare_dossier`, `register_contract_suspension`, `handoff_rescisao`, `notify_sla_risk` (**NAO** `register_contract_rescission` — DROPPED, GAP-INAD-5, nunca wireado a nenhuma task no BPMN shipped). Message BPMN `msg.inadimplencia.pagamento_recebido`, `msg.inadimplencia.notificacao_ack`, `msg.inadimplencia.info_received`. (`operadora.events.publish` ja registrado.) Process key `SP-OP-INADIMPLENCIA-001` **JA REGISTRADO** em `KNOWN_PROCESS_KEYS` (ADR-0016, `src/maezo/tools/process_allowlist.py`) via PR humano CODEOWNERS.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-INADIMPLENCIA-001` → `maezo-payer-inadimplencia-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - contrato: `{tenant_id}:inadimplencia-001:hk1_<HMAC>` sobre `C-{numero_contrato}`.
+- **Classificação (a confirmar pelo DPO):** pessoal — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` (inalterada).
+- A forma por matrícula NÃO é cunhada na gramática alvo: F-124 (a), decisão do DPO de 2026-10-31 — exigir o número do contrato e recusar o start. Instâncias vigentes por matrícula continuam achadas pela leitura dupla até a saída da janela.

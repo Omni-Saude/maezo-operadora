@@ -224,11 +224,12 @@ def _agent_source_text(agent_dir: Path) -> str:
     (`src/maezo/agents/<id>/graph.py`/`adapters.py`/`delegation.py` — never `__init__.py`, which
     only re-exports). `agent_dir` is the `spec/agents/<id>` contract directory; the code that
     actually wires tools lives under `src/maezo/agents/<id>`, a sibling tree keyed by the same
-    agent id."""
+    agent id. Subpackages count too: since the Helena split by skill (ADR-0067 §5) the nodes that
+    start and correlate processes live under `habilidades/**`."""
     src_dir = _SRC_AGENTS_ROOT / agent_dir.name
     assert src_dir.is_dir(), f"no src/maezo/agents/{agent_dir.name}/ — spec/code id mismatch"
     text = ""
-    for py_file in sorted(src_dir.glob("*.py")):
+    for py_file in sorted(src_dir.rglob("*.py")):
         if py_file.name == "__init__.py":
             continue
         text += py_file.read_text(encoding="utf-8")

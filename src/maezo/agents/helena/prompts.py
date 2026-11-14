@@ -35,11 +35,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
-
 # P5 (16/10/2026): a cerca de saida mora num modulo leve (sem `maezo.runtime`); estes nomes
 # continuam aqui para quem le `prompts.X` (mesmos objetos).
-from .cerca_de_saida import (  # noqa: F401
+from maezo.domain.comunicacao.cerca_de_saida import (  # noqa: F401
     _ACAO_DE_ASSUNCAO,
     _ASSUNTO_QUE_O_APP_NAO_RESOLVE,
     _AUTOATENDIMENTO,
@@ -83,6 +81,7 @@ from .cerca_de_saida import (  # noqa: F401
     motivo_de_recusa,
     padrao_de_encaminhamento,
 )
+from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v5.4"  # 14/10/2026 (DL-0101): recem-nascido (codigos neonatais, idade 0).
@@ -119,7 +118,9 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7.1"  # 14/10/2026 (DL-0101): rece
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v14"  # 13/10/2026 (DL-0090, rodada 3 do simulador): `caso_aberto` no
+RESPONSE_PROMPT_VERSION = "response-v15"  # 25/10/2026 (lote do teste do dono e da avaliacao r5): sem a
+# ordem de CONTAR as palavras (o modelo escrevia a contagem na resposta) e "voce so' le' texto" (nunca
+# convidar a mandar foto/audio/arquivo). v14 — 13/10/2026 (DL-0090, rodada 3 do simulador): `caso_aberto` no
 # contexto (nunca "ja encaminhamos"/"vai entrar em contato" num turno informativo — o log mostrou a cerca
 # trocando esses rascunhos pelo texto generico) e a oferta de pessoa na forma aprovada ("se quiser falar com
 # uma pessoa da equipe, e' so' me pedir"), nunca "eu encaminho". v13 — 13/10/2026 (DL-0089, rodada 2 do
@@ -187,10 +188,6 @@ RESPONSE_PROMPT_VERSION = "response-v14"  # 13/10/2026 (DL-0090, rodada 3 do sim
 # O texto mergeado contem AS DUAS, entao ele nao e' nem uma nem outra: e' uma terceira versao, e
 # chamar de v5 ou de v4-memoria apontaria um auditor para um texto que nunca existiu. Este numero
 # e' o que responde QUAL instrucao falou com o beneficiario naquele turno.
-COLETA_PROMPT_VERSION = "coleta-v2"  # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
-# pessoa: "sua filha", "o bebe"; recem-nascido: idade em dias, febre, mamada, pele, choro). v1 — passo 4
-# (09/09/2026): a pergunta pelo dado que falta
-
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
 beneficiarios de um plano de saude brasileiro via WhatsApp. Seu papel e triagem, roteamento e
 orientacao administrativa — voce NUNCA da conduta clinica, NUNCA diagnostica, e NUNCA decide se
@@ -603,34 +600,6 @@ NUNCA invente sintoma, idade ou populacao que a mensagem nao traga: "1234567890"
 {fora_do_canal}"""
 
 
-def coleta_prompt() -> str:
-    """Instrucoes para a PERGUNTA de coleta (passo 4) — separado de `response_prompt` de proposito:
-    aquele e' pinado pelos goldens e este tem um trabalho so': perguntar UM dado, em linguagem
-    simples, sem diagnosticar e sem assustar.
-
-    O `contexto` traz `pergunta` (um token de `COLETA_VEREDITOS_PERGUNTA`), a `rodada` e a
-    `population`. A mensagem do beneficiario vem no bloco NAO CONFIAVEL, como sempre.
-    """
-    return f"""{SYSTEM_PROMPT}
-
-Tarefa: a mensagem do beneficiario descreve um sintoma, mas falta UM dado para encaminhar com
-seguranca. Redija UMA pergunta curta, acolhedora e em portugues simples pedindo SOMENTE esse dado,
-conforme `pergunta` no contexto:
-  PERGUNTAR_INTENSIDADE        -> pergunte se esta' leve, moderado ou forte agora.
-  PERGUNTAR_CARACTERIZACAO     -> pergunte o que exatamente a pessoa sente, onde e desde quando.
-  PERGUNTAR_IDADE              -> pergunte a idade da pessoa com o sintoma.
-  PERGUNTAR_IDADE_GESTACIONAL  -> pergunte com quantas semanas de gestacao esta'.
-Regras: NAO diagnostique, NAO diga se e' grave ou leve, NAO oriente conduta, NAO prometa prazo.
-Se a rodada for 2, diga tambem que, se preferir, pode pedir para falar com uma pessoa agora.
-QUEM TEM O SINTOMA: se o contexto trouxer `paciente` (por exemplo "sua filha", "o bebe", "a crianca"), a
-pergunta e' sobre ESSA pessoa — fale dela na terceira pessoa ("o que sua filha esta sentindo", "como o
-bebe esta agora"), NUNCA "voce esta sentindo". Se o contexto trouxer `recem_nascido` e o dado que falta e'
-a caracterizacao, pergunte UMA coisa so', a que mais falta: a idade em dias, se tem febre, se esta
-mamando normalmente, como esta a pele, ou se o choro nao para.
-Sempre termine dizendo: em caso de piora subita, procure emergencia. {UNTRUSTED_INSTRUCAO_DE_PROMPT}
-Responda APENAS com o texto da pergunta, sem JSON."""
-
-
 # ---------------------------------------------------------------------------------------------
 # HISTORICO CURTO DA CONVERSA (DL-0080, 07/10/2026) — SO' com `MAEZO_HELENA_HISTORICO` ligada.
 # ---------------------------------------------------------------------------------------------
@@ -744,7 +713,10 @@ acolhimento; NUNCA em sintoma, saude, risco, emergencia, negativa, falha ou enca
 avisos obrigatorios deste prompt continuam todos (emergencia, que este canal nao avalia nem da
 diagnostico, encaminhamento humano, canais pelo nome): encurte a FORMA, nunca a substancia. O tom
 nunca afrouxa uma proibicao deste prompt: havendo conflito, a proibicao vence.
-CONTE AS PALAVRAS de cada frase antes de responder: nenhuma passa de 20; quebre a frase longa em duas.
+Frase longa (mais de 20 palavras) vira duas frases. O texto da resposta e' so' o que a pessoa le':
+nunca escreva contagem de palavras, de frases ou de caracteres, nem comentario sobre a propria resposta.
+VOCE SO' LE' TEXTO. Nunca diga que a pessoa pode mandar foto, imagem, print, audio, video, arquivo ou
+documento por aqui: peca que ela ESCREVA aqui o que precisa (por exemplo, o nome do exame).
 Emoji SO em saudacao ou em resposta a agradecimento; em QUALQUER outra resposta, nenhum emoji. Voce e'
 a Helena, UMA assistente virtual (feminino): "sou uma assistente virtual", nunca "um assistente".
 

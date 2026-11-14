@@ -14,7 +14,7 @@ roteador a passa (migration 0025).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, tzinfo
 from typing import Any
 
 import pytest
@@ -30,16 +30,30 @@ from maezo.agents.lucas.graph import (
     ref_de_resposta,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista, decidir_lista_da_cobranca
+from maezo.domain.conversa.cobranca_reclamacao import decidir_reclamacao
+from maezo.domain.conversa.competencia import mes_relativo_do_texto
 from maezo.platform.webhooks.whatsapp.dispatch import _handoff_com_mes_do_texto
-from maezo.runtime.cobranca_lista import PedidoDeLista, decidir_lista_da_cobranca
-from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
-from maezo.runtime.competencia import mes_relativo_do_texto
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink
 
 _HOJE = date(2026, 10, 13)
 _FECHO = "(dados de 12/10)"
+
+
+def _congelar_relogio_do_dispatch(monkeypatch: pytest.MonkeyPatch, hoje: date) -> None:
+    """`_handoff_com_mes_do_texto` le' `datetime.now(UTC)` do modulo `dispatch`; o teste fixa esse relogio
+    em `hoje` (meio-dia UTC = 09h em Brasilia, mesmo dia) para nao depender da data em que roda — em
+    01/11/2026 "mes passado" virou 2026-10 e o teste quebrou na main."""
+    agora = datetime(hoje.year, hoje.month, hoje.day, 12, tzinfo=UTC)
+
+    class _RelogioFixo(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
+            return agora if tz is None else agora.astimezone(tz)
+
+    monkeypatch.setattr("maezo.platform.webhooks.whatsapp.dispatch.datetime", _RelogioFixo)
 
 
 def _mes(competencia: str, situacao: str, **extra: str) -> dict[str, str]:
@@ -283,7 +297,8 @@ async def test_meses_sem_pagamento_tem_valores_na_escalacao_e_no_caso_aberto() -
 # --- 4. Reclamacao com o caso aberto ------------------------------------------------------------------
 
 
-def test_reclamacao_e_mes_passado_saem_do_texto() -> None:
+def test_reclamacao_e_mes_passado_saem_do_texto(monkeypatch: pytest.MonkeyPatch) -> None:
+    _congelar_relogio_do_dispatch(monkeypatch, _HOJE)
     texto = "FUI COBRADO DUAS VEZES NO MES PASSADO"
     assert decidir_reclamacao(texto) == "em_dobro"
     assert decidir_reclamacao("o valor tá errado") == "valor_errado"
@@ -294,6 +309,26 @@ def test_reclamacao_e_mes_passado_saem_do_texto() -> None:
     handoff = {"cobranca_subtipo": "contestacao", "competencia": None, "cobranca_foco": "geral"}
     ajustado = _handoff_com_mes_do_texto(texto, handoff)
     assert ajustado["competencia"] == "2026-09" and ajustado["cobranca_reclamacao"] == "em_dobro"
+
+
+@pytest.mark.parametrize(
+    ("hoje", "passado", "este"),
+    [
+        (date(2027, 1, 5), "2026-12", "2027-01"),  # janeiro -> dezembro do ano anterior
+        (date(2026, 10, 31), "2026-09", "2026-10"),  # dia 31 -> mes de 30 dias (sem aritmetica de dias)
+        (date(2026, 3, 31), "2026-02", "2026-03"),  # dia 31 -> fevereiro
+        (date(2026, 11, 1), "2026-10", "2026-11"),  # a virada que quebrou o teste em 01/11/2026
+    ],
+)
+def test_mes_passado_nas_viradas(
+    monkeypatch: pytest.MonkeyPatch, hoje: date, passado: str, este: str
+) -> None:
+    texto = "FUI COBRADO DUAS VEZES NO MES PASSADO"
+    assert mes_relativo_do_texto(texto, hoje) == passado
+    assert mes_relativo_do_texto("o boleto deste mês", hoje) == este
+    _congelar_relogio_do_dispatch(monkeypatch, hoje)
+    handoff = {"cobranca_subtipo": "contestacao", "competencia": None, "cobranca_foco": "geral"}
+    assert _handoff_com_mes_do_texto(texto, handoff)["competencia"] == passado
 
 
 async def test_reclamacao_com_caso_aberto_e_reconhecida_sem_outra_duvida() -> None:

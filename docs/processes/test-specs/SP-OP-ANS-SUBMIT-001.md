@@ -65,8 +65,19 @@ key `ANSSUB-amh-RN_124_SIP-2026-01`.
 ### test_ack_pendente_completa_como_enviado_pendente_ack
 - **Given** envio transmitido (`submit` ok) mas ACK ainda nao chegou
 - **When** `ICE_AguardarAck` (timer `P1D`) expira sem `msg.anssubmit.ack_received`
-- **Then** `anssubmit.completed` `desfecho=enviado_pendente_ack` (ou rota a `UT_TratarNack`
-  conforme politica) — instancia nao trava indefinidamente; nada e perdido silenciosamente
+- **Then** rota a `UT_TratarNack` (humano, contrato §SLAs — R-066/F-137); humano completa
+  `decisao_nack=registrar_falha` → `anssubmit.completed` `desfecho=enviado_pendente_ack` (o envio
+  saiu, `status_envio=enviado`) — nada encerra sem humano nem sem evento
+
+### test_tratar_nack_retransmitir_manual_volta_a_correcao (R-066/F-138)
+- **Given** `UT_TratarNack` aberta (ACK nao veio no prazo)
+- **When** humano completa `decisao_nack=retransmitir_manual`
+- **Then** `UT_CorrigirPendenciaEnvio` abre (corrige e volta a reavaliacao + revisao humana);
+  nenhum `anssubmit.completed` publicado
+
+### test_tratar_nack_decisao_invalida_reabre (R-066/F-138)
+- **When** `UT_TratarNack` e completada sem `decisao_nack` valida (chamada direta a REST API)
+- **Then** a mesma User Task reabre; nenhum terminal, nenhum `anssubmit.completed`
 
 ## Pendencia de dados / adiamento
 
@@ -102,7 +113,8 @@ key `ANSSUB-amh-RN_124_SIP-2026-01`.
 ### test_adiar_envio_registra_justificativa
 - **Given** `UT_RevisarEnvio` aberta
 - **When** humano completa com `decisao_envio=ADIAR_ENVIO`
-- **Then** exige `justificativa_adiamento` (sem ela a task nao completa); `anssubmit.completed`
+- **Then** exige `justificativa_adiamento` (validada no ENGINE — R-066/F-138: sem ela, ou em
+  branco, o caso vai a `UT_CoordenacaoEnvioAssume`, nunca a `adiado_humano`); `anssubmit.completed`
   `desfecho=adiado_humano`; `submit` NAO executado (o nao-envio no prazo e decisao humana
   registrada, nao um efeito automatico)
 
@@ -190,8 +202,9 @@ key `ANSSUB-amh-RN_124_SIP-2026-01`.
   execucao do job do timer (**NUNCA `sleep`**)
 - **Then** ao esgotar (`continue_retry=false`) → `End_RetryEsgotado` (`ERR_ANS_RETRY_ESGOTADO`)
   capturado pelo boundary `BE_RetryEsgotado` → `ST_PublishFailed` → `UT_TratarNack` (humano) +
-  `anssubmit.failed` (`desfecho=falha_retransmissao`, `nack_motivo` preenchido) — nunca encerra
-  silenciosamente
+  `anssubmit.failed` (`nack_motivo` preenchido); humano completa `decisao_nack=registrar_falha` →
+  `anssubmit.completed` `desfecho=falha_retransmissao` → `End_FalhaRetransmissao` (R-066/F-071) —
+  nunca encerra silenciosamente
 
 ### test_err_ans_submit_not_human_recusa_sem_aprovacao
 - **Given** tentativa de invocar `regulatorio.anssubmit.submit` sem `decisao_envio=APROVAR_ENVIO`

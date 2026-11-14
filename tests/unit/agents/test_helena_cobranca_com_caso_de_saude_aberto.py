@@ -19,7 +19,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_URGENTE,
     HelenaGraph,
 )
-from maezo.runtime.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
+from maezo.domain.conversa.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.agents.test_helena_rodada_2_simulador import (
@@ -35,16 +35,9 @@ from tests.unit.agents.test_helena_rodada_2_simulador import (
 _MENSALIDADE = "e a minha mensalidade de outubro?"
 _FALAS_DO_CASO_CLINICO = [RESPOSTA_ESCALONAMENTO_URGENTE, RESPOSTA_CASO_ABERTO_EMERGENCIA]
 
-#: As chaves da Helena v4 e da triagem nova (a v4 desliga a v2): ligadas e desligadas.
-_CHAVES = [
-    pytest.param({}, id="v4_desligada"),
-    pytest.param({"helena_v4_enabled": True}, id="v4_ligada"),
-    pytest.param({"triagem_v2_enabled": True}, id="triagem_v2_ligada"),
-]
-
 
 def _grafo(
-    respostas: list[str], *, cib: FakeCibSevenTransport | None = None, **chaves: Any
+    respostas: list[str], *, cib: FakeCibSevenTransport | None = None
 ) -> tuple[Any, _WhatsApp, _Modelo, FakeCibSevenTransport]:
     whatsapp = _WhatsApp()
     modelo = _Modelo(respostas)
@@ -57,7 +50,6 @@ def _grafo(
         whatsapp=whatsapp,
         roteador_lucas_enabled=True,
         historico_enabled=True,
-        **chaves,
     )
     return grafo.compile_graph().compile(), whatsapp, modelo, cibseven
 
@@ -69,7 +61,6 @@ def _texto_de_emergencia(enviados: list[str]) -> bool:
 # (a) caso aberto + cobranca + modelo hostil -> Lucas, nunca emergencia ----------------------------------
 
 
-@pytest.mark.parametrize("chaves", _CHAVES)
 @pytest.mark.parametrize(
     "resposta_hostil",
     [
@@ -87,11 +78,11 @@ def _texto_de_emergencia(enviados: list[str]) -> bool:
     [_MENSALIDADE, "e o boleto de outubro?", "qual o valor da mensalidade?", "quando vence a mensalidade?"],
 )
 async def test_cobranca_com_caso_clinico_aberto_vai_ao_lucas_com_modelo_hostil(
-    chaves: dict[str, Any], resposta_hostil: str, mensagem: str
+    resposta_hostil: str, mensagem: str
 ) -> None:
     cib = _caso_aberto("red_flag_clinico")
     antes = _starts(cib)
-    grafo, whatsapp, modelo, _ = _grafo([resposta_hostil], cib=cib, **chaves)
+    grafo, whatsapp, modelo, _ = _grafo([resposta_hostil], cib=cib)
 
     resultado = await grafo.ainvoke(
         _entrada(mensagem, _FALAS_DO_CASO_CLINICO, sinal_saude_lexico=False, pedido_humano_lexico=False)
@@ -119,25 +110,19 @@ async def test_a_competencia_do_texto_vai_no_handoff() -> None:
 # (b) emergencia/saude na PROPRIA mensagem continua vencendo ---------------------------------------------
 
 
-@pytest.mark.parametrize("chaves", _CHAVES)
 @pytest.mark.parametrize(
     "mensagem",
     [
         "meu bebê está roxo, e a mensalidade?",
         "ele ta parando de respirar, e o boleto?",
-        "liguei pro 192, e a mensalidade?",
-        "meu filho está com febre, e a mensalidade?",
     ],
 )
-async def test_emergencia_na_propria_mensagem_continua_vencendo(
-    chaves: dict[str, Any], mensagem: str
-) -> None:
+async def test_emergencia_na_propria_mensagem_continua_vencendo(mensagem: str) -> None:
     cib = _caso_aberto("red_flag_clinico")
     antes = _starts(cib)
     grafo, whatsapp, _, _ = _grafo(
         [_classify(intent="symptom", population="pediatric", sintoma_codigo="dor_toracica")],
         cib=cib,
-        **chaves,
     )
 
     resultado = await grafo.ainvoke(
@@ -150,31 +135,35 @@ async def test_emergencia_na_propria_mensagem_continua_vencendo(
     assert _starts(cib) == antes
 
 
-async def test_emergencia_no_texto_vence_mesmo_sem_o_lexico_do_roteador() -> None:
-    """A cerca do grafo nao depende so' do lexico do roteador: o sinal forte no texto basta."""
-    grafo, whatsapp, _, _ = _grafo([_classify(intent="information")], cib=_caso_aberto("red_flag_clinico"))
+@pytest.mark.parametrize(
+    "mensagem",
+    ["liguei pro 192, e a mensalidade?", "meu filho está com febre, e a mensalidade?"],
+)
+async def test_sem_sinal_novo_o_192_ja_tratado_nao_sai_de_novo(mensagem: str) -> None:
+    """DL-0154 (trava "sem segundo 192"): o 192 ja' saiu e a mensagem nao traz sinal NOVO claro: a Helena mantem o
+    caso para a equipe confirmar, sem repetir o "ligue 192" e sem abrir outro caso."""
+    from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTO_CASO_MANTIDO
 
-    resultado = await grafo.ainvoke(
-        _entrada(
-            "ele ta roxo, e a minha mensalidade de outubro?",
-            _FALAS_DO_CASO_CLINICO,
-            sinal_saude_lexico=False,
-            pedido_humano_lexico=False,
-        )
+    cib = _caso_aberto("red_flag_clinico")
+    antes = _starts(cib)
+    grafo, whatsapp, _, _ = _grafo(
+        [_classify(intent="symptom", population="pediatric", sintoma_codigo="dor_toracica")],
+        cib=cib,
     )
 
-    assert resultado.get("handoff") is None
-    assert whatsapp.enviados[0].startswith("Ligue agora para o 192 (SAMU)")
+    await grafo.ainvoke(
+        _entrada(mensagem, _FALAS_DO_CASO_CLINICO, sinal_saude_lexico=True, pedido_humano_lexico=False)
+    )
+
+    assert whatsapp.enviados == [TEXTO_CASO_MANTIDO]
+    assert _starts(cib) == antes
 
 
 # (c) sem caso aberto: o fluxo normal nao muda ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("chaves", _CHAVES)
-async def test_sem_caso_aberto_o_modelo_continua_decidindo(chaves: dict[str, Any]) -> None:
-    grafo, _, modelo, _ = _grafo(
-        [_classify(intent="cobranca", cobranca_subtipo="consulta_valores")], **chaves
-    )
+async def test_sem_caso_aberto_o_modelo_continua_decidindo() -> None:
+    grafo, _, modelo, _ = _grafo([_classify(intent="cobranca", cobranca_subtipo="consulta_valores")])
 
     resultado = await grafo.ainvoke(
         _entrada(_MENSALIDADE, sinal_saude_lexico=False, pedido_humano_lexico=False)
@@ -219,7 +208,7 @@ async def test_caso_administrativo_aberto_nao_aciona_a_regra() -> None:
 @pytest.mark.parametrize(
     "mensagem",
     [
-        "o plano cobre a consulta do bebê?",  # pista de plano
+        "o bebê já está no meu plano?",  # pista de plano (a cobertura saiu: DL-0154)
         "meu filho está com dor, e a mensalidade?",  # pessoa/saude
         "quero cancelar o plano, e a mensalidade?",  # cancelamento + plano
         "o boleto está errado, fui cobrado duas vezes",  # discordancia: contestacao e' do modelo

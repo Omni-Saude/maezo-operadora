@@ -49,13 +49,18 @@ one-variable total policy substitution is the bypass, not the control.
 
 from __future__ import annotations
 
+import importlib
 import os
+import re
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 import yaml
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from maezo.contratos.conversa import AgenteDeEntrada
 
 logger = structlog.get_logger(__name__)
 
@@ -547,6 +552,27 @@ class AgentRegistry:
         return agent_id in self._agents
 
 
+#: O id de agente que o carregador aceita: so' o nome de um pacote irmao, nunca um caminho pontuado.
+_ID_DE_AGENTE: Final[re.Pattern[str]] = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def carregar_agente_de_entrada(agent_id: str) -> AgenteDeEntrada:
+    """A implementacao de `maezo.contratos.conversa.AgenteDeEntrada` do agente `agent_id` (ADR-0067).
+
+    E' por aqui, e nao por import, que a plataforma chega ao agente: o despachante do WhatsApp guarda so' o
+    id configurado e pede a implementacao ao framework, que a encontra por convencao no modulo
+    `maezo.agents.<id>.conversa` (atributo `AGENTE_DE_ENTRADA`). Falha FECHADA: id fora do formato, agente sem
+    o modulo ou sem o atributo levanta na construcao do despachante, nunca no meio de um turno.
+    """
+    if not _ID_DE_AGENTE.fullmatch(agent_id):
+        raise ValueError(f"id de agente invalido: {agent_id!r}")
+    modulo = importlib.import_module(f"{__name__}.{agent_id}.conversa")
+    agente = getattr(modulo, "AGENTE_DE_ENTRADA", None)
+    if agente is None:
+        raise LookupError(f"o agente {agent_id!r} nao declara AGENTE_DE_ENTRADA em {modulo.__name__}")
+    return cast("AgenteDeEntrada", agente)
+
+
 __all__ = [
     "LOCAL_RUNTIME_MODE",
     "MAEZO_SPEC_DIR_ENV",
@@ -555,6 +581,7 @@ __all__ = [
     "AgentLoader",
     "AgentRegistry",
     "SpecDirOverrideRefusedError",
+    "carregar_agente_de_entrada",
     "is_explicit_local_runtime",
     "resolve_spec_agents_dir",
     "resolve_spec_dir",

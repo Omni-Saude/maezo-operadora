@@ -11,6 +11,7 @@ import java.sql.*;
 import java.time.*;
 import java.util.*;
 import javax.net.ssl.*;
+import org.cibseven.bpm.engine.ProcessEngine;
 import org.junit.jupiter.api.*;
 
 /** ROOT lane only: served CIB/PG and genuine mTLS. Missing explicit material fails, never skips. */
@@ -55,7 +56,9 @@ class RuntimeDefinitionObservationEngineIT {
     byte[] retrieved=Base64.getDecoder().decode(Json.string(Json.object(result.get("definition")),"xml_base64"));
     assertArrayEquals(Files.readAllBytes(path("MAEZO_NATIVE_OBSERVATION_IT_SOURCE_XML")),retrieved);
     assertEquals(Jcs.digest(retrieved),admission.get("xml_sha256"));
-    assertEquals("2.1.0",result.get("cibseven_version"));assertTrue(after.isBefore(Instant.parse(Json.string(admission,"original_deadline"))));
+    // cibseven_version is the admitted artifact's own VERSION constant (a CIB
+    // codename, e.g. "fox") — assert identity with the live field, never a literal.
+    assertEquals(ProcessEngine.class.getField("VERSION").get(null),result.get("cibseven_version"));assertTrue(after.isBefore(Instant.parse(Json.string(admission,"original_deadline"))));
     // Real response interval/source check. This IT still requires ROOT's actual CIB/PG lane.
     var clock=Json.object(result.get("clock"));assertEquals("jvm-system-currentTimeMillis",clock.get("source"));
     Instant sampleStart=Instant.parse(Json.string(clock,"sample_started_at")),sampleEnd=Instant.parse(Json.string(clock,"sample_finished_at"));

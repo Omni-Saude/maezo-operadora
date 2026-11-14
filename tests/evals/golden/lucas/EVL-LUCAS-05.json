@@ -30,5 +30,9 @@
       "severidade": null
     }
   },
-  "leak_canaries": []
+  "leak_canaries": [],
+  "triggers": [
+    "dmn:lucas_billing_admissibility=ESCALAR_HUMANO",
+    "signal:inadimplencia"
+  ]
 }

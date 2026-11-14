@@ -104,11 +104,16 @@ READ_AUDIT_DECISION_REF: Final = "DL-0149"
 READ_AUDIT_ACTION_PREFIX: Final = "portal_read"
 
 #: O codigo FECHADO de cada leitura registrada. Novo valor = nova decisao, nao um parametro.
-ReadKind = Literal["task_context", "staff_case_detail"]
+ReadKind = Literal["task_context", "staff_case_detail", "reembolso_context", "reembolso_anexo"]
 
 #: Que tipo de recurso cada leitura identifica em `resource_ref`.
 READ_RESOURCE_KINDS: Final[Mapping[str, str]] = MappingProxyType(
-    {"task_context": "task", "staff_case_detail": "case"}
+    {
+        "task_context": "task",
+        "staff_case_detail": "case",
+        "reembolso_context": "task",
+        "reembolso_anexo": "task",
+    }
 )
 
 #: As UNICAS chaves de `details` que um registro de leitura pode ter. Nenhuma delas carrega o

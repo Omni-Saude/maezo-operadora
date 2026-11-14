@@ -49,7 +49,6 @@ from maezo.tools.workers.inadimplencia import (
     InadContratoInvalidoError,
     _cancel_business_key,
     assess_status,
-    calculate_purge,
     dispatch_prior_notice,
     handoff_rescisao,
     make_prepare_dossier_handler,
@@ -95,6 +94,43 @@ def test_resolve_facts_empty_competencias() -> None:
         }
     )
     assert result["meses_inadimplencia"] == 0
+
+
+# ---------------------------------------------------------------
+# R-063 / F-029 — `dentro_janela_purga` nao e ecoado (estrito)
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("semente", [False, True, None, "nao", 0])
+def test_estrito_dentro_janela_purga_nunca_ecoa_a_entrada(semente: object) -> None:
+    """So o timer BPMN `ICE_PrazoPurga` encerra a janela: o fato e sempre `True` (AGUARDA_PURGA)."""
+    variables: dict[str, Any] = {} if semente is None else {"dentro_janela_purga": semente}
+    assert resolve_facts(variables)["dentro_janela_purga"] is True
+
+
+def test_legado_dentro_janela_purga_ecoa_a_entrada() -> None:
+    """Caminho do worker registrado com `MAEZO_INAD_FATOS_ESTRITOS` desligada (dark)."""
+    assert resolve_facts({"dentro_janela_purga": False}, fatos_estritos=False)["dentro_janela_purga"] is False
+    assert resolve_facts({}, fatos_estritos=False)["dentro_janela_purga"] is True
+
+
+def _resolve_facts_registrado(**seams: Any) -> FunctionWorker:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="r063-inad-wiring")
+    register_inadimplencia_workers(harness, None, **seams)
+    worker = harness.registry.get("operadora.inadimplencia.resolve_facts")
+    assert isinstance(worker, FunctionWorker)
+    return worker
+
+
+@pytest.mark.parametrize("seams", [{}, {"inad_fatos_estritos": False}, {"inad_fatos_estritos": "true"}])
+def test_registro_sem_flag_mantem_eco_legado(seams: dict[str, Any]) -> None:
+    out = _resolve_facts_registrado(**seams).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is False
+
+
+def test_registro_com_flag_ligada_nao_ecoa() -> None:
+    out = _resolve_facts_registrado(inad_fatos_estritos=True).execute({"dentro_janela_purga": False})
+    assert out["dentro_janela_purga"] is True
 
 
 # ---------------------------------------------------------------
@@ -203,21 +239,7 @@ def test_assess_status_dmn_unwired_raises_dmn_evaluation_error() -> None:
         assess_status({"tipo_plano": "individual"}, dmn=None)
 
 
-# ---------------------------------------------------------------
-# calculate_purge
-# ---------------------------------------------------------------
-
-
-def test_calculate_purge_individual() -> None:
-    result = calculate_purge({"tipo_plano": "individual"})
-    assert result["prazo_purga"] == "P10D"
-    assert result["periodo_minimo"] == "P60D"
-
-
-def test_calculate_purge_coletivo() -> None:
-    result = calculate_purge({"tipo_plano": "coletivo_empresarial"})
-    assert result["prazo_purga"] == "P30D"
-    assert result["periodo_minimo"] == "P90D"
+# calculate_purge REMOVIDO (R-027, DEC-10): prazos so na DMN — ver test_inadimplencia_rn593.py.
 
 
 # ---------------------------------------------------------------
@@ -287,7 +309,8 @@ def test_inadimplencia_guard_suspension_happy_path() -> None:
             "ja_em_rescisao_cancel": False,
             "numero_contrato": "C-123",
             "data_efeito_iso": "2024-06-01",
-        }
+        },
+        estrito=False,  # guard legado (flag R-027 OFF); estrito: test_inadimplencia_rn593.py
     )
     assert result["suspensao_registrada"] is True
 
@@ -377,7 +400,8 @@ def test_inadimplencia_register_suspension_alias() -> None:
             "comprovacao_notificacao_previa": "x",
             "comprovacao_periodo_minimo": "x",
             "ja_em_rescisao_cancel": False,
-        }
+        },
+        estrito=False,  # guard legado (flag R-027 OFF); estrito: test_inadimplencia_rn593.py
     )
     assert result["suspensao_registrada"] is True
 
@@ -386,9 +410,9 @@ def test_inadimplencia_register_suspension_alias() -> None:
 # Boundary REACHABILITY (WP-ADR-0030-COMPLETION, D3-01) — the suspension guard raises
 # WorkerBpmnError so its modeled BPMN boundary catch (BE_SuspensaoNaoHumano) CAN fire, instead of
 # the old InadimplenciaError -> ValueError reclassification that could ONLY ever demote to an uncaught
-# engine incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted
-# (the actual production posture today — the code stays T-E-deferred) -> the fail-closed incident
-# (handle_failure, retries=0), so the runtime behavior is UNCHANGED by this raise-side migration.
+# engine incident. Mutation-minded: allowlisted (production since the lote T-E unico, 2026-10-31)
+# -> boundary (handle_bpmn_error); NOT allowlisted (the pre-lote T-E-deferred posture) -> the
+# fail-closed incident (handle_failure, retries=0).
 # Drives the REAL harness dispatch path (harness._handle) end-to-end, no live engine. Mirrors
 # test_credenciamento.py's `_drive_guard_failure`.
 # ---------------------------------------------------------------------------
@@ -431,7 +455,7 @@ _SUSPENSION_GUARD_FAIL = {
 
 
 def test_suspension_guard_reaches_boundary_when_allowlisted() -> None:
-    """ALLOWLISTED (hypothetical post-T-E production wiring): the adverse suspension guard routes
+    """ALLOWLISTED (the production posture since the lote T-E unico, 2026-10-31): the guard routes
     to handle_bpmn_error (BE_SuspensaoNaoHumano fires), NEVER to a failure/incident — the boundary
     is now REACHABLE (was unreachable pre-fix, at ANY allowlist state)."""
     bpmn_errors, failures = _drive_suspension_guard_failure(
@@ -443,9 +467,9 @@ def test_suspension_guard_reaches_boundary_when_allowlisted() -> None:
 
 
 def test_suspension_guard_demotes_to_incident_when_not_allowlisted() -> None:
-    """NOT ALLOWLISTED (the ACTUAL production posture today — T-E-deferred, ADR-0030 §4): fail-
-    closed by construction — demotes to a failure/incident, never a silent scope-end. This is the
-    UNCHANGED runtime behavior this raise-side migration preserves."""
+    """NOT ALLOWLISTED (the pre-2026-10-31 T-E-deferred posture, ADR-0030 §4 — still the outcome if
+    the code ever leaves `TE_ENABLED_CODES`): fail-closed by construction — demotes to a
+    failure/incident, never a silent scope-end."""
     bpmn_errors, failures = _drive_suspension_guard_failure(
         _SUSPENSION_GUARD_FAIL,
         allowlist=frozenset(),
@@ -550,7 +574,8 @@ def test_suspension_padded_valid_literal_normalizes_and_registers() -> None:
             referencia_regulatoria=" RN 593 ",
             comprovacao_notificacao_previa=" ref-notif-001 ",
             comprovacao_periodo_minimo=" ref-periodo-001 ",
-        )
+        ),
+        estrito=False,  # guard legado (flag R-027 OFF); estrito: test_inadimplencia_rn593.py
     )
     assert result["suspensao_registrada"] is True
 
@@ -1294,7 +1319,8 @@ def test_anti_dupla_terminacao_proceeds_when_no_active_cancel() -> None:
     assert facts["ja_em_rescisao_cancel"] is False
 
     result = register_contract_suspension(
-        {**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-123", **facts}
+        {**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-123", **facts},
+        estrito=False,  # guard legado (flag R-027 OFF); estrito: test_inadimplencia_rn593.py
     )
     assert result["suspensao_registrada"] is True
 
@@ -1431,9 +1457,10 @@ def test_b2_guard_permits_only_when_no_form_has_a_live_instance() -> None:
     facts = resolve_facts(dict(_BOTH_IDS), engine=fake)
     assert facts["ja_em_rescisao_cancel"] is False
     assert (
-        register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, **_BOTH_IDS, **facts})[
-            "suspensao_registrada"
-        ]
+        register_contract_suspension(
+            {**_VALID_SUSPENSION_HUMAN_FIELDS, **_BOTH_IDS, **facts},
+            estrito=False,  # guard legado (flag R-027 OFF); estrito: test_inadimplencia_rn593.py
+        )["suspensao_registrada"]
         is True
     )
 
@@ -1807,7 +1834,7 @@ def test_notify_sla_risk_no_adverse_outcome() -> None:
 
 
 def test_register_inadimplencia_workers_registers_new_topics() -> None:
-    """Os 8 topicos continuam servidos — 7 como `FunctionWorker` e, desde R-081, `prepare_dossier`
+    """Os 7 topicos continuam servidos — 6 como `FunctionWorker` e, desde R-081, `prepare_dossier`
     como handler RAW async (a costura `dossier_dispatcher` e assincrona)."""
     harness = _RecordingHarness()
     register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=FakeCibSevenTransport())
@@ -1815,9 +1842,9 @@ def test_register_inadimplencia_workers_registers_new_topics() -> None:
     assert "operadora.inadimplencia.prepare_dossier" in topics
     assert "operadora.inadimplencia.notify_sla_risk" in topics
     assert "operadora.inadimplencia.resolve_facts" in topics
-    assert len(topics) == 8  # resolve_facts, assess_status, calculate_purge, check_prior_notice,
-    #                          prepare_dossier, register_contract_suspension, handoff_rescisao,
-    #                          notify_sla_risk
+    assert len(topics) == 7  # resolve_facts, assess_status, check_prior_notice, prepare_dossier,
+    #                          register_contract_suspension, handoff_rescisao, notify_sla_risk
+    #                          (calculate_purge saiu — R-027)
     # R-081: prepare_dossier saiu do WorkerRegistry e entrou em `_handlers` — a MESMA forma das
     # tres arestas de dossie cred/adequacao/pagto.
     assert set(harness.handlers) == {"operadora.inadimplencia.prepare_dossier"}

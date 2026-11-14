@@ -576,7 +576,6 @@ _FINITE_MONEY_NAMES = (
     "valor_pagamento_cents",
     "valor_aprovado_cents",
     "valor_solicitado_cents",
-    "valor_calculado_tabela_cents",
     "valor_reembolso_aprovado_cents",
 )
 

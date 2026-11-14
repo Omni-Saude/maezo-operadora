@@ -51,6 +51,9 @@ let js = partes.map(function(p){ return p.replace(/^<script[^>]*>/i, '').replace
 // A pagina ainda tem o marcador do servidor; sem trocar por vazio, `PORTAL` seria a string do
 // marcador — TRUTHY — e o carregamento sairia chamando `https://__PORTAL_.../session`.
 js = js.replace('"__PORTAL_PUBLIC_ORIGIN__"', JSON.stringify(process.env.PORTAL_FAKE || ''));
+// Pendencia 48 (DL-0153): o servidor troca o literal por `true`/`false`; sem `MOTOR_FAKE` o marcador
+// fica cru, que e' o estado "nao trocado" (a pagina tem de ler como DESLIGADO).
+if (process.env.MOTOR_FAKE) js = js.replace('"__CANAL_MOTOR_CONCLUI__"', process.env.MOTOR_FAKE);
 
 const nos = new Map();
 function no(){ return {innerHTML:'', textContent:'', value:'', style:{}, disabled:false,
@@ -79,7 +82,7 @@ vm.runInContext(fs.readFileSync(process.argv[3], 'utf8'), contexto, {filename: '
 """
 
 
-def _rodar(caso_js: str, tmp_path: Path, portal: str = "") -> dict:
+def _rodar(caso_js: str, tmp_path: Path, portal: str = "", motor: str = "") -> dict:
     """Roda `caso_js` dentro do contexto da pagina; ele imprime uma linha JSON com o resultado."""
     bancada = tmp_path / "bancada.js"
     bancada.write_text(BANCADA, encoding="utf-8", newline="")
@@ -92,7 +95,7 @@ def _rodar(caso_js: str, tmp_path: Path, portal: str = "") -> dict:
         [NODE, str(bancada), str(PAGINA), str(caso)],
         capture_output=True,
         timeout=60,
-        env=os.environ | {"PORTAL_FAKE": portal},
+        env=os.environ | {"PORTAL_FAKE": portal, "MOTOR_FAKE": motor},
         check=False,
     )
     out = saida.stdout.decode("utf-8", "replace")
@@ -717,3 +720,34 @@ def test_so_oferece_itens_do_portal_de_escalonamento_com_id_valido(tmp_path: Pat
     r = _rodar(caso, tmp_path, portal="https://portal.example")
     assert r["ids"] == ["wa-task-77"]
     assert r["n"] == 0
+
+
+# ============================================ pendencia 48: o canal nao conclui pelo motor (DL-0153)
+
+_CAMINHOS = """
+  montarCaminhos("tarefa-1");
+  var antes = __chamadas.length;
+  concluirMotor("tarefa-1", "resolvido_humano");
+  console.log(JSON.stringify({
+    motor: $("botoesMotor").innerHTML, aviso: $("avisoMotor").innerHTML,
+    chamouOMotor: __chamadas.slice(antes).filter(function(u){
+      return u.indexOf("/engine/task/") === 0;
+    }).length}));
+"""
+
+
+@pytest.mark.parametrize("motor", ["", "false"], ids=["marcador_cru", "desligado"])
+def test_sem_a_chave_os_botoes_do_motor_ficam_desligados_e_orientam_o_portal(
+    tmp_path: Path, motor: str
+) -> None:
+    r = _rodar(_CAMINHOS, tmp_path, portal="https://portal.example", motor=motor)
+    assert r["motor"].count(" disabled>") == 3
+    assert "Concluir pelo portal" in r["aviso"]
+    assert r["chamouOMotor"] == 0, "concluirMotor nao chama o motor com a chave desligada"
+
+
+def test_com_a_chave_os_botoes_do_motor_ficam_ligados(tmp_path: Path) -> None:
+    r = _rodar(_CAMINHOS, tmp_path, portal="https://portal.example", motor="true")
+    assert " disabled" not in r["motor"]
+    assert r["aviso"] == ""
+    assert r["chamouOMotor"] == 1

@@ -24,11 +24,27 @@ navegador de uma pessoa (um CI, um robô) — não é o caso aqui.
 
 | Caminho | Vai para |
 |---|---|
-| `GET/POST /engine/...` | `engine-rest` do CIB Seven (motor BPMN/DMN) |
+| `GET/POST /engine/...` | `engine-rest` do CIB Seven (motor BPMN/DMN) — **sem** concluir/assumir tarefa humana (ver abaixo) |
 | `POST /agente/v1/autorizacoes` | ingresso do Rafael — **executa um turno** |
 | `POST /receptor/simular` | receptor de webhook — **executa um turno da Helena** (só em dev) |
 
 `exemplo.html` exercita as duas e serve de referência mínima.
+
+### O canal não conclui tarefa humana pelo motor (pendência 48, DL-0153)
+
+O proxy `/engine` **recusa (403)**, por padrão, `POST /engine/task/{id}/(complete|claim|resolve|
+submit-form|unclaim|assignee)` e qualquer `DELETE`. Concluir, assumir ou atribuir uma tarefa humana é
+do **portal**, que autentica, audita e confere o grupo. `GET` e os demais `POST` (iniciar processo,
+executar job de timer, ler histórico) seguem como antes. Para religar, a task definition precisa
+declarar `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1` — `service-canal-teste.tf` **não** declara (desligado em
+dev). Com a chave desligada, os botões *Concluir pelo motor* de `escalonamento.html` ficam
+desabilitados e a tela orienta *Concluir pelo portal*.
+
+**Exceção explícita: `autorizacao.html`.** A mesa do médico auditor de `SP-OP-AUTH-001` só tem o motor
+para registrar a decisão. O servidor deixa passar **só `complete`** e **só** para tarefa de processo da
+lista fechada `PROCESSOS_QUE_CONCLUEM_PELO_MOTOR` (`server.py`; hoje `SP-OP-AUTH-001`), com o processo
+**lido no motor** (`GET /task/{id}` → `GET /process-definition/{id}`), nunca do pedido. Leitura que
+falha = recusa.
 
 ## O que NÃO é mesma-origem: o Portal Maezo
 
@@ -76,7 +92,7 @@ Quatro limites, ditos na tela em vez de escondidos:
 ### Os dois caminhos de conclusão
 
 O bloco "Você é a pessoa da equipe" tem os três botões de sempre em **dois grupos**: *Concluir pelo
-motor* (`POST /engine/task/{id}/complete`, a referência) e *Concluir pelo portal*
+motor* (`POST /engine/task/{id}/complete`, a referência; **desligado por padrão**, ver acima) e *Concluir pelo portal*
 (`POST {portal}/api/v1/portal/tasks/{id}/completion`, o endpoint da Frente 2, atrás da flag
 `MAEZO_PORTAL_DIRECT_COMPLETION`). Cada conclusão vira um cartão no **mesmo formato** — resultado
 enviado, resposta HTTP, fim alcançado, encerramento e rastro a partir da tarefa humana — e a página
@@ -102,7 +118,8 @@ portal* relê a sessão. A sessão atual fica visível no topo do painel.
 3. Entrar como colaborador do **atendimento humano**: os casos clínicos **não** aparecem (o painel
    diz "a tarefa não aparece para este colaborador", com o 404 do portal); os P3 aparecem.
 4. Concluir **um caso pelo portal** e **um caso pelo motor**. Comparar no bloco de desfechos:
-   desfecho, rastro de atividades e encerramento devem ser idênticos.
+   desfecho, rastro de atividades e encerramento devem ser idênticos. *Concluir pelo motor* só
+   funciona num canal com `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1` (desligado no dev; ver acima).
 5. Voltar ao portal (*Reler o portal*) e confirmar que os dois casos saíram da fila.
 6. Conferir no painel que os desfechos foram contabilizados.
 

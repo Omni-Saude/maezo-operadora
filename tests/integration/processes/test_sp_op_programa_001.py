@@ -936,7 +936,7 @@ async def test_estratificacao_alta_roteia_para_humano_nunca_desliga(
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, programa_probe, iid)
-    assert "coordenacao-clinica" in ut.candidate_groups or "equipe-cuidado" in ut.candidate_groups
+    assert ut.candidate_groups == frozenset({"coordenacao-clinica"})  # decisor unico (R-041)
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Risco alto NUNCA produz desligamento clinico automatico (L0)"
@@ -1264,7 +1264,7 @@ async def test_solicitar_info_aguarda_correlacao(
     await _correlate_message(business_key, _MSG_INFO_RECEIVED)
 
     ut2 = await engine.await_user_task(iid, _UT_DECISAO)
-    assert "coordenacao-clinica" in ut2.candidate_groups or "equipe-cuidado" in ut2.candidate_groups
+    assert ut2.candidate_groups == frozenset({"coordenacao-clinica"})
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "SOLICITAR_INFO NUNCA auto-desliga (L0)"
@@ -1384,7 +1384,7 @@ async def test_business_key_uma_instancia_por_ciclo(
     Roteia a ANALISE_HUMANA (risco alto) para manter a instancia ativa (User Task aberta) e provar
     a unicidade por business key.
     """
-    benef = "bnf-teste-idem-0001"
+    benef = f"bnf-teste-idem-{uuid.uuid4().hex[:8]}"
     business_key = f"PROG-amh-cronicos-{benef}-2026-Q2"
 
     first = await start_programa(
@@ -1397,3 +1397,31 @@ async def test_business_key_uma_instancia_por_ciclo(
     existing = await engine.find_active_instances(business_key)
     assert len(existing) == 1
     assert existing[0]["id"] == first["id"]
+
+
+# ===========================================================================
+# R-119 (auditoria forense F-195): no critico nunca executado no motor
+# ===========================================================================
+
+
+async def test_r119_info_recebida_com_decisao_clinica_aberta_reabre_a_decisao(
+    engine: EngineRest,
+    programa_probe: ProgramaEngineProbe,
+    start_programa: Callable[..., Any],
+) -> None:
+    """BME_InfoRecebida: a informacao clinica chega com UT_DecisaoClinica ainda aberta; a UT e'
+    interrompida e recriada para a equipe clinica — a decisao continua humana, nunca desliga."""
+    inst = await start_programa(risco_estratificado="alto", elegibilidade_criterios_atendidos=True)
+    iid = inst["id"]
+    ut = await _drive_to_decisao(engine, programa_probe, iid)
+
+    await _correlate_message(inst["businessKey"], _MSG_INFO_RECEIVED)
+    ut2 = await engine.await_user_task(iid, _UT_DECISAO)
+
+    assert ut2.id != ut.id
+    assert ut2.candidate_groups == ut.candidate_groups
+    ended = await engine.activity_instances_ended(iid)
+    assert "BME_InfoRecebida" in ended, ended
+    assert await engine.activity_instance_count(iid, _UT_DECISAO) == 2
+    assert not (ended & _ENDS_ADVERSOS), "Info recebida NUNCA desliga clinicamente (L0)"
+    await _assert_no_adverse_without_human_task(engine, iid)

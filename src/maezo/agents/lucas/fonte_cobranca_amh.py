@@ -43,9 +43,9 @@ from maezo.agents.lucas.fonte_cobranca import (
     FatosCobranca,
     Indisponivel,
 )
+from maezo.domain.conversa.competencia import competencia_valida
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
 from maezo.ports.tina import TinaPort
-from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
 #: Prazo da LEITURA DE COBRANCA na AMH. Era o padrao das portas (5 s). Medido em 09/10/2026: o servico

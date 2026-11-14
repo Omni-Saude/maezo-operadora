@@ -38,13 +38,13 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 from maezo.gateway.seams import GatedSeam
 from maezo.gateway.seams.cibseven import gate_cibseven
 from maezo.gateway.tool_registry import effect_seams_gated
 from maezo.platform.webhooks.service import WebhookState, build_live_dispatcher
 from maezo.platform.webhooks.whatsapp import acesso as acesso_mod
 from maezo.ports.errors import PortFailureReason, PortResult
-from maezo.runtime.caso_clinico import chave_do_escalonamento
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     ProcessInstance,

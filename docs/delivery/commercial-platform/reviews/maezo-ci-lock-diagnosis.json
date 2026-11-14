@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "report_kind": "read_only_ci_lock_diagnosis",
+  "status": "DIAGNOSED_REPAIR_PROPOSED_NOT_EXECUTED",
+  "date": "2026-10-22",
+  "repository": "Omni-Saude/maezo-operadora",
+  "head_sha": "ddb7116223067b32c123afcd24f3cb5a0bdd3c27",
+  "base_sha": "c1a6a64d54bb1966e5419dd6677775aeeb7e2d83",
+  "ci": {
+    "run_id": 39851012097,
+    "job_id": 120076853860,
+    "job_name": "unit (dev-runner)",
+    "merge_sha": "af06701e2e7e2b6aab0f129a3927a4735e2eb2cf",
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/39851012097/job/120076853860",
+    "original_result": "RED",
+    "failed": 1,
+    "passed": 17,
+    "duration_seconds": 240.22,
+    "failed_nodeid": "tests/unit/dev/test_engine_integration_runner.py::test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt",
+    "failure_line": 308,
+    "log_excerpt_window_utc": [
+      "2026-10-22T20:47:17.7152772Z",
+      "2026-10-22T20:47:17.7160626Z"
+    ],
+    "custody": "Original CI RED remains authoritative historical evidence; this additive report neither replaces nor amends it. No raw log persisted."
+  },
+  "inspected_files": [
+    {
+      "path": "tests/unit/dev/test_engine_integration_runner.py",
+      "sha256": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "relevant_lines": [
+        263,
+        329
+      ]
+    },
+    {
+      "path": "scripts/dev/run_engine_integration.py",
+      "sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "relevant_lines": [
+        [
+          365,
+          383
+        ],
+        [
+          408,
+          467
+        ],
+        [
+          1167,
+          1247
+        ],
+        [
+          2124,
+          2193
+        ]
+      ]
+    }
+  ],
+  "synthetic_observation": {
+    "classification": "SYNTHETIC_UNIT_PROBE_METADATA",
+    "owner_pid": 2907,
+    "owner_token": "97a29ca3698a44a1ac4449731e35d99c",
+    "created_at": "2026-10-22T20:43:23.491542+00:00",
+    "before": {
+      "checkpoint": "subprocess_spawning",
+      "updated_at": "2026-10-22T20:43:23.493474+00:00",
+      "pending_pgids": "absent",
+      "subprocess_quiescent": false
+    },
+    "after": {
+      "checkpoint": "subprocess_running",
+      "updated_at": "2026-10-22T20:43:23.494518+00:00",
+      "pending_pgids": [
+        2908
+      ],
+      "subprocess_quiescent": false
+    },
+    "identity_unchanged": [
+      "pid",
+      "token",
+      "created_at",
+      "checkout",
+      "sha",
+      "suite",
+      "project"
+    ]
+  },
+  "diagnosis": {
+    "cause": "Startup readiness race: child.pid is published by the spawned child before the owner necessarily publishes its post-Popen _record_pending state. The test snapshots bytes too early.",
+    "source_order": [
+      "child_probe publishes child_started event before _run; it is not a readiness barrier",
+      "_run creates child.log empty before spawning",
+      "_run publishes subprocess_spawning before Popen",
+      "child immediately writes child.pid in its own process",
+      "owner publishes subprocess_running and pending_pgids only after Popen returns",
+      "test waits only for path existence before byte snapshot"
+    ],
+    "heartbeat_claim": "No periodic heartbeat loop exists in the inspected child-probe path. The CI difference is an authorized startup state transition, not a timestamp-only heartbeat.",
+    "ownership_semantics": "EngineLock.owns requires acquired plus current process PID and token equality. Busy contender returns 73 immediately after failed mkdir and appends only lock_busy, before any cleanup finally block. Release retains pending-group/quiescence and ownership guards.",
+    "product_bug_established": false,
+    "scope_limit": "Static diagnosis and original CI evidence; no local reproduction or execution by diagnostician."
+  },
+  "test_only_repair_proposal": {
+    "write_set": [
+      "tests/unit/dev/test_engine_integration_runner.py"
+    ],
+    "production_changes": [],
+    "method": "Bounded source-state readiness barrier before taking original_owner raw bytes.",
+    "steps": [
+      "Anchor initial owner PID/token from owner.json after its existing publication wait; require PID equals owner.pid.",
+      "After reading child_pid, poll owner.json with a monotonic deadline (e.g. 10 seconds), checking owner remains live. Decode each raw read and retain the exact same bytes only when PID/token match initial owner, checkpoint == subprocess_running, pending_pgids == [child_pid], and subprocess_quiescent is False.",
+      "Fail on identity mismatch, owner exit or barrier timeout; do not default, skip, or extend contention timeout.",
+      "Use the successful raw read as original_owner and retain the full byte-for-byte assertion after real CLI contender exits. No ignored fields or subset comparison."
+    ],
+    "why_sufficient": "In this source path, _record_pending atomically publishes the final startup state. While the real child sleeps and the owner waits in communicate, no additional owner update occurs until timeout, exit or interrupt. Observing that publication closes the specific proven startup window.",
+    "preserved_assertions": [
+      "real runner CLI child-probe owner and lock-probe contender",
+      "contender return code 73",
+      "full owner.json raw byte equality after contention",
+      "exact contender events == [lock_busy]",
+      "owner SIGTERM return code 130",
+      "child process absent",
+      "child-started present in child log",
+      "lock directory absent after owner cleanup",
+      "exact owner event sequence: lock_acquired, child_started, interrupted, cleanup_permitted, lock_released"
+    ],
+    "forbidden_repairs": [
+      "ignore updated_at or checkpoint",
+      "replace full bytes with a subset",
+      "weaken owns/release/pending-group guards",
+      "allow contender cleanup",
+      "mock the engine and claim real Maezo integration",
+      "modify product lock implementation without new product-bug evidence"
+    ]
+  },
+  "handoff": {
+    "next_owner": "ROOT assigns distinct third fixture author",
+    "gate": "Freeze repaired exact paths/dependencies; original diagnostician independently rechecks the repair; ROOT owns execution lane and final exact-HEAD CI.",
+    "execution_by_diagnostician": "NOT_RUN",
+    "changes_by_diagnostician": "Only this additive md/json report pair.",
+    "acceptance_separation": "Unit subprocess CLI qualification does not establish engine integration, source acceptance, human acceptance, operation or production."
+  },
+  "publication_projection": {
+    "status": "SANITIZED_SUCCESSOR_NOT_ORIGINAL_BYTES",
+    "original_sha256": "0243067531b560d99786245a368f38d6cd936ea7e4aecdfc8b0727a949717860",
+    "original_bytes": 6604,
+    "omitted_fields": [
+      "checkout"
+    ],
+    "private_original": "docs/delivery/commercial-platform/repair-preimages.local/c6-ci-lock-diagnosis-publication/original.json",
+    "scope": "Only machine-specific checkout context withheld. Original diagnosis, CI/source facts and decisions are preserved unchanged privately and otherwise preserved here. Original frozen input receipts refer to that private original, not this publication projection."
+  }
+}

@@ -142,6 +142,7 @@ regexes = ['''^ANSSUB-[a-z][a-z0-9]{0,15}-[A-Z0-9_]+-\d{4}-(\d{2}|Q\d|[A-Z]+)$''
 # openai-api-key continuam ativas em toda parte).
 # Data: 2026-07-17 (paths docs/gates/ + prefixos FRAUDE/PAGTO: 2026-07-18) | Task: T2.4
 description = "T2.4: business keys BPM <PREFIX>-<tenant>-<sufixo> em tests/**, docs/evidence-ledger.md e docs/gates/*.md (identificadores sinteticos de instancia de processo, nao credenciais; AND path+shape)"
+targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "secret"
 regexes = ['''^(ESC|AUTH|CONTAS|RECURSO|REEMB|INAD|CRED|CANCEL|FRAUDE|PAGTO)-[a-z][a-z0-9]{1,15}-[A-Za-z0-9:_-]{0,64}$''']
@@ -161,6 +162,7 @@ paths = [
 # alta entropia plantado no MESMO arquivo continua detectado (prova de mutacao
 # CI-mode: PAT plantado = 1 leak, os 2 FPs suprimidos). Sem allowlist por path.
 description = "Train E 2026-08-12: attack-suite kwarg fragments epoch=_EPOCH / signed_at=_NOW (constantes de teste, nao credenciais; AND path+shape)"
+targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "secret"
 regexes = [
@@ -229,6 +231,7 @@ paths = [
 # branch e afetado por esta stanza.
 # Data: 2026-09-03 | Task: SEC-GITLEAKS-HISTORY-ALLOWLIST
 description = "SEC-GITLEAKS-HISTORY-ALLOWLIST 2026-09-03: fixture sintetica app_secret/whatsapp_token (27 chars) em test_settings.py, historico imutavel (nao credencial; AND commit+path+shape)"
+targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "secret"
 commits = [
@@ -253,6 +256,7 @@ regexes = [
 # so existem neste commit historico.
 # Data: 2026-09-03 | Task: SEC-GITLEAKS-HISTORY-ALLOWLIST
 description = "SEC-GITLEAKS-HISTORY-ALLOWLIST 2026-09-03: fixtures sinteticas _SECRET/token (24 chars) em test_mcp_whatsapp.py, historico imutavel (nao credencial; AND commit+path+shape)"
+targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "secret"
 commits = [
@@ -276,7 +280,20 @@ regexes = [
 # generica (regras especificas continuam ativas).
 # Data: 2026-09-26 | PRs #541/#543 (pins D-L/D-O)
 description = "Pins SHA-256 publicos em portal.auto.tfvars do dev (AND path+shape de linha)"
+targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "line"
 regexes = ['''^\s*[a-z0-9_]+_sha256\s*=\s*"[0-9a-f]{64}"\s*(//.*)?$''']
 paths = ['''^deploy/aws-ecs/envs/dev-sa-east-1/portal\.auto\.tfvars$''']
+
+[[allowlists]]
+# MAEZO-C6-PUBLIC-REVISION-SCAN-REPAIR: comparacao Git publica verificada
+# pelo revisor original, em um campo/linha do relatorio congelado.
+# targetRules evita o pre-filtro global de arquivos; AND exige path e linha
+# exatos. Nenhum outro valor, chave, path ou regra especifica e dispensado.
+description = "MAEZO C6: linha exata de comparacao Git publica em recibo imutavel (AND path+linha; somente regra generica)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+regexes = ['''^\n?    "api_compare": "4fbdc3c86562cfd0f080bc5d0e9765dc70b18190\.\.\.62a0754c",[ \t\r\n]*$''']
+paths = ['''^docs/delivery/commercial-platform/reviews/maezo-c6-exact-ci-prequalification\.json$''']

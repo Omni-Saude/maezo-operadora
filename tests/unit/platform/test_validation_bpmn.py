@@ -205,3 +205,49 @@ def test_edge_requires_two_finite_waypoints() -> None:
     validate_di(root, _INAD, report)
     assert any("missing bounds/waypoints" in f.message for f in report.findings)
     assert any("invalid geometry" in f.message for f in report.findings)
+
+
+_MI_IO = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_1">
+  <bpmn:process id="Process_1" isExecutable="true">
+    <bpmn:subProcess id="SP_1">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="a">${\"\"}</camunda:inputParameter>
+          {output}
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:multiInstanceLoopCharacteristics isSequential="true">
+        <bpmn:loopCardinality>${n}</bpmn:loopCardinality>
+      </bpmn:multiInstanceLoopCharacteristics>
+      <bpmn:startEvent id="S_1"/>
+    </bpmn:subProcess>
+  </bpmn:process>
+</bpmn:definitions>
+"""
+
+
+class TestMultiInstanceIo:
+    """ENGINE-09005 (R-092, PR #1172): the engine rejects an outputParameter on a multi-instance
+    construct; validate-artifacts must catch it before the deploy step does."""
+
+    def test_output_parameter_on_multi_instance_is_an_error(self, tmp_path: Path) -> None:
+        content = _MI_IO.replace(
+            "{output}", '<camunda:outputParameter name="a">${a}</camunda:outputParameter>'
+        )
+        report = Report()
+        validate_file(_write(tmp_path, content), report)
+        assert any("ENGINE-09005" in f.message and "SP_1" in f.message for f in report.findings)
+
+    def test_input_parameter_alone_on_multi_instance_is_allowed(self, tmp_path: Path) -> None:
+        report = Report()
+        validate_file(_write(tmp_path, _MI_IO.replace("{output}", "")), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_repository_has_no_output_parameter_on_multi_instance(self) -> None:
+        report = Report()
+        for path in sorted(_ARTIFACTS.glob("*.bpmn")):
+            validate_file(path, report)
+        assert not [f.message for f in report.findings if "ENGINE-09005" in f.message]

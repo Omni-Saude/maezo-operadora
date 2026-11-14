@@ -4,13 +4,17 @@ A FICHA: `spec/agents/helena/agent.yaml`, `escalation.triggers` -> `signal: tool
 tecnica/loop -> falha_tecnica`; a DMN `escalation_routing` r6 ("Falha tecnica do agente (loop, tool
 down)"). Previsto e nunca implementado: `_sem_repetir` so' variava o texto.
 
+REVISTO NA AVALIACAO r5 (25/10/2026): o loop abria caso `falha_tecnica` sem a pessoa pedir (depois de uma
+recusa e numa pergunta de remedio, as duas com o aviso fixo da cobertura repetido). Agora o loop OFERECE a
+equipe e o caso so' abre com o "sim" da pessoa.
+
 O QUE ESTE ARQUIVO PROVA:
   1. a Helena prestes a mandar a MESMA resposta pela `REPETICOES_PARA_ESCALAR + 1`-esima vez seguida
-     escala `falha_tecnica` (severidade `null`), pelo start idempotente, com o texto fixo de handoff;
+     OFERECE a equipe (pendencia `EQ_OFERTA`), sem start; o "sim" abre `solicitacao_humano`;
   2. uma repeticao a menos nao escala (o texto so' varia, como antes);
   3. conversa normal, texto curto e repeticao intercalada nao escalam;
   4. caso ja' aberto na conversa nao abre outro; rota que ja' escala nao escala de novo;
-  5. falha do start -> a resposta honesta de falha (nunca promessa de humano);
+  5. o loop nunca chama o motor (nem quando o motor esta' fora); o aviso da cobertura nunca e' loop;
   6. o numero do codigo e' o da ficha (igualdade fixada).
 """
 
@@ -28,6 +32,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from maezo.agents.helena import graph as g
 from maezo.agents.helena.graph import HelenaGraph, HelenaState
+from maezo.agents.helena.habilidades.atendimento_humano.textos import (
+    PENDENTE_OFERTA_EQUIPE,
+    RESPOSTA_RECUSA_DE_EQUIPE,
+    TEXTO_OFERTA_POR_REPETICAO,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -120,26 +129,19 @@ def _starts(cib: FakeCibSevenTransport) -> int:
 
 
 @pytest.mark.asyncio
-async def test_n_repeticoes_escalam_falha_tecnica_pelo_start_idempotente() -> None:
+async def test_n_repeticoes_oferecem_a_equipe_sem_abrir_caso() -> None:
     cib, zap = FakeCibSevenTransport(), _WhatsApp()
     falas = (_A,) * g.REPETICOES_PARA_ESCALAR
     saida = await _grafo(cib, zap).respond(_estado(falas))
 
-    assert saida["escalation_started"] is True
-    assert saida["escalation_motivo"] == "falha_tecnica"
-    assert saida["escalation_severidade"] is None
-    assert saida["response_kind"] == "escalate"
-    assert saida["error"] == g.ERRO_HELENA_EM_REPETICAO
-    assert saida["desfecho"] == "escalado_humano"
-    # o texto e' o handoff fixo JA' APROVADO para `falha_tecnica` (sem sinal de saude), nunca a repeticao
-    assert zap.enviados == [g.RESPOSTA_HANDOFF_RECUSADA]
-    assert _starts(cib) == 1
-    variaveis = (await cib.get_process_status(_CHAVE)).variables
-    assert variaveis["motivo_categoria"] == "falha_tecnica"
-    assert variaveis["severidade"] is None
-    assert g.ERRO_HELENA_EM_REPETICAO in variaveis["resumo_contexto"]
-    # o turno entra no historico com o handoff: o proximo turno ve o caso aberto
-    assert saida["historico_conversa"][-1]["texto"] == g.RESPOSTA_HANDOFF_RECUSADA
+    assert saida.get("escalation_started") is not True
+    assert saida.get("escalation_motivo") is None
+    assert saida.get("error") != g.ERRO_HELENA_EM_REPETICAO
+    assert saida["coleta_pendente"] == PENDENTE_OFERTA_EQUIPE
+    assert zap.enviados == [TEXTO_OFERTA_POR_REPETICAO]
+    assert _starts(cib) == 0
+    # o turno entra no historico com a oferta: o proximo "sim" e' lido contra ela
+    assert saida["historico_conversa"][-1]["texto"] == TEXTO_OFERTA_POR_REPETICAO
 
 
 @pytest.mark.asyncio
@@ -147,9 +149,9 @@ async def test_prefixo_de_variacao_nao_esconde_a_repeticao() -> None:
     """`_sem_repetir` manda "Entendi. <mesmo texto>": continua sendo a mesma resposta."""
     cib, zap = FakeCibSevenTransport(), _WhatsApp()
     falas = (_A,) + ("Entendi. " + _A,) * (g.REPETICOES_PARA_ESCALAR - 1)
-    saida = await _grafo(cib, zap).respond(_estado(falas))
-    assert saida["escalation_motivo"] == "falha_tecnica"
-    assert _starts(cib) == 1
+    await _grafo(cib, zap).respond(_estado(falas))
+    assert zap.enviados == [TEXTO_OFERTA_POR_REPETICAO]
+    assert _starts(cib) == 0
 
 
 # --- 2. N-1 nao escala ---------------------------------------------------------------------------
@@ -233,23 +235,35 @@ async def test_rota_que_ja_escala_nao_escala_de_novo() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_que_falha_diz_a_verdade() -> None:
+async def test_loop_nunca_chama_o_motor_nem_com_o_motor_fora() -> None:
     cib, zap = _CibSevenQueFalha(), _WhatsApp()
     saida = await _grafo(cib, zap).respond(_estado((_A,) * g.REPETICOES_PARA_ESCALAR))
-    assert saida["start_failed"] is True
-    assert zap.enviados == [g.RESPOSTA_FALHA_TECNICA_START]
+    assert saida.get("start_failed") is not True
+    assert zap.enviados == [TEXTO_OFERTA_POR_REPETICAO]
+
+
+@pytest.mark.asyncio
+async def test_o_aviso_da_cobertura_repetido_nunca_vira_loop() -> None:
+    """DL-0154: o aviso fixo da cobertura nao tem oferta da equipe; repetido, sai de novo como esta'."""
+    aviso = g.TEXTO_COBERTURA_FORA
+    cib, zap = FakeCibSevenTransport(), _WhatsApp()
+    estado = _estado((aviso,) * (g.REPETICOES_PARA_ESCALAR + 2), texto=aviso)
+    saida = await _grafo(cib, zap).respond(estado)
+    assert zap.enviados == [aviso]
+    assert saida.get("coleta_pendente") != PENDENTE_OFERTA_EQUIPE
+    assert _starts(cib) == 0
 
 
 # --- 6. ponta a ponta no grafo compilado (historico ligado) ---------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_ponta_a_ponta_a_mesma_resposta_vira_caso_e_o_caso_nao_se_repete() -> None:
+async def _ate_a_oferta(resposta: str) -> tuple[list[dict[str, Any]], _WhatsApp, FakeCibSevenTransport]:
+    """N+1 turnos com a mesma resposta (o ultimo vira a oferta) e, depois, a `resposta` da pessoa."""
     rascunho = (
         "Por aqui eu consigo te orientar sobre o seu plano e sobre como funciona o atendimento, "
         "mas preciso que voce me diga o que deseja."
     )
-    turnos = g.REPETICOES_PARA_ESCALAR + 2
+    turnos = g.REPETICOES_PARA_ESCALAR + 1
     classificacao = {
         "intent": "information",
         "population": "none",
@@ -258,29 +272,47 @@ async def test_ponta_a_ponta_a_mesma_resposta_vira_caso_e_o_caso_nao_se_repete()
         "intensidade": "desconhecida",
     }
     cib, zap = FakeCibSevenTransport(), _WhatsApp()
-    grafo = _grafo(cib, zap, _Inferencia([classificacao] * turnos, rascunho))
+    grafo = _grafo(cib, zap, _Inferencia([classificacao] * (turnos + 1), rascunho))
     compilado = grafo.compile_graph().compile(checkpointer=InMemorySaver())
     config: RunnableConfig = {"configurable": {"thread_id": _CONVERSA}}
     estados = []
-    for _ in range(turnos):
+    for mensagem in ["Quero saber o horario da central"] * turnos + [resposta]:
         entrada = {
             "tenant_id": "amh",
             "conversation_id": _CONVERSA,
             "canal": "whatsapp",
             "beneficiario_pseudo_id": "PSEUDO-REP-0001",
-            "message_body": "Quero saber o horario da central",
+            "message_body": mensagem,
         }
         estados.append(dict(await compilado.ainvoke(cast(HelenaState, entrada), config)))
+    return estados, zap, cib
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sim", ["sim", "quero, pode passar", "pode sim", "quero sim, pode encaminhar"])
+async def test_ponta_a_ponta_o_loop_oferece_e_so_o_sim_abre_o_caso(sim: str) -> None:
+    estados, zap, cib = await _ate_a_oferta(sim)
     n = g.REPETICOES_PARA_ESCALAR
     # os N primeiros turnos: a mesma resposta (variada), nenhum caso
-    assert all(e.get("escalation_started") is not True for e in estados[:n])
+    assert all(e.get("escalation_started") is not True for e in estados[: n + 1])
     assert len({g._sem_prefixo(t) for t in zap.enviados[:n]}) == 1
-    # o turno N+1: escala `falha_tecnica`, com o handoff fixo
-    assert estados[n]["escalation_motivo"] == "falha_tecnica"
-    assert zap.enviados[n] == g.RESPOSTA_HANDOFF_RECUSADA
-    # o turno seguinte NAO abre outro caso
+    # o turno N+1: a oferta, sem caso e sem `falha_tecnica`
+    assert zap.enviados[n] == TEXTO_OFERTA_POR_REPETICAO
+    assert estados[n].get("escalation_motivo") is None
+    # o "sim": o caso de pedido de pessoa, uma vez so'
+    assert estados[-1]["escalation_motivo"] == "solicitacao_humano"
+    assert estados[-1]["escalation_started"] is True
     assert _starts(cib) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nao", ["não precisa", "agora não", "não, obrigada", "esquece, não precisa mais"])
+async def test_ponta_a_ponta_o_nao_a_oferta_recebe_a_recusa_curta_sem_caso(nao: str) -> None:
+    estados, zap, cib = await _ate_a_oferta(nao)
+    assert zap.enviados[-1] == RESPOSTA_RECUSA_DE_EQUIPE
+    assert estados[-1].get("escalation_started") is not True
+    assert not estados[-1].get("coleta_pendente")
+    assert _starts(cib) == 0
 
 
 # --- 7. o numero e' o da ficha ---------------------------------------------------------------------

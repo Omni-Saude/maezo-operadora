@@ -987,16 +987,16 @@ def test_valor_zero_nao_satisfaz_o_teto_mesmo_com_teto_positivo() -> None:
     assert _FIN_VALOR_ZERO != "FINANCEIRO_VALOR_INVALIDO", "zero e' distinto de invalido"
 
 
-def test_o_teto_do_tenant_saiu_do_zero_e_o_do_reembolso_nao() -> None:
-    """D-07 fechada para autorizacao, deliberadamente NAO para reembolso.
+def test_o_teto_do_tenant_saiu_do_zero_e_reembolso_nao_tem_mais_teto() -> None:
+    """D-07 fechada para autorizacao; o teto do reembolso segue ZERO.
 
-    Sao duas decisoes de alcada diferentes, e o arquivo tinha as duas em zero com o mesmo
-    comentario. Fechar uma nao fecha a outra; este teste impede que a proxima edicao arraste o
-    reembolso junto por simetria visual.
+    DL-0161 tirou a acao `reembolso_auto_approval` da matriz; a faixa B do R-070 a trouxe de volta
+    DORMENTE (decisao do dono de 2026-11-01, PR #1149) com teto 0 no overlay do amh. Este teste impede
+    que o teto suba antes da assinatura do dono + atuaria no R-070 §6.
     """
     matriz = yaml.safe_load(Path("spec/policies/autonomy/tenants-amh.yaml").read_text(encoding="utf-8"))
     # A chave e' `overrides`: este arquivo REFINA o L0-core, nunca o substitui.
     over = matriz["overrides"]
 
     assert over["authorization_approval"]["params"]["max_value_brl"] == 500
-    assert over["reembolso_auto_approval"]["params"]["max_value_brl"] == 0
+    assert over["reembolso_auto_approval"]["params"] == {"max_value_brl": 0}

@@ -15,6 +15,8 @@ from xml.etree import ElementTree as ET
 import yaml
 from yaml.nodes import MappingNode
 
+from maezo.platform.xml_safe import DtdRefusedError, parse_xml_without_dtd
+
 
 class ParseError(Exception):
     """A file could not be parsed (malformed XML/YAML or unreadable)."""
@@ -60,12 +62,13 @@ class _UniqueMappingLoader(yaml.SafeLoader):
 def load_xml(path: Path) -> ET.Element:
     """Parse an XML file and return its root element, or raise `ParseError`."""
     try:
-        tree = ET.parse(path)
+        return parse_xml_without_dtd(path.read_bytes())
+    except DtdRefusedError as exc:
+        raise ParseError(str(exc)) from exc
     except ET.ParseError as exc:
         raise ParseError(f"malformed XML: {exc}") from exc
     except OSError as exc:
         raise ParseError(f"could not read file: {exc}") from exc
-    return tree.getroot()
 
 
 def load_yaml(path: Path, *, reject_duplicate_keys: bool = False) -> object:

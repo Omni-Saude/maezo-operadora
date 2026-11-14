@@ -256,16 +256,18 @@ def test_route_aceita_inform_num_turno_administrativo_legitimo() -> None:
     assert HelenaGraph._route({"next_kind": "inform", "intent": "information"}) == "inform"
 
 
-async def test_sintoma_sem_red_flag_continua_informando() -> None:
-    """NAO-VACUIDADE da camada 1: com a DMN respondendo `red_flag=False`, `inform` continua sendo
-    a rota — a guarda nao transformou toda triagem em escalonamento."""
+async def test_sintoma_sem_red_flag_vai_a_equipe_sem_falha_tecnica() -> None:
+    """NAO-VACUIDADE da camada 1: com a DMN respondendo `red_flag=False`, a guarda nao transforma a triagem
+    em falha tecnica. Limpeza da saude, etapa 3: o sintoma sem bandeira vai a equipe de saude
+    (`intencao_clinica`), nunca a resposta automatica."""
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE", "prioridade": "-"}])
     inferencia = _FakeInference(
         [_extracao(intent="symptom", population="adult", sintoma_codigo="febre", intensidade="leve")]
     )
     saida = await _grafo(inferencia, dmn=dmn).classify(_estado("estou com um pouco de febre"))
-    assert saida["next_kind"] == "inform"
+    assert (saida["next_kind"], saida["escalation_motivo"]) == ("escalate", "intencao_clinica")
+    assert not saida.get("error")
 
 
 # ---------------------------------------------------------------------------------------------

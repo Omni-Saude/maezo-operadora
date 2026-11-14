@@ -2,7 +2,7 @@
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
 **Fase:** 1 (modelado uma fase a frente) · **BPMN:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
-**Gatilho regulatorio:** RN 259/2011 (garantia de atendimento — consolidacoes posteriores ANS: **DRAFT/verify**), RN 395/2016 (resposta/negativa por escrito: **DRAFT/verify**), RN 424/2017 (junta medica: **DRAFT/verify**), Lei 9.656/1998 art. 35-C.
+**Gatilho regulatorio:** RN 623/2024 (prazo de resposta art. 12; negativa reduzida a termo art. 14; reanalise pela Ouvidoria art. 16 — revogou a RN 395/2016 no art. 28; texto-base `docs/compliance/legal/textos-base/RN-623-2024.md`: **DRAFT/verify**), RN 566/2022 (garantia de atendimento = prazo de REALIZACAO, nao de resposta — revogou a RN 259/2011 no art. 16: **DRAFT/verify**), RN 424/2017 (junta medica: **DRAFT/verify**), Lei 9.656/1998 art. 35-C.
 
 ## Invariante L0 hard (nao negociavel)
 
@@ -136,7 +136,9 @@ entrega uma inbox. E04 deve persistir pedido/destinatários e entregar conteúdo
 com recuperação por ocorrência para não duplicar pendências em retry. `ST_PublishAuthPended`
 continua dono do evento de domínio. `send_denial_notice` compõe o registro, não comprova
 envio; E04 deve ligar sua evidência humana e conteúdo protegido à comunicação durável.
-Não converter `auth.completed` em "negativa entregue" sem evidência de entrega. Reusar
+Não converter `auth.completed` em "negativa entregue" sem evidência de entrega. A entrega
+por escrito da negativa (RN 623/2024 art. 14) segue a seção "Negativa por escrito — entrega
+(R-004)" abaixo: manual pelo médico auditor até existir canal com comprovante. Reusar
 publicador/bridge e gateway existentes; nenhum MCP novo ou credencial de agente é
 necessário para dar autoridade a um humano. Falha de canal/autoridade é estado técnico
 visível e recuperável, nunca decisão clínica adversa (ADR-0030/0049).
@@ -274,6 +276,8 @@ análise de minimização.
 | `rede_credenciada` | boolean | nao | **NAO E MAIS LIDO por `auth_auto_approval`** (v0.2.0). Nenhum criterio o consome hoje: rede credenciada NAO esta coberta por nenhuma das quatro fontes de regra — ver o bloco GAP-AUTH-4 abaixo (residuo declarado) |
 | `tipo_procedimento` | string | nao | Input de `carencia_check` (`urgencia_emergencia` \| `parto` \| `eletivo` \| `alta_complexidade` \| `outros`). **Sem fonte hoje**: a derivacao a partir de `carater_atendimento`/`categoria_procedimento` e um mapeamento REGULATORIO pendente de SME (docs/review-queue.md) e nao foi inventada. Ausente => `criterio_regulatorio_ok=false` / `REGULATORIO_ENTRADA_AUSENTE` |
 | `dias_desde_adesao` | integer | nao | Input de `carencia_check`. **Sem fonte hoje**: exige dado cadastral da fronteira AMH (MZO-050b, bloqueado). Ausente/negativo/nao-inteiro => `REGULATORIO_ENTRADA_AUSENTE` |
+| `data_solicitacao_iso` | string (ISO 8601 com fuso, ou data `YYYY-MM-DD`) | nao | R-005: ancora do prazo de resposta da RN 623/2024 art. 12 ("a partir da data da solicitacao"). Lida SO por `operadora.auth.compute_response_deadline` com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada. Ausente = relogio do worker (a mesma ancora do timer ISO de hoje); instante sem fuso ou invalido = nao adivinhado (nulos, timer ISO); ancora no futuro e limitada a agora |
+| `uf_beneficiario` | string (UF) | nao | R-005: UF do beneficiario para os feriados estaduais do calendario versionado (`maezo.platform.calendario`). Ausente, invalida ou UF ainda sem fonte estadual conferida = so feriados nacionais (vencimento igual ou anterior ao legal, nunca posterior) |
 | `cpt_declarada` | boolean | nao | Input de `carencia_check` (Cobertura Parcial Temporaria). **Sem fonte hoje** (DPS — mesma fronteira). Ausente/nao-booleano => `REGULATORIO_ENTRADA_AUSENTE` |
 
 > **GAP-AUTH-4 — PORTAO DE CRITERIOS (fechamento ESTRUTURAL, 2026-08-06).** Os quatro fatos que a
@@ -285,7 +289,7 @@ análise de minimização.
 > | Criterio | Fonte da regra | Estado |
 > |---|---|---|
 > | `criterio_tecnico_ok` | DMN `dut_rol_coverage` + a `dut_criteria_*` do procedimento | tabelas SINTETICAS, **nao ratificadas** |
-> | `criterio_financeiro_ok` | `CeilingResolver.within_l2_ceiling` (`authorization_approval.max_value_brl`) | fonte REAL e ratificada; **valor = 0 (D-07 em aberto)** |
+> | `criterio_financeiro_ok` | `CeilingResolver.within_l2_ceiling` (`authorization_approval.max_value_brl`) | fonte REAL e ratificada; **valor = R$ 500 para o tenant `amh`** (`spec/policies/autonomy/tenants-amh.yaml`, D-07 FECHADA em 25/08/2026; L0-core segue 0 para os demais tenants) |
 > | `criterio_regulatorio_ok` | DMN `carencia_check` | tabela SINTETICA, **nao ratificada**; inputs sem fonte (AMH/MZO-050b) |
 > | `criterio_contratual_ok` | DMN `auth_criteria_contratual` | costura VAZIA (catch-all `SEM_REGRA_RATIFICADA`), **nao ratificada** |
 >
@@ -313,7 +317,9 @@ análise de minimização.
 > **O QUE PERMANECE ABERTO (agora e' DADO e ESCOPO, nao estrutura) — portao Medico/ANS + financeiro:**
 > 1. **Ratificacao** das 5 tabelas DUT/carencia e populacao da tabela contratual (medico auditor,
 >    juridico/regulatorio, financas). Nenhuma regra clinica, regulatoria ou contratual foi inventada.
-> 2. **D-07**: `authorization_approval.max_value_brl` continua 0 (diretoria).
+> 2. **D-07 (FECHADA em 25/08/2026)**: `authorization_approval.max_value_brl` = R$ 500 no overlay `tenants-amh.yaml`
+>    (L0-core = 0 para tenant sem overlay). O teto sozinho nao abre nada: os outros tres criterios seguem
+>    false por falta de fonte ratificada (item 1).
 > 3. **`rede_credenciada` nao e coberto por nenhum criterio.** Nao existe fonte de rede credenciada
 >    no repo; inventar uma seria fabricar um fato. Enquanto isso ele simplesmente nao participa da
 >    decisao automatica (o que e' fail-closed: menos caminhos para auto-aprovar, nunca mais).
@@ -324,7 +330,7 @@ análise de minimização.
 > 5. **Seeds de admissibilidade** (`requer_autorizacao`, `beneficiario_ativo`,
 >    `documentacao_completa`) continuam nao verificados a montante (`auth_admissibility`).
 > 6. **`carater_atendimento` e' don't-care na regra r1**: uma urgencia auto-aprova sob exatamente os
->    mesmos fatos de um eletivo. Input MANTIDO na DMN de proposito, para o SME diferenciar (RN 259)
+>    mesmos fatos de um eletivo. Input MANTIDO na DMN de proposito, para o SME diferenciar (RN 566; RN 259 revogada)
 >    sem mudanca de codigo. **Pergunta aberta ao portao Medico/ANS.**
 >
 > **A promocao deste contrato de DRAFT para FINAL continua vinculada aos itens 1-2 acima.**
@@ -356,6 +362,11 @@ análise de minimização.
 | `auto_criteria_verificado` | boolean | **PROVA DE EXECUCAO** do validador — `true` em TODO caminho, inclusive na degradacao. Atesta "o validador rodou", nunca "os criterios passaram". Exigido `true` pela regra r1 de `auth_auto_approval` |
 | `auto_criteria_falhas` | json | Lista de tokens limitados nao-PHI (enum fechado): `TECNICO_FONTE_NAO_RATIFICADA` \| `TECNICO_ENTRADA_AUSENTE` \| `TECNICO_TABELA_INDISPONIVEL` \| `TECNICO_PROCEDIMENTO_NAO_MAPEADO` \| `TECNICO_FORA_DO_ROL` \| `TECNICO_DUT_NAO_ATENDIDA` \| `FINANCEIRO_TENANT_AUSENTE` \| `FINANCEIRO_VALOR_INVALIDO` \| `FINANCEIRO_RESOLVER_INDISPONIVEL` \| `FINANCEIRO_TETO_NAO_AUTORIZA` \| `REGULATORIO_FONTE_NAO_RATIFICADA` \| `REGULATORIO_ENTRADA_AUSENTE` \| `REGULATORIO_TABELA_INDISPONIVEL` \| `REGULATORIO_CARENCIA_NAO_CUMPRIDA` \| `CONTRATUAL_FONTE_NAO_RATIFICADA` \| `CONTRATUAL_TABELA_INDISPONIVEL` \| `CONTRATUAL_SEM_FONTE` \| `VALIDADOR_INDISPONIVEL` |
 | `auto_criteria_shadow` | json | MODO SOMBRA: o que cada tabela DRAFT TERIA decidido — `{TECNICO,REGULATORIO,CONTRATUAL}_SOMBRA_{APROVARIA,REPROVARIA,INDETERMINADO}`. Evidencia de ratificacao para o revisor medico/ANS. **Nunca influencia o veredito** |
+| `junta_guarda_rn424_ativa` | boolean | R-064: escrito por `operadora.auth.convene_junta` em TODO caminho (sobrescreve semente de start), a partir SO da implantacao (`MAEZO_AUTH_JUNTA_RN424_GUARD`, default `false`). Lido por `GW_JuntaAdmissivel` com `execution.getVariable` — ausente (worker anterior ao R-064) equivale a desligada |
+| `junta_admissibilidade` | json | R-064: resultVariable de `BRT_JuntaAdmissibilidade` (DMN `auth_junta_admissibility`, singleResult): `resultado` (`ADMITIDA` \| `VEDADA_URGENCIA_EMERGENCIA` \| `CARATER_INDETERMINADO`) + `motivo`. Avaliada SEMPRE que a junta e' pedida; com a guarda desligada fica so em sombra. Nunca e' aprovacao nem negativa |
+| `prazo_resposta_duracao_util` | string (ISO `PTnS`) \| null | R-005: duracao ate o fim do N-esimo dia util, escrita por `compute_response_deadline` em TODO caminho; lida por `BT_SlaAnalise` via `execution.getVariable` — nula/ausente = vale o `sla.sla_analise` ISO da DMN (bandeira desligada, urgencia, ancora invalida) |
+| `prazo_resposta_vencimento_util_iso` | string (ISO 8601) \| null | R-005: instante do vencimento calculado (America/Sao_Paulo), para auditoria |
+| `prazo_resposta_calendario_versao` | string \| null | R-005: versao do calendario de feriados que produziu o vencimento (`CALENDARIO_VERSAO`) |
 | `motivo_bloqueio_criterios` | string | O PRIMEIRO token de `auto_criteria_falhas` na ordem tecnico->financeiro->regulatorio->contratual (`""` quando tudo passou). Token unico e limitado porque a cadeia ADR-0007 nao aceita listas — mesmo idioma de `motivo_bloqueio_teto` |
 
 ## Variaveis de proveniencia do agente (Rafael — ADR-0007/ADR-0015)
@@ -389,9 +400,10 @@ emitia sem declaracao no contrato).
 | External task | `operadora.auth.analyze_request` | consome | convoca Rafael: dossie de analise (ja registrado) |
 | External task | `operadora.auth.request_documents` | consome | pendencia documental — **um unico consumidor por implantacao**, ver "Pedido de documentos — ponte PHI" |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
-| External task | `operadora.auth.send_denial_notice` | consome (worker) | worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`): **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
+| External task | `operadora.auth.send_denial_notice` | consome (worker) | **dono UNICO** (R-004/F-032): worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`) — o segundo dono `NativeDenialNoticeWorker` (WP-J1-06, flag `MAEZO_DENIAL_NOTICE_OWNER`) foi REMOVIDO por decisao do dono (DEC-01, issue #1081); a flag antiga e' lapide (ligada, o daemon recusa registrar os workers) e `assert_single_owner` recusa dois donos ou nenhum. O worker **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
 | External task | `operadora.auth.notify_sla_risk` | consome (worker) + **publica** `auth.notify_sla_risk` | handler cru `make_notify_sla_risk_handler` (WP-J1-09, decisao do dono #17): executa a etapa pura `NotifySlaRiskWorker` — que segue retornando `{}` e **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** (FAB-SLA-RISK-NOTIFIED-SLICE4; aquele evento e de `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise`) — e ENTAO publica a notificacao `{type: auth.notify_sla_risk, tenant_id, numero_guia_tiss, beneficiario_pseudo_id}` em `operadora.notifications.internal`, com `best_effort=False`. Ate WP-J1-09 o worker era sincrono e **sem seam de Kafka**: a etapa rodava e ninguem era avisado. O publish e um PEDIDO de alerta, nunca prova de que um humano foi avisado — a prova e a linha de inbox do consumidor. Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
-| External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
+| External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT). Guard de proveniencia inalterado (so com o literal humano `JUNTA_MEDICA`). R-064: escreve `junta_guarda_rn424_ativa` (bool, da implantacao); com a guarda ligada o status e' `junta_solicitada` — a junta so e' aberta se `BRT_JuntaAdmissibilidade` a admitir. O worker NAO le `carater_atendimento`: a vedacao e' a DMN. Ver "Junta medica — RN 424/2017 (R-064)" |
+| External task | `operadora.auth.compute_response_deadline` | consome (worker) | R-005 (F-018; DEC-02), DARK atras de `MAEZO_AUTH_PRAZO_DIAS_UTEIS`: `ST_CalcularPrazoRespostaUtil`, imediatamente antes de `UT_AnaliseMedicoAuditor`. So aritmetica de calendario: converte `prazo_resposta_dias_uteis` (DMN `auth_sla`, copiado por inputParameter local) em `prazo_resposta_duracao_util`. Desligado, escreve nulos. Subscricao restrita a 5 variaveis (`tenant_id`, `numero_guia_tiss`, `prazo_resposta_dias_uteis`, `data_solicitacao_iso`, `uf_beneficiario`) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
 
 ## Pedido de documentos — ponte PHI
@@ -515,16 +527,24 @@ de negativa (L0 hard).
 - `carencia_check` — in: `tipo_procedimento`, `dias_desde_adesao`, `cpt_declarada`; out: `carencia_cumprida`, `prazo_restante_dias`, `fonte`.
 - `auth_criteria_contratual` (NOVA) — in: `tenant_id`, `categoria_procedimento`; out: `criterio_contratual_ok`, `motivo`. **Costura VAZIA**: uma unica regra catch-all devolvendo `false` / `SEM_REGRA_RATIFICADA`. Nenhuma regra contratual/milestone/KPI foi inventada.
 
+### `auth_junta_admissibility` (FIRST — DRAFT, R-064)
+in: `carater_atendimento: string`
+out: `resultado: string` (`ADMITIDA` | `VEDADA_URGENCIA_EMERGENCIA` | `CARATER_INDETERMINADO`), `motivo: string`
+`urgencia`/`emergencia` -> `VEDADA_URGENCIA_EMERGENCIA` (RN 424/2017 art. 3 I); `eletivo` ->
+`ADMITIDA`; catch-all -> `CARATER_INDETERMINADO` (fail-closed: carater desconhecido nao prova que o
+caso nao e' urgente). Sem saida de aprovacao nem de negativa. Avaliada pelo engine
+(`BRT_JuntaAdmissibilidade`), nunca por worker.
+
 ### `auth_sla` (FIRST — DRAFT, todos os prazos DRAFT/verify)
 in: `carater_atendimento: string`, `categoria_procedimento: string`
-out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`
+out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`, `prazo_resposta_dias_uteis: integer` (R-005: 10 PAC/internacao eletiva — art. 12 II "b"; 5 eletivo e fail-safe — art. 12 II "a"; nulo na urgencia — art. 12 I, resposta imediata)
 
 ## Papeis humanos
 
 | Grupo | Tarefa |
 |---|---|
 | `medico-auditor` | `UT_AnaliseMedicoAuditor` (negativa SO aqui), `UT_DecidirPendenciaExpirada` |
-| `coordenacao-auditoria-medica` | `UT_CoordenacaoAssume` (SLA estourado) |
+| `coordenacao-auditoria-medica` | `UT_CoordenacaoAssume` (SLA estourado; e, com `MAEZO_AUTH_JUNTA_RN424_GUARD` ligada, junta vedada pela RN 424 art. 3 I — R-064) |
 | `junta-medica` | `UT_RegistrarParecerJunta` (RN 424 — DRAFT) |
 
 > **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
@@ -541,13 +561,166 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Timer | Valor | Tipo | Fonte |
 |---|---|---|---|
 | Analise (urgencia) | PT2H | interruptivo -> coordenacao assume | Lei 9.656 art. 35-C ("imediato") — **DRAFT/verify** |
-| Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 259 (21 dias uteis garantia) — **DRAFT/verify** |
-| Analise (eletivo padrao) | P5D | idem | RN 395/2016 (5 dias uteis) — **DRAFT/verify** |
+| Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 623/2024 art. 12, II, b (PAC/internacao eletiva: resposta em ate 10 dias uteis); os 21 dias uteis da RN 566/2022 sao prazo de REALIZACAO (RN 623 art. 12 §4) — **DRAFT/verify** |
+| Analise (eletivo padrao) | P5D | idem | RN 623/2024 art. 12, II, a (resposta em ate 5 dias uteis) — **DRAFT/verify** |
 | Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk -> escalonamento humano `ESC-{tenant_id}-sla-auth-{numero_guia_tiss}` (WP-J1-09, decisao do dono #17; emenda em `SP-OP-ESCALATION-001.md` + ADR-0051). NAO interrompe a analise e NAO move a titularidade: a retomada continua sendo `BT_SlaAnalise` -> `UT_CoordenacaoAssume`, dentro deste processo | politica interna |
 | Pendencia de documentacao | P5D | event gateway -> `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
-| Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; a TRANSMISSAO em si nao tem canal implementado (Fase 1) | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
+| Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; entrega ao beneficiario MANUAL pelo medico auditor ate existir canal com comprovante — ver "Negativa por escrito — entrega (R-004)" | dentro do prazo de resposta do art. 12 (mesmas linhas acima) | RN 623/2024 art. 14 (independe de solicitacao; §2 imprimivel/download) + art. 16 §§1-3 (Ouvidoria) — **DRAFT/verify** |
 
 Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores. Resolver calendario util no worker.
+
+### R-005 — prazo de resposta em dias uteis (RN 623/2024 art. 12) — DARK
+
+- **Decisao:** DEC-02 (juridico via dono, 2026-10-31): dias uteis com calendario versionado
+  (nacional + UF do beneficiario) onde a norma diz dias uteis; corridos onde diz corridos;
+  suspensao so onde a norma permite (nao modelada aqui). D-05 mantem o ISO corrido como teto
+  temporario mais rigido enquanto a bandeira estiver desligada.
+- **Onde mora cada coisa:** o NUMERO de dias uteis e a DMN `auth_sla` (`prazo_resposta_dias_uteis`);
+  o calendario e dado versionado com fonte por regra (`maezo.platform.calendario.feriados_br`);
+  o worker `compute_response_deadline` so faz a aritmetica (dia da solicitacao nao conta; vence
+  no fim — 23:59:59 America/Sao_Paulo — do N-esimo dia util; duracao arredondada para baixo).
+- **Calendario hoje:** feriados de lei federal; Sexta-feira da Paixao (feriado religioso municipal, Lei 9.093/1995 art. 2o), Carnaval e Corpus Christi (ponto facultativo) calculados pela Pascoa e contados como util; estadual so SP (Lei 9.497/1997,
+  conferida); as outras 26 UFs aguardam fonte primaria (so nacional). Nenhum feriado municipal.
+- **Dark:** `MAEZO_AUTH_PRAZO_DIAS_UTEIS` (default `false`). Ligar e ato da implantacao (ROLL),
+  depois da conferencia juridica do calendario e das UFs; nunca de agente.
+
+## Junta medica — RN 424/2017 (R-064) — DARK
+
+Achado F-017 (auditoria forense 2026-10, REG-ANS-4b); decisao do dono DEC-15 (issue #1083,
+registrada em R-034): **junta medica SO em divergencia e NUNCA em urgencia/emergencia, com a
+suspensao de prazo modelada conforme a norma**. A ratificacao do medico auditor continua
+necessaria antes de ligar qualquer coisa (ADR-0007); nenhum bloco de assinatura e' preenchido aqui.
+
+**Texto usado** (trecho registrado no levantamento regulatorio da auditoria, fonte
+bvsms.saude.gov.br/bvs/saudelegis/ans/2017/res0424_27_06_2017.html, consultado em 2026-10-27; nao ha
+texto-base da RN 424 em `docs/compliance/legal/textos-base/`): art. 3 "Nao se admite a realizacao de
+junta medica ou odontologica nas seguintes situacoes: I - urgencia ou emergencia".
+
+**O que esta modelado.**
+
+- **Divergencia.** A junta so e' alcancavel pelo ato humano `decisao_auditor == 'JUNTA_MEDICA'` em
+  `UT_AnaliseMedicoAuditor` ou `UT_CoordenacaoAssume`; esse ato E' a declaracao da divergencia
+  tecnico-assistencial. Nao ha campo estruturado de divergencia no formulario (`auth_decisao`, portal
+  intacto) — acrescenta-lo e' mudanca de formulario/portal fora deste item.
+- **Vedacao em urgencia/emergencia (art. 3 I).** `ST_ConvocarJunta` -> `BRT_JuntaAdmissibilidade`
+  (DMN `auth_junta_admissibility`) -> `GW_JuntaAdmissivel`. So segue para `UT_RegistrarParecerJunta`
+  a junta `ADMITIDA` ou a guarda desligada; o default (vedada, indeterminada, valor inesperado) vai a
+  `GW_CoordenacaoMerge` -> `UT_CoordenacaoAssume`, decisao HUMANA com o mesmo formulario. Nada aprova
+  nem nega sozinho (itens hard `authorization_denial` e `clinical_decision`); a junta continua um
+  corpo humano. Nao e' estouro de SLA: este ramo nao publica `agents.events.auth.sla_breached`.
+- **Laco so humano.** Se a coordenacao escolher `JUNTA_MEDICA` de novo num caso urgente, a junta e'
+  vedada de novo e o caso volta a coordenacao. Cada volta exige um ato humano; nao ha iteracao
+  automatica.
+- **Dark.** `MAEZO_AUTH_JUNTA_RN424_GUARD` (default `false`). Desligada, a DMN e' avaliada em sombra
+  (`junta_admissibilidade` no historico) e o caso vai a junta como antes. Ligar e' ato da implantacao
+  (ROLL), depois da ratificacao do medico auditor da tabela `auth_junta_admissibility`.
+- **Estrutura.** As tres decisoes humanas convergem em `GW_DecisaoMerge` antes de
+  `GW_DecisaoAuditor` (que antes juntava e bifurcava ao mesmo tempo); a coordenacao recebe o SLA
+  estourado e a junta vedada por `GW_CoordenacaoMerge`. Nenhum desfecho mudou.
+
+**O que NAO esta modelado — pendente de juridico/regulatorio + medico auditor (NEEDS-HUMAN).**
+
+- **Suspensao de prazo (art. 4 par. 2).** O trecho registrado diz apenas "Os prazos da garantia de
+  atendimento serao suspensos por 3 (tres) dias uteis quando o desempatador solicitar exames
+  complementares ...". Faltam, sem texto-base: (a) qual relogio e' suspenso neste processo — a
+  garantia de atendimento da RN 566/2022 e' prazo de REALIZACAO e nao e' um timer deste processo, e
+  nenhum timer corre durante `UT_RegistrarParecerJunta`; (b) se a suspensao ocorre uma unica vez; (c)
+  a conversao de dias uteis (nao existe calendario util no repo — F-018). Modelar um timer `P3D`
+  repetiria o defeito F-018 e inventaria a semantica.
+- **Prazos da junta e escolha/desempate do desempatador** — sem texto-base no repo nem clausula neste
+  contrato. O art. 4 ainda remete a RN 259/2011 (revogada), ponto de COUNSEL separado.
+
+## Negativa por escrito — entrega (R-004, RN 623/2024 art. 14) — DARK
+
+Achados F-016/F-032 (auditoria forense 2026-10); decisao do dono DEC-01 (issue #1081):
+**canal unico com comprovante**, pelo worker deste contrato; **sem canal fabricado**. A
+assinatura do juridico continua necessaria antes de ligar qualquer coisa (ADR-0007).
+
+**O que a norma exige** (texto-base `docs/compliance/legal/textos-base/RN-623-2024.md`):
+
+- art. 14, caput — havendo negativa, reduzi-la a termo e informar ao beneficiario, em
+  linguagem clara, **dentro do prazo de resposta do art. 12, independentemente de
+  solicitacao**, o **motivo** e a **clausula contratual ou o dispositivo legal** que a
+  justifique; §1 — dar ciencia ao beneficiario da disponibilizacao do termo no prazo do
+  art. 12; §2 — termo em formato que permita **impressao ou download**;
+- art. 16 §§1-3 — o termo traz, em destaque, a faculdade de reanalise pela **Ouvidoria**,
+  **cada canal** da Ouvidoria e o prazo ordinario de resposta da reanalise, **nao superior a
+  sete dias uteis**.
+
+**Quem decide x quem entrega.** A DECISAO de negar e' SEMPRE do medico auditor humano
+(item `hard`; Invariante L0 acima). Esta secao trata so' da ENTREGA do termo de uma
+negativa ja decidida e ja aprovada pelos dois guards do worker.
+
+**Dono unico.** `operadora.auth.send_denial_notice` e' servido so' por
+`SendDenialNoticeWorker`. O segundo dono (`NativeDenialNoticeWorker`) saiu;
+`MAEZO_DENIAL_NOTICE_OWNER` virou lapide (ligada = o daemon nao registra os workers).
+
+**Enquanto nao houver canal** (estado deste build): a entrega e' **MANUAL, pelo medico
+auditor**, fora do engine. Com a bandeira de implantacao `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`
+(default **OFF**) ligada, o worker registra o fato honesto no registro da negativa:
+
+| Variavel | Tipo | Valor | Significado |
+|---|---|---|---|
+| `entrega_negativa_status` | string | `entrega_manual_pendente` (unico valor neste build) | o termo AINDA NAO foi entregue por canal nenhum do sistema; a entrega cabe ao auditor |
+| `entrega_negativa_responsavel` | string | `medico_auditor` | papel responsavel pela entrega manual |
+
+Nenhum worker escreve "entregue", `registered=True`, `delivered`, `notice_sent` nem
+`status` de transmissao: entrega e' fato que so' um comprovante de canal real (ou o
+registro do proprio auditor) prova. Negativa barrada por um guard (`ERR_AUTH_DENIAL_INCOMPLETE`
+ou `ERR_DENIAL_NOT_HUMAN`) **nao** ganha estado de entrega. Desligada a bandeira, a saida do
+worker e' a de antes deste pacote. O texto clinico continua redigido (ADR-0006).
+
+**Mapeamento a confirmar pelo juridico (COUNSEL):** motivo = `justificativa_clinica`;
+clausula/dispositivo = `fundamentacao_dut` (o guard de completude ja exige os dois). Canais
+da Ouvidoria e prazo de reanalise NAO existem como configuracao do tenant neste build — o
+auditor os inclui no termo manual.
+
+**Fora deste pacote (declarado):** o canal real com comprovante (e o seu estado
+`entregue_com_recibo`), uma User Task de confirmacao da entrega manual (exige contrato de
+formulario do portal) e a citacao residual "RN 395 art. 10" na `bpmn:documentation` de
+`ST_EnviarNegativaFormal` (o BPMN nao muda aqui).
+
+## REG-1.11 — Âncora RN 566/2022 na autorização prévia (DARK — documentation only)
+
+> **DARK / informativo (REG-1.11):** este bloco é âncora de documentação. NENHUM timer, DMN,
+> variável de engine, worker ou wiring é criado ou alterado aqui. A moeda normativa DESTE
+> contrato (RN 259/2011 e RN 395/2016, ambas revogadas, citadas **DRAFT/verify** no gatilho e na tabela de SLAs
+> acima) permanece na fila R5 — `docs/compliance/rn-currency-review.md` §3.4 (`:150-158`:
+> "em r2 trocar \"RN 259 garantia 21 dias uteis…\" → \"RN 566/2022…\"; em r3 trocar
+> \"RN 395/2016 — resposta em ate 5 dias uteis\" → \"RN 623/2024 …\". [verify SME: figuras
+> exatas]") — NÃO decidida nem aplicada neste bloco. **Nota R-004 (achado F-016):** as citacoes
+> da RN 395/2016 e da RN 259/2011 (revogadas) no gatilho, na tabela de SLAs e em `auth_sla.dmn` foram
+> trocadas pela RN 623/2024 art. 12 (prazos de RESPOSTA) — somente a citacao; nenhum valor de
+> prazo mudou e tudo segue **DRAFT/verify** para o SME juridico.
+
+**Fonte primária (verbatim banked):** `docs/compliance/legal/textos-base/RN-566-2022.md` — DOU
+02/01/2023, Seção 1, p. 94 — https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-566-de-29-de-dezembro-de-2022-455439257
+(sha256 `49c550bc36ed8d6b66fed856402f179a8233dede130acdef90d02128f4de6b4f`, MANIFEST 16/16;
+adquirida pelo #1054 `e68cefad`; acesso 2026-10-27):
+
+- **Art. 11** (`RN-566-2022.md:179`): "A autorização para realização do serviço ou procedimento,
+  quando necessária, deverá ocorrer de forma a viabilizar o cumprimento do disposto no art. 3º."
+  A autorização prévia (este processo) é, portanto, condicionada dos prazos de garantia de
+  atendimento: o SLA de análise não pode inviabilizar o prazo do art. 3º. Documentação de
+  obrigação — nenhum SLA novo é criado, alterado ou ratificado por este bloco.
+- **Art. 12** (`RN-566-2022.md:181`): para efeito de cumprimento dos prazos do art. 3º, a
+  operadora fornece número de protocolo gerado por seus serviços de atendimento ao consumidor
+  (interseção com o protocolo-como-primeira-ação da RN 623/2024 art. 10 — extensão de desenho
+  REG-1.3, gated COUNSEL-5/D-06, fora deste pacote).
+- **Art. 3º** (`RN-566-2022.md:63-105`): classes de prazo de garantia de atendimento (consulta
+  básica — pediatria, clínica médica, cirurgia geral, ginecologia e obstetrícia — até 7 dias
+  úteis; demais especialidades médicas até 14; internação eletiva até 21; demais classes no
+  texto banked), § 1º — contagem da demanda à efetiva realização; § 2º — vale o acesso a
+  qualquer prestador habilitado no município da demanda, não a um prestador específico.
+- **Interseção prazo de resposta × prazo de realização**: RN 623/2024, art. 12, § 1º — se o
+  prazo de garantia de atendimento da RN 566/2022 for inferior ao do inciso II, prevalece o da
+  RN 566/2022 (âncora já registrada no corpus v4: `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn`,
+  `C3_EV_Expirou`, REG-1.2).
+
+**Gate humano (registrado, NÃO simulado — ADR-0007):** classes de prazo = SME jurídico
+(`REG-RESIDUAL-AUDIT-v1.md` §4 item 7; decisão do dono 2026-10-28, COORDINATION.md "OWNER
+DECISIONS 2026-10-28" item 5 — REG-1.11 EXECUTAR com verbatim banked). Nenhuma ratificação por
+agente.
 
 ## Desfecho de agente: falha de start (CC-01)
 
@@ -587,12 +760,30 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 | Codigo | Onde | Tratamento |
 |---|---|---|
 | `ERR_AUTH_INVALID_GUIA` | declarado (`Error_AuthGuiaInvalida`) para uso dos workers | worker lanca BPMN error se guia inconsistente na origem; tratamento a detalhar na promocao a FINAL |
-| `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 395 art. 10). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
+| `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 623/2024 art. 14: motivo + clausula/dispositivo). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
 | `ERR_DENIAL_NOT_HUMAN` | guard do worker `operadora.auth.send_denial_notice` | recusa compor o registro de uma NEGAR sem proveniencia humana: o sinal explicito `human_approved` **ou** um `auditor_id` nao-vazio setado pela User Task humana. Materializa a invariante L0: nenhuma negativa sem User Task humana na trilha (ADR-0007). NAO ha boundary modelado para este codigo — o worker retorna registro `blocked_by_guard`, nao lanca |
 | `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED` | guard do worker `operadora.auth.issue_authorization`, **canal AUTOMATICO apenas** (`ST_EmitirAutorizacaoAuto`) | recusa EMITIR quando o teto de autonomia do tenant (`authorization_approval.max_value_brl`, resolvido por `CeilingResolver.within_l2_ceiling`) nao autoriza o `valor_estimado_brl`. Fail-closed em todos os vetores (tenant ausente/branco/nao-string; valor ausente/nao-numerico/bool/negativo/nao-finito; resolver indisponivel). Distinto de `ERR_DENIAL_NOT_HUMAN` de proposito: aquele significa "sem sancao modelada", este significa "sancionado pela DMN, mas o teto nao autoriza emissao AUTOMATICA". **O canal HUMANO nunca e' gateado por este codigo** (`decisao_auditor == 'APROVAR'` e a rota da junta emitem independentemente do teto). NAO ha boundary modelado em `ST_EmitirAutorizacaoAuto` (o unico boundary do arquivo e' `BE_NegativaIncompleta`), entao o worker RETORNA registro `blocked_by_guard` com `dentro_teto_l2=false` + `motivo_bloqueio_teto` como evidencia engine-visivel — nunca lanca (um `bpmnError` nao modelado encerra silenciosamente o escopo, ADR-0030) |
 
 ## Pendencias para promocao a FINAL
 
 DI (diagrama); confirmacao de todos os prazos RN com regulatorio; detalhamento do fluxo
-de junta (prazos/desempate RN 424); anexos TISS obrigatorios por categoria; politica de
-suspensao de prazo em pendencia.
+de junta — prazos, desempate e suspensao do art. 4 par. 2 da RN 424 (a vedacao do art. 3 I ja
+esta modelada, dark — R-064); ratificacao da tabela `auth_junta_admissibility` pelo medico
+auditor antes do flip; anexos TISS obrigatorios por categoria; politica de suspensao de prazo em
+pendencia.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-AUTH-001` → `maezo-payer-auth-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - guia: `{tenant_id}:auth-001:hk1_<HMAC>` sobre `ref_claro` = `G-{numero_guia_tiss}`.
+- **Classificação (a confirmar pelo DPO):** pessoal pseudônimo (saúde por inferência) e ID cru de fonte — opaca no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `EXCLUSIVE` (inalterada).
+- O compositor Java do portal (`AuthBusinessKeys.java`) e os vetores de paridade mudam junto com o Python; os dois canais continuam UM domínio de idempotência por guia (decisão do dono #16).

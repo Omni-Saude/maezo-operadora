@@ -85,6 +85,12 @@ class InferenceSettings(BaseSettings):
     model: str = ""
     timeout_s: float = 60.0
     max_retries: int = 2
+    #: ORCAMENTO CURTO (ADR-0066, roteador da Helena): teto de tokens de SAIDA por chamada. `None` (padrao)
+    #: = o teto de sempre do provedor. Usado so' por quem constroi um provedor dedicado de chamada curta.
+    max_tokens: int | None = None
+    #: Threads PROPRIAS do transporte regional (0 = o pool padrao do asyncio, como sempre). Um provedor de
+    #: chamada curta usa um pool separado para nunca disputar threads com as chamadas da conversa.
+    dedicated_workers: int = 0
 
     #: MAEZO_INFERENCE_PHI_ZONE_REQUIRED — declares that THIS deployment is
     #: expected to serve PHI-tagged traffic (ADR-0006 PHI zone).

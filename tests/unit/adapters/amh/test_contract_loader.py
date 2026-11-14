@@ -108,8 +108,8 @@ def test_real_pin_exposes_the_three_glue_schema_version_ids_and_registry() -> No
 def test_real_pin_exposes_artifact_fixture_and_manifest_digests() -> None:
     pin = load_contract_pin(REAL_PIN)
     # 5 do v1 + 2 do manifest_v1_1 + 1 do v1_2 + 3 do v1_3 + 1 do v1_4 + 1 do v1_5 + 1 do v1_6
-    # + 5 (v1_7 a v1_11) + 1 (v1_12) + 1 (v1_13) + 1 (v1_14)
-    assert len(pin.artifact_digests) == 22
+    # + 5 (v1_7 a v1_11) + 1 (v1_12) + 1 (v1_13) + 1 (v1_14) + 1 (v1_15)
+    assert len(pin.artifact_digests) == 23
     assert len(pin.fixture_digests) == 10
     assert pin.manifest_digest == "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126"
     assert pin.manifest_v1_1_digest == "c4abd5d57b6a00b88ccec0cbdeeed5337a5595ee33d56d4444f352b9cfbcbe93"
@@ -126,6 +126,7 @@ def test_real_pin_exposes_artifact_fixture_and_manifest_digests() -> None:
     assert pin.manifest_v1_12_digest == "c9088c0f1dbb1c9720ba51674f85076e81936c5d862a8d8cca203647f76035a6"
     assert pin.manifest_v1_13_digest == "ac1cb804cb978fd49951d45bd77b06a13f2b9c36d207c1a391129142492c5fc1"
     assert pin.manifest_v1_14_digest == "75c36aadd4a52c08c06974a5c4b0da9f2870ac81d748a6c72677609413e5a126"
+    assert pin.manifest_v1_15_digest == "b0403b72a888a36c2e17f8dbe05107880dd0c346b08171f9051fa5f6d52bfa65"
     assert pin.manifest_path == "schemas/contracts/maezo/v1/contract-manifest.yaml"
     assert all(len(d) == 64 for d in pin.artifact_digests.values())
 

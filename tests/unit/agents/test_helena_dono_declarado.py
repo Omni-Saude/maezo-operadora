@@ -63,7 +63,7 @@ def test_existe_dono_tecnico_com_nome_de_pessoa(spec: dict) -> None:
 
 
 def test_o_dono_clinico_nasce_do_signoff_e_nao_antes(spec: dict) -> None:
-    """O acoplamento e' o ponto: quem assina as 34 regras E' o dono clinico.
+    """O acoplamento e' o ponto: quem assina as 40 regras E' o dono clinico.
 
     Sem o signoff, `clinico` vazio e' o estado HONESTO — declarar um nome ali antes de alguem ter
     revisado regra nenhuma seria a quinta casca vazia deste projeto (a jornada com estados que nao

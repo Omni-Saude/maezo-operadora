@@ -9,7 +9,9 @@ ASYNC SAVER, NOT SYNC (proven, T3.4/F4 compat verification):
   sync saver wired into an async graph fails at the FIRST checkpoint write. Production wiring
   therefore uses `AsyncPostgresSaver` (verified round-trip: awaited setup()/aput/aget_tuple/alist/
   adelete_thread all pass against langgraph-checkpoint 4.1.1 + langgraph-checkpoint-postgres
-  3.0.5 on real Postgres 16). `InMemorySaver` (dev fallback) is likewise async-capable.
+  3.0.5 on real Postgres 16 — the versions of that original check; the lock now pins 4.3.0 + 3.1.3
+  (forensic audit F-094), re-proven by the integration lane). `InMemorySaver` (dev fallback) is
+  likewise async-capable.
 
 SCHEMA PROVISIONING is imperative, NOT Alembic (see
 `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`): the four real tables

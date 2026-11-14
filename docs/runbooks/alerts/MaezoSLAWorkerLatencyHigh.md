@@ -1,7 +1,7 @@
 # Alert Runbook: MaezoSLAWorkerLatencyHigh
 
 **Audience:** Platform engineers, SRE, on-call
-**Last updated:** 2026-09-02
+**Last updated:** 2026-10-31
 **Applies to:** worker-daemon (compose service `worker-runtime`, Helm Deployment `worker-daemon`)
 **Alert source:** `deploy/observability/alert-rules.yml:18-33` (group `maezo_sla`)
 **SLO context:** [`docs/observability/SLO.md`](../../observability/SLO.md) §3.1, §6 row 1
@@ -22,29 +22,28 @@
 
 ## 1. Trigger
 
-**Code:** `deploy/observability/alert-rules.yml:18-33`
+**Code:** `deploy/observability/alert-rules.yml`, group `maezo_sla`
 
 ```yaml
 - alert: MaezoSLAWorkerLatencyHigh
   expr: |
-    histogram_quantile(0.95,
-      rate(maezo_worker_execution_time_seconds_bucket[5m])
-    ) > 5
+    (
+      histogram_quantile(0.95,
+        sum by (le, worker, topic) (rate(maezo_worker_execution_time_seconds_bucket[5m]))
+      ) > 5
+    )
+    and on (worker, topic)
+    ( sum by (worker, topic) (increase(maezo_worker_execution_time_seconds_count[5m])) >= 10 )
   for: 5m
   labels:
     severity: warning
-    category: sla
-    component: workers
 ```
 
-p95 of `maezo_worker_execution_time_seconds` (labels `worker`, `topic`) exceeds 5 seconds,
-sustained for 5 minutes. **Coverage caveat (verify before trusting a page or its silence):** this
-metric is emitted only by `WorkerBase.run()` (`src/maezo/tools/workers/base.py:203-213`) — raw
-`harness.register()` handlers (`events`, plus `programa.py`'s `stratify_risk`/`stop_processing`/
-`proactive_contact`/`notify_sla_risk`, and the raw handlers in `recurso.py`/`lgpd.py`/
-`escalation.py`) never emit it, so a slowdown confined to those topics will not move this
-metric at all. See `docs/observability/SLO.md` §2/§3.1 for the full trace and the recommended
-migration to `maezo_worker_task_duration_seconds` (full coverage, no gap).
+**R-085 (owner decision 2026-10-31, "guardas de volume minimo").** The quantile is now taken over
+`sum by (le, worker, topic)` (replicas aggregated; before it was per pod), and the alert needs at
+least 10 observations per (worker, topic) in 5m — parameter **P1 (TODO-OWNER)** — because on a
+low-volume topic one slow task WAS the p95. The 5s threshold is inherited and unsourced
+(`SLO.md`). Coverage stays PARTIAL: raw handlers do not feed this histogram.
 
 ## 2. What this means in business terms
 

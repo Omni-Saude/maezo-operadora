@@ -34,10 +34,10 @@ alcada** — nem por DMN, nem por timeout (inversao do anti-padrao `Task_AutoApp
 
 | End event | Natureza | So alcancavel via |
 |---|---|---|
-| `End_PagamentoLiberadoHumano` | **ADVERSO (risco financeiro L1)** — liberacao de pagamento de alto valor | `UT_AprovacaoAlcada` / `UT_AprovacaoComite` com `decisao_pagamento=APROVAR` humano **e** tier do aprovador >= faixa do valor |
+| `End_PagamentoLiberadoHumano` | **ADVERSO (risco financeiro L1)** — liberacao de pagamento de alto valor | `UT_AprovacaoAlcada` / `UT_AprovacaoComite` com `decisao_pagamento=APROVAR` humano **e** tier do aprovador >= faixa do valor; ou, num caso de comite interrompido por estouro de SLA, `UT_CoordenacaoAlcada` (`assumir_aprovacao` + APROVAR) completando o quorum SO com o minimo de votos APROVAR da DMN ja no livro (DEC-30 D3) e SO quando a DMN `pagto_comite_coordenacao` permite a assuncao — SLA do comite estourado, EXATAMENTE 1 voto APROVAR e nenhum voto que nao aprove na rodada (DEC-31 D31-2) |
 | `End_PagamentoRecusadoHumano` | neutro→prestador-adjacente — recusa/devolucao do pagamento para revisao (NAO e glosa; glosa nasce em CONTAS-001) | `UT_AprovacaoAlcada` com `decisao_pagamento=RECUSAR` humano (registra `justificativa_recusa`) |
 | `End_PagamentoLiberadoAutomatico` | neutro — pagamento **abaixo do teto L2** liberado por caminho clerical (L2) | `pagto_alcada` favoravel (`faixa_valor=DENTRO_TETO_L2`) + admissibilidade clerical |
-| `End_PagamentoCancelado` | neutro — solicitacao cancelada/duplicada/sem lastro (sem liberacao) | `UT_AprovacaoAlcada` / `UT_CoordenacaoAlcada` com `decisao_pagamento=CANCELAR` humano (GAP-PAGTO-2; registra `justificativa_recusa`) |
+| `End_PagamentoCancelado` | neutro — solicitacao cancelada/duplicada/sem lastro (sem liberacao) | `UT_AprovacaoAlcada` / `UT_CoordenacaoAlcada` com `decisao_pagamento=CANCELAR` humano (GAP-PAGTO-2; registra `justificativa_recusa`), ou voto `CANCELAR` de QUALQUER membro em `UT_AprovacaoComite` (o comite encerra no primeiro voto que nao aprova — R-092) |
 | `End_PagtoOrdemInvalida` | neutro/tecnico — guard de validacao de origem (`ERR_PAGTO_ORDEM_INVALIDA`), NAO e decisao de liberacao/negativa (GAP-PAGTO-4) | boundary error em `ST_ValidatePaymentData` (qualquer caminho; sem efeito adverso) |
 
 O terminal ADVERSO `End_PagamentoLiberadoHumano` NUNCA aparece na history do engine sem uma
@@ -61,6 +61,36 @@ pagamento; reenvio da mesma ordem retorna a instancia ativa. `mcp-cibseven.start
 consultar a business key antes de iniciar (start idempotente — **evita liberacao duplicada de
 pagamento**, risco financeiro direto).
 
+**Forma por conta do handoff CONTAS (decisao do dono de 2026-11-01, opcao A — "conta na chave de
+pagamento"; DEC-30 D13, 2026-11-02 — com o prestador).** Quando CONTAS-001 adjudicou na forma
+guia/conta (`numero_guia_tiss` E `numero_conta` presentes — a MESMA regra de
+`chave_de_negocio.contas_adjudica_por_conta`), a forma lote acima nao distingue duas contas do mesmo
+prestador no mesmo lote: com a postura `PERMANENT`, a segunda conta batia na ordem da primeira e
+ficava sem pagamento. A chave precisa e'
+`PAGTO-{tenant_id}-C-{prestador_id}-{numero_guia_tiss}-{numero_conta}` (compositor unico
+`maezo.domain.chave_de_negocio.pagto_business_key_por_conta`; etiqueta `C`; mesma normalizacao dos
+demais segmentos; `prestador_id` e `numero_guia_tiss` com `-` RECUSADOS — segmentos do meio, decisao
+do dono R-101 estendida por DEC-30 D13), e o `ordem_pagamento_id` acompanha a forma
+(`ORDEM-CONTA-{tenant_id}-C-{prestador}-{guia}-{conta}`). Mudanca de FORMATO de chave: so' vale dentro
+da janela unica de migracao do ADR-0068 (Accepted, DEC-29), emendado pelo ADR-0074 (Proposed, DEC-30
+D12: forma `C` na tabela da janela; `MAEZO_PAGTO_CHAVE_CONTA_FASE` absorvida em `MAEZO_CHAVES_JANELA`
+no pacote da janela), pela fase `MAEZO_PAGTO_CHAVE_CONTA_FASE` do worker-daemon:
+
+| Fase | Escreve | Le antes (leitura dupla) |
+|---|---|---|
+| `legado` (padrao) | `PAGTO-{t}-{lote}-{prestador}` | — |
+| `leitura_dupla` | `PAGTO-{t}-{lote}-{prestador}` | a forma por conta desta conta |
+| `escrita_alvo` | `PAGTO-{t}-C-{prestador}-{guia}-{conta}` | a forma lote; ordem de OUTRA conta comprovada destrava, identidade indeterminada recusa |
+
+A forma lote nunca muda de chave. **Com o padrao `legado` o defeito persiste ate a janela**, mas nao
+em silencio: em toda fase, um `ALREADY_*` do start idempotente so' e' sucesso quando a ordem existente
+e' DESTA conta (conferido no historico do motor por `prestador_id`/`numero_guia_tiss`/`numero_conta`;
+prestador ausente = nao comprovavel); senao o handoff RECUSA (`ERR_CONTAS_HANDOFF_PAGAMENTO_INVALIDO`,
+incidente auditado, contador `maezo_contas_pagto_ordem_recusada_total` e alerta
+`MaezoContasPagtoOrdemDeOutraConta` — DEC-30 D11). A postura de dedup do start segue `PERMANENT`
+(DL-0046). Plano de migracao das ordens ja' criadas sob a forma lote e procedimento do financeiro
+antes da janela: `docs/runbooks/pagto-chave-por-conta-migracao.md`.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |
@@ -69,6 +99,7 @@ pagamento**, risco financeiro direto).
 | `ordem_pagamento_id` | string | sim | Id da ordem de pagamento (chave de negocio) |
 | `numero_lote_tiss` | string | nao | Lote TISS de origem (quando o pagamento decorre de conta adjudicada CONTAS-001) |
 | `numero_guia_tiss` | string | nao | Guia TISS de origem. Semeada por `contas.handoff_pagamento` (echo do lote) e por `recurso.handoff_pagamento` (ancora da glosa revertida, junto com `glosa_id`); PAGTO nunca a le/decide a partir dela — e identidade/rastreabilidade (ADR-0040) |
+| `numero_conta` | string | nao | Conta TISS de origem, semeada por `contas.handoff_pagamento` (vazia quando CONTAS rodou na forma lote). Com `numero_guia_tiss`, e' a identidade da conta que a ordem paga: o handoff a le de volta do historico do motor para recusar uma segunda conta que bata numa ordem que nao e' dela (decisao do dono 2026-11-01, opcao A). PAGTO nunca decide a partir dela. Ausente em `recurso.handoff_pagamento` |
 | `prestador_id` | string | sim | Prestador/credor beneficiario do pagamento (pseudonimizado; nunca dados bancarios crus em Zona Geral — ADR-0006) |
 | `tipo_pagamento` | string | sim | `prestador_rede` \| `reembolso_beneficiario` \| `prestador_livre_escolha` \| `glosa_revertida` \| `ajuste_conciliacao` |
 | `valor_pagamento_cents` | integer | sim | Valor a liberar, em **centavos** de BRL (inteiro — **NUNCA `number`**). Dinheiro = inteiro-centavos OU `double`; **`number` e proibido** (ADR-0018 parte 2). Dominio: **inteiro estritamente positivo** (`> 0`); ausente ou `<= 0` (incl. coagido para `0`) NUNCA vira liberacao — roteia para a mesma categoria de admissibilidade `PENDENTE_DADOS`/`pendencia_dados` que a DMN `pagto_admissibility` ja declara para "Dados de pagamento invalidos/incompletos" (`spec/processes/dmn/pagto_admissibility.dmn`), aguardando correcao humana antes de qualquer avaliacao de alcada (§Delta-F1) |
@@ -79,18 +110,61 @@ pagamento**, risco financeiro direto).
 | `instrumento_pagamento` | string | sim | `cnab` \| `pix` \| `ted` \| `compensacao` (forma de liquidacao) |
 | `fonte_valor` | string | nao | `apresentado` \| `liberado` — declarada pelo elemento chamador do handoff (`ST_HandoffPagamentoAuto`/`ST_HandoffPagamentoHumano`/`ST_HandoffPagamentoParcial` de CONTAS-001, ou o handoff equivalente de RECURSO-001), nunca adivinhada pelo worker: indica se `valor_pagamento_cents` veio do valor apresentado (perna automatica — nada foi glosado) ou do valor liberado (decisao humana/glosa parcial). PAGTO nao le este campo para decidir; e proveniencia (ADR-0040) |
 | `glosa_id` | string | nao | Identidade da glosa revertida quando o pagamento chega via `recurso.handoff_pagamento` (deferimento de recurso); compoe a terceira forma da business key `PAGTO-{tenant_id}-{numero_guia_tiss}-{glosa_id}`. Ausente nas duas pernas de CONTAS-001 (que nao tem `glosa_id` a oferecer) |
-| `dados_pagamento_validos` | boolean | sim* | Pre-resolvido por worker (`operadora.pagto.validate_payment_data`): credor/instrumento/lastro consistentes |
-| `lastro_confirmado` | boolean | sim* | Pre-resolvido por worker: ha obrigacao real por tras (conta adjudicada / reembolso aprovado / ordem valida). Resolvido **dentro de PAGTO** (`operadora.pagto.validate_payment_data`) ou por humano em `UT_AnaliseAdmissibilidade`. **Um processo de origem NUNCA semeia este booleano**; ele semeia `lastro_origem`/`lastro_decisor_id` como evidencia (ADR-0040 **I-PAGTO-1**) |
+| `dados_pagamento_validos` | boolean | sim* | Pre-resolvido por worker (`operadora.pagto.validate_payment_data`): credor/instrumento/lastro consistentes. **Hoje (flag dark `MAEZO_PAGTO_FATOS_ESTRITOS` desligada) e ECO**: `bool(ordem_pagamento_id)` (F-029). Com a flag: RESOLVIDO — `prestador_id` presente e `instrumento_pagamento` no dominio fechado declarado na linha dele; senao `false` (R-063) |
+| `lastro_confirmado` | boolean | sim* | Pre-resolvido por worker: ha obrigacao real por tras (conta adjudicada / reembolso aprovado / ordem valida). Resolvido **dentro de PAGTO** (`operadora.pagto.validate_payment_data`) ou por humano em `UT_AnaliseAdmissibilidade`. **Um processo de origem NUNCA semeia este booleano**; ele semeia `lastro_origem`/`lastro_decisor_id` como evidencia (ADR-0040 **I-PAGTO-1**). **Hoje (flag dark `MAEZO_PAGTO_FATOS_ESTRITOS` desligada) `validate_payment_data` ECOA a semente de `lastro_confirmado`** (F-029); com a flag nunca a ecoa — sem fonte autoritativa do lastro no worker, o fato fica `false` e o humano o resolve em `UT_AnaliseAdmissibilidade` (R-063, fail-closed) |
 | `lastro_origem` | string | nao | **Evidencia** do lastro, semeada pelo processo de origem: `contas_adjudicacao_automatica` \| `contas_adjudicacao_humana` \| `recurso_deferimento_humano`. Alimenta o formulario de `UT_AnaliseAdmissibilidade`; **nunca substitui** `lastro_confirmado`, que PAGTO resolve |
 | `lastro_decisor_id` | string | nao | **Evidencia**: o `analista_id`/`auditor_id` que adjudicou a conta ou deferiu o recurso. **String vazia** na perna automatica de CONTAS — nunca inventada (ADR-0007) |
 | `dentro_teto_l2` | boolean | sim* | Pre-resolvido: `valor_pagamento_cents <= teto de auto-liberacao L2 do tenant` (tenants-amh.yaml) |
-| `duplicidade_suspeita` | boolean | nao | Sinal **informativo** de worker (detecta ordem ja paga/similar; NUNCA decide; so roteia a humano) |
+| `duplicidade_suspeita` | boolean | nao | Sinal **informativo** de worker (detecta ordem ja paga/similar; NUNCA decide; so roteia a humano). **Fato SEMEADO**: nao ha detector em `validate_payment_data` — ecoa a semente (com `MAEZO_PAGTO_FATOS_ESTRITOS`, normalizada para booleano); detector real segue aberto (R-063) |
 
 \* Pre-resolvido por worker de fatos antes de `BRT_AlcadaRouting` (validacao/conferencia/aritmetica; **sem decisao de liberacao**).
 
 > **Dinheiro nunca como `number`.** `valor_pagamento_cents` e `integer` (centavos). Onde houver
 > calculo fracionario de tabela, usar `double` (BRL). A allowlist de shape DMN (§4-bis-A,
 > ADR-0018 parte 2) torna `number` invalido por construcao.
+
+### Fatos do lastro conferidos no historico do motor (DARK — `MAEZO_PAGTO_RESOLVE_LASTRO`, pacote PAGTO PR-D)
+
+Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem tarefa nova no BPMN)
+acrescenta ao escopo os fatos abaixo, resolvidos por `tools/workers/pagto_lastro.py` contra o
+HISTORICO do motor (costura `resolve_historic_instance`, padrao DL-0050, falha fechada) — analise
+PAGTO §2, fatos L1-L4; ADR-0040 I-PAGTO-1. A evidencia semeada `lastro_origem` so escolhe ONDE
+procurar (CONTAS-001 ou RECURSO-001); a busca usa a identidade da propria ordem
+(`numero_lote_tiss` + `prestador_id` para CONTAS; `RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}`
+para RECURSO) e terminal, valor e `has_glosas` vem do que o motor gravou na origem. **Nao muda
+rota:** `lastro_confirmado` segue como descrito acima, e a DMN que vai ler estes fatos
+(`pagto_admissibility` v0.2) e o pacote PR-F. Desligada (padrao), nada disto e escrito.
+
+| Variavel | Tipo | Descricao |
+|---|---|---|
+| `lastro_status` | string | `CONFIRMADO` (origem concluida num terminal que gera obrigacao, mesmo credor, e `valor_pagamento_cents` <= valor da origem — tolerancia do dono de 31/10/2026: abaixo segue, acima vai a humano) \| `DIVERGENTE_VALOR` (acima da origem, ou um dos valores sem confianca) \| `NAO_ENCONTRADO` (sem origem conferivel, origem inexistente, de outro credor, cancelada ou encerrada num terminal sem obrigacao) \| `NAO_CONCLUIDO` (origem ainda em curso) \| `INDISPONIVEL` (costura ausente, motor fora, resposta ambigua/malformada, estado nao provado — **nunca** `CONFIRMADO`) |
+| `lastro_origem_tipo` | string | `contas_humana` (`End_ContaAprovadaHumano`/`End_PagamentoParcialHumano`) \| `contas_auto_sem_glosa` / `contas_auto_triagem` (`End_ContaAprovadaIntegral` com `has_glosas` historico `false`/`true`) \| `recurso_humano` (`End_RecursoDeferido`/`End_RecursoDeferidoParcial`) \| `outro`. A elegibilidade ao auto (decisao do dono: humana + sem glosa + recurso deferido; triagem PAGAR fora ate M-4) e linha da DMN, nunca do worker |
+| `lastro_origem_instancia_id` | string | Evidencia: id da instancia de origem resolvida (`""` quando nenhuma) |
+| `lastro_origem_terminal` | string | Evidencia: evento final que encerrou a origem (`""` quando nenhum) |
+| `lastro_valor_origem_cents` | integer \| null | Evidencia: valor que a origem registrou (`valor_liberado_brl`/`valor_apresentado_brl`/`valor_deferido_brl`), em centavos; `null` quando nao conferido |
+
+### Fatos da duplicidade conferidos na razao append-only (DARK — `MAEZO_PAGTO_DETECT_DUPLICIDADE`, pacote PAGTO PR-E)
+
+Com a flag ligada, `operadora.pagto.validate_payment_data` (o MESMO topico, sem tarefa nova no BPMN)
+acrescenta ao escopo os fatos abaixo, produzidos por `tools/workers/pagto_duplicidade.py` (analise
+PAGTO §4 niveis 1-3; §8 D6(A), aceita pelo dono: razao append-only de pagamentos). A ordem e'
+conferida contra a razao `pagto_obrigacao_ledger` (migracao 0034) e a classificacao e' da DMN
+`pagto_duplicidade`, avaliada no motor pela costura `dmn=` (ADR-0028) — janela W = 180 dias RATIFICADA pelo dono em DEC-31 D31-4 (revoga a DEC-30 D9 = 90; o financeiro ainda pode calibrar na sombra) e classes
+por nivel DECIDIDAS pelo dono em DEC-30 D10 (#1084, 2026-11-02; N1 = CONFIRMADA, N2/N3 = SUSPEITA). **Quem escreve a razao:** o detector grava a linha `REGISTRADA` da ordem nesta validacao
+(na mesma transacao em que le os indicios); os workers `release_low_value_payment` e
+`release_high_value_payment` gravam a `LIBERADA` SO' depois que o guard de sempre devolveu a
+liberacao (recusa do guard = nada gravado; retorno do guard inalterado). **Nao muda rota:**
+`duplicidade_suspeita` segue como descrito acima e a DMN que vai ler `duplicidade_status`
+(`pagto_admissibility` v0.2) e' o pacote PR-F. Desligada (padrao), nada disto e' escrito.
+
+| Variavel | Tipo | Descricao |
+|---|---|---|
+| `duplicidade_status` | string | `NENHUMA` (tres niveis avaliados, sem indicio) \| `SUSPEITA` (nivel 2: ordens contra a mesma instancia de origem somam mais que o valor dela; nivel 3: ordem similar — mesmo prestador + `competencia` + valor, outra obrigacao, outro lote — dentro da janela W) \| `CONFIRMADA` (nivel 1: a mesma obrigacao — CONTAS: lote + prestador + guia + conta (`numero_conta`, semeado pelo handoff de CONTAS a partir do PR #1180; ausente = "-"); RECURSO: `glosa_id`; outra: a propria ordem — ja registrada ou liberada em OUTRA ordem) \| `INDETERMINADA` (razao ou DMN indisponivel, ordem sem identidade, ou nivel nao avaliavel — **nunca** `NENHUMA`) |
+| `duplicidade_motivo_codigo` | string | Codigo fechado do motivo (`SEM_INDICIO`, `DUP_OBRIGACAO_LIBERADA`, `DUP_OBRIGACAO_EM_CURSO`, `DUP_SOMA_EXCEDE_ORIGEM`, `DUP_SIMILAR_NA_JANELA`, `NIVEL_NAO_AVALIADO`, `RAZAO_INDISPONIVEL`, `DMN_INDISPONIVEL`, `DMN_SAIDA_INVALIDA`, `DADOS_INSUFICIENTES`) |
+| `duplicidade_chave_obrigacao` | string | Evidencia: `OBRIG-{origem}-{sha256}` da obrigacao (`""` quando nao montada) |
+| `duplicidade_ordem_conflitante_id` | string | Evidencia: a outra ordem (nivel 1, senao a similar do nivel 3; `""` quando nenhuma) |
+| `duplicidade_nivel1_situacao` / `duplicidade_nivel2_situacao` | string | Evidencia: fatos de nivel enviados a DMN (`SEM_OUTRA_ORDEM`/`REGISTRADA_OUTRA_ORDEM`/`LIBERADA_OUTRA_ORDEM`; `NAO_EXCEDE`/`EXCEDE`; `NAO_AVALIAVEL`) |
+| `duplicidade_nivel3_similar_idade_dias` | integer \| null | Evidencia: idade em dias (relogio do banco) da ordem similar mais recente; `null` quando nenhuma |
 
 ## Variaveis de saida
 
@@ -104,7 +178,18 @@ pagamento**, risco financeiro direto).
 | `justificativa_recusa` | string | **Obrigatoria se `RECUSAR` ou `CANCELAR`** — motivo da recusa/devolucao para revisao, ou do cancelamento/duplicidade/sem-lastro |
 | `aprovador_id` | string | Aprovador humano (cadeia de auditoria ADR-0007); carregado no worker do efeito adverso |
 | `aprovador_tier` | integer | Tier de alcada do aprovador (1=mais baixo … N=comite); o worker exige `aprovador_tier` compativel com `faixa_valor` (tier-match) |
-| `decisao_coordenacao` | string | `assumir_aprovacao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano de tier >= faixa assume) |
+| `valor_maximo_aprovavel_cents` | long | **Teto do aprovado** emitido pela DMN `pagto_alcada` (= `valor_pagamento_cents` da ordem — decisao do dono R-053 (a), pacote PAGTO PR-A) e achatado por `BRT_AlcadaRouting`; o worker gated recusa `valor_aprovado_cents` acima dele e recusa se ausente/mal-formado. Fato de PAGTO — **nunca semeado por origem** (I-PAGTO-1) |
+| `analista_admissibilidade_id` | string | Identidade do humano que concluiu `UT_AnaliseAdmissibilidade` (PROSSEGUIR/DEVOLVER). Lida pela guarda de segregacao de funcoes (`ERR_PAYMENT_SOD_NOT_HUMAN`). **Binding pendente**: nenhuma superficie de conclusao de tarefa de PAGTO grava esta variavel hoje (o portal so conclui ESCALATION/CANCEL) — ate o binding (pacote PAGTO PR-F, contratos de formulario), a comparacao com o analista e inerte; a comparacao `aprovador_id` × `lastro_decisor_id` ja e efetiva. **Nunca semeada por origem** (I-PAGTO-1) |
+| `decisao_coordenacao` | string | `assumir_aprovacao` \| `prorrogar_prazo` \| `seguir_analise` (estouro de SLA — humano de tier >= faixa assume). **DEC-30 D3:** zerada (`""`) ao abrir cada rodada do comite (listener de `Flow_GWTipo_Comite`) — `assumir_aprovacao` so chega ao guard colegiado quando a coordenacao assumiu ESTA rodada |
+| `quorum_comite` | integer | **R-092 (F-081).** Quantos membros DISTINTOS do grupo aprovador precisam votar `APROVAR` — saida da DMN `pagto_alcada` (v0.1.2), achatada por `BRT_AlcadaRouting`. `1` nas faixas L1..L3/clerical (aprovador singular); `2` no catch-all `comite-financeiro` — **DECIDIDO pelo dono em DEC-30 D1** (#1084, 2026-11-02: CFO + Gerente Financeiro, os dois aprovam, 2 de 2; D2: todo voto exigido = `APROVAR`). Fato de PAGTO, nunca decisao |
+| `votos_minimos_coordenacao` | integer | **DEC-30 D3.** Quantos votos `APROVAR` de membros DISTINTOS ja precisam estar em `votos_comite` para a coordenacao financeira (`UT_CoordenacaoAlcada`, `assumir_aprovacao` apos estouro de SLA) COMPLETAR o quorum como um membro a mais — saida da DMN `pagto_alcada` (v0.1.3), achatada por `BRT_AlcadaRouting`; `1` no catch-all (e `1` nas demais faixas, lido so com `quorum_comite > 1`). Ausente/mal-formada/menor que 1 -> a coordenacao nao completa (fail-closed). Fato de PAGTO, nunca decisao |
+| `pagto_comite_colegiado_ativo` | boolean | **R-092, DARK.** Posicao da implantacao (`MAEZO_PAGTO_COMITE_COLEGIADO`, default off), escrita por `operadora.pagto.calculate_facts` em TODO caminho (uma semente de start com o mesmo nome e sobrescrita). `GW_TipoAprovacao` so abre o comite com ela `true` E `quorum_comite > 1`; senao, `UT_AprovacaoAlcada` como sempre |
+| `votos_comite` | json (list) | **R-092.** Livro de votos do comite: uma entrada `{membro, voto, tier, valor_aprovado_cents}` por voto de `UT_AprovacaoComite`, escrita SO por `operadora.pagto.register_committee_vote`; zerado por operadora.pagto.calculate_facts em todo caminho, removido ao abrir cada rodada do comite (listener de `Flow_GWTipo_Comite`, DEC-30 D3 — voto de rodada anterior nunca conta para a coordenacao) e recomecado na primeira instancia de cada rodada (`loopCounter == 0`) — semente de start nunca conta votos; nunca semeado por origem (`PAGTO_FATOS_PROIBIDOS_NA_SEMENTE`). Lido SO pelo guard colegiado de `release_high_value_payment` |
+| `comite_ultimo_voto` | string | **R-092.** Eco do voto do membro que acabou de votar (plumbing do voto humano) — lido pela `completionCondition` de `SP_AprovacaoComite` para encerrar o comite no primeiro voto que nao seja `APROVAR` |
+| `comite_votos_aprovar` / `comite_votos_nao_aprovar` | integer | **DEC-31 D31-2.** Fatos do MOTOR da rodada do comite: zerados ao abrir cada rodada (listener de `Flow_GWTipo_Comite`) e contados no fluxo de saida de `UT_AprovacaoComite` (`Flow_UTComite_Registrar`) no MESMO passo em que o humano conclui o voto — so o literal `APROVAR` soma em aprovar; qualquer outro valor soma em nao-aprovar. Um voto concluido conta mesmo que o SLA estoure antes de `ST_RegistrarVotoComite` registrar o livro. Entradas da DMN `pagto_comite_coordenacao`; nunca semeados por origem (`PAGTO_FATOS_PROIBIDOS_NA_SEMENTE`) |
+| `comite_sla_estourado` / `comite_sla_estourado_em` | boolean / date | **DEC-31 D31-2.** `false`/ausente ao abrir cada rodada do comite; `true` e o instante (`now()`) so no fluxo de `BT_SlaComite` (`Flow_SlaComite_Pub`). O booleano e entrada da DMN `pagto_comite_coordenacao`; o instante vai para o registro de auditoria da assuncao. Nunca semeados por origem |
+| `assuncao_comite` / `motivo_assuncao_comite` | string | **DEC-31 D31-2.** Saidas da DMN `pagto_comite_coordenacao` achatadas por `BRT_AssuncaoComite` (so no ramo `assumir_aprovacao` de um caso de comite): `PERMITIDA` \| `RECUSADA` + token fechado do motivo. O guard colegiado de `release_high_value_payment` exige `assuncao_comite == PERMITIDA` (igualdade exata) quando a coordenacao assume um comite; o motivo vai para a trilha ADR-0007. Removidas ao abrir cada rodada; nunca semeadas por origem |
+| `coordenacao_assumiu_comite` / `assuncao_coordenacao_comite` | boolean / json | **DEC-31 D31-2 — auditoria da assuncao.** Devolvidas por `release_high_value_payment` SO quando a coordenacao completou um caso de comite: o booleano e o `motivo_assuncao_comite` entram em claro na cadeia de auditoria ADR-0007 (`_SAFE_DECISION_BASIS_KEYS`); o registro `{coordenador_id, membro_votante_id, voto_membro, comite_sla_estourado_em, motivo_assuncao_comite, justificativa_sha256}` fica no historico do motor (quem assumiu, qual voto completou, quando o SLA estourou, por que, e o hash da `justificativa_aprovacao` da coordenacao — o texto livre nao e copiado) |
 
 ## Variaveis de proveniencia do agente (Andre — ADR-0007/ADR-0015)
 
@@ -114,6 +199,18 @@ Semeadas por `Andre._contract_variables` (`operadora.pagto.prepare_approval_doss
 `analytics.actuarial`/`analytics.population`, worker→A2A) junto com as variaveis de entrada; NENHUMA
 delas e uma decisao de preco/liberacao — so proveniencia, dossie instrutivo e roteamento humano
 (GAP-PAGTO-7: antes deste registro, `_contract_variables` as emitia sem declaracao no contrato).
+
+**I-PAGTO-1 vale tambem para o start de Andre** (ADR-0040 OQ-13, correcao D-m1; pacote PAGTO PR-B):
+`_contract_variables` **nunca** semeia os fatos de `pagto.PAGTO_FATOS_PROIBIDOS_NA_SEMENTE` —
+`dados_pagamento_validos`, `lastro_confirmado`, `dentro_teto_l2`, `duplicidade_suspeita`, os fatos da
+admissibilidade v0.2 (`lastro_status`, `lastro_origem_tipo`, `duplicidade_status`,
+`prestador_situacao`, `prestador_conhecido`), `valor_maximo_aprovavel_cents`,
+`analista_admissibilidade_id`, `tier_minimo` (saida de `pagto_alcada` lida pelo guard do tier;
+`faixa_valor`/`grupo_aprovador` seguem semeados por Andre como eco da DMN), o livro `votos_comite`
+(R-092) e a evidencia do detector de duplicidade (`duplicidade_motivo_codigo`,
+`duplicidade_chave_obrigacao`, `duplicidade_ordem_conflitante_id`, `duplicidade_nivel1_situacao`,
+`duplicidade_nivel2_situacao`, `duplicidade_nivel3_similar_idade_dias` — pacote PR-E). O mesmo conjunto (fonte unica) e o `HANDOFF_PAGTO_FORBIDDEN_KEYS` dos
+handoffs de CONTAS e RECURSO. A concessao de `process_keys` a Andre continua ato de seguranca/dono.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
 |---|---|---|---|
@@ -145,6 +242,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.pagto.release_high_value_payment` | consome (worker) | **efeito adverso gated** — libera o pagamento; recusa sem decisao humana **e** sem tier-match (`ERR_PAYMENT_RELEASE_NOT_HUMAN`); carrega `aprovador_id` + `aprovador_tier` |
 | External task | `operadora.pagto.release_low_value_payment` | consome (worker) | libera pagamento **abaixo do teto L2** (caminho clerical L2; sem efeito adverso de alcada) |
 | External task | `operadora.pagto.register_payment_refusal` | consome (worker) | registra recusa/devolucao para revisao quando `RECUSAR` (sem liberar) |
+| External task | `operadora.pagto.register_committee_vote` | consome (worker) | **R-092.** `ST_RegistrarVotoComite`, dentro de `SP_AprovacaoComite`: acrescenta o voto do membro ao livro `votos_comite` e ecoa `comite_ultimo_voto` — **FATO, nunca decide nem libera**; escopo de leitura explicito (sem `variables=all`) |
 | Message BPMN | `msg.pagto.dados_corrigidos` | recebe | correlacao por business key — correcao de dados de pagamento chegou, destrava reavaliacao |
 
 ## DMN referenciadas
@@ -158,22 +256,27 @@ out: `roteamento: string` (`SEGUE_ROTEAMENTO` | `PENDENTE_DADOS` | `ANALISE_HUMA
 
 ### `pagto_alcada` (hitPolicy FIRST — DRAFT; coracao value-driven; **escada de alcada DRAFT/verify financas**)
 in: `valor_pagamento_cents: integer`, `tipo_pagamento: string`, `dentro_teto_l2: boolean`
-out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `motivo: string`
+out: `faixa_valor: string` (`DENTRO_TETO_L2` | `ALCADA_L1` | `ALCADA_L2` | `ALCADA_L3` | `ANALISE_HUMANA`), `grupo_aprovador: string` (→ `camunda:candidateGroups`), `tier_minimo: integer`, `motivo: string`, `valor_maximo_aprovavel_cents: long` (teto do aprovado = `valor_pagamento_cents` em toda regra; v0.1.1, R-053 (a)), `quorum_comite: integer` (membros distintos que precisam aprovar; 1 nas faixas L1..L3/clerical, 2 no catch-all comite — DEC-30 D1; v0.1.2, R-092), `votos_minimos_coordenacao: integer` (votos APROVAR do comite ja no livro para a coordenacao completar o quorum apos estouro de SLA; 1 — DEC-30 D3; v0.1.3)
 **Apenas classifica a faixa e roteia para o grupo aprovador — sem saida que libere.** Mapeia o valor para a faixa da escada (DRAFT) e a faixa para o candidate-group de tier correspondente.
 
 Escada de alcada (**DRAFT/verify — sign-off financas obrigatorio; valores ilustrativos, nao reais**), `hitPolicy=FIRST` (a primeira faixa que casa vence; ordem do menor para o maior):
 
 | Ordem | Condicao (`valor_pagamento_cents`, em centavos BRL) | `faixa_valor` | `grupo_aprovador` (DRAFT) |
 |---|---|---|---|
-| 1 | `<= 10000000` (R$ 100.000 — teto L2 DRAFT) **e** `dentro_teto_l2=true` | `DENTRO_TETO_L2` | `(nenhum — caminho clerical L2)` |
+| 1 | `> 0` (dominio — nunca nulo/zero/negativo) **e** `dentro_teto_l2=true` (o teto R$ 100.000 DRAFT vem SO da politica `high_value_payment.threshold_brl`; v0.1.1 removeu o literal duplicado `<= 10000000`) | `DENTRO_TETO_L2` | `clerical-pagamentos` (caminho clerical L2; sem User Task de alcada — DL-0024) |
 | 2 | `> 10000000` e `<= 50000000` (R$ 100k–500k DRAFT) | `ALCADA_L1` | `aprovacao-financeira-l1` |
 | 3 | `> 50000000` e `<= 200000000` (R$ 500k–2MM DRAFT) | `ALCADA_L2` | `aprovacao-financeira-l2` |
 | 4 | `> 200000000` e `<= 1000000000` (R$ 2MM–10MM DRAFT) | `ALCADA_L3` | `aprovacao-financeira-l3` |
 | **5 (catch-all)** | **qualquer outro** (acima do maior tier, faixa ambigua, ou inputs inconsistentes) | `ANALISE_HUMANA` | `comite-financeiro` (**tier mais alto / conservador**) |
 
-- O **threshold_brl L1** = `100000` BRL (= `10000000` centavos) **DRAFT/verify financas** (limite acima do qual o pagamento deixa de ser auto-liberavel e exige aprovador humano).
+- O **threshold_brl L1** = `100000` BRL (= `10000000` centavos) **DRAFT/verify financas** (limite acima do qual o pagamento deixa de ser auto-liberavel e exige aprovador humano). **Fonte unica**: `spec/policies/autonomy/L0-core.yaml` (mantido em R$ 100k pelo dono, Q3 de 2026-10-31), resolvido pelo worker de fatos em `dentro_teto_l2`; a DMN nao repete o valor. As faixas ALCADA_L1..L3 continuam com limites literais; com `dentro_teto_l2=false` abaixo de R$ 100k a ordem cai no catch-all (comite — conservador).
 - **Catch-all conservador → tier mais alto** (`comite-financeiro`/`ANALISE_HUMANA`): valor acima do maior tier configurado, faixa ambigua ou DMN indisponivel NUNCA auto-liberam — sobem para o comite. (ADR-0018 parte 3 — risco #5 do phase3-plan: "se o ramo L2 abaixo-do-teto for mal-escopado, pagamentos acima de alcada auto-liberam"; este catch-all e a defesa.)
 - A DMN emite `grupo_aprovador` como **string** consumida por `camunda:candidateGroups` da User Task (binding value-driven). O mapeamento faixa→grupo e **DRAFT/verify financas + PO/IdP**.
+
+### `pagto_comite_coordenacao` (hitPolicy FIRST — DECIDIDO pelo dono em DEC-31 D31-2, #1084, 2026-11-02; aprovacao amarrada aos bytes pendente — financas)
+in: `comite_sla_estourado: boolean`, `comite_votos_aprovar: integer`, `comite_votos_nao_aprovar: integer`
+out: `assuncao_comite: string` (`PERMITIDA` | `RECUSADA`), `motivo_assuncao_comite: string` (`SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA` | `VOTO_NAO_APROVAR_NA_RODADA` | `SLA_COMITE_NAO_ESTOURADO` | `NENHUM_VOTO_APROVAR` | `MAIS_DE_UM_VOTO_APROVAR` | `FATOS_DA_RODADA_AUSENTES`)
+Regra do dono ("a coordinator can take over if one member voted yes and the other did not answer before deadline"; refina a DEC-30 D3): `PERMITIDA` SO com SLA do comite estourado, exatamente 1 `APROVAR` e 0 votos que nao aprovem; qualquer recusa, zero votos, SLA nao estourado, mais de um `APROVAR` ou fato ausente → `RECUSADA` (catch-all fail-closed). Avaliada SO por `BRT_AssuncaoComite` — ramo `assumir_aprovacao` de `GW_DecisaoCoordenacao`, quando `GW_AssuncaoComite` reconhece um caso de comite (mesma condicao de `Flow_GWTipo_Comite`); a aprovacao singular segue direto para `GW_DecisaoPagamento`. Nao pode morar em `pagto_alcada` (avaliada antes de qualquer voto). **Sem saida de liberacao**: `RECUSADA` mantem a recusa do guard (`ERR_PAYMENT_RELEASE_NOT_HUMAN`, incidente a humano).
 
 ### `pagto_sla` (hitPolicy FIRST — DRAFT; todos os prazos DRAFT/verify; CONTRACT-HITPOLICY-DRIFT: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/pagto_sla.dmn:26`)
 in: `faixa_valor: string`, `tipo_pagamento: string`
@@ -188,11 +291,13 @@ Tiers mais altos podem ter SLA maior (mais aprovadores). Prazos como string ISO;
 
 | Grupo (candidate group) | Tier (DRAFT) | Tarefa | Faixa atendida (DRAFT) |
 |---|---|---|---|
+| `clerical-pagamentos` | 0 (`tier_minimo=0` em `r_dentro_teto_l2`) | nenhuma User Task de alcada — caminho clerical L2 (`release_low_value_payment`); grupo emitido pela DMN e enumerado no allowlist de candidate-groups (DL-0024) | `DENTRO_TETO_L2` |
 | `aprovacao-financeira-l1` | 1 | `UT_AprovacaoAlcada` (`decisao_pagamento ∈ {APROVAR, RECUSAR, SOLICITAR_INFO, CANCELAR}`) | `ALCADA_L1` |
 | `aprovacao-financeira-l2` | 2 | `UT_AprovacaoAlcada` | `ALCADA_L2` |
 | `aprovacao-financeira-l3` | 3 | `UT_AprovacaoAlcada` | `ALCADA_L3` |
-| `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada DRAFT**) | `ANALISE_HUMANA` |
-| `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada) | (qualquer, respeitando tier-match) |
+| `comite-financeiro` | 4 (mais alto) | `UT_AprovacaoComite` (catch-all conservador; faixa ambigua/acima do maior tier; **aprovacao colegiada** — R-092: multi-instancia sequencial `SP_AprovacaoComite` com `quorum_comite` membros DISTINTOS votando `APROVAR`, DARK atras de `MAEZO_PAGTO_COMITE_COLEGIADO`; com a flag desligada a faixa segue em `UT_AprovacaoAlcada` com este mesmo grupo; **composicao e quorum DECIDIDOS em DEC-30 D1** (#1084, 2026-11-02): CFO + Gerente Financeiro, os dois aprovam (2 de 2) — a pertinencia real no IdP e ato humano) | `ANALISE_HUMANA` |
+| `coordenacao-financeira` | — | `UT_CoordenacaoAlcada` (SLA estourado — humano de tier **>= faixa** assume; a aprovacao continua humana e tier-adequada; num caso de comite, DEC-30 D3: so completa o quorum com 1 voto `APROVAR` de membro distinto ja registrado — nunca libera sozinha; DEC-31 D31-2: so apos o SLA do comite, com EXATAMENTE 1 `APROVAR` e nenhuma recusa na rodada (DMN `pagto_comite_coordenacao`), assuncao auditada com motivo). Cargo: **Coordenador Financeiro**, que reporta ao Gerente Financeiro e e cargo DISTINTO dele (esclarecimento do dono 2026-11-02); por construcao, nao e membro do `comite-financeiro` (CFO + Gerente Financeiro) — o guard mantem mesmo assim a checagem de pessoa distinta (SoD em profundidade) | (qualquer, respeitando tier-match) |
+| `analise-contas-pagar` | — (checker, nunca aprovador) | `UT_AnaliseAdmissibilidade` (`decisao_admissibilidade ∈ {PROSSEGUIR, DEVOLVER}`) — divisao de `coordenacao-financeira` em admissibilidade x aprovacao (R-041 / #1084); nunca membro de grupo aprovador (SoD S5) | ordem nao-admissivel (antes da escada) |
 
 **Binding value-driven (unico na plataforma):** a `<bpmn:userTask>` de aprovacao usa
 `camunda:candidateGroups="${grupo_aprovador}"` (expressao resolvida da saida da DMN
@@ -206,7 +311,7 @@ grupos validos). O conjunto de valores possiveis e a **allowlist fechada** de gr
 
 | Timer | Valor (DRAFT/verify financas) | Tipo | Fonte |
 |---|---|---|---|
-| Alerta de risco (`BT_AlertaSlaPagto`) | 60–70% de `${sla.sla_alerta}` (DMN `pagto_sla`) | nao-interruptivo → `operadora.pagto.notify_sla_risk` | politica interna |
+| Alerta de risco (`BT_AlertaSlaPagto`) | `${sla.sla_alerta}` (DMN `pagto_sla`) = 60–70% de `sla_aprovacao` da mesma regra (ex.: **PT32H** L1 … **PT80H** comite) | nao-interruptivo → `operadora.pagto.notify_sla_risk` | politica interna |
 | Aprovacao (`BT_SlaAprovacao`) | `${sla.sla_aprovacao}` (ex.: **P2D** L1 … **P5D** comite — **DRAFT/verify financas**) | interruptivo → publica `pagto.sla_breached` → cancela `UT_AprovacaoAlcada`, cria `UT_CoordenacaoAlcada` (humano de tier >= faixa assume) | politica interna |
 
 Nota: **substitui qualquer auto-liberacao por timeout** — no estouro de SLA a coordenacao
@@ -251,7 +356,10 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents`, OU (c) **tier-match falhar** — `aprovador_tier` insuficiente para `faixa_valor` (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` | o worker **recusa** liberar se (a) `decisao_pagamento != APROVAR` setado por humano numa User Task, OU (b) faltarem `aprovador_id`/`justificativa_aprovacao`/`valor_aprovado_cents` (este **sem default**: ausente, nao-inteiro, booleano, `<= 0` ou acima do `long` = recusa — R-053), OU (c) **tier-match falhar** — `aprovador_tier` < `tier_minimo` emitido pela DMN `pagto_alcada` para a faixa (ausente/mal-formado → tier mais alto, comite; o worker nao guarda copia Python da escada) (ex.: aprovador L1 tentando liberar faixa `ALCADA_L3`). Lanca BPMN error; instancia nao atinge `End_PagamentoLiberadoHumano`. Registra a tentativa (ADR-0007). (espelha `ERR_*_NOT_HUMAN` de AUTH/CONTAS/REEMBOLSO **+ a verificacao extra de tier**) |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` (d) | idem | (d) **teto do aprovado** (pacote PAGTO PR-A, R-053 (a)): `valor_aprovado_cents > valor_maximo_aprovavel_cents` (saida da DMN `pagto_alcada`), ou `valor_maximo_aprovavel_cents` ausente/mal-formado → recusa. O worker nao recompara com `valor_pagamento_cents` (a regra vive na DMN) |
+| `ERR_PAYMENT_SOD_NOT_HUMAN` | worker-guard em `operadora.pagto.release_high_value_payment` e `operadora.pagto.release_low_value_payment` | **Segregacao de funcoes** (pacote PAGTO PR-A; analise §3 (a)/(b)): recusa se `aprovador_id` == `lastro_decisor_id`, `aprovador_id` == `analista_admissibilidade_id` ou `analista_admissibilidade_id` == `lastro_decisor_id` (comparacao com strip + casefold; identidade ausente/vazia nao e violacao — perna automatica de CONTAS e ordem sem analise humana). Prevalece sobre o codigo generico quando ambos se aplicam. Sufixo `_NOT_HUMAN` deliberado: entra na trilha de recusa auditada T-E (ADR-0030 F4). Sem boundary modelado → incidente (fail-closed a humano). Mensagem so com tokens — nenhuma identidade no texto |
+| `ERR_PAYMENT_RELEASE_NOT_HUMAN` / `ERR_PAYMENT_SOD_NOT_HUMAN` (e) | idem (**R-092, DARK** — `MAEZO_PAGTO_COMITE_COLEGIADO`) | **Aprovacao colegiada**: com a flag, `quorum_comite` ausente/mal-formado recusa; com `quorum_comite > 1` o livro `votos_comite` precisa ter `quorum_comite` membros DISTINTOS, todo voto `APROVAR`, tier de cada membro `>= tier_minimo`, o MESMO `valor_aprovado_cents` que sera liberado, e o `aprovador_id` final dentro do livro (a coordenacao que assume sozinha um caso de comite apos estouro de SLA NAO libera) — senao `ERR_PAYMENT_RELEASE_NOT_HUMAN`. **DEC-30 D3:** com `decisao_coordenacao=assumir_aprovacao` a coordenacao conta como UM membro a mais: exige `votos_minimos_coordenacao` (DMN) membros distintos APROVAR ja no livro (ausente/mal-formado/insuficiente, ou livro vazio -> `ERR_PAYMENT_RELEASE_NOT_HUMAN`) e livro + coordenacao `>= quorum_comite`; **DEC-31 D31-2:** e `assuncao_comite == PERMITIDA` (DMN `pagto_comite_coordenacao` — ausente/`RECUSADA`/outro valor -> `ERR_PAYMENT_RELEASE_NOT_HUMAN`). Membro que votou duas vezes, membro igual a `lastro_decisor_id`/`analista_admissibilidade_id`, ou coordenacao igual a um membro que votou -> `ERR_PAYMENT_SOD_NOT_HUMAN` (prevalece). Mensagens so com tokens. `operadora.pagto.register_committee_vote` recusa (`ERR_PAYMENT_RELEASE_NOT_HUMAN`, incidente) quando `loopCounter` esta ausente/mal-formado (livro sem rodada conhecida) |
 | `ERR_PAGTO_ORDEM_INVALIDA` | declarado (`Error_PagtoOrdemInvalida`) para uso dos workers | worker `validate_payment_data` lanca BPMN error se a ordem de pagamento for inconsistente/sem lastro na origem (ex.: `ordem_pagamento_id` ausente); capturado por boundary event `BE_PagtoOrdemInvalida` em `ST_ValidatePaymentData` -> `End_PagtoOrdemInvalida` (GAP-PAGTO-4; fail-safe tecnico, NAO decisao de liberacao/negativa) |
 
 > **Tier-match — extensao do guard no-adverse (parte 4 de 5 do padrao §4-bis-F/ADR-0018):**
@@ -290,11 +398,41 @@ EFEITOS ASSOCIADOS ao desfecho, todos no lado do agente:
   teto de auto-liberacao L2 por tenant) e do **mapeamento faixa→grupo→tier** — todos DRAFT.
 - **Confirmacao dos candidate groups** (`aprovacao-financeira-l1/l2/l3`, `comite-financeiro`,
   `coordenacao-financeira`) contra a taxonomia organizacional / IdP da operadora (PO + financas).
-- Politica de **segregacao de funcoes**: o aprovador nao pode ser o solicitante da ordem; comite
-  pode exigir aprovacao colegiada (multiplas User Tasks / quorum) — a detalhar.
-- Confirmacao de que `aprovacao colegiada` do comite e modelada como quorum (parallel/multi-instance
-  User Task) vs aprovador unico de tier maximo.
+- Politica de **segregacao de funcoes**: o aprovador nao pode ser o solicitante da ordem — feito
+  como guarda (`ERR_PAYMENT_SOD_NOT_HUMAN`: aprovador/analista x `lastro_decisor_id`, pacote PAGTO
+  PR-A; membros do comite distintos entre si e dos dois, R-092).
+- Aprovacao colegiada do comite: **modelada** (R-092) como multi-instancia sequencial
+  (`SP_AprovacaoComite`/`UT_AprovacaoComite`, cardinalidade `quorum_comite` da DMN), DARK atras de
+  `MAEZO_PAGTO_COMITE_COLEGIADO`. **Decidido pelo dono (DEC-30, #1084, 2026-11-02):** D1 comite =
+  CFO + Gerente Financeiro, 2 de 2 (`quorum_comite = 2`); D2 todo voto exigido = `APROVAR`; D3 a
+  coordenacao so completa o quorum apos estouro de SLA com 1 voto `APROVAR` de membro distinto ja
+  registrado (`votos_minimos_coordenacao`, DMN). Consequencia de SoD (esclarecimento do dono 2026-11-02): a
+  `coordenacao-financeira` e o Coordenador Financeiro, cargo distinto do Gerente Financeiro (que o
+  supervisiona) e fora do comite — quem completa o quorum e, por construcao, pessoa diferente dos
+  membros; o guard confere a pessoa distinta mesmo assim. **Pendente humano:** a pertinencia dos dois cargos
+  no IdP (`comite-financeiro`) e o contrato de formulario do portal para `UT_AprovacaoComite`
+  (pacote PAGTO PR-F).
 - Interacao com SP-OP-CONTAS-001 (conta adjudicada → ordem de pagamento, via `operadora.contas.handoff_pagamento` desde ADR-0040) e prazos de pagamento a
   prestador (contratuais — **DRAFT/verify**).
 - Politica de duplicidade/idempotencia de tesouraria (evitar dupla liberacao) e reconciliacao
   CNAB/PIX/TED com o sistema de tesouraria externo.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-PAGTO-001` → `maezo-payer-pagto-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - ordem: `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `O-{ordem_pagamento_id}`.
+  - lote+prestador (CONTAS): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `L-{numero_lote_tiss}-{prestador_id}`.
+  - prestador+guia+conta (CONTAS forma guia/conta — decisao do dono de 2026-11-01, opcao A; DEC-30 D13; forma registrada pelo ADR-0074, Proposed, emenda ao ADR-0068 §2 linha 4): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `C-{prestador_id}-{numero_guia_tiss}-{numero_conta}` = `H(C,prestador,guia,conta)`.
+  - guia+glosa (RECURSO): `{tenant_id}:pagto-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}-{glosa_id}`.
+- **Classificação (a confirmar pelo DPO):** formas `G` e `C` pessoais; forma `L` pessoal só se o prestador for PF; forma `O` ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `PERMANENT` (inalterada).
+- As etiquetas `O`/`L`/`G`/`C` separam as quatro formas da família, que hoje só se distinguem pela contagem de `-` (e, na `C`, pela etiqueta em claro).
+- **Gate permanente na janela:** um pagamento legado CONCLUÍDO continua recusando o start na forma alvo — o filtro de histórico aceita as duas process keys e a reivindicação legada ganha uma linha de alias na forma alvo (só inserção; nenhuma linha apagada). O predicado de retenção dos claims `PERMANENT` ganha o segmento `maezo-payer-pagto-001`. Risco direto: pagamento duplicado — teste negativo obrigatório no pacote da janela.

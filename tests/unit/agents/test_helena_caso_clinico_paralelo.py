@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from maezo.agents.helena.graph import HelenaGraph, HelenaState
-from maezo.runtime.caso_clinico import chave_do_escalonamento, chave_e_da_conversa
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento, chave_e_da_conversa
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink

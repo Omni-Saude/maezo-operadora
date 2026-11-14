@@ -20,6 +20,8 @@ import asyncio
 import contextlib
 from typing import Any
 
+import pytest
+
 from maezo.runtime.worker_runtime.service import (
     WorkerState,
     _expected_worker_topics,
@@ -37,7 +39,7 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     modules (the 3 `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules
     T1.2 adds + T3.1 R2's raw-handler `events` module + VW1-P0-FENCES' raw-handler `vendor_admin`
     module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 24` because TWENTY-FOUR topics use the raw `harness.register()` path
+    `len(registered_topics) - 25` because TWENTY-FIVE topics use the raw `harness.register()` path
     (which populates `_handlers` but NOT the `WorkerRegistry`) — MERGE RECONCILIATION (T3.1 P2b
     recurso × origin/main LGPD batch-1 × t5 escalation/ans-notify × DL-0033 dossier A2A ×
     item-9 wave-5 programa): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
@@ -48,7 +50,10 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     needs `task.business_key` to mint its protocolo deterministically. ADR-0040 deleted the
     appellant branch, so `submit_appeal`/`track_status` are GONE — the delta drops 4 -> 3);
     `regulatorio.anssubmit.notify_regulatorio` (t5 FINDING A fix: raw handler
-    emitting the `anssubmit.notify_regulatorio` notification); escalation's two
+    emitting the `anssubmit.notify_regulatorio` notification) + the other TWO anssubmit raw
+    handlers, `regulatorio.anssubmit.retransmit` (t9-nack-vars) and `regulatorio.anssubmit.submit`
+    (W8 W5-XFIX PR-2 — each publishes its typed notification the sync boundary cannot reach);
+    escalation's two
     `operadora.escalation.notify_team`/`notify_supervisor` (DL-0034, built in t5: converted from
     `WorkerBase` to raw async handlers — notifying IS the business effect and needed the async Kafka
     seam the old classes lacked, so they moved OUT of the WorkerRegistry); the two DL-0033 dossier
@@ -58,10 +63,11 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     `FunctionWorker`) + `proactive_contact`/`notify_sla_risk` (items B/C, NEW workers). All
     raw handlers need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does
     not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
-    1 events + 3 lgpd + 3 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
-    + 4 dossier (DL-0033 + the item9-w3 pagto edge + the R-081 inadimplencia edge) + 4 programa
-    + 1 adequacao update_monitoring_plan + 2 vendor.suppression (VW4/GP11 envelope — raw handlers
-    with declared fetch scopes, module docstring) = 22. Every other module/topic goes through
+    1 events + 3 lgpd + 3 recurso + 3 anssubmit (notify_regulatorio t5 + retransmit t9-nack-vars
+    + submit W8 W5-XFIX PR-2) + 2 escalation + 4 dossier (DL-0033 + the item9-w3 pagto edge + the
+    R-081 inadimplencia edge) + 4 programa + 1 adequacao update_monitoring_plan + 1 auth + 1 vendor
+    membership publication (VW1-P0-FENCES) + 2 vendor.suppression (VW4/GP11 envelope — raw
+    handlers with declared fetch scopes, module docstring) = 25. Every other module/topic goes through
     `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
@@ -94,12 +100,13 @@ def test_register_default_workers_registers_all_19_modules() -> None:
     # `WorkerBase.execute` reaches no producer (that absence is exactly why the alert used to
     # reach nobody). The CLASS still exists and is called BY the handler; it is simply no longer
     # registered itself, so the topic keeps exactly one server.
-    # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
-    # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
-    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth
-    # + 1 vendor (VW1-P0-FENCES: the publication cadence is a raw async handler over injected
-    # source seams — vendor_admin.py's module docstring) = 22.
-    assert harness.registry.count() == len(harness.registered_topics) - 24
+    # Raw-handler count, re-derived cell by cell (the previous one-line sums had drifted from the
+    # assertion below): 1 events + 3 lgpd + 3 recurso + 3 anssubmit (notify_regulatorio +
+    # retransmit + submit/W8-W5-XFIX) + 2 escalation + 4 dossier + 4 programa + 1 adequacao
+    # + 1 auth + 1 vendor membership (VW1-P0-FENCES: the publication cadence is a raw async
+    # handler over injected source seams — vendor_admin.py's module docstring) + 2
+    # vendor.suppression (VW4/GP11 envelope handlers) = 25.
+    assert harness.registry.count() == len(harness.registered_topics) - 25
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
@@ -400,16 +407,46 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dmn: Any = None,
         engine: Any = None,
         audit_sink: Any = None,
-        denial_notice_host: Any = None,
+        denial_written_notice: bool = False,
         tenant_id: str = "",
         kafka: Any = None,
         dossier_dispatcher: Any = None,
         document_request_host_installed: bool = False,
+        publish_ledger: Any = None,
+        pagto_valor_invalido_pendente_dados: bool = False,
+        inad_rn593_estrito: bool = False,
+        pagto_fatos_estritos: bool = False,
+        inad_fatos_estritos: bool = False,
+        inad_chave_exige_contrato: bool = False,
+        pagto_comite_colegiado: bool = False,
+        contas_sla_risk_entrega: bool = False,
+        pagto_chave_conta_fase: str = "legado",
+        lgpd_legal_hold_predicate: bool = False,
+        junta_rn424_guard: bool = False,
+        auth_prazo_dias_uteis: bool = False,
+        pagto_resolve_lastro: bool = False,
+        pagto_detect_duplicidade: bool = False,
+        pagto_obrigacao_ledger: Any = None,
     ) -> None:
+        captured["pagto_chave_conta_fase"] = pagto_chave_conta_fase
+        captured["pagto_resolve_lastro"] = pagto_resolve_lastro
+        captured["pagto_detect_duplicidade"] = pagto_detect_duplicidade
+        captured["pagto_obrigacao_ledger"] = pagto_obrigacao_ledger
+        captured["inad_chave_exige_contrato"] = inad_chave_exige_contrato
+        captured["pagto_comite_colegiado"] = pagto_comite_colegiado
+        captured["auth_prazo_dias_uteis"] = auth_prazo_dias_uteis
+        captured["contas_sla_risk_entrega"] = contas_sla_risk_entrega
+        captured["pagto_fatos_estritos"] = pagto_fatos_estritos
+        captured["inad_fatos_estritos"] = inad_fatos_estritos
+        captured["lgpd_legal_hold_predicate"] = lgpd_legal_hold_predicate
+        captured["junta_rn424_guard"] = junta_rn424_guard
+        captured["publish_ledger"] = publish_ledger
+        captured["pagto_valor_invalido_pendente_dados"] = pagto_valor_invalido_pendente_dados
+        captured["inad_rn593_estrito"] = inad_rn593_estrito
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
-        captured["denial_notice_host"] = denial_notice_host
+        captured["denial_written_notice"] = denial_written_notice
         captured["tenant_id"] = tenant_id
         captured["kafka"] = kafka
         captured["dossier_dispatcher"] = dossier_dispatcher
@@ -441,12 +478,47 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # WP-J1-03: the exclusivity seam reaches the bootstrap, defaulting to the
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
-        # WP-J1-06 / V14 MAJOR-1: the NEGAR-owner seam IS threaded, and is dark unless
-        # the deployment asks for it. `denial_notice_owner` defaults to False, so the
-        # generic `SendDenialNoticeWorker` keeps the topic in this (default) bring-up.
-        # Two topics, one rule, both defaulting to the historical owner.
+        assert captured["publish_ledger"] is None  # F-092 dedup ships dark (MAEZO_EXTASK_PUBLISH_DEDUP)
+        # F-142 / R-053: PAGTO invalid-amount -> PENDENTE_DADOS fact ships dark.
+        assert settings.pagto_valor_invalido_pendente_dados is False
+        assert captured["pagto_valor_invalido_pendente_dados"] is False
+        assert captured["inad_rn593_estrito"] is False  # R-027 ships dark (MAEZO_INAD_RN593_ESTRITO)
+        # R-063 / F-029: fatos estritos ship dark (MAEZO_PAGTO_FATOS_ESTRITOS / MAEZO_INAD_FATOS_ESTRITOS).
+        assert captured["pagto_fatos_estritos"] is False
+        assert captured["inad_fatos_estritos"] is False
+        # F-124: a chave INAD so' sobre o contrato ships dark (MAEZO_INAD_CHAVE_EXIGE_CONTRATO).
+        assert captured["inad_chave_exige_contrato"] is False
+        # R-092 / F-081: a aprovacao colegiada do comite ships dark (MAEZO_PAGTO_COMITE_COLEGIADO).
+        assert settings.pagto_comite_colegiado is False
+        assert captured["pagto_comite_colegiado"] is False
+        # R-107 / F-135: a entrega do alerta de SLA de CONTAS ships dark (MAEZO_CONTAS_SLA_RISK_ENTREGA).
+        assert settings.contas_sla_risk_entrega is False
+        assert captured["contas_sla_risk_entrega"] is False
+        # Decisao do dono 2026-11-01 (opcao A): a chave PAGTO por conta ships dark (`legado`).
+        assert settings.pagto_chave_conta_fase == "legado"
+        assert captured["pagto_chave_conta_fase"] == "legado"
+        # R-044 / F-062: the legal-hold predicate ships dark (MAEZO_LGPD_LEGAL_HOLD_PREDICATE).
+        assert settings.lgpd_legal_hold_predicate is False
+        assert captured["lgpd_legal_hold_predicate"] is False
+        assert captured["junta_rn424_guard"] is False  # R-064 ships dark (MAEZO_AUTH_JUNTA_RN424_GUARD)
+        # R-005 / F-018: prazo de resposta AUTH em dias uteis ships dark (MAEZO_AUTH_PRAZO_DIAS_UTEIS).
+        assert settings.auth_prazo_dias_uteis is False
+        assert captured["auth_prazo_dias_uteis"] is False
+        # PAGTO PR-D: os fatos do lastro conferidos no historico ship dark (MAEZO_PAGTO_RESOLVE_LASTRO).
+        assert settings.pagto_resolve_lastro is False
+        assert captured["pagto_resolve_lastro"] is False
+        # PAGTO PR-E: o detector de duplicidade ship dark (MAEZO_PAGTO_DETECT_DUPLICIDADE) e a razao
+        # nem e' montada com a flag desligada.
+        assert settings.pagto_detect_duplicidade is False
+        assert captured["pagto_detect_duplicidade"] is False
+        assert captured["pagto_obrigacao_ledger"] is None
+        # R-004 / F-032: the second NEGAR owner is gone — no `denial_notice_host` seam is
+        # threaded at all; the retired switch stays off by default (ON refuses to register).
         assert settings.denial_notice_owner is False
-        assert captured["denial_notice_host"] is None
+        assert "denial_notice_host" not in captured
+        # R-004 (RN 623 art. 14): the written-notice state ships DARK.
+        assert settings.auth_denial_written_notice is False
+        assert captured["denial_written_notice"] is False
         # T1.10 wave: the worker-side audit seam is a loop-safe per-call emitter (handoff_rescisao
         # emits on its own asyncio.run loop — the pooled sink must never cross loops).
         assert isinstance(captured["audit_sink"], FreshSinkAuditEmitter)
@@ -497,3 +569,835 @@ async def test_bring_up_does_not_spawn_when_sink_probe_red(monkeypatch: Any) -> 
             await state.transport.close()
         if state.audit_sink is not None:
             await state.audit_sink.aclose()
+
+
+# ---------------------------------------------------------------------------------------------
+# R-027 — fiacao da flag dark `MAEZO_INAD_RN593_ESTRITO` (revisao independente do PR #1102, F1):
+# (a) `register_default_workers` repassa a flag aos DOIS workers de SP-OP-INADIMPLENCIA-001;
+# (b) o alias de env da setting; (c) `_bring_up_dependencies` repassa a setting ao bootstrap.
+# Sem estes testes, forcar o modo estrito ligado (ou desligado) em producao nao quebrava nada.
+# ---------------------------------------------------------------------------------------------
+
+_INAD_RESOLVE_FACTS = "operadora.inadimplencia.resolve_facts"
+_INAD_SUSPENSION = "operadora.inadimplencia.register_contract_suspension"
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_register_default_workers_threads_inad_rn593_flag_to_both_workers(flag: bool) -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_default_workers(harness, inad_rn593_estrito=flag)
+
+    facts = harness.registry.get(_INAD_RESOLVE_FACTS)
+    susp = harness.registry.get(_INAD_SUSPENSION)
+    assert facts is not None and susp is not None
+    assert facts._fn.keywords["rn593_estrito"] is flag  # type: ignore[attr-defined]
+    assert susp._fn.keywords["estrito"] is flag  # type: ignore[attr-defined]
+
+
+def test_settings_inad_rn593_estrito_env_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_INAD_RN593_ESTRITO", raising=False)
+    assert WorkerRuntimeSettings().inad_rn593_estrito is False
+    monkeypatch.setenv("MAEZO_INAD_RN593_ESTRITO", "true")
+    assert WorkerRuntimeSettings().inad_rn593_estrito is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_inad_rn593_estrito_setting(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_INAD_RN593_ESTRITO=flag
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["inad_rn593_estrito"] is flag
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+# ---------------------------------------------------------------------------------------------
+# R-044 — fiacao da flag dark `MAEZO_LGPD_LEGAL_HOLD_PREDICATE` (F-062, ADR-0020 item 6):
+# (a) `register_default_workers` repassa a flag ao `ExecuteRequestWorker`; (b) o alias de env;
+# (c) `_bring_up_dependencies` repassa a setting ao bootstrap. Cada um falha sob mutacao da fiacao.
+# ---------------------------------------------------------------------------------------------
+
+_LGPD_EXECUTE_REQUEST = "operadora.lgpd.execute_request"
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_register_default_workers_threads_lgpd_legal_hold_flag(flag: bool) -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_default_workers(harness, lgpd_legal_hold_predicate=flag)
+
+    worker = harness.registry.get(_LGPD_EXECUTE_REQUEST)
+    assert worker is not None
+    assert worker._legal_hold_predicate is flag  # type: ignore[attr-defined]
+
+
+def test_settings_lgpd_legal_hold_predicate_env_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_LGPD_LEGAL_HOLD_PREDICATE", raising=False)
+    assert WorkerRuntimeSettings().lgpd_legal_hold_predicate is False
+    monkeypatch.setenv("MAEZO_LGPD_LEGAL_HOLD_PREDICATE", "true")
+    assert WorkerRuntimeSettings().lgpd_legal_hold_predicate is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_lgpd_legal_hold_predicate_setting(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_LGPD_LEGAL_HOLD_PREDICATE=flag
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["lgpd_legal_hold_predicate"] is flag
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_the_written_notice_flag_when_the_deployment_turns_it_on(
+    monkeypatch: Any,
+) -> None:
+    """R-004 (RN 623 art. 14): `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE=true` reaches the bootstrap.
+
+    Mutation guard for the wiring: a hard-coded `denial_written_notice=False` in the live
+    composition would pass the default bring-up test above and fail here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_AUTH_DENIAL_WRITTEN_NOTICE=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["denial_written_notice"] is True
+        assert isinstance(state.harness, _SpyHarness)
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_the_junta_rn424_guard_when_the_deployment_turns_it_on(
+    monkeypatch: Any,
+) -> None:
+    """R-064 (RN 424/2017 art. 3 I): `MAEZO_AUTH_JUNTA_RN424_GUARD=true` reaches the bootstrap.
+
+    Mutation guard for the wiring: a hard-coded `junta_rn424_guard=False` (or the kwarg dropped)
+    in the live composition would pass the default bring-up test above and fail here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_AUTH_JUNTA_RN424_GUARD=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["junta_rn424_guard"] is True
+        assert isinstance(state.harness, _SpyHarness)
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_the_business_day_deadline_flag_when_the_deployment_turns_it_on(
+    monkeypatch: Any,
+) -> None:
+    """R-005 / F-018 (RN 623/2024 art. 12): `MAEZO_AUTH_PRAZO_DIAS_UTEIS=true` reaches the bootstrap.
+
+    Mutation guard for the wiring: a hard-coded `auth_prazo_dias_uteis=False` (or the kwarg
+    dropped) in the live composition would pass the default bring-up test above and fail here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_AUTH_PRAZO_DIAS_UTEIS=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["auth_prazo_dias_uteis"] is True
+        assert isinstance(state.harness, _SpyHarness)
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_refuses_to_register_when_the_retired_second_owner_is_requested(
+    monkeypatch: Any,
+) -> None:
+    """R-004 / F-032: `MAEZO_DENIAL_NOTICE_OWNER=true` is a tombstone — the daemon registers
+    NOTHING (harness unbuilt => readiness red), never a silent fallback to a removed owner."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    calls: list[Any] = []
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_DENIAL_NOTICE_OWNER=True,
+    )
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+        assert calls == [], "the retired owner switch must stop registration before it starts"
+        assert state.harness is None
+        assert state.harness_task is None
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_threads_pagto_flag_from_env_when_on(monkeypatch: Any) -> None:
+    """F-142 / R-053 fiação (a): `MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS=true` chega ao
+    `register_default_workers` pela raiz de composição — sem isso a flag ligada seria inerte."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # no fetch rotation: this test only proves the threading
+
+    monkeypatch.setenv("MAEZO_PAGTO_VALOR_INVALIDO_PENDENTE_DADOS", "true")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    assert settings.pagto_valor_invalido_pendente_dados is True
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["pagto_valor_invalido_pendente_dados"] is True
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def test_contas_sla_risk_entrega_setting_alias_e_default_off(monkeypatch: Any) -> None:
+    """R-107 / F-135 fiacao (a): alias `MAEZO_CONTAS_SLA_RISK_ENTREGA`, default OFF (dark)."""
+    monkeypatch.delenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", raising=False)
+    assert WorkerRuntimeSettings().contas_sla_risk_entrega is False
+    assert (
+        WorkerRuntimeSettings.model_fields["contas_sla_risk_entrega"].alias == "MAEZO_CONTAS_SLA_RISK_ENTREGA"
+    )
+    monkeypatch.setenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", "true")
+    assert WorkerRuntimeSettings().contas_sla_risk_entrega is True
+
+
+async def test_bring_up_threads_contas_sla_risk_entrega_from_env_when_on(monkeypatch: Any) -> None:
+    """R-107 / F-135 fiacao (b): a bandeira ligada chega ao `register_default_workers` pela raiz
+    de composicao — sem isso a entrega ligada seria inerte."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_CONTAS_SLA_RISK_ENTREGA", "true")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["contas_sla_risk_entrega"] is True
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _pagto_calculate_facts_via_default_workers(**kwargs: Any) -> dict[str, Any]:
+    """Executa `operadora.pagto.calculate_facts` registrado pelo `register_default_workers` REAL
+    (não o `register_pagto_workers` direto), com `valor_pagamento_cents=0` (inválido)."""
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-pagto-default-workers")
+    register_default_workers(harness, dmn=fake, **kwargs)  # type: ignore[arg-type]
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(
+        {"tenant_id": "amh", "ordem_pagamento_id": "OP-F142-WIRE", "valor_pagamento_cents": 0}
+    )
+    return result
+
+
+def test_register_default_workers_threads_pagto_flag_when_on() -> None:
+    """F-142 / R-053 fiação (b): o kwarg ligado atravessa `register_default_workers` até o
+    handler de PAGTO — valor inválido vira o FATO `dados_pagamento_validos=False`."""
+    result = _pagto_calculate_facts_via_default_workers(pagto_valor_invalido_pendente_dados=True)
+    assert result["dados_pagamento_validos"] is False
+
+
+def test_register_default_workers_pagto_flag_omitted_stays_dark() -> None:
+    """Kwarg omitido (default off): o handler não escreve `dados_pagamento_validos`."""
+    result = _pagto_calculate_facts_via_default_workers()
+    assert "dados_pagamento_validos" not in result
+
+
+# ---------------------------------------------------------------------------------------------
+# R-063 / F-029 — fiacao das flags dark `MAEZO_PAGTO_FATOS_ESTRITOS` / `MAEZO_INAD_FATOS_ESTRITOS`:
+# (a) alias de env + default OFF; (b) `_bring_up_dependencies` repassa a setting; (c)
+# `register_default_workers` REAL repassa ao worker, provado pela execucao do handler registrado
+# (o default das funcoes e o estrito, entao um kwarg nao repassado tambem quebra o teste OFF).
+# ---------------------------------------------------------------------------------------------
+
+_R063_FLAGS = [
+    ("pagto_fatos_estritos", "MAEZO_PAGTO_FATOS_ESTRITOS"),
+    ("inad_fatos_estritos", "MAEZO_INAD_FATOS_ESTRITOS"),
+]
+
+
+@pytest.mark.parametrize(("campo", "alias"), _R063_FLAGS)
+def test_settings_r063_flags_env_alias_defaults_off(
+    monkeypatch: pytest.MonkeyPatch, campo: str, alias: str
+) -> None:
+    monkeypatch.delenv(alias, raising=False)
+    assert getattr(WorkerRuntimeSettings(), campo) is False
+    monkeypatch.setenv(alias, "true")
+    assert getattr(WorkerRuntimeSettings(), campo) is True
+
+
+@pytest.mark.parametrize(("campo", "alias"), _R063_FLAGS)
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_r063_flags(
+    monkeypatch: pytest.MonkeyPatch, campo: str, alias: str, flag: bool
+) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # no fetch rotation: this test only proves the threading
+
+    monkeypatch.setenv(alias, "true" if flag else "false")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    state = WorkerState(
+        settings=WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured[campo] is flag
+        outro = next(c for c, _a in _R063_FLAGS if c != campo)
+        assert captured[outro] is False
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _executa_registrado(topic: str, variables: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r063-default-workers")
+    register_default_workers(harness, **kwargs)
+    worker = harness.registry.get(topic)
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(variables)
+    return result
+
+
+_PAGTO_SEMENTE = {
+    "ordem_pagamento_id": "OP-R063-WIRE",
+    "prestador_id": "prov:teste-0001",
+    "instrumento_pagamento": "ted",
+    "lastro_confirmado": True,
+}
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_fatos_estritos": False}])
+def test_register_default_workers_pagto_fatos_flag_off_ecoa(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado("operadora.pagto.validate_payment_data", dict(_PAGTO_SEMENTE), **kwargs)
+    assert out["lastro_confirmado"] is True
+
+
+def test_register_default_workers_pagto_fatos_flag_on_resolve() -> None:
+    out = _executa_registrado(
+        "operadora.pagto.validate_payment_data", dict(_PAGTO_SEMENTE), pagto_fatos_estritos=True
+    )
+    assert out["lastro_confirmado"] is False
+    assert out["dados_pagamento_validos"] is True
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"inad_fatos_estritos": False}])
+def test_register_default_workers_inad_fatos_flag_off_ecoa(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado(
+        "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, **kwargs
+    )
+    assert out["dentro_janela_purga"] is False
+
+
+def test_register_default_workers_inad_fatos_flag_on_nao_ecoa() -> None:
+    out = _executa_registrado(
+        "operadora.inadimplencia.resolve_facts", {"dentro_janela_purga": False}, inad_fatos_estritos=True
+    )
+    assert out["dentro_janela_purga"] is True
+
+
+# ---------------------------------------------------------------------------------------------
+# R-092 / F-081 — fiacao da flag dark `MAEZO_PAGTO_COMITE_COLEGIADO`: (a) alias + default OFF;
+# (b) `_bring_up_dependencies` repassa a setting; (c) `register_default_workers` REAL repassa aos
+# DOIS consumidores — o fato do gateway (`calculate_facts`) e o guard colegiado
+# (`release_high_value_payment`) —, provado pela execucao dos handlers registrados.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_settings_pagto_comite_colegiado_alias_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_PAGTO_COMITE_COLEGIADO", raising=False)
+    assert WorkerRuntimeSettings().pagto_comite_colegiado is False
+    monkeypatch.setenv("MAEZO_PAGTO_COMITE_COLEGIADO", "true")
+    assert WorkerRuntimeSettings().pagto_comite_colegiado is True
+
+
+@pytest.mark.parametrize("flag", [False, True])
+async def test_bring_up_threads_pagto_comite_colegiado(monkeypatch: pytest.MonkeyPatch, flag: bool) -> None:
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(_harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_PAGTO_COMITE_COLEGIADO", "true" if flag else "false")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    state = WorkerState(
+        settings=WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        await svc._bring_up_dependencies(state)
+        assert captured["pagto_comite_colegiado"] is flag
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+def _comite_calculate_facts(**kwargs: Any) -> dict[str, Any]:
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r092-default-workers")
+    register_default_workers(harness, dmn=fake, **kwargs)  # type: ignore[arg-type]
+    worker = harness.registry.get("operadora.pagto.calculate_facts")
+    assert worker is not None
+    result: dict[str, Any] = worker.execute(
+        {"tenant_id": "amh", "ordem_pagamento_id": "OP-R092-WIRE", "valor_pagamento_cents": 5_000_000_000}
+    )
+    return result
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_comite_colegiado": False}])
+def test_register_default_workers_pagto_comite_off_fato_false(kwargs: dict[str, Any]) -> None:
+    assert _comite_calculate_facts(**kwargs)["pagto_comite_colegiado_ativo"] is False
+
+
+def test_register_default_workers_pagto_comite_on_fato_true() -> None:
+    assert _comite_calculate_facts(pagto_comite_colegiado=True)["pagto_comite_colegiado_ativo"] is True
+
+
+# Liberacao de comite com UM aprovador e SEM livro de votos: o guard historico libera; o colegiado
+# (flag ligada, quorum 2 da DMN) recusa. Prova que o kwarg chega ao handler REGISTRADO.
+_LIBERACAO_COMITE_SEM_LIVRO = {
+    "decisao_pagamento": "APROVAR",
+    "aprovador_id": "comite-membro-sintetico-001",
+    "aprovador_tier": 4,
+    "justificativa_aprovacao": "Fundamentacao sintetica",
+    "valor_aprovado_cents": 5_000_000_000,
+    "valor_maximo_aprovavel_cents": 5_000_000_000,
+    "faixa_valor": "ANALISE_HUMANA",
+    "tier_minimo": 4,
+    "quorum_comite": 2,
+}
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"pagto_comite_colegiado": False}])
+def test_register_default_workers_release_comite_off_guard_historico(kwargs: dict[str, Any]) -> None:
+    out = _executa_registrado(
+        "operadora.pagto.release_high_value_payment", dict(_LIBERACAO_COMITE_SEM_LIVRO), **kwargs
+    )
+    assert out["pagamento_liberado"] is True
+
+
+def test_register_default_workers_release_comite_on_exige_livro() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="unit-test-r092-release")
+    register_default_workers(harness, pagto_comite_colegiado=True)
+    worker = harness.registry.get("operadora.pagto.release_high_value_payment")
+    assert worker is not None
+    with pytest.raises(ValueError, match="votos_comite"):
+        worker.execute(dict(_LIBERACAO_COMITE_SEM_LIVRO))
+
+
+# ---------------------------------------------------------------------------
+# R-085 (owner 2026-10-31, #1084): the engine-history L1 decision poller ships DARK
+# ---------------------------------------------------------------------------
+
+
+def test_l1_decision_poller_settings_alias_and_dark_default() -> None:
+    assert WorkerRuntimeSettings().l1_decision_poller is False
+    on = WorkerRuntimeSettings(MAEZO_L1_DECISION_POLLER=True, MAEZO_L1_DECISION_POLLER_INTERVAL_S=5)
+    assert on.l1_decision_poller is True
+    assert on.l1_decision_poller_interval_s == 5.0
+    with pytest.raises(ValueError):
+        WorkerRuntimeSettings(MAEZO_L1_DECISION_POLLER_INTERVAL_S=0)
+
+
+async def _bring_up_with(monkeypatch: Any, settings: WorkerRuntimeSettings) -> WorkerState:
+    import maezo.runtime.worker_runtime.service as svc
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", lambda harness, **kwargs: None)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+    state = WorkerState(settings=settings)
+    await svc._bring_up_dependencies(state)
+    return state
+
+
+async def _teardown(state: WorkerState) -> None:
+    for task in (state.harness_task, state.engine_metrics_task):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+    if state.transport is not None:
+        await state.transport.close()
+    if state.audit_sink is not None:
+        await state.audit_sink.aclose()
+
+
+async def test_bring_up_does_not_build_the_l1_poller_by_default(monkeypatch: Any) -> None:
+    state = await _bring_up_with(
+        monkeypatch, WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    )
+    try:
+        assert state.engine_metrics_poller is None
+        assert state.engine_metrics_task is None
+    finally:
+        await _teardown(state)
+
+
+async def test_bring_up_skips_the_l1_poller_when_the_engine_transport_failed(monkeypatch: Any) -> None:
+    """Flag ON but the engine transport did not build: no poller is built on `None` (it would
+    crash every round and report `erro` forever instead of leaving `engine_reachable` to speak)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("transport build failed")
+
+    built: list[Any] = []
+
+    class _SpyPoller:
+        def __init__(self, reader: Any, *, tenant: str, interval_s: float) -> None:
+            built.append(reader)
+
+        async def run(self) -> None:
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "CibSevenWorkerTransport", _boom)
+    monkeypatch.setattr(svc, "EngineMetricsPoller", _SpyPoller)
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo", MAEZO_L1_DECISION_POLLER=True
+    )
+    state = await _bring_up_with(monkeypatch, settings)
+    try:
+        assert state.transport is None
+        assert built == []
+        assert state.engine_metrics_poller is None
+        assert state.engine_metrics_task is None
+    finally:
+        await _teardown(state)
+
+
+async def test_drain_cancels_the_running_l1_poller_task() -> None:
+    """The poller loops forever: the drain must CANCEL it, not just await it (that would hang)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    loop = asyncio.get_running_loop()
+    state = WorkerState(settings=WorkerRuntimeSettings())
+    state.engine_metrics_task = asyncio.create_task(asyncio.sleep(3600))
+    started = loop.time()
+    # Without `cancel()` the await only returns when `wait_for` cancels it at the 2 s timeout,
+    # and the helper's `suppress` then hides that timeout: elapsed time is the real witness.
+    await asyncio.wait_for(svc._stop_engine_metrics_poller(state), timeout=2.0)
+    assert loop.time() - started < 1.0
+    assert state.engine_metrics_task.cancelled()
+    # dark (no task) is a no-op
+    await svc._stop_engine_metrics_poller(WorkerState(settings=WorkerRuntimeSettings()))
+
+
+def test_run_drain_stops_the_l1_poller_before_closing_the_engine_transport() -> None:
+    """Structural fence: `run()` drains the poller BEFORE closing the transport it reads (the
+    daemon's `run()` binds signals and a health server, so it is fenced by source order here)."""
+    import inspect
+
+    import maezo.runtime.worker_runtime.service as svc
+
+    body = inspect.getsource(svc.run)
+    stop = body.find("await _stop_engine_metrics_poller(state)")
+    close = body.find("await state.transport.close()")
+    assert stop != -1 and close != -1 and stop < close
+
+
+async def test_bring_up_runs_the_l1_poller_on_the_engine_transport_when_turned_on(monkeypatch: Any) -> None:
+    """Mutation guard for the wiring: a hard-coded `False`, a dropped `create_task`, or a poller
+    built on anything other than the daemon's own engine transport fails here."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    built: dict[str, Any] = {}
+
+    class _SpyPoller:
+        def __init__(self, reader: Any, *, tenant: str, interval_s: float) -> None:
+            built.update(reader=reader, tenant=tenant, interval_s=interval_s)
+
+        async def run(self) -> None:
+            built["ran"] = True
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "EngineMetricsPoller", _SpyPoller)
+    settings = WorkerRuntimeSettings(
+        DATABASE_URL="postgresql://maezo@localhost:5432/maezo",
+        MAEZO_L1_DECISION_POLLER=True,
+        MAEZO_L1_DECISION_POLLER_INTERVAL_S=7,
+    )
+    state = await _bring_up_with(monkeypatch, settings)
+    try:
+        assert isinstance(state.engine_metrics_poller, _SpyPoller)
+        assert built["reader"] is state.transport and state.transport is not None
+        assert built["tenant"] == settings.tenant_id
+        assert built["interval_s"] == 7.0
+        assert state.engine_metrics_task is not None
+        await asyncio.sleep(0)
+        assert built.get("ran") is True
+    finally:
+        await _teardown(state)
+
+
+def test_pagto_chave_conta_fase_setting_alias_dominio_e_default_legado(monkeypatch: Any) -> None:
+    """Decisao do dono 2026-11-01 (opcao A) fiacao (a): alias `MAEZO_PAGTO_CHAVE_CONTA_FASE`, padrao
+    `legado` (dark), dominio FECHADO — um valor desconhecido derruba a configuracao no boot."""
+    from pydantic import ValidationError
+
+    monkeypatch.delenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", raising=False)
+    assert WorkerRuntimeSettings().pagto_chave_conta_fase == "legado"
+    assert (
+        WorkerRuntimeSettings.model_fields["pagto_chave_conta_fase"].alias == "MAEZO_PAGTO_CHAVE_CONTA_FASE"
+    )
+    for fase in ("leitura_dupla", "escrita_alvo"):
+        monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", fase)
+        assert WorkerRuntimeSettings().pagto_chave_conta_fase == fase
+    monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", "so_alvo")
+    with pytest.raises(ValidationError):
+        WorkerRuntimeSettings()
+
+
+async def test_bring_up_threads_pagto_chave_conta_fase_from_env(monkeypatch: Any) -> None:
+    """Fiacao (b): a fase configurada chega ao `register_default_workers` pela raiz de composicao."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False  # sem rotacao de fetch: so prova a fiacao
+
+    monkeypatch.setenv("MAEZO_PAGTO_CHAVE_CONTA_FASE", "escrita_alvo")
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert captured["pagto_chave_conta_fase"] == "escrita_alvo"
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+@pytest.mark.parametrize(
+    ("fase", "repassa"),
+    [("legado", False), ("leitura_dupla", True), ("escrita_alvo", True)],
+)
+def test_register_default_workers_repassa_a_fase_da_chave_pagto_ao_contas(
+    monkeypatch: Any, fase: str, repassa: bool
+) -> None:
+    """Fiacao (c): `register_default_workers` entrega a fase ao `**seams` de TODO bootstrap (o de
+    CONTAS a usa); o padrao `legado` nao e' repassado (byte-identico ao bootstrap de hoje)."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    captured: dict[str, Any] = {}
+
+    def _spy_all(harness: Any, **seams: Any) -> None:
+        captured.update(seams)
+
+    monkeypatch.setattr(svc, "register_all_workers", _spy_all)
+    monkeypatch.setattr(svc, "assert_single_owner", lambda harness: None)
+    svc.register_default_workers(object(), pagto_chave_conta_fase=fase)  # type: ignore[arg-type]
+
+    if repassa:
+        assert captured["pagto_chave_conta_fase"] == fase
+    else:
+        assert "pagto_chave_conta_fase" not in captured

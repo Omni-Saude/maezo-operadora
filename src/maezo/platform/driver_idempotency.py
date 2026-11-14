@@ -127,6 +127,13 @@ RELEASE_SQL: Final[str] = (
 )
 
 
+#: Is `key` sealed as processed and still inside its window? (One row, tenant-scoped.)
+PROCESSED_SQL: Final[str] = (
+    "SELECT 1 FROM driver_idempotency "
+    "WHERE key = $1 AND tenant = $2 AND status = 'processed' AND expires_at > now()"
+)
+
+
 class DedupRegistryUnavailableError(RuntimeError):
     """The dedup registry could not be read/written — never "no duplicate" by default.
 
@@ -170,6 +177,22 @@ def inbound_dedup_key(*, tenant: str, message_pseudonym: str) -> str:
     is the one that owns the vault key.
     """
     return f"wa:inbound:{tenant}:{message_pseudonym}"
+
+
+def inbound_fallback_dedup_key(*, tenant: str, identity_pseudonym: str, occurrence: int) -> str:
+    """Dedup key for the Nth delivery of ONE inbound message that carries NO `wamid` (F-147).
+
+    Decisao do dono de 2026-10-31 (#1084): a mensagem sem `wamid` continua despachada, mas deixa
+    uma identidade de fallback neste registro, e ate N entregas iguais passam — cada entrega
+    reivindica um SLOT (`occurrence`, 1-based) e, com todos os slots tomados, a entrega e'
+    suprimida. Mesmo padrao de ocorrencia de :func:`outbound_dedup_key`, num espaco de chave
+    PROPRIO (`wa:inbound-sem-wamid:`) para que nunca colida com a chave de um `wamid`.
+
+    `identity_pseudonym` MUST already be the keyed `hk1_` fallback identity
+    (`webhooks/whatsapp/dedup.py::WhatsAppDedupGuard.fallback_identity`) — this function does no
+    hashing, pela mesma razao de :func:`inbound_dedup_key`.
+    """
+    return f"wa:inbound-sem-wamid:{tenant}:{identity_pseudonym}:{occurrence}"
 
 
 def outbound_dedup_key(*, tenant: str, message_pseudonym: str, occurrence: int) -> str:
@@ -257,6 +280,15 @@ class PostgresDriverIdempotencyRegistry:
         released = await self._fetchval(RELEASE_SQL, key, self._tenant)
         if released is None:
             logger.warning("dedup_claim_not_released", tenant=self._tenant, dedup_key=key)
+
+    async def is_processed(self, key: str) -> bool:
+        """`True` only for a key SEALED as processed inside its window (not a pending claim).
+
+        Lets a caller that lost `claim()` tell "the effect already happened" (safe to skip) from
+        "another attempt is still in flight" (must not be treated as done) — the distinction the
+        external-task publish dedup needs (forensic audit F-092). Fail-closed like every method.
+        """
+        return await self._fetchval(PROCESSED_SQL, key, self._tenant) is not None
 
     async def aclose(self) -> None:
         """Close the pool, if this registry opened it (an injected pool belongs to its owner)."""

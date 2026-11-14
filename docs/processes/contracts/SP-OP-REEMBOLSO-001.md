@@ -1,39 +1,54 @@
 # Contrato — SP-OP-REEMBOLSO-001 (Reembolso ao Beneficiario)
 
-**Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 · **Wave:** WC.2 · **BPMN (a autorar em wave posterior):** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
-**Gatilho regulatorio:** RN 259/2011 (garantia de atendimento / prazos — consolidacoes posteriores ANS: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify** RN vigente com regulatorio/juridico). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`).**
+**Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md; DL-0161)
+**Fase:** 2 · **Wave:** WC.2 · **BPMN:** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
+**Gatilho regulatorio:** RN 566/2022 (garantia de atendimento / prazos em dias uteis — **sucede a RN 259/2011, revogada pela RN 566, art. 16, I**; errata ADR-0073 §B: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify**; a norma que fixa o prazo de reembolso segue **nao identificada**, `docs/compliance/rn-currency-review.md`, R3). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`)** — politica interna ADR-0005; base normativa da negativa pela errata ADR-0073 §B (Lei 12.842/2013 art. 5º, II + RN 424/2017 no merito clinico; RN 623/2024 arts. 14 e 16 + LGPD art. 20 na negativa administrativa).
 
-> Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/agente de REEMBOLSO derivam dele. Toda mecanica no-denial de cinco partes esta materializada abaixo (invariante L0, rotas sem variante negar, DMN sem coluna de negativa, catch-all conservador para humano, worker-guard `ERR_*_NOT_HUMAN`, teste de invariante consultando o history do engine). **Clona o esqueleto provado SP-OP-AUTH-001.**
+> Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/worker de REEMBOLSO derivam dele.
+
+## O que a v0.2.0 muda (DL-0161)
+
+O sistema so **organiza** o pedido, os documentos e a resposta. **Uma pessoa da analise decide direito e valor**, como hoje (enquanto a faixa B, abaixo, nao for ativada: DL-0164 faz dela o comportamento pretendido, com ativacao desligada ate o R-070 §6). O financeiro **paga fora do sistema** e registra `data_pagamento`. O Lucas recebe o pedido pelo WhatsApp e avisa a beneficiaria.
+
+**Removido** (nao voltam sem um DL novo): a conferencia de cobertura/admissibilidade por maquina (`reembolso_admissibility`), o calculo do valor (`reembolso_calculo`, `calculate_amount`), a auto-aprovacao L2 (`reembolso_auto_approval`, teto D-07, bloqueio R-058), o pagamento emitido pelo sistema (`issue_payment`, CNAB) e a conferencia de prazo por worker (`check_prazo`). As pendencias D-07, R-058, R-059, R-060, R-157 e F-1 deixam de existir por perda de objeto (a tabela de reembolso da atuaria fica para uma versao futura e **nao bloqueia** esta). A parte "faixa" (DMN `reembolso_auto_approval`, acao L2, R-058) voltou pelo adendo de 2026-11-01 da DL-0161 e e' a faixa pretendida da DL-0164 (abaixo).
+
+**Consequencia:** `dentro_tabela`, `dentro_teto_l2`, `valor_calculado_tabela_cents`, `multiplo_tabela_aplicado`, `fonte_tabela`, `requer_avaliacao_clinica`, `cobertura_prevista`, `beneficiario_ativo`, `carencia_cumprida` e `dentro_prazo` **nao sao mais variaveis deste processo**. (A faixa B, abaixo, usa um fato NOVO e distinto, `avaliacao_clinica_requerida`, relaiado pelo worker de uma fonte injetavel — sem fonte hoje = nulo = humano; nao e' semente da partida.)
+
+### Faixa automatica B — PRETENDIDA, ATIVACAO DESLIGADA (R-070 opcao B, R-076; DL-0164, DEC-31 D31-1 de 2026-11-02)
+
+**Intencao (DL-0164, revisa a DL-0161):** decisao do dono DEC-31 D31-1 de 2026-11-02 (#1084, https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6582531580): "respect R-070's auto-approval ceiling and do not send 100% of reimbursement requests to human review". A faixa B (aprovacao automatica L2 INTEGRAL dentro do teto do R-070) e' o **comportamento pretendido**, nao mais dormente permanente. A **ativacao segue DESLIGADA** enquanto o R-070 §6 nao tiver as assinaturas do dono e da atuaria (hoje em branco): ate la', todo pedido continua indo a analise humana.
+
+- **Interruptor unico de ativacao:** a constante R-058 `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO` (`False`). O kill-switch `faixa_auto_desligada` (freio operacional; o "religar manual" do R-070 §3.5) e o teto do tenant seguem como travas independentes; o PR de ativacao abre os tres, e a cerca `test_ativacao_da_faixa_b_so_com_o_s6_assinado_pelo_dono_e_pela_atuaria` reprova qualquer um aberto sem o §6 assinado.
+- **Decidido pela opcao B (R-070 §4/§5-bis):** teto = min(limite contratual, P60 do lake AMH, `teto_duro_brl` R$ 300); `max_value_brl: 0` ate o P60 existir e o §6 ser assinado; nunca > R$ 500 sem novo ADR. Politica com teto acima do `teto_duro_brl` (ou sem `teto_duro_brl` e teto > 0) e' invalida: a faixa e' relaiada fechada (a DMN decide `r_desligada_humano`) e `register_auto_approval` recusa.
+- **DRAFT para o §6:** exposicao (2 aprovacoes e R$ 600 por beneficiario/30d; R$ 3.000/dia por tenant), criterios de promocao da sombra e o teto efetivo por categoria.
+- **Ainda nao construido (pre-condicao da ativacao):** fontes de fatos (§3.7), modo sombra (§3.6) e disparos automaticos de desligamento com religar manual (§3.5), salvo o de "configuracao invalida ou ausente".
+
+Historico (2026-11-01, PR #1149) — decisao do dono: "REEMBOLSO = manter as duas coisas — a v2 do #1074 (100% humano) entra primeiro; depois este PR e' adaptado para viver sobre a v2, com a faixa B dormente (R-058 + teto 0)". A v2 continua sendo o **fluxo vivo ate a ativacao**: todo pedido vai para a analise humana. A faixa B existe no modelo, mas **nenhum caminho automatico e' alcancavel com os defaults**:
+
+1. **R-058 (codigo):** `REEMBOLSO_AUTO_PAGAMENTO_LIBERADO = False` em `src/maezo/tools/workers/reembolso.py`; a condicao de `Flow_GWFaixa_Auto` exige `reembolso_auto_liberado == true` (relaiado da constante em toda instancia, sobrescrevendo semente) e o worker `register_auto_approval` recusa a origem automatica (`ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO`).
+2. **Teto 0 (politica):** `reembolso_auto_approval.max_value_brl: 0` em `L0-core.yaml` e em `tenants-amh.yaml`; com teto 0 nenhum pedido positivo satisfaz a celula de teto de `r_auto` (decide `r_acima_teto_humano` quando nenhuma regra anterior casou; com os defaults de hoje quem decide e' `r_desligada_humano`, pelo kill-switch).
+3. **Kill-switch de politica:** `faixa_auto_desligada: true` (DRAFT) no L0-core; politica invalida (teto acima do `teto_duro_brl`) tambem fecha (DL-0164).
+4. **Sem fonte de fatos:** nao existe fonte de tabela de reembolso (a da atuaria fica para versao futura, DL-0161), de limite contratual, de NF verificada, de merito clinico nem de contadores de exposicao — todos chegam nulos/false e caem no catch-all humano.
+
+Mesmo aberta, a faixa **nao paga**: so' substitui a decisao `APROVAR` integral do analista; o valor aprovado (= `valor_solicitado_cents`, `<=` tabela, `<=` limite contratual, `<=` teto) vai ao financeiro em `UT_RegistrarPagamento`, como na aprovacao humana. Nunca paga acima do teto nem "ate o teto", nunca reduz, nunca nega. Ativacao (teto > 0, R-058 `True`, kill-switch `false`) **so' com a assinatura do dono + atuaria** no bloco §6 de `docs/compliance/human-windows/R-070-dec-teto-d07.md` (em branco); qualquer valor diferente de 0 e' DRAFT para o dono + atuaria. Volta, portanto, so' a parte "faixa" do que a DL-0161 removeu (DMN `reembolso_auto_approval`, acao L2 `reembolso_auto_approval`, interruptor R-058); `reembolso_admissibility`, `reembolso_calculo`, `calculate_amount`, `issue_payment`/CNAB e `check_prazo` seguem removidos. Registro: adendo de 2026-11-01 da DL-0161 (faixa B dormente do R-070) e DL-0164 (faixa pretendida, ativacao desligada) em `docs/decisions-log.md`.
 
 ## Invariante L0 hard (nao negociavel)
 
 A negativa (ou reducao) de reembolso ao beneficiario SO nasce nas User Tasks humanas
-(`UT_AnaliseReembolso`, `UT_RevisaoAuditorMedico`, `UT_CoordenacaoReembolso`). **O DMN
-CALCULA o valor de reembolso devido** (multiplo da tabela de referencia / teto contratual)
-mas **nunca decide pagar ou negar** — quem decide e o humano. Nenhuma DMN deste processo
-possui saida de negativa/reducao; cobertura ausente, documentacao incompleta, prazo
-expirado ou inelegibilidade aparente roteiam para analise humana (linha catch-all
-conservadora). Aprovacao automatica (L2, analoga a `auth_auto_approval`) existe apenas com
-DMN de admissibilidade favoravel **E** valor dentro da tabela **E** dentro do teto do tenant
-(ADR-0008) — e mesmo assim o caminho automatico produz **somente APROVACAO integral**,
-jamais aprovacao parcial nem reducao (reducao = adverso = humano).
+(`UT_AnaliseReembolso`, `UT_RevisaoAuditorMedico`, `UT_CoordenacaoReembolso`). **Todo pedido passa por uma delas**: nao ha caminho de Start ate um terminal de decisao sem User Task humana (cercado por teste que le o BPMN). Nenhuma DMN deste processo possui saida de negativa/reducao.
 
-**Terminais humano-gated (so alcancaveis via User Task humana com decisao adversa):**
-- `End_ReembolsoNegado` — negar reembolso. So via `UT_AnaliseReembolso` (ou
-  `UT_RevisaoAuditorMedico` no merito clinico, ou `UT_CoordenacaoReembolso` no breach) com
-  `decisao_reembolso == NEGAR`.
-- `End_ReembolsoParcial` — aprovar valor reduzido (reembolso parcial e adverso: paga menos
-  que o solicitado). So via User Task humana com `decisao_reembolso == APROVAR_PARCIAL`.
+**Terminais de decisao (todos exigem User Task humana na trilha):**
+- `End_ReembolsoNegado` — `decisao_reembolso == NEGAR`.
+- `End_ReembolsoParcial` — `decisao_reembolso == APROVAR_PARCIAL` (reduz o pedido: adverso), depois do registro do pagamento.
+- `End_ReembolsoAprovadoAnalista` — `decisao_reembolso == APROVAR`, depois do registro do pagamento.
 
-Terminais neutros (nao adversos, podem ser alcancados sem User Task): `End_ReembolsoAprovadoAutomatico`,
-`End_ReembolsoAprovadoAnalista`, `End_ReembolsoProtocoloInvalido` (guard tecnico de validacao de
-origem — `ERR_REEMBOLSO_INVALID_PROTOCOLO`; GAP-REEMBOLSO-2; NAO e decisao de pagar/negar).
+Terminal automatico (L2, nao adverso, **pretendido; ativacao desligada**): `End_ReembolsoAprovadoAutomatico` — so' com a faixa B aberta; aprovacao INTEGRAL do valor solicitado e pagamento registrado pelo financeiro. A aprovacao automatica nunca alcanca `End_ReembolsoNegado` nem `End_ReembolsoParcial` (a condicao de `Flow_Desfecho_Parcial` exige `origem_aprovacao == 'HUMANA'`). Com a faixa fechada (defaults) a afirmacao acima vale literalmente: todo terminal de decisao exige User Task humana de decisao.
 
-**Worker-guard:** `operadora.reembolso.send_reembolso_denial` recusa
-(`ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) qualquer execucao sem `decisao_reembolso ∈ {NEGAR,
-APROVAR_PARCIAL}` setado por um humano numa User Task; carrega `analista_id` (ou
-`auditor_id`) para a cadeia de auditoria (ADR-0007).
+Terminais neutros: `End_ReembolsoCancelado` (pendencia expirada, decisao humana), `End_ReembolsoProtocoloInvalido` (guard tecnico de origem — `ERR_REEMBOLSO_INVALID_PROTOCOLO`; NAO e decisao de pagar/negar) e `End_RiscoSlaNotificado` (alerta informativo; a analise segue).
+
+**`GW_DecisaoReembolso` nao tem flow default** (v0.1.0 tinha `APROVAR` como default): uma `decisao_reembolso` ausente ou desconhecida nao tem caminho — o motor recusa completar a tarefa e ela segue aberta. Nada vira aprovacao por omissao.
+
+**Worker-guard:** `operadora.reembolso.send_reembolso_denial` recusa (`ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) qualquer execucao sem `decisao_reembolso ∈ {NEGAR, APROVAR_PARCIAL}` setado por um humano, sem `justificativa`, `fundamentacao_contratual`, `texto_ao_beneficiario` e `analista_id` (ou `auditor_id`), e, em `APROVAR_PARCIAL`, sem valor aprovado positivo e **menor** que o solicitado (ADR-0007). O worker so **valida**: nao comunica nada.
 
 ## Business key (idempotencia)
 
@@ -41,224 +56,190 @@ APROVAR_PARCIAL}` setado por um humano numa User Task; carrega `analista_id` (ou
 REEMB-{tenant_id}-{protocolo_reembolso}
 ```
 
-Alternativa por guia (quando o reembolso referencia uma guia TISS de livre escolha):
-`REEMB-{tenant_id}-{numero_guia_tiss}`. Uma instancia por solicitacao de reembolso;
-reenvio da mesma solicitacao retorna a instancia ativa (`mcp-cibseven.start_process`
-consulta a business key antes de iniciar — start idempotente, sem duplicar adjudicacao).
+Uma instancia por solicitacao; reenvio da mesma solicitacao retorna a instancia ativa (`start_process_idempotent` consulta a business key antes de iniciar). O protocolo mostrado a beneficiaria e `REE-XXXX-XXXX`, derivado do id da instancia (sem PII), no molde de `CAN-XXXX-XXXX` do cancelamento.
 
 ## Variaveis de entrada
+
+O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a beneficiaria declarar que tem os documentos, enviar os arquivos e confirmar o resumo. Nao ha OCR: **`documentacao_completa` significa "declarada e enviada pela beneficiaria", nao "conferida"**; quem confere e a analise humana, que ve os anexos.
 
 | Variavel | Tipo | Obrigatoria | Descricao |
 |---|---|---|---|
 | `tenant_id` | string | sim | Tenant (ex.: `amh`) |
-| `protocolo_reembolso` | string | sim | Protocolo da solicitacao de reembolso (chave de negocio) |
+| `protocolo_reembolso` | string | sim | Protocolo da solicitacao (chave de negocio) |
 | `numero_guia_tiss` | string | nao | Guia TISS de livre escolha, quando aplicavel |
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo do beneficiario (ADR-0006 — NUNCA CPF/nome) |
 | `matricula_beneficiario` | string | sim | Matricula no plano (chave cadastral pseudonimizada) |
+| `relacao_com_titular` | string | sim | `titular` \| `dependente` — para quem foi o atendimento. Nunca o nome (ADR-0006) |
 | `tipo_reembolso` | string | sim | `livre_escolha` \| `fora_rede` \| `urgencia_emergencia` \| `indisponibilidade_rede` |
-| `codigo_procedimento_tuss` | string | sim | Procedimento TUSS objeto do reembolso |
-| `categoria_procedimento` | string | sim | `consulta` \| `exame_simples` \| `exame_especial` \| `terapia` \| `internacao` \| `opme` \| `alta_complexidade` |
-| `valor_solicitado_cents` | integer | sim | Valor solicitado pelo beneficiario, em centavos de BRL (inteiro — nunca `number`) |
+| `motivo_nao_rede` | string | sim | Motivo informado para nao usar a rede, em conjunto fechado (ex.: `urgencia`, `sem_prestador_no_prazo`, `preferencia_fora_rede`). Nunca texto livre nem diagnostico |
+| `categoria_procedimento` | string | sim | `consulta` \| `exame` \| `terapia` (a DMN de SLA ainda reconhece `internacao`/`opme`/`alta_complexidade`, hoje nao coletadas) |
+| `codigo_procedimento_tuss` | string | nao | Opcional: o beneficiario nao conhece o TUSS (era obrigatorio na v0.1.0) |
+| `cid10` | string | nao | Opcional; o Lucas **nunca pergunta diagnostico** |
+| `valor_solicitado_cents` | integer | sim | Valor pago pela beneficiaria, em centavos de BRL (inteiro — nunca `number`) |
 | `data_atendimento` | date | sim | Data do atendimento/despesa |
-| `data_solicitacao` | date | sim | Data da solicitacao de reembolso (base de contagem de prazo) |
-| `cid10` | string | nao | CID-10 informado (relevante ao merito clinico) |
-| `documentos_refs` | json | sim | Referencias dos comprovantes/nota fiscal/recibo TISS (pode ser vazio) |
-| `cobertura_prevista` | boolean | sim | Pre-resolvido por worker (`operadora.reembolso.check_coverage`): procedimento coberto pelo contrato/segmentacao |
-| `documentacao_completa` | boolean | sim | Pre-resolvido por worker: comprovantes minimos presentes |
-| `dentro_prazo` | boolean | sim | Pre-resolvido por worker (`operadora.reembolso.check_prazo`): solicitacao dentro do prazo regulatorio/contratual |
-| `beneficiario_ativo` | boolean | sim | Pre-resolvido por worker (cadastro): vinculo ativo na data do atendimento |
-| `carencia_cumprida` | boolean | sim | Pre-resolvido por worker: carencia cumprida para a categoria |
-| `dentro_tabela` | boolean | sim* | Pre-resolvido por worker (`operadora.reembolso.calculate_amount`): `valor_solicitado_cents <= valor_calculado_tabela_cents`, onde o valor de referencia e' **o da DMN `reembolso_calculo`** (`BRT_Calculo`), nunca recalculado pelo worker. Fail-closed: `fonte_tabela = "SEM_TABELA"` ou valor de referencia 0 forcam `false` (*antes de `BRT_AutoApproval`) |
-| `dentro_teto_l2` | boolean | sim* | Pre-resolvido: `valor_calculado_tabela_cents` (da DMN) `<= teto de auto-aprovacao do tenant` (tenants-amh.yaml), computado pelo `CeilingResolver` — o valor de entrada homonimo nunca e' ecoado |
-| `requer_avaliacao_clinica` | boolean | sim* | Pre-resolvido: merito exige auditor medico (procedimento alta-complexidade/OPME, CID sensivel, divergencia de codificacao) |
+| `data_solicitacao` | date | sim | Data da solicitacao (base de contagem de prazo) |
+| `documentos_refs` | json | sim | Lista de `{tipo: pedido_medico \| nota_fiscal, document_ref, sha256}`. Aceita **mais de um arquivo por tipo**. `document_ref` (`rdoc_<32hex>`) aponta para a custodia S3 da Zona PHI (DL-0163, ADR-0006); o engine nunca recebe o arquivo. `sha256` e' o do conteudo (principio do `input_hash`, ADR-0020): o portal recusa entregar um objeto que nao confere |
+| `aviso_beneficiario_whatsapp` | boolean | nao | `true` so quando o Lucas abriu o pedido com a flag `MAEZO_REEMBOLSO_V1` ligada. Sem ela (outra origem) o processo segue calado |
+| `agent_id` | string | nao | `lucas` quando ha aviso |
+| `conversation_id` | string | nao | Conversa do WhatsApp para o aviso |
 
-\* usado a partir do `businessRuleTask` de auto-aprovacao; pode ser computado no fluxo.
+**Resolvida por worker:** `dias_desde_atendimento` (integer; `data_solicitacao − data_atendimento`, `-1` se nao calculavel) por `operadora.reembolso.check_coverage`. **Resolvida por DMN:** `situacao_prazo` (`prazo.situacao_prazo`). Nenhuma delas decide.
 
 ## Variaveis de saida
 
 | Variavel | Tipo | Descricao |
 |---|---|---|
-| `decisao_reembolso` | string | `APROVAR` \| `NEGAR` \| `APROVAR_PARCIAL` \| `SOLICITAR_INFO` (User Tasks humanas) |
-| `valor_calculado_tabela_cents` | integer | Valor de reembolso devido calculado pela DMN `reembolso_calculo` (centavos BRL) — **calculo, nao decisao**. O worker **LE** este valor ja resolvido por `BRT_Calculo`, achatado de `calculo` como variavel **activity-local** de `ST_CalculateAmount` via `camunda:inputParameter` (`${calculo.valor_calculado_tabela_cents}`), e o **ESCREVE** de volta, sem alteracao, ao completar `operadora.reembolso.calculate_amount` (RELAIADO; o worker nao tem tabela propria — ADR-0012, GAP F-1). **escopo verificado em engine local CIB Seven 2.1.0 (2026-09-03, `df8da89`): `GET /history/variable-instance` devolve a variavel tanto no escopo do processo quanto no escopo da atividade `ST_CalculateAmount` (input local `${calculo.*}`), mesmo valor:** como ja existe uma variavel local homonima na activity, o `complete` do engine pode atualizar so' essa local em vez de (re)escrever no **process scope**; em qual escopo o `/history/variable-instance` do motor efetivamente registra este nome so' se confirma numa corrida de integracao (motor DOWN nesta verificacao — VERIFY-WP-REEMBOLSO MINOR-3) |
-| `multiplo_tabela_aplicado` | double | Multiplo que a DMN aplicou (saida de `reembolso_calculo`) — fato de procedencia para a trilha ADR-0007. O worker **LE** o valor achatado (activity-local, via `camunda:inputParameter` de `calculo`) e o **ESCREVE** de volta ao completar a task, nunca o re-aplica. **escopo verificado em engine local CIB Seven 2.1.0 (2026-09-03, `df8da89`): `GET /history/variable-instance` devolve a variavel tanto no escopo do processo quanto no escopo da atividade `ST_CalculateAmount` (input local `${calculo.*}`), mesmo valor:** mesmo limite de escopo do item acima — nao confirmado se a escrita alcanca o process scope ou so' atualiza a local homonima |
-| `fonte_tabela` | string | Procedencia do valor, no vocabulario da propria DMN (`TABELA_REFERENCIA_CONSULTA` \| `TABELA_REFERENCIA_EXAME` \| `TABELA_REFERENCIA_TERAPIA` \| `SEM_TABELA`). O worker **LE** o valor achatado (activity-local, via `camunda:inputParameter` de `calculo`) e o **ESCREVE** de volta ao completar a task, sem traducao. **escopo verificado em engine local CIB Seven 2.1.0 (2026-09-03, `df8da89`): `GET /history/variable-instance` devolve a variavel tanto no escopo do processo quanto no escopo da atividade `ST_CalculateAmount` (input local `${calculo.*}`), mesmo valor:** mesmo limite de escopo — nao confirmado se a escrita alcanca o process scope ou so' atualiza a local homonima |
-| `dmn_decisao_id` | string | Citacao da decisao que originou o valor: `reembolso_calculo` (o `camunda:decisionRef` de `BRT_Calculo`) |
-| `dmn_atividade_bpmn` | string | Atividade que a avaliou: `BRT_Calculo`. Com `dmn_decisao_id` localiza o registro de decision-instance do motor, **onde vive a versao autoritativa da decision definition** — o worker nao a afirma porque `mapDecisionResult=singleResult` nao a entrega (limite divulgado, `docs/review-queue.md`) |
-| `valor_reembolso_aprovado_cents` | integer | Valor efetivamente aprovado (humano em APROVAR/APROVAR_PARCIAL; = `valor_calculado_tabela_cents` no caminho automatico) |
-| `justificativa` | string | Obrigatoria se `NEGAR` ou `APROVAR_PARCIAL` |
-| `fundamentacao_contratual` | string | Obrigatoria se `NEGAR` ou `APROVAR_PARCIAL` (clausula contratual / segmentacao) |
-| `cid10_referencia` | string | Obrigatoria se NEGAR por merito clinico |
+| `decisao_reembolso` | string | `APROVAR` \| `NEGAR` \| `APROVAR_PARCIAL` \| `SOLICITAR_INFO` \| `SOLICITAR_AUDITOR` (User Tasks humanas). `SOLICITAR_AUDITOR` e o botao "escalar" do analista (merito clinico) |
+| `valor_reembolso_aprovado_cents` | integer | Valor aprovado pelo humano. **Obrigatorio e positivo** em `APROVAR` e `APROVAR_PARCIAL` (o formulario do portal ja exige); em `APROVAR_PARCIAL` deve ser menor que o solicitado. Na faixa B (ativacao desligada) = `auto_aprovacao.valor_aprovado_auto_cents` = `valor_solicitado_cents`, escrito por `register_auto_approval` depois das guardas — nunca um valor de tabela |
+| `origem_aprovacao` | string | `HUMANA` (escrito por `validate_auto_criteria` em toda instancia, sobrescrevendo semente) \| `AUTO_L2` (so' `register_auto_approval`, faixa B). Roteia `GW_DesfechoPagamento` |
+| `justificativa` | string | **Interna.** Obrigatoria em `NEGAR` e `APROVAR_PARCIAL` |
+| `fundamentacao_contratual` | string | **Interna.** Obrigatoria em `NEGAR` e `APROVAR_PARCIAL` |
+| `texto_ao_beneficiario` | string | **O que o Lucas leva a beneficiaria.** Obrigatorio em `NEGAR` e `APROVAR_PARCIAL`, escrito pelo analista, **distinto** de `justificativa`/`fundamentacao_contratual` (que podem citar clausula e dado clinico) |
+| `info_solicitada` | string | A pergunta do analista a beneficiaria. Obrigatoria em `SOLICITAR_INFO` |
+| `cid10_referencia` | string | Obrigatoria se NEGAR/APROVAR_PARCIAL por merito clinico |
 | `parecer_auditor` | string | Obrigatoria se a negativa/reducao decorre de `UT_RevisaoAuditorMedico` |
 | `decisao_pendencia` | string | `cancelar_solicitacao` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano decide) |
-| `comprovante_pagamento_ref` | string | Referencia do pagamento emitido por `operadora.reembolso.issue_payment` (caminho CNAB/conciliacao) |
+| `data_pagamento` | date | Registrada pelo financeiro em `UT_RegistrarPagamento` ("pago em DD/MM"), ISO `AAAA-MM-DD` |
+| `analista_id` / `auditor_id` | string | Referencia PSEUDONIMA de quem concluiu a decisao no portal, preenchida pelo SERVIDOR (o navegador nunca escolhe). Exigida pela guarda L0 na negativa/reducao (DL-0163) |
+| `aguardando_resposta` | boolean | `true` ao entrar na espera da resposta da beneficiaria (`ST_PublishReembolsoPended`), `false` ao (re)preparar o dossie e na correlacao. E' a UNICA variavel que o Lucas le' para saber se uma mensagem dela e' a resposta (DL-0163) |
+| `resposta_beneficiario` | string | A resposta da beneficiaria a um pedido de informacao (texto ja' pelo scrub de identificadores, ate' 1000 caracteres), entregue pela correlacao de `msg.reembolso.docs_received`. PHI: so' exibida ao analista |
+| `documentos_adicionais_refs` | json | Os arquivos da resposta (`{tipo: complemento, document_ref, sha256}`), na mesma correlacao. Uma nova rodada de pedido de informacao substitui a lista anterior (o analista ve' a ultima) |
+
+`texto_ao_beneficiario` e `info_solicitada` sao **PHI** e **nunca** viajam no evento de aviso: o consumidor os le do historico do motor (`PHI_PROCESS_VARS`).
 
 ## Topicos
 
-> Convencao `{dominio}.{contexto}.{acao}`. Kafka = fatos de dominio (`agents.events.reembolso.*`).
-> External-task = `operadora.reembolso.*` (um topico por service task; todos a registrar em
-> `config/topic_registry.yaml` — ver secao "Registro de topicos exigido" no fim).
+> Convencao `{dominio}.{contexto}.{acao}`. Kafka = fatos de dominio. External-task = `operadora.reembolso.*`.
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
-| Kafka | `agents.events.reembolso.received` | produz | apos start (solicitacao de reembolso recebida) |
-| Kafka | `agents.events.reembolso.pended` | produz | pendencia de documentacao aberta ao beneficiario |
+| Kafka | `agents.events.reembolso.received` | produz | apos start |
+| Kafka | `agents.events.reembolso.pended` | produz | pendencia aberta (`SOLICITAR_INFO`) |
 | Kafka | `agents.events.reembolso.sla_breached` | produz | SLA de analise estourado |
-| Kafka | `agents.events.reembolso.completed` | produz | fim (payload.desfecho = `aprovado_automatico` \| `aprovado_analista` \| `negado_analista` \| `aprovado_parcial` \| `cancelado_pendencia`) |
-| External task | `operadora.events.publish` | consome | publicador generico de eventos de dominio |
-| External task | `operadora.reembolso.check_coverage` | consome | resolve `cobertura_prevista` (contrato/segmentacao) |
-| External task | `operadora.reembolso.check_prazo` | consome | resolve `dentro_prazo` (calendario util → ISO conservador) |
-| External task | `operadora.reembolso.calculate_amount` | consome | **CONSOME** `valor_calculado_tabela_cents`/`multiplo_tabela_aplicado`/`fonte_tabela` da DMN `reembolso_calculo` (achatados de `calculo` por `camunda:inputParameter` em `ST_CalculateAmount`) e computa apenas `dentro_tabela` e `dentro_teto_l2` (duas comparacoes; sem decisao, sem aritmetica sobre dinheiro). Saida da DMN ausente/malformada => `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL` |
-| External task | `operadora.reembolso.analyze_request` | consome | convoca o agente analista (Marina-classe) para montar dossie de analise |
-| External task | `operadora.reembolso.request_documents` | consome | worker `request_documents`: registra que a ETAPA de abertura da pendencia de documentacao ao beneficiario rodou e retorna `{}` — **NAO afirma `notified`/`status`, nao contata canal algum e nao publica evento** (GAP-REEMBOLSO-8 / FAB-NOTIFIED-TRIO; antes retornava `{"notified": True, "status": "pended", ...}` constante). O evento `agents.events.reembolso.pended` e publicado pelo **proprio BPMN**, uma task adiante, em `ST_PublishReembolsoPended` (`:151-161`, T3.1 event-gap remedy B); o `event_topic_pended` que a docstring antiga do worker citava foi removido deste BPMN na mesma t3.1 |
-| External task | `operadora.reembolso.issue_payment` | consome | emite o pagamento do reembolso aprovado (integra CNAB/conciliacao) |
-| External task | `operadora.reembolso.send_reembolso_denial` | consome | **efeito adverso** — comunica negativa/reducao em nome do analista/auditor (worker-guard `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) |
-| External task | `operadora.reembolso.notify_sla_risk` | consome (worker) | worker `notify_sla_risk`: registra que a ETAPA de alerta de risco de SLA a `coordenacao-reembolso` rodou (timer nao-interruptivo) e retorna `{}` — **NAO afirma `sla_risk_notified` e nao contata canal algum**; nenhuma mensagem sai desta task hoje (FAB-SLA-RISK-NOTIFIED-SLICE4; antes retornava `sla_risk_notified=True` constante). Informativo e nunca adverso: `UT_AnaliseReembolso` segue aberta. Ligar o alerta a um canal real segue ABERTO em `docs/review-queue.md` |
-| Message BPMN | `msg.reembolso.docs_received` | recebe | correlacao por business key (`REEMB-{tenant}-{protocolo}`), destrava pendencia |
+| Kafka | `agents.events.reembolso.completed` | produz | fim (`payload.desfecho` = `aprovado_analista` \| `aprovado_parcial` \| `negado_analista` \| `cancelado_pendencia` \| `aprovado_automatico` — este so' com a faixa B aberta) |
+| Kafka | `agents.events.process_completed` | produz | **aviso ao beneficiario** (so com `aviso_beneficiario_whatsapp=true`): `tenant_id`, `agent_id`, `conversation_id`, `resultado` ∈ `{reembolso_aprovado, reembolso_parcial, reembolso_negado, reembolso_info_solicitada, reembolso_pago}` |
+| External task | `operadora.events.publish` | consome | publicador generico de eventos de dominio e avisos |
+| External task | `operadora.reembolso.check_coverage` | consome | `ST_ValidarSolicitacao`: guard de protocolo + resolve `dias_desde_atendimento` |
+| External task | `operadora.reembolso.validate_auto_criteria` | consome | `ST_ValidarFaixaAuto` (faixa B, ativacao desligada): RELAIA, sem comparar, `reembolso_auto_liberado` (constante R-058), `origem_aprovacao=HUMANA`, `teto_l2_cents`, `faixa_auto_desligada` (fechada tambem quando a politica e' invalida: teto acima do `teto_duro_brl`) e os limites DRAFT de exposicao (politica `reembolso_auto_approval`), mais `avaliacao_clinica_requerida`, `valor_tabela_dmn_cents`, `limite_contratual_cents`, `valor_nf_verificado` e os contadores de exposicao (fonte injetavel; sem fonte = nulo/false = humano). Sem `camunda:inputOutput`: tudo vai ao escopo do processo com o nome que a DMN le |
+| External task | `operadora.reembolso.register_auto_approval` | consome | `ST_RegistrarAprovacaoAuto` (faixa B, ativacao desligada, **guardado**): recusa com R-058 `False`, kill-switch de politica nao-`false`, politica invalida (teto acima do `teto_duro_brl`), origem local diferente de `AUTO_L2`, valor nao inteiro positivo igual ao solicitado ou fora do teto (`ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO`); senao escreve `valor_reembolso_aprovado_cents` e `origem_aprovacao=AUTO_L2`. Nao paga nada |
+| External task | `operadora.reembolso.analyze_request` | consome | `ST_PrepararDossie`: convoca o agente analista (Marina) para montar o dossie. Recebe `situacao_prazo` por `camunda:inputParameter` (`${prazo.situacao_prazo}`) |
+| External task | `operadora.reembolso.request_documents` | consome | registra que a etapa de pendencia rodou e retorna `{}` — **NAO afirma `notified`** (o aviso sai pelo Lucas) |
+| External task | `operadora.reembolso.send_reembolso_denial` | consome | **efeito adverso validado** — `ST_EnviarNegativa` e `ST_ComunicarReducao` (guard `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) |
+| External task | `operadora.reembolso.notify_sla_risk` | consome | registra a etapa de alerta de risco de SLA e retorna `{}` — nenhum canal e contatado (FAB-SLA-RISK-NOTIFIED-SLICE4) |
+| Message BPMN | `msg.reembolso.docs_received` | recebe | correlacao por business key; **a resposta volta direto para `ST_PrepararDossie`/analise** (nao ha mais admissibilidade). Primeiro produtor real: o Lucas |
 
 ## DMN referenciadas
 
-> Shape engine-deployavel (§4-bis-A): typeRef ∈ {string, boolean, integer, long, double, date}
-> — **`"number"` e invalido**; dinheiro BRL → **inteiro-centavos (`integer`)** neste contrato
-> (consistente com as variaveis `*_cents`); dias/SLA → **string ISO 8601**. Todo decisionTable
-> tem `hitPolicy`; toda tabela tem linha catch-all → caminho humano conservador. **Nenhuma DMN
-> tem coluna de saida de negativa/reducao.** `camunda:historyTimeToLive` namespaced (`P###D`)
-> em cada `<decision>`.
+> Shape engine-deployavel (§4-bis-A): typeRef ∈ {string, boolean, integer, long, double, date}; dias/SLA → string ISO 8601. Todo decisionTable tem `hitPolicy`; toda tabela tem linha catch-all. **Nenhuma DMN tem coluna de saida de negativa/reducao.**
 
-### `reembolso_admissibility` (hitPolicy FIRST — DRAFT)
-- **in:** `cobertura_prevista: boolean`, `documentacao_completa: boolean`, `dentro_prazo: boolean`, `beneficiario_ativo: boolean`, `carencia_cumprida: boolean`
-- **out:** `roteamento: string` (`SEGUE_ANALISE` | `PENDENTE_DOCUMENTACAO` | `ANALISE_HUMANA`), `motivo: string`
-- **Sem saida `NEGAR`/`REDUZIR` por design.** Cobertura ausente / fora de prazo / carencia / beneficiario inativo NAO produzem negativa: roteiam para `ANALISE_HUMANA` (so o humano nega). Catch-all (qualquer combinacao nao mapeada) → `ANALISE_HUMANA`.
+### `reembolso_prazo` (hitPolicy FIRST — DRAFT, informativa) — arquivo `spec/processes/dmn/reembolso_prazo.dmn`
+- **in:** `dias_desde_atendimento: integer`
+- **out:** `situacao_prazo: string` (`DENTRO` | `FORA` | `NAO_AVALIADO`)
+- **So informativa**: alimenta o dossie do analista e **nao roteia** (todo pedido vai para a analise humana). Hoje so tem o catch-all `NAO_AVALIADO`, porque o prazo contratual/regulatorio **nao esta confirmado**. Quando o juridico definir, entram as linhas `DENTRO`/`FORA` (o prazo vive na DMN, nunca em Python). A coluna e hoje "dead input" no baseline de `test_dmn_dead_inputs_fence`; sai de la quando as linhas entrarem.
 
-### `reembolso_calculo` (hitPolicy FIRST — DRAFT) — **a DMN que CALCULA o valor, e a UNICA fonte dele**
-- **in:** `tipo_reembolso: string`, `categoria_procedimento: string` (correcao de deriva: o shipped `spec/processes/dmn/reembolso_calculo.dmn` declara `hitPolicy="FIRST"` e exatamente estas DUAS entradas — este contrato listava `UNIQUE/COLLECT` e mais duas entradas que a tabela nunca teve)
-- **out:** `valor_calculado_tabela_cents: integer` (centavos BRL — base: multiplo da tabela de referencia / limite contratual), `multiplo_tabela_aplicado: double`, `fonte_tabela: string`
-- **Fonte unica do valor (ADR-0012, GAP F-1).** `BRT_Calculo` roda ANTES de `ST_CalculateAmount` (GAP-REEMBOLSO-5) e `ST_CalculateAmount` achata as tres saidas para variaveis locais da activity via `camunda:inputParameter` (`${calculo.valor_calculado_tabela_cents}` etc. — necessario porque o `resultVariable` `singleResult` chega ao external task como Object nao desserializado). O worker **relaia** esses tres valores e **nao possui tabela de referencia propria**: a tabela em Python que existia ate a auditoria D1 (`_BASE_VALUES_CENTS` + multiplo 1.5) foi removida, sem shim e sem fallback. Ausencia/malformacao da saida da DMN **para o caminho do dinheiro** (`ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL`, incidente sem `dentro_tabela`/`dentro_teto_l2`, logo sem auto-aprovacao).
-- Esta DMN **calcula quanto seria devido** segundo tabela/teto; **nao decide pagar/negar** e **nao reduz** o pedido — apenas expressa o valor de referencia. A comparacao `valor_solicitado_cents` vs `valor_calculado_tabela_cents` alimenta `dentro_tabela`, mas a eventual reducao (`APROVAR_PARCIAL`) e decisao **humana**. Catch-all (procedimento sem tabela) → `valor_calculado_tabela_cents = 0` + `fonte_tabela = "SEM_TABELA"`, o que forca `dentro_tabela=false` → `ANALISE_HUMANA` (nunca auto-aprova fora de tabela).
+### `reembolso_auto_approval` (hitPolicy FIRST — DRAFT, PRETENDIDA, ATIVACAO DESLIGADA) — arquivo `spec/processes/dmn/reembolso_auto_approval.dmn`
+- **R-070 opcao B** (decisao do dono, 2026-10-31, #1084 — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766; faixa dormente sobre a v2 por decisao do dono de 2026-11-01 no PR #1149, e PRETENDIDA desde a DEC-31 D31-1 de 2026-11-02 (DL-0164); bloco de assinatura do dono + atuaria em `docs/compliance/human-windows/R-070-dec-teto-d07.md` §6 segue EM BRANCO). As comparacoes NOVAS da opcao B (limite contratual, teto sobre o solicitado, exposicao, orcamento) vivem nesta DMN; o worker `validate_auto_criteria` as RELAIA sem comparar. Na v1, `dentro_tabela` e `dentro_teto_l2` eram computados no worker (pre-existentes, GAP F-1/T1.9); sairam com o `ST_CalculateAmount` na DL-0161 e nao voltaram — esta DMN nao le booleano de comparacao vindo do worker. (`register_auto_approval` refaz R-058 + valor igual ao solicitado + teto como GUARDA de efeito — recusa e' incidente, nunca roteamento.)
+- **in:** `faixa_auto_desligada: boolean` (kill-switch de politica), `avaliacao_clinica_requerida: boolean`, `tipo_reembolso: string`, `categoria_procedimento: string`, `valor_nf_verificado: boolean`, `valor_solicitado_cents: integer` (`> 0`), `valor_tabela_dmn_cents: integer` (`>= solicitado`; valor de tabela relaiado pelo worker com nome NAO sombreado — a tabela da atuaria nao existe ainda, entao hoje e' nulo), `limite_contratual_cents: integer` (`>= solicitado`), `teto_l2_cents: integer` (`>= solicitado`; teto 0 = humano), `aprovacoes_auto_benef_30d` (`< limite_aprovacoes_auto_benef_30d`, com limite `> 0`), `valor_auto_benef_30d_cents` (`<= limite_valor_auto_benef_30d_cents - solicitado`, com limite `> 0`), `valor_auto_tenant_dia_cents` (`<= orcamento_auto_tenant_dia_cents - solicitado`, com orcamento `> 0`)
+- **out:** `recomendacao: string` (`AUTO_APROVAR` | `ANALISE_HUMANA`), `motivo: string`, `valor_aprovado_auto_cents: integer` (so' em `AUTO_APROVAR`; nulo nas demais)
+- `AUTO_APROVAR` (regra `r_auto`, sem nenhuma celula `-`) apenas com kill-switch aberto (`false`), sem merito clinico, fase 1 (`livre_escolha` + `consulta`; urgencia/emergencia, exames, terapias e itens do art. 10-B da Lei 9.656 ficam fora por lista FECHADA), NF verificada e TODAS as comparacoes verdadeiras. Cada violacao tem regra humana DEDICADA antes de `r_auto` (`r_desligada_humano`, `r_clinica_humano`, `r_tipo_fora_fase1_humano`, `r_categoria_fora_fase1_humano`, `r_nf_nao_verificada_humano`, `r_valor_ausente_humano`, `r_fora_tabela_humano`, `r_acima_limite_contratual_humano`, `r_acima_teto_humano`, `r_exposicao_humano`, `r_exposicao_valor_humano`, `r_orcamento_tenant_humano`); fato nulo/ausente (sem limite contratual, sem contador, sem tabela) nao casa com nada e cai no catch-all `r_auto_catchall` → `ANALISE_HUMANA`. **Sem saida de negativa/reducao.** O caminho `AUTO_APROVAR` produz **somente aprovacao integral**: `valor_aprovado_auto_cents = valor_solicitado_cents`, e como `r_auto` exige solicitado `<=` tabela, limite contratual e teto, o valor aprovado e' `min(solicitado, limite contratual, teto)` sem aritmetica fora da DMN. **O teto so' roteia**: acima dele o pedido vai a humano, nunca e' pago "ate o teto". (Correcao F-028 preservada: a v1 pagava o valor de TABELA, maior que o solicitado sob o gate `<=`.)
 
-### `reembolso_auto_approval` (hitPolicy FIRST — DRAFT)
-- **in:** `dentro_tabela: boolean`, `dentro_teto_l2: boolean`, `requer_avaliacao_clinica: boolean`
-- **out:** `recomendacao: string` (`AUTO_APROVAR` | `ANALISE_HUMANA`), `motivo: string`
-- `AUTO_APROVAR` apenas com `dentro_tabela=true` E `dentro_teto_l2=true` E `requer_avaliacao_clinica=false`. **Sem saida de negativa/reducao.** Catch-all → `ANALISE_HUMANA`. O caminho `AUTO_APROVAR` produz **somente aprovacao integral** (`valor_reembolso_aprovado_cents = valor_calculado_tabela_cents` e, por construcao do gate `dentro_tabela`, `= valor_solicitado_cents`).
-
-### `reembolso_sla` (hitPolicy FIRST — DRAFT, todos os prazos DRAFT/verify; CONTRACT-HITPOLICY-DRIFT: corrigido de UNIQUE, DMN shippada e FIRST — `spec/processes/dmn/reembolso_sla.dmn:24`)
+### `reembolso_sla` (hitPolicy FIRST — DRAFT, todos os prazos DRAFT/verify) — arquivo `spec/processes/dmn/reembolso_sla.dmn`
 - **in:** `tipo_reembolso: string`, `categoria_procedimento: string`
 - **out:** `sla_analise: string` (ISO 8601), `sla_alerta: string` (ISO 8601), `fonte_regulatoria: string`
+- Inalterada na v0.2.0. A DMN ainda cita a RN 259/2011 (substituida pela RN 566/2022): revisao pendente com o regulatorio.
 
 ## Papeis humanos (candidate groups)
 
-> Nomes de grupo **PROPOSTOS** — confirmar contra a taxonomia organizacional do operador
-> (ver Open Questions). Todo `userTask` carrega `camunda:candidateGroups`.
+> Nomes de grupo **PROPOSTOS** — confirmar contra a taxonomia organizacional do operador. Todo `userTask` carrega `camunda:candidateGroups`.
 
 | Grupo (candidateGroups) | Papel | Tarefa |
 |---|---|---|
-| `analise-reembolso` | Analista de reembolso | `UT_AnaliseReembolso` (negativa/reducao SO aqui), `UT_DecidirPendenciaExpirada` |
-| `medico-auditor` | Medico auditor | `UT_RevisaoAuditorMedico` (merito clinico — `requer_avaliacao_clinica=true` ou `SOLICITAR_AUDITOR`) |
+| `analise-reembolso` | Analista de reembolso | `UT_AnaliseReembolso` (todo pedido passa aqui), `UT_DecidirPendenciaExpirada` |
+| `medico-auditor` | Medico auditor | `UT_RevisaoAuditorMedico` (merito clinico — `SOLICITAR_AUDITOR`) |
 | `coordenacao-reembolso` | Coordenacao de reembolso | `UT_CoordenacaoReembolso` (SLA de analise estourado — assume e decide) |
+| `analise-contas-pagar` | Financeiro (contas a pagar) | `UT_RegistrarPagamento` (paga fora do sistema e registra `data_pagamento`; nunca decide direito nem valor) — **DEC-30 D14 (#1084, 02/11/2026): sem 39º grupo, reusa o grupo da admissibilidade do SP-OP-PAGTO-001; o `financeiro-reembolso` da v0.2.0 saiu** |
 
-Campos obrigatorios por decisao adversa (validacao de formulario/listener da User Task —
-sem eles a task NAO completa):
-- `decisao_reembolso == NEGAR` → `justificativa` + `fundamentacao_contratual` + (se merito clinico) `cid10_referencia`/`parecer_auditor`.
-- `decisao_reembolso == APROVAR_PARCIAL` → `justificativa` + `fundamentacao_contratual` + `valor_reembolso_aprovado_cents` (< `valor_solicitado_cents`).
+Campos obrigatorios por decisao (validacao do formulario do portal e do guard do worker — sem eles a task nao completa):
+- `APROVAR` → `valor_reembolso_aprovado_cents` (> 0).
+- `APROVAR_PARCIAL` → `valor_reembolso_aprovado_cents` (< `valor_solicitado_cents`) + `justificativa` + `fundamentacao_contratual` + `texto_ao_beneficiario`.
+- `NEGAR` → `justificativa` + `fundamentacao_contratual` + `texto_ao_beneficiario` (+ `cid10_referencia`/`parecer_auditor` no merito clinico).
+- `SOLICITAR_INFO` → `info_solicitada`.
 
-`decisao_reembolso == SOLICITAR_INFO` → reexecuta `operadora.reembolso.request_documents`
-e a instancia aguarda em `GW_AguardarDocs` (mesmo sub-fluxo de pendencia do AUTH-001).
+## Bindings de agente (arbitragem `PERSP-REEMBOLSO-BINDING`, revista por DL-0161/DL-0162)
 
-## Bindings de agente — NENHUM agente declara `process_keys` para REEMBOLSO (arbitragem — nao e defeito)
+**Lucas** declara `SP-OP-REEMBOLSO-001` em `process_keys:` (`spec/agents/lucas/agent.yaml`) e abre o pedido (flag `MAEZO_REEMBOLSO_V1`, desligada por padrao), no molde do cancelamento.
 
-**Arbitragem registrada** (gap `PERSP-REEMBOLSO-BINDING`; achado originalmente em
-`phase1/perspective-part-A.md` Sec.5 item 5, REFUTADO por
-`phase1/perspective-part-A-VERIFICATION.md` C-4): **MENOR PRIVILEGIO CORRETO, nao lacuna**.
-Fato ESTRUTURAL, nao um grep de substring (um grep textual por `REEMBOLSO` sobre
-`spec/agents/*/agent.yaml` NAO serve de reproducao durável — comentarios explicativos, como o
-que a Marina carrega logo abaixo, citam a palavra "REEMBOLSO" sem declarar a chave, e fariam um
-grep de substring divergir do fato real): **nenhum `agent.yaml` declara `SP-OP-REEMBOLSO-001`
-em sua lista `process_keys:`** — por desenho, nao por omissao. Verificado por parse de YAML,
-campo a campo, nao por contagem de linhas de texto.
-
-**Fato de engenharia que sustenta a arbitragem:**
-
-- Marina e o UNICO agente que este processo convoca, e e convocada por DELEGACAO A2A
-  (`operadora.reembolso.analyze_request`) de DENTRO de uma instancia `SP-OP-REEMBOLSO-001` **ja
-  rodando** — as business-rule tasks proprias do processo (`BRT_Admissibilidade`/`BRT_Calculo`/
-  `BRT_AutoApproval`) ja executaram antes dela ser chamada (`src/maezo/agents/marina/graph.py:28`).
-  Marina NUNCA avalia DMN neste fluxo (so REPORTA fatos ja resolvidos) e o no `start_process` do
-  seu grafo e explicitamente NO-OP para `reembolso` (bloco `reembolso` da docstring do modulo em
-  `graph.py`: "`start_process` is a NO-OP (Marina never starts a second instance)" — citado pelo
-  proprio texto, nao por numero de linha, que desloca a cada edicao do docstring) — ela monta o
-  dossie factual e sempre roteia para o grupo humano `analise-reembolso`.
-- `process_keys:` em `spec/agents/*/agent.yaml` e o UNICO allowlist que concede autoridade de
-  start ao effect-PEP (`src/maezo/gateway/effect_pep.py:487,493-494`,
-  `AgentCapabilities.allows_process_key`); a ausencia de `SP-OP-REEMBOLSO-001` em qualquer
-  manifesto — incluindo o da Marina — e portanto MENOR PRIVILEGIO: nenhum agente tem autoridade
-  de efeito que nao usa.
-- Esta secao existe para que a proxima auditoria nao reabra a ausencia de
-  `SP-OP-REEMBOLSO-001` em `process_keys:` como se fosse uma omissao — e para que ela NAO
-  tente reproduzir esse fato com um `grep -rn REEMBOLSO spec/agents/*/agent.yaml`: esta MESMA
-  secao contem a palavra "REEMBOLSO" em texto explicativo (a comecar pelo proprio comentario que
-  a Marina carrega no manifesto, abaixo), o que faz esse grep de substring retornar linhas > 0
-  sem que isso signifique defeito algum. A reproducao durável e o parse de YAML acima, cercado
-  por `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py` (mesmo padrao de
-  `test_adequacao_sem_binding_de_agente.py`, gap `PERSP-B5-ADEQ-BINDING`/R-049).
+**Marina NAO declara a chave — por desenho, nao por omissao** (menor privilegio): ela e convocada por **delegacao A2A** (`operadora.reembolso.analyze_request`) de dentro de uma instancia ja rodando e nunca inicia a propria. Fato estrutural (parse de YAML, nao grep de substring): a chave esta em `process_keys:` do Lucas e **so dele**. Cercado por `tests/unit/gateway/test_reembolso_sem_binding_de_agente.py`.
 
 ## SLAs
 
-> Todos os prazos sao **DRAFT/verify** com regulatorio/juridico antes de qualquer timer em
-> producao. Prazos legais sao em dias uteis; ISO 8601 usa dias corridos — usar valores
-> conservadores e resolver o calendario util no worker (`operadora.reembolso.check_prazo`).
+> Todos os prazos sao **DRAFT/verify** com regulatorio/juridico antes de qualquer timer em producao. Prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores conservadores.
 
 | Timer | Valor (DRAFT) | Tipo | Fonte |
 |---|---|---|---|
-| Analise (padrao) | P30D | interruptivo → `UT_CoordenacaoReembolso` assume | prazo de reembolso ~30 dias — **DRAFT/verify** RN vigente / Lei 9.656 art. 12 |
-| Analise (urgencia/emergencia) | P5D ou menor | idem | atendimento de urgencia — **DRAFT/verify** |
-| Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo → `operadora.reembolso.notify_sla_risk` | politica interna |
-| Pendencia de documentacao | P5D (ref AUTH-001) | event gateway → `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
-| Pagamento do reembolso aprovado | embutido no worker `issue_payment` (ciclo CNAB) | — | prazo de pagamento pos-aprovacao — **DRAFT/verify** |
+| Analise (padrao) | P30D | interruptivo → `UT_CoordenacaoReembolso` assume | prazo de reembolso ~30 dias — **DRAFT/verify** (RN 566/2022 / Lei 9.656 art. 12) |
+| Analise (urgencia/emergencia) | P5D | idem | **DRAFT/verify** |
+| Alerta de risco | DMN `sla_alerta` | nao-interruptivo → `notify_sla_risk` | politica interna |
+| Pendencia de informacao/documentos | P5D | `GW_AguardarDocs` (mensagem OU timer) → `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia) |
+
+`conceder_prazo_extra` volta a `GW_AguardarDocs` (rearma o timer); `seguir_analise` volta a `ST_PrepararDossie`; `cancelar_solicitacao` encerra com desfecho neutro. **A expiracao nunca auto-nega.**
 
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |
 |---|---|---|
-| `ERR_REEMBOLSO_DENIAL_NOT_HUMAN` | guard do worker `operadora.reembolso.send_reembolso_denial` | recusa se `decisao_reembolso ∉ {NEGAR, APROVAR_PARCIAL}` setado por humano **ou** se faltar `analista_id`/`auditor_id`. Materializa a invariante L0: nenhum efeito adverso de reembolso sem User Task humana na trilha (ADR-0007). Declarar como `Error_ReembolsoDenialNotHuman` para uso do worker |
-| `ERR_REEMBOLSO_INVALID_PROTOCOLO` | declarado (`Error_ReembolsoProtocoloInvalido`) para uso dos workers | worker `check_coverage` lanca BPMN error se protocolo/guia inconsistente na origem (ex.: `protocolo_reembolso` ausente); capturado por boundary event `BE_ReembolsoProtocoloInvalido` em `ST_CheckCoverage` -> `End_ReembolsoProtocoloInvalido` (GAP-REEMBOLSO-2; fail-safe tecnico, NAO decisao de pagar/negar) |
-| `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL` | guard do worker `operadora.reembolso.calculate_amount` (`ReembolsoCalculoIndisponivelError`, subclasse de `ValueError`) | a saida de `BRT_Calculo` (DMN `reembolso_calculo`) chegou ausente, parcial ou mal tipada (dinheiro nao-`integer`, multiplo nao-double, `fonte_tabela` vazia). O worker **nao adivinha valor**: nao escreve `dentro_tabela`/`dentro_teto_l2`, logo `BRT_AutoApproval` nao pode ver combinacao `AUTO_APROVAR` e nenhum pagamento e' emitido. **Nao** e' BPMN error por design — `ST_CalculateAmount` nao tem boundary de erro e um `bpmnError` nao modelado ENCERRA o escopo silenciosamente no CIB Seven 2.1.0 (ADR-0030 §2); o `ValueError` vira `failure(retries=0)` = incidente visivel |
-| `ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO` | guard do worker `operadora.reembolso.issue_payment` (`ReembolsoValorPagamentoInvalidoError`, subclasse de `ValueError`) | `valor_reembolso_aprovado_cents` ausente/`float`/`bool`/`<= 0` => nenhum pagamento e incidente (mesma semantica ADR-0030 da linha acima). Linha adicionada junto ao GAP F-1: o codigo ja existia no worker desde o item-9 e faltava nesta tabela |
+| `ERR_REEMBOLSO_DENIAL_NOT_HUMAN` | guard de `send_reembolso_denial` | recusa sem decisao humana completa (ver "Invariante L0"). Nao e BPMN error modelado: vira incidente (`failure(retries=0)`) |
+| `ERR_REEMBOLSO_INVALID_PROTOCOLO` | `check_coverage` (`WorkerBpmnError`) | capturado por `BE_ReembolsoProtocoloInvalido` em `ST_ValidarSolicitacao` → `End_ReembolsoProtocoloInvalido` (GAP-REEMBOLSO-2; fail-safe tecnico, NAO decisao de pagar/negar) |
+| `ERR_EVENT_PUBLISH_FAILED` | boundary de cada `ST_Avisar*` | a falha do aviso nao trava o processo: segue para o proximo passo |
 
-## Reuso do sub-fluxo de pendencia de documentacao (AUTH-001)
+| `ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO` | guard de `register_auto_approval` (faixa B, ativacao desligada) | caminho automatico sem R-058/kill-switch/teto/politica valida ou com valor diferente do solicitado: incidente (`failure(retries=0)`), sem boundary modelado; nada aprovado |
 
-O sub-fluxo de pendencia de documentacao e portado **estruturalmente** do AUTH-001 (nao
-reimplementado): `operadora.reembolso.request_documents` registra a etapa de abertura da pendencia
-(retorna `{}` — nao publica nada, GAP-REEMBOLSO-8) e `ST_PublishReembolsoPended`, a task seguinte,
-publica `reembolso.pended`; a instancia aguarda em `GW_AguardarDocs`; a message BPMN
-`msg.reembolso.docs_received` (correlacionada por `REEMB-{tenant}-{protocolo}`) destrava e
-reavalia `BRT_Admissibilidade`; no estouro do timer `ICE_PrazoPendencia` (ref `P5D`) cria-se
-`UT_DecidirPendenciaExpirada` (`analise-reembolso`) — humano decide
-`cancelar_solicitacao` | `conceder_prazo_extra` | `seguir_analise`. **A expiracao da
-pendencia nunca auto-nega** (espelha AUTH-001 `UT_DecidirPendenciaExpirada`).
+Removidos na v0.2.0: `ERR_REEMBOLSO_CALCULO_DMN_INDISPONIVEL`, `ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO`. (`ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO` volta com a faixa B — #1149; DL-0164.)
+
+## Avisos ao beneficiario (pelo Lucas)
+
+Cada aviso e um fato sem PHI publicado por `ST_Avisar*` (gateway `aviso_beneficiario_whatsapp == true`). O consumidor (`agent_resume`) confere o historico do motor antes de avisar, respeita a **janela de 24h da Meta** (fora dela ninguem e avisado e a equipe e alertada) e envia:
+
+| `resultado` | Quando | Texto |
+|---|---|---|
+| `reembolso_aprovado` | decisao `APROVAR` | fixo: aprovado, valor e previsao de pagamento |
+| `reembolso_parcial` | decisao `APROVAR_PARCIAL` | `texto_ao_beneficiario` do analista, com as cercas de saida |
+| `reembolso_negado` | decisao `NEGAR` | `texto_ao_beneficiario` do analista, com as cercas de saida, e como pedir revisao |
+| `reembolso_info_solicitada` | decisao `SOLICITAR_INFO` | `info_solicitada` do analista, com as cercas de saida |
+| `reembolso_pago` | apos `UT_RegistrarPagamento` | fixo: pagamento feito |
+
+Texto livre do analista numa comunicacao adversa exige **revisao juridica antes de producao**.
 
 ## Pendencias para promocao a FINAL
 
-- DI (diagrama) do BPMN; corpo `.bpmn`/`.dmn` (wave de autoria posterior, contra este contrato).
-- Confirmacao de **todos** os prazos com regulatorio/juridico (prazo de reembolso, urgencia, pendencia, pagamento) e a conversao dias-uteis→ISO.
-- Confirmacao das fontes RN/Lei (RN 259, Lei 9.656 art. 12, RN de reembolso vigente — podem ter sido consolidadas/substituidas).
-- Tabela de referencia de reembolso (multiplo/limite por categoria/segmentacao) e o teto de auto-aprovacao L2 do tenant (tenants-amh.yaml) — sign-off de regulatorio + atuarial.
-- Confirmacao dos nomes de candidateGroups (`analise-reembolso`, `medico-auditor`, `coordenacao-reembolso`) contra a taxonomia organizacional do operador.
-- Politica de suspensao de prazo em pendencia; anexos/comprovantes obrigatorios por `tipo_reembolso`.
-- Integracao de pagamento (CNAB/conciliacao port) — semantica de `issue_payment` e correlacao do comprovante.
+- Revisao do juridico dos textos de "nao aprovado" e "parcial" e das condicoes dos casos legais (urgencia fora da rede, falta de prestador no prazo).
+- Definicao do prazo de reembolso (preencher `reembolso_prazo.dmn`) e confirmacao dos prazos de `reembolso_sla.dmn`; base RN 566/2022.
+- Template Meta para aviso fora da janela de 24h.
+- Pessoas reais nos grupos `analise-reembolso`, `medico-auditor`, `coordenacao-reembolso` e `analise-contas-pagar` (DEC-30 D14); confirmacao dos nomes contra a taxonomia organizacional.
+- Zona PHI para os comprovantes (foto/PDF): custodia em S3 com SSE-KMS implementada para dev (DL-0163; JPG/PNG/PDF ate' 10 MiB); a retencao de 5 anos (decisao do dono — DL-0162) e a disposicao dos cinco textos humanos (`phi_completeness.py::DISPOSITIONS`) sao do DPO.
+- Politica de suspensao de prazo em pendencia.
+- Faixa B (pretendida, ativacao desligada — DL-0164): assinatura do dono + atuaria no R-070 §6 antes de qualquer teto > 0, de virar o R-058 (interruptor unico de ativacao) ou de abrir o kill-switch de politica; disparos automaticos de desligamento (R-070 §3.5); fontes reais de tabela, limite contratual, NF verificada, merito clinico e contadores de exposicao (R-070 §3.7); sombra (R-070 §3.6).
 
-## Registro de topicos exigido (REPORTE — nao editar `topic_registry.yaml` aqui)
+## Tópicos a registrar (REPORTE)
 
-Adicionar a `config/topic_registry.yaml` (dono: W0.2) — Kafka `agents.events.reembolso.*`:
-`received`, `pended`, `sla_breached`, `completed`. External-task `operadora.reembolso.*`:
-`check_coverage`, `check_prazo`, `calculate_amount`, `analyze_request`, `request_documents`,
-`issue_payment`, `send_reembolso_denial`, `notify_sla_risk`. Message BPMN
-`msg.reembolso.docs_received`. (`operadora.events.publish` ja registrado.)
+Kafka `agents.events.reembolso.{received,pended,sla_breached,completed}`; external-task `operadora.reembolso.{check_coverage,analyze_request,request_documents,send_reembolso_denial,notify_sla_risk,validate_auto_criteria,register_auto_approval}`; message BPMN `msg.reembolso.docs_received`. Removidos: `operadora.reembolso.{check_prazo,calculate_amount,issue_payment}`.
 
 ## Anti-pattern invertido (ADR-0011, reference READ-ONLY)
 
-O `../maezo-reference` so possui um `doctor_reimbursement_summary_worker.py` (notificacao de
-extrato ao prestador — **nao** e adjudicacao ao beneficiario) e stubs
-`revenue_cycle.validate_procedure` ("validate procedure eligibility for reimbursement") com
-`error_strategy: fail_safe`. Nenhum fluxo de reembolso ao beneficiario foi importado: este
-processo e **greenfield**. O padrao a evitar (presente no reference glosa/recurso) e
-auto-aplicar efeito adverso por timeout ou por regra — **INVERTIDO** aqui: a DMN so calcula e
-roteia; toda negativa/reducao e User Task humana.
+O `../maezo-reference` so possui um `doctor_reimbursement_summary_worker.py` (extrato ao prestador — **nao** e adjudicacao ao beneficiario). Este processo e **greenfield**. O padrao a evitar (auto-aplicar efeito adverso por timeout ou por regra) esta **invertido** aqui: nenhuma regra decide, nenhum timer nega; toda negativa/reducao e User Task humana.
+
+## PROPOSTA (aguarda janela) — identidade de processo (ADR-0068)
+
+> **Seção de PROPOSTA, sem efeito hoje.** Não altera a semântica vigente: até a fase `escrita_alvo`
+> da janela única de migração descrita em `docs/adr/0068-migracao-chaves-maezo-payer-janela-unica-dual-read.md`, valem a process key e a seção de business key
+> deste contrato. Entra em vigor só na janela, depois da revisão do dono e das respostas às perguntas
+> abertas do ADR-0068 (DEC-18 b, R-101 e F-058 — decisões do dono de 2026-10-31).
+
+- **Process key:** `SP-OP-REEMBOLSO-001` → `maezo-payer-reembolso-001`.
+- **Business key alvo** (`{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`, compositor `WorkflowBusinessRef`; forma no motor sob a recomendação Q1-c):
+  - protocolo: `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `P-{protocolo_reembolso}`.
+  - guia (alternativa): `{tenant_id}:reembolso-001:hk1_<HMAC>` sobre `G-{numero_guia_tiss}`.
+- **Classificação (a confirmar pelo DPO):** pseudônimo ligado a beneficiário; guia é ID cru — opacas no motor e na saída.
+- **Forma de saída** (chave Kafka, `_business_key` em payload, log, métrica, trace, DLQ): sempre `{tenant_id}:{workflow_type}:hk1_<HMAC>`, HMAC por tenant (`PHI_HMAC_KEY`).
+- **Leitura dupla na janela:** o reenvio procura a instância pela chave alvo e depois pela vigente; achar qualquer uma devolve a instância existente. Nenhuma chave de instância viva é reescrita.
+- **Postura de dedup do start:** `NON_STRICT` no mapa (R-077, decisão do dono: `EXCLUSIVE`, em pacote próprio).

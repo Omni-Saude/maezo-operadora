@@ -3,7 +3,13 @@
 Agendador per-report_type dos Envios Periodicos ANS.
 Pure scheduler — NO adverse effects, all terminals NEUTRAL.
 
-TOPOLOGIA (pos GAP-ANS-1 / ANS-CRON-DEAD-CODE): cada uma das 5 process definitions de
+CALENDARIO AUTOMATICO DESLIGADO (R-007, F-002; decisao do dono DEC-03): o timer do SIP saiu do
+BPMN (RN 639/2025 revoga a RN 551/2022, vigente 2026-03-02; DL-0029) e os 4 timers restantes
+estao `isExecutable="false"` (nenhum tem norma primaria verificada). Enquanto nenhum for religado
+por parecer COUNSEL (R-006), o engine nao agenda nenhum tick e `trigger_submissions` nao roda em
+producao; a logica fica pronta e testada para quando um gatilho for religado.
+
+TOPOLOGIA (pos GAP-ANS-1 / ANS-CRON-DEAD-CODE): cada uma das 4 process definitions de
 `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn` executa DOIS serviceTasks em
 sequencia a partir do seu proprio TimerStartEvent:
 
@@ -72,10 +78,12 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------
 # Taxonomia de report_type -> (periodicidade pt-BR, periodo ISO 8601)
 #
-# DRAFT/verify regulatorio: RN 124/2006 (SIP), RN 209/2009 (utilizacao), RN 388/2015
-# (qualidade), RN 424/2017 (TISS/monitoramento) e DIOPS trimestral seguem marcados DRAFT em
-# `docs/review-queue.md` e no contrato — nem a periodicidade nem qualquer prazo aqui foram
-# confirmados com o regulatorio.
+# DRAFT/verify regulatorio: RN 209/2009 (utilizacao), RN 388/2015 (qualidade), RN 424/2017
+# (TISS/monitoramento) e DIOPS trimestral seguem marcados DRAFT em `docs/review-queue.md` e no
+# contrato — nem a periodicidade nem qualquer prazo aqui foram confirmados com o regulatorio.
+# O SIP (`RN_124_SIP`) NAO esta mais aqui (R-007): o agendador nao tem mais definition do SIP, e
+# o tipo so existe no envio manual do backlog ate o 4o tri/2025 (ans_calendar/SP-OP-ANS-SUBMIT-001);
+# um tick com esse literal cai no fail-closed abaixo.
 #
 # A metade pt-BR de cada par e o MESMO vocabulario que `ans_calendar.dmn` devolve em
 # `periodicidade` (mensal/anual/trimestral); a metade ISO e o que `_compute_competencia` consome.
@@ -152,7 +160,6 @@ COMPETENCIA_PENDENTE = "COMPETENCIA_PENDENTE"
 PERIODICIDADE_INDETERMINADA = "indeterminada"
 
 _REPORT_PERIODICIDADE: dict[str, tuple[str, str]] = {
-    "RN_124_SIP": ("mensal", "P1M"),
     "RN_209_UTILIZACAO": ("mensal", "P1M"),
     "RN_388_QUALIDADE": ("anual", "P12M"),
     "RN_424_TISS_MONITORAMENTO": ("mensal", "P1M"),
@@ -171,12 +178,14 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
     is pure and timezone-agnostic: it reads the year/month of whatever ISO instant it is handed
     (with or without offset) and never consults a clock.
       - P1M (monthly):   the previous month, "YYYY-MM".
-      - P3M (quarterly): the most recently CLOSED quarter's start month, "YYYY-MM" — e.g. a
-        reference date anywhere in Apr/May/Jun (all of Q2, still open) resolves to the SAME
-        "YYYY-01" (Q1, the quarter that already ended), never "YYYY-04" (Q2 itself).
+      - P3M (quarterly): the most recently CLOSED quarter, "YYYY-Qn" — the shape the submission
+        contract defines for quarterly competencias (SP-OP-ANS-SUBMIT-001 §entrada: `YYYY-MM`
+        mensal, `YYYY-Qn` trimestral; F-121). E.g. a reference date anywhere in Apr/May/Jun (all
+        of Q2, still open) resolves to the SAME "YYYY-Q1" (the quarter that already ended), never
+        "YYYY-Q2" (Q2 itself).
       - P12M (annual):   the previous calendar year in full, represented "YYYY-01" — shape-
-        consistent with the "YYYY-MM" of the branches above (never bare "YYYY"; see the branch
-        below for why).
+        consistent with the P1M "YYYY-MM" above (never bare "YYYY"; see the branch below for
+        why). The submission contract defines no annual shape; still DRAFT/verify.
       - anything else:   FAIL-CLOSED to `COMPETENCIA_PENDENTE`. An unrecognized (or empty)
         periodicidade means the report_type is outside the ratified taxonomy — there is no
         regulatory cadence to derive a period from, so the honest answer is the sentinel that
@@ -196,7 +205,7 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
         # Annual: the previous calendar year, in full.
         #
         # Representation: "YYYY-01" (4-digit year + literal "-01"), NOT bare "YYYY". Chosen for
-        # SHAPE-CONSISTENCY with the P1M/P3M "YYYY-MM" above — this value flows unvalidated into
+        # SHAPE-CONSISTENCY with the P1M "YYYY-MM" above — this value flows unvalidated into
         # the ANSSUB-{tenant}-{report_type}-{competencia} business key (ans_submit.py's
         # `_ans_business_key`, notification_bridge.py's `_ans_cron_business_key`) alongside every
         # other report_type's "YYYY-MM" competencia; a bare 4-char value would be the one outlier
@@ -208,15 +217,12 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
 
     if periodicidade == "P3M":
         # Quarterly: the most recently CLOSED quarter — computed the SAME way regardless of
-        # which of the 3 months of the current quarter the reference date falls in.
-        quarter_start = ((ref_date.month - 1) // 3) * 3 + 1  # start month of the CURRENT quarter
-        prev_quarter_start = quarter_start - 3
-        if prev_quarter_start < 1:
-            prev_quarter_start += 12
-            year = ref_date.year - 1
-        else:
-            year = ref_date.year
-        return f"{year:04d}-{prev_quarter_start:02d}"
+        # which of the 3 months of the current quarter the reference date falls in. Shape
+        # "YYYY-Qn" per the submission contract (F-121).
+        current_quarter = (ref_date.month - 1) // 3 + 1
+        if current_quarter == 1:
+            return f"{ref_date.year - 1:04d}-Q4"
+        return f"{ref_date.year:04d}-Q{current_quarter - 1}"
 
     if periodicidade == "P1M":
         if ref_date.month == 1:
@@ -302,7 +308,7 @@ def trigger_submissions(variables: dict[str, Any], *, tenant_id: str = "") -> di
 # error class in this module (pure scheduler, all terminals NEUTRAL).
 #
 # Topic mapping: `operadora.ans_cron.trigger_submissions` e declarado por
-# `ST_ResolverCompetencia*` nas 5 process definitions de
+# `ST_ResolverCompetencia*` nas 4 process definitions (hoje desligadas) de
 # spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn — topico
 # REGISTRADO e ALCANCAVEL (PERSP-B5-ANSCRON-TOPICS). O outro topico do BPMN,
 # `operadora.events.publish`, e o publicador generico compartilhado pelos 16

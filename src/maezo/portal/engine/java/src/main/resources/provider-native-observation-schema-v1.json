@@ -202,7 +202,8 @@
               "pattern": "^[!-~]{1,256}$"
             },
             "cibseven_version": {
-              "const": "2.1.0"
+              "type": "string",
+              "pattern": "^[!-~]{1,64}$"
             },
             "authorization_enabled": {
               "const": true
