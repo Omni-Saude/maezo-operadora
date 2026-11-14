@@ -27,6 +27,34 @@ organizacao: ver o que existe e como esta configurado, **sem** dado, log ou segr
 (ITCore), a pedido do Leonardo. **Revogar ao fim da avaliacao** com `delete-group-membership` (os dois) — a identidade
 continua existindo, o acesso nao.
 
+## Leitura da plataforma e Gold sem PHI (05/11/2026)
+
+`LeituraPlataformaGoldSemPHI` (`permission-set-leitura-gold-sem-phi.tf`), atribuido ao grupo
+`leitura-plataforma-gold-sem-phi`. Ele concede:
+
+- leitura de configuracao em todas as contas (o set da avaliacao);
+- em prod, Athena so' nas duas Gold agregadas do Actio;
+- em dev, so' o catalogo Glue (metadado).
+
+**Nenhum dado pessoal.** O acesso ao HAPI do dev (PHI) nao faz parte deste set. Se for concedido, vai num set e
+grupo proprios, com o aval do DPO registrado. Nunca entra neste set, cujo nome e' a promessa "sem PHI".
+
+### Revogar
+
+Remover a pessoa do grupo basta: a atribuicao liga o grupo ao set, e o grupo vazio nao concede nada.
+
+```bash
+export AWS_PROFILE=default   # conta de gestao 169446931765
+aws identitystore list-group-memberships --identity-store-id d-94676c2a0d \
+  --group-id <output grupo_leitura_gold_sem_phi> --region sa-east-1
+aws identitystore delete-group-membership --identity-store-id d-94676c2a0d \
+  --membership-id <membership-id da listagem> --region sa-east-1
+```
+
+Para retirar o set inteiro (todas as pessoas), remova este arquivo por PR revisado e aplique. Sessoes ja' abertas
+valem ate' expirar (`session_duration`). Para corte imediato, retire tambem a atribuicao no console do Identity
+Center.
+
 ## Adicionar uma pessoa
 
 ```bash
