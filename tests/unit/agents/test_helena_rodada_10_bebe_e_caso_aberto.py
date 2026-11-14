@@ -27,7 +27,6 @@ from maezo.agents.helena.graph import (
     HelenaGraph,
     _paciente_da_conversa,
     _pergunta_de_dependentes,
-    _pergunta_de_terceiro,
     new_helena_state,
 )
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
@@ -165,34 +164,6 @@ def test_paciente_vem_do_historico_quando_a_mensagem_nao_diz() -> None:
     assert _paciente_da_conversa(estado) == ("o bebê", "do bebê")
 
 
-def test_a_pergunta_de_coleta_fala_do_paciente_e_nunca_com_o_adulto() -> None:
-    for pergunta in (
-        "PERGUNTAR_INTENSIDADE",
-        "PERGUNTAR_CARACTERIZACAO",
-        "PERGUNTAR_IDADE",
-        "PERGUNTAR_IDADE_GESTACIONAL",
-        "default",
-    ):
-        texto = _pergunta_de_terceiro(pergunta, ("sua filha", "da sua filha"))
-        assert "sua filha" in texto or "da sua filha" in texto
-        assert "você está" not in texto.lower() and "você sente" not in texto.lower()
-
-
-async def test_recem_nascido_chorando_muito_escala_na_hora_com_o_192() -> None:
-    cib = _Gravador()
-    grafo, whatsapp = _grafo([_classify(intent="symptom", population="pediatric", idade_meses=0)], cib)
-
-    resultado = await grafo.ainvoke(_entrada("minha filha recém-nascida está chorando muito, deve ser dor"))
-
-    assert resultado["escalation_motivo"] == "red_flag_clinico"
-    assert resultado["escalation_severidade"] == "grave"
-    assert resultado["escalation_business_key"] == _CHAVE
-    enviado = whatsapp.enviados[0]
-    assert "Ligue 192 (SAMU) agora" in enviado
-    # Rodada do dono (18/10/2026): o texto de alarme e' NEUTRO (nunca supor genero/parentesco).
-    assert "esposa" not in enviado and "filha" not in enviado
-
-
 async def test_recem_nascido_sem_sinal_de_sofrimento_nao_dispara_o_alerta() -> None:
     cib = _Gravador()
     grafo, _ = _grafo([_classify(intent="symptom", population="pediatric", idade_meses=0)], cib)
@@ -214,16 +185,6 @@ async def test_sinal_negado_em_recem_nascido_nao_dispara_o_alerta() -> None:
 # =================================================================================================
 # B. Conteudo clinico nunca vira pedido de pessoa; caso clinico na chave propria
 # =================================================================================================
-
-
-async def test_conteudo_clinico_lido_como_pedido_de_pessoa_nao_abre_solicitacao_humano() -> None:
-    cib = _caso_administrativo()
-    grafo, _ = _grafo([_classify(intent="human_request", population="pediatric")], cib)
-
-    resultado = await grafo.ainvoke(_entrada("minha filha está com alergia e bolinhas na pele"))
-
-    assert resultado.get("escalation_motivo") != "solicitacao_humano"
-    assert all(v.get("motivo_categoria") != "solicitacao_humano" for _, v in cib.inicios)
 
 
 async def test_pedido_explicito_de_pessoa_continua_sendo_pedido_de_pessoa() -> None:
@@ -297,39 +258,3 @@ def test_a_pergunta_de_dependentes_so_pega_dependentes() -> None:
 # =================================================================================================
 # A transcricao: contestacao (caso administrativo) e, na mesma conversa, o bebe
 # =================================================================================================
-
-
-async def test_transcricao_contestacao_depois_bebe_na_mesma_conversa() -> None:
-    # 1. a contestacao de cobranca abriu o caso ADMINISTRATIVO na chave da conversa (o Lucas atende).
-    cib = _caso_administrativo("cobranca")
-    conversa: list[tuple[str, str]] = [
-        ("beneficiario", "quero contestar uma cobrança que veio errada"),
-        ("helena", "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui."),
-    ]
-
-    # 2. o bebe, na MESMA conversa: alergia, sem sinal de sofrimento ainda. Nunca pedido de pessoa.
-    grafo, whatsapp = _grafo([_classify(intent="human_request", population="pediatric", idade_meses=0)], cib)
-    turno2 = "minha filha recém-nascida está com uma alergia, bolinhas vermelhas na pele"
-    resultado = await grafo.ainvoke(_entrada(turno2, conversa))
-    assert resultado.get("escalation_motivo") != "solicitacao_humano"
-    assert cib.inicios == []
-    conversa += [("beneficiario", turno2), ("helena", whatsapp.enviados[-1])]
-
-    # 3. "deve estar sentindo dor, pois esta chorando muito": o modelo leu como pedido de pessoa. Agora e'
-    #    alerta clinico: caso na chave `-clin`, 192, e NUNCA o aviso de "ja esta com a equipe".
-    grafo, whatsapp = _grafo([_classify(intent="human_request")], cib)
-    turno3 = "ele deve estar sentindo dor, pois está chorando muito"
-    resultado = await grafo.ainvoke(_entrada(turno3, conversa))
-
-    assert resultado["escalation_motivo"] == "red_flag_clinico"
-    assert resultado["escalation_business_key"] == _CHAVE_CLINICA
-    assert resultado["start_desfecho"] == "novo"
-    assert [c for c, _ in cib.inicios] == [_CHAVE_CLINICA]
-    assert dict(cib.inicios)[_CHAVE_CLINICA]["motivo_categoria"] == "red_flag_clinico"
-    enviado = whatsapp.enviados[-1]
-    assert "192" in enviado
-    assert RESPOSTA_HANDOFF_JA_ABERTO not in enviado
-    assert all(proibido not in enviado.lower() for proibido in _PROIBIDO_NO_AVISO)
-    # o caso administrativo segue como estava: nada foi cancelado nem alterado.
-    status = await cib.get_process_status(_CHAVE)
-    assert status.instance_id == "caso-adm-r10"

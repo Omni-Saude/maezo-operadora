@@ -40,7 +40,6 @@ def _todos_os_textos() -> dict[str, str]:
     textos.update(_constantes(hp))
     textos["graph.RETOMADA_TEMPLATE"] = g.RETOMADA_TEMPLATE
     textos["graph.RETOMADA_RECUSADA_PLACEHOLDER"] = g.RETOMADA_RECUSADA_PLACEHOLDER
-    textos.update({f"graph._PERGUNTA_FALLBACK[{k}]": v for k, v in g._PERGUNTA_FALLBACK.items()})
     textos["consultas_plano.RESPOSTA_CONSULTA_SEM_IDENTIDADE"] = cp.RESPOSTA_CONSULTA_SEM_IDENTIDADE
     textos["consultas_plano._FECHO"] = cp._FECHO
     textos["dispatch.NON_TEXT_ACK_TEXT"] = dp.NON_TEXT_ACK_TEXT
@@ -175,7 +174,6 @@ def test_frases_curtas(nome: str) -> None:
 
 
 def test_helena_continua_dizendo_que_nao_avalia_e_orienta_emergencia() -> None:
-    assert "não avalia" in g.RESPOSTA_SINTOMA_SEM_ALERTA
     for nome in (
         "RESPOSTA_FALHA_TECNICA_START",
         "RESPOSTA_FALHA_DE_REDACAO",

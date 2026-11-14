@@ -78,7 +78,7 @@ TAREFAS = (
         "reembolso_pagamento",
         "BPMN_FORMDATA",
         ["data_pagamento"],
-        ["financeiro-reembolso"],
+        ["analise-contas-pagar"],  # DEC-30 D14 (#1084): sem grupo proprio
         "reembolso-pagar",
     ),
 )

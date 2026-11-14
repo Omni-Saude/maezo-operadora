@@ -18,7 +18,7 @@ para "este texto avisa que um humano assumiu" — entao um texto que ela aprova 
 nao recusa por este e' uma contradicao interna, nao uma opiniao de quem testa.
 
 Tudo aqui roda contra as funcoes reais (`motivo_de_recusa`, `menciona_encaminhamento`) e contra os
-nos reais (`inform`, `collect`, `respond`), com os duplos estruturais do repo.
+nos reais (`inform`, `respond`), com os duplos estruturais do repo.
 """
 
 from __future__ import annotations
@@ -123,7 +123,6 @@ def _graph(
     inferencia: object | None = None,
     *,
     whatsapp: _WhatsApp | None = None,
-    coleta_enabled: bool = False,
 ) -> HelenaGraph:
     return HelenaGraph(
         # `cast` e nao `type: ignore`: o duplo satisfaz o Protocol ESTRUTURALMENTE (o seam e'
@@ -133,7 +132,6 @@ def _graph(
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=cast(Any, whatsapp or _WhatsApp()),
-        coleta_enabled=coleta_enabled,
     )
 
 

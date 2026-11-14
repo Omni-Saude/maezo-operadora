@@ -14,12 +14,14 @@ from maezo.agents.helena import roteador as rt
 from maezo.agents.helena import roteador_contrato as rc
 from maezo.agents.helena import roteador_v7 as rv7
 from maezo.agents.helena.graph import PROMPT_VERSIONS, HelenaGraph
+from maezo.runtime.inference.rota_global import RotaGlobal
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.helena_conversa import _Transporte
 from tests.support.roteador_v7_fake import decisao_v7
-from tests.unit.agents.test_helena_rodada_3_simulador import _classify, _entrada, _Fonte, _WhatsApp
+from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _classify, _entrada, _Fonte, _WhatsApp
 
 _CONTRATO = rc.carregar()
 
@@ -89,11 +91,11 @@ def test_prompt_sem_historico_e_sem_pendencia() -> None:
 
 # --- travas -----
 def test_travas_na_ordem_do_contrato() -> None:
+    # Limpeza da saude, etapa 3: a trava de entrada nao tem mais o alarme por palavra (so' risco e dados).
     sim, nao = (lambda _t: True), (lambda _t: False)
-    assert rt.trava_de_entrada("x", alarme=sim, risco=sim) == rt.TRAVA_ALARME
-    assert rt.trava_de_entrada("x", alarme=nao, risco=sim) == rt.TRAVA_RISCO
-    assert rt.trava_de_entrada("meu cpf é 123.456.789-09", alarme=nao, risco=nao) == rt.TRAVA_DADOS
-    assert rt.trava_de_entrada("bom dia", alarme=nao, risco=nao) is None
+    assert rt.trava_de_entrada("x", risco=sim) == rt.TRAVA_RISCO
+    assert rt.trava_de_entrada("meu cpf é 123.456.789-09", risco=nao) == rt.TRAVA_DADOS
+    assert rt.trava_de_entrada("bom dia", risco=nao) is None
 
 
 # --- decisao da Helena atual -----
@@ -177,6 +179,8 @@ class _ModeloComRoteador:
 
 
 def _grafo(modo: str, modelo: Any) -> tuple[Any, _WhatsApp]:
+    """Limpeza da saude, etapa 3: fora da allowlist nao ha' mais sombra; o log do roteador sai so' nos turnos
+    do roteador ativo da allowlist."""
     whatsapp = _WhatsApp()
     grafo = HelenaGraph(
         inference=modelo,
@@ -189,31 +193,10 @@ def _grafo(modo: str, modelo: Any) -> tuple[Any, _WhatsApp]:
         consultas_plano=_Fonte(),
         relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
         helena_roteador=modo,
+        rota_global=RotaGlobal(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
+        helena_roteador_conversas=frozenset({_CONVERSA}),
     )
     return grafo.compile_graph().compile(), whatsapp
-
-
-async def _turno(
-    modo: str, mensagem: str, classificacao: str
-) -> tuple[dict[str, Any], _WhatsApp, Any, list[Any]]:
-    modelo = _ModeloComRoteador([classificacao], decisao_v7("conversa"))
-    grafo, whatsapp = _grafo(modo, modelo)
-    with capture_logs() as logs:
-        resultado = await grafo.ainvoke(_entrada(mensagem))
-        await asyncio.sleep(0.01)
-    return resultado, whatsapp, modelo, logs
-
-
-async def test_sombra_nao_muda_a_resposta_e_registra_a_decisao() -> None:
-    desligado, zap_d, modelo_d, logs_d = await _turno("desligado", "bom dia", _classify(intent="greeting"))
-    sombra, zap_s, modelo_s, logs_s = await _turno("sombra", "bom dia", _classify(intent="greeting"))
-    assert zap_s.enviados == zap_d.enviados
-    assert sombra.get("response_text") == desligado.get("response_text")
-    assert modelo_d.do_roteador == 0 and modelo_s.do_roteador == 1
-    assert not [e for e in logs_d if e.get("event") == "helena_roteador_sombra"]
-    [evento] = [e for e in logs_s if e.get("event") == "helena_roteador_sombra"]
-    assert evento["habilidade"] == "conversa" and evento["concorda"] is True and evento["falha"] is None
-    assert "bom dia" not in json.dumps(evento, default=str)
 
 
 async def test_roteador_que_falha_so_vira_campo_no_log() -> None:
@@ -224,7 +207,7 @@ async def test_roteador_que_falha_so_vira_campo_no_log() -> None:
             return await super().generate(prompt, **kw)
 
     modelo = _Quebrado([_classify(intent="greeting")], "")
-    grafo, whatsapp = _grafo("sombra", modelo)
+    grafo, whatsapp = _grafo("ativo", modelo)
     with capture_logs() as logs:
         await grafo.ainvoke(_entrada("bom dia"))
         await asyncio.sleep(0.01)
@@ -249,7 +232,9 @@ async def test_roteador_usa_o_provedor_proprio_quando_ha() -> None:
             historico_enabled=True,
             consultas_plano=_Fonte(),
             relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
-            helena_roteador="sombra",
+            helena_roteador="ativo",
+            rota_global=RotaGlobal(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
+            helena_roteador_conversas=frozenset({_CONVERSA}),
             roteador_inference=proprio,  # type: ignore[arg-type]
         )
         .compile_graph()

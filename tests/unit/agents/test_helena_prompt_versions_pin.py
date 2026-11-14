@@ -37,7 +37,7 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
         "classify-v7.1",
         "c6e449ce73558d55bd8b05b31e1ab8987f430fda6142262caf80716808d2a8f6",
     ),
-    "coleta": ("coleta-v2", "4dae04994f5f95b53d3855a84d2c3f7e2b23bf697a66dc739d59f4f12671e0bd"),
+    # `coleta` (coleta-v2) saiu com o no' `collect` na limpeza da saude, etapa 3 (02/11/2026).
     # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).
     "classify_historico": (
         "classify-historico-v1",
@@ -70,7 +70,6 @@ def _texto_atual() -> dict[str, tuple[str, str]]:
             prompts.classify_prompt(roteador_lucas=True),
         ),
         "response": (prompts.RESPONSE_PROMPT_VERSION, prompts.response_prompt()),
-        "coleta": (prompts.COLETA_PROMPT_VERSION, prompts.coleta_prompt()),
         "classify_historico": (prompts.CLASSIFY_HISTORICO_VERSION, prompts.classify_historico_adendo()),
         "response_historico": (prompts.RESPONSE_HISTORICO_VERSION, prompts.response_historico_adendo()),
     }

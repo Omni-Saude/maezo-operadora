@@ -1,7 +1,8 @@
 """Textos fixos da oferta da equipe e da recusa dela (avaliacao independente r5 de 25/10/2026).
 
 Modulo PURO (sem import do grafo): o `graph.py` o importa no topo, como `habilidades.sintoma.textos`.
-Nenhum destes textos tem equivalente no pacote (`spec/agents/helena/pacote/textos.yaml`), entao ficam aqui.
+Nenhum destes textos tem equivalente no pacote (`spec/agents/helena/pacote/textos.yaml`), entao ficam aqui,
+fora o caso mantido (`PADRAO`, a mesma chave do pacote de antes).
 """
 
 from __future__ import annotations
@@ -49,6 +50,12 @@ RESPOSTA_RECUSA_COM_CASO_SAUDE: Final[str] = f"{RESPOSTA_RECUSA_COM_CASO} {LINHA
 TEXTO_RECUSA_JA_RESPONDIDA: Final[str] = "Tudo bem, entendi. Se precisar, é só me chamar."
 TEXTO_SEM_SINAL_NOVO: Final[str] = f"Entendi. {LINHA_192_DA_RECUSA}"
 
+#: Alarme JA' tratado e a pessoa diz que foi engano / nao sente aquilo (texto do dono, palavra por palavra).
+#: Mesma chave do pacote de sempre; movido de `sintoma/textos.py` na etapa 1 da limpeza da saude.
+CHAVE_CASO_MANTIDO: Final[str] = "caso_mantido_para_a_equipe"
+TEXTO_CASO_MANTIDO: Final[str] = "Entendi. Mantive o seu caso para a equipe de saúde confirmar com você."
+PADRAO: Final[dict[str, str]] = {CHAVE_CASO_MANTIDO: TEXTO_CASO_MANTIDO}
+
 #: Os textos acima que `classify` deixa prontos: saem como estao, sem modelo
 #: (`roteador._e_texto_do_roteador`).
 TEXTOS_FIXOS: Final[frozenset[str]] = frozenset(
@@ -65,7 +72,10 @@ TEXTOS_FIXOS: Final[frozenset[str]] = frozenset(
 )
 
 __all__ = [
+    "CHAVE_CASO_MANTIDO",
+    "PADRAO",
     "TEXTOS_FIXOS",
+    "TEXTO_CASO_MANTIDO",
     "PENDENTE_OFERTA_EQUIPE",
     "LINHA_192_DA_RECUSA",
     "RESPOSTA_RECUSA_COM_CASO",

@@ -117,27 +117,41 @@ def contas_adjudica_por_conta(*, numero_guia_tiss: object, numero_conta: object)
     return bool(numero_guia_tiss) and bool(numero_conta)
 
 
-def pagto_business_key_por_conta(*, tenant_id: object, numero_guia_tiss: object, numero_conta: object) -> str:
-    """`PAGTO-{tenant_id}-C-{numero_guia_tiss}-{numero_conta}` — UMA ordem por conta adjudicada.
+def pagto_business_key_por_conta(
+    *, tenant_id: object, prestador_id: object, numero_guia_tiss: object, numero_conta: object
+) -> str:
+    """`PAGTO-{tenant_id}-C-{prestador_id}-{numero_guia_tiss}-{numero_conta}` — UMA ordem por conta.
 
     Decisao do dono de 2026-11-01 (opcao A): a chave PAGTO cunhada pelo handoff de uma conta que
-    CONTAS adjudicou na forma guia/conta passa a carregar a identidade da conta. A identidade e' a
-    MESMA da instancia de CONTAS que adjudicou (`CONTAS-{t}-{guia}-{conta}`): nem o lote nem o
-    prestador entram, porque nao entram na chave de CONTAS — uma conta reapresentada noutro lote
-    continua sendo a MESMA conta e nao pode ser paga duas vezes.
+    CONTAS adjudicou na forma guia/conta passa a carregar a identidade da conta. DEC-30 D13
+    (2026-11-02, issue #1084): a identidade inclui TAMBEM o prestador (opcao B do dono) — a ordem
+    e' de UM credor, e duas contas de prestadores distintos nunca convergem na mesma chave. O lote
+    NAO entra: uma conta reapresentada noutro lote continua sendo a MESMA conta e nao pode ser paga
+    duas vezes. Registro da forma: ADR-0074 (emenda ao ADR-0068, linha 4 da §2).
 
     So' e' cunhada dentro da janela de migracao de chaves (fases `leitura_dupla`/`escrita_alvo` do
     handoff; o padrao `legado` nunca chama este compositor).
 
-    RECUSA (`BusinessKeyComponentError`, um `ValueError`):
-      * componente ausente, vazio, nao-`str` ou com espaco/controle (`componente`);
+    RECUSA (`BusinessKeyComponentError`, um `ValueError`), antes de qualquer efeito:
+      * componente ausente, vazio, nao-`str` ou com espaco/controle (`componente`) — a MESMA regra
+        dos outros segmentos, inclusive para o prestador;
       * `tenant_id` com `-` (como em CONTAS/AUTH);
+      * `prestador_id` com `-` — DEC-30 D13 + a regra de R-101 estendida ao segmento do meio: com
+        `-` no prestador a chave deixaria de se decompor de um so' jeito
+        (`prestador='A-B', guia='C'` x `prestador='A', guia='B', conta='C-...'`); fail-closed;
       * `numero_guia_tiss` com `-` — decisao do dono R-101 ("recusar '-' no numero da guia",
-        fail-closed). Com a guia livre de `-` e a etiqueta `C` na frente, a chave se decompoe de
-        um so' jeito: `numero_conta` (o ultimo componente) pode conter `-`.
+        fail-closed). Com prestador e guia livres de `-` e a etiqueta `C` na frente, a chave se
+        decompoe de um so' jeito: `numero_conta` (o ultimo componente) pode conter `-`.
     """
     family = "PAGTO"
     tenant = _tenant_componente(tenant_id, family=family)
+    prestador = componente("prestador_id", prestador_id, family=family)
+    if "-" in prestador:
+        raise BusinessKeyComponentError(
+            f"business key {family}: componente 'prestador_id' contem '-' — recusado (DEC-30 D13: "
+            "o prestador e' um segmento do meio da forma por conta; com '-' ela seria ambigua entre "
+            "(prestador='A-B', guia='C') e (prestador='A', guia='B', conta='C-...'))"
+        )
     guia = componente("numero_guia_tiss", numero_guia_tiss, family=family)
     if "-" in guia:
         raise BusinessKeyComponentError(
@@ -146,4 +160,4 @@ def pagto_business_key_por_conta(*, tenant_id: object, numero_guia_tiss: object,
             "(guia='A-B', conta='C') e (guia='A', conta='B-C'))"
         )
     conta = componente("numero_conta", numero_conta, family=family)
-    return f"{PAGTO_BUSINESS_KEY_PREFIX}{tenant}-{PAGTO_FORMA_POR_CONTA}-{guia}-{conta}"
+    return f"{PAGTO_BUSINESS_KEY_PREFIX}{tenant}-{PAGTO_FORMA_POR_CONTA}-{prestador}-{guia}-{conta}"

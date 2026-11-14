@@ -101,12 +101,10 @@ async def test_evl_helena_19_mutation_check_memoria_is_non_vacuous() -> None:
     """
     case = next(c for c in HELENA_CASES if c["id"] == "EVL-HELENA-19")
     sem_memoria = {k: v for k, v in copy.deepcopy(dict(case)).items() if k != "memoria_clinica"}
-    # O turno DEGRADADO faz DUAS chamadas (classify + `_resumo_contexto`) em vez da UNICA do caso
-    # verde (so' o classify: desde 01/10/2026 o sintoma sem bandeira recebe texto fixo, sem modelo),
-    # porque ele termina em `escalate`, cujo aviso tambem e' texto fixo (DL-0062). O contrato
-    # un-swallowable do `run_case` exige a contagem exata, e essa diferenca de contagem e' ela mesma
-    # parte da prova.
-    sem_memoria["recorded_llm"] = [*case["recorded_llm"], "Resumo para o atendente."]
+    # Limpeza da saude, etapa 3 (02/11/2026): o caso verde tambem termina em `escalate` (o sintoma sem
+    # bandeira vai a equipe de saude), entao os dois turnos fazem as MESMAS duas chamadas (classify +
+    # `_resumo_contexto`); a prova passa a ser a TABELA e o MOTIVO, nao a rota.
+    sem_memoria["recorded_llm"] = list(case["recorded_llm"])
 
     result = await run_case(build, sem_memoria, extra_config=_helena_extra_config())
 
@@ -116,7 +114,8 @@ async def test_evl_helena_19_mutation_check_memoria_is_non_vacuous() -> None:
         "com a tabela pediatrica, o caso esta verde por outro motivo e nao mede a memoria."
     )
     assert result.state["dmn_table"] == "triage_redflag_adult"
-    with pytest.raises(AssertionError, match="RT mismatch"):
+    assert result.state["escalation_motivo"] == "falha_tecnica"
+    with pytest.raises(AssertionError):
         assert_expect(result.state, case["expect"])
 
 

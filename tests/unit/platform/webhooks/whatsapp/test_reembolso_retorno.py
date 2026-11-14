@@ -78,6 +78,7 @@ async def _retomar(
         "data_pagamento_iso": None,
         "raw_to": NUMERO,
         "resume_ref": f"{INSTANCIA}:{resultado}",
+        "valor_aprovado_cents": 20000,
     }
     argumentos.update(extra)
     return await retomada.retomar_reembolso(**argumentos)
@@ -94,7 +95,7 @@ async def test_aprovado_e_pago_enviam_o_texto_fixo_uma_vez() -> None:
     await _retomar(retomada, conversa, rp.RESULTADO_PAGO, data_pagamento_iso="2026-10-27")
     textos = [t for _, t, _ in cliente.enviados]
     assert textos == [
-        rp.TEXTO_RETORNO_APROVADO.format(protocolo=PROTOCOLO),
+        rp.TEXTO_RETORNO_APROVADO.format(protocolo=PROTOCOLO, valor="R$ 200,00"),
         rp.TEXTO_RETORNO_PAGO.format(protocolo=PROTOCOLO, data="27/10/2026"),
     ]
 
@@ -112,7 +113,7 @@ async def test_texto_da_equipe_entra_entre_aspas_como_escrito(resultado: str, mo
     escrito = "O procedimento não está na cobertura do seu contrato, conforme a cláusula informada."
     await _retomar(retomada, conversa, resultado, texto_da_equipe=escrito)
     ((destino, texto, _),) = cliente.enviados
-    assert destino == NUMERO and texto == modelo.format(protocolo=PROTOCOLO, texto=escrito)
+    assert destino == NUMERO and texto == modelo.format(protocolo=PROTOCOLO, texto=escrito, valor="R$ 200,00")
 
 
 async def test_texto_barrado_pelas_cercas_sai_sem_o_texto_e_diz_isso() -> None:
@@ -183,6 +184,7 @@ def _motor(conversa: str, **variaveis: Any) -> FakeCibSevenTransport:
         "conversation_id": conversa,
         "protocolo_reembolso": PROTOCOLO,
         "decisao_reembolso": "APROVAR",
+        "valor_reembolso_aprovado_cents": 20000,
         "data_pagamento": "2026-10-27",
         "texto_ao_beneficiario": "Texto da equipe sobre o pedido.",
         "info_solicitada": "Envie a nota fiscal legível.",
@@ -281,6 +283,8 @@ async def test_sem_respaldo_no_historico_vai_para_a_fila_morta_sem_enviar(variav
         (rp.RESULTADO_PARCIAL, "APROVAR_PARCIAL", "texto_ao_beneficiario"),
         (rp.RESULTADO_INFO_SOLICITADA, "SOLICITAR_INFO", "info_solicitada"),
         (rp.RESULTADO_PAGO, "APROVAR", "data_pagamento"),
+        (rp.RESULTADO_APROVADO, "APROVAR", "valor_reembolso_aprovado_cents"),
+        (rp.RESULTADO_PARCIAL, "APROVAR_PARCIAL", "valor_reembolso_aprovado_cents"),
     ],
 )
 async def test_sem_o_fato_que_o_texto_afirma_a_equipe_e_avisada_e_nada_sai(

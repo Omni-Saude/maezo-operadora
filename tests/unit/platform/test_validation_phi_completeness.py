@@ -142,7 +142,9 @@ class TestNonVacuity:
         # 66 -> 65: DL-0161 (reembolso v2) -2 +1.
         # 65 -> 67 com `prestador_trust_scorecard.dmn` + `prestador_tier.dmn` (MPTT P5).
         # 67 -> 68 com `pagto_duplicidade.dmn` (PAGTO PR-E, #1179) — ver as entradas do CORPUS_DELTA_LOG.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 68  # VW4/GP11: +suppression_routing
+        # 68 -> 69 com `reembolso_auto_approval.dmn` (faixa B dormente, R-076, #1149).
+        # 69 -> 70 com `pagto_comite_coordenacao.dmn` (DEC-31 D31-2, #1198) — ver o CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 70  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2546,6 +2548,433 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "dark): SAIDA: codigo fixo do motivo da regra que casou. Sem dado de beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1181",
+        name="votos_minimos_coordenacao",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-30 D3 (dono, #1084): saida integer nova da DMN `pagto_alcada` v0.1.3 (+1 "
+            "dmn_output_name), achatada no outputParameter de BRT_AlcadaRouting (+1 "
+            "bpmn_output_parameter, +1 juel_segment). Contagem de votos do comite exigida para a "
+            "coordenacao completar o quorum apos estouro de SLA — sem identificador, sem dado de "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1181",
+        name="pagto_alcada",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DEC-30 D3: +1 leitura `${pagto_alcada.votos_minimos_coordenacao}` no outputParameter de "
+            "BRT_AlcadaRouting (juel_root). Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "contador de aprovacoes automaticas do beneficiario em 30 dias relaiado por "
+            "validate_auto_criteria (sem fonte hoje = nulo); contagem agregada, sem identificador, lida por "
+            "uma coluna da DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="avaliacao_clinica_requerida",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "fato booleano NOVO 'requer avaliacao clinica' relaiado de fonte injetavel (sem fonte hoje = "
+            "nulo = humano); nao carrega CID nem dado clinico, so' o booleano. Nome distinto do "
+            "requer_avaliacao_clinica que saiu com o #1074."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="faixa_auto_desligada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "kill-switch de politica (bool) relaiado pelo worker validate_auto_criteria e lido por uma "
+            "coluna da DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_aprovacoes_auto_benef_30d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite DRAFT de politica (contagem) relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_contratual_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite contratual do beneficiario em centavos (sem fonte hoje = nulo) lido pela DMN "
+            "reembolso_auto_approval; valor monetario, nao identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="limite_valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "limite DRAFT de politica em centavos relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="orcamento_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "orcamento DRAFT diario do tenant em centavos relaiado e lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="origem_aprovacao",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "origem da aprovacao (HUMANA | AUTO_L2): outputParameter de ST_RegistrarAprovacaoAuto (+2: nome "
+            "e raiz JUEL) e as duas condicoes de GW_DesfechoPagamento (+2). Enum tecnico, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="origem_pagamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "inputParameter LOCAL constante AUTO_L2 de ST_RegistrarAprovacaoAuto (guarda do worker "
+            "register_auto_approval)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="reembolso_auto_liberado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "copia da constante R-058 relaiada por validate_auto_criteria e lida pela condicao de "
+            "Flow_GWFaixa_Auto."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="teto_l2_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "teto de politica em centavos (max_value_brl x 100) relaiado e lido pela DMN "
+            "reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_aprovado_auto_cents",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "saida integer da DMN reembolso_auto_approval (= valor_solicitado_cents so na regra r_auto) "
+            "(+1), o inputParameter local de ST_RegistrarAprovacaoAuto (+1) e o segmento JUEL "
+            "`auto_aprovacao.valor_aprovado_auto_cents` (+1)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_auto_benef_30d_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor automatico acumulado do beneficiario em 30 dias (sem fonte hoje = nulo); agregado "
+            "monetario, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_auto_tenant_dia_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor automatico do tenant no dia (sem fonte hoje = nulo); agregado do tenant."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_nf_verificado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "fato booleano 'valor da NF verificado' (sem fonte hoje = false) lido pela DMN "
+            "reembolso_auto_approval; nao carrega a NF nem o valor."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_tabela_dmn_cents",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "valor de tabela relaiado pelo worker com nome NAO sombreado (reparo B1 da revisao independente;"
+            " sem fonte hoje = nulo) lido pela DMN reembolso_auto_approval."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="auto_aprovacao",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+3 raizes JUEL: inputParameter de ST_RegistrarAprovacaoAuto e a condicao de Flow_GWFaixa_Auto "
+            "(recomendacao) e o resultVariable de BRT_FaixaAuto. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="categoria_procedimento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so consulta; art. 10-B fora). Nome"
+            " ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="tipo_reembolso",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (fase 1: so livre_escolha). Nome ja no "
+            "corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_solicitado_cents",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 coluna de entrada da DMN reembolso_auto_approval (valor > 0 e comparacoes). Nome ja no "
+            "corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="recomendacao",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 saida da DMN reembolso_auto_approval e +1 segmento JUEL `auto_aprovacao.recomendacao` na "
+            "condicao de Flow_GWFaixa_Auto. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 saida da DMN reembolso_auto_approval. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="valor_reembolso_aprovado_cents",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+2 no outputParameter de ST_RegistrarAprovacaoAuto (nome e raiz JUEL): o valor aprovado "
+            "automatico sobe ao escopo do processo. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico (reembolso.completed aprovado_automatico). "
+            "Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-01",
+        pr="#1149",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "R-076 / R-070 opcao B, faixa B DORMENTE sobre a v2 (dono 2026-11-01, PR #1149): "
+            "+1 inputParameter de ST_PublishAprovadoAutomatico. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="pagto_comite_coordenacao",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2 (dono, #1084): nome da DMN nova e do resultVariable de BRT_AssuncaoComite "
+            "(+1 bpmn_result_variable) lido nos dois outputParameter que achatam as saidas (+2 juel_root). "
+            "Mapa de classificacao da assuncao do comite, sem identificador nem dado de beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="assuncao_comite",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2: saida PERMITIDA|RECUSADA da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_output_name), achatada por BRT_AssuncaoComite (+1 bpmn_output_parameter, +1 juel_segment). "
+            "Vocabulario fechado, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="motivo_assuncao_comite",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN. DEC-31 D31-2: token fechado do motivo da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_output_name, +1 bpmn_output_parameter, +1 juel_segment); vai para a trilha ADR-0007. "
+            "Codigo fixo, sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_sla_estourado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. DEC-31 D31-2: entrada boolean da DMN `pagto_comite_coordenacao` (+1 "
+            "dmn_input_expression); fato do motor escrito so pelos listeners de Flow_GWTipo_Comite/"
+            "Flow_SlaComite_Pub. Sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_votos_aprovar",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. DEC-31 D31-2: contagem de votos APROVAR concluidos na rodada — entrada da DMN (+1 "
+            "dmn_input_expression) e leitura no listener de Flow_UTComite_Registrar (+1 juel_root). "
+            "Inteiro, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="comite_votos_nao_aprovar",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. DEC-31 D31-2: contagem de votos que nao aprovam concluidos na rodada — entrada da DMN "
+            "(+1 dmn_input_expression) e leitura no listener de Flow_UTComite_Registrar (+1 juel_root). "
+            "Inteiro, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="decisao_pagamento",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "DEC-31 D31-2: +2 leituras (juel_root) nos dois listeners de contagem de "
+            "Flow_UTComite_Registrar. Nome ja no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-02",
+        pr="#1198",
+        name="quorum_comite",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "DEC-31 D31-2: +1 leitura (juel_root) na condicao de Flow_GWAssuncao_Comite (mesma condicao "
+            "de Flow_GWTipo_Comite). Nome ja no corpus."
+        ),
+    ),
 )
 
 
@@ -2557,8 +2986,9 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 377
+            expected_clean == 400
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
+        # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
         # DL-0104 (helena_triage_admissibility): +8
         # R-005 (prazo_resposta_dias_uteis): +1
@@ -2569,6 +2999,9 @@ class TestBuckets:
         #   comite_ultimo_voto)
         # PAGTO PR-E (#1179): +6 (nivel1_situacao, nivel2_situacao, nivel3_avaliado,
         #   nivel3_similar_idade_dias, duplicidade_status, duplicidade_motivo_codigo)
+        # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
+        # DEC-31 D31-2 (#1198): +6 (pagto_comite_coordenacao, assuncao_comite, motivo_assuncao_comite,
+        #   comite_sla_estourado, comite_votos_aprovar, comite_votos_nao_aprovar)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 15,
@@ -2607,7 +3040,10 @@ class TestBuckets:
         # R-092 (#1172): +5 (aprovador_id, aprovador_tier, valor_aprovado_cents, quorum_comite,
         #   comite_ultimo_voto)
         # PAGTO PR-E (#1179): +6 (as 4 entradas e as 2 saidas de `pagto_duplicidade`)
-        assert len(live_sweep.names) == expected_names == 398
+        # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
+        # R-076 faixa B dormente (#1149): +16 nomes
+        # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
+        assert len(live_sweep.names) == expected_names == 421
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -2628,7 +3064,10 @@ class TestBuckets:
         #   sla_alerta +1, sla_aprovacao +1); nomes: +5
         # MPTT P5 reparo B1 (#1174): +2 (f2_lotes_janela, f2_percentil_glosa_liquida_pares_tenant)
         # PAGTO PR-E (#1179): +6 (uma ocorrencia por nome novo em `pagto_duplicidade.dmn`); nomes: +6
-        assert len(live_sweep.refs) == expected_refs == 1816
+        # DEC-30 D3 (#1181): +4 (votos_minimos_coordenacao +3, pagto_alcada +1); nomes: +1
+        # R-076 faixa B dormente (#1149): +35 ocorrencias (DMN reembolso_auto_approval + 6 elementos BPMN)
+        # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
+        assert len(live_sweep.refs) == expected_refs == 1872
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2783,7 +3222,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (377)" in rendered
+            f"## {CLEAN} (400)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).
@@ -2792,6 +3231,8 @@ class TestBuckets:
         # R-047 (#1146): +2 (`meses_vencidos`, `dias_atraso_max`) -1 (`atraso_critico`).
         # MPTT P5 (#1171): +13 nomes CLEAN (entradas/saidas das DMNs do scorecard e do tier).
         # PAGTO PR-E (#1179): +6 nomes CLEAN (entradas/saidas de `pagto_duplicidade`).
+        # DEC-30 D3 (#1181): +1 nome CLEAN (`votos_minimos_coordenacao`).
+        # DEC-31 D31-2 (#1198): +6 nomes CLEAN (DMN `pagto_comite_coordenacao` e fatos da rodada).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-import tests.unit.agents.test_helena_saude_gerativa as sg_tests
+import tests.support.helena_conversa as sg_tests
 from maezo.agents.helena.habilidades.conversa import leitura_curta as ca
-from tests.unit.agents.test_helena_base_saude import _classify, _Motor
+from tests.support.helena_conversa import _classify, _Motor
 
 
 def _vivos(motor: _Motor) -> int:

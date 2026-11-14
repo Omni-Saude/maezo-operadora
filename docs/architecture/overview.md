@@ -86,7 +86,7 @@ O worker que transmite a negativa é guardado por `ERR_AUTH_DENIAL_NOT_HUMAN`: o
 
 ## Stack & racional
 
-> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes** ([PROJECT.md](../../PROJECT.md))
+> Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.0 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes** ([PROJECT.md](../../PROJECT.md))
 
 | Componente | Por quê | ADR |
 |---|---|---|

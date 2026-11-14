@@ -264,7 +264,8 @@ async def test_classify_red_flag_adult_escalates_red_flag_clinico() -> None:
     assert result["dmn_decision_ref"].startswith("triage_redflag_adult#")
 
 
-async def test_classify_no_red_flag_routes_inform() -> None:
+async def test_classify_no_red_flag_escalates_intencao_clinica() -> None:
+    """Limpeza da saude, etapa 3: sintoma sem bandeira da tabela vai a equipe (`intencao_clinica`)."""
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "prioridade": "-", "conduta": "CONTINUE"}])
     inference = _FakeInference(
@@ -274,7 +275,9 @@ async def test_classify_no_red_flag_routes_inform() -> None:
 
     result = await graph.classify(_base_state(message_body="febre leve"))
 
-    assert result["next_kind"] == "inform"
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "intencao_clinica"
+    assert result["escalation_severidade"] == "moderada"
 
 
 async def test_classify_llm_call_declares_task_kind_task_default() -> None:
@@ -699,7 +702,7 @@ async def test_classify_valid_numeric_string_age_passes_coerced_int_to_dmn() -> 
 
     result = await graph.classify(_base_state(message_body="febre, 42 anos"))
 
-    assert result["next_kind"] == "inform"  # no red flag
+    assert result["escalation_motivo"] == "intencao_clinica"  # no red flag: a equipe de saude
     assert dmn.calls[0][1]["idade_anos"] == 42
     assert isinstance(dmn.calls[0][1]["idade_anos"], int)
 
@@ -732,7 +735,7 @@ async def test_classify_absent_age_still_works() -> None:
 
     result = await graph.classify(_base_state(message_body="febre"))
 
-    assert result["next_kind"] == "inform"
+    assert result["escalation_motivo"] == "intencao_clinica"  # no red flag: a equipe de saude
     assert dmn.calls[0][1].get("idade_anos") is None
 
 

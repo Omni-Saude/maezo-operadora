@@ -20,10 +20,9 @@ da carteirinha do PROPRIO sujeito pela rota `tina-carteirinha` (manifest v1.12),
 chama com a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada e a identidade verificada. O numero NUNCA vai a
 log: so' o motivo (token fechado) e quantos itens vieram.
 
-COBERTURA POR PROCEDIMENTO (decisao do dono D1 de 18/10/2026): `consultar_cobertura` le' os fatos do cadastro
-(Rol, segmentacao, carencias) de um procedimento para o plano do PROPRIO sujeito pela rota `tina-cobertura`
-(manifest v1.9), com a finalidade FIXA `atendimento_whatsapp`. Implementa `FonteDeCobertura`. O termo pedido
-NUNCA vai a log: so' o motivo e quantos itens vieram.
+A cobertura por procedimento, a CPT e o catalogo de procedimentos (cobertura assistida, DL-0128/DL-0130)
+sairam da Helena (DL-0154; o codigo, na limpeza da saude, etapa 3, 02/11/2026): toda pergunta de cobertura
+recebe o aviso fixo com os canais.
 """
 
 from __future__ import annotations
@@ -41,19 +40,14 @@ from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
-    CoberturaView,
-    CptVigenteView,
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
     TinaCarteirinhaPort,
-    TinaCoberturaPort,
-    TinaCptPort,
     TinaDependentesNomePort,
     TinaDependentesPort,
     TinaPort,
-    TinaProcedimentosPort,
 )
 
 logger = structlog.get_logger(__name__)
@@ -65,23 +59,10 @@ PRAZO_LEITURA_S: Final[float] = 9.0
 #: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia ("estou em carencia?" sem linha de
 #: carencia confirma o sujeito pela elegibilidade, `_sem_carencias`): duas de `PRAZO_LEITURA_S` mais folga.
 PRAZO_TOTAL_S: Final[float] = 20.0
-#: A busca de cobertura da AMH (termo x Rol x plano) leva 7 a 9 s em dev (medido em 18/10/2026).
-PRAZO_LEITURA_COBERTURA_S: Final[float] = 16.0
-
-#: A base legal do CATALOGO (dado de referencia, sem sujeito): so' o hash entra na auditoria.
-BASE_LEGAL_DO_CATALOGO: Final[str] = "referencia:catalogo-de-procedimentos"
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 #: A UNICA finalidade da rota da carteirinha completa (enum do contrato `tina-carteirinha`).
 PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
-#: A UNICA finalidade da rota da cobertura por procedimento (enum do contrato `tina-cobertura`).
-PURPOSE_COBERTURA: Final[str] = "atendimento_whatsapp"
-#: A UNICA finalidade da rota da CPT vigente (enum do contrato `tina-cpt`, manifest v1.15; DL-0130).
-PURPOSE_CPT: Final[str] = "atendimento_whatsapp"
-#: Teto da leitura da CPT (base legal + uma leitura curta): sem resposta a tempo, nenhum aviso.
-PRAZO_TOTAL_CPT_S: Final[float] = 11.0
-#: Quantos procedimentos a cobertura pede (contrato: 1..10, padrao 5). Termo generico volta `truncada`.
-LIMITE_COBERTURA: Final[int] = 5
 
 
 @dataclass
@@ -246,91 +227,6 @@ class ConsultasPlanoAmh:
         )
         return view
 
-    async def consultar_cobertura(self, portable_subject_ref: str, procedimento: str) -> CoberturaView | None:
-        """Os fatos de cobertura do procedimento (codigo ou termo) para o plano do proprio sujeito, ou
-        `None`. NUNCA levanta.
-
-        `None` = a rota nao esta' carregada (o port nao e' `TinaCoberturaPort` ou recusa
-        `scope_not_supported`), termo fora do padrao do contrato, 404 (rota desligada / sujeito sem plano),
-        qualquer outra recusa, prazo, ou resposta de OUTRO sujeito. O termo NUNCA vai a log: so' o motivo
-        (token fechado) e quantos itens vieram."""
-        motivo = "ok"
-        view: CoberturaView | None = None
-        try:
-            async with asyncio.timeout(PRAZO_TOTAL_S):
-                if not isinstance(self.port, TinaCoberturaPort):
-                    motivo = "rota_nao_carregada"
-                else:
-                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_COBERTURA)
-                    if base_legal is None:
-                        motivo = "sem_base_legal"
-                    else:
-                        resultado = await self.port.get_cobertura(
-                            portable_subject_ref,
-                            purpose_of_use=PURPOSE_COBERTURA,
-                            consent_decision_ref=base_legal,
-                            procedimento=procedimento,
-                            limite=LIMITE_COBERTURA,
-                            timeout_seconds=PRAZO_LEITURA_COBERTURA_S,
-                        )
-                        if not resultado.succeeded or resultado.value is None:
-                            falha = resultado.failure
-                            motivo = falha.reason.value if falha is not None else "recusa"
-                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
-                            motivo = "fatos_de_outro_sujeito"
-                        else:
-                            view = resultado.value
-        except TimeoutError:
-            motivo = "prazo_estourado"
-        except Exception as exc:
-            logger.warning("helena_cobertura_falhou", error_type=type(exc).__name__)
-            return None
-        logger.info(
-            "helena_cobertura_lida",
-            motivo=motivo,
-            itens=len(view.itens) if view is not None else 0,
-        )
-        return view
-
-    async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None:
-        """A CPT vigente do PROPRIO sujeito (rota `tina-cpt`, manifest v1.15; caso C1 do dono e DPO de
-        20/10/2026, DL-0130), ou `None`. NUNCA levanta.
-
-        `None` = a rota nao esta' carregada (`scope_not_supported`), sem base legal, 404 (rota desligada /
-        sujeito sem plano), 429, qualquer outra recusa, prazo, ou resposta de OUTRO sujeito. Nada da CPT vai a
-        log: so' o motivo (token fechado)."""
-        motivo = "ok"
-        view: CptVigenteView | None = None
-        try:
-            async with asyncio.timeout(PRAZO_TOTAL_CPT_S):
-                if not isinstance(self.port, TinaCptPort):
-                    motivo = "rota_nao_carregada"
-                else:
-                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_CPT)
-                    if base_legal is None:
-                        motivo = "sem_base_legal"
-                    else:
-                        resultado = await self.port.get_cpt_vigente(
-                            portable_subject_ref,
-                            purpose_of_use=PURPOSE_CPT,
-                            consent_decision_ref=base_legal,
-                            timeout_seconds=PRAZO_LEITURA_S,
-                        )
-                        if not resultado.succeeded or resultado.value is None:
-                            falha = resultado.failure
-                            motivo = falha.reason.value if falha is not None else "recusa"
-                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
-                            motivo = "fatos_de_outro_sujeito"
-                        else:
-                            view = resultado.value
-        except TimeoutError:
-            motivo = "prazo_estourado"
-        except Exception as exc:
-            logger.warning("helena_cpt_falhou", error_type=type(exc).__name__)
-            return None
-        logger.info("helena_cpt_lida", motivo=motivo)
-        return view
-
     async def consultar_dependentes_nominais(
         self, portable_subject_ref: str, request_ref: str
     ) -> DependentesNominaisView | None:
@@ -377,62 +273,14 @@ class ConsultasPlanoAmh:
         )
         return view
 
-    async def consultar_catalogo_procedimentos(self) -> tuple[tuple[Any, ...], str]:
-        """O CATALOGO de procedimentos inteiro (todas as paginas da MESMA foto) como `Procedimento` do modulo
-        `catalogo_procedimentos`, e a versao. NUNCA levanta: falha = `((), "")` (o grafo usa a busca por
-        texto).
-        Dado de referencia: a base legal e' fixa (nao ha' sujeito)."""
-        from maezo.conhecimento.catalogo_procedimentos import Procedimento
-
-        if not isinstance(self.port, TinaProcedimentosPort):
-            logger.info("helena_catalogo_lido", motivo="rota_nao_carregada", itens=0)
-            return (), ""
-        itens: list[Procedimento] = []
-        versao = ""
-        pagina, total = 1, 1
-        motivo = "ok"
-        try:
-            async with asyncio.timeout(120.0):
-                while pagina <= total and pagina <= 50:
-                    resultado = await self.port.get_catalogo_procedimentos(
-                        purpose_of_use=PURPOSE_CARTEIRINHA,
-                        consent_decision_ref=BASE_LEGAL_DO_CATALOGO,
-                        pagina=pagina,
-                        tamanho=2000,
-                        timeout_seconds=PRAZO_LEITURA_S * 2,
-                    )
-                    if not resultado.succeeded or resultado.value is None:
-                        falha = resultado.failure
-                        motivo = falha.reason.value if falha is not None else "recusa"
-                        return (), ""
-                    view = resultado.value
-                    if versao and view.versao_catalogo != versao:
-                        motivo = "versao_mudou"
-                        return (), ""
-                    versao = view.versao_catalogo
-                    total = view.total_paginas
-                    itens.extend(Procedimento(i.codigo, i.descricao, i.tuss, i.grupo) for i in view.itens)
-                    pagina += 1
-        except TimeoutError:
-            motivo = "prazo_estourado"
-            return (), ""
-        except Exception as exc:
-            logger.warning("helena_catalogo_falhou", error_type=type(exc).__name__)
-            return (), ""
-        finally:
-            logger.info("helena_catalogo_lido", motivo=motivo, itens=len(itens))
-        return tuple(itens), versao
-
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
             await self.aclose_fn()
 
 
 __all__ = [
-    "LIMITE_COBERTURA",
     "PRAZO_LEITURA_S",
     "PRAZO_TOTAL_S",
     "PURPOSE_CARTEIRINHA",
-    "PURPOSE_COBERTURA",
     "ConsultasPlanoAmh",
 ]

@@ -29,6 +29,7 @@ _R054: Final[Path] = _REPO_ROOT / "docs" / "compliance" / "legal" / "R-054-RATIF
 _PACOTE: Final[Path] = _REPO_ROOT / "docs" / "compliance" / "human-windows" / "R-079-dec29-adrs-0068-0073.md"
 
 _URL: Final[str] = "https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547"
+_URL_DEC30: Final[str] = "https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6575240466"
 
 #: sha256 do texto de cada ADR no commit base `f3e45587`, sem o paragrafo de Status e sem a secao de
 #: aceite (ver `_corpo`). Mudar a decisao de um ADR aceito pede ADR nova, nao novo pin.
@@ -150,8 +151,16 @@ def test_adr_0073_e_folha_r054_registram_a_dec28() -> None:
     assert "DEC-28" in folha and _URL in folha
     l9 = folha[folha.index("## L9:") :]
     tabela = l9[l9.index("| Ratificação do jurídico (L9) | |") :]
-    for campo in ("Nome e papel", "Data", "Assinatura"):
-        linha = next(x for x in tabela.splitlines() if x.startswith(f"| {campo} |"))
+    # DEC-30 D18 (#1084, 2026-11-02): o dono assina a L9 pessoalmente. Decisao e nome sao
+    # REGISTRO das decisoes do dono (DEC-28 + DEC-30), fixados aqui byte a byte; data e
+    # assinatura sao atos do proprio dono e seguem em branco -- nenhum agente os preenche.
+    linhas = tabela.splitlines()
+    nome = next(x for x in linhas if x.startswith("| Nome e papel |"))
+    assert nome == "| Nome e papel | dono (rodaquino-OMNI) |", f"R-054 L9: nome fora da D18 ({nome})"
+    decisao = next(x for x in linhas if x.startswith("| Decisão "))
+    assert "aprovada (DEC-28/DEC-30)" in decisao and _URL in decisao and _URL_DEC30 in decisao
+    for campo in ("Data", "Assinatura"):
+        linha = next(x for x in linhas if x.startswith(f"| {campo} |"))
         assert linha == f"| {campo} | |", f"folha R-054 L9: campo {campo!r} preenchido por agente"
 
 

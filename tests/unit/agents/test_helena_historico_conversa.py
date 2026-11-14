@@ -12,7 +12,7 @@ O QUE ESTE ARQUIVO PROVA:
   3. a janela de 6 h (a mesma da memoria clinica) e a validacao fail-closed;
   4. o historico guarda SO' texto `{papel, texto, em}` — nunca telefone, hash, pseudo-id ou
      identidade — e da Helena so' o texto ENVIADO, nunca o rascunho barrado pela cerca;
-  5. a fiacao: settings, despachante (liga a coleta junto) e `build`.
+  5. a fiacao: settings, despachante e `build`.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ from maezo.agents.helena import graph as graph_module
 from maezo.agents.helena import graph as helena_graph_module
 from maezo.agents.helena.graph import (
     MEMORIA_CLINICA_JANELA_HORAS,
-    RESPOSTA_SINTOMA_SEM_ALERTA,
     HelenaGraph,
     HelenaState,
 )
@@ -252,18 +251,18 @@ async def test_i05_o_par_febre_e_80_anos_chega_a_dmn_como_um_caso_so() -> None:
     ]
     estados, inferencia, zap, dmn = await _conversa([turno1, turno2], classificacoes, historico=True)
 
-    # Turno 1: sem historico ainda — o prompt e' o de antes, e a resposta e' o texto fixo de sintoma.
+    # Turno 1: sem historico ainda — o prompt e' o de antes; sem bandeira da tabela, o caso vai a equipe.
     assert inferencia.prompts_de_classify[0] == (
         f"{classify_prompt()}\n\n{render_untrusted_block('message_body', turno1)}"
     )
-    assert zap.enviados[0] == RESPOSTA_SINTOMA_SEM_ALERTA
+    assert estados[0]["escalation_motivo"] == "intencao_clinica"  # etapa 3: sem bandeira, a equipe
 
     # Turno 2: o turno 1 (e a resposta que SAIU) chegam ao classificador num bloco NAO CONFIAVEL.
     prompt2 = inferencia.prompts_de_classify[1]
     historico1 = estados[0]["historico_conversa"]
     assert [(e["papel"], e["texto"]) for e in historico1] == [
         ("beneficiario", turno1),
-        ("helena", RESPOSTA_SINTOMA_SEM_ALERTA[:HISTORICO_TEXTO_MAX_CHARS]),
+        ("helena", zap.enviados[0][:HISTORICO_TEXTO_MAX_CHARS]),
     ]
     bloco = render_untrusted_block("historico_conversa", historico_em_texto(historico1))
     assert prompt2 == (
@@ -451,9 +450,7 @@ def test_settings_default_desligado_e_nome_canonico(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.parametrize("ligado", [False, True])
-def test_despachante_passa_o_historico_e_liga_a_coleta_junto(
-    monkeypatch: pytest.MonkeyPatch, ligado: bool
-) -> None:
+def test_despachante_passa_o_historico(monkeypatch: pytest.MonkeyPatch, ligado: bool) -> None:
     capturado: dict[str, Any] = {}
 
     class _Grafo:
@@ -478,7 +475,6 @@ def test_despachante_passa_o_historico_e_liga_a_coleta_junto(
     )
     despachante._compile_turn_graph(nada)
     assert capturado["historico_enabled"] is ligado
-    assert capturado["coleta_enabled"] is ligado
 
 
 # =================================================================================================

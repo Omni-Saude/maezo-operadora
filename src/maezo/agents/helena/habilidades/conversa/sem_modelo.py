@@ -23,9 +23,7 @@ def responder(self: HelenaGraph, state: HelenaState, texto: str) -> dict[str, An
     if (oferta := _oferta.responder(self, state)) is not None:
         return oferta
     if _reembolso.pergunta_de_reembolso(texto) and not _g._sinal_fraco_de_emergencia(texto):
-        return self._base_texto_fixo(
-            self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA]
-        )
+        return self._texto_fixo(self._update_sem_modelo(state), self._textos[_reembolso.CHAVE_REEMBOLSO_FORA])
     return None
 
 

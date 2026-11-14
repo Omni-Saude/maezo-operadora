@@ -1,5 +1,7 @@
 # Nova triagem da Helena (experimento em dev) — `MAEZO_HELENA_TRIAGEM_V2`
 
+> **REMOVIDO do código em 02/11/2026** (limpeza da saúde, etapa 3 — DL-0165, adendo de 02/11/2026; decisão do dono). A nova triagem (tabela `helena_triage_admissibility`, ficha, coleta) não existe mais no código; a chave `MAEZO_HELENA_TRIAGEM_V2` / pacote `triagem_v2` ainda vem da task/pacote do dev e é **aceita e ignorada** até a etapa 4. A saúde de todas as conversas com a rota do modelo vai pela porta única (`docs/runbooks/helena-saude-original.md`). Este runbook fica só como histórico.
+
 **Status:** experimento SÓ no ambiente de desenvolvimento (dev), decisão do dono registrada no
 `docs/decisions-log.md` (DL-0104). **A Helena v4 (`docs/runbooks/helena-v4.md`, DL-0115) substitui esta
 triagem:** com `MAEZO_HELENA_V4` ligada a v2 fica inerte. **Conteúdo clínico DRAFT — pendente de ratificação do

@@ -228,12 +228,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # Decisao do dono de 2026-11-01 (opcao A, "conta na chave de pagamento"; bug CONTAS->PAGTO de
     # pagamento perdido). Fase da chave PAGTO cunhada por `operadora.contas.handoff_pagamento` quando
     # CONTAS adjudicou por guia/conta: `legado` (padrao) = `PAGTO-{t}-{lote}-{prestador}`, byte-
-    # identico na chave — o defeito PERSISTE, mas a 2a conta do lote vira incidente auditado em vez
-    # de sucesso silencioso; `leitura_dupla` = escreve a legada e le antes a por conta;
-    # `escrita_alvo` = escreve `PAGTO-{t}-C-{guia}-{conta}` e le antes a legada. Mudanca de FORMATO
-    # de chave: pertence a janela unica do ADR-0068 (Proposed). Virar a fase e' ato do dono (ROLL),
-    # na ordem leitor-antes-de-escritor (todas as replicas em `leitura_dupla` antes de qualquer
-    # `escrita_alvo`); nunca de agente. Plano: docs/runbooks/pagto-chave-por-conta-migracao.md.
+    # identico na chave — o defeito PERSISTE, mas a 2a conta do lote vira incidente auditado e
+    # alerta (DEC-30 D11) em vez de sucesso silencioso; `leitura_dupla` = escreve a legada e le
+    # antes a por conta; `escrita_alvo` = escreve `PAGTO-{t}-C-{prestador}-{guia}-{conta}` (DEC-30
+    # D13) e le antes a legada. Mudanca de FORMATO de chave: pertence a janela unica do ADR-0068
+    # (Accepted, DEC-29), emendado pelo ADR-0074 (Proposed, DEC-30 D12), que ABSORVE esta fase em
+    # `MAEZO_CHAVES_JANELA` no pacote da janela. Virar a fase e' ato do dono (ROLL), leitor antes
+    # de escritor (todas as replicas em `leitura_dupla` antes de qualquer `escrita_alvo`); nunca de
+    # agente. Plano: docs/runbooks/pagto-chave-por-conta-migracao.md.
     pagto_chave_conta_fase: Literal["legado", "leitura_dupla", "escrita_alvo"] = Field(
         default="legado", alias="MAEZO_PAGTO_CHAVE_CONTA_FASE"
     )

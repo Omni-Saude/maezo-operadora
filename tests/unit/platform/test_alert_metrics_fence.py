@@ -144,6 +144,9 @@ ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_gateway_pep_decision_total": "record_pep_decision",
     "maezo_a2a_guard_refusal_total": "record_a2a_guard_refusal",
     "maezo_agent_desfecho_total": "record_agent_desfecho",
+    # DEC-30 D11 (2026-11-02) — grupo `maezo_pagamento_contas`: recusa do handoff CONTAS->PAGTO por
+    # ordem de outra conta (`tools/workers/contas.py::_recusar_ordem_de_outra_conta`).
+    "maezo_contas_pagto_ordem_recusada_total": "record_contas_pagto_ordem_recusada",
 }
 
 #: The mirror of `ALERT_METRIC_EMITTERS`, one hop upstream (GAP 11.2, round-5 2026-09-05): every

@@ -23,10 +23,10 @@ from maezo.agents.helena.habilidades.atendimento_humano.textos import RESPOSTA_R
 from maezo.agents.helena.habilidades.conversa import reembolso as rb
 from maezo.agents.helena.prompts import motivo_de_recusa
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from tests.support.helena_conversa import _Conversa, _texto
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_escalar_por_repeticao import _estado, _grafo, _WhatsApp
 from tests.unit.agents.test_helena_roteador_v7 import _ConversaAtiva
-from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _texto
 
 _OFERTAS_DO_MODELO = (
     "Sim, as regras estão no aplicativo. Se quiser, eu te encaminho para um atendente humano.",

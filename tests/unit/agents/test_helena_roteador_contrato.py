@@ -10,8 +10,11 @@ import yaml
 
 from maezo.agents.helena import roteador_contrato as rc
 from maezo.agents.helena.graph import PENDENTE_ENCERRAR_CASO
-from maezo.agents.helena.helena_v4 import PREFIXO_PENDENTE
-from maezo.agents.helena.triagem_v2 import PREFIXO_PERGUNTA_DA_FICHA
+
+# Os prefixos das pendencias da v4 e da triagem v2 (as camadas sairam do codigo na limpeza da saude, etapa 3);
+# o estado gravado antes continua com dona, para ser lido e expirado sem sequestrar a mensagem.
+PREFIXO_PENDENTE = "V4_"
+PREFIXO_PERGUNTA_DA_FICHA = "PERGUNTAR_FICHA_"
 
 
 def _bruto() -> dict[str, Any]:

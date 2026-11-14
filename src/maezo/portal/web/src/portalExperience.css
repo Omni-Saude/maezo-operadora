@@ -191,6 +191,33 @@
   opacity: 0.6;
 }
 
+/* DL-0163: o painel do reembolso usa este mesmo bloco; o valor e a data sao os unicos campos de linha. */
+.task-completion > form > label input {
+  max-width: 16rem;
+  min-height: 2.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #7b9990;
+  border-radius: 0.6rem;
+  font: inherit;
+  color: #173e33;
+  background: #fff;
+}
+
+.task-completion > form > label input:read-only {
+  background: #f1f6f3;
+}
+
+.task-completion h4 {
+  margin: 1.25rem 0 0.5rem;
+  color: #143d31;
+}
+
+.reembolso-anexos {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.8;
+}
+
 .ownership-controls h3,
 .ownership-controls h4 {
   margin-top: 0;

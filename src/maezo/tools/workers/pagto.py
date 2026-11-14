@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -157,6 +158,16 @@ PAGTO_FATOS_PROIBIDOS_NA_SEMENTE: frozenset[str] = frozenset(
         "analista_admissibilidade_id",
         "tier_minimo",
         "votos_comite",
+        # DEC-31 D31-2: fatos da rodada do comite que SO o BPMN escreve (listeners de
+        # Flow_GWTipo_Comite / Flow_UTComite_Registrar / Flow_SlaComite_Pub) e a saida da DMN
+        # `pagto_comite_coordenacao` (BRT_AssuncaoComite). Semeados, uma origem fabricaria a
+        # assuncao da coordenacao. Nenhuma origem os semeia hoje.
+        "comite_votos_aprovar",
+        "comite_votos_nao_aprovar",
+        "comite_sla_estourado",
+        "comite_sla_estourado_em",
+        "assuncao_comite",
+        "motivo_assuncao_comite",
         "duplicidade_motivo_codigo",
         "duplicidade_chave_obrigacao",
         "duplicidade_ordem_conflitante_id",
@@ -201,6 +212,33 @@ VOTOS_COMITE_VAR = "votos_comite"
 #: `SP_AprovacaoComite` (`${comite_ultimo_voto != 'APROVAR'}`): o comite encerra no primeiro voto
 #: que nao aprova. Plumbing do voto humano, nunca decisao deste worker.
 COMITE_ULTIMO_VOTO_VAR = "comite_ultimo_voto"
+#: DEC-30 D3 (dono, #1084, 2026-11-02): minimo de votos APROVAR do comite ja registrados no livro
+#: para a coordenacao financeira completar o quorum apos estouro de SLA. FATO da DMN `pagto_alcada`
+#: (v0.1.3, achatado por `BRT_AlcadaRouting`) — o numero nunca mora aqui; ausente/mal-formado/< 1
+#: -> a coordenacao nao completa (fail-closed; 0 seria a opcao B rejeitada pelo dono).
+VOTOS_MINIMOS_COORDENACAO_VAR = "votos_minimos_coordenacao"
+#: Vocabulario FECHADO de `decisao_coordenacao` (UT_CoordenacaoAlcada; BPMN `GW_DecisaoCoordenacao`):
+#: o unico valor que leva a coordenacao a decidir o merito agora. `SP_AprovacaoComite` zera a
+#: variavel ao abrir cada rodada do comite (listener em `Flow_GWTipo_Comite`), entao ela so chega
+#: aqui com este valor quando a coordenacao assumiu ESTA rodada.
+DECISAO_COORDENACAO_ASSUMIR = "assumir_aprovacao"
+#: DEC-31 D31-2 (dono, #1084, 2026-11-02; refina a DEC-30 D3): saida da DMN
+#: `pagto_comite_coordenacao`, avaliada no MOTOR por `BRT_AssuncaoComite` quando a coordenacao assume
+#: um caso de comite e achatada no escopo do processo. A regra ("SLA do comite estourado + EXATAMENTE
+#: 1 voto APROVAR + nenhum voto que nao aprove") mora SO na DMN; aqui so a igualdade EXATA com o
+#: vocabulario fechado (`PERMITIDA`) — ausente/qualquer outro valor -> recusa (fail-closed).
+ASSUNCAO_COMITE_VAR = "assuncao_comite"
+ASSUNCAO_COMITE_PERMITIDA = "PERMITIDA"
+#: Token fechado da DMN `pagto_comite_coordenacao` (por que a assuncao foi permitida/recusada) —
+#: devolvido pela liberacao para a trilha de auditoria ADR-0007 (`_SAFE_DECISION_BASIS_KEYS`).
+MOTIVO_ASSUNCAO_COMITE_VAR = "motivo_assuncao_comite"
+#: Instante do estouro do SLA do comite, escrito so pelo listener de `Flow_SlaComite_Pub` — vai
+#: para o registro de auditoria da assuncao (quando). Nunca decide nada.
+COMITE_SLA_ESTOURADO_EM_VAR = "comite_sla_estourado_em"
+#: Registro da assuncao devolvido pela liberacao (variavel de processo -> historico do motor):
+#: quem assumiu, qual voto completou, quando o SLA estourou, o motivo da DMN e o sha256 da
+#: justificativa (o texto livre nao e copiado). So existe numa liberacao pela coordenacao.
+ASSUNCAO_COORDENACAO_REGISTRO_VAR = "assuncao_coordenacao_comite"
 #: Escopo de leitura EXPLICITO de `operadora.pagto.register_committee_vote` (menor privilegio —
 #: nunca `variables=all`): os campos do voto (ja no escopo do processo — os outputParameter de
 #: `UT_AprovacaoComite` os achataram ao concluir a tarefa), o contador da multi-instancia e o livro
@@ -756,6 +794,13 @@ def _violacoes_colegiado(
     sozinha um caso de comite) -> recusa `ERR_PAYMENT_RELEASE_NOT_HUMAN`. Membro repetido, ou membro
     igual ao decisor do lastro / ao analista de admissibilidade -> `ERR_PAYMENT_SOD_NOT_HUMAN`.
     Mensagens so com tokens — nenhuma identidade nem valor no texto do incidente.
+
+    DEC-30 D3 (dono, #1084, 2026-11-02): quando a coordenacao financeira assumiu o caso apos estouro
+    de SLA (`decisao_coordenacao == assumir_aprovacao`), ela COMPLETA o quorum — conta como um
+    membro a mais — SO se o livro ja tiver pelo menos `votos_minimos_coordenacao` membros distintos
+    (fato da DMN; 1 no catch-all) e a coordenacao for pessoa DISTINTA de todos eles (igual a um
+    membro que votou -> `ERR_PAYMENT_SOD_NOT_HUMAN`). Todas as demais conferencias (voto APROVAR,
+    tier, valor, SoD contra decisor do lastro/analista) valem igual; livro vazio continua recusando.
     """
     erros: list[str] = []
     sod: list[str] = []
@@ -788,10 +833,31 @@ def _violacoes_colegiado(
         if analista and membro == analista:
             sod.append("segregacao: membro do comite == analista_admissibilidade_id")
         membros.append(membro)
-    if len(set(membros)) < quorum:
+    aprovador = _identidade(aprovador_id)
+    distintos = set(membros)
+    # Igualdade EXATA, como o gateway `GW_DecisaoCoordenacao` (`== 'assumir_aprovacao'`): qualquer
+    # outra grafia nunca abre o ramo da coordenacao (fail-closed: cai no caminho do comite).
+    if variables.get("decisao_coordenacao") != DECISAO_COORDENACAO_ASSUMIR:
+        if len(distintos) < quorum:
+            erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
+        if aprovador not in distintos:
+            erros.append("aprovador_id fora do livro de votos do comite")
+        return erros, sod
+    # DEC-31 D31-2: a regra de assuncao (SLA estourado, exatamente 1 APROVAR, nenhuma recusa) e da
+    # DMN `pagto_comite_coordenacao`, avaliada no motor; aqui so a igualdade exata com PERMITIDA.
+    if variables.get(ASSUNCAO_COMITE_VAR) != ASSUNCAO_COMITE_PERMITIDA:
+        erros.append("coordenacao: assuncao do comite nao permitida pela DMN pagto_comite_coordenacao")
+    # DEC-30 D3: a coordenacao completa o quorum (um membro a mais), nunca o substitui.
+    if aprovador in distintos:
+        sod.append("segregacao: coordenacao == membro do comite que votou")
+    minimo = _quorum_comite_or_none(variables.get(VOTOS_MINIMOS_COORDENACAO_VAR))
+    if minimo is None:
+        erros.append("votos_minimos_coordenacao invalido (fato da DMN pagto_alcada ausente/mal-formado)")
+    elif len(distintos) < minimo:
+        erros.append("coordenacao: votos APROVAR do comite abaixo do minimo da DMN")
+    # Coordenacao sem identidade nunca conta como membro (o Guard 1 tambem recusa).
+    if len(distintos | ({aprovador} if aprovador else set())) < quorum:
         erros.append("quorum_comite nao atingido (membros distintos insuficientes)")
-    if _identidade(aprovador_id) not in membros:
-        erros.append("aprovador_id fora do livro de votos do comite")
     return erros, sod
 
 
@@ -818,6 +884,10 @@ def release_high_value_payment(
         when it is > 1 the committee ledger `votos_comite` must carry that many DISTINCT members,
         every vote APROVAR with tier >= `tier_minimo` and the SAME approved amount, the final
         `aprovador_id` among them (`_violacoes_colegiado`). OFF = the historical guard, unchanged.
+        DEC-30 D3: after an SLA breach the coordinator (`decisao_coordenacao=assumir_aprovacao`)
+        may COMPLETE the quorum as one extra member only if the ledger already holds at least
+        `votos_minimos_coordenacao` (DMN `pagto_alcada`) distinct APROVAR members and the
+        coordinator is none of them (same person -> ERR_PAYMENT_SOD_NOT_HUMAN).
 
     NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
     #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
@@ -888,11 +958,13 @@ def release_high_value_payment(
     violacoes_sod = _violacoes_sod(variables, aprovador_id=aprovador_id)
 
     # Guard 5 (R-092, DARK): collegiate approval — quorum from the DMN, ledger from the votes.
+    coordenacao_assumiu_comite = False
     if comite_colegiado is True:
         quorum = _quorum_comite_or_none(variables.get("quorum_comite"))
         if quorum is None:
             errors.append("quorum_comite invalido (fato da DMN pagto_alcada ausente/mal-formado)")
         elif quorum > 1:
+            coordenacao_assumiu_comite = variables.get("decisao_coordenacao") == DECISAO_COORDENACAO_ASSUMIR
             erros_comite, sod_comite = _violacoes_colegiado(
                 variables,
                 quorum=quorum,
@@ -921,9 +993,56 @@ def release_high_value_payment(
         valor_aprovado_cents=valor_aprovado,
     )
 
-    return {
+    saida: dict[str, Any] = {
         "pagamento_liberado": True,
         "tipo_liberacao": "humano_alcada",
+    }
+    if coordenacao_assumiu_comite:
+        saida.update(
+            _registro_assuncao_coordenacao(variables, aprovador_id=aprovador_id, justificativa=justificativa)
+        )
+    return saida
+
+
+def _registro_assuncao_coordenacao(
+    variables: Mapping[str, Any], *, aprovador_id: str, justificativa: str
+) -> dict[str, Any]:
+    """DEC-31 D31-2: registro AUDITADO da assuncao de um caso de comite pela coordenacao.
+
+    So e chamado DEPOIS de todo o guard passar (a assuncao ja foi permitida pela DMN
+    `pagto_comite_coordenacao`, com SoD e tier-match). Nao decide nada — so descreve o que
+    aconteceu, em duas superficies:
+
+    - trilha ADR-0007 (cadeia de auditoria do harness): `coordenacao_assumiu_comite` (bool) e
+      `motivo_assuncao_comite` (token fechado da DMN) entram pelo `_SAFE_DECISION_BASIS_KEYS`;
+      as identidades, o livro, o instante do SLA e a justificativa ficam amarrados pelo
+      `input_sha256` do registro (nunca em claro na cadeia);
+    - historico do motor: `assuncao_coordenacao_comite` com quem assumiu, qual voto completou
+      (membro + voto do livro da rodada), quando o SLA do comite estourou, o motivo da DMN e o
+      sha256 da justificativa da coordenacao (o texto livre continua so em
+      `justificativa_aprovacao`, nunca copiado).
+    """
+    livro = variables.get(VOTOS_COMITE_VAR)
+    voto = livro[0] if isinstance(livro, list) and livro and isinstance(livro[0], dict) else {}
+    motivo = variables.get(MOTIVO_ASSUNCAO_COMITE_VAR)
+    sla_em = variables.get(COMITE_SLA_ESTOURADO_EM_VAR)
+    motivo_token = motivo if isinstance(motivo, str) else ""
+    logger.info(
+        "pagto_coordenacao_assumiu_comite",
+        ordem_id=variables.get("ordem_pagamento_id"),
+        motivo_assuncao_comite=motivo_token,
+    )
+    return {
+        "coordenacao_assumiu_comite": True,
+        MOTIVO_ASSUNCAO_COMITE_VAR: motivo_token,
+        ASSUNCAO_COORDENACAO_REGISTRO_VAR: {
+            "coordenador_id": aprovador_id,
+            "membro_votante_id": _norm_str(voto.get("membro")),
+            "voto_membro": _norm_str(voto.get("voto")),
+            "comite_sla_estourado_em": sla_em if isinstance(sla_em, str) else None,
+            "motivo_assuncao_comite": motivo_token,
+            "justificativa_sha256": hashlib.sha256(justificativa.encode("utf-8")).hexdigest(),
+        },
     }
 
 

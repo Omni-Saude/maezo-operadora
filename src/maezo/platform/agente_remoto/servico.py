@@ -27,7 +27,7 @@ import structlog
 from maezo.agents import carregar_agente_de_entrada
 from maezo.contratos import conversa_remota as fio
 from maezo.platform.health import build_health_server
-from maezo.platform.webhooks.service import aquecer_catalogo, build_agent_dependencies
+from maezo.platform.webhooks.service import build_agent_dependencies
 from maezo.platform.webhooks.whatsapp.dispatch import ENV_AGENTE_DE_ENTRADA_URL
 
 from .cliente import PRAZO_PADRAO_S, cliente_http
@@ -86,12 +86,6 @@ async def run(settings: AgenteRemotoSettings) -> None:
         with contextlib.suppress(NotImplementedError):
             laco.add_signal_handler(_sig, _pedir_parada, _sig)
 
-    # DL-0128: o catalogo da cobertura assistida e' usado pelo grafo, que agora roda aqui.
-    catalogo = (
-        asyncio.create_task(aquecer_catalogo(estado.dispatcher), name="catalogo-procedimentos")
-        if estado.dispatcher is not None
-        else None
-    )
     logger.info(
         "agente_remoto_rodando",
         agent_id=agent_id,
@@ -100,8 +94,6 @@ async def run(settings: AgenteRemotoSettings) -> None:
         prazo_padrao_do_cliente_s=PRAZO_PADRAO_S,
     )
     await parar.wait()
-    if catalogo is not None and not catalogo.done():
-        catalogo.cancel()
     server.should_exit = True
     with contextlib.suppress(asyncio.CancelledError, SystemExit):
         await tarefa

@@ -6,9 +6,15 @@
              name="Tier de confianca do prestador (MPTT)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    prestador_tier v0.1.1 — status: DRAFT — corte_watch=40, corte_trusted=70, N=10 pagamentos
-    liberados por humano, T=12 meses e o patamar gold-card sao DRAFT/calibrar em sombra (financas +
-    medico-auditor); pendentes em spec/aprovacoes-de-regras.yaml e docs/review-queue.md. MPTT P5
+    prestador_tier v0.1.2 — status: DECIDIDO PARA A SOMBRA (DEC-31 D31-3) — corte_watch=50,
+    corte_trusted=75 (escala maxima 85), N=10 pagamentos liberados por humano, T=12 meses, gold-card
+    &gt;= 90% em &gt;= 10 ordens e a red flag F1 &lt; 80% com volume suficiente sao os valores INICIAIS
+    DE SOMBRA ratificados pelo dono (#1084, 2026-11-02; altera a DEC-30 D5). ATIVACAO continua
+    pendente: calibracao financas + medico-auditor, RIPD/LIA do DPO (LGPD art. 20) e clausula
+    aditiva RN 503 do juridico — assinaturas em branco em spec/aprovacoes-de-regras.yaml e
+    docs/review-queue.md (a aprovacao amarrada aos bytes segue pendente). Os cortes valem SO para a
+    escala de maximo 85: na v0.2.0 (F3=15 entra, maximo 100) precisam de nova ratificacao
+    (proporcional ~59/88; pin em tests/unit/spec/test_prestador_trust_tier_dmn.py). MPTT P5
     (docs/prompts/fcp-protocol-2026-10-30/analyses/PROVIDER-trust-tiers.md §4; decisao do dono
     2026-10-31 "Pagamentos": scorecard hibrido; gold-card &gt;= 90% em &gt;= 10 ordens; novos em
     WATCH ate N pagamentos). NAO LIGADA a BPMN nem a worker nesta entrega (P6 liga em
@@ -16,9 +22,12 @@
 
     hitPolicy FIRST, ordem = precedencia: (1) qualquer entrada ausente -> WATCH; (2) qualquer
     entrada invalida (negativa ou fora de faixa) -> WATCH; (3) pontuacao fora da escala -> WATCH;
-    (4) red flags NAO compensatorias -> WATCH; (5) prestador novo/baixo volume -> WATCH;
-    (6) TRUSTED so com gold-card + T + corte_trusted; (7) STANDARD; (8) WATCH por pontuacao;
-    (9) catch-all WATCH. FAIL-CLOSED: na duvida, WATCH (rota humana).
+    (4) red flags NAO compensatorias -> WATCH (F6 pico; FRAUDE MONITORAR 12m; F1 &lt; 0.80 com
+    &gt;= 10 ordens — com volume insuficiente F1 e neutro e NAO e red flag); (5) prestador
+    novo/baixo volume -> WATCH; (6) TRUSTED so com os portoes EXPLICITOS na propria linha (F5 &gt;=
+    T=12 meses, F1 &gt;= 0.90 em &gt;= 10 ordens, pontuacao &gt;= corte_trusted=75) e nenhuma red
+    flag (todas antes, FIRST); (7) STANDARD (pontuacao &gt;= corte_watch=50); (8) WATCH por
+    pontuacao; (9) catch-all WATCH. FAIL-CLOSED: na duvida, WATCH (rota humana).
 
     v0.1.1 (reparo do gate cego, B1): o scorecard da 0 ponto a feature ausente/invalida, mas a
     soma das OUTRAS features ainda podia passar de corte_watch e chegar a STANDARD (ex.: F2 nulo ->
@@ -327,6 +336,20 @@
         <outputEntry id="r_fraude_monitorar_o1"><text>"WATCH"</text></outputEntry>
         <outputEntry id="r_fraude_monitorar_o2"><text>"RED_FLAG_FRAUDE_MONITORAR_12M"</text></outputEntry>
       </rule>
+      <rule id="r_red_flag_f1_liberacao_baixa">
+        <description>F1 liberacao humana &lt; 80% com volume suficiente (&gt;= 10 ordens) -> WATCH (DEC-31 D31-3; nao compensatorio: nenhuma pontuacao anula). Com menos de 10 ordens F1 e neutro e NAO e red flag</description>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i2"><text>&gt;= 10</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i3"><text>[0..0.80)</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i6"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i7"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i8"><text>-</text></inputEntry>
+        <inputEntry id="r_red_flag_f1_liberacao_baixa_i9"><text>-</text></inputEntry>
+        <outputEntry id="r_red_flag_f1_liberacao_baixa_o1"><text>"WATCH"</text></outputEntry>
+        <outputEntry id="r_red_flag_f1_liberacao_baixa_o2"><text>"RED_FLAG_F1_LIBERACAO_ABAIXO_DE_80"</text></outputEntry>
+      </rule>
       <rule id="r_prestador_novo">
         <description>Menos de N=10 pagamentos liberados por humano -> WATCH (decisao do dono: novos em WATCH ate N)</description>
         <inputEntry id="r_prestador_novo_i1"><text>-</text></inputEntry>
@@ -342,8 +365,8 @@
         <outputEntry id="r_prestador_novo_o2"><text>"PRESTADOR_NOVO_OU_BAIXO_VOLUME"</text></outputEntry>
       </rule>
       <rule id="r_trusted">
-        <description>TRUSTED: gold-card (&gt;= 90% em &gt;= 10 ordens) E F5 &gt;= T=12 meses E pontuacao &gt;= corte_trusted=70 E nenhuma red flag (linhas acima)</description>
-        <inputEntry id="r_trusted_i1"><text>[70..85]</text></inputEntry>
+        <description>TRUSTED: portoes explicitos (DEC-31 D31-3) — gold-card (&gt;= 90% em &gt;= 10 ordens) E F5 &gt;= T=12 meses E pontuacao &gt;= corte_trusted=75 E nenhuma red flag (linhas acima)</description>
+        <inputEntry id="r_trusted_i1"><text>[75..85]</text></inputEntry>
         <inputEntry id="r_trusted_i2"><text>&gt;= 10</text></inputEntry>
         <inputEntry id="r_trusted_i3"><text>[0.90..1]</text></inputEntry>
         <inputEntry id="r_trusted_i4"><text>&gt;= 12</text></inputEntry>
@@ -356,8 +379,8 @@
         <outputEntry id="r_trusted_o2"><text>"GOLD_CARD_ATINGIDO"</text></outputEntry>
       </rule>
       <rule id="r_standard">
-        <description>STANDARD: pontuacao &gt;= corte_watch=40 sem gold-card completo -> auto dentro do teto reduzido (P6/politica)</description>
-        <inputEntry id="r_standard_i1"><text>[40..85]</text></inputEntry>
+        <description>STANDARD: pontuacao &gt;= corte_watch=50 (DEC-31 D31-3) sem portoes TRUSTED completos -> auto dentro do teto reduzido (P6/politica)</description>
+        <inputEntry id="r_standard_i1"><text>[50..85]</text></inputEntry>
         <inputEntry id="r_standard_i2"><text>-</text></inputEntry>
         <inputEntry id="r_standard_i3"><text>-</text></inputEntry>
         <inputEntry id="r_standard_i4"><text>-</text></inputEntry>
@@ -370,8 +393,8 @@
         <outputEntry id="r_standard_o2"><text>"PONTUACAO_STANDARD"</text></outputEntry>
       </rule>
       <rule id="r_watch_pontuacao">
-        <description>Pontuacao abaixo de corte_watch=40 -> WATCH</description>
-        <inputEntry id="r_watch_pontuacao_i1"><text>[0..40)</text></inputEntry>
+        <description>Pontuacao abaixo de corte_watch=50 (DEC-31 D31-3) -> WATCH</description>
+        <inputEntry id="r_watch_pontuacao_i1"><text>[0..50)</text></inputEntry>
         <inputEntry id="r_watch_pontuacao_i2"><text>-</text></inputEntry>
         <inputEntry id="r_watch_pontuacao_i3"><text>-</text></inputEntry>
         <inputEntry id="r_watch_pontuacao_i4"><text>-</text></inputEntry>

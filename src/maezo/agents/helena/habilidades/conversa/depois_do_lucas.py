@@ -118,7 +118,7 @@ def decidir(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | Non
     texto = str(state.get("message_body") or "")
     if _fecha_depois_do_lucas(self, state):
         logger.info("helena_fechamento_depois_do_lucas", node="classify")
-        return self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
+        return self._texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
     if not _protocolo_ao_lucas(state):
         return None
     update = self._handoff_deterministico_ao_lucas(state, texto, "helena_protocolo_ao_lucas")

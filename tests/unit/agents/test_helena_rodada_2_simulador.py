@@ -35,9 +35,6 @@ from maezo.agents.helena.graph import (
     PROCESS_KEY,
     RESPONSE_KIND_HANDOFF,
     RESPOSTA_CANAIS_DO_PLANO,
-    RESPOSTA_CASO_ABERTO_EMERGENCIA,
-    RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
-    RESPOSTA_CASO_ABERTO_EMERGENCIA_3,
     RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA,
     RESPOSTA_CASO_ABERTO_PRAZO,
     RESPOSTA_CASO_ABERTO_SUPERVISOR,
@@ -48,7 +45,6 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_HANDOFF_RECUSADA,
     RESPOSTA_PLANO_POR_CANAIS,
-    START_DESFECHO_JA_ATIVO,
     HelenaGraph,
     new_helena_state,
 )
@@ -110,23 +106,23 @@ def _caso_aberto(motivo: str) -> FakeCibSevenTransport:
     return cib
 
 
-def _dmn() -> FakeDmnTransport:
+def _dmn(*, bandeira: bool = True) -> FakeDmnTransport:
     dmn = FakeDmnTransport()
-    dmn.register(
-        "triage_redflag_adult",
-        [{"red_flag": True, "prioridade": "P1", "conduta": "ESCALATE_EMERGENCY", "motivo": "x"}],
-    )
+    linha = {"red_flag": True, "prioridade": "P1", "conduta": "ESCALATE_EMERGENCY", "motivo": "x"}
+    if not bandeira:
+        linha = {"red_flag": False, "prioridade": "-", "conduta": "CONTINUE", "motivo": "x"}
+    dmn.register("triage_redflag_adult", [linha])
     return dmn
 
 
 def _grafo(
-    respostas: list[str], *, cib: FakeCibSevenTransport | None = None
+    respostas: list[str], *, cib: FakeCibSevenTransport | None = None, bandeira: bool = True
 ) -> tuple[Any, _WhatsApp, FakeCibSevenTransport]:
     whatsapp = _WhatsApp()
     cibseven = cib or FakeCibSevenTransport()
     grafo = HelenaGraph(
         inference=_Modelo(respostas),  # type: ignore[arg-type]
-        dmn=_dmn(),
+        dmn=_dmn(bandeira=bandeira),
         cibseven=cibseven,
         audit_sink=FakeStartAuditSink(),
         whatsapp=whatsapp,
@@ -187,45 +183,6 @@ async def test_primeira_mensagem_de_emergencia_escala_com_192() -> None:
 
 
 @pytest.mark.parametrize(
-    ("mensagem", "falas", "esperado"),
-    [
-        (
-            "ELE TA ROXO JA E NAO FALA MAIS NADA",
-            [RESPOSTA_ESCALONAMENTO_URGENTE, RESPOSTA_CASO_ABERTO_EMERGENCIA],
-            RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
-        ),
-        (
-            "ELE TA PARANDO DE RESPIRAR",
-            [
-                RESPOSTA_ESCALONAMENTO_URGENTE,
-                RESPOSTA_CASO_ABERTO_EMERGENCIA,
-                RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
-            ],
-            RESPOSTA_CASO_ABERTO_EMERGENCIA_3,
-        ),
-    ],
-)
-async def test_piora_com_caso_clinico_aberto_recebe_emergencia_primeiro(
-    mensagem: str, falas: list[str], esperado: str
-) -> None:
-    """A transcricao real: o modelo nao extraiu sintoma, e a Helena respondia "outras duvidas"."""
-    cib = _caso_aberto("red_flag_clinico")
-    antes = _starts(cib)
-    grafo, whatsapp, _ = _grafo([_classify(intent="information")], cib=cib)
-
-    resultado = await grafo.ainvoke(_entrada(mensagem, falas))
-
-    assert resultado["start_desfecho"] == START_DESFECHO_JA_ATIVO
-    assert whatsapp.enviados == [esperado]
-    enviado = whatsapp.enviados[0]
-    assert enviado.startswith("Ligue agora para o 192 (SAMU)")
-    assert "ambulância" in enviado and "equipe de saúde" in enviado
-    assert "outras dúvidas" not in enviado
-    assert enviado not in falas, "nunca o mesmo texto de antes"
-    assert _starts(cib) == antes, "o caso aberto e' reaproveitado, nenhum outro e' aberto"
-
-
-@pytest.mark.parametrize(
     "mensagem",
     [
         "JA TA LIGANDO PRO 192 MAS E O PLANO DE VC QUE TEM Q MANDAR AMBULANCIA",
@@ -236,11 +193,13 @@ async def test_piora_com_caso_clinico_aberto_recebe_emergencia_primeiro(
 async def test_sem_sinal_novo_o_192_ja_tratado_nao_sai_de_novo(mensagem: str) -> None:
     """DL-0154 (trava "sem segundo 192"): com o alarme ja' tratado e sem sinal NOVO claro, a Helena nao repete
     o "ligue 192": mantem o caso para a equipe confirmar. O caso aberto e' reaproveitado; nenhum outro."""
-    from maezo.agents.helena.habilidades.sintoma.textos import TEXTO_CASO_MANTIDO
+    from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTO_CASO_MANTIDO
 
     cib = _caso_aberto("red_flag_clinico")
     antes = _starts(cib)
-    grafo, whatsapp, _ = _grafo([_classify(intent="information")], cib=cib)
+    # Limpeza da saude, etapa 3: sem palavras de alarme, quem traz a fala ao caso aberto e' o classificador
+    # (sintoma sem codigo da tabela), e a TABELA nao acusa bandeira nova (com P1 novo, o 192 sai de novo).
+    grafo, whatsapp, _ = _grafo([_classify(intent="symptom")], cib=cib, bandeira=False)
 
     await grafo.ainvoke(_entrada(mensagem, [RESPOSTA_ESCALONAMENTO_URGENTE]))
 

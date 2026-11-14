@@ -95,6 +95,9 @@ _SHIPPED_ALERT_NAMES_FLOOR: Final[frozenset[str]] = frozenset(
         # (lag como consumidor parado). Secoes de runbook: "HITL approval drop" e "Kafka lag".
         "MaezoHITLApprovalRateDrop",
         "MaezoKafkaConsumerStalled",
+        # DEC-30 D11 (decisao do dono 2026-11-02, #1084): grupo `maezo_pagamento_contas` — a recusa
+        # do handoff CONTAS->PAGTO por ordem de outra conta. Secao "Pagamento de conta sem ordem".
+        "MaezoContasPagtoOrdemDeOutraConta",
     }
 )
 

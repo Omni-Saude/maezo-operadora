@@ -2019,6 +2019,16 @@ def _conta_unica() -> tuple[str, str]:
     return f"GUIA{sufixo}", f"CONTA{sufixo}"
 
 
+#: Prestador SEM `-` (DEC-30 D13: na chave por conta o prestador e' segmento do meio e `-` nele e'
+#: recusado). O padrao `PRESTADOR-TESTE-001` do `start_contas` so' serve a forma lote/legado.
+_PRESTADOR_CHAVE_CONTA = "PRESTADORTESTE001"
+
+
+def _chave_por_conta(guia: str, conta: str, prestador: str = _PRESTADOR_CHAVE_CONTA) -> str:
+    """`PAGTO-{t}-C-{prestador}-{guia}-{conta}` (DEC-30 D13; ADR-0074)."""
+    return f"PAGTO-amh-C-{prestador}-{guia}-{conta}"
+
+
 async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas_ordens(
     engine: EngineRest,
     contas_probe_chave_por_conta: ContasEngineProbe,
@@ -2026,7 +2036,8 @@ async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas
 ) -> None:
     """A REGRESSAO do defeito, ponta a ponta no motor: duas instancias CONTAS na forma guia/conta,
     mesmo prestador, MESMO lote, adjudicadas pela perna automatica -> DUAS instancias de
-    SP-OP-PAGTO-001, uma por conta, e nenhuma na chave lote."""
+    SP-OP-PAGTO-001, uma por conta (`PAGTO-amh-C-{prestador}-{guia}-{conta}`, DEC-30 D13), e nenhuma
+    na chave lote."""
     await _deploy_pagto(engine)
     lote = _unique_lote("LOTE-CHAVE-CONTA")
     guia, conta_1 = _conta_unica()
@@ -2036,6 +2047,7 @@ async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas
         numero_lote_tiss=lote,
         numero_guia_tiss=guia,
         numero_conta=conta_1,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
         business_key=f"CONTAS-amh-{guia}-{conta_1}",
         has_glosas=False,
     )
@@ -2043,6 +2055,7 @@ async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas
         numero_lote_tiss=lote,
         numero_guia_tiss=guia,
         numero_conta=conta_2,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
         business_key=f"CONTAS-amh-{guia}-{conta_2}",
         has_glosas=False,
     )
@@ -2053,12 +2066,12 @@ async def test_chave_por_conta_duas_contas_mesmo_prestador_mesmo_lote_geram_duas
         assert _END_APROVADA_INTEGRAL in ended, f"as duas contas fecham a perna automatica. ended={ended}"
         assert not await engine.incidents(inst["id"]), "nenhuma das duas contas pode virar incidente"
 
-    ordem_1 = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta_1}")
-    ordem_2 = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta_2}")
+    ordem_1 = await engine.find_active_instances(_chave_por_conta(guia, conta_1))
+    ordem_2 = await engine.find_active_instances(_chave_por_conta(guia, conta_2))
     assert len(ordem_1) == 1, f"a 1a conta tem a SUA ordem; veio {ordem_1}"
     assert len(ordem_2) == 1, f"a 2a conta tem a SUA ordem (antes ficava sem); veio {ordem_2}"
     assert ordem_1[0]["id"] != ordem_2[0]["id"]
-    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001"), (
+    assert not await engine.find_active_instances(f"PAGTO-amh-{lote}-{_PRESTADOR_CHAVE_CONTA}"), (
         "na fase escrita_alvo nenhuma ordem da forma guia/conta nasce na chave lote"
     )
 
@@ -2069,7 +2082,8 @@ async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_orde
     start_contas: Callable[..., Any],
 ) -> None:
     """Dedup ESTRITO preservado: a MESMA conta adjudicada duas vezes (inclusive reapresentada noutro
-    lote) converge numa ordem so' — a chave por conta nao inclui o lote, como a de CONTAS."""
+    lote) converge numa ordem so' — a chave por conta nao inclui o lote, como a de CONTAS (inclui o
+    prestador, DEC-30 D13, que e' o mesmo)."""
     await _deploy_pagto(engine)
     guia, conta = _conta_unica()
 
@@ -2077,6 +2091,7 @@ async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_orde
         numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-A"),
         numero_guia_tiss=guia,
         numero_conta=conta,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
         business_key=f"CONTAS-amh-{guia}-{conta}",
         has_glosas=False,
     )
@@ -2087,6 +2102,7 @@ async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_orde
         numero_lote_tiss=_unique_lote("LOTE-CHAVE-CONTA-B"),
         numero_guia_tiss=guia,
         numero_conta=conta,
+        prestador_id=_PRESTADOR_CHAVE_CONTA,
         business_key=f"CONTAS-amh-{guia}-{conta}",
         has_glosas=False,
     )
@@ -2095,7 +2111,7 @@ async def test_chave_por_conta_a_mesma_conta_reapresentada_continua_com_uma_orde
 
     assert _END_APROVADA_INTEGRAL in ended, f"o reenvio da mesma conta e' sucesso idempotente. ended={ended}"
     assert not await engine.incidents(segunda["id"])
-    ordens = await engine.find_active_instances(f"PAGTO-amh-C-{guia}-{conta}")
+    ordens = await engine.find_active_instances(_chave_por_conta(guia, conta))
     assert len(ordens) == 1, f"a mesma conta nunca ganha uma 2a ordem (PERMANENT); veio {ordens}"
 
 
@@ -2117,6 +2133,16 @@ async def test_legado_segunda_conta_do_mesmo_lote_vira_incidente_em_vez_de_suces
     await contas_probe.drain()
     assert _END_APROVADA_INTEGRAL in await _await_end(engine, primeira["id"])
 
+    from maezo.platform.observability import get_metrics_collector
+
+    def _recusas() -> float:
+        # DEC-30 D11: o sinal do alerta `MaezoContasPagtoOrdemDeOutraConta` (rotulos fechados).
+        valor = get_metrics_collector().registry.get_sample_value(
+            "maezo_contas_pagto_ordem_recusada_total", {"veredito": "outra", "fase": "legado"}
+        )
+        return float(valor or 0.0)
+
+    recusas_antes = _recusas()
     segunda = await start_contas(
         numero_lote_tiss=lote,
         numero_guia_tiss=guia,
@@ -2137,3 +2163,4 @@ async def test_legado_segunda_conta_do_mesmo_lote_vira_incidente_em_vez_de_suces
     )
     ordens = await engine.find_active_instances(f"PAGTO-amh-{lote}-PRESTADOR-TESTE-001")
     assert len(ordens) == 1, f"PERMANENT intocado: uma ordem so' (a da 1a conta); veio {ordens}"
+    assert _recusas() > recusas_antes, "a recusa tem de alimentar o contador do alerta (DEC-30 D11)"

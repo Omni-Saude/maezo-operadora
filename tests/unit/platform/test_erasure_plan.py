@@ -1081,6 +1081,74 @@ def test_an_ordem_drift_is_actually_caught_by_the_check_above(tmp_path: Path) ->
 
 
 # ---------------------------------------------------------------------------
+# Owner retention PROPOSALS (`proposta_dono`) — recorded, never a DPO decision
+# ---------------------------------------------------------------------------
+
+
+def _owner_proposal_drift(camadas: list[dict[str, Any]]) -> list[str]:
+    """`proposta_dono` per relation, artifact vs code (absent in both = None in both)."""
+    code = {layer.tabela: layer.proposta_dono for layer in ep.PERSISTENCE_LAYERS}
+    return [
+        f"{entry['tabela']}: proposta_dono artifact={entry.get('proposta_dono')!r} "
+        f"code={code[entry['tabela']]!r}"
+        for entry in camadas
+        if entry.get("proposta_dono") != code[entry["tabela"]]
+    ]
+
+
+def test_the_owner_proposals_match_between_artifact_and_code() -> None:
+    """Anti-drift: an owner proposal lives in BOTH halves with the same text, or in neither."""
+    assert _owner_proposal_drift(_shipped_raw()["camadas"]) == []
+
+
+def test_an_owner_proposal_drift_is_actually_caught(tmp_path: Path) -> None:
+    """Negative control on a SCRATCH COPY: drop the ledger proposal and add one to another row."""
+    data = _shipped_raw()
+    for layer in data["camadas"]:
+        if layer["tabela"] == "pagto_obrigacao_ledger":
+            del layer["proposta_dono"]
+        if layer["tabela"] == "erasure_log":
+            layer["proposta_dono"] = "fabricated proposal"
+    mutated_path = tmp_path / "mutated-proposta.yaml"
+    mutated_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    mismatches = _owner_proposal_drift(yaml.safe_load(mutated_path.read_text(encoding="utf-8"))["camadas"])
+    assert {m.split(":")[0] for m in mismatches} == {"pagto_obrigacao_ledger", "erasure_log"}, mismatches
+
+
+def test_d31_5_ledger_retention_is_the_owner_proposal_and_the_dpo_fields_stay_blank() -> None:
+    """DEC-31 D31-5 (dono, #1084, 2026-11-02): `pagto_obrigacao_ledger` retida 5 anos (1825 dias),
+    alinhada ao historico do motor e ao CC art. 206 par. 5 I; linhas de prestador PF eliminadas ao
+    fim. E' PROPOSTA do dono: `decisao_dpo` segue PENDENTE e base legal/retencao seguem marcadas
+    PENDENTE-RATIFICACAO-DPO — o DPO formaliza e assina; nenhum agente decide por ele."""
+    code = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    proposta = code["pagto_obrigacao_ledger"].proposta_dono
+    assert proposta is not None
+    for token in ("DEC-31 D31-5", "#1084", "5 anos", "1825 dias", "206", "PF", "DPO"):
+        assert token in proposta, token
+    assert not any(token in proposta for token in ep.DECISION_VOCABULARY)
+    entry = {e["tabela"]: e for e in _shipped_raw()["camadas"]}["pagto_obrigacao_ledger"]
+    assert entry["decisao_dpo"] == "PENDENTE"
+    assert entry["base_legal"].startswith("PENDENTE-RATIFICACAO-DPO")
+    assert entry["retencao"].startswith("PENDENTE-RATIFICACAO-DPO")
+    assert "1825 dias" in entry["retencao"] and "DEC-31 D31-5" in entry["retencao"]
+    data = _shipped_raw()
+    assert (data["status"], data["ratificado"], data["dpo_review"]) == ("DRAFT", False, "PENDENTE")
+    for field in ("dpo_reviewer", "dpo_review_date", "evidence_ref", "notes"):
+        assert str(data[field]).startswith("PENDENTE"), field
+
+
+def test_an_owner_proposal_is_documentation_the_loader_never_reads(tmp_path: Path) -> None:
+    """Ratification still comes ONLY from the DPO fields: a ratified fixture that keeps the
+    owner proposal loads, and the decision carries the DPO's `retencao`, never the proposal."""
+    plan = ep.load_erasure_plan(_write_plan(tmp_path, _ratified_yaml()))
+    decision = plan.get("pagto_obrigacao_ledger")
+    assert decision is not None
+    assert decision.retencao == "5 anos (fixture value)"
+    assert not hasattr(decision, "proposta_dono")
+    assert "proposta_dono" not in ep.REQUIRED_LAYER_FIELDS
+
+
+# ---------------------------------------------------------------------------
 # Governance wiring
 # ---------------------------------------------------------------------------
 

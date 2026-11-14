@@ -1,6 +1,6 @@
 # R-054: folha de ratificação das citações normativas, linha a linha (DEC-23, opção b)
 
-**Natureza:** minuta de ratificação. Este documento informa e não decide (ADR-0007). As células "Ratificação do jurídico" ficam em branco. Nenhum agente preenche decisão, nome, data ou assinatura. Quem prepara é o agente; quem ratifica, linha a linha, é o jurídico (Lucas).
+**Natureza:** minuta de ratificação. Este documento informa e não decide (ADR-0007). As células "Ratificação do jurídico" ficam em branco. Nenhum agente preenche decisão, nome, data ou assinatura. Exceção única, na L9: decisão e nome registrados a partir das decisões do dono DEC-28 e DEC-30 (D18); data e assinatura seguem em branco para o dono. Quem prepara é o agente; quem ratifica, linha a linha, é o jurídico (Lucas).
 
 **Origem:**
 - Item R-054 do roadmap da auditoria forense @f57f0821 (bundle FORENSIC-COMPLETENESS-2026-10, árvore gitignored, consumido de snapshot local; os trechos relevantes estão transcritos aqui). O item é de decisão humana, dono jurídico, flag COUNSEL.
@@ -431,13 +431,15 @@ Ambas com acesso em 2026-10-31. Mais os textos-base RN 566, RN 623 e RN 424, tod
 **Status:** VERIFICADO.
 
 **Registro da decisão do dono (DEC-28, 2026-11-01).** No comentário de 2026-11-01 da issue #1084
-(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547), o dono aprovou e confirmou o sign-off jurídico desta errata. Texto do dono, literal: "Legal sign-off on the RN 259 errata (R-054 L9)." A errata está na ADR-0073, Parte B, aceita pela DEC-29 no mesmo comentário. As células abaixo ficam em branco: o comentário não traz nome, papel, parecer ou assinatura de quem assina pelo jurídico, e nenhum agente preenche esses campos (ADR-0007). As demais linhas desta folha (L1 a L8) não mudam por este registro.
+(https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547), o dono aprovou e confirmou o sign-off jurídico desta errata. Texto do dono, literal: "Legal sign-off on the RN 259 errata (R-054 L9)." A errata está na ADR-0073, Parte B, aceita pela DEC-29 no mesmo comentário. As demais linhas desta folha (L1 a L8) não mudam por este registro.
+
+**Registro da decisão do dono (DEC-30, D18, 2026-11-02).** No comentário de 2026-11-02 da issue #1084 (https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6575240466), o registro da decisão diz: "D18: **o dono assina** os campos da R-054 L9." Por isso a tabela abaixo registra a decisão (DEC-28) e o nome de quem assina (o dono, por DEC-30 D18), com os links dos dois comentários. Data e assinatura ficam em branco: quem as preenche é o dono, pessoalmente; nenhum agente preenche esses dois campos (ADR-0007).
 
 | Ratificação do jurídico (L9) | |
 |---|---|
-| Decisão (ratifica / ratifica com ressalva / devolve) | |
+| Decisão (ratifica / ratifica com ressalva / devolve) | aprovada (DEC-28/DEC-30) — DEC-28: https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6566975547 ; DEC-30 (D18): https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6575240466 |
 | Ressalva ou parecer separado | |
-| Nome e papel | |
+| Nome e papel | dono (rodaquino-OMNI) |
 | Data | |
 | Assinatura | |
 

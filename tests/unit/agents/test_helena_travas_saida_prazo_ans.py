@@ -10,10 +10,8 @@ import re
 
 import pytest
 
-from maezo.agents.helena import helena_v4, triagem_v2
 from maezo.agents.helena import travas_saida as ts
 from maezo.agents.helena.textos import PADRAO
-from maezo.conhecimento import jornadas, saude_gerativa
 
 _COM_PRAZO = [
     (
@@ -71,25 +69,9 @@ def test_a_trava_e_idempotente() -> None:
 
 
 def test_nenhum_texto_fixo_da_helena_cita_prazo_da_ans() -> None:
-    """Os textos do pacote, da triagem, do especialista, da jornada e das opcoes ja' nascem sem prazo: a
-    trava nao tem nada a tirar deles (o MESMO texto, byte a byte)."""
-    textos = [
-        *PADRAO.values(),
-        triagem_v2.RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
-        triagem_v2.RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
-        triagem_v2.RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
-        *jornadas.TEXTOS.values(),
-        saude_gerativa.opcoes_do_sintoma(False),
-        saude_gerativa.opcoes_do_sintoma(True),
-        helena_v4.texto_final_do_sintoma("dor nas costas"),
-        helena_v4.texto_final_do_sintoma("tosse", helena_v4.POPULACAO_CRIANCA),
-        helena_v4.texto_do_especialista(
-            "cardiologista", basica=False, segmentacao=None, frase_cobertura=None
-        ),
-        helena_v4.texto_do_especialista(
-            "pediatra", basica=True, segmentacao="Ambulatorial", frase_cobertura=None
-        ),
-    ]
+    """Os textos do pacote ja' nascem sem prazo: a trava nao tem nada a tirar deles (o MESMO texto, byte a
+    byte). Limpeza da saude, etapa 3: os textos da triagem v2, da v4, da jornada e das opcoes sairam."""
+    textos = [*PADRAO.values()]
     for texto in textos:
         assert not re.search(r"dias? úteis|pelas? regras? da ANS|prazo da ANS", texto, re.IGNORECASE), texto
         assert ts.sem_prazo_da_ans(texto) is texto

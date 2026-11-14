@@ -12,10 +12,11 @@ from maezo.agents.helena import roteador as rt
 from maezo.agents.helena.graph import HelenaGraph
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as ca
-from maezo.conhecimento import saude_gerativa as sg
+from maezo.runtime.inference.rota_global import RotaGlobal
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.helena_conversa import _Transporte
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import (
     _CONVERSA,
@@ -24,7 +25,6 @@ from tests.unit.agents.test_helena_rodada_3_simulador import (
     _starts,
     _WhatsApp,
 )
-from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _Transporte
 
 
 def _decisao(habilidade: str, *, responde: bool = False, **extra: Any) -> str:
@@ -75,9 +75,7 @@ def _grafo(
         historico_enabled=True,
         consultas_plano=fonte,  # type: ignore[arg-type]
         relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
-        saude_gerativa=sg.RedatorDeSaude(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
-        helena_base_saude_enabled=True,
-        base_saude=_Conversa().base,
+        rota_global=RotaGlobal(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
         helena_roteador="ativo",
         helena_roteador_conversas=frozenset({_CONVERSA}) if na_allowlist else frozenset(),
     )
@@ -125,18 +123,6 @@ async def test_duvida_pergunta_x_ou_y_e_a_resposta_volta_ao_roteador() -> None:
     r2 = await grafo.ainvoke(_entrada("hemograma, se cobre") | memoria)
     assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA and fonte.pedidos == []
     assert not str(r2.get("coleta_pendente") or "").startswith("ROT_")
-
-
-async def test_trava_de_alarme_vence_o_roteador() -> None:
-    modelo = _Modelo([_decisao("cobertura")], [_classify(intent="symptom")])
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    with capture_logs() as logs:
-        await grafo.ainvoke(_entrada("estou com dor no peito forte e falta de ar, o plano cobre?"))
-    assert fonte.pedidos == []
-    assert "192" in whatsapp.enviados[-1]
-    assert any(
-        e.get("event") == "helena_roteador_caminho_de_sempre" and e.get("motivo") == "trava" for e in logs
-    )
 
 
 async def test_roteador_que_falha_cai_no_caminho_de_sempre() -> None:

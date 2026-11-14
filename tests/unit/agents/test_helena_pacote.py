@@ -93,8 +93,9 @@ def test_o_pacote_vence_a_plataforma_e_escolhe_o_modelo_do_roteador() -> None:
         "fabrica_de_inferencia": fabrica,
     }
     saida = ph.aplicar_no_grafo(config)
-    assert saida["helena_v4_enabled"] is False
-    assert saida["historico_enabled"] is True and saida["coleta_enabled"] is True
+    # Limpeza da saude, etapa 3: a chave `v4` do pacote e' aceita e ignorada; `historico` nao liga a coleta.
+    assert saida["helena_v4_enabled"] is True and saida["coleta_enabled"] is False
+    assert saida["historico_enabled"] is True
     assert saida["cobertura_modo"] == "simples", "o cobertura_modo de um pacote antigo e' ignorado (DL-0154)"
     assert saida["identidade_nome_operadora"] == "Operadora Exemplo"
     assert saida["helena_roteador"] == "ativo"
@@ -120,7 +121,7 @@ def test_roteador_desligado_no_pacote_desliga_o_provedor() -> None:
 def test_nos_fora_do_grafo_recebem_so_as_chaves_que_ja_aceitam() -> None:
     ph = hp.PacoteDaHelena(_Carregador(_pacote(_VALIDO)))  # type: ignore[arg-type]
     saida = ph.aplicar_nos_nos({"helena_v4_enabled": True, "historico_enabled": False, "inference": "i"})
-    assert saida == {"helena_v4_enabled": False, "historico_enabled": True, "inference": "i"}
+    assert saida == {"helena_v4_enabled": True, "historico_enabled": True, "inference": "i"}  # v4: ignorada
 
 
 def test_o_adaptador_da_helena_aplica_o_pacote_ao_construir_o_grafo(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,8 +129,8 @@ def test_o_adaptador_da_helena_aplica_o_pacote_ao_construir_o_grafo(monkeypatch:
     monkeypatch.setattr(graph, "build", lambda cfg: capturado.update(cfg) or "grafo")
     entrada = conversa.HelenaDeEntrada()
     entrada._pacote_da_helena = hp.PacoteDaHelena(_Carregador(_pacote(_VALIDO)))  # type: ignore[arg-type]
-    assert entrada.construir_grafo({"helena_v4_enabled": True, "fabrica_de_inferencia": None}) == "grafo"
-    assert capturado["helena_v4_enabled"] is False and "fabrica_de_inferencia" not in capturado
+    assert entrada.construir_grafo({"historico_enabled": False, "fabrica_de_inferencia": None}) == "grafo"
+    assert capturado["historico_enabled"] is True and "fabrica_de_inferencia" not in capturado
 
 
 # --- Textos do pacote (ADR-0067 §4; etapa 5 do Plano de ajustes v2) -----------------------------------------
@@ -150,7 +151,8 @@ def test_os_textos_do_repositorio_sao_validos_e_so_chaves_conhecidas() -> None:
     _, pacote = pda.montar("helena", "repo", _SPEC)
     textos = hp.textos(pacote)
     assert textos, "o pacote do repositorio traz textos.yaml"
-    assert set(textos) <= set(ht.PADRAO)
+    # Limpeza da saude, etapa 3: as chaves das camadas que sairam ficam ACEITAS E IGNORADAS ate' a etapa 4.
+    assert set(textos) <= set(ht.PADRAO) | set(ht.LEGADO)
     assert textos["cobertura_fora"] == ht.PADRAO["cobertura_fora"]
 
 

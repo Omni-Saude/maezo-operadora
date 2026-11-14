@@ -758,6 +758,45 @@ def record_engine_metrics_poll(*, ok: bool) -> None:
         logger.debug("engine_metrics_poll_metric_emit_failed", exc_info=True)
 
 
+#: DEC-30 D11: vocabularios FECHADOS de `maezo_contas_pagto_ordem_recusada_total`. `veredito` e'
+#: o de `contas._comparar_identidade_da_conta` que recusa (`mesma` nunca recusa); `fase` e' o
+#: dominio de `MAEZO_PAGTO_CHAVE_CONTA_FASE` (`contas.FASES_CHAVE_CONTA`). Um valor fora do
+#: conjunto vira `outro`, nunca o valor cru (paridade com `contas` fixada em teste).
+CONTAS_PAGTO_ROTULO_OUTRO: Final[str] = "outro"
+CONTAS_PAGTO_VEREDITOS: Final[frozenset[str]] = frozenset({"outra", "indeterminada"})
+CONTAS_PAGTO_FASES: Final[frozenset[str]] = frozenset({"legado", "leitura_dupla", "escrita_alvo"})
+
+
+def record_contas_pagto_ordem_recusada(*, veredito: str, fase: str) -> None:
+    """Count ONE refused CONTAS->PAGTO handoff — `maezo_contas_pagto_ordem_recusada_total` (DEC-30 D11).
+
+    Unico sitio de chamada: `tools.workers.contas._recusar_ordem_de_outra_conta`, ANTES do raise
+    que vira incidente em `ST_HandoffPagamento*`. Rotulos fechados; nunca guia, conta, chave,
+    lote, tenant ou instancia (ADR-0006). Best-effort: a telemetria nunca impede a recusa.
+    """
+    rotulo_veredito = veredito if veredito in CONTAS_PAGTO_VEREDITOS else CONTAS_PAGTO_ROTULO_OUTRO
+    rotulo_fase = fase if fase in CONTAS_PAGTO_FASES else CONTAS_PAGTO_ROTULO_OUTRO
+    try:
+        _get_metrics_collector().contas_pagto_ordem_recusada.labels(
+            veredito=rotulo_veredito, fase=rotulo_fase
+        ).inc()
+    except Exception:  # never let telemetry stop the refusal it is counting.
+        logger.debug("contas_pagto_ordem_recusada_metric_emit_failed", exc_info=True)
+
+
+def preinit_contas_pagto_ordem_recusada() -> None:
+    """Pre-initialise `maezo_contas_pagto_ordem_recusada_total` at 0 for every closed
+    (veredito, fase), so the FIRST refusal is visible to `increase()` (mesma razao de
+    :func:`preinit_a2a_guard_refusals`). Chamado por `contas.register_contas_workers`."""
+    try:
+        counter = _get_metrics_collector().contas_pagto_ordem_recusada
+        for veredito in CONTAS_PAGTO_VEREDITOS:
+            for fase in CONTAS_PAGTO_FASES:
+                counter.labels(veredito=veredito, fase=fase)
+    except Exception:  # telemetry must never break worker registration.
+        logger.debug("contas_pagto_ordem_recusada_preinit_failed", exc_info=True)
+
+
 #: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
 PEP_DECISION_ALLOW: Final[str] = "allow"
 PEP_DECISION_DENY: Final[str] = "deny"

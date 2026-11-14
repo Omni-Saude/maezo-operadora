@@ -1162,8 +1162,8 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
 
     Decisao do dono 2026-11-01 (opcao A): "ja existe" so' e' sucesso quando a ordem existente e'
     DESTA conta — conferido no HISTORICO do motor (`resolve_historic_instance`). Por isso a ordem
-    pre-existente e' semeada tambem no historico, com a identidade (guia/conta) desta conta; sem
-    ela o handoff recusa (`test_contas_pagto_chave_por_conta.py`)."""
+    pre-existente e' semeada tambem no historico, com a identidade (prestador/guia/conta — DEC-30
+    D13) desta conta; sem ela o handoff recusa (`test_contas_pagto_chave_por_conta.py`)."""
     engine = FakeCibSevenTransport()
     engine.seed_instance(
         ProcessInstance(
@@ -1181,7 +1181,7 @@ def test_handoff_pagamento_idempotent_returns_existing_active_instance() -> None
             process_key=PAGTO_PROCESS_KEY,
             state="ACTIVE",
             end_activity_id=None,
-            variables={"numero_guia_tiss": "GUIA-7", "numero_conta": ""},
+            variables={"prestador_id": "prov:teste-0001", "numero_guia_tiss": "GUIA-7", "numero_conta": ""},
         )
     )
     result = handoff_pagamento(

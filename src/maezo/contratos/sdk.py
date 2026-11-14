@@ -17,11 +17,10 @@ from typing import Final
 
 MODULOS_DO_SDK: Final[frozenset[str]] = frozenset(
     {
-        # Contratos, dominio, portas e conhecimento curado: compartilhados por desenho.
+        # Contratos, dominio e portas: compartilhados por desenho.
         "maezo.contratos",
         "maezo.domain",
         "maezo.ports",
-        "maezo.conhecimento",
         # Runtime: inferencia, formatacao de prompt, taxonomia de falhas e telemetria do turno.
         "maezo.runtime.inference",
         "maezo.runtime.prompt_format",

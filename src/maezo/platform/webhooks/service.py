@@ -161,57 +161,29 @@ def _helena_model_tiers() -> dict[str, str]:
         return {}
 
 
-def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
-    """SAUDE GERATIVA (ADR-0065, DL-0119): o redator, SO' com `MAEZO_HELENA_SAUDE_GERATIVA` E a base de saude
-    ligadas; senao `None` (nada da rota global existe no processo). Construcao pura: o cliente Bedrock nao faz
-    rede ate' a primeira chamada. A rota e' PROPRIA (`experimento_global_autorizado_dpo_2026-10-17`) e nunca
-    passa pelo roteador de zonas."""
-    if settings.helena_saude_gerativa is not True:
-        return None
-    from maezo.conhecimento.saude_gerativa import RedatorDeSaude, conversas_autorizadas
-    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
+    """ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1, 02/11/2026): o transporte do Haiku 5.5 (rota
+    autorizada pelo DPO, ADR-0065/DL-0155) e as conversas autorizadas, SEM depender da base de saude nem da
+    saude gerativa. A porta unica, o roteador ativo e o `modelo_allowlist` usam. Lista vazia = `None` (nada
+    da rota global existe no processo). Mesma env de antes (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`).
+    Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada.
 
-    if settings.helena_base_saude is not True:
-        logger.error("helena_saude_gerativa_sem_base_de_saude", rota=ROTA_DE_RESIDENCIA)
-        return None
+    Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): `MAEZO_HELENA_ROTA_GLOBAL_TODAS` liga a rota para
+    TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota)."""
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+    from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
+
     conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
+    todas = getattr(settings, "helena_rota_global_todas", False) is True
+    if not conversas and not todas:
+        return None
     logger.warning(
-        "helena_saude_gerativa_ligada",
+        "helena_rota_global_ligada",
         rota=ROTA_DE_RESIDENCIA,
         conversas_autorizadas=len(conversas),
+        todas_as_conversas=todas,
     )
-    busca = None
-    if getattr(settings, "helena_busca_semantica", False) is True:
-        # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
-        # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
-        from maezo.conhecimento.busca_semantica import BuscaSemantica
-        from maezo.runtime.inference.embeddings import TransporteBedrockRegional
-
-        try:
-            busca = BuscaSemantica(
-                transporte=TransporteBedrockRegional(modelo=settings.helena_busca_semantica_modelo),
-                limiar=settings.helena_busca_semantica_limiar,
-            )
-            logger.warning(
-                "helena_busca_semantica_ligada",
-                modelo=settings.helena_busca_semantica_modelo,
-                limiar=settings.helena_busca_semantica_limiar,
-            )
-        except ValueError:
-            logger.error(
-                "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
-            )
-    catalogo = None
-    if busca is not None:
-        # COBERTURA ASSISTIDA (DL-0128): o mesmo modelo de embeddings REGIONAL indexa o catalogo de
-        # procedimentos
-        # (rota TINA `tina-procedimentos`, carregada em segundo plano na primeira pergunta de cobertura).
-        from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos, carregar_sinonimos
-
-        catalogo = BuscaDeProcedimentos(transporte=busca.transporte, sinonimos=carregar_sinonimos())
-    return RedatorDeSaude(
-        transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca, catalogo=catalogo
-    )
+    return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas, todas=todas)
 
 
 def _build_dispatcher(
@@ -317,6 +289,7 @@ def _build_dispatcher(
             inatividade_minutos=settings.lucas_inatividade_minutos,
             fonte_cobranca=settings.lucas_fonte_cobranca,
         )
+    rota_global = _rota_global(settings)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -346,18 +319,16 @@ def _build_dispatcher(
         memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # HISTORICO CURTO DA CONVERSA (DL-0080): `MAEZO_HELENA_HISTORICO`, default `false`.
         historico_enabled=settings.helena_historico,
-        # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
-        triagem_v2_enabled=settings.helena_triagem_v2,
-        # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
-        helena_v4_enabled=settings.helena_v4,
+        # Limpeza da saude, etapa 3 (dono, 02/11/2026): `MAEZO_HELENA_TRIAGEM_V2`, `MAEZO_HELENA_V4`,
+        # `MAEZO_HELENA_BASE_SAUDE`, `MAEZO_HELENA_COBERTURA_MODO`, `MAEZO_HELENA_SAUDE_GERATIVA` e
+        # `MAEZO_HELENA_BUSCA_SEMANTICA*` ainda chegam da task: ACEITAS E IGNORADAS (as camadas sairam do
+        # codigo); saem do terraform e das settings na etapa 4.
         # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
         # default `false` (so' dev).
         helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
         # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `MAEZO_HELENA_DEPENDENTES_NOME`,
         # default `false` (so' dev).
         helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
-        # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
-        helena_base_saude_enabled=settings.helena_base_saude,
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
         helena_roteador=settings.helena_roteador,
         roteador_inference=roteador_inference,
@@ -365,11 +336,8 @@ def _build_dispatcher(
         fabrica_de_inferencia=functools.partial(_inferencia_dedicada, seam_context),
         roteador_concorrencia=settings.helena_roteador_concorrencia,
         helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
-        # COBERTURA (DL-0140): `MAEZO_HELENA_COBERTURA_MODO`, default `simples`.
-        cobertura_modo=settings.helena_cobertura_modo,
-        # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
-        # dev).
-        saude_gerativa=_saude_gerativa(settings),
+        # A rota global da allowlist (limpeza da saude, etapa 1): o Haiku da porta unica e do roteador.
+        rota_global=rota_global,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -1031,21 +999,6 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
-async def aquecer_catalogo(dispatcher: Any) -> None:
-    """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
-    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
-    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
-    if busca is None or leitor is None:
-        return
-    try:
-        itens, versao = await leitor()
-        if itens:
-            busca.carregar(itens, versao)
-            busca.agendar_indice()
-    except Exception as exc:  # o catalogo e' melhoria: sem ele, a busca por texto da rota de cobertura
-        logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
-
-
 async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = False) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
@@ -1253,16 +1206,8 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
 
         retencao_task = asyncio.create_task(laco_de_retencao(state.acesso, shutdown), name="acesso-retencao")
 
-    # DL-0128: o catalogo de procedimentos e o indice por significado da cobertura assistida sobem em SEGUNDO
-    # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
-    catalogo_task: asyncio.Task[None] | None = None
-    if state.dispatcher is not None:
-        catalogo_task = asyncio.create_task(aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos")
-
     logger.info("webhook_receiver_running")
     await shutdown.wait()
-    if catalogo_task is not None and not catalogo_task.done():
-        catalogo_task.cancel()
     if retencao_task is not None:
         retencao_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1381,7 +1326,7 @@ def _inferencia_dedicada(
 
 
 def _conversas_do_roteador(bruto: str) -> frozenset[str]:
-    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da saude gerativa."""
-    from maezo.conhecimento.saude_gerativa import conversas_autorizadas
+    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da rota global."""
+    from maezo.runtime.inference.rota_global import conversas_autorizadas
 
     return conversas_autorizadas(bruto)

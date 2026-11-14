@@ -107,7 +107,11 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 31/10/2026: 38 — `GustavoGraph.gather` (try da leitura FHIR da J2) SAIU com o acesso FHIR do Gustavo
 #: (ADR-0071 I-5; decisao do dono DEC-11 (i)): o `gather` dele nao le mais nada, entao nao ha `except`.
 #: Sitio REMOVIDO junto com o codigo, nao um predicado que parou de casar.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
+#: 02/11/2026: 35 — limpeza da saude, etapa 3 (DL-0165, adendo): SAIRAM com as camadas os sitios
+#: `habilidades/protocolo/fluxo.py::_chamar` (protocolos),
+#: `habilidades/saude/informar.py::_base_achar_assunto` (base de saude) e `graph.py::HelenaGraph::collect`
+#: (a pergunta da coleta). Sitios REMOVIDOS com o codigo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 35
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -232,18 +236,6 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "firewall de SDK da rota experimental global (ADR-0065, DL-0119): PROGRAMMING_ERRORS re-levanta "
         "antes; qualquer excecao do botocore vira FalhaDaRotaGlobalError (so' o nome da classe, nunca a "
         "mensagem, que pode ecoar o prompt) e quem chama devolve a resposta segura padrao",
-    ),
-    "src/maezo/runtime/inference/embeddings.py::TransporteBedrockRegional::_invocar_com_tentativas": (
-        1,
-        "repeticao da chamada de embeddings (conexao derrubada pelo tempo ocioso do NAT): PROGRAMMING_ERRORS "
-        "re-levanta antes; a ultima falha sobe como veio. Movido de conhecimento/busca_semantica.py sem "
-        "redefinir (R-040, DEC-20, AGENTS.md regra 6)",
-    ),
-    "src/maezo/runtime/inference/embeddings.py::TransporteBedrockRegional::vetores": (
-        1,
-        "firewall de SDK dos embeddings: PROGRAMMING_ERRORS e FalhaDeEmbeddingsError re-levantam antes; "
-        "qualquer excecao do botocore vira FalhaDeEmbeddingsError (so' o nome da classe, nunca a mensagem, "
-        "que pode trazer o texto enviado) e quem chama cai no lexico (R-040, DEC-20)",
     ),
     "src/maezo/runtime/inference/br_regional.py::BedrockBrRegionalTransport::send": (
         2,

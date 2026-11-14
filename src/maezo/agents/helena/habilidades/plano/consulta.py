@@ -47,7 +47,7 @@ from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_
 from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.plano import apto as _apto
-from maezo.agents.helena.helena_v4 import fatos_da_carteirinha, texto_da_carteirinha
+from maezo.agents.helena.habilidades.plano.carteirinha import fatos_da_carteirinha, texto_da_carteirinha
 from maezo.contratos.identidade_beneficiario import IDENTIDADE_RECONHECIDA
 from maezo.domain.conversa.competencia import hoje_em_brasilia
 from maezo.domain.conversa.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
@@ -91,14 +91,6 @@ def _rota_de_consulta(self: HelenaGraph, update: dict[str, Any]) -> dict[str, An
 
 
 async def consultar_plano(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
-    """A consulta do plano; com SOFRIMENTO na mesma mensagem ("o plano cobre psiquiatra? ando muito mal"),
-    o acolhimento (com o CVV 188 e o 192) vem PRIMEIRO (dossie de seguranca, 18/10/2026). O portao de
-    risco ja' rodou em `classify` (risco psicossocial vence a consulta)."""
-    resultado = await self._consultar_plano_sem_acolhimento(state)
-    return self._com_acolhimento(state, resultado)
-
-
-async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState) -> dict[str, Any]:
     """CONSULTA DO PLANO (DL de 07/10/2026): fatos do cadastro do PROPRIO beneficiario.
 
     SO' com identidade resolvida (DL-0077: candidato unico, `portable_subject_ref` no estado). Sem
@@ -204,10 +196,10 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
         )
         logger.info("helena_carteirinha_completa", node="consultar_plano", com_numero=bool(numeros))
         self._guardar_carteirinhas(state, numeros)
-    if self._v4 and subtipo == "carteirinha" and isinstance(view, ElegibilidadeView):
-        # HELENA V4 (DL-0115): plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO, e o
-        # cartao no aplicativo/portal. Texto deterministico (sem modelo) sobre uma lista FECHADA de
-        # fatos: nunca CNS, codigo inteiro, nome nem data de nascimento.
+    if subtipo == "carteirinha" and isinstance(view, ElegibilidadeView):
+        # Nasceu na HELENA V4 (DL-0115); sem chave desde a etapa 1 da limpeza: plano, segmentacao, vigencia e
+        # numero ANS com o codigo MASCARADO, e o cartao no aplicativo/portal. Texto deterministico (sem
+        # modelo) sobre uma lista FECHADA de fatos: nunca CNS, codigo inteiro, nome nem data de nascimento.
         fatos_v4 = fatos_da_carteirinha(
             view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
         )

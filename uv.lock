@@ -25,7 +25,7 @@ pyjwt = "2026-09-24T00:00:00Z"
 opentelemetry-semantic-conventions = "2026-10-07T00:00:00Z"
 langgraph-checkpoint-postgres = "2026-10-13T00:00:00Z"
 opentelemetry-sdk = "2026-10-07T00:00:00Z"
-langgraph-sdk = "2026-10-17T00:00:00Z"
+langgraph-sdk = "2026-10-27T00:00:00Z"
 opentelemetry-proto = "2026-10-07T00:00:00Z"
 opentelemetry-exporter-otlp-proto-grpc = "2026-10-07T00:00:00Z"
 certifi = "2026-10-21T00:00:00Z"
@@ -1093,7 +1093,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-sdk"
-version = "0.4.8"
+version = "0.4.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1102,9 +1102,9 @@ dependencies = [
     { name = "orjson" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/2a/bb6b4ca7a735901542c885e59ce3d1a128e2914b072b0c9a9feaf927195a/langgraph_sdk-0.4.8.tar.gz", hash = "sha256:6dd0c55d0d9040686716581c9e302c21c31ad6e2eebda0defc944a8bb38ec011", size = 355741, upload-time = "2026-10-16T22:08:51.14Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/33/dd9cd2218197debafee7b305a975355afa1c14278200019122d11717ce96/langgraph_sdk-0.4.10.tar.gz", hash = "sha256:d8d7afd326b4df42ddc0878b7fbf53f03c3237c664c236bf5bac4ab16fc38ed9", size = 360685, upload-time = "2026-10-26T19:59:45.313Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/b7/414170649c4437289858af6a9fec7a29f99e7b3919cebf32bbc4cb0be7a0/langgraph_sdk-0.4.8-py3-none-any.whl", hash = "sha256:bef8ac54bdfe3ac2f7eba5be2f322dde296701b39e1c1aa403302f08d273fab5", size = 164560, upload-time = "2026-10-16T22:08:49.836Z" },
+    { url = "https://files.pythonhosted.org/packages/36/0c/c14a178c018fffdb818a7e098cb28d6ecead53a07e161a03c083003ff137/langgraph_sdk-0.4.10-py3-none-any.whl", hash = "sha256:306ede340814e79332812e3b5a8bda2587a09657c95e14e5c7af3370e06c22fe", size = 167854, upload-time = "2026-10-26T19:59:44.075Z" },
 ]
 
 [[package]]
@@ -1351,7 +1351,7 @@ requires-dist = [
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "langgraph", specifier = ">=0.4,<2.0" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.1,<4.0" },
-    { name = "langgraph-sdk", specifier = "==0.4.8" },
+    { name = "langgraph-sdk", specifier = "==0.4.10" },
     { name = "lxml", specifier = ">=5.0,<7.0" },
     { name = "lxml-stubs", marker = "extra == 'dev'", specifier = ">=0.5,<1.0" },
     { name = "mcp", specifier = ">=1.9,<3.0" },

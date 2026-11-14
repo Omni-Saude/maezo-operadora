@@ -33,8 +33,8 @@ def test_bootstrap_only_creates_missing_canonical_queues_without_grants_or_membe
     }
     # R-041 / DEC-21 (#1084): atendimento + as filas de decisao de todos os processos.
     canonical = {name for name, _ in b.GRUPOS_CANONICOS}
-    # 38 do modelo do dono (R-041) + `financeiro-reembolso` (DL-0161, #1074).
-    assert len(canonical) == 39
+    # 38 do modelo do dono (R-041); `financeiro-reembolso` (DL-0161) retirado pela DEC-30 D14 (#1084).
+    assert len(canonical) == 38
     grants = [
         {
             "id": f"read-{kind}",

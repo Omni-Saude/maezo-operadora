@@ -13,9 +13,9 @@ import pytest
 from maezo.agents.helena import roteador_v7 as rv7
 from maezo.agents.helena.graph import _HELENA_MEMORIA_DE_CONVERSA
 from maezo.agents.helena.habilidades.conversa import assuntos as a
+from tests.support.helena_conversa import _INFO, _texto
 from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_roteador_v7 import _ConversaAtiva
-from tests.unit.agents.test_helena_saude_gerativa import _INFO, _texto
 
 
 def _v7(**campos: Any) -> rv7.DecisaoV7:

@@ -156,7 +156,7 @@ def test_os_tres_roteiros_existem_compilam_e_o_dono_v1_e_o_cancelamento_nao_muda
     assert aceite.SUJEITO_DO_ROTEIRO["lucas_v4_nao_pagador"] == aceite.SUJEITO_PF_TITULAR
     assert aceite.SUJEITO_DO_ROTEIRO["cancelamento_v1"] == aceite.SUJEITO_PF_TITULAR
     # nenhum segmento antigo ganhou rigor: so' os roteiros novos
-    assert not any(s.rigor_v4 for s in (*aceite.DONO_V1, *aceite.TRIAGEM_V2, *aceite.CANCELAMENTO_V1))
+    assert not any(s.rigor_v4 for s in (*aceite.DONO_V1, *aceite.CANCELAMENTO_V1))
     assert [len(s.passos) for s in aceite.DONO_V1] == [18, 3, 3, 1, 6, 4, 2]
 
 

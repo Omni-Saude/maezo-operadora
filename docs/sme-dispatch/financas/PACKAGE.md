@@ -168,7 +168,7 @@ where applicable) before any of these contracts can leave DRAFT.
   2. **(Partially answered — still yours to close.)** "No ceiling or extra sign-off for large-value
      glosa reversals" is no longer true: the reversal is now a payment order subject to
      **SP-OP-PAGTO-001's own alcada ladder** AND — by invariant **I-PAGTO-1** — to a mandatory
-     human `UT_AnaliseAdmissibilidade` (`coordenacao-financeira`) in EVERY value band, because the
+     human `UT_AnaliseAdmissibilidade` (`analise-contas-pagar`) in EVERY value band, because the
      handoff never seeds `lastro_confirmado`. So the answer moved from "there is no ladder" to
      "there is PAGTO's ladder, plus a human admission before it — confirm that is the right one
      for a glosa reversal." **NOT RATIFIED** — this is a proposal, not a sign-off.

@@ -249,3 +249,11 @@ f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 # então essa branch preservada deixa o Security de main vermelho desde 30/10. Removível quando a
 # branch for apagada pela rotina de manutenção do CONTRIBUTING.
 5a694e2193a36a6248e3db3bc91b5b22ad552a2b:tests/unit/tools/workers/test_events_ans_timer_identity.py:generic-api-key:71
+
+# Falso positivo (mesma classe das entradas de dev-vivo.auto.tfvars acima), 02/11/2026: UUID de VersionId
+# do AWS Secrets Manager pinado em `job_secret_version_id` — pin publico da versao, nao o valor do segredo
+# (o valor fica no Secrets Manager e chega a task via `valueFrom`). Commit da branch ops/dev-igual-main-20261102
+# (PR #1187, "corte dev = main de 02/11/2026"); o `gitleaks detect` sem --log-opts varre todas as branches,
+# por isso o Security de main ficou vermelho em c6cbd383 antes do merge. Se o #1187 for squash-merged, o SHA
+# do squash gera outro fingerprint: acrescente-o aqui depois do merge (como o #812/#951).
+cfe289424e0e56b5b2847070e9c69a13d65fa20d:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93

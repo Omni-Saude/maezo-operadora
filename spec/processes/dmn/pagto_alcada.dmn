@@ -6,7 +6,7 @@
              name="Escada de alcada de pagamento (classificacao value-driven)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    pagto_alcada v0.1.2 — status: DRAFT (escada de alcada / threshold_brl / mapeamento
+    pagto_alcada v0.1.3 — status: DRAFT (escada de alcada / threshold_brl / mapeamento
     faixa->grupo->tier requerem sign-off de financas — segregacao de funcoes / SOX-like;
     docs/review-queue.md). Consumida por SP-OP-PAGTO-001 e mcp-dmn. Coracao value-driven do
     processo: e a UNICA DMN da plataforma cuja saida (`grupo_aprovador`) alimenta
@@ -63,11 +63,20 @@
       instancia com esta cardinalidade) quando ela e maior que 1 E a flag dark
       MAEZO_PAGTO_COMITE_COLEGIADO esta ligada; o guard de release_high_value_payment (com a flag)
       exige o livro de votos com esse quorum. Faixas L1..L3 e clerical = 1 (aprovador singular,
-      inalterado). Catch-all (comite-financeiro) = 2 — VALOR DRAFT, NAO DECIDIDO pelo dono: a
-      composicao e o quorum do comite seguem pendentes de financas/dono (docs/review-queue.md,
-      spec/aprovacoes-de-regras.yaml). O 2 espelha o controle dual que o dono aceitou para a tarefa
-      de bloqueio ("prosseguir so com 2 aprovadores", Rodada 2, #1084) e a analise §3 (c) ("Tier 4
-      ... needs two distinct approvers"); nao e um quorum ratificado. Nao e saida de liberacao.
+      inalterado). Catch-all (comite-financeiro) = 2 — DECIDIDO pelo dono em DEC-30 D1 (#1084,
+      2026-11-02): comite = CFO + Gerente Financeiro, os dois aprovam (2 de 2); D2: todo voto
+      exigido tem de ser APROVAR. A pertinencia real dos membros no IdP segue ato humano. Nao e
+      saida de liberacao.
+
+    v0.1.3 (DEC-30 D3, dono, #1084, 2026-11-02 — opcao C):
+    - Saida `votos_minimos_coordenacao` (integer): quantos votos APROVAR de membros DISTINTOS do
+      comite ja precisam estar no livro `votos_comite` para a coordenacao financeira
+      (UT_CoordenacaoAlcada, `assumir_aprovacao` apos estouro de SLA) COMPLETAR o quorum como um
+      membro a mais. Catch-all (comite) = 1 (o "1 voto APROVAR" da decisao). A regra vive AQUI
+      (ADR-0012), nao no worker: BRT_AlcadaRouting achata a saida e o guard colegiado de
+      release_high_value_payment a LE (ausente/mal-formada/menor que 1 -> a coordenacao nao
+      completa; fail-closed). As faixas L1..L3/clerical emitem 1 por uniformidade, mas o valor so e
+      lido quando `quorum_comite` e maior que 1. Nao e saida de liberacao.
   </description>
   <decision id="pagto_alcada" name="Escada de alcada de pagamento" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_pagto_alcada" hitPolicy="FIRST">
@@ -86,6 +95,7 @@
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <output id="out_valor_maximo_aprovavel" label="valor_maximo_aprovavel_cents" name="valor_maximo_aprovavel_cents" typeRef="long"/>
       <output id="out_quorum_comite" label="quorum_comite" name="quorum_comite" typeRef="integer"/>
+      <output id="out_votos_minimos_coordenacao" label="votos_minimos_coordenacao" name="votos_minimos_coordenacao" typeRef="integer"/>
       <rule id="r_dentro_teto_l2">
         <description>Valor positivo e dentro_teto_l2 confirmado (o teto vem SO da politica high_value_payment.threshold_brl — R$ 100.000 DRAFT — resolvido pelo worker de fatos) -> caminho clerical L2 (sem grupo aprovador adverso). A coluna de valor e teste de dominio (&gt; 0), nao um segundo teto. Exemplo sintetico: pagamento de R$ 850,00 a Prestador Teste 001.</description>
         <inputEntry id="r_dentro_teto_l2_i1"><text>&gt; 0</text></inputEntry>
@@ -97,6 +107,7 @@
         <outputEntry id="r_dentro_teto_l2_o3"><text>"Abaixo do teto L2 de auto-liberacao do tenant — caminho clerical (L2; DRAFT/verify financas)"</text></outputEntry>
         <outputEntry id="r_dentro_teto_l2_o_teto_aprovado"><text>valor_pagamento_cents</text></outputEntry>
         <outputEntry id="r_dentro_teto_l2_o_quorum"><text>1</text></outputEntry>
+        <outputEntry id="r_dentro_teto_l2_o_votos_min_coord"><text>1</text></outputEntry>
       </rule>
       <rule id="r_alcada_l1">
         <description>R$ 100k–500k (DRAFT) -> faixa ALCADA_L1, grupo aprovacao-financeira-l1 (tier 1)</description>
@@ -109,6 +120,7 @@
         <outputEntry id="r_alcada_l1_o3"><text>"Faixa de alcada L1 (acima do teto L2; aprovador humano tier 1) — DRAFT/verify financas"</text></outputEntry>
         <outputEntry id="r_alcada_l1_o_teto_aprovado"><text>valor_pagamento_cents</text></outputEntry>
         <outputEntry id="r_alcada_l1_o_quorum"><text>1</text></outputEntry>
+        <outputEntry id="r_alcada_l1_o_votos_min_coord"><text>1</text></outputEntry>
       </rule>
       <rule id="r_alcada_l2">
         <description>R$ 500k–2MM (DRAFT) -> faixa ALCADA_L2, grupo aprovacao-financeira-l2 (tier 2)</description>
@@ -121,6 +133,7 @@
         <outputEntry id="r_alcada_l2_o3"><text>"Faixa de alcada L2 (aprovador humano tier 2) — DRAFT/verify financas"</text></outputEntry>
         <outputEntry id="r_alcada_l2_o_teto_aprovado"><text>valor_pagamento_cents</text></outputEntry>
         <outputEntry id="r_alcada_l2_o_quorum"><text>1</text></outputEntry>
+        <outputEntry id="r_alcada_l2_o_votos_min_coord"><text>1</text></outputEntry>
       </rule>
       <rule id="r_alcada_l3">
         <description>R$ 2MM–10MM (DRAFT) -> faixa ALCADA_L3, grupo aprovacao-financeira-l3 (tier 3)</description>
@@ -133,6 +146,7 @@
         <outputEntry id="r_alcada_l3_o3"><text>"Faixa de alcada L3 (aprovador humano tier 3) — DRAFT/verify financas"</text></outputEntry>
         <outputEntry id="r_alcada_l3_o_teto_aprovado"><text>valor_pagamento_cents</text></outputEntry>
         <outputEntry id="r_alcada_l3_o_quorum"><text>1</text></outputEntry>
+        <outputEntry id="r_alcada_l3_o_votos_min_coord"><text>1</text></outputEntry>
       </rule>
       <rule id="r_catchall">
         <description>Catch-all CONSERVADOR (FAIL-SAFE): acima do maior tier, faixa ambigua, dentro_teto_l2 inconsistente ou inputs nao mapeados -> tier mais alto (comite-financeiro / ANALISE_HUMANA). NUNCA auto-libera. Cobre o caso "valor abaixo do teto MAS dentro_teto_l2=false/null" (conservador: sobe ao comite, nao auto-libera).</description>
@@ -145,6 +159,7 @@
         <outputEntry id="r_catchall_o3"><text>"Acima do maior tier / faixa ambigua / teto inconsistente — comite financeiro (tier mais alto, conservador; NUNCA auto-libera) — DRAFT/verify financas"</text></outputEntry>
         <outputEntry id="r_catchall_o_teto_aprovado"><text>valor_pagamento_cents</text></outputEntry>
         <outputEntry id="r_catchall_o_quorum"><text>2</text></outputEntry>
+        <outputEntry id="r_catchall_o_votos_min_coord"><text>1</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

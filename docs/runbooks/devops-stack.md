@@ -578,6 +578,21 @@ de custo. Runbook dedicado: [`alerts/MaezoA2ABudgetExhausted.md`](alerts/MaezoA2
 **Alert:** `MaezoA2ABudgetExhausted`  
 **Meaning:** A delegation chain ran out of its per-chain budget and a sub-delegation was rejected.  
 
+### Pagamento de conta sem ordem (CONTAS->PAGTO)
+
+**Status:** IMPLEMENTADO (DEC-30 D11, decisao do dono 2026-11-02, issue #1084) — grupo
+`maezo_pagamento_contas` em `deploy/observability/alert-rules.yml`, sobre
+`maezo_contas_pagto_ordem_recusada_total{veredito,fase}` (rotulos fechados), emitido so' por
+`tools/workers/contas.py::_recusar_ordem_de_outra_conta` e pre-inicializado em 0 por
+`register_contas_workers`. Qualquer recusa na janela dispara (`> 0`): D11 nomeia o incidente, nao
+uma taxa. Severidade `warning` (ticket). Runbook dedicado, com o procedimento do financeiro:
+[`alerts/MaezoContasPagtoOrdemDeOutraConta.md`](alerts/MaezoContasPagtoOrdemDeOutraConta.md).  
+**Alert:** `MaezoContasPagtoOrdemDeOutraConta`  
+**Meaning:** o handoff de uma conta aprovada recusou abrir/reaproveitar a ordem PAGTO porque a
+ordem que ja' existe sob a chave nao e' comprovadamente desta conta. Na fase padrao `legado`, e' a
+2a conta do mesmo prestador no mesmo lote: ela fica SEM ordem de pagamento ate a janela de chaves
+(ADR-0068/ADR-0074), com incidente aberto em `ST_HandoffPagamento*`.  
+
 ### HITL approval drop
 
 **Status:** IMPLEMENTADO, DARK (R-085, owner decision 2026-10-31, issue #1084 Rodada 2) — group
@@ -928,7 +943,7 @@ below — there is no automated compliance alert for a rejected/late ANS submiss
 
 ### Alertas implementados
 
-As secoes abaixo (esta nota + os alertas dos grupos `maezo_sla`/`maezo_crash_loop`/`maezo_dead_letter`/`maezo_lifecycle`; os de governanca, HITL L1 e Kafka tem secao propria acima) cobrem os alertas REALMENTE existentes em
+As secoes abaixo (esta nota + os alertas dos grupos `maezo_sla`/`maezo_crash_loop`/`maezo_dead_letter`/`maezo_lifecycle`; os de governanca, HITL L1, Kafka e pagamento de contas tem secao propria acima) cobrem os alertas REALMENTE existentes em
 `deploy/observability/alert-rules.yml` (RUNBOOK-PHANTOM-ALERTS-REMAINING-14, gap reverso: os
 alertas *shipped* nao tinham nenhuma secao de runbook). Cada secao e derivada ESTRITAMENTE da
 regra (`expr`, `for`, `labels`, `annotations`) — nenhum limiar ou procedimento foi inventado alem

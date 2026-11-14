@@ -31,6 +31,7 @@ from maezo.agents.helena.graph import (
     PROCESS_KEY,
     RESPONSE_KIND_HANDOFF,
     RESPOSTA_CASO_ABERTO_EMERGENCIA,
+    RESPOSTA_CONFIRMA_ENCERRAMENTO,
     RESPOSTA_DUVIDA_DE_SAUDE,
     RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_HANDOFF_JA_ABERTO,
@@ -50,7 +51,6 @@ from maezo.agents.helena.graph import (
     _validate_extraction,
     new_helena_state,
 )
-from maezo.agents.helena.habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_COM_CASO
 from maezo.agents.helena.prompts import (
     menciona_encaminhamento,
     motivo_de_canal_nao_confirmado,
@@ -326,8 +326,9 @@ async def test_msg3b_recusa_da_equipe_e_respeitada_e_nao_repete_o_aviso_de_caso_
     resultado = await _turno(grafo, _entrada(MSG_3B))
 
     assert resultado["response_kind"] == "inform"
-    # Avaliacao r5 (25/10/2026): com o caso aberto, a frase curta do caso (nada se encerra, nada repete).
-    assert whatsapp.enviados == [RESPOSTA_RECUSA_COM_CASO]
+    # Limpeza da saude, etapa 1 (02/11/2026): a lista de casos abertos vale sem a chave da base (como no dev):
+    # o caso aberto P2/P3 recebe a pergunta de confirmacao (nada se encerra sem o "sim", nada repete).
+    assert whatsapp.enviados == [RESPOSTA_CONFIRMA_ENCERRAMENTO]
     assert RESPOSTA_HANDOFF_JA_ABERTO not in whatsapp.enviados[0]
     assert _starts(cib) == antes
 

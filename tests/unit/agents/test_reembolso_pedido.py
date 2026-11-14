@@ -191,7 +191,17 @@ def test_gatilho_nao_dispara_em_outros_assuntos() -> None:
 
 def test_textos_de_retorno_exigem_o_fato_que_afirmam() -> None:
     proto = "REE-AB12-CD34"
-    assert "aprovou" in rp.texto_do_retorno(rp.RESULTADO_APROVADO, protocolo=proto)
+    aprovado = rp.texto_do_retorno(rp.RESULTADO_APROVADO, protocolo=proto, valor_aprovado_cents=123456)
+    assert "aprovou o valor de R$ 1.234,56" in aprovado
+    for sem_valor in (None, 0, -5, True, "20000"):
+        with pytest.raises(ValueError):
+            rp.texto_do_retorno(rp.RESULTADO_APROVADO, protocolo=proto, valor_aprovado_cents=sem_valor)
+        with pytest.raises(ValueError):
+            rp.texto_do_retorno(
+                rp.RESULTADO_PARCIAL, protocolo=proto, texto_da_equipe="x", valor_aprovado_cents=sem_valor
+            )
+    negado = rp.texto_do_retorno(rp.RESULTADO_NEGADO, protocolo=proto, texto_da_equipe="Fora da cobertura.")
+    assert "pedir a revisão" in negado and "quero falar com a equipe" in negado
     pago = rp.texto_do_retorno(rp.RESULTADO_PAGO, protocolo=proto, data_pagamento_iso="2026-10-27")
     assert "27/10/2026" in pago
     with pytest.raises(ValueError):
@@ -209,3 +219,12 @@ def test_os_resultados_do_bpmn_sao_os_do_modulo() -> None:
     achados = set(re.findall(r"reembolso_(?:aprovado|parcial|negado|info_solicitada|pago)\b", bpmn))
     assert {f"reembolso_{a.split('_', 1)[1]}" for a in achados} == achados
     assert achados == set(rp.RESULTADOS_DO_REEMBOLSO)
+
+
+def test_o_artigo_concorda_com_o_documento() -> None:
+    # Teste do dono (02/11/2026): "Você terminou de enviar o nota fiscal?".
+    nota = rp.receber_documento(_ate_documentos(), "nf-1").texto
+    assert "terminou de enviar a nota fiscal?" in nota
+    assert "Ainda não recebi a nota fiscal." in _turno(_ate_documentos(), "sim").texto
+    pedido = rp.receber_documento(_ate_documentos(categoria="2", tipo="2"), "ped-1").texto
+    assert "terminou de enviar o pedido médico?" in pedido

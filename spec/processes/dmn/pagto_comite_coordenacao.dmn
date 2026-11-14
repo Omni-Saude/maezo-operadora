@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_pagto_comite_coordenacao"
+             name="Assuncao de comite de pagamentos pela coordenacao financeira apos estouro de SLA"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    pagto_comite_coordenacao v0.1.0 — status: DECIDIDO (DEC-31 D31-2, dono, #1084, 2026-11-02) —
+    a regra e a decisao do dono; a aprovacao amarrada aos bytes (financas) segue pendente em
+    spec/aprovacoes-de-regras.yaml. Consumida SO por SP-OP-PAGTO-001 (BRT_AssuncaoComite).
+
+    DECISAO DO DONO (DEC-31 D31-2, refina a DEC-30 D3): "a coordinator can take over if one member
+    voted yes and the other did not answer before deadline." Depois do SLA do comite estourar
+    (BT_SlaComite), a coordenacao financeira (UT_CoordenacaoAlcada, `assumir_aprovacao`) so pode
+    completar o caso com EXATAMENTE 1 voto APROVAR na rodada e NENHUM voto que nao aprove; qualquer
+    recusa (ou outro voto nao-APROVAR) e zero votos mantem a recusa fail-closed de hoje.
+
+    Avaliada por BRT_AssuncaoComite, no ramo `assumir_aprovacao` de GW_DecisaoCoordenacao, SO quando
+    a rodada era de comite (GW_AssuncaoComite: flag MAEZO_PAGTO_COMITE_COLEGIADO + quorum_comite
+    maior que 1). Nao pode morar em pagto_alcada: aquela tabela roda em BRT_AlcadaRouting, ANTES de
+    qualquer voto; os fatos desta tabela so existem depois do estouro de SLA. Entradas = FATOS DO
+    MOTOR da rodada corrente, escritos pelo proprio BPMN (nunca por worker nem por semente de start):
+    - `comite_sla_estourado` (boolean): `false` ao abrir cada rodada (listener de Flow_GWTipo_Comite),
+      `true` so no fluxo de BT_SlaComite (listener de Flow_SlaComite_Pub);
+    - `comite_votos_aprovar` / `comite_votos_nao_aprovar` (integer): zerados ao abrir cada rodada e
+      contados no fluxo de saida de UT_AprovacaoComite (Flow_UTComite_Registrar), no MESMO passo em
+      que o humano conclui o voto — um voto concluido conta mesmo que o registro no livro
+      (ST_RegistrarVotoComite, tarefa externa) ainda nao tenha rodado quando o SLA estoura.
+
+    Saidas: `assuncao_comite` (PERMITIDA | RECUSADA) e `motivo_assuncao_comite` (token fechado,
+    vai para a trilha de auditoria ADR-0007). NAO e saida de liberacao: a liberacao continua nascendo
+    so da decisao humana da coordenacao e materializada so pelo worker gated
+    release_high_value_payment, que exige `assuncao_comite == PERMITIDA` (ausente/outro valor ->
+    ERR_PAYMENT_RELEASE_NOT_HUMAN), alem de SoD (coordenacao distinta do membro que votou, do
+    decisor do lastro e do analista de admissibilidade), tier-match e o livro de votos.
+    hitPolicy FIRST com catch-all fail-closed como ultima regra (espelha pagto_sla/pagto_duplicidade).
+  </description>
+  <decision id="pagto_comite_coordenacao" name="Assuncao do comite pela coordenacao apos estouro de SLA" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_pagto_comite_coordenacao" hitPolicy="FIRST">
+      <input id="in_comite_sla_estourado" label="SLA do comite estourado nesta rodada (comite_sla_estourado)">
+        <inputExpression id="ie_comite_sla_estourado" typeRef="boolean"><text>comite_sla_estourado</text></inputExpression>
+      </input>
+      <input id="in_comite_votos_aprovar" label="Votos APROVAR concluidos nesta rodada (comite_votos_aprovar)">
+        <inputExpression id="ie_comite_votos_aprovar" typeRef="integer"><text>comite_votos_aprovar</text></inputExpression>
+      </input>
+      <input id="in_comite_votos_nao_aprovar" label="Votos que nao aprovam concluidos nesta rodada (comite_votos_nao_aprovar)">
+        <inputExpression id="ie_comite_votos_nao_aprovar" typeRef="integer"><text>comite_votos_nao_aprovar</text></inputExpression>
+      </input>
+      <output id="out_assuncao_comite" label="assuncao_comite" name="assuncao_comite" typeRef="string"/>
+      <output id="out_motivo_assuncao_comite" label="motivo_assuncao_comite" name="motivo_assuncao_comite" typeRef="string"/>
+      <rule id="r_permitida">
+        <description>DEC-31 D31-2: SLA estourado, exatamente 1 voto APROVAR e nenhum voto que nao aprove -> a coordenacao pode completar o caso</description>
+        <inputEntry id="r_permitida_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_permitida_i2"><text>1</text></inputEntry>
+        <inputEntry id="r_permitida_i3"><text>0</text></inputEntry>
+        <outputEntry id="r_permitida_o1"><text>"PERMITIDA"</text></outputEntry>
+        <outputEntry id="r_permitida_o2"><text>"SLA_ESTOURADO_UM_APROVAR_SEM_RECUSA"</text></outputEntry>
+      </rule>
+      <rule id="r_voto_nao_aprovar">
+        <description>Qualquer voto concluido que nao seja APROVAR (RECUSAR, CANCELAR, SOLICITAR_INFO, vazio) -> mantem a recusa</description>
+        <inputEntry id="r_voto_nao_aprovar_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_voto_nao_aprovar_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_voto_nao_aprovar_i3"><text>&gt; 0</text></inputEntry>
+        <outputEntry id="r_voto_nao_aprovar_o1"><text>"RECUSADA"</text></outputEntry>
+        <outputEntry id="r_voto_nao_aprovar_o2"><text>"VOTO_NAO_APROVAR_NA_RODADA"</text></outputEntry>
+      </rule>
+      <rule id="r_sla_nao_estourado">
+        <description>SLA do comite nao estourou nesta rodada -> a coordenacao nao assume o comite</description>
+        <inputEntry id="r_sla_nao_estourado_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_sla_nao_estourado_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_sla_nao_estourado_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_sla_nao_estourado_o1"><text>"RECUSADA"</text></outputEntry>
+        <outputEntry id="r_sla_nao_estourado_o2"><text>"SLA_COMITE_NAO_ESTOURADO"</text></outputEntry>
+      </rule>
+      <rule id="r_zero_votos">
+        <description>Nenhum voto APROVAR na rodada -> mantem a recusa (a coordenacao nunca libera sozinha)</description>
+        <inputEntry id="r_zero_votos_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_zero_votos_i2"><text>0</text></inputEntry>
+        <inputEntry id="r_zero_votos_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_zero_votos_o1"><text>"RECUSADA"</text></outputEntry>
+        <outputEntry id="r_zero_votos_o2"><text>"NENHUM_VOTO_APROVAR"</text></outputEntry>
+      </rule>
+      <rule id="r_mais_de_um_aprovar">
+        <description>Mais de 1 voto APROVAR: fora da regra do dono (o caminho e o do comite, nao a assuncao) -> recusa</description>
+        <inputEntry id="r_mais_de_um_aprovar_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_mais_de_um_aprovar_i2"><text>&gt; 1</text></inputEntry>
+        <inputEntry id="r_mais_de_um_aprovar_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_mais_de_um_aprovar_o1"><text>"RECUSADA"</text></outputEntry>
+        <outputEntry id="r_mais_de_um_aprovar_o2"><text>"MAIS_DE_UM_VOTO_APROVAR"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-CLOSED: fato ausente/nulo/mal-formado -> recusa (nunca PERMITIDA por omissao)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"RECUSADA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"FATOS_DA_RODADA_AUSENTES"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -321,6 +321,8 @@ def test_the_shipped_alert_rules_file_passes_non_vacuously() -> None:
         "MaezoPEPDenySpike",
         "MaezoA2ABudgetExhausted",
         "MaezoEscalationRateHigh",
+        # DEC-30 D11: grupo `maezo_pagamento_contas`.
+        "MaezoContasPagtoOrdemDeOutraConta",
     ],
 )
 def test_every_shipped_alert_is_covered_by_the_fixture_list(alert_name: str) -> None:

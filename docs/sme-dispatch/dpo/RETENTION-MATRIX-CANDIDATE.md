@@ -362,7 +362,10 @@ escopo_b:
         ou beneficiario_pseudo_id. Append-only por trigger, DARK atras de MAEZO_PAGTO_DETECT_DUPLICIDADE
         (tabela vazia por padrao); sem coluna de titular de beneficiario e sem ponte DSR. PERGUNTA ABERTA
         (a mesma da 0032, nao decidida aqui): prestador pessoa fisica e' titular (LGPD art. 5 V) e
-        prestador_id pode identifica-lo; retencao a ratificar (prova de pagamento de longa vida)
+        prestador_id pode identifica-lo; retencao a ratificar (prova de pagamento de longa vida) —
+        PROPOSTA do dono (DEC-31 D31-5, #1084, 2026-11-02; campo proposta_dono do template do plano de
+        eliminacao): 5 anos (1825 dias), alinhada ao historico do motor e ao Codigo Civil art. 206
+        par. 5, I, com as linhas de prestador PF eliminadas ao fim; a decisao e a assinatura seguem do DPO
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

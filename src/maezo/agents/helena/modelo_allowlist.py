@@ -8,8 +8,9 @@ o Claude Haiku 5.5 na rota global JA' autorizada para a saude gerativa
 (`experimento_global_autorizado_dpo_2026-10-17`, `runtime/inference/experimento_global.py`), SO' nas
 conversas da allowlist.
 
-A ALLOWLIST (um predicado so', `na_allowlist`): a conversa esta' na allowlist da saude gerativa
-(`_gerativa_para`: a chave ligada E o id na lista) E na lista de conversas do roteador. Qualquer outra
+A ALLOWLIST (um predicado so', `na_allowlist`): a conversa esta' na rota global do modelo
+(`rota_global`: o transporte e a lista, sem depender da base nem da saude gerativa desde a etapa 1 da
+limpeza) E na lista de conversas do roteador. Qualquer outra
 conversa usa o GLM-5 exatamente como antes (o mesmo objeto de provedor, a mesma chamada).
 
 O INTERRUPTOR (sem codigo). `roteador.modelo_allowlist` no pacote (opcional) vence; senao a env
@@ -70,10 +71,9 @@ MODO_PADRAO: Final[str] = MODO_HAIKU
 ENV_MODO: Final[str] = "MAEZO_HELENA_MODELO_ALLOWLIST"
 
 PAPEL_ROTEADOR: Final[str] = "roteador"
-PAPEL_PROTOCOLO: Final[str] = "protocolo"
 PAPEL_CLASSIFY: Final[str] = "classify"
 
-#: Prazo por chamada do Haiku (p90 medido ~2 s): roteador e protocolo no maximo 6 s (decisao de 26/10).
+#: Prazo por chamada do Haiku (p90 medido ~2 s): roteador no maximo 6 s (decisao de 26/10).
 PRAZO_ROTEADOR_S: Final[float] = 6.0
 #: O classify devolve um JSON maior: um pouco mais de folga, ainda abaixo do prazo do GLM-5 de hoje.
 PRAZO_CLASSIFY_S: Final[float] = 8.0
@@ -96,7 +96,7 @@ _NUMERO_LONGO: Final[re.Pattern[str]] = re.compile(r"(?<!\d)\d(?:[\s.\-/]?\d){7,
 
 
 class TransporteGlobal(Protocol):
-    """O transporte da rota global (o `TransporteGlobalExperimental` do redator da saude gerativa)."""
+    """O transporte da rota global (o `TransporteGlobalExperimental` de `rota_global.RotaGlobal`)."""
 
     async def conversar(
         self, sistema: str, mensagens: Any, *, max_tokens: int
@@ -289,15 +289,28 @@ class ProvedorComReserva:
         return str(bruto)
 
 
+def conversa_autorizada(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
+    """O predicado NEUTRO da rota global (metodo do grafo `_conversa_autorizada`): a rota existe e a conversa
+    esta' na lista dela. Etapa 1 da limpeza da saude: no lugar de `_gerativa_para` onde a regra e' da
+    allowlist, nao da saude gerativa."""
+    return self._rota_global is not None and self._rota_global.autorizada(state.get("conversation_id"))
+
+
+def todas_as_conversas(self: HelenaGraph) -> bool:
+    """Etapa 2 da limpeza da saude (dono, 02/11/2026; DPO, 27/10/2026): a rota global vale para TODAS as
+    conversas (`MAEZO_HELENA_ROTA_GLOBAL_TODAS`); as listas de conversas deixam de limitar."""
+    return self._rota_global is not None and self._rota_global.todas is True
+
+
+def conversa_do_roteador(self: HelenaGraph, conversa: object) -> bool:
+    """A conversa esta' na lista do roteador ativo (ou a rota global vale para todas)."""
+    return isinstance(conversa, str) and (conversa in self._roteador_conversas or todas_as_conversas(self))
+
+
 def na_allowlist(self: HelenaGraph, state: Mapping[str, Any]) -> bool:
-    """O predicado UNICO: allowlist da saude gerativa E lista de conversas do roteador."""
-    conversa = state.get("conversation_id")
-    return (
-        isinstance(conversa, str)
-        and conversa in self._roteador_conversas
-        and self._gerativa_para(state)
-        and self._gerativa is not None
-    )
+    """O predicado UNICO: rota global do modelo (com a conversa na lista dela) E lista de conversas do
+    roteador (com `todas`, qualquer conversa keyed)."""
+    return conversa_do_roteador(self, state.get("conversation_id")) and self._conversa_autorizada(state)
 
 
 def provedor_para(self: HelenaGraph, state: Mapping[str, Any], papel: str) -> Any:
@@ -305,11 +318,12 @@ def provedor_para(self: HelenaGraph, state: Mapping[str, Any], papel: str) -> An
     (opcao A) ou o GLM-5 com reserva Haiku (opcao B)."""
     base = self._llm if papel == PAPEL_CLASSIFY else self._roteador_llm
     modo = self._modelo_allowlist
-    if modo == MODO_GLM5 or not na_allowlist(self, state) or self._gerativa is None:
+    rota = self._rota_global
+    if modo == MODO_GLM5 or not na_allowlist(self, state) or rota is None:
         return base
     prazo_curto = min(PRAZO_ROTEADOR_S, float(self._roteador_prazo_s or PRAZO_ROTEADOR_S))
     prazo_haiku = PRAZO_CLASSIFY_S if papel == PAPEL_CLASSIFY else prazo_curto
-    haiku = ProvedorHaikuGlobal(self._gerativa.transporte, papel=papel, prazo_s=prazo_haiku, modo=modo)
+    haiku = ProvedorHaikuGlobal(rota.transporte, papel=papel, prazo_s=prazo_haiku, modo=modo)
     if modo == MODO_HAIKU:
         return haiku
     prazo_total = (
@@ -329,8 +343,9 @@ __all__ = [
     "MODO_HAIKU",
     "MODO_PADRAO",
     "PAPEL_CLASSIFY",
-    "PAPEL_PROTOCOLO",
     "PAPEL_ROTEADOR",
+    "conversa_autorizada",
+    "conversa_do_roteador",
     "ModeloAllowlistTimeoutError",
     "ProvedorComReserva",
     "ProvedorHaikuGlobal",
@@ -338,4 +353,5 @@ __all__ = [
     "modo_escolhido",
     "na_allowlist",
     "provedor_para",
+    "todas_as_conversas",
 ]

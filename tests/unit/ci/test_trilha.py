@@ -20,7 +20,7 @@ _AGENTES = {"helena", "lucas"}
             {"plataforma": False, "agentes": [], "conteudo": ["helena"]},
         ),
         (
-            ["src/maezo/agents/helena/graph.py", "tests/unit/agents/test_helena_v4.py"],
+            ["src/maezo/agents/helena/graph.py", "tests/unit/agents/test_helena_saude_original.py"],
             {"plataforma": False, "agentes": ["helena"], "conteudo": []},
         ),
         (
