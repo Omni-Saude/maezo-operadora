@@ -18,7 +18,7 @@
 ### O que o código do Maezo tem hoje
 
 - **70 arquivos DMN, todos no primeiro nível** de `spec/processes/dmn/`. Não existe subpasta. A contagem é pinada por `scripts/docs/contagens_canonicas.py:117` contra `README.md:90,133`.
-- Hit policy: 66 arquivos `FIRST`; `programa_sla.dmn:23` é `UNIQUE`; `prestador_trust_scorecard.dmn:54,254` tem duas decisões `COLLECT`.
+- Hit policy: 68 arquivos `FIRST`; `programa_sla.dmn:23` é `UNIQUE`; `prestador_trust_scorecard.dmn:54,254` tem duas decisões `COLLECT`.
 - O ADR-0040 D4 fixa "Hit policy `FIRST` com row catch-all conservadora em toda tabela" (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:178`).
 - O ADR-0018, parte 2, proíbe saída adversa em DMN: "Nenhuma `decisionTable` do processo possui saida que confirme/aceite/negue o efeito adverso. A DMN apenas *sinaliza candidata e roteia*" (`docs/adr/0018-no-denial-structural-replication.md:77-78`).
 - O ADR-0040 D4 repete a regra: "Nenhuma DMN emite o adverso; o unico desfecho automatico e o favoravel" (`docs/adr/0040-perspectiva-operadora-contas-recurso.md:167`).
@@ -74,7 +74,7 @@ São regras de domínio que o K1 não cobre (rede, pagamento e fraude) e continu
 
 | # | Ponto | Mudança mínima proposta |
 |---|---|---|
-| 1 | `src/maezo/platform/deploy/engine_deploy.py:172` (`collect_artifacts`). Consumido por `platform/deploy/cli.py:139,173,180` e `deploy/c1-local/c1/issuer.py:30,36`. | Segunda varredura explícita `sorted((dmn_dir / "rco").glob("*.dmn"))`, condicionada ao pin verificado. Não usar `rglob` geral, para que subpasta solta continue fora. Nome do recurso em `:328` = caminho relativo. |
+| 1 | `src/maezo/platform/deploy/engine_deploy.py:172` (`collect_artifacts`). Consumido por `platform/deploy/cli.py:139,173,180`, `tests/integration/dmn/conftest.py:37`, `tests/unit/spec/test_shadow_candidates_common.py:199-222` e `tests/unit/ci/test_check_aprovacao_de_regras.py:131`. O caminho `--shared dmn` (`cli.py:139`) publica sem tenant, o que amplia a colisão de chave descrita acima. | Segunda varredura explícita `sorted((dmn_dir / "rco").glob("*.dmn"))`, condicionada ao pin verificado. Não usar `rglob` geral, para que subpasta solta continue fora. Nome do recurso em `:328` = caminho relativo. |
 | 2 | `src/maezo/platform/validation/cli.py:104` (schema, crossref e unicidade de id) e `:138` (perspectiva) | Incluir `rco/` na validação de schema e na unicidade de id; isentar `rco/` da regra de órfã (ver gates abaixo). |
 | 3 | `src/maezo/platform/validation/perspective.py:948` (`check_processes_root`) | Decidir no adendo ao ADR-0040 se o vocabulário da perspectiva (D7) vale para `rco/`. O gate não tem mecanismo de exceção por desenho (`perspective.py:42`); a escolha é estender o vocabulário, não isentar. |
 | 4 | `scripts/ci/check_aprovacao_de_regras.py:73` (`artefatos_publicaveis`) | Mudar junto com o ponto 1. O teste de paridade `tests/unit/ci/test_check_aprovacao_de_regras.py:132` obriga isso. |
@@ -83,9 +83,10 @@ São regras de domínio que o K1 não cobre (rede, pagamento e fraude) e continu
 | 7 | `tests/support/engine_tenant_deploy.py:38` (`artifacts_for`; `LookupError` em `:49`) | Incluir `rco/` quando um `decisionRef` de BPMN apontar para decisão do K1. |
 | 8 | `tests/unit/spec/test_dmn_dead_inputs_fence.py:221,272,347` | Ver os gates abaixo. |
 | 9 | `tests/unit/platform/test_validation_perspective.py:1288,1293` | Segue a decisão do ponto 3. |
+| 9b | `tests/unit/spec/test_programa_population_aggregate_fence.py:167` (`glob("programa_*.dmn")`) | Nenhuma: escopo por nome, só tabelas `programa_*` do Maezo. |
 | 10 | `tests/support/dmn_first_hit.py:75,490-500`: o manifesto de sombra só aceita "a bare `.dmn` filename directly inside" `spec/processes/dmn` | Aceitar `spec/processes/dmn/rco` se tabelas do K1 ganharem manifesto de sombra. |
-| 11 | **Já recursivo:** `src/maezo/platform/validation/phi_completeness.py:1527` (`rglob("*")`) | Hoje ele já pegaria `rco/`: toda variável do K1 precisaria de classificação PHI, e `tests/unit/platform/test_validation_phi_completeness.py:147` (`== 70`) quebraria. Proposta: classificar o vocabulário do K1 (entradas e saídas são poucas e repetidas), sem isentar a pasta. |
-| 12 | Empacotamento: `pyproject.toml:158` e `deploy/Dockerfile:78` copiam `spec/processes` inteiro | Nada a mudar: `rco/` vai junto. O comentário de `Dockerfile:69-71` ("16 BPMN + 62 DMN") já está desatualizado. |
+| 11 | **Já recursivo:** `src/maezo/platform/validation/phi_completeness.py:1527` (`rglob("*")`) | Hoje ele já pegaria `rco/`: toda variável do K1 precisaria de classificação PHI, e `tests/unit/platform/test_validation_phi_completeness.py:147` (`== 70`) quebraria. Proposta: classificar o vocabulário do K1 (entradas e saídas são poucas e repetidas), sem isentar a pasta. Também já recursivo: o teste Java `src/maezo/portal/engine/java/src/test/java/br/com/maezo/human/PortalReadResourceBoundTest.java:34-43` (`Files.walk(spec/processes)`) aplica o limite de 1 MiB a todo `.dmn` e pegaria `rco/`; as tabelas do K1 têm de caber nele. |
+| 12 | Empacotamento: `pyproject.toml:158` e `deploy/Dockerfile:79` copiam `spec/processes` inteiro | Nada a mudar: `rco/` vai junto. O comentário de `Dockerfile:69-71` ("16 BPMN + 62 DMN") já está desatualizado. |
 | 13 | `.github/CODEOWNERS`: não há dono para a pasta inteira de DMN (comentário em `:98-99`) | Acrescentar `/spec/processes/dmn/rco/` e `/config/integrations/rco/`. |
 
 **Contagens `== 70` que mudam quando `rco/` for publicado:** `tests/unit/platform/test_engine_deploy.py:144`, `tests/unit/platform/test_engine_deploy_cli.py:274` (`"17 BPMN, 70 DMN"`), `tests/unit/spec/test_shadow_candidates_common.py:222` e `tests/unit/platform/test_validation_phi_completeness.py:147`.
@@ -123,7 +124,7 @@ Testes que hoje garantem "nenhuma saída adversa". Precisam ser **reescritos par
 | `tests/unit/spec/test_glosa_triage_shadow_candidate.py:381-394` | domínio de `glosa_triage` == `{PAGAR, ANALISE_HUMANA}` (`:389`); candidata sem "GLOSAR"/"PAGAR_PARCIAL" (`:392`) |
 | `tests/integration/processes/test_sp_op_contas_001.py:292-294,803-847` | nenhum dos 48 casos chega a `End_GlosaAplicadaHumano`/`End_PagamentoParcialHumano` sem User Task |
 | `tests/unit/sec/test_auto_approval_criteria_fence.py:203-227` | `auth_auto_approval` só emite `{AUTO_APROVAR, ANALISE_HUMANA}`; FIRST; catch-all humano |
-| `tests/unit/agents/test_agent_fleet_autonomy_fences.py:101-160` | nenhum agente declara ação hard; nenhuma operação adversa alcançável pelo PEP |
+| `tests/unit/agents/test_agent_fleet_autonomy_fences.py:101-290` | nenhum agente declara ação hard; nenhuma operação adversa alcançável pelo PEP |
 | `tests/unit/tools/workers/test_auth_denial_guard.py:172-194,849-871,1030` | `ERR_DENIAL_NOT_HUMAN`; `analyze_request` nunca nega |
 | `tests/unit/gateway/test_hard_items_guard_map.py:48-73,124-166` | todo item hard tem `ERR_*_NOT_HUMAN` no worker e no BPMN |
 | Outros encontrados: `tests/unit/tools/workers/test_auth_auto_criteria.py:524-530`, `tests/unit/tools/workers/test_adequacao.py:1062-1068` e as varreduras de integração da parte 5 do ADR-0018 (`tests/integration/processes/test_sp_op_recurso_001.py:613`, `test_sp_op_cred_001.py`, `test_sp_op_adequacao_001.py:1437`) | nenhuma saída `NEGAR`/`NEGADO` automática |
