@@ -62,14 +62,18 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True)
 
 
-def _rodar(tmp_path: Path, mensagem: str) -> tuple[subprocess.CompletedProcess[str], str]:
+def _rodar(
+    tmp_path: Path, mensagem: str, base_ref: str = "", criar_base: bool = True
+) -> tuple[subprocess.CompletedProcess[str], str]:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")
     _git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+    if base_ref and criar_base:
+        _git(repo, "update-ref", f"refs/remotes/origin/{base_ref}", "HEAD")
     _git(repo, "commit", "-q", "--allow-empty", "-m", mensagem)
     summary = tmp_path / "summary.md"
-    env = {"PATH": os.environ["PATH"], "BASE_REF": "", "GITHUB_STEP_SUMMARY": str(summary)}
+    env = {"PATH": os.environ["PATH"], "BASE_REF": base_ref, "GITHUB_STEP_SUMMARY": str(summary)}
     bash = shutil.which("bash")
     assert bash is not None
     proc = subprocess.run(
@@ -94,3 +98,21 @@ def test_commit_sem_trailer_sai_zero_sem_aviso(tmp_path: Path) -> None:
     assert "::warning::" not in proc.stdout
     assert "nenhum trailer de IA" in proc.stdout
     assert "nenhum trailer de IA" in summary
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git ausente")
+def test_caminho_de_pr_com_base_ref(tmp_path: Path) -> None:
+    trailer = "Co-" + "Authored-By: Claude <noreply@anthropic.com>"
+    proc, summary = _rodar(tmp_path, f"feat: x\n\n{trailer}\n", base_ref="main")
+    assert proc.returncode == 0, proc.stderr
+    assert "verificando origin/main..HEAD" in proc.stdout
+    assert "::warning::1 trailer(s)" in proc.stdout
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git ausente")
+def test_intervalo_ilegivel_avisa_e_nao_finge_ok(tmp_path: Path) -> None:
+    proc, summary = _rodar(tmp_path, "feat: x", base_ref="main", criar_base=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "::warning::ai-attribution-gate nao conseguiu ler" in proc.stdout
+    assert "ok: nenhum trailer" not in proc.stdout
+    assert "ilegivel" in summary

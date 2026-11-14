@@ -1045,7 +1045,14 @@ jobs:
           echo "verificando ${range}"
           # Ancorado no INICIO da linha: trailer git e' sempre coluna 0. Sem a ancora, o commit que
           # introduziu esta guarda foi pego por CITAR o trailer no corpo da mensagem (#426, 1a rodada).
-          hits="$(git log --format='%H%x09%B%x00' "${range}" | tr '\0' '\n' | grep -inE '^co-authored-by:.*(claude|anthropic)' || true)"
+          # Informativo nao pode mentir: se o git log falhar (range ruim, base ausente), avisa e sai 0,
+          # em vez de reportar "nenhum trailer" sobre um intervalo que nao foi lido.
+          if ! log="$(git log --format='%H%x09%B%n' "${range}" 2>&1)"; then
+            echo "::warning::ai-attribution-gate nao conseguiu ler ${range}: ${log}"
+            echo "ai-attribution-gate (informativo, DL-0166): intervalo \`${range}\` ilegivel; nada verificado." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          hits="$(printf '%s\n' "${log}" | grep -inE '^co-authored-by:.*(claude|anthropic)' || true)"
           if [ -n "${hits}" ]; then
             n="$(printf '%s\n' "${hits}" | wc -l | tr -d ' ')"
             # Aviso, nao erro: assinatura de IA em commit e' permitida (DL-0166). O job sai 0.
