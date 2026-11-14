@@ -4,6 +4,10 @@
 > na AWS.** Os dois antigos continuam no repositório enquanto a paridade não fecha; não
 > aplique os dois. Ver "Por que ECS" abaixo.
 
+**Produção:** [`envs/prod-sa-east-1`](envs/prod-sa-east-1/README.md) — conta 441395443640, nasce **sem tráfego**
+(`servicos_habilitados = false`, `borda_publica_habilitada = false`), imagens do dev copiadas por digest; cutover,
+bloqueios e passos manuais estão lá.
+
 O BFF humano tem composição dedicada, preparação desligada e pré-requisitos próprios:
 [portal ECS/Fargate](envs/dev-sa-east-1/portal.md). Ela não reutiliza o Canal de Teste.
 
