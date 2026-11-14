@@ -16,11 +16,9 @@ Fechamento técnico do conjunto publicado `75618442d4b7729f0194d5207248cdc6ab9c0
 
 # PLANS.md — Maezo Operadora (Greenfield v2) — STATUS REAL (GROUND-TRUTH, corrigido 2026-07-19)
 
-> **Current continuity — 2026-09-10, WIP preservation complete:** [Current checkpoint](https://github.com/Omni-Saude/maezo-operadora/blob/completion/product-c27-auth-lifecycle/CHECKPOINT.md) supersedes historical scheduling/status below. Fresh status inspection covered 488 registered worktrees plus four standalone repositories; all 22 discovered uncommitted source files exactly match nine remotely verified recovery commits. Use `docs/prompts/maezo-wip-preservation-only.md` for a lower-cost WIP-only pass. Product implementation and release gates remain paused/pending. Frozen historical handoffs retain their original bytes; they are evidence, not current dispatch instructions.
-
-> **Express cleanup completed 2026-09-10:** ROOT coordination and nine historical source WIPs published; five worktrees/four local branches/one remote branch removed after independent checks. Read the latest express section of CHECKPOINT.md. Product merge gates remain open.
-
-> **Current execution state — 2026-09-10:** User-requested graceful pause. Read [CHECKPOINT.md](CHECKPOINT.md) first for current GitHub refs, preserved WIP, remaining product work and evidence limits. Historical completion percentages below do not describe this candidate.
+> **Estado atual — 2026-11-14:** a pausa de 10/09/2026 ("graceful pause", preservação de WIP e limpeza express) é HISTÓRICA, não o estado atual: a `main` recebeu trabalho de produto depois dela (ADRs 0068–0074, DL-0156–DL-0165, PRs até #1208). O `CHECKPOINT.md` citado naquelas notas vive na branch `completion/product-c27-auth-lifecycle`, não na `main`. Trabalho em andamento: §"Programa Circuito Fechado" logo abaixo. Percentuais e selos históricos deste documento continuam não descrevendo o estado atual.
+>
+> *Histórico (2026-09-10, preservado):* pausa graciosa pedida pelo usuário; preservação de WIP concluída (488 worktrees inspecionadas, 22 arquivos não commitados batendo com nove commits de recuperação remotos) e limpeza express (cinco worktrees, quatro branches locais e uma remota removidas após verificação independente). Os handoffs históricos congelados mantêm seus bytes originais: são evidência, não instrução de despacho.
 
 > **⚠️ ESTE DOCUMENTO FOI CORRIGIDO EM 2026-07-19 PARA REFLETIR A VERDADE VERIFICADA.**
 > As marcações originais **"✅ CONCLUÍDO / 15 de 15 / 100%"** eram **auto-certificação NÃO verificada** de agentes anteriores. Quando auditadas (2026-07-16), a plataforma estava em **v0.2.0 alpha-dev** (o LLM levantava `NotImplementedError`, sem entrypoints, com um bypass de aprovação financeira ao vivo). **Aquele "100%" é a lição cautelar, não uma medição.** Os envelopes de milestone (§3) são preservados como *referência do que cada milestone deve entregar* — mas os seus selos "✅ CONCLUÍDO" inline estão **SUPERSEDED**; o status real de cada um está na tabela de reconciliação em **§0**.
@@ -32,6 +30,16 @@ Fechamento técnico do conjunto publicado `75618442d4b7729f0194d5207248cdc6ab9c0
 > **STATUS REAL (2026-07-27): G0 conditional-pass · G1 FECHADO · G2/G3 SUBSTÂNCIA DE ENGENHARIA COMPLETA (falta a metade humana de sign-off SME) · G4 PENDENTE 0% (externo). ~88–90% do plano-até-produção · ~97% da engenharia agent-controlável (Tier-2 §0.5.1: 7 de 9 itens EM MAIN — §0.5.2). NÃO é produção-ready — o que resta é o teto humano + a cauda-de-item-9 (xfail tail, live-engine). Detalhe em §0.5.**
 
 ---
+
+## Programa Circuito Fechado — fila (aberta em 2026-11-14)
+
+Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora` (rco), este repositório (mzo) e `amh-data-platform` (adp) e levá-los a produção. O rco decide "o quê" (cobertura, DUT, carência, autorização, limites, pacotes, OPME, glosa); o Maezo decide "como" (SLA, triagem, roteamento, alçada, escalonamento). Interface entre repositórios é artefato versionado com hash, publicado pelo fornecedor e pinado pelo consumidor (padrão de `config/integrations/amh/contracts.lock.json`).
+
+- **Coordenação:** uma orquestradora ROOT externa incorpora os PRs; as sub-orquestradoras abrem branches `prog/mzo/<unidade>` e PRs prontos para revisão, sem merge.
+- **Trilhas neste repositório:** **T-MZO-A** (motor e processos: pacote de regras K1 do rco, DMN, gates, trilha de auditoria) e **T-MZO-B** (Helena: volta a responder cobertura de forma ampla, em onda futura).
+- **Teto:** no máximo 4 pacotes de trabalho em andamento ao mesmo tempo neste repositório, divididos 2 (T-MZO-A) + 2 (T-MZO-B).
+- **Onda 0 (T-MZO-A), em revisão:** MZO-0a — `ai-attribution-gate` informativo (DL-0166); MZO-0b — documentos de topo em dia (este registro); MZO-0c — ADR proposto sobre regras do rco via pacote K1.
+- **Fora desta fila até decisão do dono:** emenda ao ADR-0018 e adendo ao ADR-0040 (negativa administrativa e glosa determinística automáticas em L2), mudanças em `spec/policies/autonomy/`, DMN e workers.
 
 ## 0. GROUND TRUTH (2026-07-19) — leia primeiro
 
