@@ -1,5 +1,5 @@
 <!-- V21-CAPABILITY-EXECUTION-BEGIN -->
-## Execução v2.1 — 2026-10-04
+## Execução v2.1 — 2026-10-04 (histórico; estado atual no cabeçalho abaixo, 2026-11-14)
 
 Entrega técnica revisável no [PR #633](https://github.com/Omni-Saude/maezo-operadora/pull/633), **draft**. Candidato desabilitado: contratos/admissão compartilhados e consumidores administrativos Compras/Suporte. Freeze técnico `90c1717ee028eae0471ed9a1d0c163e052370f71`, fingerprint `5b82a9d6517e822f8f1c9b84f4d24db35887b000b28836b35527937e096ae6d8`; base original `e7b14522a4f70242504d2b152a57ee5269ee66e2`, main admitida por delta `33aa7acba59dd5027513834d07d8e9a517649b3e`. Bundles originais e trabalho concorrente do ROOT preservados.
 
@@ -16,7 +16,7 @@ Fechamento técnico do conjunto publicado `75618442d4b7729f0194d5207248cdc6ab9c0
 
 # PLANS.md — Maezo Operadora (Greenfield v2) — STATUS REAL (GROUND-TRUTH, corrigido 2026-07-19)
 
-> **Estado atual — 2026-11-14:** a pausa de 10/09/2026 ("graceful pause", preservação de WIP e limpeza express) é HISTÓRICA, não o estado atual: a `main` recebeu trabalho de produto depois dela (ADRs 0068–0074, DL-0156–DL-0165, PRs até #1208). O `CHECKPOINT.md` citado naquelas notas vive na branch `completion/product-c27-auth-lifecycle`, não na `main`. Trabalho em andamento: §"Programa Circuito Fechado" logo abaixo. Percentuais e selos históricos deste documento continuam não descrevendo o estado atual.
+> **Estado atual — 2026-11-14:** a pausa de 10/09/2026 ("graceful pause", preservação de WIP e limpeza express) é HISTÓRICA, não o estado atual: a `main` recebeu trabalho de produto depois dela (do ADR-0050 e da DL-0049 em diante, PRs até #1208). O `CHECKPOINT.md` citado naquelas notas vive na branch `completion/product-c27-auth-lifecycle`, não na `main`. Trabalho em andamento: §"Programa Circuito Fechado" logo abaixo. Percentuais e selos históricos deste documento continuam não descrevendo o estado atual.
 >
 > *Histórico (2026-09-10, preservado):* pausa graciosa pedida pelo usuário; preservação de WIP concluída (488 worktrees inspecionadas, 22 arquivos não commitados batendo com nove commits de recuperação remotos) e limpeza express (cinco worktrees, quatro branches locais e uma remota removidas após verificação independente). Os handoffs históricos congelados mantêm seus bytes originais: são evidência, não instrução de despacho.
 
