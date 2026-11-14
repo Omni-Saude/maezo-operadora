@@ -27,6 +27,14 @@ updates:
       - "ci"
     commit-message:
       prefix: "chore(ci)"
+    # init/analyze (e upload-sarif, se entrar) do codeql-action precisam da MESMA
+    # versao no mesmo workflow; separados, cada PR quebra codeql/python e
+    # codeql/java-kotlin ("Loaded a configuration file for version X, but running
+    # version Y") — caso #1209/#1210 (14/11/2026).
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: "docker"
     directory: "/"
