@@ -32,9 +32,10 @@ continua existindo, o acesso nao.
 `LeituraPlataformaGoldSemPHI` (`permission-set-leitura-gold-sem-phi.tf`), atribuido ao grupo
 `leitura-plataforma-gold-sem-phi`. Ele concede:
 
-- leitura de configuracao em todas as contas (o set da avaliacao);
-- em prod, Athena so' nas duas Gold agregadas do Actio;
-- em dev, so' o catalogo Glue (metadado).
+- em prod e dev: leitura de configuracao (ViewOnlyAccess + SecurityAudit anexados a este set);
+- so' em prod: Athena nas duas Gold agregadas do Actio;
+- em dev: tambem o catalogo Glue (so' metadado), alem do set da avaliacao;
+- nas demais contas: so' o set da avaliacao (`AvaliacaoArquiteturaLeitura`).
 
 **Nenhum dado pessoal.** O acesso ao HAPI do dev (PHI) nao faz parte deste set. Se for concedido, vai num set e
 grupo proprios, com o aval do DPO registrado. Nunca entra neste set, cujo nome e' a promessa "sem PHI".
@@ -52,8 +53,8 @@ aws identitystore delete-group-membership --identity-store-id d-94676c2a0d \
 ```
 
 Para retirar o set inteiro (todas as pessoas), remova este arquivo por PR revisado e aplique. Sessoes ja' abertas
-valem ate' expirar (`session_duration`). Para corte imediato, retire tambem a atribuicao no console do Identity
-Center.
+valem ate' expirar (`session_duration`). Retirar a atribuicao direto no console corta na hora, mas e' so' paliativo:
+deixa o Terraform fora do estado real, e o PR que remove o arquivo continua obrigatorio.
 
 ## Adicionar uma pessoa
 
