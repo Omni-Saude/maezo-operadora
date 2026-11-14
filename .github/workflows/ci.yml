@@ -1016,13 +1016,13 @@ jobs:
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).
-  # Regra INVIOLAVEL do CLAUDE.md global: nenhum commit assinado com `Co-Authored-By: Claude`.
-  # Medido em 18/09/2026: 14 dos ultimos 60 commits da main carregam esse trailer (commits de branch
-  # que entraram por merge/squash), e nenhum dos 4 checks obrigatorios le mensagem de commit. Este
-  # job le. Checa TODOS os commits do PR (nao so' o HEAD) e, em push na main, o
-  # proprio commit. Trailer `Co-authored-by:` de PESSOA (o que o GitHub adiciona no squash quando
-  # o autor do commit difere de quem mergeou) passa: o padrao casa so' claude|anthropic.
-  # NAO e' check obrigatorio da ruleset por si — promover e' decisao do dono (ver corpo do PR).
+  # Gate de assinatura de IA — INFORMATIVO desde a DL-0166 (decisao do dono, 14/11/2026, Programa
+  # Circuito Fechado: assinatura de IA em commit e' permitida neste repositorio). Historico: nasceu em
+  # 18/09/2026 (#426) como reprovacao, pela antiga regra do CLAUDE.md global que proibia o trailer
+  # `Co-Authored-By: Claude`. O job CONTINUA rodando e reportando (aviso no log e no job summary) os
+  # commits do PR (nao so' o HEAD) e, em push na main, o proprio commit, mas sai 0. O NOME do job tem
+  # de continuar existindo: `ai-attribution-gate` e' contexto obrigatorio do ruleset (ADR-0069,
+  # decisao 2); retira-lo do ruleset e' outra decisao do dono, nao desta mudanca.
   ai-attribution-gate:
     name: ai-attribution-gate
     runs-on: ubuntu-latest
@@ -1032,7 +1032,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - name: Nenhum commit assinado por IA
+      - name: Relatorio de commits assinados por IA (informativo, DL-0166)
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -1047,11 +1047,19 @@ jobs:
           # introduziu esta guarda foi pego por CITAR o trailer no corpo da mensagem (#426, 1a rodada).
           hits="$(git log --format='%H%x09%B%x00' "${range}" | tr '\0' '\n' | grep -inE '^co-authored-by:.*(claude|anthropic)' || true)"
           if [ -n "${hits}" ]; then
-            echo "::error::commit(s) neste PR assinados por IA (Co-Authored-By: ...claude|anthropic). Regra inviolavel do CLAUDE.md: remova o trailer (rebase/reword) antes de mergear."
+            n="$(printf '%s\n' "${hits}" | wc -l | tr -d ' ')"
+            # Aviso, nao erro: assinatura de IA em commit e' permitida (DL-0166). O job sai 0.
+            echo "::warning::${n} trailer(s) Co-Authored-By de IA (claude|anthropic) em ${range}. Informativo: permitido pela DL-0166; o gate nao reprova."
             printf '%s\n' "${hits}"
-            exit 1
+            {
+              echo "### ai-attribution-gate (informativo, DL-0166)"
+              echo ""
+              echo "${n} trailer(s) \`Co-Authored-By\` de IA em \`${range}\`. Permitido; nao reprova."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "ok: nenhum trailer de IA em ${range}"
+            echo "ai-attribution-gate (informativo, DL-0166): nenhum trailer de IA em \`${range}\`." >> "${GITHUB_STEP_SUMMARY}"
           fi
-          echo "ok: nenhum trailer de IA em ${range}"
 
   content-signoff-gate:
     name: content-signoff-gate
