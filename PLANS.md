@@ -1445,3 +1445,24 @@ Controles negativos detectaram16 posições genéricas/PAT,6 mutações da refer
 AMH main anteriora4 registrou1284PASS1FAIL0skip em corrida Moto, mantida como falha real. Diagnóstico independente reproduziu mecanismo suficiente de transação simulada não atômica com CAS do produto correto; não reconstrói o agendamento histórico exato. Corretivo AMH PR294 preserva asserções, restringe mutex ao transporte Moto e inclui disputa WorkService/DynamoJournal no DynamoDB Local real sem Moto/mutex. ROOT1286PASS0fail/skip,7casos Local, porta8111 liberada; originais diagnosticador/ARCH rechecados. HEAD corretivoc6a295d0e28a02ce09a1286b4a578516446db5c9 recebeu main96deac5 por merge normal sem mudar123 paths comerciais congelados. CI/gatekeeper e posterior CI main são dependência aberta; origem imutável C6-4a4 continua válida porque nenhum wire/código de produção mudou.
 
 Owner ROOT; lane Maezo retida por CI/gatekeeper/merge/main/custódia. Próximo gate: revisão original do scanner, preflight de TODA publicação, commit/CI exatos e gatekeeper independente; merge normal após fechamento do corretivo AMH, main readback e manutenção sete passos. Histórico de pins/relatórios, WIP canônico e órfão anterior preservados. Tasy/PSP/identidade homologados, aceite humano e operação/produção seguem NOT_RUN/NO_GO.
+
+## 2026-11-14 — Triagem dos PRs abertos, merges dependabot e manutenção pós-merge
+
+Owner ROOT (sessão Claude a pedido do dono). Detalhe e comandos em `RUNBOOK.md`; estado de retomada em `CHECKPOINT.md`.
+
+- **Integrados em main** (merge commit): #1207 setup-java 6.2.0 (`492dc985`), #1208 cosign-installer 4.1.3 (`2bc1eab8`). Tips `7cf35fc0`/`7cc11615` ancestrais de `origin/main` `2bc1eab8`.
+- **Fechados sem merge:** #1206 langgraph-sdk 0.4.14 (fere a quarentena `exclude-newer`, sem GHSA; `uv.lock` não atualizado; remove `fairness_weight`); #1209 e #1210 codeql-action (init/analyze separados quebravam `codeql/*`) — substituídos por #1214.
+- **#1214 (pendente de integração):** codeql-action init+analyze 4.39.3 juntos + grupo `codeql-action` no `.github/dependabot.yml` + este registro. Próximo gate: aprovação do security-team (`.github/` é CODEOWNERS e o autor é o owner).
+- **Revisões do owner publicadas:** #1203 aprovado; #1204 aprovado com ressalvas de cutover (Kafka de dev, `deployment_minimum_healthy_percent = 0` no engine, `helena_memoria_clinica` default true, `plan` não rodado); #1205 mudanças pedidas (túnel ao HAPI do dev/PHI dentro de set rotulado "sem PHI"; credencial nominal concedida a grupo; aval do DPO sem evidência).
+- **Não tocados:** #988 (aguarda security-team), #1187, drafts #862–#865.
+- **Branches `dependabot/*`:** remoção solicitada pelo dono, **pendente** — push de deleção (`--force-with-lease` no SHA inventariado, zero PR aberto) negado com HTTP 403 pela política de rede da sessão; não contornado. `init-4.39.3` (`2faff682`, #1210) já foi apagado pelo dependabot ao fechar o PR. Sobreviventes, todos recuperáveis por `refs/pull/<n>/head`:
+  | Branch | SHA | PR | Ancestral de main |
+  |---|---|---|---|
+  | `dependabot/github_actions/actions/setup-java-6.2.0` | `7cf35fc0` | #1207 merged | sim |
+  | `dependabot/github_actions/sigstore/cosign-installer-4.1.3` | `7cc11615` | #1208 merged | sim |
+  | `dependabot/github_actions/github/codeql-action/analyze-4.39.3` | `74d33c4f` | #1209 fechado | não — substituído por #1214 |
+  | `dependabot/github_actions/github/codeql-action/analyze-4.39.1` | `3fdbecde` | #1009 fechado | não — versão superada em main |
+  Condição de liberação: deleção por quem tiver permissão (botão "Delete branch" nos PRs); nenhuma dependência ativa. Os dois não ancestrais têm autorização explícita do dono.
+- **Lição (não repetir):** commit empurrado no branch do #1210 levou trailer `Co-Authored-By` de IA e foi barrado pelo `ai-attribution-gate`; commits neste repo não levam esse trailer.
+- **Manutenção:** `git fetch --all --no-prune`; `origin/main` = `2bc1eab8`; único worktree é o checkout da sessão (o temporário `wt-codeql` saiu por `git worktree remove` sem `--force`). `RUNBOOK.md`/`CHECKPOINT.md` desta sessão são locais (ignorados por `.gitignore`, como `SESSION.log`).
+- **Aberto:** alerta Dependabot #37 (1 moderado em main), não legível pela sessão (403).
