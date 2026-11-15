@@ -1,14 +1,17 @@
-"""MZO-1c — `UNIQUE` hit-policy multi-match is a PERMANENT DMN failure (ADR-0075 §(c)).
+"""MZO-1c — an engine-rejected DMN evaluation (e.g. `UNIQUE` multi-match) is PERMANENT (ADR-0075 §(c)).
 
 Before: the engine's HTTP 500 for two overlapping `UNIQUE` rules became `DmnEvaluationError`
 (TRANSIENT) and was engine-retried until the budget ran out. Now it is
-`DmnHitPolicyViolationError`: no retry (`failure(retries=0)` -> incident, human-visible), an
+`DmnDeterministicEvaluationError` (or, when the body names `DMN-03001`, its subclass
+`DmnHitPolicyViolationError`): no retry (`failure(retries=0)` -> incident, human-visible), an
 audited refusal row in the ADR-0007 chain carrying the offending table's version, and every OTHER
 engine error keeps today's transient classification.
 
-No engine here: `httpx.MockTransport` replays the wire shape the Camunda 7 engine-rest code
-produces (documented on `dmn_transport._UNIQUE_MULTIMATCH_TYPES`). The real-engine proof is
-`tests/integration/dmn/test_unique_multimatch_engine.py` (marked `integration`).
+No engine here: `httpx.MockTransport` replays two wire shapes —
+  * `_REAL_2_1_0_BODY`: the body CIB Seven 2.1.0 ACTUALLY returned in CI (PR #1230 integration
+    lane; engine log shows the `DmnHitPolicyException: DMN-03001` only as the wrapped cause);
+  * `_STRICT_BODY`: the upstream Camunda shape that names the cause (forward-compatible).
+The real-engine proof is `tests/integration/dmn/test_unique_multimatch_engine.py` (`integration`).
 """
 
 from __future__ import annotations
@@ -23,8 +26,10 @@ from maezo.platform.evidence.dmn_sweep import avaliar
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import (
+    ERR_DMN_EVALUATION_DETERMINISTIC,
     ERR_DMN_HIT_POLICY_VIOLATION,
     CibSevenDmnTransport,
+    DmnDeterministicEvaluationError,
     DmnEvaluationError,
     DmnHitPolicyViolationError,
     DmnNoResultError,
@@ -42,18 +47,26 @@ from maezo.tools.workers.harness import (
 )
 
 _KEY = "teste_rco_unique_sobreposicao"
-_DEF_ID = f"{_KEY}:4:def-abc"
+_DEF_ID = "e2c48ae0-e0c0-11f1-a269-72231b3b79b5"
 
-#: The exact engine body (CIB Seven 2.1.0 / Camunda 7 engine-rest): `RestException` wrapping
-#: `DmnHitPolicyException`, message prefixed by `DecisionDefinitionResourceImpl.evaluateDecision`.
-#: The matched-rules dump carries OUTPUT VALUES (case data) — it must never reach the error text.
-_ENGINE_MESSAGE = (
+#: EXACT body CIB Seven 2.1.0 returned for the overlapping UNIQUE evaluate (CI, PR #1230).
+_REAL_2_1_0_BODY: dict[str, Any] = {
+    "type": "RestException",
+    "message": f"Cannot evaluate decision {_DEF_ID}: Exception while evaluating decision with key 'null'",
+    "code": 0,
+}
+
+#: Strict upstream shape (Camunda 7.22 `DmnHitPolicyLogger`), naming the cause. The matched-rules
+#: dump carries OUTPUT VALUES (case data) — it must never reach the error text.
+_STRICT_MESSAGE = (
     f"Cannot evaluate decision {_DEF_ID}: DMN-03001 Hit policy 'UNIQUE' only allows a single rule "
     "to match. Actually match rules: '[DmnEvaluatedDecisionRuleImpl{id='Regra_A', outputEntries="
     "{decisao=SEGREDO_DA_LINHA_A}}, DmnEvaluatedDecisionRuleImpl{id='Regra_B', outputEntries="
     "{decisao=SEGREDO_DA_LINHA_B}}]'."
 )
-_MULTIMATCH_BODY: dict[str, Any] = {"type": "RestException", "message": _ENGINE_MESSAGE}
+_STRICT_BODY: dict[str, Any] = {"type": "RestException", "message": _STRICT_MESSAGE}
+
+_VERSION = DmnVersion(key=_KEY, id=_DEF_ID, version=4, deployment_id="dep-rco-1")
 
 
 def _definition_body() -> dict[str, Any]:
@@ -81,7 +94,8 @@ def _transport_answering(
 
 
 def _multimatch_transport() -> CibSevenDmnTransport:
-    return _transport_answering(500, json_body=_MULTIMATCH_BODY)
+    """What the REAL engine (CIB Seven 2.1.0) answers for an overlapping UNIQUE table."""
+    return _transport_answering(500, json_body=_REAL_2_1_0_BODY)
 
 
 def _task(*, retries: int | None = 3, topic: str = "operadora.teste.rco") -> ExternalTask:
@@ -97,22 +111,37 @@ def _task(*, retries: int | None = 3, topic: str = "operadora.teste.rco") -> Ext
 
 
 # ---------------------------------------------------------------------------
-# 1. Detection — the exact engine shape becomes the permanent class
+# 1. Detection — the engine shapes become the permanent classes
 # ---------------------------------------------------------------------------
 
 
-async def test_unique_multimatch_raises_permanent_hit_policy_error() -> None:
-    with pytest.raises(DmnHitPolicyViolationError) as excinfo:
+async def test_real_2_1_0_shape_raises_generic_deterministic_error_not_hit_policy() -> None:
+    """The 2.1.0 body does NOT name the cause, so the code must not claim "hit policy"."""
+    with pytest.raises(DmnDeterministicEvaluationError) as excinfo:
         await _multimatch_transport().evaluate(_KEY, {"idade": 40})
 
     exc = excinfo.value
-    assert exc.code == ERR_DMN_HIT_POLICY_VIOLATION
+    assert type(exc) is DmnDeterministicEvaluationError
+    assert exc.code == ERR_DMN_EVALUATION_DETERMINISTIC
+    assert "hit policy" not in exc.message.lower()
     assert exc.decision_key == _KEY
-    # provenance: the version resolved BEFORE the overlap was found travels with the error.
-    assert exc.version == DmnVersion(key=_KEY, id=_DEF_ID, version=4, deployment_id="dep-rco-1")
+    # provenance: the version resolved BEFORE the evaluation failed travels with the error.
+    assert exc.version == _VERSION
     # never the transient class, never a RuntimeError (that is what made it retryable).
     assert not isinstance(exc, DmnEvaluationError)
     assert not isinstance(exc, RuntimeError)
+    assert _DEF_ID not in str(exc)  # no engine text at all
+    assert str(exc).startswith(f"{ERR_DMN_EVALUATION_DETERMINISTIC}: ")
+
+
+async def test_strict_upstream_shape_raises_hit_policy_subclass() -> None:
+    with pytest.raises(DmnHitPolicyViolationError) as excinfo:
+        await _transport_answering(500, json_body=_STRICT_BODY).evaluate(_KEY, {"idade": 40})
+
+    exc = excinfo.value
+    assert isinstance(exc, DmnDeterministicEvaluationError)
+    assert exc.code == ERR_DMN_HIT_POLICY_VIOLATION
+    assert exc.version == _VERSION
     # no engine text: the matched-rules dump carries output values.
     assert "SEGREDO" not in str(exc)
     assert "SEGREDO" not in exc.message
@@ -120,15 +149,16 @@ async def test_unique_multimatch_raises_permanent_hit_policy_error() -> None:
 
 
 async def test_unwrapped_dmn_hit_policy_exception_type_also_matches() -> None:
-    body = {"type": "DmnHitPolicyException", "message": _ENGINE_MESSAGE.split(": ", 1)[1]}
+    body = {"type": "DmnHitPolicyException", "message": _STRICT_MESSAGE.split(": ", 1)[1]}
     with pytest.raises(DmnHitPolicyViolationError):
         await _transport_answering(500, json_body=body).evaluate(_KEY, {})
 
 
-def test_hit_policy_error_is_in_the_no_result_family() -> None:
+@pytest.mark.parametrize("cls", [DmnDeterministicEvaluationError, DmnHitPolicyViolationError])
+def test_permanent_errors_are_in_the_no_result_family(cls: type[DmnDeterministicEvaluationError]) -> None:
     """Every agent graph catches `(DmnEvaluationError, DmnNoResultError)` and takes its declared
     DMN-unavailable path to a human; the subclass keeps that true without touching any graph."""
-    exc = DmnHitPolicyViolationError(_KEY)
+    exc = cls(_KEY)
     assert isinstance(exc, DmnNoResultError)
     try:
         raise exc
@@ -149,51 +179,75 @@ def test_hit_policy_error_is_in_the_no_result_family() -> None:
         ),
         pytest.param(
             500,
+            {"type": "RestException", "message": "Exception while evaluating decision with key 'null'"},
+            None,
+            id="500-wrapper-text-without-rest-prefix",
+        ),
+        pytest.param(
+            500,
+            {
+                "type": "RestException",
+                "message": "ENGINE-03004 Exception while executing Database Operation: connection refused",
+            },
+            None,
+            id="500-database-error",
+        ),
+        pytest.param(
+            500,
             {
                 "type": "RestException",
                 "message": "Cannot evaluate decision x: DMN-03002 Hit policy 'ANY' only allows multiple "
                 "matching rules with equal output.",
             },
             None,
-            id="500-any-hit-policy-03002",
+            id="500-any-hit-policy-03002-unwrapped",
         ),
         pytest.param(
             500,
-            {"type": "ProcessEngineException", "message": _ENGINE_MESSAGE},
+            {"type": "ProcessEngineException", "message": _REAL_2_1_0_BODY["message"]},
             None,
-            id="500-unexpected-type",
+            id="500-real-message-unexpected-type",
         ),
         pytest.param(
             500,
-            {"type": "RestException", "message": _ENGINE_MESSAGE.replace("'UNIQUE'", "'FIRST'")},
+            {"type": "ProcessEngineException", "message": _STRICT_MESSAGE},
+            None,
+            id="500-strict-message-unexpected-type",
+        ),
+        pytest.param(
+            500,
+            {"type": "RestException", "message": _STRICT_MESSAGE.replace("'UNIQUE'", "'FIRST'")},
             None,
             id="500-code-without-unique",
         ),
         pytest.param(
             500,
-            {"type": "RestException", "message": _ENGINE_MESSAGE.replace("DMN-03001", "DMN-030010")},
+            {"type": "RestException", "message": _STRICT_MESSAGE.replace("DMN-03001", "DMN-030010")},
             None,
             id="500-longer-code",
         ),
-        pytest.param(500, [_MULTIMATCH_BODY], None, id="500-non-object-body"),
-        pytest.param(400, _MULTIMATCH_BODY, None, id="400-same-body"),
-        pytest.param(503, _MULTIMATCH_BODY, None, id="503-same-body"),
+        pytest.param(500, [_REAL_2_1_0_BODY], None, id="500-non-object-body"),
+        pytest.param(400, _REAL_2_1_0_BODY, None, id="400-real-body"),
+        pytest.param(503, _REAL_2_1_0_BODY, None, id="503-real-body"),
+        pytest.param(503, _STRICT_BODY, None, id="503-strict-body"),
+        pytest.param(502, None, "<html>Bad Gateway</html>", id="502-proxy"),
     ],
 )
 async def test_every_other_engine_error_stays_transient(
     status: int, json_body: Any, text: str | None
 ) -> None:
-    """Conservative matching: anything short of status 500 + known type + `DMN-03001` + `'UNIQUE'`
-    keeps today's transient `DmnEvaluationError` (engine-retried)."""
+    """Conservative matching: anything short of status 500 + known type + one of the two message
+    shapes keeps today's transient `DmnEvaluationError` (engine-retried)."""
     with pytest.raises(DmnEvaluationError) as excinfo:
         await _transport_answering(status, json_body=json_body, text=text).evaluate(_KEY, {})
-    assert not isinstance(excinfo.value, DmnHitPolicyViolationError)
+    assert not isinstance(excinfo.value, DmnDeterministicEvaluationError)
 
 
-def test_evaluate_sync_records_the_offending_version_on_violation() -> None:
-    with collect_dmn_versions() as collected, pytest.raises(DmnHitPolicyViolationError):
-        evaluate_sync(_multimatch_transport(), _KEY, {"idade": 40})
-    assert collected == {_KEY: {"version": 4, "id": _DEF_ID, "deploymentId": "dep-rco-1"}}
+@pytest.mark.parametrize("body", [_REAL_2_1_0_BODY, _STRICT_BODY], ids=["real-2.1.0", "strict"])
+def test_evaluate_sync_records_the_offending_version(body: dict[str, Any]) -> None:
+    with collect_dmn_versions() as collected, pytest.raises(DmnDeterministicEvaluationError):
+        evaluate_sync(_transport_answering(500, json_body=body), _KEY, {"idade": 40})
+    assert collected == {_KEY: _VERSION.to_audit_dict()}
 
 
 # ---------------------------------------------------------------------------
@@ -226,15 +280,22 @@ async def test_function_worker_multimatch_is_incident_never_retried_and_audited(
     assert len(sink.emitted) == 1
     record, dedup_key = sink.emitted[0]
     assert record.decision == AUDIT_DECISION_REFUSED
-    assert record.details["guard_code"] == ERR_DMN_HIT_POLICY_VIOLATION
-    assert record.dmn_versions == {_KEY: {"version": 4, "id": _DEF_ID, "deploymentId": "dep-rco-1"}}
+    assert record.details["guard_code"] == ERR_DMN_EVALUATION_DETERMINISTIC
+    assert record.dmn_versions == {_KEY: _VERSION.to_audit_dict()}
     assert dedup_key == "amh:refuse:task-mm-1"
     flat = repr(record.details)
     assert "12345678900" not in flat
     assert "SEGREDO" not in flat
 
 
-async def test_raw_handler_multimatch_is_incident_never_retried_and_audited() -> None:
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [(_REAL_2_1_0_BODY, ERR_DMN_EVALUATION_DETERMINISTIC), (_STRICT_BODY, ERR_DMN_HIT_POLICY_VIOLATION)],
+    ids=["real-2.1.0", "strict"],
+)
+async def test_raw_handler_multimatch_is_incident_never_retried_and_audited(
+    body: dict[str, Any], code: str
+) -> None:
     """A raw handler gets no FunctionWorker reclassification; the plain-`Exception` subclass must
     still not fall into the generic branch's engine-computed retries."""
     transport = FakeWorkerTransport()
@@ -242,7 +303,7 @@ async def test_raw_handler_multimatch_is_incident_never_retried_and_audited() ->
     harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink, max_retry_attempts=3)
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
-        await _multimatch_transport().evaluate(_KEY, {})
+        await _transport_answering(500, json_body=body).evaluate(_KEY, {})
         return {}
 
     harness.register("operadora.teste.rco", handler)
@@ -250,7 +311,7 @@ async def test_raw_handler_multimatch_is_incident_never_retried_and_audited() ->
 
     assert transport.failures[0][2] == 0
     assert len(sink.emitted) == 1
-    assert sink.emitted[0][0].details["guard_code"] == ERR_DMN_HIT_POLICY_VIOLATION
+    assert sink.emitted[0][0].details["guard_code"] == code
 
 
 async def test_audit_emitted_before_incident_and_sink_outage_never_retries() -> None:
@@ -307,13 +368,22 @@ async def test_other_5xx_through_the_harness_is_still_retried_and_not_audited() 
 # ---------------------------------------------------------------------------
 
 
-def test_dmn_sweep_reports_overlap_instead_of_crashing() -> None:
-    class _Overlapping(FakeDmnTransport):
+@pytest.mark.parametrize(
+    ("cls", "prefixo"),
+    [
+        (DmnDeterministicEvaluationError, "AVALIACAO RECUSADA PELO MOTOR"),
+        (DmnHitPolicyViolationError, "SOBREPOSICAO DE REGRAS"),
+    ],
+)
+def test_dmn_sweep_reports_instead_of_crashing(
+    cls: type[DmnDeterministicEvaluationError], prefixo: str
+) -> None:
+    class _Recusa(FakeDmnTransport):
         async def evaluate(
             self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
         ) -> Any:
-            raise DmnHitPolicyViolationError(decision_key)
+            raise cls(decision_key)
 
-    resultado = avaliar(_KEY, {}, dmn=_Overlapping())
+    resultado = avaliar(_KEY, {}, dmn=_Recusa())
     assert isinstance(resultado, str)
-    assert resultado.startswith("SOBREPOSICAO DE REGRAS")
+    assert resultado.startswith(prefixo)

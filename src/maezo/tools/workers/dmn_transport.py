@@ -30,12 +30,15 @@ Error semantics (ADR-0028 §3 — the fail-closed core, NEVER `{}`):
 - A `Json`-typed result variable that fails to decode -> `DmnVariableDecodeError` -> immediate
   incident, NEVER retried (deterministic, same reasoning as `DmnNoResultError` — see T1.5 note
   below).
-- `UNIQUE` hit policy with MORE than one matching rule (engine `DMN-03001`, ADR-0075 §(c)) ->
-  `DmnHitPolicyViolationError` -> immediate incident, NEVER retried (MZO-1c). Overlapping rules
-  are a defect of the TABLE: the identical `evaluate` reproduces the identical overlap, so the old
-  path (HTTP 500 -> `DmnEvaluationError` -> transient -> engine retries) only burned the retry
-  budget before reaching a human. See `_is_unique_multimatch` for the exact engine shape matched;
-  every OTHER engine 4xx/5xx keeps the transient `DmnEvaluationError` classification above.
+- The engine REJECTED the evaluation itself (HTTP 500 whose body says the decision could not be
+  evaluated) -> `DmnDeterministicEvaluationError` -> immediate incident, NEVER retried (MZO-1c,
+  ADR-0075 §(c)). The motivating case is a `UNIQUE` table with MORE than one matching rule; on CIB
+  Seven 2.1.0 the REST body does NOT say so (it only carries the generic `EvaluateDecisionCmd`
+  wrapper), so the class is named for what the wire proves — a deterministic evaluation failure
+  (overlap, FEEL/type error, ...) that the identical `evaluate` would reproduce. Only when the body
+  names `DMN-03001` + `'UNIQUE'` is the narrower `DmnHitPolicyViolationError` raised. See
+  `_classify_evaluate_failure` for the exact shapes; every OTHER engine 4xx/5xx keeps the
+  transient `DmnEvaluationError` classification above.
 
 `DmnEvaluationError` is deliberately a bare `RuntimeError` (no `.code`/`.message`) so
 `tools/workers/base.py`'s `_HARNESS_CLASSIFIED` tuple and `harness.py`'s `_handle` transient
@@ -108,8 +111,9 @@ class DmnEvaluationError(RuntimeError):
     `.code`/`.message` duck-typing, so it is NOT reclassified into an immediate-incident
     `ValueError`).
 
-    One HTTP 500 is NOT this class: the engine's `UNIQUE` multi-match (`DMN-03001`) raises the
-    permanent `DmnHitPolicyViolationError` instead (MZO-1c, ADR-0075 §(c)).
+    One HTTP 500 is NOT this class: an engine-side evaluation failure ("Cannot evaluate decision
+    ...", e.g. a `UNIQUE` multi-match) raises the permanent `DmnDeterministicEvaluationError`
+    instead (MZO-1c, ADR-0075 §(c)).
     """
 
 
@@ -163,85 +167,126 @@ class DmnVariableDecodeError(Exception):
         super().__init__(f"{self.code}: {self.message}")
 
 
-#: Bounded, non-PHI code of a `UNIQUE` hit-policy violation (MZO-1c, ADR-0075 §(c)). Read by the
-#: worker harness (`harness.py::_AUDITED_PERMANENT_REFUSAL_CODES`) to record the refusal in the
+#: Bounded, non-PHI codes of the two permanent evaluation failures (MZO-1c, ADR-0075 §(c)). Read by
+#: the worker harness (`harness.py::_AUDITED_PERMANENT_REFUSAL_CODES`) to record the refusal in the
 #: ADR-0007 chain before the incident is reported.
+ERR_DMN_EVALUATION_DETERMINISTIC: Final[str] = "ERR_DMN_EVALUATION_DETERMINISTIC"
 ERR_DMN_HIT_POLICY_VIOLATION: Final[str] = "ERR_DMN_HIT_POLICY_VIOLATION"
 
 
-class DmnHitPolicyViolationError(DmnNoResultError):
-    """A `UNIQUE` table matched MORE than one rule (engine `DMN-03001`) — PERMANENT (MZO-1c).
+class DmnDeterministicEvaluationError(DmnNoResultError):
+    """The engine REJECTED the evaluation of the table for these inputs — PERMANENT (MZO-1c).
 
     ADR-0075 §(c): the rco K1 tables arrive `UNIQUE` (no conversion to `FIRST`, which would rewrite
     the supplier's rule and break the pin's `shaDmn`), and `UNIQUE` has no mandatory catch-all, so
     two overlapping rows are a reachable state. The engine answers HTTP 500, which this transport
-    used to map to the TRANSIENT `DmnEvaluationError` — engine retries that could never succeed,
-    because the overlap is a DETERMINISTIC function of the table and the inputs.
+    used to map to the TRANSIENT `DmnEvaluationError` — engine retries that could never succeed.
 
-    Same family as `DmnNoResultError` (and deliberately a SUBCLASS of it): both mean "the table did
-    not yield exactly one authoritative row", and neither may be resolved by a machine guess (no
-    "take the first of the overlapping rows"). Subclassing keeps every existing consumer correct
-    without a sweep: the agent graphs' `except (DmnEvaluationError, DmnNoResultError)` still takes
-    the declared DMN-unavailable path to a human, and `FunctionWorker.execute()`
-    (`tools/workers/base.py::reclassify_coded_exception`) still turns the `.code`/`.message` pair into
-    `ValueError` -> `failure(retries=0)` -> an engine-guaranteed, human-visible incident. The harness
-    additionally records the refusal (`decision=REFUSED`, `guard_code=ERR_DMN_HIT_POLICY_VIOLATION`)
-    before that incident (`harness.py::_AUDITED_PERMANENT_REFUSAL_CODES`).
+    Named for what the REST layer actually proves, NOT for the motivating case: on CIB Seven 2.1.0
+    the 500 body only says "Exception while evaluating decision" (see
+    `_ENGINE_EVALUATION_WRAPPER_RE`), whatever the cause — `UNIQUE` overlap, a FEEL error, an input
+    type mismatch. All of them are functions of the deployed table and the given inputs: the
+    identical call reproduces the identical failure, so retrying is pointless and the case must
+    reach a human. When the engine DOES name the hit-policy cause, the narrower subclass
+    `DmnHitPolicyViolationError` is raised instead.
 
-    Carries NO engine text: the `DMN-03001` message lists the matched rules WITH their output
-    values, which is case data — only the decision key and the resolved version (provenance) travel.
+    Same family as `DmnNoResultError` (deliberately a SUBCLASS of it): both mean "the table did not
+    yield exactly one authoritative row", and neither may be resolved by a machine guess. Subclassing
+    keeps every existing consumer correct without a sweep: the agent graphs'
+    `except (DmnEvaluationError, DmnNoResultError)` still takes the declared DMN-unavailable path to
+    a human, and `FunctionWorker.execute()` (`tools/workers/base.py::reclassify_coded_exception`)
+    still turns the `.code`/`.message` pair into `ValueError` -> `failure(retries=0)` -> an
+    engine-guaranteed, human-visible incident. The harness additionally records the refusal
+    (`decision=REFUSED`, `guard_code=<code>`) before that incident.
+
+    Carries NO engine text (the engine's own message can list matched rules WITH their output
+    values, which is case data) — only the decision key and the resolved version (provenance).
     """
+
+    _CODE: str = ERR_DMN_EVALUATION_DETERMINISTIC
 
     def __init__(self, decision_key: str, *, version: DmnVersion | None = None) -> None:
         super().__init__(decision_key)
-        self.code = ERR_DMN_HIT_POLICY_VIOLATION
+        self.code = self._CODE
         self.version = version
-        self.message = (
+        self.message = self._describe(decision_key)
+        self.args = (f"{self.code}: {self.message}",)
+
+    @staticmethod
+    def _describe(decision_key: str) -> str:
+        return (
+            f"DMN '{decision_key}' could not be evaluated by the engine for the given inputs "
+            "(deterministic: the same table and inputs fail the same way — e.g. UNIQUE rules that "
+            "overlap, or a FEEL/type error) — routing to human review, NEVER retried"
+        )
+
+
+class DmnHitPolicyViolationError(DmnDeterministicEvaluationError):
+    """A `UNIQUE` table matched MORE than one rule, AND the engine body said so (`DMN-03001`).
+
+    Raised only on the strict upstream shape (see `_UNIQUE_MULTIMATCH_CODE_RE`) — forward-compatible
+    for an engine build that surfaces the cause. CIB Seven 2.1.0 does not (its body is the generic
+    wrapper), so there the parent class is raised: the code never claims "hit policy" when the engine
+    did not say so.
+    """
+
+    _CODE: str = ERR_DMN_HIT_POLICY_VIOLATION
+
+    @staticmethod
+    def _describe(decision_key: str) -> str:
+        return (
             f"DMN '{decision_key}' (hit policy UNIQUE) matched more than one rule for the given "
             "inputs (engine DMN-03001) — overlapping rules are a table defect, not a transient "
             "fault: routing to human review, NEVER retried and NEVER resolved by picking a row"
         )
-        self.args = (f"{self.code}: {self.message}",)
 
 
-#: Engine evidence of a `UNIQUE` multi-match, from the Camunda 7 engine-rest code CIB Seven 2.1.0
-#: forks (read at tag 7.22.0, MZO-1c):
-#:   - `DmnHitPolicyLogger.uniqueHitPolicyOnlyAllowsSingleMatchingRule` raises `DmnHitPolicyException`
-#:     with `exceptionMessage("001", "Hit policy '{}' only allows a single rule to match. Actually
-#:     match rules: '{}'.", HitPolicy.UNIQUE, ...)` under logger component "03" of project "DMN"
-#:     -> message `DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match. ...`;
-#:   - `DecisionDefinitionResourceImpl.evaluateDecision` catches `DmnEngineException` and rethrows
-#:     `RestException(INTERNAL_SERVER_ERROR, e, "Cannot evaluate decision <id>: " + e.getMessage())`;
-#:   - `ExceptionHandlerHelper` serializes `{"type": <exception simple name>, "message": ...}` with
-#:     NO `code` (a `DmnEngineException` is not a `ProcessEngineException`).
-#: So the wire is HTTP 500 + `{"type": "RestException", "message": "Cannot evaluate decision <id>:
-#: DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match. Actually match rules: ..."}`.
-#: Matched CONSERVATIVELY: status 500 AND `type` in the set below (the REST wrapper, or the raw
-#: exception should an engine build ever let it through unwrapped) AND the `DMN-03001` token AND the
-#: literal `'UNIQUE'`. Anything short of all four stays the transient `DmnEvaluationError` — a
-#: false "permanent" would strand a recoverable task in an incident; a false "transient" only costs
-#: the retries this change removes. ANY's `DMN-03002` (unequal outputs) is NOT matched: no table
-#: here uses ANY, and widening is a separate decision.
-_UNIQUE_MULTIMATCH_STATUS: Final[int] = 500
-_UNIQUE_MULTIMATCH_TYPES: Final[frozenset[str]] = frozenset({"RestException", "DmnHitPolicyException"})
+#: Engine shapes of an evaluation the engine itself rejected (MZO-1c). Only HTTP 500 + `type`
+#: `RestException` (or the raw `DmnHitPolicyException`) + one of the two message shapes below is
+#: permanent; ANY other 4xx/5xx/body (engine down, proxy 5xx, DB error, plain text) stays the
+#: transient `DmnEvaluationError` — a false "permanent" strands a recoverable task in an incident.
+#:
+#: 1. CIB Seven 2.1.0 — the shape PROVEN on the real engine (CI run of PR #1230, integration lane,
+#:    engine log `docker-compose-failure.log:483-484,1078,1118`):
+#:    `EvaluateDecisionCmd.doEvaluateDecision` wraps ANY exception thrown while evaluating into
+#:    `ProcessEngineException("Exception while evaluating decision with key '<key>'")` (`'null'`
+#:    when evaluated by id), with the `DmnHitPolicyException: DMN-03001 ...` only as its `cause`; the
+#:    REST layer prefixes `Cannot evaluate decision <definitionId>: ` and serializes
+#:    `{"type": "RestException", "message": "Cannot evaluate decision <id>: Exception while
+#:    evaluating decision with key 'null'", "code": 0}`. The cause is NOT on the wire, so this maps
+#:    to the generic `DmnDeterministicEvaluationError`. Persistence (history flush) happens at
+#:    command-context close, outside that wrapper — a DB fault does not produce this message.
+#: 2. Strict upstream shape (Camunda 7.22 `DmnHitPolicyLogger`): the message carries
+#:    `DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match` -> the narrower
+#:    `DmnHitPolicyViolationError`. ANY's `DMN-03002` is NOT matched by this narrower check (it
+#:    still lands in shape 1 if it arrives wrapped).
+_DETERMINISTIC_STATUS: Final[int] = 500
+_DETERMINISTIC_TYPES: Final[frozenset[str]] = frozenset({"RestException", "DmnHitPolicyException"})
+_ENGINE_EVALUATION_WRAPPER_RE: Final[re.Pattern[str]] = re.compile(
+    r"\ACannot evaluate decision \S+: Exception while evaluating decision with key '"
+)
 _UNIQUE_MULTIMATCH_CODE_RE: Final[re.Pattern[str]] = re.compile(r"(?<![A-Za-z0-9-])DMN-03001(?![0-9])")
 
 
-def _is_unique_multimatch(response: httpx.Response) -> bool:
-    """True iff `response` is the engine's `UNIQUE` multi-match error (shape: see above). Never raises."""
-    if response.status_code != _UNIQUE_MULTIMATCH_STATUS:
-        return False
+def _classify_evaluate_failure(response: httpx.Response) -> type[DmnDeterministicEvaluationError] | None:
+    """The permanent class for an engine-rejected evaluation (shapes above), else `None`. Never raises."""
+    if response.status_code != _DETERMINISTIC_STATUS:
+        return None
     try:
         body = response.json()
     except ValueError:  # json.JSONDecodeError / UnicodeDecodeError — not the engine's JSON error
-        return False
+        return None
     if not isinstance(body, dict):
-        return False
+        return None
     exc_type = body.get("type")
     message = body.get("message")
-    if exc_type not in _UNIQUE_MULTIMATCH_TYPES or not isinstance(message, str):
-        return False
-    return _UNIQUE_MULTIMATCH_CODE_RE.search(message) is not None and "'UNIQUE'" in message
+    if exc_type not in _DETERMINISTIC_TYPES or not isinstance(message, str):
+        return None
+    if _UNIQUE_MULTIMATCH_CODE_RE.search(message) is not None and "'UNIQUE'" in message:
+        return DmnHitPolicyViolationError
+    if _ENGINE_EVALUATION_WRAPPER_RE.match(message) is not None:
+        return DmnDeterministicEvaluationError
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,9 +511,11 @@ class CibSevenDmnTransport:
                 resp = await client.post(eval_path, json=payload)
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                if _is_unique_multimatch(exc.response):
-                    # PERMANENT (MZO-1c): overlapping UNIQUE rules — never the transient path below.
-                    raise DmnHitPolicyViolationError(decision_key, version=version) from exc
+                permanent = _classify_evaluate_failure(exc.response)
+                if permanent is not None:
+                    # PERMANENT (MZO-1c): the engine rejected the evaluation itself — never the
+                    # transient path below. The engine text is deliberately NOT carried.
+                    raise permanent(decision_key, version=version) from exc
                 raise DmnEvaluationError(
                     f"CIB Seven DMN evaluate failed [{exc.response.status_code}] for "
                     f"`{decision_key}`: {exc.response.text[:300]}"
@@ -587,9 +634,9 @@ def evaluate_sync(
     """
     try:
         rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
-    except DmnHitPolicyViolationError as exc:
-        # MZO-1c: the version WAS resolved before the overlap was found, and it is exactly what the
-        # refusal audit row must attest (which table version had the overlapping rules).
+    except DmnDeterministicEvaluationError as exc:
+        # MZO-1c: the version WAS resolved before the evaluation failed, and it is exactly what the
+        # refusal audit row must attest (which table version could not be evaluated).
         if exc.version is not None:
             record_dmn_version(exc.version)
         raise

@@ -347,38 +347,39 @@ def test_o_protocol_do_store_e_a_superficie_do_seam() -> None:
 
 @pytest.mark.asyncio
 async def test_route_unique_multimatch_sobe_permanente_nao_vira_sem_match() -> None:
-    """MZO-1c: sobreposicao UNIQUE NAO e o "sem match" modelado — sobe intacta para o harness
-    (recusa auditada + incidente retries=0) e grava a versao da tabela para a auditoria."""
+    """MZO-1c: avaliacao recusada pelo motor (ex.: sobreposicao UNIQUE, forma real do CIB Seven
+    2.1.0) NAO e o "sem match" modelado — sobe intacta para o harness (recusa auditada +
+    incidente retries=0) e grava a versao da tabela para a auditoria."""
     from maezo.tools.workers._audit_ctx import collect_dmn_versions
-    from maezo.tools.workers.dmn_transport import DmnHitPolicyViolationError, DmnVersion
+    from maezo.tools.workers.dmn_transport import DmnDeterministicEvaluationError, DmnVersion
 
     version = DmnVersion(key=SUPPRESSION_ROUTING_DMN, id="def-sup-1", version=2, deployment_id="dep-1")
-    boom = DmnHitPolicyViolationError(SUPPRESSION_ROUTING_DMN, version=version)
+    boom = DmnDeterministicEvaluationError(SUPPRESSION_ROUTING_DMN, version=version)
     handler = make_route_handler(_FakeDmn(boom=boom))
-    with collect_dmn_versions() as collected, pytest.raises(DmnHitPolicyViolationError) as exc:
+    with collect_dmn_versions() as collected, pytest.raises(DmnDeterministicEvaluationError) as exc:
         await handler(_FakeTask(_route_vars()))
     assert exc.value is boom
     assert collected == {SUPPRESSION_ROUTING_DMN: version.to_audit_dict()}
 
 
 @pytest.mark.asyncio
-async def test_route_unique_multimatch_no_harness_incidente_sem_retry_e_auditado() -> None:
+@pytest.mark.parametrize("strict", [False, True], ids=["real-2.1.0", "strict"])
+async def test_route_unique_multimatch_no_harness_incidente_sem_retry_e_auditado(strict: bool) -> None:
     from maezo.tools.workers.dmn_transport import (
-        ERR_DMN_HIT_POLICY_VIOLATION,
+        DmnDeterministicEvaluationError,
         DmnHitPolicyViolationError,
         DmnVersion,
     )
     from maezo.tools.workers.harness import ExternalTask, FakeAuditSink, FakeWorkerTransport
 
+    cls = DmnHitPolicyViolationError if strict else DmnDeterministicEvaluationError
     version = DmnVersion(key=SUPPRESSION_ROUTING_DMN, id="def-sup-1", version=2, deployment_id="dep-1")
     transport = FakeWorkerTransport()
     sink = FakeAuditSink()
     harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink, max_retry_attempts=3)
     harness.register(
         SUPPRESSION_ROUTE_TOPIC,
-        make_route_handler(
-            _FakeDmn(boom=DmnHitPolicyViolationError(SUPPRESSION_ROUTING_DMN, version=version))
-        ),
+        make_route_handler(_FakeDmn(boom=cls(SUPPRESSION_ROUTING_DMN, version=version))),
     )
     task = ExternalTask(
         task_id="t-sup-1",
@@ -394,5 +395,5 @@ async def test_route_unique_multimatch_no_harness_incidente_sem_retry_e_auditado
     assert transport.bpmn_errors == []  # nunca a recusa modelada "sem match"
     assert transport.failures[0][2] == 0
     record, _ = sink.emitted[0]
-    assert record.details["guard_code"] == ERR_DMN_HIT_POLICY_VIOLATION
+    assert record.details["guard_code"] == cls(SUPPRESSION_ROUTING_DMN).code
     assert record.dmn_versions == {SUPPRESSION_ROUTING_DMN: version.to_audit_dict()}

@@ -1,12 +1,18 @@
 """MZO-1c — `UNIQUE` multi-match pelo MOTOR REAL (CIB Seven, ADR-0011/ADR-0028), nunca por mock.
 
 O teste de unidade (`tests/unit/tools/workers/test_dmn_transport_unique_multimatch.py`) replica o
-corpo de erro que o codigo do engine-rest produz; ESTE arquivo prova o que so o motor responde:
+corpo de erro; ESTE arquivo prova o que so o motor responde:
 
-  1. a forma do erro no fio: HTTP 500, `type` `RestException` (ou a excecao crua), mensagem com
-     `DMN-03001` e `'UNIQUE'` — a mesma que `dmn_transport._is_unique_multimatch` casa;
-  2. o transporte vira isso em `DmnHitPolicyViolationError` (PERMANENTE) com a versao resolvida, e
-     a mesma tabela fora da sobreposicao segue devolvendo uma linha;
+  1. a forma do erro no fio, a do CIB Seven 2.1.0 (EVIDENCIA: CI do PR #1230, lane integration,
+     `docker-compose-failure.log:483-484` — `ProcessEngineException: Exception while evaluating
+     decision with key 'null'` em `EvaluateDecisionCmd.doEvaluateDecision`; `:1078` — `Caused by:
+     ...DmnHitPolicyException: DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match`;
+     `:1118` — `ENGINE-REST-HTTP500 RestException: Cannot evaluate decision <id>: ...`): HTTP 500,
+     `{"type": "RestException", "message": "Cannot evaluate decision <id>: Exception while
+     evaluating decision with key 'null'", "code": 0}` — a causa (DMN-03001) NAO chega ao fio;
+  2. o transporte vira isso em `DmnDeterministicEvaluationError` (PERMANENTE, sem afirmar "hit
+     policy", porque o motor nao disse) com a versao resolvida, e a mesma tabela fora da
+     sobreposicao segue devolvendo uma linha;
   3. o caminho inteiro no harness real: a PRIMEIRA entrega ja abre incidente (retries=0, mesmo com
      orcamento de retry 3) e a cadeia ADR-0007 do Postgres do lane ganha a linha REFUSED.
 
@@ -28,9 +34,9 @@ import pytest
 
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import (
-    ERR_DMN_HIT_POLICY_VIOLATION,
+    ERR_DMN_EVALUATION_DETERMINISTIC,
     CibSevenDmnTransport,
-    DmnHitPolicyViolationError,
+    DmnDeterministicEvaluationError,
     evaluate_sync,
     first_row,
 )
@@ -88,17 +94,22 @@ async def test_engine_wire_shape_is_what_the_transport_matches(
     )
     assert resp.status_code == 500, resp.text
     body = resp.json()
-    assert body["type"] in {"RestException", "DmnHitPolicyException"}, body
-    assert "DMN-03001" in body["message"], body
-    assert "'UNIQUE'" in body["message"], body
+    assert body["type"] == "RestException", body
+    assert body["message"] == (
+        f"Cannot evaluate decision {fixture_deployed}: Exception while evaluating decision with key 'null'"
+    ), body
+    # A causa fica so no log do motor; se uma versao futura passar a expo-la, o transporte ja casa a
+    # forma estrita (`DmnHitPolicyViolationError`) e este teste deve ser revisto junto com o pin.
+    assert "DMN-03001" not in body["message"], body
 
 
 async def test_transport_raises_permanent_error_with_resolved_version(
     dmn: CibSevenDmnTransport, fixture_deployed: str
 ) -> None:
-    with pytest.raises(DmnHitPolicyViolationError) as excinfo:
+    with pytest.raises(DmnDeterministicEvaluationError) as excinfo:
         await dmn.evaluate(_KEY, _SOBREPOSTO)
-    assert excinfo.value.code == ERR_DMN_HIT_POLICY_VIOLATION
+    assert type(excinfo.value) is DmnDeterministicEvaluationError  # 2.1.0 nao nomeia a causa
+    assert excinfo.value.code == ERR_DMN_EVALUATION_DETERMINISTIC
     assert excinfo.value.version is not None
     assert excinfo.value.version.id == fixture_deployed
     assert "FAIXA_" not in str(excinfo.value)  # o dump de regras do motor nunca vaza
@@ -175,7 +186,7 @@ async def test_harness_first_delivery_opens_incident_and_audits_refusal(
     # PRIMEIRA entrega -> incidente: nenhum retry consumido, caso na frente de um humano.
     incidents = await list_incidents(engine_client, process_instance_id)
     assert len(incidents) == 1, incidents
-    assert ERR_DMN_HIT_POLICY_VIOLATION in (incidents[0].get("incidentMessage") or ""), incidents
+    assert ERR_DMN_EVALUATION_DETERMINISTIC in (incidents[0].get("incidentMessage") or ""), incidents
 
     dsn, tenant_id = audit_pg
     conn = await asyncpg.connect(normalize_dsn(dsn))
@@ -189,5 +200,5 @@ async def test_harness_first_delivery_opens_incident_and_audits_refusal(
         await conn.close()
     assert len(rows) == 1, rows
     assert rows[0]["decision"] == "REFUSED"
-    assert ERR_DMN_HIT_POLICY_VIOLATION in rows[0]["basis"]
+    assert ERR_DMN_EVALUATION_DETERMINISTIC in rows[0]["basis"]
     assert _KEY in rows[0]["versions"] and fixture_deployed in rows[0]["versions"]
