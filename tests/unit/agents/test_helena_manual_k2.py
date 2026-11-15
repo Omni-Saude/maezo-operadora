@@ -30,7 +30,7 @@ _AMOSTRA = Path(__file__).parent / "helena_k2_amostra" / "pacote"
 #: O pin da amostra, CONSTANTE (como o consumidor real pina): quem mexer na amostra recalcula aqui.
 _PIN = PinDoK2(
     versao="amostra-0.1.0",
-    sha256_manifesto="b299c4d561d956d894a9c86bc01630ef1fea265083b49719d53a63ea7b388176",
+    sha256_manifesto="9af9c38159fc23b4b73e576bab19afbb87cb7562839906a67ff660320e6dd22a",
 )
 
 
@@ -64,7 +64,7 @@ def _regravar_arquivo(pacote: Path, nome: str, conteudo: str) -> PinDoK2:
     esta' fora do formato)."""
     (pacote / nome).write_text(conteudo, encoding="utf-8")
     manifesto = _manifesto(pacote)
-    manifesto["arquivos"][nome] = _sha(pacote / nome)
+    manifesto["arquivos"][nome] = "sha256:" + _sha(pacote / nome)
     return _gravar_manifesto(pacote, manifesto)
 
 
@@ -96,7 +96,7 @@ def test_a_amostra_carrega(manual: ManualK2) -> None:
 
 def test_o_manifesto_da_amostra_tem_os_sha256_reais() -> None:
     arquivos = _manifesto(_AMOSTRA)["arquivos"]
-    assert arquivos == {nome: _sha(_AMOSTRA / nome) for nome in k2.ARQUIVOS_DO_PACOTE}
+    assert arquivos == {nome: "sha256:" + _sha(_AMOSTRA / nome) for nome in k2.ARQUIVOS_DO_PACOTE}
     assert _sha(_AMOSTRA / "manifesto.json") == _PIN.sha256_manifesto
 
 
@@ -238,8 +238,10 @@ _AJUSTES_DO_MANIFESTO: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
     ("gerado_em_invalido", lambda m: m.update(gerado_em="2026-11-15T00:00:00")),
     ("gerado_em_invalido", lambda m: m.update(gerado_em="2026-11-15T00:00:00-03:00")),
     ("lista_de_arquivos_invalida", lambda m: m["arquivos"].pop("capitulo-geral.yaml")),
-    ("lista_de_arquivos_invalida", lambda m: m["arquivos"].update({"outro.json": "0" * 64})),
+    ("lista_de_arquivos_invalida", lambda m: m["arquivos"].update({"outro.json": "sha256:" + "0" * 64})),
     ("lista_de_arquivos_invalida", lambda m: m["arquivos"].update({"search-index.json": "xyz"})),
+    # o hex cru, sem a notacao `sha256:`, e' recusado
+    ("lista_de_arquivos_invalida", lambda m: m["arquivos"].update({"search-index.json": "0" * 64})),
     ("lista_de_arquivos_invalida", lambda m: m.update(arquivos=[])),
 ]
 

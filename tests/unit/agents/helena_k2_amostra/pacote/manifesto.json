@@ -6,7 +6,7 @@
   "gerado_em": "2026-11-15T00:00:00Z",
   "ratificado": true,
   "arquivos": {
-    "search-index.json": "0282e288ebb8bc22088777eb4fc847573db5ba6f527876176dbb2eb07e186723",
-    "capitulo-geral.yaml": "680f549371f64d0f658b0f8cc585319e18f5fa5abf2f408b6330d2b2dac4c961"
+    "search-index.json": "sha256:0282e288ebb8bc22088777eb4fc847573db5ba6f527876176dbb2eb07e186723",
+    "capitulo-geral.yaml": "sha256:680f549371f64d0f658b0f8cc585319e18f5fa5abf2f408b6330d2b2dac4c961"
   }
 }
