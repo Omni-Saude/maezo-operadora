@@ -45,13 +45,15 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
 - **Regra do dono para todo PR deste repositório (14/11/2026):**
   - a ROOT incorpora todos os PRs; ninguém mais faz merge nem liga auto-merge;
   - todo PR fica com **todos** os checks do CI verdes. Check cancelado, pendente ou falho não conta como verde, e nenhum teste é pulado, desligado ou marcado para ficar verde;
-  - a única exceção é `flip-path-review-gate`, o check de revisão de terceiros, que a ROOT dispensa na incorporação;
+  - **exceção (a):** `flip-path-review-gate`, o check de revisão de terceiros, pode ficar vermelho, pela dispensa da conta do dono;
+  - **exceção (b), temporária:** `staff-material-validade` pode ficar vermelho em qualquer PR até a renovação do material de staff do dev, que vence em 2026-11-16T12:23:47Z. A renovação na AWS está com o Gustavo, por e-mail do dono. Usada no #1215;
+  - **critério de base:** a ROOT aceita CI rodado sobre uma base anterior quando os merges posteriores tocam caminhos disjuntos (ruleset com `strict_required_status_checks_policy: false`, ADR-0069);
   - sessões de agente não rodam `terraform plan/apply`, não acessam a AWS, não fazem deploy e não tocam segredo: só alteram código e documentos;
   - não há force-push.
-- **Incorporados com `flip-path-review-gate` vermelho, por dispensa autorizada (14/11/2026):**
+- **Incorporados com `flip-path-review-gate` vermelho, pela exceção (a) (14/11/2026):**
   - #1213 (`7834de82`), #1214 (`c3621f99`), #1215 (`941fb0b2`), #1211 (`08f03bc3`) e #1216 (`fff07598`);
   - em todos, o caminho tem dono no CODEOWNERS e o único dono usuário é o autor, então a autoaprovação não vale e o check não fica verde sem um segundo revisor;
-  - #1215 também entrou com `staff-material-validade` vermelho: o material de dev vence em 2026-11-16T12:23:47Z, e a renovação cabe ao dono, com AWS (`docs/runbooks/material-staff-na-aws.md`).
+  - #1215 também entrou com `staff-material-validade` vermelho, pela exceção (b) (runbook `docs/runbooks/material-staff-na-aws.md`).
 - **Frente de manutenção: resgate de PRs antigos válidos (pedido do dono, 14/11/2026).** Cada substituto parte do head do PR original, preserva os commits e a autoria, faz merge da `main` e tem base `main`. A ROOT fecha o original depois que o substituto entra.
   - **M1:** #1215 substitui #1187 (dev igual à `main`). Incorporado. Acrescentou o REEMBOLSO-001 `05c181b9` em `aguardando_admissao`. Antes de aplicar, um humano confere o dev vivo com `plan`.
   - **M2:** #1217 substitui #864 (job de limpeza da custódia, desligado por padrão, em dev e prod). Em revisão. Ligar o job depende da ciência do DPO para o ADR-0061.
@@ -65,7 +67,14 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
   - #863: superado pelo repin genérico (`scripts/ops/staff_material_repin_catalogo.py`, #923) e pela v4 do SP-OP-ESCALATION-001 admitida em 02/11;
   - #862: `scripts/sme/revisao_clinica.py` lia `src/maezo/agents/helena/alarme_deterministico.py`, apagado pela DL-0165;
   - #865: o destinatário dos alarmes nunca foi definido.
+  - #1187 e #1205 foram fechados como substituídos por #1215 e #1216.
   - O conteúdo de todos segue em `refs/pull/<n>/head`.
+- **Pendências humanas (fora do alcance de agente):**
+  - renovar o material de staff do dev antes de 2026-11-16T12:23:47Z (Gustavo);
+  - corrigir na AWS o acesso que o #1205 original aplicou com `-target` (`plan` e `apply` em `deploy/aws-identity-center`; e-mail enviado ao Gustavo);
+  - decidir sobre um acesso próprio ao HAPI do dev, com set e grupo próprios e o aval do DPO (dono e DPO). O desenho proposto está no #1216;
+  - ciência do DPO para o ADR-0061, condição para ligar o job de limpeza do #1217;
+  - `plan` no dev vivo antes de aplicar o #1215 (os pontos estão na descrição dele).
 - **Fora desta fila até decisão do dono:** emenda ao ADR-0018 e adendo ao ADR-0040 (negativa administrativa e glosa determinística automáticas em L2), mudanças em `spec/policies/autonomy/`, DMN e workers.
 
 ## 0. GROUND TRUTH (2026-07-19) — leia primeiro
