@@ -28,7 +28,12 @@ import os
 from typing import Any
 
 from maezo.gateway.tool_registry import build_dmn_seam, build_worker_seam_context
-from maezo.tools.workers.dmn_transport import DmnEvaluationError, evaluate_sync
+from maezo.tools.workers.dmn_transport import (
+    DmnDeterministicEvaluationError,
+    DmnEvaluationError,
+    DmnHitPolicyViolationError,
+    evaluate_sync,
+)
 
 #: Casos por tabela: (chave DMN, título legível, [(rótulo, entradas)]).
 #: Editar esta lista é a forma de acrescentar cobertura — sem tocar no motor.
@@ -220,6 +225,13 @@ def avaliar(chave: str, entradas: dict[str, Any], *, dmn: Any) -> list[dict[str,
         linhas, versao = evaluate_sync(dmn, chave, entradas)
     except DmnEvaluationError as exc:
         return "ERRO DE AVALIACAO: " + str(exc)[:200]
+    # Ordem segura: DmnDeterministicEvaluationError NAO e DmnEvaluationError (e DmnNoResultError).
+    except DmnDeterministicEvaluationError as exc:
+        # MZO-1c: o motor recusou avaliar a tabela para estas entradas (ex.: UNIQUE sobreposto).
+        # Erro PERMANENTE da tabela, nao do motor — para um sweep de cobertura e' achado, nao queda.
+        if isinstance(exc, DmnHitPolicyViolationError):
+            return "SOBREPOSICAO DE REGRAS — tabela UNIQUE casou mais de uma regra (DMN-03001)"
+        return "AVALIACAO RECUSADA PELO MOTOR — deterministica (ex.: sobreposicao UNIQUE, erro FEEL)"
 
     if not linhas:
         # Tabela UNIQUE/FIRST sem linha casada. Nao e' erro do engine — e' lacuna de

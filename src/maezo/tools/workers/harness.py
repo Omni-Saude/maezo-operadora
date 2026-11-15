@@ -81,6 +81,11 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
+from maezo.tools.workers.dmn_transport import (
+    ERR_DMN_EVALUATION_DETERMINISTIC,
+    ERR_DMN_HIT_POLICY_VIOLATION,
+    DmnDeterministicEvaluationError,
+)
 from maezo.tools.workers.engine_var_types import (
     camunda_int_type,
     declared_long_variable,
@@ -156,6 +161,20 @@ _GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
 #: path (retries=0), the always-human-visible outcome ADR-0008/ADR-0030 §4 prescribe for a guard —
 #: never a modeled boundary, never a silent clean end, never a retry.
 _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
+
+#: MZO-1c (ADR-0075 §(c)): PERMANENT failures that are not guard refusals but must still leave an
+#: ADR-0007 row before their incident: a DMN evaluation the engine rejected for these inputs
+#: (`dmn_transport.DmnDeterministicEvaluationError`, e.g. overlapping `UNIQUE` rules) and its strict
+#: hit-policy subclass. The worker refused to decide on a table it could not evaluate, so the
+#: record is the same honest REFUSED label the guard path writes
+#: (`_audit_guard_refusal`, best-effort, `refuse:` dedup namespace), with the code in `guard_code`
+#: and the offending table's resolved version in `dmn_versions`. Kept SEPARATE from
+#: `is_guard_refusal_code` on purpose: that predicate is pinned against the CI BPMN-error gate's
+#: `is_te_gated` (`test_detector_contem_o_gate`), and this code is never a modeled BPMN error — it
+#: always takes the `failure(retries=0)` incident path.
+_AUDITED_PERMANENT_REFUSAL_CODES: frozenset[str] = frozenset(
+    {ERR_DMN_EVALUATION_DETERMINISTIC, ERR_DMN_HIT_POLICY_VIOLATION}
+)
 
 #: Extracts the leading `ERR_*` code token from a refusal exception message. The codebase convention
 #: is `"ERR_<DOMAIN>_<CONDITION>: <detail>"` — the `*NotHumanError` classes (`recurso.py:42`,
@@ -2022,15 +2041,27 @@ class WorkerHarness:
                     dmn_versions=dict(dmn_versions),
                 )
                 outcome = await self._report_failure(task, exc, retries_override=0)
+            except DmnDeterministicEvaluationError as exc:
+                error_type = type(exc).__name__
+                # MZO-1c (ADR-0075 §(c)): a RAW handler (no FunctionWorker reclassification) that let
+                # an engine-rejected DMN evaluation (e.g. UNIQUE multi-match) escape. It is a plain
+                # `Exception`, so without this branch the generic one below would hand it
+                # engine-computed RETRIES — the exact defect fixed.
+                # Same outcome as the reclassified `ValueError` path: audited refusal, then incident.
+                await self._audit_guard_refusal(task, guard_code=exc.code, dmn_versions=dict(dmn_versions))
+                outcome = await self._report_failure(task, exc, retries_override=0)
             except ValueError as exc:
                 error_type = type(exc).__name__
                 # Bad/immutable input — won't fix itself on retry; route straight to incident. T-E
                 # (ADR-0030 F4): a coded guard exception reclassified by FunctionWorker (base.py:293 ->
                 # ValueError("ERR_*_NOT_HUMAN: …"), e.g. CredError(ERR_DECRED_NOT_HUMAN)) IS a guard
                 # refusal — record it before the incident. A plain bad-input ValueError carries no
-                # ERR_* guard code and is NOT audited (it is not a guard refusal).
+                # ERR_* guard code and is NOT audited (it is not a guard refusal). MZO-1c: an
+                # engine-rejected DMN evaluation reclassified the same way is audited too.
                 refusal_code = extract_refusal_code(exc)
-                if refusal_code is not None and is_guard_refusal_code(refusal_code):
+                if refusal_code is not None and (
+                    is_guard_refusal_code(refusal_code) or refusal_code in _AUDITED_PERMANENT_REFUSAL_CODES
+                ):
                     await self._audit_guard_refusal(
                         task, guard_code=refusal_code, dmn_versions=dict(dmn_versions)
                     )

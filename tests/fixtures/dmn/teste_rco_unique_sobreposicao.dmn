@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_teste_rco_unique_sobreposicao"
+             name="FIXTURE DE TESTE - UNIQUE com sobreposicao proposital (nao e regra de negocio)"
+             namespace="http://maezo.health/test/dmn/mzo-1c">
+  <description>
+    FIXTURE DE TESTE (MZO-1c, ADR-0075 secao c). NAO E REGRA DE NEGOCIO, nao vive em spec/ e nunca
+    e publicada pelo deploy de artefatos: so tests/integration/dmn/test_unique_multimatch_engine.py a
+    envia ao motor. Hit policy UNIQUE com DUAS linhas que se sobrepoem de proposito em
+    teste_valor 40..50, para provar no motor real que o caso vira erro PERMANENTE (sem retry,
+    incidente humano, recusa auditada). Fora da sobreposicao cada valor casa no maximo uma linha.
+  </description>
+  <decision id="teste_rco_unique_sobreposicao" name="TESTE UNIQUE sobreposto" camunda:historyTimeToLive="P1D">
+    <decisionTable id="dt_teste_rco_unique_sobreposicao" hitPolicy="UNIQUE">
+      <input id="in_teste_valor" label="Valor sintetico (teste_valor)">
+        <inputExpression id="ie_teste_valor" typeRef="integer"><text>teste_valor</text></inputExpression>
+      </input>
+      <output id="out_faixa" label="faixa" name="faixa" typeRef="string"/>
+      <rule id="r_teste_faixa_a">
+        <description>Sintetico: 0..50 -> FAIXA_A</description>
+        <inputEntry id="r_teste_faixa_a_i1"><text>[0..50]</text></inputEntry>
+        <outputEntry id="r_teste_faixa_a_o1"><text>"FAIXA_A"</text></outputEntry>
+      </rule>
+      <rule id="r_teste_faixa_b">
+        <description>Sintetico: 40..120 -> FAIXA_B (sobrepoe 40..50 com a linha anterior)</description>
+        <inputEntry id="r_teste_faixa_b_i1"><text>[40..120]</text></inputEntry>
+        <outputEntry id="r_teste_faixa_b_o1"><text>"FAIXA_B"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
