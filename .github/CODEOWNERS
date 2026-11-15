@@ -23,12 +23,13 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 32 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 34 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
 #      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
 #      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
 #      autoprotecao; 32 desde 2026-09-06, quando entrou `/spec/policies/phi/` pela decisao do
-#      dono R-199). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      dono R-199; 34 desde 2026-11-15, quando entraram `/spec/processes/dmn/rco/` e
+#      `/config/integrations/rco/` pelo ADR-0075). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
 #      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
 #      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
 #      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
@@ -99,6 +100,12 @@
 #     `auth-criteria-ratification.yaml`.
 /spec/processes/dmn/adequacao-gap-shadow-candidate.yaml  @rodaquino-OMNI @Omni-Saude/security-team
 /spec/processes/dmn/adequacao_gap.dmn                    @rodaquino-OMNI @Omni-Saude/security-team
+# ADR-0075 secao b, item 13 — pacote de regras K1 do rco (regras-contratos-operadora). A pasta
+# `rco/` recebe as tabelas do K1 byte a byte e e' escrita SO pela atualizacao do pin; o pin e' o
+# `config/integrations/rco/rules.lock.json`. Mudar qualquer um dos dois muda regra "o que" que o
+# motor executa, entao os dois tem o mesmo dono das tabelas DMN ratificaveis acima.
+/spec/processes/dmn/rco/                                 @rodaquino-OMNI @Omni-Saude/security-team
+/config/integrations/rco/                                @rodaquino-OMNI @Omni-Saude/security-team
 # DL-0043 leg (c) — PHI em business keys. Ratificar
 # `spec/policies/privacy/phi-business-key-remediation.yaml` (status: RATIFICADO + os tres campos
 # de `ratificacao`) e o UNICO ato que muda o formato de identidade PERSISTIDA de um beneficiario:

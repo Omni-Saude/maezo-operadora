@@ -67,8 +67,9 @@ COPY spec/policies/autonomy ./spec/policies/autonomy
 COPY spec/policies/amh ./spec/policies/amh
 # TERCEIRA e QUARTA ocorrências da mesma falha das duas linhas acima (13/08/2026):
 # o force-include passou a incluir `spec/agents` e `spec/processes` — as definições
-# de agente que `resolve_spec_agents_dir()` procura ao lado do pacote, e os 16 BPMN
-# + 62 DMN que o CLI de deploy publica no engine. Sem estas duas COPY o
+# de agente que `resolve_spec_agents_dir()` procura ao lado do pacote, e os BPMN/DMN
+# (inclusive `dmn/rco/`, pacote K1 do rco — ADR-0075) que o CLI de deploy publica no
+# engine. Sem estas duas COPY o
 # `uv sync --no-editable` abaixo falha fechado com
 # `FileNotFoundError: Forced include not found: /app/spec/agents`.
 #

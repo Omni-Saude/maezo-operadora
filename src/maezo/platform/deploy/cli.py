@@ -2,8 +2,11 @@
 
 Two modes:
 - (default) deploy: submits every `.bpmn`/`.dmn` file under
-  `spec/processes/{bpmn,dmn}/` to the engine as one named deployment, then
-  prints deployed-vs-skipped counts straight from the engine's response.
+  `spec/processes/{bpmn,dmn}/` — plus the rco K1 tables directly under
+  `spec/processes/dmn/rco/` (ADR-0075 §(b), resource name `rco/<file>.dmn`) — to
+  the engine as one named deployment, then prints deployed-vs-skipped counts
+  straight from the engine's response. `--shared dmn` includes the `rco/` tables
+  too: they are DMN, and their `rco_` id prefix keeps them off the Maezo keys.
 - `--list`: `GET /deployment` — shows what the engine currently holds,
   without deploying anything.
 
@@ -29,6 +32,8 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+
+from maezo.platform.validation.dmn import is_rco_dmn
 
 from .engine_deploy import (
     DEFAULT_DEPLOYMENT_NAME,
@@ -178,10 +183,14 @@ def run_deploy(
     for target_tenant, target_artifacts in deployment_targets(artifacts, tenant=tenant, shared=shared):
         bpmn_count = sum(1 for p in target_artifacts if p.suffix == ".bpmn")
         dmn_count = sum(1 for p in target_artifacts if p.suffix == ".dmn")
+        # ADR-0075 §(b): the K1 tables under `dmn/rco/` are counted apart from the Maezo tables.
+        rco_count = sum(1 for p in target_artifacts if p.suffix == ".dmn" and is_rco_dmn(p))
+        rco_part = f", {rco_count} DMN rco" if rco_count else ""
         label = f"tenant {target_tenant!r}" if target_tenant is not None else "SHARED (no tenant)"
         print(
             f"[deploy] submitting {len(target_artifacts)} artifact(s) ({bpmn_count} BPMN, "
-            f"{dmn_count} DMN) as deployment {deployment_name!r} for {label} to {client.base_url}"
+            f"{dmn_count - rco_count} DMN{rco_part}) as deployment {deployment_name!r} "
+            f"for {label} to {client.base_url}"
         )
 
         try:

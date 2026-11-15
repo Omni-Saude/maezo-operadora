@@ -17,6 +17,14 @@ Two failure modes, both fail-closed:
    silently introduced. A stale allowlist entry (no longer orphaned, or for
    a decision id that no longer exists) is reported as a non-blocking
    notice, not an error — it is debt-visibility, not a compliance risk.
+
+   FOLDER RULE (ADR-0075 §(b)): a decision declared directly under
+   `spec/processes/dmn/rco/` (the rco K1 package) is NOT an orphan error. K1
+   decisions are consumed by workers, without a BPMN `decisionRef`, and are
+   governed by the pin (`config/integrations/rco/rules.lock.json`) instead of
+   one allowlist line each. The rule is by folder only (`dmn.is_rco_dmn`); a
+   Maezo table at the top level is checked exactly as before. A BPMN
+   `decisionRef` to a K1 decision still has to resolve (failure mode 1).
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ._loaders import ParseError, load_yaml
+from .dmn import is_rco_dmn
 from .result import Report
 
 ALLOWLIST_FILENAME = "orphans-allowlist.yaml"
@@ -94,7 +103,8 @@ def check(
     if allowlist is None:
         return  # allowlist itself is malformed; already reported — don't pile on
 
-    orphan_ids = sorted(set(defined_ids) - referenced)
+    # ADR-0075 §(b) folder rule: K1 decisions under `dmn/rco/` are governed by the rco pin.
+    orphan_ids = sorted(did for did in set(defined_ids) - referenced if not is_rco_dmn(defined_ids[did]))
     for did in orphan_ids:
         if did not in allowlist:
             report.error(
