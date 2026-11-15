@@ -105,7 +105,7 @@ portal = {
   // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
   // 16/10/2026: imagem 8819f3fb-portal (portal.Dockerfile sobre o app 8819f3fb, com o #788 `cancel_execucao`), assinada e
   // atestada pelo `supply-chain.yml`; mesmo digest do perfil staff abaixo.
-  image_digest = "sha256:26595b28acbf280b16c43ecef0b254c1d07cbfe6bf624ff7bcf4d3a4b41db040"
+  image_digest = "sha256:3a09dce3911a55526681338619e4df967ba343460bcc3e16dc3d7a84d719ed87"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -228,7 +228,7 @@ portal = {
     material_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
     // O VersionId do segredo E o `material_version_id` do pacote (vira MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID):
     // publicado com ClientRequestToken = material_version_id. Um VersionId aleatorio derruba o init.
-    material_secret_version_id = "amh-dev-staff-6a3d3a8d7ad41853b99ec280b2"
+    material_secret_version_id = "amh-dev-staff-510ab55298c3ab35c63eb50a28"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
@@ -247,15 +247,16 @@ portal = {
     // 3fbe5871: portal-human sobre a main 3fbe5871, assinada pelo supply-chain.yml run 37240052573.
     // 1b72be17: portal-human sobre a main 1b72be17, assinada pelo supply-chain.yml run 37467442502.
     // f7026a7e: portal-human sobre a main f7026a7e, assinada pelo supply-chain.yml run 37489994010.
-    portal_image_digest = "sha256:26595b28acbf280b16c43ecef0b254c1d07cbfe6bf624ff7bcf4d3a4b41db040"
+    // 02/11 (b): portal sobre a main com #1191 (reembolso: aprovar = valor pedido) e #1192; supply-chain.yml.
+    portal_image_digest = "sha256:a35a0ad773e688f37063c6eb2bb2743eab2dbc3dd945a416896069ea3d7ab040"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
-    public_manifest_sha256 = "612fd015c1440aded5eaaae0f5abe8edafd5d0868cfc9816c3ff658d2d372af8"
+    public_manifest_sha256 = "7531a87ccc12ea405f017eaa3686750b2b64a2f4b923a23257b17ec41d03e5bb"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
     root_key_sha256 = "a03ab84558894040cf34d984763cd1e47e3eaccdcc2d3c6ab7b51476bb383c81"
     // Designacao assinada e instalada (tools.staff_ops rows, releitura byte a byte).
-    designation_sha256 = "4ec748ac4dde67f478652374cc6eb272668245f911bbf59ac508c9cf1302115a"
+    designation_sha256 = "745376b0563b178d6a02f81918d0aca1a1d695fa206b6b9d22ca64c908539996"
     // Log do boot do engine vivo: staff_native_configuration_digest=
-    native_configuration_sha256 = "0c591ab530cb9c546db7beaf4021b430011552bee56d5a5ad1e5a70cb1571806"
+    native_configuration_sha256 = "7f5f4efb11e798a3436eaee32c92376f0f35ba946688e7e19b0d1f43d6064ac8"
     scope = {
       tenant               = "amh"
       environment          = "dev"
@@ -287,9 +288,9 @@ portal = {
   // com `portal_assignment_source.state='active'` (staff-assignment, 25/09: active -> ja-ativa).
   human = {
     material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
-    material_secret_version_id = "amh-dev-human-ff3e3c3c69d3bb371d85550cf0"
+    material_secret_version_id = "amh-dev-human-43f1b03fece4d471726b87f5f0"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
-    public_manifest_sha256     = "38e8ad36e922a36950213ebb6c3f4849650c760bd87dd2f97fd4d3e7f45c50a0"
+    public_manifest_sha256     = "07179c8d30a3e272cc2703b9763d31bb9e3c39423f3a0b5cf5ed2d77746a89fd"
     // Imagem de operacao (tools.staff_ops human-init). Era `4bd50928-staff-ops` (sha256:01eb1771...),
     // EXPIRADA do ECR pela lifecycle policy (27/09/2026: task nova recusava com
     // CannotPullContainerError). Trocada pela `6bd559ec-staff-ops` — a MESMA que o staff_job ja
