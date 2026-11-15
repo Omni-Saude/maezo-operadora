@@ -29,5 +29,10 @@
   },
   "manifest_pin": null,
   "artifacts": [],
-  "exemplos_sinteticos": []
+  "exemplos_sinteticos": [
+    {
+      "path": "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn",
+      "sha256": "3499da1441031aaf68059139293c98b824f08efb64a61bd5e76f8edd88ee6524"
+    }
+  ]
 }
