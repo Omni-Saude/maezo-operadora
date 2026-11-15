@@ -41,7 +41,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 
-from ..conftest import RUN_ID, deploy_process, list_incidents, start_process
+from ..conftest import RUN_ID, deploy_process, list_incidents
 
 pytestmark = pytest.mark.integration
 
@@ -109,7 +109,7 @@ async def test_transport_raises_permanent_error_with_resolved_version(
 
 
 def _entry(variables: dict[str, Any], *, dmn: CibSevenDmnTransport) -> dict[str, Any]:
-    rows, _version = evaluate_sync(dmn, _KEY, _SOBREPOSTO)
+    rows, _version = evaluate_sync(dmn, _KEY, {"teste_valor": variables["teste_valor"]})
     return dict(first_row(rows, _KEY))
 
 
@@ -143,7 +143,17 @@ async def test_harness_first_delivery_opens_incident_and_audits_refusal(
     await deploy_process(
         engine_client, process_key=process_key, topic=topic, deployment_name=f"mzo1c-unique-{RUN_ID}"
     )
-    process_instance_id = await start_process(engine_client, process_key=process_key, business_key="bk-mzo1c")
+    # Iniciado com a entrada sobreposta como variavel de processo: o worker a le do task.
+    started = await engine_client.post(
+        f"/process-definition/key/{process_key}/start",
+        json={
+            "businessKey": "bk-mzo1c",
+            "variables": {"teste_valor": {"value": _SOBREPOSTO["teste_valor"], "type": "Integer"}},
+        },
+    )
+    if started.status_code >= 300:
+        raise AssertionError(f"start-process failed: {started.status_code} {started.text}")
+    process_instance_id = str(started.json()["id"])
 
     worker_id = f"it-worker-{RUN_ID}"
     transport = CibSevenWorkerTransport(engine_base_url)

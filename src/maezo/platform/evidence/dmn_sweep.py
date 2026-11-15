@@ -224,6 +224,7 @@ def avaliar(chave: str, entradas: dict[str, Any], *, dmn: Any) -> list[dict[str,
         linhas, versao = evaluate_sync(dmn, chave, entradas)
     except DmnEvaluationError as exc:
         return "ERRO DE AVALIACAO: " + str(exc)[:200]
+    # Ordem segura: DmnHitPolicyViolationError NAO e DmnEvaluationError (e DmnNoResultError).
     except DmnHitPolicyViolationError:
         # MZO-1c: UNIQUE com mais de uma regra casando. Erro PERMANENTE da tabela (sobreposicao),
         # nao do motor — para um sweep de cobertura e' achado, nao queda.

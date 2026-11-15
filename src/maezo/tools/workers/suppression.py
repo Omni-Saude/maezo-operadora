@@ -53,7 +53,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Final
 
 from maezo.gateway.vendor_suppression import K_ANON_FLOOR, suppression_ref_of
-from maezo.tools.workers.dmn_transport import DmnNoResultError, first_row
+from maezo.tools.workers._audit_ctx import record_dmn_version
+from maezo.tools.workers.dmn_transport import DmnHitPolicyViolationError, DmnNoResultError, first_row
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -207,6 +208,14 @@ def make_route_handler(transport: Any | None) -> TaskHandler:
         try:
             rows, version = await transport.evaluate(SUPPRESSION_ROUTING_DMN, inputs)
             row = first_row(rows, SUPPRESSION_ROUTING_DMN, inputs)
+        except DmnHitPolicyViolationError as exc:
+            # MZO-1c: subclasse de DmnNoResultError, por isso ANTES do ramo abaixo. Sobreposicao
+            # UNIQUE nao e "sem match": sobe intacta para o harness (recusa auditada com
+            # ERR_DMN_HIT_POLICY_VIOLATION + failure(retries=0)). Handler cru nao passa por
+            # evaluate_sync, entao a versao da tabela e gravada aqui para a linha de auditoria.
+            if exc.version is not None:
+                record_dmn_version(exc.version)
+            raise
         except DmnNoResultError:
             # Determinístico (nunca transient): a tabela que embarca com catch-all não pode
             # deixar de casar sem drift — recusa modelada, humano assume.
