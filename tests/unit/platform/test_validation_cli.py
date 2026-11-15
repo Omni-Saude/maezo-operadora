@@ -203,6 +203,44 @@ class TestMutationUnparseableXml:
         assert result != 0
 
 
+_RCO_EXAMPLE = "rco/rco_exemplo_sintetico.dmn"
+
+
+class TestRcoFolderIsScanned:
+    """ADR-0075 §(b): `dmn/rco/` gets an explicit second scan — schema, `rco_` prefix, tree-wide id
+    uniqueness and the perspective fence see it; orphan errors do not apply to it."""
+
+    def test_the_synthetic_example_validates_clean_as_an_unlisted_orphan(self, processes_copy: Path) -> None:
+        # no BPMN references `rco_exemplo_sintetico` and the allowlist does not list it
+        assert "rco_exemplo_sintetico" not in (processes_copy / "dmn" / "orphans-allowlist.yaml").read_text()
+        assert validate_artifacts([str(processes_copy)]) == 0
+
+    def test_truncated_rco_dmn_fails(self, processes_copy: Path) -> None:
+        (processes_copy / "dmn" / _RCO_EXAMPLE).write_text("<definitions><not-closed>")
+        assert validate_artifacts([str(processes_copy)]) != 0
+
+    def test_unprefixed_rco_decision_id_fails(self, processes_copy: Path) -> None:
+        path = processes_copy / "dmn" / _RCO_EXAMPLE
+        text = path.read_text()
+        path.write_text(text.replace('decision id="rco_exemplo_sintetico"', 'decision id="exemplo"'))
+        assert validate_artifacts([str(processes_copy)]) != 0
+
+    def test_rco_decision_id_colliding_with_a_top_level_id_fails(
+        self, processes_copy: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Id uniqueness spans the top level AND `rco/` (the engine key is global per tenant)."""
+        shutil.copy(processes_copy / "dmn" / _RCO_EXAMPLE, processes_copy / "dmn" / "a_copia.dmn")
+        assert validate_artifacts([str(processes_copy)]) != 0
+        captured = capsys.readouterr()
+        assert "'rco_exemplo_sintetico' is already declared" in captured.out + captured.err
+
+    def test_a_stray_subfolder_of_rco_is_not_scanned(self, processes_copy: Path) -> None:
+        stray = processes_copy / "dmn" / "rco" / "solta"
+        stray.mkdir()
+        (stray / "lixo.dmn").write_text("<definitions><not-closed>")
+        assert validate_artifacts([str(processes_copy)]) == 0
+
+
 class TestMutationUnparseableYaml:
     """Acceptance criterion: unparseable YAML -> validator exits nonzero."""
 

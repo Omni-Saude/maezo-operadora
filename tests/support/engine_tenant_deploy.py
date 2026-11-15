@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 
 from maezo.platform.deploy.engine_deploy import EngineDeployClient, resolve_spec_processes_dir
+from maezo.platform.validation.dmn import list_dmn_files
 
 _PROCESS_ID = re.compile(r"<(?:bpmn:)?process\b[^>]*\bid=\"([^\"]+)\"")
 _DECISION_REF = re.compile(r"camunda:decisionRef=\"([^\"$]+)\"")
@@ -35,7 +36,9 @@ def artifacts_for(process_keys: tuple[str, ...], processes_dir: Path | None = No
         for key in _PROCESS_ID.findall(path.read_text(encoding="utf-8")):
             bpmn_by_key.setdefault(key, path)
     dmn_by_decision: dict[str, Path] = {}
-    for path in sorted((root / "dmn").glob("*.dmn")):
+    # Primeiro nivel (Maezo) + `dmn/rco/` (pacote K1, ADR-0075 secao b, ids `rco_*`): um
+    # `decisionRef` de BPMN para decisao do K1 resolve aqui como qualquer outro.
+    for path in list_dmn_files(root / "dmn"):
         for decision in _DECISION_ID.findall(path.read_text(encoding="utf-8")):
             dmn_by_decision.setdefault(decision, path)
 

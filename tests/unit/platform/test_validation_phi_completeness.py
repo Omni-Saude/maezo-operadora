@@ -144,7 +144,13 @@ class TestNonVacuity:
         # 67 -> 68 com `pagto_duplicidade.dmn` (PAGTO PR-E, #1179) — ver as entradas do CORPUS_DELTA_LOG.
         # 68 -> 69 com `reembolso_auto_approval.dmn` (faixa B dormente, R-076, #1149).
         # 69 -> 70 com `pagto_comite_coordenacao.dmn` (DEC-31 D31-2, #1198) — ver o CORPUS_DELTA_LOG.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 70  # VW4/GP11: +suppression_routing
+        # ADR-0075 secao b: a varredura ja' era recursiva e pega `dmn/rco/` (pacote K1); as tabelas do
+        # Maezo (primeiro nivel) e as do rco sao contadas a parte. Hoje o rco e' so' o exemplo
+        # sintetico, cujas variaveis sao CLASSIFICADAS (entradas #1213 do CORPUS_DELTA_LOG), nao isentas.
+        dmn_touched = {p for p in touched if p.suffix == ".dmn"}
+        rco_touched = {p.name for p in dmn_touched if p.parent.name == "rco"}
+        assert len(dmn_touched) - len(rco_touched) == 70  # VW4/GP11: +suppression_routing
+        assert rco_touched == {"rco_exemplo_sintetico.dmn"}
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -2975,6 +2981,66 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "de Flow_GWTipo_Comite). Nome ja no corpus."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-15",
+        pr="#1213",
+        name="rco_exemplo_tipo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ADR-0075 secao b (PR de referencia #1213, o do ADR): entrada sintetica do exemplo "
+            "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn (+1 dmn_input_expression). Rotulo "
+            "inventado 'A'/outro, sem identificador nem dado de saude; a pasta rco/ e' classificada, "
+            "nao isenta."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-15",
+        pr="#1213",
+        name="rco_exemplo_quantidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ADR-0075 secao b (#1213): entrada sintetica inteira do exemplo rco "
+            "(+1 dmn_input_expression em rco/rco_exemplo_sintetico.dmn). Contagem inventada, sem "
+            "identificador nem dado de saude."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-15",
+        pr="#1213",
+        name="decisao",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "ADR-0075 secao a/d (#1213): saida `decisao` do vocabulario do K1, declarada pelo exemplo "
+            "sintetico rco (+1 dmn_output_name; valores liberar/informar). Nome ja' no corpus."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-15",
+        pr="#1213",
+        name="classeAdverso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ADR-0075 secao a/d (#1213): saida `classeAdverso` do vocabulario do K1 "
+            "(dominio clinico|administrativo|contas), declarada pelo exemplo sintetico rco "
+            "(+1 dmn_output_name; o exemplo so' emite null). Categoria, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-15",
+        pr="#1213",
+        name="fila",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ADR-0075 secao a/h (#1213): saida `fila` do vocabulario do K1 (nome da fila do rco, "
+            "mapeada pelo K6), declarada pelo exemplo sintetico rco (+1 dmn_output_name; valor "
+            "'cadastro'). Nome de fila, sem identificador."
+        ),
+    ),
 )
 
 
@@ -2986,7 +3052,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 400
+            expected_clean == 404
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
@@ -3002,6 +3068,8 @@ class TestBuckets:
         # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
         # DEC-31 D31-2 (#1198): +6 (pagto_comite_coordenacao, assuncao_comite, motivo_assuncao_comite,
         #   comite_sla_estourado, comite_votos_aprovar, comite_votos_nao_aprovar)
+        # ADR-0075 / exemplo sintetico rco (#1213): +4 (rco_exemplo_tipo, rco_exemplo_quantidade,
+        #   classeAdverso, fila)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 15,
@@ -3043,7 +3111,8 @@ class TestBuckets:
         # DEC-30 D3 (#1181): +1 (votos_minimos_coordenacao)
         # R-076 faixa B dormente (#1149): +16 nomes
         # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
-        assert len(live_sweep.names) == expected_names == 421
+        # ADR-0075 / exemplo sintetico rco (#1213): +4 nomes
+        assert len(live_sweep.names) == expected_names == 425
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -3067,7 +3136,8 @@ class TestBuckets:
         # DEC-30 D3 (#1181): +4 (votos_minimos_coordenacao +3, pagto_alcada +1); nomes: +1
         # R-076 faixa B dormente (#1149): +35 ocorrencias (DMN reembolso_auto_approval + 6 elementos BPMN)
         # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
-        assert len(live_sweep.refs) == expected_refs == 1872
+        # ADR-0075 / exemplo sintetico rco (#1213): +5 (4 nomes novos +4, decisao +1); nomes: +4
+        assert len(live_sweep.refs) == expected_refs == 1877
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -3222,7 +3292,7 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (400)" in rendered
+            f"## {CLEAN} (404)" in rendered  # ADR-0075 / exemplo sintetico rco (#1213): +4
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).

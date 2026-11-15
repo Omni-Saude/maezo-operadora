@@ -1481,8 +1481,14 @@ def _deploy_and_verify(checkout: Path, env: dict[str, str], results_dir: Path) -
         log_path=deploy_log,
     )
     records: list[dict[str, Any]] = []
-    for path in sorted((checkout / "spec/processes").glob("*/*.bpmn")) + sorted(
-        (checkout / "spec/processes").glob("*/*.dmn")
+    # `dmn/rco/*.dmn` (pacote K1, ADR-0075 secao b) e' varrido EXPLICITAMENTE, como no deploy
+    # (`engine_deploy.collect_artifacts`): `*/*.dmn` sozinho nao o enxerga, e um `**` geral
+    # pegaria subpasta solta que o deploy nao publica.
+    processes = checkout / "spec/processes"
+    for path in (
+        sorted(processes.glob("*/*.bpmn"))
+        + sorted(processes.glob("*/*.dmn"))
+        + sorted(processes.glob("dmn/rco/*.dmn"))
     ):
         source_hash = _sha256(path)
         for kind, key in _definition_keys(path):
