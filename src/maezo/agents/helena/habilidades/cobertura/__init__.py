@@ -216,13 +216,14 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
         )
         if resposta.desfecho == "transferir":
             return _transferir(grafo, state)
-        assert resposta.texto is not None  # `valida()`
-        motivo = _travas.motivo_de_recusa(grafo, resposta.texto, esclarecer=resposta.desfecho == "esclarecer")
+        texto_da_camada = resposta.texto or ""  # `valida()` ja' exigiu o texto
+        esclarecer = resposta.desfecho == "esclarecer"
+        motivo = _travas.motivo_de_recusa(grafo, texto_da_camada, esclarecer=esclarecer)
         if motivo is not None:
             # As travas de politica sao do ESQUELETO (B1 da revisao independente): reprovou, nao sai.
             logger.warning("helena_cobertura_texto_barrado", camada=camada.camada, motivo=motivo)
             return texto_do_aviso(grafo, state)
-        final = _com_192_se_preciso(state, resposta.texto)
+        final = _com_192_se_preciso(state, texto_da_camada)
         _guardar(final)
         return grafo._texto_fixo(grafo._update_sem_modelo(state), final)
     # Nenhuma camada respondeu: a lacuna de conteudo fica registrada e vale o aviso de canais (falha fechada).
