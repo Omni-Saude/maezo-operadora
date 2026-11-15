@@ -85,7 +85,9 @@ habilidades:
       - "e a cintilografia, cobre também?"
     pendencias: ["COB2:", "BS_COBERTURA_PARA_QUEM", "BS_COBERTURA_QUEM:"]
     processo: null
-    modulos_atuais: [habilidades/cobertura_fora]
+    # DL-0167 (dono, 14/11/2026): `habilidades/cobertura` (cobertura ampla) atras da chave `cobertura_ampla`;
+    # desligada, o aviso de `habilidades/cobertura_fora`.
+    modulos_atuais: [habilidades/cobertura, habilidades/cobertura_fora]
   - id: plano
     titulo: dados do seu plano
     resumo: 'carteirinha, dependentes, carencia, plano ativo'
