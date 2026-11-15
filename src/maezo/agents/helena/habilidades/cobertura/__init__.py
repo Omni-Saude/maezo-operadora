@@ -34,12 +34,15 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkab
 import structlog
 
 from maezo.agents.helena.habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from maezo.agents.helena.habilidades.cobertura import travas as _travas
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES
 
 if TYPE_CHECKING:
     from maezo.agents.helena.graph import HelenaGraph
 
 logger = structlog.get_logger(__name__)
+
+FORMULA_FIXA: Final[str] = _travas.FORMULA_FIXA
 
 #: A chave booleana do pacote de comportamento (`configuracao.yaml`). Ausente = desligada.
 CHAVE_DO_PACOTE: Final[str] = "cobertura_ampla"
@@ -144,7 +147,10 @@ def da_configuracao(cfg: Mapping[str, Any]) -> ConfiguracaoDaCobertura | None:
 
 
 # --- Os textos que a habilidade deixou prontos (o `inform` os envia sem modelo) ----------------------------
-_MAX_TEXTOS: Final[int] = 512
+#: USO UNICO: o texto aceito neste turno entra aqui e SAI na primeira conferencia do `inform` (um texto igual
+#: vindo de outra origem, depois, nao e' isento). Teto alto para a fila do processo; acima dele o mais antigo
+#: sai e aquele turno vai ao caminho de sempre do `inform` (com as travas de sempre).
+_MAX_TEXTOS: Final[int] = 4096
 _TEXTOS_DA_COBERTURA: OrderedDict[str, None] = OrderedDict()
 
 
@@ -161,8 +167,10 @@ def _guardar(texto: str) -> None:
 
 
 def e_texto_da_cobertura(texto: object) -> bool:
-    """O texto foi deixado pronto (e verificado) por esta habilidade neste processo?"""
-    return isinstance(texto, str) and (texto == TEXTO_TRANSFERIR or _impressao(texto) in _TEXTOS_DA_COBERTURA)
+    """O texto foi deixado pronto (e conferido) por esta habilidade? Consome a marca (uso unico)."""
+    if not isinstance(texto, str):
+        return False
+    return _TEXTOS_DA_COBERTURA.pop(_impressao(texto), 0) is None
 
 
 def texto_do_aviso(grafo: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any]:
@@ -208,9 +216,16 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
         )
         if resposta.desfecho == "transferir":
             return _transferir(grafo, state)
-        assert resposta.texto is not None  # `valida()`
-        _guardar(resposta.texto)
-        return grafo._texto_fixo(grafo._update_sem_modelo(state), resposta.texto)
+        texto_da_camada = resposta.texto or ""  # `valida()` ja' exigiu o texto
+        esclarecer = resposta.desfecho == "esclarecer"
+        motivo = _travas.motivo_de_recusa(grafo, texto_da_camada, esclarecer=esclarecer)
+        if motivo is not None:
+            # As travas de politica sao do ESQUELETO (B1 da revisao independente): reprovou, nao sai.
+            logger.warning("helena_cobertura_texto_barrado", camada=camada.camada, motivo=motivo)
+            return texto_do_aviso(grafo, state)
+        final = _com_192_se_preciso(state, texto_da_camada)
+        _guardar(final)
+        return grafo._texto_fixo(grafo._update_sem_modelo(state), final)
     # Nenhuma camada respondeu: a lacuna de conteudo fica registrada e vale o aviso de canais (falha fechada).
     logger.info("helena_cobertura_lacuna", lacuna="sem_camada_que_responda", camadas=len(config.camadas))
     return texto_do_aviso(grafo, state)
@@ -219,7 +234,16 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
 def _transferir(grafo: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any]:
     """Sem regra correspondente ou com dado conflitante: a OFERTA de uma pessoa (o caso so' com o "sim")."""
     update = grafo._update_sem_modelo(state)
-    return grafo._texto_fixo(update, TEXTO_TRANSFERIR, pendente=PENDENTE_OFERTA_EQUIPE)
+    texto = _com_192_se_preciso(state, TEXTO_TRANSFERIR)
+    _guardar(texto)
+    return grafo._texto_fixo(update, texto, pendente=PENDENTE_OFERTA_EQUIPE)
+
+
+def _com_192_se_preciso(state: Mapping[str, Any], texto: str) -> str:
+    """O mesmo 192 do aviso (DL-0091): na FRENTE com sinal de saude; no fim, gestante com urgencia."""
+    from maezo.agents.helena.graph import _com_emergencia_se_preciso
+
+    return _com_emergencia_se_preciso(state, texto)
 
 
 def _sujeito(state: Mapping[str, Any]) -> str | None:
@@ -234,6 +258,7 @@ __all__ = [
     "CHAVE_DO_GRAFO",
     "CHAVE_DO_PACOTE",
     "DESFECHOS",
+    "FORMULA_FIXA",
     "TEXTO_TRANSFERIR",
     "Camada",
     "CamadaDeCobertura",
