@@ -1,0 +1,33 @@
+{
+  "lock_format": {
+    "_comment": [
+      "PIN DO PACOTE DE REGRAS K1 DO RCO (ADR-0075 secao b). O rco e o UNICO dono e editor",
+      "das tabelas DMN do K1 e do manifesto (versaoRegra, shaDmn). Este repositorio guarda so",
+      "este pin e os bytes do pacote em spec/processes/dmn/rco/, copiados byte a byte.",
+      "ESTADO ATUAL: 'sem_pacote' — o rco ainda nao publicou o K1. Neste estado provenance",
+      "fica nula, manifest_pin e null, artifacts e vazio e spec/processes/dmn/rco/ so pode",
+      "conter README.md e os arquivos listados em exemplos_sinteticos (path + sha256).",
+      "Este arquivo nao e editavel a mao para 'consertar' digest. Muda so por (1) nova",
+      "publicacao do K1 no rco, que leva estado a 'fixado' com commit, manifesto e artefatos,",
+      "ou (2) entrada/saida de exemplo sintetico declarado.",
+      "Gate: scripts/ci/verify_rco_rules_pin.py (make verify-rco-rules-pin), stdlib, sem rede,",
+      "fail-closed. Formato descrito em config/integrations/rco/README.md."
+    ],
+    "governing_adr": "docs/adr/0075-regras-da-operadora-vem-do-rco-pacote-k1.md",
+    "modeled_on": "config/integrations/amh/contracts.lock.json",
+    "name": "rco-rules-lock",
+    "package": "K1",
+    "rules_dir": "spec/processes/dmn/rco",
+    "version": "1.0.0",
+    "work_package": "MZO-1d"
+  },
+  "estado": "sem_pacote",
+  "provenance": {
+    "rco_commit_sha": null,
+    "rco_repo": null,
+    "status": "NAO_PUBLICADO"
+  },
+  "manifest_pin": null,
+  "artifacts": [],
+  "exemplos_sinteticos": []
+}
