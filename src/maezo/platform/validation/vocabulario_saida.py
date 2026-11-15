@@ -57,8 +57,10 @@ VERSOES_SUPORTADAS = frozenset({1})
 ESTADOS = frozenset({"provisorio", "congelado"})
 
 #: Piso que o arquivo de dados pode ESTENDER, nunca encolher (fail-closed contra remocao silenciosa
-#: de invariante). ADR-0018:72-73,:77 e ADR-0040 D3:147-151.
-ADVERSOS_MINIMOS = frozenset({"DENY", "NEGAR", "NEGATIVA", "INDEFERIR", "ACEITAR_GLOSA", "GLOSAR"})
+#: de invariante). ADR-0018:72-73,:77 e ADR-0040 D3:147-151. O token de aquiescencia a glosa fica so'
+#: no arquivo de dados: em `src/` ele e' vocabulario proibido pela cerca de perspectiva (ADR-0040 D7,
+#: `test_validation_perspective.py::TestSourceAndProcessDocs`), cuja lista de excecoes e' fixa.
+ADVERSOS_MINIMOS = frozenset({"DENY", "NEGAR", "NEGATIVA", "INDEFERIR", "GLOSAR"})
 #: ADR-0075 (d):114-117,:132 — decisao adversa do K1 tem classe e dono humano (fila).
 EXIGEM_CLASSE_E_FILA_MINIMO = frozenset({"negar", "glosar", "recomendar_negativa"})
 #: ADR-0075 (d):116,:215 — negativa clinica e sempre do medico auditor.
