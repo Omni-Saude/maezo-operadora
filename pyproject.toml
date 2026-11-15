@@ -124,6 +124,11 @@ packages = ["src/maezo"]
 # `resolve_contract_pin_path()`, which checks the repo checkout, then this package-adjacent copy,
 # with $MAEZO_AMH_CONTRACT_PIN overriding both.
 "config/integrations/amh" = "maezo/config/integrations/amh"
+# MZO-5a (ADR-0075 §(f)), same shape as the AMH pin above: `maezo.tools.workers.rco_pin` reads the rco
+# K1 pin to stamp `shaDmn` on audit entries of `rco_` tables and REFUSES an `rco_` decision without it.
+# Without this line a packaged worker could never audit (hence never evaluate) a K1 table. Discovery:
+# repo checkout, then this package-adjacent copy. deploy/Dockerfile already COPYs all of config/.
+"config/integrations/rco" = "maezo/config/integrations/rco"
 # MZO-060 (ADR-0037 XRD-10), same load-bearing shape as the two lines above: the AMH inbox's DBA
 # ratification artifact lives in spec/ and `maezo.platform.integrations.amh_inbox` resolves it at
 # construction time to decide fail-closed whether the durable inbox may run at all. Without this

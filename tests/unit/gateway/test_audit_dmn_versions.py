@@ -18,17 +18,29 @@ and gives a template for the caller that eventually does the write-side wiring.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
 from maezo.gateway.audit import AuditRecord
+from maezo.tools.workers._audit_ctx import collect_dmn_versions
+from maezo.tools.workers.base import reclassify_coded_exception
 from maezo.tools.workers.dmn_transport import (
     CibSevenDmnTransport,
     DmnVersion,
     FakeDmnTransport,
     evaluate_sync,
+)
+from maezo.tools.workers.rco_pin import (
+    RCO_RULES_DIR,
+    RCO_RULES_PIN_RELATIVE_PATH,
+    RcoRulesPinError,
+    load_rco_rules_pin,
 )
 
 
@@ -114,3 +126,144 @@ async def test_audit_record_populated_from_live_engine_evaluation() -> None:
     assert record.dmn_versions["ans_retry_policy"]["version"] == version.version
     assert record.dmn_versions["ans_retry_policy"]["deploymentId"] == version.deployment_id
     assert record.dmn_versions["ans_retry_policy"]["id"] != "unknown"  # the donor's fail-open gap, fixed
+
+
+# ---------------------------------------------------------------------------
+# MZO-5a (ADR-0075 §(f)): rco K1 tables carry idRegra / versaoRegra / shaDmn
+# ---------------------------------------------------------------------------
+
+_SINTETICO = "rco_exemplo_sintetico"
+_SINTETICO_REL = "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn"
+_REPO = Path(__file__).resolve().parents[3]
+
+
+def _lock_sha(rel: str) -> str:
+    lock = json.loads((_REPO / RCO_RULES_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
+    (entry,) = [e for e in lock["exemplos_sinteticos"] if e["path"] == rel]
+    return str(entry["sha256"])
+
+
+def _record(dmn_versions: dict[str, Any]) -> AuditRecord:
+    return AuditRecord(
+        agent_id="w",
+        tenant_id="amh",
+        agent_version="1.0.0",
+        action="a",
+        decision="ALLOW",
+        details={},
+        dmn_versions=dmn_versions,
+        timestamp=datetime(2026, 11, 15, tzinfo=UTC),
+    )
+
+
+def test_pin_path_constants_match_the_ci_gate() -> None:
+    from scripts.ci import verify_rco_rules_pin as gate
+
+    assert RCO_RULES_PIN_RELATIVE_PATH == gate.DEFAULT_LOCK_PATH
+    assert RCO_RULES_DIR == gate.RULES_DIR
+
+
+def test_maezo_table_entry_has_no_rco_keys() -> None:
+    fake = FakeDmnTransport()
+    fake.register("pagto_alcada", [{"faixa_valor": "ALCADA_L1", "idRegra": "nao-e-do-rco"}], version=2)
+    with collect_dmn_versions() as collected:
+        evaluate_sync(fake, "pagto_alcada", {"valor_pagamento_cents": 1})
+    expected = {"version": 2, "id": "pagto_alcada:2:test", "deploymentId": "test-deployment"}
+    assert collected == {"pagto_alcada": expected}
+    assert not {"idRegra", "versaoRegra", "shaDmn"} & set(collected["pagto_alcada"])
+
+
+def test_rco_table_entry_carries_sha_from_the_pin() -> None:
+    sha = _lock_sha(_SINTETICO_REL)
+    assert sha == hashlib.sha256((_REPO / _SINTETICO_REL).read_bytes()).hexdigest()
+    fake = FakeDmnTransport()
+    fake.register(_SINTETICO, [{"decisao": "liberar", "classeAdverso": None, "fila": None}], version=1)
+    with collect_dmn_versions() as collected:
+        evaluate_sync(fake, _SINTETICO, {"rco_exemplo_tipo": "A", "rco_exemplo_quantidade": 3})
+    # estado `sem_pacote`: no K1 manifest -> no versaoRegra; the synthetic table has no idRegra output.
+    assert collected[_SINTETICO] == {
+        "version": 1,
+        "id": f"{_SINTETICO}:1:test",
+        "deploymentId": "test-deployment",
+        "shaDmn": sha,
+    }
+
+
+def test_rco_id_regra_comes_from_the_single_matched_row() -> None:
+    version = DmnVersion(key=_SINTETICO, id="x", version=1, deployment_id="d")
+    assert version.to_audit_dict({"idRegra": "K1-R-001"})["idRegra"] == "K1-R-001"
+    for row in (None, {}, {"idRegra": None}, {"idRegra": ""}, {"idRegra": 7}):
+        assert "idRegra" not in version.to_audit_dict(row)
+
+    fake = FakeDmnTransport()
+    fake.register(_SINTETICO, [{"idRegra": "K1-R-001"}, {"idRegra": "K1-R-002"}])
+    with collect_dmn_versions() as collected:
+        evaluate_sync(fake, _SINTETICO, {})
+    assert "idRegra" not in collected[_SINTETICO]  # two rows: no single authoritative rule
+
+
+def test_rco_entry_canonicalization_and_hash_are_stable() -> None:
+    version = DmnVersion(key=_SINTETICO, id="x", version=1, deployment_id="d")
+    entry = version.to_audit_dict({"idRegra": "K1-R-001"})
+    first = _record({_SINTETICO: entry})
+    reordered = _record({_SINTETICO: dict(reversed(list(entry.items())))})
+    reloaded = _record(json.loads(json.dumps(first.dmn_versions)))  # jsonb round trip
+    assert first.dmn_versions == {_SINTETICO: entry}
+    assert first.record_hash == reordered.record_hash == reloaded.record_hash
+
+
+def test_unpinned_rco_table_fails_closed_before_evaluation() -> None:
+    fake = FakeDmnTransport()
+    fake.register("rco_nao_fixada", [{"decisao": "liberar"}])
+    with collect_dmn_versions() as collected, pytest.raises(RcoRulesPinError) as excinfo:
+        evaluate_sync(fake, "rco_nao_fixada", {})
+    assert fake.calls == []  # never evaluated
+    assert collected == {}  # nothing fabricated
+    assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+    with pytest.raises(RcoRulesPinError):
+        DmnVersion(key="rco_nao_fixada", id="x", version=1, deployment_id="d").to_audit_dict()
+
+
+def test_coded_pin_error_becomes_a_non_retried_incident() -> None:
+    def _fn() -> dict[str, Any]:
+        raise RcoRulesPinError("x")
+
+    with pytest.raises(ValueError, match="ERR_DMN_RCO_PIN"):
+        reclassify_coded_exception(_fn)
+
+
+def _write_pin(tmp_path: Path, *, sha: str, estado: str = "sem_pacote") -> tuple[Path, Path]:
+    rules_dir = tmp_path / "rco"
+    rules_dir.mkdir()
+    (rules_dir / "rco_exemplo_sintetico.dmn").write_bytes((_REPO / _SINTETICO_REL).read_bytes())
+    lock = json.loads((_REPO / RCO_RULES_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
+    lock["estado"] = estado
+    lock["exemplos_sinteticos"] = [{"path": _SINTETICO_REL, "sha256": sha}]
+    lock_path = tmp_path / "rules.lock.json"
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    return lock_path, rules_dir
+
+
+def test_pin_loader_maps_decision_to_sha(tmp_path: Path) -> None:
+    lock_path, rules_dir = _write_pin(tmp_path, sha=_lock_sha(_SINTETICO_REL))
+    pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    assert pin.tables[_SINTETICO].sha_dmn == _lock_sha(_SINTETICO_REL)
+    assert pin.tables[_SINTETICO].versao_regra is None
+
+
+@pytest.mark.parametrize(
+    ("sha", "estado", "remove_file"),
+    [
+        ("0" * 64, "sem_pacote", False),  # pin sha diverges from the bytes on board
+        ("nao-e-sha", "sem_pacote", False),  # sha missing/malformed in the pin
+        (None, "sem_pacote", True),  # listed file absent
+        (None, "fixado", False),  # versaoRegra source (K1 manifest) not implemented yet: Onda 2
+        (None, "outro", False),
+    ],
+)
+def test_pin_loader_fails_closed(tmp_path: Path, sha: str | None, estado: str, remove_file: bool) -> None:
+    lock_path, rules_dir = _write_pin(tmp_path, sha=sha or _lock_sha(_SINTETICO_REL), estado=estado)
+    if remove_file:
+        (rules_dir / "rco_exemplo_sintetico.dmn").unlink()
+    with pytest.raises(RcoRulesPinError):
+        load_rco_rules_pin(lock_path, rules_dir=rules_dir)

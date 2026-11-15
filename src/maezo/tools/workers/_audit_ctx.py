@@ -39,7 +39,7 @@ consult none).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -52,17 +52,21 @@ if TYPE_CHECKING:
 _DMN_AUDIT_COLLECTOR: ContextVar[dict[str, Any] | None] = ContextVar("dmn_audit_collector", default=None)
 
 
-def record_dmn_version(version: DmnVersion) -> None:
+def record_dmn_version(version: DmnVersion, *, row: Mapping[str, Any] | None = None) -> None:
     """Record one consulted DMN version into the current task's collector, if one is set.
 
     Keyed on `version.key` (the decision-definition key) so evaluating the same table twice in
     one task collapses to a single provenance entry (last write wins — versions are stable within
     a dispatch since `CibSevenDmnTransport` caches the resolved version). No-op when no collector
     is bound (default `None`) — see the module docstring's fail-open note.
+
+    `row` is the matched result row, if exactly one: for an rco K1 table it supplies `idRegra`
+    (ADR-0075 §(f), `DmnVersion.to_audit_dict`). The fail-open note above covers only the ABSENT
+    collector; an `rco_` table the pin cannot attest still raises `RcoRulesPinError` here.
     """
     collector = _DMN_AUDIT_COLLECTOR.get()
     if collector is not None:
-        collector[version.key] = version.to_audit_dict()
+        collector[version.key] = version.to_audit_dict(row)
 
 
 @contextmanager
