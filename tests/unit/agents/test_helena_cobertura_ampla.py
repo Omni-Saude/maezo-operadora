@@ -266,6 +266,12 @@ def test_camada_que_nao_cumpre_o_protocolo_e_descartada() -> None:
         f"Ligue para 0800 123 4567 para pedir. {cob.FORMULA_FIXA}",
         f"Veja em www.exemplo.com.br antes. {cob.FORMULA_FIXA}",
         f"O seu pedido vai ser autorizado. {cob.FORMULA_FIXA}",
+        f"O seu plano libera a ressonância. {cob.FORMULA_FIXA}",
+        f"A ressonância é coberta pelo seu plano. {cob.FORMULA_FIXA}",
+        f"Pode marcar direto, sem guia. {cob.FORMULA_FIXA}",
+        f"Você pode fazer sem pedir nada. {cob.FORMULA_FIXA}",
+        f"Seu caso se encaixa na regra. {cob.FORMULA_FIXA}",
+        f"Fica coberto pelo plano. {cob.FORMULA_FIXA}",
         "Pela regra geral: esse exame precisa de pedido médico.",  # sem a formula fixa
     ],
 )

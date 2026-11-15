@@ -37,6 +37,11 @@ DECISAO_DO_CASO: Final[re.Pattern[str]] = re.compile(
     r"|\b(?:vai|sera|vao|serao) (?:ser )?(?:autorizad|aprovad|liberad|negad|recusad|cobert)\w*"
     r"|\b(?:esta|fica|ficou) (?:garantid|aprovad|liberad|autorizad)\w*"
     r"|\bcobertura (?:e|esta) garantida\b|\bpode fazer sem\b|\bpode ficar tranquil\w*"
+    # revisao independente (HEL-3b): outras formas de decidir o caso
+    r"|\b(?:seu|o seu|teu) plano (?:libera|vai liberar|aprova|vai aprovar|nao libera)\b"
+    r"|\b(?:e|esta|sera|fica|ficou) (?:cobert[oa]s?|liberad[oa]s?|aprovad[oa]s?) (?:pelo|no) (?:seu )?plano\b"
+    r"|\b(?:seu|o seu) caso (?:se encaixa|se enquadra|cumpre|atende|nao se encaixa|nao se enquadra)\b"
+    r"|\bpode (?:marcar|agendar|fazer|ir) (?:direto|sem)\b|\b(?:voce|vc) pode fazer\b"
 )
 
 Motivo = Literal[
