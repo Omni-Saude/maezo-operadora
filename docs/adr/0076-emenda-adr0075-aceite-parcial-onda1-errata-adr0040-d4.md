@@ -28,7 +28,7 @@ ADR-0040 D4 sobre `UNIQUE` no pacote.
 **Por que um ADR novo, e não a troca do Status do ADR-0075.** O índice tem um único Status por ADR
 (`scripts/docs/contagens_canonicas.py:77`, primeira linha `**Status:**`), e o ADR-0075 tem itens que
 continuam propostos. Trocar o Status inteiro aceitaria também o que o dono deixou de fora. O molde é o
-das emendas já aceitas (ADR-0069 emenda o ADR-0023; ADR-0074 emenda o ADR-0068): ADR próprio, e o
+das emendas do repositório (ADR-0069, aceito, emenda o ADR-0023; ADR-0074, ainda proposto, emenda o ADR-0068): ADR próprio, e o
 ADR-0075 recebe só uma linha de remissão no cabeçalho.
 
 ## Decisão
