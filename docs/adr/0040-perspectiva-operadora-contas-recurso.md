@@ -1,6 +1,7 @@
 # ADR-0040: Perspectiva de processo — a operadora e o dono de SP-OP-CONTAS-001 e SP-OP-RECURSO-001
 
 **Status:** Accepted — decisao do dono DEC-27 (issue #1084), 2026-10-31; aceito como esta, com emenda anunciada a D6-bis (ver "Decisao de aceite" ao final)
+**Errata por ADR-0076** (§3, 2026-11-15): no D4, "FIRST com catch-all em toda tabela" e "`orphans-allowlist.yaml` tem delta ZERO" valem para as tabelas do Maezo; as tabelas sob `spec/processes/dmn/rco/` sao `UNIQUE` como o rco publica e ficam fora da allowlist por regra de pasta. "Nenhuma DMN emite o adverso" segue sem excecao. Texto completo em `docs/adr/0076-emenda-adr0075-aceite-parcial-onda1-errata-adr0040-d4.md`.
 **Data:** 2026-09-02
 **Area:** Orquestracao / Compliance / Produto
 
