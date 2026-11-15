@@ -19,6 +19,8 @@ salvo sinal novo claro; (4) resposta sem clareza à pergunta de alerta: nova per
 equipe, sem 192 (aval do médico responsável recomendado antes de produção); (5) o contrato do roteador passa a
 saída estruturada (v7, etapa 7 do plano), com a lista de assuntos abertos mantida no código.
 
+**Nota de complemento (14/11/2026, DL-0167 — decisão do dono; não muda as quatro camadas):** o item (1) da nota de 23/10 deixa de valer quando a chave `cobertura_ampla` do pacote for ligada: a habilidade `cobertura` (`habilidades/cobertura/`) volta a responder, pela regra geral do pacote de conteúdo K2 do rco e pelos dados do plano das rotas pinadas do lago, sempre com a fonte registrada e um verificador determinístico antes do envio; sem fonte, o aviso de canais. A trava de saída `cobertura_sem_promessa` continua (informação não é decisão). Chave ausente = o aviso de canais de 23/10.
+
 ## Contexto
 
 A decisão do assunto de cada mensagem da Helena virou uma pilha de ~88 regras de palavra-chave em `graph.py`

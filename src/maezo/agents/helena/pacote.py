@@ -37,6 +37,8 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "historico": ("historico_enabled",),
     "carteirinha_completa": ("helena_carteirinha_completa_enabled",),
     "dependentes_nome": ("helena_dependentes_nome_enabled",),
+    # COBERTURA AMPLA (dono, 14/11/2026, DL-0167): ausente = desligada (o aviso de canais do DL-0154).
+    "cobertura_ampla": ("helena_cobertura_ampla_enabled",),
 }
 #: LIMPEZA DA SAUDE, ETAPA 3 (dono, 02/11/2026): as chaves booleanas das camadas que sairam do codigo (triagem
 #: v2, v4, base de saude, protocolos) e a da porta unica, que ficou incondicional. O pacote PUBLICADO ainda

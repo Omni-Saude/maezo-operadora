@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import modelo_allowlist as _ma
 from maezo.agents.helena import roteador_v7 as _rv7
+from maezo.agents.helena.habilidades import cobertura as _cobertura
 from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
 from maezo.agents.helena.habilidades.conversa import agendar as _agendar
 from maezo.agents.helena.habilidades.conversa import app as _app
@@ -619,8 +620,9 @@ async def _classify_ativo_decidido(
         cortesia = self._texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
         return {**cortesia, "habilidade_roteador": "conversa"}
     if habilidade == "cobertura":
-        # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
-        return {**self._texto_da_cobertura_fora(state), "habilidade_roteador": habilidade}
+        # COBERTURA AMPLA (dono, 14/11/2026, DL-0167), atras da chave `cobertura_ampla`. Desligada (o padrao):
+        # o aviso unico do DL-0154, sem consulta e sem oferta da equipe, como antes.
+        return {**await _cobertura.atender(self, state, texto), "habilidade_roteador": habilidade}
     if (
         habilidade == "conversa"
         and not mantem
@@ -732,6 +734,8 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
+    if self._cobertura is not None and _cobertura.e_texto_da_cobertura(texto):
+        return True  # DL-0167: o texto que a habilidade `cobertura` deixou pronto e verificado (sem modelo)
     if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
         # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
         return True
