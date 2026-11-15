@@ -353,7 +353,9 @@ def carregar_ou_nenhum(diretorio: Path | None, *, pin: PinDoK2 | None) -> Manual
     try:
         return carregar(diretorio, pin=pin)
     except PacoteK2InvalidoError as exc:
-        logger.warning("helena_k2_recusado", motivo=exc.motivo)
+        # So' o token de classe no log (cerca LUC-06/NEW-01): o motivo exato e' o de `carregar`, que o teste
+        # e o operador obtem chamando-o direto sobre o mesmo pacote.
+        logger.warning("helena_k2_recusado", motivo="pacote_invalido", erro=type(exc).__name__)
     except OSError as exc:
         logger.warning("helena_k2_recusado", motivo="erro_de_leitura", erro=type(exc).__name__)
     return None

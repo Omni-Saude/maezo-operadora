@@ -412,8 +412,15 @@ def test_carregar_ou_nenhum_pacote_invalido_loga_so_o_motivo(tmp_path: Path) -> 
     with capture_logs() as logs:
         assert carregar_ou_nenhum(pacote, pin=pin) is None
     assert logs == [
-        {"event": "helena_k2_recusado", "motivo": "pacote_nao_ratificado", "log_level": "warning"}
+        {
+            "event": "helena_k2_recusado",
+            "motivo": "pacote_invalido",
+            "erro": "PacoteK2InvalidoError",
+            "log_level": "warning",
+        }
     ]
+    with pytest.raises(PacoteK2InvalidoError, match="pacote_nao_ratificado"):
+        carregar(pacote, pin=pin)  # o motivo exato e' o de `carregar`
 
 
 def test_carregar_ou_nenhum_erro_de_leitura(monkeypatch: pytest.MonkeyPatch) -> None:
