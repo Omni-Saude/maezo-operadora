@@ -110,6 +110,30 @@ class TestCollectArtifacts:
 
         assert [p.name for p in artifacts] == ["a.bpmn", "b.bpmn", "y.dmn", "z.dmn"]
 
+    def test_rco_subfolder_is_scanned_explicitly_and_nothing_deeper(self, tmp_path: Path) -> None:
+        """ADR-0075 §(b): `dmn/rco/*.dmn` (pacote K1) entra depois das tabelas do Maezo; outra
+        subpasta (ou subpasta dentro de `rco/`) continua fora — nao ha `rglob` geral."""
+        (tmp_path / "bpmn").mkdir()
+        (tmp_path / "bpmn" / "a.bpmn").write_text("<x/>")
+        dmn_dir = tmp_path / "dmn"
+        (dmn_dir / "rco" / "solta").mkdir(parents=True)
+        (dmn_dir / "outra").mkdir()
+        (dmn_dir / "z.dmn").write_text("<x/>")
+        (dmn_dir / "rco" / "rco_b.dmn").write_text("<x/>")
+        (dmn_dir / "rco" / "rco_a.dmn").write_text("<x/>")
+        (dmn_dir / "rco" / "README.md").write_text("x")
+        (dmn_dir / "rco" / "solta" / "rco_c.dmn").write_text("<x/>")
+        (dmn_dir / "outra" / "w.dmn").write_text("<x/>")
+
+        artifacts = collect_artifacts(tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in artifacts] == [
+            "bpmn/a.bpmn",
+            "dmn/z.dmn",
+            "dmn/rco/rco_a.dmn",
+            "dmn/rco/rco_b.dmn",
+        ]
+
     def test_real_spec_tree_yields_16_bpmn_and_62_dmn(self) -> None:
         """Sanity-checks the artifact census against the committed spec/ tree.
 
@@ -141,7 +165,13 @@ class TestCollectArtifacts:
         # 68 -> 69: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
         # 69 -> 70: `pagto_comite_coordenacao.dmn` (DEC-31 D31-2 — assuncao do comite pela
         # coordenacao apos SLA; avaliada so por BRT_AssuncaoComite, dark atras do comite colegiado).
-        assert len(dmn) == 70  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        # ADR-0075 secao b: `dmn/rco/` (pacote K1) e' contado a parte — 70 tabelas do Maezo no
+        # primeiro nivel + o exemplo sintetico do rco (o pacote real chega pelo pin).
+        maezo = [p for p in dmn if p.parent.name == "dmn"]
+        rco = [p.relative_to(processes_dir / "dmn").as_posix() for p in dmn if p.parent.name == "rco"]
+        assert len(maezo) == 70  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        assert rco == ["rco/rco_exemplo_sintetico.dmn"]
+        assert len(dmn) == len(maezo) + len(rco)
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):
@@ -237,6 +267,27 @@ class TestEngineDeployClientDeployRequest:
         assert b'filename="some_decision.dmn"' in body
         # both duplicate-filtering flags must be sent as the string "true"
         assert body.count(b"true") >= 2
+
+    def test_rco_table_is_named_by_relative_path(self, tmp_path: Path) -> None:
+        """ADR-0075 §(b): o recurso de uma tabela do K1 se chama `rco/<arquivo>.dmn`, para nao
+        colidir com uma tabela do Maezo de mesmo nome de arquivo; o primeiro nivel nao muda."""
+        (tmp_path / "dmn" / "rco").mkdir(parents=True)
+        maezo = tmp_path / "dmn" / "carencia_check.dmn"
+        maezo.write_text("<dmn/>")
+        k1 = tmp_path / "dmn" / "rco" / "carencia_check.dmn"
+        k1.write_text("<dmn/>")
+        captured: dict[str, bytes] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = request.read()
+            return httpx.Response(200, json=_deploy_response())
+
+        outcome = _client_with_handler(handler).deploy([maezo, k1], name="n", tenant_id=None)
+
+        body = captured["body"]
+        assert b'name="rco/carencia_check.dmn"; filename="rco/carencia_check.dmn"' in body
+        assert b'name="carencia_check.dmn"; filename="carencia_check.dmn"' in body
+        assert outcome.submitted == ("carencia_check.dmn", "rco/carencia_check.dmn")
 
     def test_empty_paths_raises_without_request(self, tmp_path: Path) -> None:
         def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not be called

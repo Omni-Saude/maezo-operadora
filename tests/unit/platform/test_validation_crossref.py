@@ -105,3 +105,51 @@ class TestAllowlistLoading:
         assert report.ok, [f.message for f in report.findings]
         assert result is not None
         assert len(result) >= 1
+
+
+class TestRcoFolderRule:
+    """ADR-0075 §(b): a decision directly under `dmn/rco/` (the rco K1 package) is not an orphan
+    error — it is governed by the rco pin. The rule is by folder and exactly that wide."""
+
+    def test_unreferenced_decision_under_rco_is_not_an_orphan_error(self, tmp_path: Path) -> None:
+        rco_dmn = tmp_path / "dmn" / "rco" / "rco_k1.dmn"
+        report = Report()
+        check(
+            [],
+            defined_ids={"rco_k1": rco_dmn},
+            allowlist_path=tmp_path / "dmn" / "orphans-allowlist.yaml",
+            report=report,
+        )
+        assert report.ok, [f.message for f in report.findings]
+        assert report.findings == []
+
+    def test_top_level_orphan_is_still_an_error_next_to_an_rco_one(self, tmp_path: Path) -> None:
+        report = Report()
+        check(
+            [],
+            defined_ids={
+                "rco_k1": tmp_path / "dmn" / "rco" / "rco_k1.dmn",
+                "maezo_orphan": tmp_path / "dmn" / "maezo.dmn",
+            },
+            allowlist_path=tmp_path / "dmn" / "orphans-allowlist.yaml",
+            report=report,
+        )
+        assert [f.path.name for f in report.findings] == ["maezo.dmn"]
+        assert "'maezo_orphan'" in report.findings[0].message
+
+    def test_a_folder_merely_named_rco_elsewhere_is_not_exempt(self, tmp_path: Path) -> None:
+        """Only `dmn/rco/` counts — not `dmn/rco/solta/` and not some other `rco/` folder."""
+        for path in (tmp_path / "dmn" / "rco" / "solta" / "x.dmn", tmp_path / "outro" / "rco" / "x.dmn"):
+            report = Report()
+            check([], defined_ids={"rco_x": path}, allowlist_path=tmp_path / "none.yaml", report=report)
+            assert not report.ok, path
+
+    def test_a_broken_ref_to_a_k1_decision_is_still_an_error(self, tmp_path: Path) -> None:
+        report = Report()
+        check(
+            [DecisionRef("rco_missing", tmp_path / "p.bpmn")],
+            defined_ids={"rco_k1": tmp_path / "dmn" / "rco" / "rco_k1.dmn"},
+            allowlist_path=tmp_path / "dmn" / "orphans-allowlist.yaml",
+            report=report,
+        )
+        assert any("broken or corrupted cross-reference" in f.message for f in report.findings)

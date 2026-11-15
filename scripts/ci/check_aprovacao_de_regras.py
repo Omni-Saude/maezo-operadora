@@ -31,6 +31,14 @@ O QUE ELA NAO FAZ, e e' deliberado: nao aprova nada, nao escreve no registro e n
 Aprovar e' ato humano registrado em PR revisado (ADR-0007: sem auto-certificacao). A cerca so' garante
 que a pergunta "quem aprovou estes bytes?" tem resposta escrita — ou a confissao escrita de que nao tem.
 
+ISENCAO PROVISORIA — `spec/processes/dmn/rco/` (pacote K1 do rco, ADR-0075 secao b/g). As tabelas
+dessa pasta sao publicaveis (o deploy as envia, e a paridade abaixo continua valendo), mas NAO
+precisam de linha no registro: a forma de aprova-las depende da decisao pendente do dono **P7**
+(aprovacao em lote por versao do manifesto do K1 — uma entrada por sha256 do `rules.lock.json`, com
+papeis `dono` + `auditor-neutro`). Ate' P7, a cerca so' as lista na saida, em voz alta. Quando P7
+for decidida, esta isencao sai e a regra de lote entra no lugar. Entrada explicita para um arquivo
+de `rco/` continua aceita e checada como qualquer outra.
+
 LIMITE CONHECIDO: so' cobre o que o deploy publica (`.bpmn`/`.dmn`). Limiar que mora em configuracao
 Python (ex.: `MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`) nao passa por aqui.
 
@@ -65,13 +73,35 @@ PAPEIS_VALIDOS: Final[frozenset[str]] = frozenset(
 _MARCA_RASCUNHO: Final[re.Pattern[str]] = re.compile(r"\bDRAFT\b|SINTETIC|NAO RATIFICAD")
 _SHA256_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 
+#: Pasta do pacote K1 do rco (ADR-0075 secao b), relativa a `spec/processes/dmn/`. Varredura
+#: EXPLICITA, como em `engine_deploy.collect_artifacts`: outra subpasta continua fora.
+RCO_SUBDIR: Final[str] = "rco"
+_RCO_PREFIXO: Final[str] = f"spec/processes/dmn/{RCO_SUBDIR}/"
+#: Por que `rco/` esta' fora da exigencia de registro — e ate' quando (decisao do dono P7).
+MOTIVO_ISENCAO_RCO: Final[str] = (
+    "isencao PROVISORIA ate' a decisao do dono P7 (aprovacao em lote por versao do manifesto do K1, "
+    "ADR-0075 secao g)"
+)
+
 
 def artefatos_publicaveis(processes_dir: Path = _PROCESSES) -> list[str]:
     """O que o deploy publica — o mesmo glob de `engine_deploy.collect_artifacts`, como caminho
     relativo a raiz do repo (POSIX). Um teste prova que os dois conjuntos nao divergem."""
     raiz = processes_dir.parents[1]
-    achados = sorted((processes_dir / "bpmn").glob("*.bpmn")) + sorted((processes_dir / "dmn").glob("*.dmn"))
+    dmn = processes_dir / "dmn"
+    achados = (
+        sorted((processes_dir / "bpmn").glob("*.bpmn"))
+        + sorted(dmn.glob("*.dmn"))
+        + sorted((dmn / RCO_SUBDIR).glob("*.dmn"))
+    )
     return [p.relative_to(raiz).as_posix() for p in achados]
+
+
+def isento_provisoriamente(artefato: str) -> bool:
+    """Tabela do pacote K1 (`spec/processes/dmn/rco/<arquivo>.dmn`): fora da exigencia de registro
+    ate' P7. So' o primeiro nivel de `rco/` — e' o que o deploy publica."""
+    resto = artefato.removeprefix(_RCO_PREFIXO)
+    return resto != artefato and "/" not in resto
 
 
 def sha256_normalizado(caminho: Path) -> str:
@@ -164,6 +194,8 @@ def verificar(dados: dict[str, Any], *, raiz: Path = _REPO_ROOT, hoje: date | No
             achados.append(f'{artefato}: pendente sem `responsavel` (use "a definir" se ainda nao ha\').')
 
     for artefato in sorted(publicaveis - set(vistos)):
+        if isento_provisoriamente(artefato):
+            continue  # rco/: MOTIVO_ISENCAO_RCO — listado na saida por `main`, nao reprovado
         marca = (
             " (o arquivo se declara rascunho)"
             if _MARCA_RASCUNHO.search((raiz / artefato).read_text(encoding="utf-8"))
@@ -196,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     for entrada in pendentes:
         print(f"  pendente: {entrada['artefato']}  (responsavel: {entrada['responsavel']})")
+    registrados = {str(e.get("artefato", "")).strip() for e in (*aprovados, *pendentes)}
+    for artefato in artefatos_publicaveis():
+        if isento_provisoriamente(artefato) and artefato not in registrados:
+            print(f"  rco (fora do registro, {MOTIVO_ISENCAO_RCO}): {artefato}")
     return 0
 
 

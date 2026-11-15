@@ -10,7 +10,16 @@ Scope (T2.1 — see docs/prompts/V2-COMPLETION-PLAN.md):
   cross-reference checked in `crossref.py`. Note: a decision's `id` is the
   join key BPMN resolves against, and is **not** required to match the
   `.dmn` file's name (e.g. `reembolso_coverage.dmn` declares the decision id
-  `reembolso_admissibility`) — validators must never assume filename == id.
+  `reembolso_admissibility`) — validators must never assume filename == id;
+- a `.dmn` directly under `spec/processes/dmn/rco/` (the rco "K1" rules package,
+  ADR-0075 §(b)) must declare decision ids prefixed `rco_` — the engine keys a
+  decision globally per tenant, so an unprefixed K1 decision would silently become
+  a new VERSION of a Maezo decision with the same id.
+
+`list_dmn_files` is the one definition of "which `.dmn` files exist" shared by the
+deploy, the validation gate and the repo's fences: the top-level Maezo tables plus
+an EXPLICIT second scan of `rco/` — never a general `rglob`, so a stray subfolder
+stays out of every scan point.
 """
 
 from __future__ import annotations
@@ -22,6 +31,44 @@ from ._loaders import ParseError, load_xml, local_name
 from .result import Report
 
 DMN_NS_PREFIXES = ("https://www.omg.org/spec/DMN/", "http://www.omg.org/spec/DMN/")
+
+#: Subfolder of `spec/processes/dmn/` that receives the rco K1 package (ADR-0075 §(b)).
+#: Written only by the pin update (`config/integrations/rco/rules.lock.json`).
+RCO_SUBDIR = "rco"
+#: Mandatory decision-id prefix for every decision under `RCO_SUBDIR` (ADR-0075 §(b)).
+RCO_DECISION_ID_PREFIX = "rco_"
+
+
+def list_dmn_files(dmn_dir: Path) -> list[Path]:
+    """Every deployable `.dmn` under `dmn_dir`: top-level (Maezo) first, then `rco/` (K1).
+
+    Each group is sorted. Only files DIRECTLY inside `dmn_dir` and `dmn_dir/rco` are
+    returned — the second scan is explicit, so any other subfolder (or a folder nested
+    inside `rco/`) is invisible here, exactly as it was before `rco/` existed.
+    """
+    if not dmn_dir.is_dir():
+        return []
+    rco_dir = dmn_dir / RCO_SUBDIR
+    rco_files = sorted(rco_dir.glob("*.dmn")) if rco_dir.is_dir() else []
+    return [*sorted(dmn_dir.glob("*.dmn")), *rco_files]
+
+
+def is_rco_dmn(path: Path) -> bool:
+    """True when `path` sits directly in a `dmn/rco/` folder (the K1 package)."""
+    return path.parent.name == RCO_SUBDIR and path.parent.parent.name == "dmn"
+
+
+def deployment_resource_name(path: Path) -> str:
+    """Engine resource name for a BPMN/DMN artifact.
+
+    Top-level artifacts keep their bare file name (unchanged, so duplicate filtering
+    of the existing deployments is not disturbed). A K1 table is named by its path
+    relative to `dmn/` — `rco/<file>.dmn` — so it can never collide with a Maezo table
+    of the same file name (ADR-0075 §(b)).
+    """
+    if is_rco_dmn(path):
+        return f"{RCO_SUBDIR}/{path.name}"
+    return path.name
 
 
 def _is_dmn_definitions(tag: str) -> bool:
@@ -76,6 +123,13 @@ def validate_file(path: Path, report: Report) -> DmnFile | None:
             report.error(path, f"duplicate dmn:decision id within this file: '{did}'")
             continue
         seen.add(did)
+        if is_rco_dmn(path) and not did.startswith(RCO_DECISION_ID_PREFIX):
+            report.error(
+                path,
+                f"dmn:decision id '{did}' under spec/processes/dmn/{RCO_SUBDIR}/ must start with "
+                f"'{RCO_DECISION_ID_PREFIX}' (ADR-0075 §(b)): the engine keys decisions globally per "
+                "tenant, so an unprefixed K1 decision would become a new version of a Maezo decision",
+            )
         result.decision_ids.append(did)
 
     return result

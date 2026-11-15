@@ -1,4 +1,9 @@
-# Deploy dos processos no engine — 16 BPMN + 62 DMN.
+# Deploy dos processos no engine — todo BPMN de spec/processes/bpmn/, todo DMN do
+# primeiro nivel de spec/processes/dmn/ e as tabelas do pacote K1 do rco em
+# spec/processes/dmn/rco/ (ADR-0075 secao b). Quem lista os arquivos e' o CLI
+# (`engine_deploy.collect_artifacts`), nao esta task: o `rco/` entra sem flag nem
+# caminho novo aqui, porque o force-include do pyproject leva `spec/processes`
+# inteiro para o wheel. No engine o recurso do K1 se chama `rco/<arquivo>.dmn`.
 #
 # Sem isto o engine esta VAZIO: ele sobe, responde /engine-rest/version e nao
 # executa processo nenhum, porque nao conhece nenhum. Foi o passo que faltava no
@@ -50,7 +55,8 @@ resource "aws_ecs_task_definition" "deploy_processes" {
     # do tenant so resolve DMN do mesmo tenant. Medido no dev: a v3 da ESCALATION estava sem
     # tenant e o `amh` so tinha a v1 da fixture SYN; a instancia da Helena nascia sem tenant e o
     # portal (que le `tenantIdIn(amh)`) nao a via. `--shared dmn` mantem a copia SEM tenant so'
-    # das DMNs, que a avaliacao do lado do agente (`dmn_transport`, `tenant=None`) ainda le.
+    # das DMNs, que a avaliacao do lado do agente (`dmn_transport`, `tenant=None`) ainda le —
+    # inclusive as do `rco/` (ids `rco_*`, que nao colidem com as chaves do Maezo).
     # BPMN compartilhada NAO: uma segunda copia duplicaria os timers da ANS-CRON.
     command = [
       "python", "-m", "maezo.platform.deploy",

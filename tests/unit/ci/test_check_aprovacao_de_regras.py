@@ -140,3 +140,51 @@ def test_o_registro_real_do_repo_passa_e_nao_e_vazio(capsys: pytest.CaptureFixtu
     saida = capsys.readouterr().out
     assert "PUBLICADO(S) SEM APROVACAO" in saida
     assert "lucas_billing_admissibility.dmn" in saida
+
+
+# --- isencao PROVISORIA de `spec/processes/dmn/rco/` (ADR-0075 secao g; decisao do dono P7) ------
+
+_RCO = "spec/processes/dmn/rco/rco_k1.dmn"
+
+
+def test_rco_fora_do_registro_e_isento_provisoriamente_mas_o_primeiro_nivel_nao(raiz: Path) -> None:
+    """Pacote K1 (`dmn/rco/`) fora do registro NAO reprova (ate' P7); tabela do Maezo fora do
+    registro continua reprovando, e subpasta solta de `rco/` nem e' publicavel."""
+    (raiz / "spec/processes/dmn/rco/solta").mkdir(parents=True)
+    (raiz / _RCO).write_bytes(b"<definitions>k1</definitions>\n")
+    (raiz / "spec/processes/dmn/rco/solta/fora.dmn").write_bytes(b"<definitions/>\n")
+    (raiz / "spec/processes/dmn/nova_maezo.dmn").write_bytes(b"<definitions>nova</definitions>\n")
+    publicaveis = artefatos_publicaveis(raiz / "spec/processes")
+    assert _RCO in publicaveis
+    assert "spec/processes/dmn/rco/solta/fora.dmn" not in publicaveis
+    achados = verificar(_registro(raiz), raiz=raiz, hoje=_HOJE)
+    assert [a for a in achados if "FORA do registro" in a] == [
+        "spec/processes/dmn/nova_maezo.dmn: publicavel e FORA do registro. O deploy o enviaria ao motor "
+        "sem ninguem responder por ele. Registre em `aprovados` (com quem aprovou) ou em `pendentes`."
+    ]
+    assert not any(_RCO in a for a in achados)
+
+
+def test_rco_registrado_explicitamente_continua_checado(raiz: Path) -> None:
+    """A isencao so' dispensa a LINHA; uma aprovacao explicita de arquivo de `rco/` e' checada."""
+    (raiz / "spec/processes/dmn/rco").mkdir(parents=True)
+    (raiz / _RCO).write_bytes(b"<definitions>k1</definitions>\n")
+    dados = _registro(raiz)
+    dados["aprovados"].append({**_aprovado(raiz), "artefato": _RCO, "sha256": "0" * 64})
+    assert any(_RCO in a and "os bytes mudaram" in a for a in verificar(dados, raiz=raiz, hoje=_HOJE))
+
+
+def test_isencao_rco_cita_a_pendencia_p7() -> None:
+    from scripts.ci.check_aprovacao_de_regras import MOTIVO_ISENCAO_RCO, isento_provisoriamente
+
+    assert "P7" in MOTIVO_ISENCAO_RCO and "PROVISORIA" in MOTIVO_ISENCAO_RCO
+    assert isento_provisoriamente("spec/processes/dmn/rco/rco_a.dmn")
+    assert not isento_provisoriamente("spec/processes/dmn/rco/solta/x.dmn")
+    assert not isento_provisoriamente("spec/processes/dmn/auth_sla.dmn")
+
+
+def test_o_registro_real_lista_o_exemplo_rco_como_isento(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([]) == 0
+    saida = capsys.readouterr().out
+    assert "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn" in saida
+    assert "P7" in saida

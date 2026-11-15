@@ -24,6 +24,13 @@
 #     several STANDALONE tables a worker aggregates before a downstream
 #     businessRuleTask runs), not a transient "not wired yet" state.
 #
+# FOLDER RULE — spec/processes/dmn/rco/ (ADR-0075 §(b)). Decisions declared directly in
+# that folder (the rco "K1" rules package, ids prefixed `rco_`) are NOT listed here and are
+# NOT orphan errors: they are worker-consumed by design and governed by the pin
+# `config/integrations/rco/rules.lock.json`, not by one line each in this file. The rule
+# lives in crossref.py (`is_rco_dmn`) and is tested both ways (rco/ exempt, top-level
+# still checked). Do not add `rco_*` ids below.
+#
 # format: mapping of decision id -> justification string.
 version: 1
 orphans:

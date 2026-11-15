@@ -101,7 +101,9 @@ def _validate_processes_root(path: Path, report: Report) -> None:
     if not bpmn_files:
         report.error(bpmn_dir, "no .bpmn files found")
 
-    dmn_files = sorted(dmn_dir.glob("*.dmn")) if dmn_dir.is_dir() else []
+    # Top-level Maezo tables + an explicit second scan of `dmn/rco/` (rco K1 package, ADR-0075
+    # §(b)): schema, the `rco_` id prefix and the tree-wide id uniqueness below cover both.
+    dmn_files = dmn.list_dmn_files(dmn_dir)
     if not dmn_files:
         report.error(dmn_dir, "no .dmn files found")
 
@@ -135,6 +137,7 @@ def _validate_processes_root(path: Path, report: Report) -> None:
     # is a BLOCKING `report.error` — the module has no severity a caller could downgrade and no
     # per-file exception mechanism. Wired HERE, and only from PR-4, because the fence could not be
     # switched on while the two chains were still dirty: it exists (PR-1) before it gates (PR-4).
+    # `dmn_files` includes `rco/`: the D7 vocabulary applies to the K1 tables as well (no exemption).
     perspective.check_processes(bpmn_files, dmn_files, sorted(dmn_dir.glob("*.yaml")), report)
 
 

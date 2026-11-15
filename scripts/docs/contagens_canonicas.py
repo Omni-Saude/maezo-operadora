@@ -15,7 +15,9 @@ Definicoes (cada uma reproduzivel por um comando de shell, citado ao lado):
 - DLs: IDs `DL-NNNN` distintos na 2a coluna das linhas de tabela de `docs/decisions-log.md`
   (adendos de um mesmo DL nao contam de novo).
 - Contratos SP-OP: `docs/processes/contracts/SP-OP-*.md`.
-- Processos BPMN: `spec/processes/bpmn/*.bpmn`; arquivos DMN: `spec/processes/dmn/*.dmn`.
+- Processos BPMN: `spec/processes/bpmn/*.bpmn`; arquivos DMN: `spec/processes/dmn/*.dmn` (so o
+  primeiro nivel = tabelas do Maezo); arquivos DMN do pacote rco (K1, ADR-0075 secao b), contados a
+  parte: `spec/processes/dmn/rco/*.dmn` (`ls spec/processes/dmn/rco/*.dmn | wc -l`).
 - Itens hard: `hard_items[].action` de `spec/policies/autonomy/_hard_frozen.yaml`.
 - Checklist pre-deploy: `totais` de `docs/reports/predeploy-findings.json`.
 
@@ -65,6 +67,7 @@ class Contagens:
     contratos: int
     bpmn: int
     dmn: int
+    dmn_rco: int
     itens_hard: tuple[str, ...]
     predeploy_registros: int
     predeploy_confirmados: int
@@ -114,7 +117,9 @@ def contar(raiz: Path = REPO_ROOT) -> Contagens:
         dl_ultimo=max(dl_nums, default=0),
         contratos=len(list((raiz / "docs/processes/contracts").glob("SP-OP-*.md"))),
         bpmn=len(list((raiz / "spec/processes/bpmn").glob("*.bpmn"))),
+        # `dmn` = tabelas do Maezo (primeiro nivel); `dmn_rco` = pacote K1 do rco, contado a parte.
         dmn=len(list((raiz / "spec/processes/dmn").glob("*.dmn"))),
+        dmn_rco=len(list((raiz / "spec/processes/dmn/rco").glob("*.dmn"))),
         itens_hard=acoes,
         predeploy_registros=int(totais.get("registros", -1)),
         predeploy_confirmados=int(totais.get("confirmados", -1)),
@@ -201,6 +206,14 @@ def verificar_readme(texto: str, c: Contagens) -> list[str]:
     _confere(erros, r, "N arquivos DMN", r"(\d+) arquivos DMN", texto, (c.dmn,))
     _confere(
         erros, r, "Arquivos DMN | N", r"\| Arquivos de decisão DMN \(`\.dmn`\) \| (\d+) \|", texto, (c.dmn,)
+    )
+    _confere(
+        erros,
+        r,
+        "Arquivos DMN do pacote rco | N",
+        r"\| Arquivos DMN do pacote rco \(`spec/processes/dmn/rco/`\) \| (\d+)\b",
+        texto,
+        (c.dmn_rco,),
     )
     _confere(
         erros,

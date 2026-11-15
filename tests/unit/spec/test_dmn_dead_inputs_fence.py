@@ -48,6 +48,10 @@ from pathlib import Path
 import pytest
 
 DMN_DIR = Path(__file__).resolve().parents[3] / "spec" / "processes" / "dmn"
+#: The rco K1 package folder (ADR-0075 §(b)). Scanned EXPLICITLY (one level, never `rglob`), the
+#: same way the deploy lists it. Its tables enter the dead-input fence like any other; the only
+#: folder rule is that `UNIQUE` is accepted there (see the catch-all test).
+RCO_SUBDIR = "rco"
 
 #: FEEL string literals are prose (a `motivo` message), never a variable read.
 _STRING_LITERAL = re.compile(r'"[^"]*"')
@@ -199,6 +203,17 @@ def _text_of(element: ET.Element) -> str:
     return ""
 
 
+def _dmn_files(dmn_dir: Path) -> list[Path]:
+    """Top-level Maezo tables, then the rco K1 tables directly under `rco/` — nothing deeper."""
+    rco = dmn_dir / RCO_SUBDIR
+    return [*sorted(dmn_dir.glob("*.dmn")), *(sorted(rco.glob("*.dmn")) if rco.is_dir() else [])]
+
+
+def _label(path: Path, dmn_dir: Path) -> str:
+    """`file.dmn` for a Maezo table, `rco/file.dmn` for a K1 table (keeps the two apart)."""
+    return path.relative_to(dmn_dir).as_posix()
+
+
 class MalformedDecisionTableError(AssertionError):
     """A `<rule>` whose `<inputEntry>` count does not match the table's declared `<input>` count.
 
@@ -211,14 +226,15 @@ class MalformedDecisionTableError(AssertionError):
 
 
 def _scan(dmn_dir: Path = DMN_DIR) -> tuple[set[Column], set[Column]]:
-    """Return `(dead, output_read)` over every `<dmn_dir>/*.dmn` — read from disk now.
+    """Return `(dead, output_read)` over every `<dmn_dir>/*.dmn` and `<dmn_dir>/rco/*.dmn`.
 
     `dmn_dir` defaults to the real corpus; tests pass a synthetic `tmp_path` to probe the arity
     check in isolation without touching `spec/processes/dmn/`.
     """
     dead: set[Column] = set()
     output_read: set[Column] = set()
-    for path in sorted(dmn_dir.glob("*.dmn")):
+    for path in _dmn_files(dmn_dir):
+        label = _label(path, dmn_dir)
         root = ET.parse(path).getroot()
         for table in (el for el in root.iter() if _local(el.tag) == "decisionTable"):
             inputs = [el for el in table if _local(el.tag) == "input"]
@@ -235,7 +251,7 @@ def _scan(dmn_dir: Path = DMN_DIR) -> tuple[set[Column], set[Column]]:
                     raise MalformedDecisionTableError(
                         "malformed DMN table — rule <inputEntry> count does not match the "
                         "table's declared <input> count (fail-closed, not scanned): "
-                        f"{path.name}:{table.get('id')}:{rule.get('id') or '?'} has "
+                        f"{label}:{table.get('id')}:{rule.get('id') or '?'} has "
                         f"{len(entries)} <inputEntry> but {len(inputs)} <input> are declared"
                     )
                 rule_entries.append(entries)
@@ -253,7 +269,7 @@ def _scan(dmn_dir: Path = DMN_DIR) -> tuple[set[Column], set[Column]]:
                 cells = [_text_of(entries[index]) for entries in rule_entries]
                 if not cells or any(cell != "-" for cell in cells):
                     continue
-                column: Column = (path.name, declared.get("id") or "", expression)
+                column: Column = (label, declared.get("id") or "", expression)
                 if expression and re.search(rf"\b{re.escape(expression)}\b", feel_outputs):
                     output_read.add(column)
                 else:
@@ -330,6 +346,37 @@ def test_the_two_tables_this_gap_cleaned_have_no_dead_input(
     assert [column for column in KNOWN_DEAD_INPUTS if column[0] == filename] == []
 
 
+def _non_first_census(dmn_dir: Path = DMN_DIR) -> tuple[list[str], list[str], list[str]]:
+    """`(offenders, maezo_non_first, rco_unique)` over the Maezo tables and `rco/`.
+
+    `offenders`: FIRST tables whose last row is not a bare catch-all. `maezo_non_first`: top-level
+    tables that are not FIRST (a frozen, declared list). `rco_unique`: `UNIQUE` tables under `rco/`
+    — accepted by folder (ADR-0075 §(c): the K1 arrives as the rco publishes it, UNIQUE, and a bare
+    `-` catch-all is illegal under UNIQUE). Anything under `rco/` that is neither FIRST nor UNIQUE
+    is NOT accepted: it lands in `maezo_non_first` and trips the frozen list.
+    """
+    offenders: list[str] = []
+    maezo_non_first: list[str] = []
+    rco_unique: list[str] = []
+    for path in _dmn_files(dmn_dir):
+        label = _label(path, dmn_dir)
+        in_rco = path.parent.name == RCO_SUBDIR and path.parent.parent == dmn_dir
+        root = ET.parse(path).getroot()
+        for table in (el for el in root.iter() if _local(el.tag) == "decisionTable"):
+            rules = [el for el in table if _local(el.tag) == "rule"]
+            if not rules:
+                continue
+            name = f"{label}:{table.get('id')}"
+            policy = table.get("hitPolicy") or "UNIQUE"
+            if policy != "FIRST":
+                (rco_unique if in_rco and policy == "UNIQUE" else maezo_non_first).append(name)
+                continue
+            last = [el for el in rules[-1] if _local(el.tag) == "inputEntry"]
+            if any(_text_of(entry) != "-" for entry in last):
+                offenders.append(name)
+    return offenders, maezo_non_first, rco_unique
+
+
 def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
     """Removing a column must never cost a table its fail-closed last row (ADR-0028 §3).
 
@@ -341,22 +388,11 @@ def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
     why its catch-all is the complementary negative set `not("pre_natal","cronicos")` instead: under
     UNIQUE a bare `-` row would collide with every specific row at runtime. It is named here so the
     exception is declared rather than silently skipped.
+
+    The rco K1 tables (`rco/`, ADR-0075 §(b)/(c)) are scanned too, and `UNIQUE` is accepted there by
+    folder — they are not added to the frozen Maezo list below.
     """
-    offenders: list[str] = []
-    unique_tables: list[str] = []
-    for path in sorted(DMN_DIR.glob("*.dmn")):
-        root = ET.parse(path).getroot()
-        for table in (el for el in root.iter() if _local(el.tag) == "decisionTable"):
-            rules = [el for el in table if _local(el.tag) == "rule"]
-            if not rules:
-                continue
-            name = f"{path.name}:{table.get('id')}"
-            if (table.get("hitPolicy") or "UNIQUE") != "FIRST":
-                unique_tables.append(name)
-                continue
-            last = [el for el in rules[-1] if _local(el.tag) == "inputEntry"]
-            if any(_text_of(entry) != "-" for entry in last):
-                offenders.append(name)
+    offenders, unique_tables, rco_unique = _non_first_census()
     assert offenders == [], f"FIRST-policy tables whose LAST row is not a catch-all: {offenders}"
     # MPTT P5: as duas tabelas COLLECT de `prestador_trust_scorecard.dmn` NAO podem ter linha `-`
     # nua — sob COLLECT+SUM ela somaria pontos para TODO prestador. Em vez disso cada feature tem
@@ -370,6 +406,52 @@ def test_every_first_policy_table_still_ends_in_a_bare_catch_all_row() -> None:
         "a new non-FIRST decision table appeared — confirm its catch-all covers the remaining "
         f"domain before adding it here: {unique_tables}"
     )
+    # Non-vacuity of the rco/ half of the scan: the synthetic example is UNIQUE and is seen here.
+    assert "rco/rco_exemplo_sintetico.dmn:dt_rco_exemplo_sintetico" in rco_unique
+
+
+def _table(decision: str, policy: str, last_row: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="d" name="d" '
+        'namespace="http://maezo.health/dmn/x">\n'
+        f'  <decision id="{decision}" name="x">\n'
+        f'    <decisionTable id="dt_{decision}" hitPolicy="{policy}">\n'
+        '      <input id="in_a"><inputExpression id="ie_a" typeRef="string"><text>a</text>'
+        "</inputExpression></input>\n"
+        '      <output id="o" name="decisao" typeRef="string"/>\n'
+        '      <rule id="r1"><inputEntry id="r1i"><text>"A"</text></inputEntry>'
+        '<outputEntry id="r1o"><text>"liberar"</text></outputEntry></rule>\n'
+        f'      <rule id="r2"><inputEntry id="r2i"><text>{last_row}</text></inputEntry>'
+        '<outputEntry id="r2o"><text>"informar"</text></outputEntry></rule>\n'
+        "    </decisionTable>\n  </decision>\n</definitions>\n"
+    )
+
+
+def test_unique_is_accepted_under_rco_but_still_flagged_at_the_top_level(tmp_path: Path) -> None:
+    """The folder rule is exactly as wide as `rco/`: the same UNIQUE table is accepted there and
+    still flagged as an undeclared non-FIRST table at the top level; a stray subfolder stays out."""
+    (tmp_path / "rco" / "solta").mkdir(parents=True)
+    (tmp_path / "maezo_unique.dmn").write_text(_table("maezo_unique", "UNIQUE", 'not("A")'), encoding="utf-8")
+    (tmp_path / "rco" / "rco_k1.dmn").write_text(_table("rco_k1", "UNIQUE", 'not("A")'), encoding="utf-8")
+    (tmp_path / "rco" / "rco_collect.dmn").write_text(
+        _table("rco_collect", "COLLECT", '"B"'), encoding="utf-8"
+    )
+    (tmp_path / "rco" / "solta" / "fora.dmn").write_text(_table("fora", "UNIQUE", '"B"'), encoding="utf-8")
+    offenders, maezo_non_first, rco_unique = _non_first_census(tmp_path)
+    assert offenders == []
+    assert maezo_non_first == ["maezo_unique.dmn:dt_maezo_unique", "rco/rco_collect.dmn:dt_rco_collect"]
+    assert rco_unique == ["rco/rco_k1.dmn:dt_rco_k1"]
+
+
+def test_a_dead_input_under_rco_is_still_caught(tmp_path: Path) -> None:
+    """`rco/` is NOT exempt from the dead-input fence — only from the FIRST/catch-all shape. A dead
+    column planted in a K1 table is found, labelled `rco/<file>`; one in a stray subfolder is not."""
+    (tmp_path / "rco" / "solta").mkdir(parents=True)
+    (tmp_path / "rco" / "gk_well_formed.dmn").write_text(_WELL_FORMED_DMN, encoding="utf-8")
+    (tmp_path / "rco" / "solta" / "gk_well_formed.dmn").write_text(_WELL_FORMED_DMN, encoding="utf-8")
+    dead, _ = _scan(tmp_path)
+    assert dead == {("rco/gk_well_formed.dmn", "in_gk_dead", "gk_dead")}
 
 
 def test_a_malformed_dmn_rule_missing_an_input_entry_fails_closed(tmp_path: Path) -> None:
