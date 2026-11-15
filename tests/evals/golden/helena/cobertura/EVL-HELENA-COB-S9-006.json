@@ -1,0 +1,23 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-006",
+  "id": "S9-006",
+  "pergunta": "Como eu faturo a guia do meu consultório?",
+  "camada": "1",
+  "dominio": "prestador",
+  "tema": "faturamento",
+  "armadilha": true,
+  "tipo_resposta": "publico_errado",
+  "desfechos_aceitos": [
+    "transferir"
+  ],
+  "regras_esperadas": [],
+  "elementos_obrigatorios": [],
+  "invencoes": [],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}

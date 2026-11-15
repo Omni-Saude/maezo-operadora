@@ -1,0 +1,30 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-001",
+  "id": "S9-001",
+  "pergunta": "Preciso de autorização pra fazer ressonância?",
+  "camada": "1",
+  "dominio": "autorizacao",
+  "tema": "autorizacao previa",
+  "armadilha": false,
+  "tipo_resposta": null,
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-AUT-001"
+  ],
+  "elementos_obrigatorios": [
+    "autorização prévia"
+  ],
+  "invencoes": [
+    "não precisa de autorização",
+    "dispensa autorização"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}

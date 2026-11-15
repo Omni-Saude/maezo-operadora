@@ -1,0 +1,30 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-002",
+  "id": "S9-002",
+  "pergunta": "Quantas sessões de fisioterapia vale cada pedido médico?",
+  "camada": "1",
+  "dominio": "quantidades",
+  "tema": "fisioterapia",
+  "armadilha": false,
+  "tipo_resposta": null,
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-QTD-003"
+  ],
+  "elementos_obrigatorios": [
+    "20 sessões"
+  ],
+  "invencoes": [
+    "ilimitad",
+    "30 sessões"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}

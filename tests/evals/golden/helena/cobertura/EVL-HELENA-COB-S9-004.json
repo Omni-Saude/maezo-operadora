@@ -1,0 +1,25 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-004",
+  "id": "S9-004",
+  "pergunta": "O plano cobre transplante de medula?",
+  "camada": "1",
+  "dominio": "autorizacao",
+  "tema": "sem regra",
+  "armadilha": true,
+  "tipo_resposta": "nao_informa",
+  "desfechos_aceitos": [
+    "transferir"
+  ],
+  "regras_esperadas": [],
+  "elementos_obrigatorios": [],
+  "invencoes": [
+    "cobre transplante"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}

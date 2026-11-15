@@ -1,0 +1,26 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-008",
+  "id": "S9-008",
+  "pergunta": "Ainda estou em carência para ressonância?",
+  "camada": "2",
+  "dominio": "carencia",
+  "tema": "carencia do titular",
+  "armadilha": false,
+  "tipo_resposta": null,
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [],
+  "elementos_obrigatorios": [],
+  "invencoes": [
+    "você não está em carência",
+    "carência já cumprida"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}
