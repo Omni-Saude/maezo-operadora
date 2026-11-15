@@ -21,7 +21,7 @@ from tests.unit.agents.test_helena_cobertura_ampla import _entrada, _grafo, _lig
 _AMOSTRA = Path(__file__).parent / "helena_k2_amostra" / "pacote"
 _PIN = PinDoK2(
     versao="amostra-0.1.0",
-    sha256_manifesto="b299c4d561d956d894a9c86bc01630ef1fea265083b49719d53a63ea7b388176",
+    sha256_manifesto="9af9c38159fc23b4b73e576bab19afbb87cb7562839906a67ff660320e6dd22a",
 )
 
 
