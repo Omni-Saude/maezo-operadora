@@ -15,8 +15,8 @@ What those suites silently ASSUME — and this fence pins so a silent change ala
 2. `EngineDeployClient.deploy` keeps `name`/`tenant_id` as REQUIRED keywords with no default
    (`engine_deploy.py:285`; the tenant contract of 27/09/2026, docstring `:336-359`) — the CLI
    suites always pass them explicitly, so a sneaky default would go unnoticed there;
-3. `ENGINE_REST_URL_ENV` is literally `"ENGINE_REST_URL"` (`engine_deploy.py:56`) — the env var
-   real infrastructure injects (`deploy/aws-ecs/envs/dev-sa-east-1/task-deploy-processes.tf:65`,
+3. `ENGINE_REST_URL_ENV` is literally `"ENGINE_REST_URL"` (`engine_deploy.py:57`) — the env var
+   real infrastructure injects (`deploy/aws-ecs/envs/dev-sa-east-1/task-deploy-processes.tf:71`,
    `task-engine-bootstrap.tf:44`); the behaviour test (`test_engine_deploy.py:73-75`) sets it
    VIA the constant, so a rename would pass there while decoupling from every task definition;
 4. `require_deploy_tenant` is a bounded-token validator (`engine_deploy.py:69-76`) — direct unit

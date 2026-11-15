@@ -17,6 +17,7 @@ import pytest
 from maezo.platform.deploy.cli import (
     DEFAULT_DEPLOYMENT_NAME,
     build_parser,
+    deployment_targets,
     main,
     run_deploy,
     run_list,
@@ -271,7 +272,8 @@ class TestMainEndToEnd:
         # PAGTO PR-E: +pagto_duplicidade.dmn (DRAFT, so' pela costura dmn= do detector dark) -> 68 DMN.
         # R-076 (#1149): +reembolso_auto_approval.dmn (faixa B dormente) -> 69 DMN.
         # DEC-31 D31-2: +pagto_comite_coordenacao.dmn (assuncao do comite pela coordenacao) -> 70 DMN.
-        assert "17 BPMN, 70 DMN" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
+        # ADR-0075 secao b: o pacote K1 (`dmn/rco/`) sai numa contagem propria — hoje so' o exemplo.
+        assert "17 BPMN, 70 DMN, 1 DMN rco" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -378,3 +380,12 @@ class TestDeployTarget:
         assert main(["--tenant", "amh", "--shared", "dmn"]) == 0
         assert fake.deploy_tenants == ["amh", None]
         assert all(p.suffix == ".dmn" for p in fake.deploy_calls[1][0])
+
+
+def test_shared_dmn_target_includes_the_rco_tables(tmp_path: Path) -> None:
+    """ADR-0075 §(b): `--shared dmn` publishes every DMN `collect_artifacts` lists — the K1 tables
+    under `dmn/rco/` included (their `rco_` id prefix keeps them off the Maezo decision keys)."""
+    bpmn = tmp_path / "bpmn" / "a.bpmn"
+    maezo = tmp_path / "dmn" / "a.dmn"
+    k1 = tmp_path / "dmn" / "rco" / "rco_a.dmn"
+    assert deployment_targets([bpmn, maezo, k1], tenant=None, shared="dmn") == [(None, [maezo, k1])]

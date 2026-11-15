@@ -21,6 +21,12 @@
 # toda execucao da cerca. `responsavel: a definir` = ninguem foi nomeado ainda (decisao do dono).
 # `marca_no_arquivo` e' a linha de status COPIADA do proprio artefato em 19/10/2026 (nao e' opiniao).
 #
+# ISENCAO PROVISORIA — spec/processes/dmn/rco/ (pacote K1 do rco, ADR-0075 secoes b e g). As tabelas
+# dessa pasta sao publicadas pelo deploy mas NAO precisam de linha aqui enquanto o dono nao decidir a
+# pendencia P7 (aprovacao em lote por versao do manifesto do K1: uma entrada por sha256 do
+# config/integrations/rco/rules.lock.json, papeis dono + auditor-neutro). A cerca lista cada uma na
+# saida, em voz alta. Decidida a P7, a isencao sai do checker e a entrada em lote entra aqui.
+#
 # Nenhuma aprovacao foi inventada: em 19/10/2026 nenhum artefato publicavel tinha aprovacao
 # registrada amarrada aos bytes, entao `aprovados` comeca vazio.
 version: 1

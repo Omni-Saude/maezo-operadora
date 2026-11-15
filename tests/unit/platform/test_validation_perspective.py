@@ -1658,6 +1658,26 @@ class TestEntryPoints:
         assert len(report.findings) == 2
         assert all("provider-perspective vocabulary" in f.message for f in report.findings)
 
+    def test_check_processes_root_reads_rco_with_the_same_vocabulary(self, tmp_path: Path) -> None:
+        """ADR-0075 §(b) point 3: the D7 vocabulary is EXTENDED to the K1 tables under `dmn/rco/`
+        (no exemption — the fence has none by design). A planted hit in `rco/` is a blocking error,
+        exactly like one at the top level; a stray subfolder of `rco/` is not read."""
+        rco_dir = tmp_path / "dmn" / "rco"
+        (rco_dir / "solta").mkdir(parents=True)
+        planted = _DMN_WRAPPER.format(fragment="<description>RECORRER</description>")
+        (rco_dir / "rco_x.dmn").write_text(planted, encoding="utf-8")
+        (rco_dir / "solta" / "rco_y.dmn").write_text(planted, encoding="utf-8")
+
+        report = Report()
+        perspective.check_processes_root(tmp_path, report)
+        assert [f.path for f in report.findings] == [rco_dir / "rco_x.dmn"]
+        assert "provider-perspective vocabulary" in report.findings[0].message
+
+    def test_the_live_rco_folder_is_read_and_clean(self) -> None:
+        rco = sorted((_SPEC / "processes" / "dmn" / "rco").glob("*.dmn"))
+        assert [p.name for p in rco] == ["rco_exemplo_sintetico.dmn"]
+        assert _measure(rco, scan_xml_file) == {}
+
     def test_check_yaml_defs_covers_agents_and_policies(self, tmp_path: Path) -> None:
         agent_dir = tmp_path / "marina"
         agent_dir.mkdir()

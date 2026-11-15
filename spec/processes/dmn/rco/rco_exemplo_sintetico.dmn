@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_rco_exemplo_sintetico"
+             name="EXEMPLO SINTETICO do pacote rco (K1) - nao e regra de negocio"
+             namespace="http://maezo.health/dmn/rco">
+  <description>
+    rco_exemplo_sintetico — EXEMPLO SINTETICO. NAO E REGRA DE NEGOCIO e nao veio do repositorio
+    regras-contratos-operadora (rco). Existe so para exercitar a infraestrutura da pasta
+    spec/processes/dmn/rco/ (ADR-0075 secao b): deploy com nome de recurso rco/arquivo.dmn,
+    validacao de schema e de unicidade de id, prefixo obrigatorio rco_ no id da decisao, cercas por
+    pasta e, depois, o lint do vocabulario de saida do K1 (decisao, classeAdverso, fila).
+    As entradas e os valores sao inventados e inocuos: nenhuma linha emite saida adversa, nenhum
+    worker ou BPMN consome esta decisao. Hit policy UNIQUE, como o rco publica (ADR-0075 secao c):
+    as tres linhas sao mutuamente exclusivas, entao nunca ha dois matches.
+    Sai daqui quando o primeiro pacote K1 de verdade for fixado pela atualizacao do pin.
+  </description>
+  <decision id="rco_exemplo_sintetico" name="EXEMPLO SINTETICO rco (nao e regra)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_rco_exemplo_sintetico" hitPolicy="UNIQUE">
+      <input id="in_rco_exemplo_tipo" label="Tipo sintetico (rco_exemplo_tipo)">
+        <inputExpression id="ie_rco_exemplo_tipo" typeRef="string"><text>rco_exemplo_tipo</text></inputExpression>
+      </input>
+      <input id="in_rco_exemplo_quantidade" label="Quantidade sintetica (rco_exemplo_quantidade)">
+        <inputExpression id="ie_rco_exemplo_quantidade" typeRef="integer"><text>rco_exemplo_quantidade</text></inputExpression>
+      </input>
+      <output id="out_decisao" label="decisao" name="decisao" typeRef="string"/>
+      <output id="out_classe_adverso" label="classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_fila" label="fila" name="fila" typeRef="string"/>
+      <rule id="r_exemplo_a_ate_10">
+        <description>Sintetico: tipo A com quantidade ate 10 -> liberar (sem classe de adverso, sem fila)</description>
+        <inputEntry id="r_exemplo_a_ate_10_i1"><text>"A"</text></inputEntry>
+        <inputEntry id="r_exemplo_a_ate_10_i2"><text>&lt;= 10</text></inputEntry>
+        <outputEntry id="r_exemplo_a_ate_10_o1"><text>"liberar"</text></outputEntry>
+        <outputEntry id="r_exemplo_a_ate_10_o2"><text>null</text></outputEntry>
+        <outputEntry id="r_exemplo_a_ate_10_o3"><text>null</text></outputEntry>
+      </rule>
+      <rule id="r_exemplo_a_acima_10">
+        <description>Sintetico: tipo A com quantidade acima de 10 -> informar a fila de cadastro</description>
+        <inputEntry id="r_exemplo_a_acima_10_i1"><text>"A"</text></inputEntry>
+        <inputEntry id="r_exemplo_a_acima_10_i2"><text>&gt; 10</text></inputEntry>
+        <outputEntry id="r_exemplo_a_acima_10_o1"><text>"informar"</text></outputEntry>
+        <outputEntry id="r_exemplo_a_acima_10_o2"><text>null</text></outputEntry>
+        <outputEntry id="r_exemplo_a_acima_10_o3"><text>"cadastro"</text></outputEntry>
+      </rule>
+      <rule id="r_exemplo_outro_tipo">
+        <description>Sintetico: qualquer outro tipo -> informar a fila de cadastro. FEEL not(...) mantem UNIQUE.</description>
+        <inputEntry id="r_exemplo_outro_tipo_i1"><text>not("A")</text></inputEntry>
+        <inputEntry id="r_exemplo_outro_tipo_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_exemplo_outro_tipo_o1"><text>"informar"</text></outputEntry>
+        <outputEntry id="r_exemplo_outro_tipo_o2"><text>null</text></outputEntry>
+        <outputEntry id="r_exemplo_outro_tipo_o3"><text>"cadastro"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -43,6 +43,7 @@ _C = Contagens(
     contratos=2,
     bpmn=2,
     dmn=5,
+    dmn_rco=1,
     itens_hard=("clinical_decision", "fraud_accusation"),
     predeploy_registros=3,
     predeploy_confirmados=2,
@@ -63,6 +64,7 @@ _README_OK = (
     "2 processos BPMN e 5 arquivos DMN\n"
     "| Processos BPMN SP-OP | 2 |\n"
     "| Arquivos de decisão DMN (`.dmn`) | 5 |\n"
+    "| Arquivos DMN do pacote rco (`spec/processes/dmn/rco/`) | 1 (exemplo sintético) |\n"
     "| ADRs | 3 (0001–0003; 2 Accepted, 1 Proposed/Proposto) |\n"
     "| Decision log | 4 decisões registradas (DL-0001–DL-0004) |\n"
     "| docs/adr | 3 ADRs numerados (0001–0003; verificado) |\n"
@@ -173,11 +175,38 @@ class TestVerificarReadme:
             ("3 ADRs numerados (0001–0003", "59 ADRs numerados (0001–0059"),
             ("2 contratos SP-OP", "16 contratos SP-OP"),
             ("4 decisões operacionais (DL-0001–DL-0004)", "49 decisões operacionais (DL-0001–DL-0049)"),
+            ("(`spec/processes/dmn/rco/`) | 1 ", "(`spec/processes/dmn/rco/`) | 233 "),
         ],
     )
     def test_contagem_estale_e_vermelha(self, de: str, para: str) -> None:
         assert de in _README_OK
         assert verificar_readme(_README_OK.replace(de, para), _C)
+
+    def test_contagem_rco_e_separada_da_contagem_maezo(self) -> None:
+        """ADR-0075 secao b, ponto 5: `dmn` continua sendo so' o primeiro nivel (tabelas do Maezo) e
+        o pacote K1 tem contagem propria — uma nao absorve a outra."""
+        assert verificar_readme(_README_OK, replace(_C, dmn_rco=2))
+        assert verificar_readme(_README_OK, replace(_C, dmn=6))
+        linha_rco = "| Arquivos DMN do pacote rco (`spec/processes/dmn/rco/`) | 1 (exemplo sintético) |\n"
+        sem_rco = _README_OK.replace(linha_rco, "")
+        assert any("pacote rco" in e and "ausente" in e for e in verificar_readme(sem_rco, _C))
+
+    def test_contar_separa_primeiro_nivel_de_rco(self, tmp_path: Path) -> None:
+        raiz = tmp_path
+        (raiz / "docs" / "adr").mkdir(parents=True)
+        (raiz / "docs" / "processes" / "contracts").mkdir(parents=True)
+        (raiz / "docs" / "decisions-log.md").write_text("", encoding="utf-8")
+        (raiz / "spec/policies/autonomy").mkdir(parents=True)
+        (raiz / "spec/policies/autonomy/_hard_frozen.yaml").write_text("hard_items: []\n", encoding="utf-8")
+        (raiz / "spec/processes/bpmn").mkdir(parents=True)
+        (raiz / "spec/processes/dmn/rco/solta").mkdir(parents=True)
+        (raiz / "spec/processes/dmn/maezo.dmn").write_text("<x/>", encoding="utf-8")
+        (raiz / "spec/processes/dmn/rco/rco_a.dmn").write_text("<x/>", encoding="utf-8")
+        (raiz / "spec/processes/dmn/rco/rco_b.dmn").write_text("<x/>", encoding="utf-8")
+        # subpasta solta dentro de rco/ nao conta (varredura explicita, nao rglob)
+        (raiz / "spec/processes/dmn/rco/solta/fora.dmn").write_text("<x/>", encoding="utf-8")
+        c = contar(raiz)
+        assert (c.dmn, c.dmn_rco) == (1, 2)
 
     def test_lista_l0_sem_item_hard_e_vermelha(self) -> None:
         c = replace(_C, itens_hard=(*_C.itens_hard, "nip_manter_negativa"))

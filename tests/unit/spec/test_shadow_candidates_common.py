@@ -218,8 +218,13 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     precisely BECAUSE the one new file is named here: a future unnamed addition still fails.
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
-    dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
+    # ADR-0075 secao b: o deploy tambem publica `dmn/rco/` (pacote K1). O censo de tabelas do
+    # Maezo (primeiro nivel) fica separado do censo do rco, que hoje e' so' o exemplo sintetico.
+    all_dmns = [p for p in artifacts if p.suffix == ".dmn"]
+    dmns = {p.name for p in all_dmns if p.parent.name != "rco"}
+    rco = {p.relative_to(DMN_DIR).as_posix() for p in all_dmns if p.parent.name == "rco"}
     assert len(dmns) == 70
+    assert rco == {"rco/rco_exemplo_sintetico.dmn"}
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"

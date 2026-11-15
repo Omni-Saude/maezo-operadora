@@ -51,6 +51,7 @@ from typing import Any, BinaryIO
 import httpx
 
 from maezo.agents import resolve_spec_dir
+from maezo.platform.validation.dmn import deployment_resource_name, list_dmn_files
 
 #: Environment variable overriding the engine REST base URL.
 ENGINE_REST_URL_ENV = "ENGINE_REST_URL"
@@ -152,6 +153,12 @@ def collect_artifacts(processes_dir: Path) -> list[Path]:
     `orphans-allowlist.yaml` consumed by the validation gate) are ignored —
     this function only ever globs `*.bpmn` / `*.dmn`.
 
+    DMN = the top-level Maezo tables, then an EXPLICIT second scan of
+    `dmn/rco/` (the rco K1 package, ADR-0075 §(b); `list_dmn_files`). Not a
+    general `rglob`: any other subfolder stays out of the deploy. The pin
+    verifier (`config/integrations/rco/rules.lock.json`) is the gate that
+    decides what may sit in `rco/`; this function only lists it.
+
     Args:
         processes_dir: The `spec/processes/` directory (see
             `resolve_spec_processes_dir`).
@@ -169,7 +176,7 @@ def collect_artifacts(processes_dir: Path) -> list[Path]:
     dmn_dir = processes_dir / "dmn"
 
     bpmn_files = sorted(bpmn_dir.glob("*.bpmn")) if bpmn_dir.is_dir() else []
-    dmn_files = sorted(dmn_dir.glob("*.dmn")) if dmn_dir.is_dir() else []
+    dmn_files = list_dmn_files(dmn_dir)
 
     if not bpmn_files and not dmn_files:
         raise EngineDeployError(
@@ -325,7 +332,10 @@ class EngineDeployClient:
             for p in paths:
                 fh = p.open("rb")
                 handles.append(fh)
-                files.append((p.name, (p.name, fh, "application/xml")))
+                # Top-level artifacts keep the bare file name; a K1 table is `rco/<file>.dmn`
+                # so it never collides with a Maezo table of the same name (ADR-0075 §(b)).
+                resource = deployment_resource_name(p)
+                files.append((resource, (resource, fh, "application/xml")))
 
             data = {
                 "deployment-name": name,
@@ -357,7 +367,8 @@ class EngineDeployClient:
                 f"{resp.text[:500]}"
             ) from exc
 
-        return DeploymentOutcome.from_response(payload, submitted=[p.name for p in paths])
+        submitted = [deployment_resource_name(p) for p in paths]
+        return DeploymentOutcome.from_response(payload, submitted=submitted)
 
     def list_deployments(self) -> list[dict[str, Any]]:
         """List current deployments (`GET /deployment`).
