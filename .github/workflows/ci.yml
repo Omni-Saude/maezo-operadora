@@ -921,6 +921,12 @@ jobs:
       - name: AMH contract pin gate (ADR-0037 XRD-04)
         run: make verify-amh-contract-pin
 
+      # ADR-0075 (b) / MZO-1d: rco rules package K1 pin (config/integrations/rco/rules.lock.json).
+      # Same shape as the AMH gate: recomputes every spec/processes/dmn/rco/*.dmn sha256 and refuses
+      # any file the pin does not list. stdlib-only, no network.
+      - name: rco rules pin gate (ADR-0075)
+        run: make verify-rco-rules-pin
+
       # D12-01-b / R-007 (owner-ratified 2026-09-04): every shipped `alert:` rule in
       # deploy/observability/alert-rules.yml must carry `annotations.runbook_url` pointing at a
       # SPECIFIC, resolvable docs/runbooks/ file (never a generic index) — an alert without one
