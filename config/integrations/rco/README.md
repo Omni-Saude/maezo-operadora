@@ -39,3 +39,19 @@ O pin não se edita à mão para "consertar" digest. Ele muda só quando: (1) o 
 — copiar os arquivos byte a byte para `spec/processes/dmn/rco/`, preencher `provenance`,
 `manifest_pin` e `artifacts` e passar `estado` para `fixado`; ou (2) entra ou sai um exemplo
 sintético declarado. O sha256 de cada entrada é o de `sha256sum <arquivo>` na árvore.
+
+## `vocabulario-saida.yaml` — vocabulário de saída das tabelas DMN (MZO-1b)
+
+Dado versionado (`schema: maezo.dmn.vocabulario-saida`, `versao`, `estado`) lido por
+`src/maezo/platform/validation/vocabulario_saida.py` dentro de `make validate-artifacts`:
+
+- `maezo`: valores adversos que nenhuma tabela do primeiro nível de `spec/processes/dmn/` pode
+  emitir (ADR-0018 parte 2, emendado por ADR-0040 D4), cada um com as fontes de onde veio, e as
+  `permissoes` explícitas (arquivo, saída, valor, citação) — hoje nenhuma;
+- `k1`: vocabulário fechado das tabelas em `spec/processes/dmn/rco/` (ADR-0075 (d)): `decisao`,
+  `classeAdverso` (com `vazio` = `null`/célula vazia) e as regras de `classeAdverso`/`fila`.
+
+A seção `k1` será congelada pela trilha rco (PR da unidade PROG-RCO-1 em
+`regras-contratos-operadora`). Mudar o vocabulário é mudar este arquivo, não o código. Fica aqui, e
+não em `spec/processes/dmn/`, porque `rco/` só aceita o que o pin lista e porque os `.yaml` do
+primeiro nível são lidos pela cerca de perspectiva (ADR-0040 D7), que reprovaria a lista de tokens.

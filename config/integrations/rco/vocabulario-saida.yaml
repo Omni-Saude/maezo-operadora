@@ -1,0 +1,196 @@
+# Vocabulario de saida das tabelas DMN — dado versionado do lint estatico (MZO-1b).
+#
+# Lido por src/maezo/platform/validation/vocabulario_saida.py dentro de `make validate-artifacts`.
+# O codigo so aplica as regras; O VOCABULARIO MORA AQUI. Mudar um valor e mudanca de dado, nao de
+# codigo, e reprova ou aprova a validacao na hora.
+#
+# Por que esta pasta (e nao spec/processes/dmn/):
+#   - spec/processes/dmn/rco/ e guardada pelo verificador fail-closed do pin
+#     (scripts/ci/verify_rco_rules_pin.py), que recusa todo arquivo nao listado no rules.lock.json;
+#   - spec/processes/dmn/*.yaml e lida pela cerca de perspectiva (ADR-0040 D7, Tier B). A lista de
+#     adversos abaixo cita, de proposito, tokens que nenhuma tabela pode emitir (ACEITAR_GLOSA,
+#     DESISTIR...) e seria reprovada por aquela cerca;
+#   - config/integrations/rco/ e CODEOWNED (security-team, .github/CODEOWNERS) e fica ao lado do pin
+#     do K1: e a fronteira rco -> Maezo (ADR-0075 (b)/(d)), que decide o que vale em cada pasta.
+#
+# Congelamento: a secao `k1` sera CONGELADA pela trilha rco — PR da unidade PROG-RCO-1 no
+# repositorio regras-contratos-operadora. Ate la `estado: provisorio`. Quando o rco congelar, muda
+# so este arquivo (estado, versao e, se for o caso, os valores); o codigo nao muda.
+#
+# Comentarios YAML nao sao lidos pelo gate. O que governa sao as chaves e os valores.
+
+schema: maezo.dmn.vocabulario-saida
+versao: 1
+estado: provisorio
+congelamento: >-
+  A secao k1 sera congelada pela trilha rco (PR da unidade PROG-RCO-1 no repositorio
+  regras-contratos-operadora); o vocabulario muda aqui, sem tocar codigo.
+
+# (a) Tabelas do Maezo: todo .dmn DIRETAMENTE em spec/processes/dmn/ (fora de rco/).
+maezo:
+  regra: >-
+    ADR-0018 parte 2 (docs/adr/0018-no-denial-structural-replication.md:77-78) — nenhuma
+    decisionTable possui saida que confirme/aceite/negue o efeito adverso; a DMN so sinaliza e
+    roteia. Emendado por ADR-0040 D3/D4 (docs/adr/0040-perspectiva-operadora-contas-recurso.md:143-178):
+    nenhuma DMN emite o adverso do pagador.
+  comparacao: >-
+    Valor INTEIRO de cada literal string FEEL de saida (outputEntry, defaultOutputEntry e
+    outputValues), normalizado para maiusculas com '-' e espaco trocados por '_'. Nao e busca de
+    substring: ASSISTENCIAL_CONTESTA_NEGATIVA e rotulo de classificacao, nao merito (mesmo criterio
+    de tests/integration/processes/test_sp_op_nip_001.py:1999-2002). Texto livre (motivo, fonte)
+    nunca casa com um token. As cercas por processo, mais estritas (substring), continuam valendo.
+  adversos:
+    # --- ADR-0018 parte 1 (:72-73): valores que so uma User Task humana pode setar ---
+    - valor: DENY
+      fontes: ["ADR-0018:72", "test_sp_op_nip_001.py:2002", "test_sp_op_ans_submit_001.py:1876", "test_sp_op_programa_001.py:1308"]
+    - valor: NEGAR
+      fontes: ["ADR-0018:72", "test_sp_op_auth_001.py:661 (decisao_auditor)", "test_sp_op_cancel_001.py:1611", "test_sp_op_inadimplencia_001.py:1188", "test_sp_op_cred_001.py:1471", "test_sp_op_nip_001.py:2002", "test_prestador_trust_tier_dmn.py:777"]
+    - valor: ACEITAR_GLOSA
+      fontes: ["ADR-0018:72 (aceitar-glosa)", "ADR-0040:140"]
+    - valor: INDEFERIR
+      fontes: ["ADR-0018:73", "ADR-0040:149 (D3)", "test_sp_op_recurso_001.py:1889"]
+    - valor: NEGATIVA
+      fontes: ["ADR-0018:34 (negativa de autorizacao)", "ADR-0018:77 (saida de negativa)"]
+    # --- ADR-0040 D3 (:143-151): o adverso do pagador, materializado so por worker guardado ---
+    - valor: GLOSAR
+      fontes: ["ADR-0040:147,:470-471", "test_glosa_triage_shadow_candidate.py:392", "test_sp_op_contas_001_artefatos.py:104", "test_prestador_trust_tier_dmn.py:777"]
+    - valor: PAGAR_PARCIAL
+      fontes: ["ADR-0040:148,:470", "test_glosa_triage_shadow_candidate.py:392"]
+    - valor: DEFERIR_PARCIAL
+      fontes: ["ADR-0040:150", "ADR-0040:573 (OQ-8)"]
+    - valor: INADMITIR
+      fontes: ["ADR-0040:151"]
+    - valor: INADMISSIVEL
+      fontes: ["test_sp_op_recurso_001.py:1889 (INADMISS)"]
+    - valor: APROVAR_PARCIAL
+      fontes: ["ADR-0040:86-87 (o adverso: NEGAR e APROVAR_PARCIAL — reducao)", "ADR-0040:573"]
+    - valor: ACEITAR
+      fontes: ["test_glosa_triage_shadow_candidate.py:392", "test_sp_op_contas_001_artefatos.py:104"]
+    - valor: CONFIRMAR
+      fontes: ["test_glosa_triage_shadow_candidate.py:392", "test_sp_op_contas_001_artefatos.py:104", "test_sp_op_fraude_001.py:1957,1976", "test_fraude_scoring_chain.py:50"]
+    - valor: DESISTIR
+      fontes: ["test_sp_op_recurso_001.py:1889 (DESIST)"]
+    # --- decisoes adversas humanas declaradas nos BPMN e guardadas por ERR_*_NOT_HUMAN ---
+    - valor: MANTER_NEGATIVA
+      fontes: ["spec/policies/autonomy/_hard_frozen.yaml (nip_manter_negativa)", "test_sp_op_nip_001.py:2002"]
+    - valor: NEGAR_CREDENCIAMENTO
+      fontes: ["SP-OP-CRED-001 BPMN decisao_cred", "test_sp_op_cred_001.py:343 (_END_CRED_NEGADO)"]
+    - valor: DESCREDENCIAR
+      fontes: ["test_sp_op_cred_001.py:1471,1499", "test_sp_op_fraude_001.py:1957"]
+    - valor: NEGAR_FUNDAMENTADO
+      fontes: ["test_sp_op_lgpd_dsr_001.py:601,702 (decisao_dsr humana)"]
+    - valor: ACUSAR_FRAUDE
+      fontes: ["_hard_frozen.yaml (fraud_accusation)", "test_sp_op_fraude_001.py:338 (_DECISAO_ACUSAR)", "test_fraude_scoring_chain.py:50"]
+    - valor: ENCAMINHAR_RESCISAO
+      fontes: ["tests/unit/tools/workers/test_inadimplencia.py:1564 (adverse_values)"]
+    - valor: DESLIGAR_CLINICO
+      fontes: ["test_sp_op_programa_001.py:1338-1356 (so UT humana seta decisao_programa=DESLIGAR_CLINICO)"]
+    # --- tokens das cercas escritas a mao (saida adversa proibida em DMN) ---
+    - valor: RESCINDIR
+      fontes: ["_hard_frozen.yaml (contract_termination)", "test_sp_op_cancel_001.py:1611,1640", "test_sp_op_inadimplencia_001.py:1188"]
+    - valor: SUSPENDER
+      fontes: ["test_sp_op_cancel_001.py:1611,1640", "test_sp_op_inadimplencia_001.py:1188", "test_prestador_trust_tier_dmn.py:777"]
+    - valor: RETER
+      fontes: ["test_sp_op_cancel_001.py:1611", "test_sp_op_inadimplencia_001.py:1188"]
+    - valor: RECUSAR
+      fontes: ["test_sp_op_cred_001.py:1471", "test_prestador_trust_tier_dmn.py:777"]
+    - valor: RECUSADO
+      fontes: ["test_prestador_trust_tier_dmn.py:777"]
+    - valor: NEGADO
+      fontes: ["test_prestador_trust_tier_dmn.py:777", "ADR-0075:130"]
+    - valor: DESLISTAR
+      fontes: ["test_sp_op_cred_001.py:1471"]
+    - valor: AUTO_APROVAR_ADVERSO
+      fontes: ["test_sp_op_cred_001.py:1499"]
+    - valor: FRAUD_DETECTED
+      fontes: ["test_sp_op_cred_001.py:1499", "test_sp_op_fraude_001.py:1957", "test_fraude_scoring_chain.py:50"]
+    - valor: ACUSAR
+      fontes: ["test_sp_op_fraude_001.py:1957,1976", "test_fraude_scoring_chain.py:50"]
+    - valor: BLOQUEAR
+      fontes: ["test_sp_op_fraude_001.py:1957,1976", "test_prestador_trust_tier_dmn.py:777"]
+    - valor: BLOQUEIO
+      fontes: ["test_prestador_trust_tier_dmn.py:777"]
+    - valor: REDUZIR
+      fontes: ["test_prestador_trust_tier_dmn.py:777"]
+    - valor: DESLIGAR
+      fontes: ["test_sp_op_programa_001.py:1308,1335"]
+    - valor: ALTA
+      fontes: ["test_sp_op_programa_001.py:1308"]
+    - valor: ALTA_CLINICA
+      fontes: ["test_sp_op_programa_001.py:1335"]
+    - valor: DISCHARGE
+      fontes: ["test_sp_op_programa_001.py:1308,1335"]
+    - valor: REJECT
+      fontes: ["test_sp_op_ans_submit_001.py:1875"]
+    - valor: COMPROMETER
+      fontes: ["test_sp_op_adequacao_001.py:1344,1362 (saida adversa proibida)"]
+    - valor: GARANTIR
+      fontes: ["test_sp_op_adequacao_001.py:1344,1362"]
+    - valor: CONTRATAR
+      fontes: ["test_sp_op_adequacao_001.py:1344,1362"]
+    - valor: GARANTIR_REEMBOLSO
+      fontes: ["test_sp_op_adequacao_001.py:1344"]
+  # Excecao EXPLICITA e localizada: so vale para o trio (arquivo, saida, valor) declarado e precisa
+  # de citacao do ADR/cerca que a autoriza. Permissao que nao casa com nenhuma saida real reprova
+  # (permissao orfa). Hoje nenhuma tabela do primeiro nivel emite valor adverso: lista vazia.
+  # Formato de cada item: {arquivo: <nome>.dmn, saida: <output name>, valor: <TOKEN>, citacao: <texto>}
+  permissoes: []
+  # So documentacao (nao lido como regra): tokens que alguma cerca proibe por OUTRO motivo que nao o
+  # adverso, e por isso ficaram fora da lista acima. As cercas originais continuam cobrindo-os.
+  nao_incluidos:
+    - valor: CONCEDER
+      motivo: "merito favoravel da NIP; proibido como saida pela cerca da NIP (test_sp_op_nip_001.py:2002) por ser merito, nao por ser adverso"
+    - valor: RESPONDER_NAO_ASSISTENCIAL
+      motivo: "merito neutro da NIP; idem"
+    - valor: PROSSEGUIR
+      motivo: "veredito de scoring (test_sp_op_fraude_001.py:2006), nao efeito adverso"
+    - valor: RECORRER
+      motivo: "perspectiva invertida (ato do recorrente), coberto pela cerca de perspectiva ADR-0040 D7"
+    - valor: SEM_GLOSA
+      motivo: "vocabulario antigo de CONTAS (ADR-0040 D1/D3), nao adverso"
+    - valor: PAGAR
+      motivo: "unico desfecho automatico favoravel de glosa_triage (ADR-0040 D4:169-170)"
+    - valor: APROVAR
+      motivo: "decisao humana de alcada de PAGTO (test_pagto.py:815); verbo de alcada, nao negativa"
+    - valor: CANCELAR
+      motivo: "decisao humana de PAGTO (test_pagto.py:815); verbo de alcada"
+    - valor: LIBERAR
+      motivo: "verbo de alcada proibido so em suppression_routing (test_suppression_routing_wiring.py:129)"
+    - valor: DEVOLVER
+      motivo: "classificado L1 neutro, questao aberta OQ-7 (ADR-0040:572)"
+
+# (b) Tabelas do pacote K1 do rco: todo .dmn DIRETAMENTE em spec/processes/dmn/rco/.
+# Vocabulario FECHADO (comparacao exata, sensivel a caixa). ADR-0075 (d) (:111-132).
+k1:
+  saidas_obrigatorias: [decisao, classeAdverso, fila]
+  decisao:
+    - liberar
+    - exigir_autorizacao
+    - exigir_documento
+    - revisao_humana
+    - recomendar_negativa
+    - negar
+    - glosar
+    - pagar_pacote
+    - pagar_referencia
+    - limitar
+    - informar
+    - prazo
+  classeAdverso: [clinico, administrativo, contas, vazio]
+  # `vazio` nao e um literal: e o nome, no vocabulario, da AUSENCIA de classe. Na tabela ele e
+  # escrito como `null` (literal FEEL) ou como outputEntry com <text> vazio — o motor devolve null
+  # nos dois casos. O literal string "vazio" e a string vazia "" sao RECUSADOS em classeAdverso: o
+  # worker leria uma string, nao a ausencia. A mesma leitura de ausencia vale para `fila`.
+  vazio:
+    valor: vazio
+    textos_de_saida: ["null", ""]
+  regras:
+    # Decisao adversa sem classe e sem fila nao tem dono humano (ADR-0075 (d):114-117, :132).
+    exigem_classe_e_fila: [negar, glosar, recomendar_negativa]
+    classe_proibida:
+      - classe: clinico
+        decisoes: [negar]
+        citacao: >-
+          ADR-0075 (d):116 e :215 — classeAdverso=clinico vai sempre a User Task do medico auditor
+          (authorization_denial L0 hard, _hard_frozen.yaml); a tabela pode recomendar_negativa,
+          nunca negar.
