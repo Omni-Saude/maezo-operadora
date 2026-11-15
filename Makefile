@@ -1,6 +1,6 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada check-fronteira-agentes \
-        verify-amh-contract-pin \
+        verify-amh-contract-pin verify-rco-rules-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
         check-plans-counts \
@@ -164,6 +164,14 @@ verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do con
 	# stdlib-only e SEM rede — verifica bytes que ja estao na arvore. Modos de steward (--candidate,
 	# --manifest) em `python scripts/ci/verify_amh_contract_pin.py --help`.
 	.venv/bin/python scripts/ci/verify_amh_contract_pin.py
+
+verify-rco-rules-pin: ## ADR-0075 (b) (MZO-1d): pin do pacote de regras K1 do rco intacto e completo
+	# Espelho de verify-amh-contract-pin. O rco e' o unico dono das tabelas DMN do K1; este repo
+	# guarda so o pin (config/integrations/rco/rules.lock.json) + os bytes em spec/processes/dmn/rco/.
+	# O gate recomputa o sha256 do manifesto e de cada rco/*.dmn e recusa arquivo nao-listado.
+	# Estado `sem_pacote`: a pasta so' aceita README.md + exemplos sinteticos declarados no pin.
+	# stdlib-only e SEM rede.
+	.venv/bin/python scripts/ci/verify_rco_rules_pin.py
 
 xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/xfail-census.json + PLANS.md (gate de drift)
 	# Re-deriva do AST de tests/integration/processes/ todo marcador `@pytest.mark.xfail(reason=_*_REASON,
