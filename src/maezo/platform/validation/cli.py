@@ -37,7 +37,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import agent_def, bpmn, crossref, dmn, perspective, policy, signoff
+from . import agent_def, bpmn, crossref, dmn, perspective, policy, signoff, vocabulario_saida
 from .result import Report
 
 
@@ -139,6 +139,11 @@ def _validate_processes_root(path: Path, report: Report) -> None:
     # switched on while the two chains were still dirty: it exists (PR-1) before it gates (PR-4).
     # `dmn_files` includes `rco/`: the D7 vocabulary applies to the K1 tables as well (no exemption).
     perspective.check_processes(bpmn_files, dmn_files, sorted(dmn_dir.glob("*.yaml")), report)
+
+    # MZO-1b: vocabulario de saida. (a) tabela do Maezo nao emite valor adverso (ADR-0018 parte 2,
+    # emendado por ADR-0040 D4); (b) tabela sob `rco/` segue o vocabulario fechado do K1
+    # (ADR-0075 (d)). O vocabulario e DADO versionado, lido de `config/integrations/rco/`.
+    vocabulario_saida.check(dmn_files, _find_repo_root(path) / vocabulario_saida.VOCABULARIO_RELPATH, report)
 
 
 def _validate_policies_root(path: Path, report: Report) -> None:
