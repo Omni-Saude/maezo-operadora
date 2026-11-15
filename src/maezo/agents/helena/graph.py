@@ -239,6 +239,7 @@ from .consultas_plano import (
     NomesDoTurno,
     texto_para_cerca,
 )
+from .habilidades import cobertura as _cobertura
 from .habilidades.atendimento_humano.textos import (
     CHAVE_CASO_MANTIDO,
     PENDENTE_OFERTA_EQUIPE,
@@ -4305,7 +4306,9 @@ class HelenaGraph:
         roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
         modelo_allowlist: str | None = None,
+        cobertura: _cobertura.ConfiguracaoDaCobertura | None = None,
     ) -> None:
+        self._cobertura = cobertura  # COBERTURA AMPLA (DL-0167): `None` = desligada (o aviso de canais)
         self._llm = inference
         # Opcao A (dono e DPO, 26/10/2026, DL-0155): o modelo da allowlist (`modelo_allowlist.py`). Pela
         # composicao (`build`) o padrao e' `haiku`; construido direto sem o modo, `glm5` (o de antes).
@@ -5442,11 +5445,7 @@ class HelenaGraph:
             return None
         return self._texto_da_cobertura_fora(state)
 
-    def _texto_da_cobertura_fora(self, state: Mapping[str, Any]) -> dict[str, Any]:
-        logger.info("helena_cobertura_fora", node="classify")
-        # "E' urgente" de gestante sem sinal de saude leva o 192 no fim (DL-0091), como antes.
-        texto = _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA])
-        return self._texto_fixo(self._update_sem_modelo(state), texto)
+    _texto_da_cobertura_fora = _cobertura.texto_do_aviso  # DL-0154; movido para `habilidades/cobertura`
 
     _reclamacao_sem_pedido = _conversa._reclamacao_sem_pedido
 
@@ -6953,6 +6952,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         # TEXTOS DO PACOTE (ADR-0067 §4): os textos fixos que o pacote de comportamento trouxer.
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
         modelo_allowlist=_ma.modo_escolhido(cfg.get("helena_modelo_allowlist")),
+        cobertura=_cobertura.da_configuracao(cfg),  # DL-0167: `None` salvo `True` explicito do pacote
     ).compile_graph()
 
 

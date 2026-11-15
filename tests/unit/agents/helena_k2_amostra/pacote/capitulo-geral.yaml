@@ -1,0 +1,12 @@
+# Capitulo geral SINTETICO da amostra (ver ../LEIAME.md). Conteudo ficticio.
+secoes:
+  - id: AMOSTRA-GERAL-01
+    titulo: Informação não é decisão
+    texto: >-
+      Texto fictício de amostra. As informações deste manual explicam as regras gerais; a decisão sobre
+      cada pedido é sempre da operadora, depois da análise.
+  - id: AMOSTRA-GERAL-02
+    titulo: Canais oficiais
+    texto: >-
+      Texto fictício de amostra. Dúvidas sobre um pedido específico são tratadas pelos canais oficiais de
+      atendimento.
