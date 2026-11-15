@@ -16,8 +16,11 @@ Uma atualização Maven de dependência `provided` não atualiza a imagem implan
 O CI primeiro compila e empacota o candidato com as dependências atualizadas. Depois chama
 diretamente `surefire:test -Pdeployed-runtime-compatibility`, sem fases de compilação ou
 empacotamento: os mesmos JARs candidato e REST SPI são testados contra CIB Seven 2.1.0 e
-o pool JDBC Tomcat 10.1.47, versões cujos JARs correspondem aos hashes de
-`secured-startup-vendor.sha256` na imagem pinada de `Dockerfile.human`/`Dockerfile.secured-v2`.
+o pool JDBC Tomcat 10.1.47, as versões da imagem pinada de `Dockerfile.human`/`Dockerfile.secured-v2`:
+o engine pela tag da imagem e pelo nome do JAR em `secured-startup-vendor.sha256`; o pool porque
+`tomcat-jdbc-10.1.47.jar` do Maven Central tem o mesmo sha256 de `lib/tomcat-jdbc.jar` nesse manifesto.
+Atualizações do Dependabot nesse perfil devem ser revertidas: o perfil só muda junto com a imagem
+(guarda: `tests/unit/portal/test_deployed_runtime_compatibility_pins.py`).
 Essa segunda rodada inclui os testes finitos e os oito `EngineIT` dos grupos A+B com Postgres
 real. Os hashes dos JARs são conferidos antes/depois para garantir que não foram recompilados.
 Os demais componentes Tomcat mantêm as versões de compilação existentes; esse perfil não

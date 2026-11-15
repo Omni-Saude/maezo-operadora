@@ -34,11 +34,13 @@
   </plugins></build></profile>
   <!-- Run surefire:test directly AFTER package: test the already-built candidate JAR,
        without recompilation, against the provided libraries in Dockerfile.human's
-       pinned CIB image. These versions match secured-startup-vendor.sha256. -->
+       pinned CIB image: engine = the image tag/manifest version; tomcat-jdbc 10.1.47 is
+       byte-identical to lib/tomcat-jdbc.jar in secured-startup-vendor.sha256. Do NOT accept
+       Dependabot bumps here (guard: tests/unit/portal/test_deployed_runtime_compatibility_pins.py). -->
   <profile><id>deployed-runtime-compatibility</id>
     <dependencies>
-      <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.62</version><scope>provided</scope></dependency>
-      <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.2.0</version><scope>provided</scope></dependency>
+      <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.47</version><scope>provided</scope></dependency>
+      <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
     </dependencies>
     <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration>
       <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
