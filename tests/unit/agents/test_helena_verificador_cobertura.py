@@ -48,6 +48,12 @@ def test_fatos_que_batem_com_a_fonte_passam(corpo: str) -> None:
         ("O pedido vai ser autorizado.", "decisao_do_caso"),
         ("Você tem direito a esse exame.", "decisao_do_caso"),
         ("Veja em www.exemplo.com.br.", "link"),
+        # revisao independente: sinonimos e polaridade da autorizacao, artigo com unidade
+        ("A ressonância nunca precisa de autorização.", "autorizacao"),
+        ("Para a ressonância, a autorização não é necessária.", "autorizacao"),
+        ("A autorização é dispensada nesse exame.", "autorizacao"),
+        ("A resposta sai em uma semana.", "quantidade"),
+        ("A resposta sai em um mês.", "quantidade"),
     ],
 )
 def test_fato_que_nao_bate_bloqueia_o_envio(corpo: str, motivo: str) -> None:
@@ -77,3 +83,20 @@ def test_a_polaridade_negativa_confere_com_a_fonte_negativa() -> None:
 def test_o_veredito_nunca_leva_o_texto() -> None:
     v = verificar(_r("Seu plano cobre a ressonância em 3 dias."), [_FONTE])
     assert all("ressonancia" not in m and "ressonância" not in m for m in v.motivos)
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "A consulta precisa de liberação prévia.",
+        "É preciso pedir a guia antes.",
+        "Precisa de aprovação prévia.",
+    ],
+)
+def test_sinonimo_de_autorizacao_sem_fonte_nao_passa(corpo: str) -> None:
+    v = verificar(_r(corpo), ["AMOSTRA. A consulta básica deve ser oferecida em até 7 dias úteis."])
+    assert not v.ok and "autorizacao" in v.motivos
+
+
+def test_um_exame_nao_vira_numero() -> None:
+    assert verificar(_r("Esse exame precisa de autorização prévia, com um pedido médico."), [_FONTE]).ok

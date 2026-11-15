@@ -68,8 +68,23 @@ _QUANTIDADE: Final[re.Pattern[str]] = re.compile(rf"(?<![\d/.,-])(\d+(?:[.,]\d+)
 _DATA: Final[re.Pattern[str]] = re.compile(r"^(?:\d{1,2}/\d{1,2}(?:/\d{2,4})?|\d{4}-\d{2}-\d{2})$")
 #: Todo "token com digito" (numero, data, norma `465/2021`, codigo, `24h`): tem de existir igual numa fonte.
 _TOKEN_COM_DIGITO: Final[re.Pattern[str]] = re.compile(r"[\w/.,%-]*\d[\w/.,%-]*")
-_AUTORIZACAO: Final[re.Pattern[str]] = re.compile(r"\b(?:autoriza\w*|pre ?autoriza\w*)\b")
-_NEGA_ANTES: Final[re.Pattern[str]] = re.compile(r"\b(?:nao|nem|sem|dispensa\w*|independe\w*|isent\w*)\b")
+#: A necessidade de autorizacao e seus sinonimos (revisao independente: "liberacao", "guia", "aprovacao
+#: previa", "senha" diziam a mesma coisa sem serem conferidos).
+_AUTORIZACAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:pre ?autoriza\w*|autoriza\w*|libera\w*|aprovac\w* previa|pre ?aprovac\w*|guias?|senhas?)\b"
+)
+_NEGA_ANTES: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:nao|nem|sem|nunca|jamais|dispensa\w*|independe\w*|isent\w*|desnecessari\w*)\b"
+)
+#: A negacao DEPOIS do termo ("a autorizacao nao e' necessaria", "autorizacao dispensada").
+_NEGA_DEPOIS: Final[re.Pattern[str]] = re.compile(
+    r"^\W*(?:\w+ ){0,2}(?:nao (?:e|sera|eh) (?:necessari|precis|exigid|obrigatori)\w*"
+    r"|dispensad\w*|desnecessari\w*|nao se aplica|nao e preciso)"
+)
+#: "uma semana", "um mes", "um ano": o artigo vira 1 SO' diante de unidade (nunca "um exame").
+_UM_COM_UNIDADE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:um|uma) (?=(?:dia|hora|semana|mes|ano|sessao|consulta|vez)\b)"
+)
 _LINK: Final[re.Pattern[str]] = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|br|org|gov|net|invalid)\b")
 
 
@@ -95,7 +110,7 @@ def _por_extenso_em_digitos(plano: str) -> str:
 
 
 def _normal(texto: str) -> str:
-    return _por_extenso_em_digitos(_plano(texto))
+    return _por_extenso_em_digitos(_UM_COM_UNIDADE.sub("1 ", _plano(texto)))
 
 
 def _numero(bruto: str) -> str:
@@ -116,7 +131,9 @@ def _autorizacao(plano: str) -> set[bool]:
     for m in _AUTORIZACAO.finditer(plano):
         inicio_da_frase = max(plano.rfind(".", 0, m.start()), plano.rfind(";", 0, m.start()), 0)
         antes = plano[inicio_da_frase : m.start()].split()[-5:]
-        polaridades.add(not _NEGA_ANTES.search(" ".join(antes)))
+        depois = plano[m.end() : m.end() + 60]
+        negada = bool(_NEGA_ANTES.search(" ".join(antes))) or bool(_NEGA_DEPOIS.search(depois))
+        polaridades.add(not negada)
     return polaridades
 
 

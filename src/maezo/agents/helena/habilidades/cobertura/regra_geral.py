@@ -126,14 +126,14 @@ class CamadaRegraGeral:
         1. as frases da mensagem (n-gramas de 1 a 4 palavras) que sao SINONIMO de regra no K2;
         2. com o procedimento resolvido (HEL-2), a busca pelo nome dele restringe (intersecao) o que (1)
            achou, ou responde sozinha quando (1) nao achou nada;
-        3. nada ainda e a mensagem e' curta (resposta a um esclarecimento): a fala anterior junto.
+        A fala anterior so' entra pela resolucao do procedimento (resposta a um esclarecimento, HEL-2):
+        juntar a fala anterior a busca puxava a regra antiga ("e o transplante?" depois da ressonancia;
+        revisao independente).
         """
         ids = self._ids_por_sinonimo(pergunta.texto)
         if termos:
             pelo_nome = {r.id for r in self._manual.buscar(termos)}
             ids = (ids & pelo_nome) or (pelo_nome if not ids else set())
-        if not ids and pergunta.falas_anteriores and len(normalizar(pergunta.texto).split()) <= 4:
-            ids = self._ids_por_sinonimo(f"{pergunta.falas_anteriores[-1]} {pergunta.texto}")
         return tuple(r for i in sorted(ids) if (r := self._manual.regra(i)) is not None)
 
     def _ids_por_sinonimo(self, texto: str) -> set[str]:

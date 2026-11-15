@@ -54,9 +54,12 @@ async def test_sem_regra_unica_transfere_com_a_lacuna(manual: ManualK2, pergunta
     assert r == cob.RespostaDaCobertura("transferir", lacuna=lacuna)
 
 
-async def test_resposta_curta_usa_a_fala_anterior(manual: ManualK2) -> None:
-    r = await CamadaRegraGeral(manual).responder(_pergunta("e a fisio?", "o plano cobre umas coisas"))
-    assert r is not None and r.fontes[0].id == "AMOSTRA-QTD-003"
+@pytest.mark.parametrize("seguinte", ["e o transplante?", "e a tomografia?", "e o prazo?"])
+async def test_a_fala_anterior_nao_puxa_a_regra_antiga(manual: ManualK2, seguinte: str) -> None:
+    r = await CamadaRegraGeral(manual).responder(
+        _pergunta(seguinte, "precisa de autorização pra ressonância?")
+    )
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="sem_regra")
 
 
 class _Redator:
