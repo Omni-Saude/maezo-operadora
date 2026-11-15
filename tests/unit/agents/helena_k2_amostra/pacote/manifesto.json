@@ -1,0 +1,12 @@
+{
+  "_amostra": "SINTETICA e ficticia; formato rco-k2-v1 esperado, ainda nao confirmado pelo rco; ver ../LEIAME.md",
+  "formato": "rco-k2-v1",
+  "versao": "amostra-0.1.0",
+  "commit_rco": "0000000000000000000000000000000000000000",
+  "gerado_em": "2026-11-15T00:00:00Z",
+  "ratificado": true,
+  "arquivos": {
+    "search-index.json": "0282e288ebb8bc22088777eb4fc847573db5ba6f527876176dbb2eb07e186723",
+    "capitulo-geral.yaml": "680f549371f64d0f658b0f8cc585319e18f5fa5abf2f408b6330d2b2dac4c961"
+  }
+}
