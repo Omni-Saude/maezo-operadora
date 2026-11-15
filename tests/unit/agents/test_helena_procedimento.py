@@ -84,7 +84,7 @@ def _codigos(r: Resolucao) -> set[str]:
         ("preciso de uma ressonância da coluna", RM_COLUNA),
         ("raio-x do tórax", RX_TORAX),
         ("rx do joelho", RX_JOELHO),
-        ("chapa do peito, preciso fazer", RX_TORAX),
+        ("chapa do peito, preciso fazer o exame", RX_TORAX),
         ("endoscopia", EDA),
         ("colonoscopia", COLONO),
         ("vou fazer uma colono", COLONO),
@@ -93,7 +93,7 @@ def _codigos(r: Resolucao) -> set[str]:
         ("eeg", EEG),
         ("eco do coração", ECO),
         ("ultrassom", US_ABDOME),
-        ("quero fazer uma tomo da cabeça", TOMO_CRANIO),
+        ("quero fazer o exame de tomo da cabeça", TOMO_CRANIO),
         ("cirurgia de catarata", FACECTOMIA),
         ("exame de glicose", GLICOSE),
     ],
@@ -241,6 +241,8 @@ def test_codigo_tuss(sinonimos: Sinonimos, texto: str, desfecho: str, codigos: s
         "tenho dor no joelho",
         "tomo remédio para pressão, cobre?",  # "tomo" verbo, nao tomografia
         "tenho catarata",  # doenca sem marcador de procedimento
+        "tomo remédio pra pressão, preciso de autorização?",  # revisao: "autorizacao" nao e' marcador
+        "estou com pedra na vesícula, preciso de autorização?",  # doenca nao vira cirurgia
         "minha glicose está alta",
         "ressonância do tornozelo",  # o qualificador restringe: nunca outra ressonancia
         "",

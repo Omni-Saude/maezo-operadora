@@ -119,11 +119,10 @@ _EXIGEM_CONTEXTO: Final[frozenset[str]] = _palavras(
     "apendicite hernia disco catarata varizes fimose amigdalas adenoide pedra vesicula rim calculo renal "
     "tireoide glicose glicemia acucar sangue colesterol hemoglobina glicada"
 )
-#: Marcadores de procedimento: com um deles no texto, o termo de duplo sentido vale.
-_MARCADORES: Final[frozenset[str]] = _palavras(
-    "exame exames fazer faco fazendo realizar cirurgia operar operacao sessao sessoes procedimento "
-    "procedimentos pedido guia autorizacao tratamento"
-)
+#: Marcadores de procedimento: com um deles no texto, o termo de duplo sentido vale. SO' palavras que nomeiam
+#: o procedimento: "autorizacao", "guia", "pedido", "fazer" e "tratamento" estao em quase toda pergunta de
+#: cobertura e nao marcam nada ("tomo remedio, preciso de autorizacao?"; revisao independente, HEL-2).
+_MARCADORES: Final[frozenset[str]] = _palavras("exame exames cirurgia operar operacao sessao sessoes")
 _CODIGO_TUSS: Final[re.Pattern[str]] = re.compile(r"^\d{8}$")
 _SIGLA: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2,4}$")
 _FORA_DO_ALFABETO: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9]+")
