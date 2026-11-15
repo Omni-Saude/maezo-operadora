@@ -38,7 +38,43 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
 - **Coordenação:** uma orquestradora ROOT externa incorpora os PRs; as sub-orquestradoras abrem branches `prog/mzo/<unidade>` e PRs prontos para revisão, sem merge.
 - **Trilhas neste repositório:** **T-MZO-A** (motor e processos: pacote de regras K1 do rco, DMN, gates, trilha de auditoria) e **T-MZO-B** (Helena: volta a responder cobertura de forma ampla, em onda futura).
 - **Teto:** no máximo 4 pacotes de trabalho em andamento ao mesmo tempo neste repositório, divididos 2 (T-MZO-A) + 2 (T-MZO-B).
-- **Onda 0 (T-MZO-A), em revisão:** MZO-0a — `ai-attribution-gate` informativo (DL-0166); MZO-0b — documentos de topo em dia (este registro); MZO-0c — ADR proposto sobre regras do rco via pacote K1.
+- **Onda 0 (T-MZO-A), incorporada em 14/11/2026:**
+  - MZO-0a: `ai-attribution-gate` informativo (DL-0166), #1211, `08f03bc3`;
+  - MZO-0b: documentos de topo em dia, #1212, `c607a2f1`;
+  - MZO-0c: ADR-0075 Proposed, regras do rco via pacote K1, #1213, `7834de82`.
+- **Regra do dono para todo PR deste repositório (14/11/2026):**
+  - a ROOT incorpora todos os PRs; ninguém mais faz merge nem liga auto-merge;
+  - todo PR fica com **todos** os checks do CI verdes. Check cancelado, pendente ou falho não conta como verde, e nenhum teste é pulado, desligado ou marcado para ficar verde;
+  - **exceção (a):** `flip-path-review-gate`, o check de revisão de terceiros, pode ficar vermelho, pela dispensa da conta do dono;
+  - **exceção (b), temporária:** `staff-material-validade` pode ficar vermelho em qualquer PR até a renovação do material de staff do dev, que vence em 2026-11-16T12:23:47Z. A renovação na AWS está com o Gustavo, por e-mail do dono. Usada no #1215;
+  - **critério de base:** a ROOT aceita CI rodado sobre uma base anterior quando os merges posteriores tocam caminhos disjuntos (ruleset com `strict_required_status_checks_policy: false`, ADR-0069);
+  - sessões de agente não rodam `terraform plan/apply`, não acessam a AWS, não fazem deploy e não tocam segredo: só alteram código e documentos;
+  - não há force-push.
+- **Incorporados com `flip-path-review-gate` vermelho, pela exceção (a) (14/11/2026):**
+  - #1213 (`7834de82`), #1214 (`c3621f99`), #1215 (`941fb0b2`), #1211 (`08f03bc3`) e #1216 (`fff07598`);
+  - em todos, o caminho tem dono no CODEOWNERS e o único dono usuário é o autor, então a autoaprovação não vale e o check não fica verde sem um segundo revisor;
+  - #1215 também entrou com `staff-material-validade` vermelho, pela exceção (b) (runbook `docs/runbooks/material-staff-na-aws.md`).
+- **Frente de manutenção: resgate de PRs antigos válidos (pedido do dono, 14/11/2026).** Cada substituto parte do head do PR original, preserva os commits e a autoria, faz merge da `main` e tem base `main`. A ROOT fecha o original depois que o substituto entra.
+  - **M1:** #1215 substitui #1187 (dev igual à `main`). Incorporado. Acrescentou o REEMBOLSO-001 `05c181b9` em `aguardando_admissao`. Antes de aplicar, um humano confere o dev vivo com `plan`.
+  - **M2:** #1217 substitui #864 (job de limpeza da custódia, desligado por padrão, em dev e prod). Em revisão. Ligar o job depende da ciência do DPO para o ADR-0061.
+  - **M3:** cancelada. O #862 foi arquivado pelo dono.
+  - **M4:** #1216 substitui #1205 (`LeituraPlataformaGoldSemPHI` só com Gold sem PHI; reverte af15cecd). Incorporado.
+    - **O estado na AWS continua pendente:** o set foi aplicado com `-target` com o acesso ao HAPI do dev, e o merge não remove isso. Um humano precisa rodar `plan` e `apply` em `deploy/aws-identity-center`.
+    - O PR de acesso PHI não foi aberto; depende do dono e do DPO.
+  - **M5:** este registro.
+- **Fechados sem merge (triagem do dono, 14/11/2026):**
+  - #988: descrevia a trava com `alarme_deterministico` e frase afirmada, retirada pela DL-0165;
+  - #863: superado pelo repin genérico (`scripts/ops/staff_material_repin_catalogo.py`, #923) e pela v4 do SP-OP-ESCALATION-001 admitida em 02/11;
+  - #862: `scripts/sme/revisao_clinica.py` lia `src/maezo/agents/helena/alarme_deterministico.py`, apagado pela DL-0165;
+  - #865: o destinatário dos alarmes nunca foi definido.
+  - #1187 e #1205 foram fechados como substituídos por #1215 e #1216.
+  - O conteúdo de todos segue em `refs/pull/<n>/head`.
+- **Pendências humanas (fora do alcance de agente):**
+  - renovar o material de staff do dev antes de 2026-11-16T12:23:47Z (Gustavo);
+  - corrigir na AWS o acesso que o #1205 original aplicou com `-target` (`plan` e `apply` em `deploy/aws-identity-center`; e-mail enviado ao Gustavo);
+  - decidir sobre um acesso próprio ao HAPI do dev, com set e grupo próprios e o aval do DPO (dono e DPO). O desenho proposto está no #1216;
+  - ciência do DPO para o ADR-0061, condição para ligar o job de limpeza do #1217;
+  - `plan` no dev vivo antes de aplicar o #1215 (os pontos estão na descrição dele).
 - **Fora desta fila até decisão do dono:** emenda ao ADR-0018 e adendo ao ADR-0040 (negativa administrativa e glosa determinística automáticas em L2), mudanças em `spec/policies/autonomy/`, DMN e workers.
 
 ## 0. GROUND TRUTH (2026-07-19) — leia primeiro
@@ -1458,6 +1494,8 @@ Owner ROOT; lane Maezo retida por CI/gatekeeper/merge/main/custódia. Próximo g
 
 Owner ROOT (sessão Claude a pedido do dono). Detalhe e comandos em `RUNBOOK.md`; estado de retomada em `CHECKPOINT.md`.
 
+> **Atualização posterior (mesmo dia):** #1214, #1187 (via #1215), #1205 (via #1216) e a Onda 0 entraram na `main`. #988, #862, #863 e #865 foram fechados sem merge. Os itens "pendente" e "não tocados" abaixo valem para o momento da triagem; o estado atual está em §"Programa Circuito Fechado".
+
 - **Integrados em main** (merge commit): #1207 setup-java 6.2.0 (`492dc985`), #1208 cosign-installer 4.1.3 (`2bc1eab8`). Tips `7cf35fc0`/`7cc11615` ancestrais de `origin/main` `2bc1eab8`.
 - **Fechados sem merge:** #1206 langgraph-sdk 0.4.14 (fere a quarentena `exclude-newer`, sem GHSA; `uv.lock` não atualizado; remove `fairness_weight`); #1209 e #1210 codeql-action (init/analyze separados quebravam `codeql/*`) — substituídos por #1214.
 - **#1214 (pendente de integração):** codeql-action init+analyze 4.39.3 juntos + grupo `codeql-action` no `.github/dependabot.yml` + este registro. Próximo gate: aprovação do security-team (`.github/` é CODEOWNERS e o autor é o owner).
@@ -1472,5 +1510,6 @@ Owner ROOT (sessão Claude a pedido do dono). Detalhe e comandos em `RUNBOOK.md`
   | `dependabot/github_actions/github/codeql-action/analyze-4.39.1` | `3fdbecde` | #1009 fechado | não — versão superada em main |
   Condição de liberação: deleção por quem tiver permissão (botão "Delete branch" nos PRs); nenhuma dependência ativa. Os dois não ancestrais têm autorização explícita do dono.
 - **Lição (não repetir):** commit empurrado no branch do #1210 levou trailer `Co-Authored-By` de IA e foi barrado pelo `ai-attribution-gate`; commits neste repo não levam esse trailer.
+  - **Errata (2026-11-14, depois do #1211):** a lição valia para o gate antigo. Com a DL-0166 incorporada (`08f03bc3`), assinatura de IA em commit é **permitida**: o `ai-attribution-gate` só relata, com `::warning::` e o resumo do job, e não reprova. O que continua valendo é não empurrar em branch de outra pessoa.
 - **Manutenção:** `git fetch --all --no-prune`; `origin/main` = `2bc1eab8`; único worktree é o checkout da sessão (o temporário `wt-codeql` saiu por `git worktree remove` sem `--force`). `RUNBOOK.md`/`CHECKPOINT.md` desta sessão são locais (ignorados por `.gitignore`, como `SESSION.log`).
 - **Aberto:** alerta Dependabot #37 (1 moderado em main), não legível pela sessão (403).
