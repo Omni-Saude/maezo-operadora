@@ -193,9 +193,7 @@ async def test_ligada_sem_camada_e_o_aviso_de_canais_e_a_lacuna_registrada() -> 
 
 
 async def test_ligada_a_resposta_com_fonte_sai_literal_sem_o_modelo_de_redacao() -> None:
-    texto = (
-        "Pela regra geral, esse exame precisa de pedido médico. Isso não confirma autorização do seu pedido."
-    )
+    texto = f"Pela regra geral: esse exame precisa de pedido médico. {cob.FORMULA_FIXA}"
     resposta = cob.RespostaDaCobertura("resposta", texto, (cob.Fonte("regra_k2", "R-TESTE-1", "k2-teste"),))
     camada = _Camada("regra_geral", resposta)
     modelo = _Modelo()
@@ -253,3 +251,65 @@ def test_camada_que_nao_cumpre_o_protocolo_e_descartada() -> None:
 
     config = cob.da_configuracao({cob.CHAVE_DO_GRAFO: True, cob.CHAVE_DAS_CAMADAS: [_Torta(), object()]})
     assert config is not None and config.camadas == ()
+
+
+# --- As travas de politica sao do esqueleto (revisao independente, B1/B2/D1/D3) ------------------------
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        f"Sim, o plano cobre ressonância e a cobertura está garantida. {cob.FORMULA_FIXA}",
+        f"Não, seu plano não cobre esse exame. {cob.FORMULA_FIXA}",
+        f"Você cumpre o critério da diretriz, então pode marcar. {cob.FORMULA_FIXA}",
+        f"Tome 500mg de dipirona antes do exame. {cob.FORMULA_FIXA}",
+        f"Ligue para 0800 123 4567 para pedir. {cob.FORMULA_FIXA}",
+        f"Veja em www.exemplo.com.br antes. {cob.FORMULA_FIXA}",
+        f"O seu pedido vai ser autorizado. {cob.FORMULA_FIXA}",
+        "Pela regra geral: esse exame precisa de pedido médico.",  # sem a formula fixa
+    ],
+)
+async def test_texto_de_camada_que_fere_uma_trava_nao_sai(texto: str) -> None:
+    resposta = cob.RespostaDaCobertura("resposta", texto, (cob.Fonte("regra_k2", "R-1", "v"),))
+    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(_Camada("regra_geral", resposta)))
+    with capture_logs() as logs:
+        await grafo.ainvoke(_entrada("o plano cobre ressonância?"))
+    assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+    assert any(e.get("event") == "helena_cobertura_texto_barrado" for e in logs)
+
+
+async def test_esclarecer_que_afirma_cobertura_nao_sai() -> None:
+    camada = _Camada("regra_geral", cob.RespostaDaCobertura("esclarecer", "O plano cobre, mas qual exame?"))
+    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(camada))
+    await grafo.ainvoke(_entrada("o plano cobre ressonância?"))
+    assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+
+
+async def test_ligada_o_192_da_gestante_com_urgencia_continua_no_fim() -> None:
+    texto = f"Pela regra geral: o parto segue a regra da segmentação obstétrica. {cob.FORMULA_FIXA}"
+    resposta = cob.RespostaDaCobertura("resposta", texto, (cob.Fonte("regra_k2", "R-1", "v"),))
+    pergunta = "cobre parto? to gravida, e urgente"
+    desligado, w_desligado, _ = _grafo(_Modelo(), None)
+    await desligado.ainvoke(_entrada(pergunta))
+    ligado, w_ligado, _ = _grafo(_Modelo(), _ligada(_Camada("regra_geral", resposta)))
+    await ligado.ainvoke(_entrada(pergunta))
+    assert "192" in w_desligado.enviados[-1]
+    assert w_ligado.enviados[-1].startswith(texto) and "192" in w_ligado.enviados[-1]
+
+
+async def test_o_sim_depois_da_transferencia_abre_o_caso_de_pessoa() -> None:
+    camada = _Camada("regra_geral", cob.RespostaDaCobertura("transferir", lacuna="sem_regra"))
+    modelo = _Modelo()
+    modelo.roteador.append(decisao_v7("equipe", responde=True))
+    grafo, whatsapp, cib = _grafo(modelo, _ligada(camada))
+    primeiro = await grafo.ainvoke(_entrada("o plano cobre ressonância?"))
+    assert whatsapp.enviados[-1] == cob.TEXTO_TRANSFERIR and _starts(cib) == 0
+    await grafo.ainvoke(_entrada("sim") | {"coleta_pendente": primeiro.get("coleta_pendente")})
+    assert _starts(cib) == 1
+
+
+def test_a_marca_do_texto_e_de_uso_unico() -> None:
+    texto = f"Pela regra geral: texto de teste. {cob.FORMULA_FIXA}"
+    cob._guardar(texto)
+    assert cob.e_texto_da_cobertura(texto) is True
+    assert cob.e_texto_da_cobertura(texto) is False
