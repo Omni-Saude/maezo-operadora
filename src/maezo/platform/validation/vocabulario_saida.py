@@ -9,7 +9,8 @@ Dois gates, um por pasta (`dmn.is_rco_dmn` separa as duas):
     (`tests/integration/processes/test_sp_op_*_001.py::test_*_sem_saida_adversa`, que continuam).
     Um valor e adverso quando o literal string FEEL INTEIRO, normalizado, esta na lista `adversos`.
     A unica excecao e uma `permissao` declarada no arquivo de dados, por (arquivo, saida, valor), com
-    citacao; permissao que nao casa com nenhuma saida real reprova (orfa).
+    citacao; permissao que nao casa com nenhuma saida real reprova (orfa). Literais dentro de
+    expressoes (`if x then "NEGAR" else ...`) contam como saida.
 
 (b) **Tabelas do pacote K1** (`spec/processes/dmn/rco/*.dmn`, ADR-0075 (d)): vocabulario FECHADO.
     `decisao` e `classeAdverso` so aceitam os valores declarados; `negar`/`glosar`/
@@ -21,6 +22,10 @@ O VOCABULARIO NAO MORA AQUI. Ele e lido de `config/integrations/rco/vocabulario-
 (versionado, com `schema` + `versao`), que a trilha rco congela (PROG-RCO-1). Este modulo so aplica
 as regras. Fail-closed: arquivo de dados ausente, malformado ou fora do schema e erro bloqueante, e
 nunca um lint que passa em branco.
+
+Toda `decision` (nas duas pastas) tem de ser exatamente uma `decisionTable`: outro corpo
+(`literalExpression`, `context`...) escaparia do lint e e recusado. O arquivo de dados pode estender o
+vocabulario, nunca encolher o piso do ADR-0018/ADR-0040/ADR-0075 fixado aqui (`*_MINIMOS`).
 
 Leitura das celulas de saida (`<outputEntry><text>`):
 - texto vazio/ausente ou o literal `null` -> AUSENTE (o motor devolve null nos dois casos);
@@ -50,6 +55,18 @@ SCHEMA = "maezo.dmn.vocabulario-saida"
 VERSOES_SUPORTADAS = frozenset({1})
 #: Estados aceitos para o arquivo de dados.
 ESTADOS = frozenset({"provisorio", "congelado"})
+
+#: Piso que o arquivo de dados pode ESTENDER, nunca encolher (fail-closed contra remocao silenciosa
+#: de invariante). ADR-0018:72-73,:77 e ADR-0040 D3:147-151.
+ADVERSOS_MINIMOS = frozenset({"DENY", "NEGAR", "NEGATIVA", "INDEFERIR", "ACEITAR_GLOSA", "GLOSAR"})
+#: ADR-0075 (d):114-117,:132 — decisao adversa do K1 tem classe e dono humano (fila).
+EXIGEM_CLASSE_E_FILA_MINIMO = frozenset({"negar", "glosar", "recomendar_negativa"})
+#: ADR-0075 (d):116,:215 — negativa clinica e sempre do medico auditor.
+CLASSES_PROIBIDAS_MINIMAS = frozenset({("clinico", "negar")})
+#: Elementos de expressao DMN 1.3 que podem ser o corpo de uma `decision` alem de `decisionTable`.
+_EXPRESSOES_NAO_TABELA = frozenset(
+    {"literalExpression", "context", "invocation", "relation", "list", "functionDefinition"}
+)
 
 _STRING_LITERAL = re.compile(r'^"((?:[^"\\]|\\.)*)"$', re.DOTALL)
 _STRING_LITERALS_IN_LIST = re.compile(r'"((?:[^"\\]|\\.)*)"', re.DOTALL)
@@ -165,6 +182,11 @@ def _ler_adversos(no: object) -> frozenset[str]:
         if valor in vistos:
             raise VocabularioInvalidoError(f"maezo.adversos: valor repetido '{valor}'")
         vistos.add(valor)
+    faltam = ADVERSOS_MINIMOS - vistos
+    if faltam:
+        raise VocabularioInvalidoError(
+            f"maezo.adversos nao pode remover o piso do ADR-0018/ADR-0040: faltam {sorted(faltam)}"
+        )
     return frozenset(vistos)
 
 
@@ -224,6 +246,11 @@ def _ler_k1(no: object) -> VocabularioK1:
         raise VocabularioInvalidoError(
             f"k1.regras.exigem_classe_e_fila fora de k1.decisao: {sorted(exigem - decisoes)}"
         )
+    if not exigem >= EXIGEM_CLASSE_E_FILA_MINIMO:
+        raise VocabularioInvalidoError(
+            "k1.regras.exigem_classe_e_fila nao pode remover o piso do ADR-0075 (d): faltam "
+            f"{sorted(EXIGEM_CLASSE_E_FILA_MINIMO - exigem)}"
+        )
     proibidas_no = regras.get("classe_proibida")
     if not isinstance(proibidas_no, list):
         raise VocabularioInvalidoError("k1.regras.classe_proibida: esperada uma lista")
@@ -241,6 +268,13 @@ def _ler_k1(no: object) -> VocabularioK1:
             raise VocabularioInvalidoError(f"{onde}.decisoes fora de k1.decisao: {sorted(com - decisoes)}")
         proibidas.append(
             ClasseProibida(classe, com, _exigir_texto(item_mapa.get("citacao"), f"{onde}.citacao"))
+        )
+
+    pares = {(p.classe, d) for p in proibidas for d in p.decisoes}
+    if not pares >= CLASSES_PROIBIDAS_MINIMAS:
+        raise VocabularioInvalidoError(
+            "k1.regras.classe_proibida nao pode remover o piso do ADR-0075 (d):116,:215: faltam "
+            f"{sorted(CLASSES_PROIBIDAS_MINIMAS - pares)}"
         )
 
     return VocabularioK1(
@@ -304,6 +338,11 @@ def ler_celula(entry: ET.Element | None) -> Celula:
     return Celula(Tipo.EXPRESSAO, texto)
 
 
+def literais(texto: str) -> list[str]:
+    """Todo literal string FEEL dentro de `texto` (aspas escapadas com `\\`), ja desescapado."""
+    return [re.sub(r"\\(.)", r"\1", m.group(1)) for m in _STRING_LITERALS_IN_LIST.finditer(texto)]
+
+
 @dataclass(frozen=True, slots=True)
 class _Tabela:
     decision_id: str
@@ -320,7 +359,17 @@ def _tabelas(path: Path, root: ET.Element, report: Report) -> list[_Tabela]:
     tabelas: list[_Tabela] = []
     for decision in (e for e in root.iter() if local_name(e.tag) == "decision"):
         did = (decision.get("id") or "").strip()
-        for table in (e for e in decision.iter() if local_name(e.tag) == "decisionTable"):
+        corpos = [local_name(c.tag) for c in decision if local_name(c.tag) in _EXPRESSOES_NAO_TABELA]
+        tabelas_da_decisao = [c for c in decision if local_name(c.tag) == "decisionTable"]
+        if corpos or len(tabelas_da_decisao) != 1:
+            report.error(
+                path,
+                f"vocabulario de saida: decisao '{did}' nao e exatamente uma decisionTable "
+                f"(corpo: {corpos or 'nenhum'}) — o lint so le tabelas, entao outro corpo e recusado "
+                "(fail-closed: uma literalExpression/context escaparia da checagem de saida)",
+            )
+            continue
+        for table in tabelas_da_decisao:
             outputs = tuple(c for c in table if local_name(c.tag) == "output")
             saidas = tuple(_nome_saida(o, i) for i, o in enumerate(outputs))
             regras: list[tuple[str, tuple[Celula, ...]]] = []
@@ -346,20 +395,14 @@ def _tabelas(path: Path, root: ET.Element, report: Report) -> list[_Tabela]:
 
 
 def _valores_declarados(output: ET.Element) -> list[tuple[str, str]]:
-    """Literais string de `defaultOutputEntry` e `outputValues` de uma coluna: (origem, valor)."""
+    """Todo literal string de `defaultOutputEntry` e `outputValues` (expressao inclusa): (origem, valor)."""
     achados: list[tuple[str, str]] = []
     for child in output:
         nome = local_name(child.tag)
-        if nome == "defaultOutputEntry":
-            celula = ler_celula(child)
-            if celula.tipo is Tipo.STRING:
-                achados.append(("defaultOutputEntry", celula.valor))
-        elif nome == "outputValues":
+        if nome in ("defaultOutputEntry", "outputValues"):
             text_el = next((c for c in child if local_name(c.tag) == "text"), None)
-            for casou in _STRING_LITERALS_IN_LIST.finditer(
-                (text_el.text or "") if text_el is not None else ""
-            ):
-                achados.append(("outputValues", re.sub(r"\\(.)", r"\1", casou.group(1))))
+            texto = (text_el.text or "") if text_el is not None else ""
+            achados.extend((nome, valor) for valor in literais(texto))
     return achados
 
 
@@ -390,6 +433,10 @@ def _check_maezo(
             for saida, celula in zip(tabela.saidas, celulas, strict=True):
                 if celula.tipo is Tipo.STRING:
                     avaliar(tabela.decision_id, saida, f"regra '{rid}'", celula.valor)
+                elif celula.tipo is Tipo.EXPRESSAO:
+                    # Literal dentro de expressao (`if x then "NEGAR" else ...`, `["NEGAR"]`) tambem e saida.
+                    for valor in literais(celula.texto):
+                        avaliar(tabela.decision_id, saida, f"regra '{rid}' (dentro de expressao)", valor)
 
 
 # ---------------------------------------------------------------------------------------------

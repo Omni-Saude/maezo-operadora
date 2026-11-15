@@ -421,3 +421,116 @@ def test_gate_k1_esta_ligado_no_validate_artifacts(tmp_path: Path) -> None:
     text = target.read_text(encoding="utf-8")
     target.write_text(text.replace('"liberar"', '"negar"', 1), encoding="utf-8")
     assert validate_artifacts([str(copy)]) == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# Revisao independente (M1-M4)
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        'if x &gt; 1 then "NEGAR" else "ANALISE_HUMANA"',
+        '["ANALISE_HUMANA", "glosar"]',
+        'string("indeferir")',
+    ],
+)
+def test_m1_literal_adverso_dentro_de_expressao_reprova(tmp_path: Path, cell: str) -> None:
+    path = _maezo(tmp_path, "x.dmn", ["roteamento"], [[cell]])
+    msgs = _messages(_run([path]))
+    assert "dentro de expressao" in msgs and "valor adverso" in msgs
+
+
+def test_m1_expressao_sem_literal_adverso_passa(tmp_path: Path) -> None:
+    cell = 'string(date and time(d + "T00:00:00") + duration("P18D"))'
+    assert _run([_maezo(tmp_path, "x.dmn", ["sla"], [[cell]])]).ok
+
+
+def test_m1_default_output_entry_em_expressao_reprova(tmp_path: Path) -> None:
+    extra = '<defaultOutputEntry id="d"><text>if a then "NEGAR" else null</text></defaultOutputEntry>'
+    path = _maezo(tmp_path, "x.dmn", ["roteamento"], [['"ANALISE_HUMANA"']], extra)
+    assert "defaultOutputEntry" in _messages(_run([path]))
+
+
+_LITERAL_DECISION = f"""<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{_NS}" id="defs_l" name="t" namespace="http://maezo.health/dmn">
+  <decision id="{{did}}" name="t">
+    <variable name="roteamento" typeRef="string"/>
+    <literalExpression id="le"><text>"ANALISE_HUMANA"</text></literalExpression>
+  </decision>
+</definitions>"""
+
+
+@pytest.mark.parametrize("sub", ["", "rco"])
+def test_m2_decisao_que_nao_e_tabela_reprova(tmp_path: Path, sub: str) -> None:
+    path = tmp_path / "dmn" / sub / ("rco_l.dmn" if sub else "l.dmn")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_LITERAL_DECISION.format(did=path.stem), encoding="utf-8")
+    assert dmn.is_rco_dmn(path) is bool(sub)
+    msgs = _messages(_run([path]))
+    assert "nao e exatamente uma decisionTable" in msgs and "literalExpression" in msgs
+
+
+def test_m2_toda_decisao_real_e_tabela() -> None:
+    report = _run(dmn.list_dmn_files(DMN_DIR))
+    assert not any("decisionTable" in f.message for f in report.findings)
+
+
+def _sem(lista: list[object], *remover: str) -> list[object]:
+    return [item for item in lista if not (isinstance(item, dict) and item.get("valor") in remover)]
+
+
+@pytest.mark.parametrize(
+    ("mutacao", "trecho"),
+    [
+        (lambda d: d["maezo"].update(adversos=_sem(d["maezo"]["adversos"], "NEGAR")), "NEGAR"),
+        (lambda d: d["maezo"].update(adversos=_sem(d["maezo"]["adversos"], "DENY", "GLOSAR")), "DENY"),
+        (lambda d: d["k1"]["regras"]["exigem_classe_e_fila"].remove("negar"), "negar"),
+        (lambda d: d["k1"]["regras"].update(classe_proibida=[]), "clinico"),
+        (
+            lambda d: d["k1"]["regras"].update(
+                classe_proibida=[{"classe": "clinico", "decisoes": ["glosar"], "citacao": "x"}]
+            ),
+            "clinico",
+        ),
+    ],
+)
+def test_m3_dado_nao_encolhe_o_piso_do_codigo(tmp_path: Path, mutacao: object, trecho: str) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    mutacao(data)  # type: ignore[operator]
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    report = _run([], out)
+    assert [f.path for f in report.findings] == [out]
+    assert "piso" in report.findings[0].message and trecho in report.findings[0].message
+
+
+def test_m3_dado_pode_estender_o_piso(tmp_path: Path) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    data["maezo"]["adversos"].append({"valor": "NOVO_ADVERSO", "fontes": ["teste"]})
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    assert "NOVO_ADVERSO" in carregar(out).adversos
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "INDEFERIDO",
+        "INDEFERIDA",
+        "NEGADA",
+        "NEGADO",
+        "GLOSADO",
+        "GLOSADA",
+        "INADMITIDO",
+        "INADMITIDA",
+        "DEFERIDO_PARCIAL",
+        "RESCISAO",
+        "SUSPENSAO",
+    ],
+)
+def test_m4_formas_derivadas_sao_adversas(tmp_path: Path, valor: str) -> None:
+    assert valor in carregar(VOCAB).adversos
+    path = _maezo(tmp_path, "x.dmn", ["status"], [[f'"{valor.lower()}"']])
+    assert "valor adverso" in _messages(_run([path]))

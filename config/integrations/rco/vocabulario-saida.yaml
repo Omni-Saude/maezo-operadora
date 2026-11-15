@@ -34,8 +34,8 @@ maezo:
     roteia. Emendado por ADR-0040 D3/D4 (docs/adr/0040-perspectiva-operadora-contas-recurso.md:143-178):
     nenhuma DMN emite o adverso do pagador.
   comparacao: >-
-    Valor INTEIRO de cada literal string FEEL de saida (outputEntry, defaultOutputEntry e
-    outputValues), normalizado para maiusculas com '-' e espaco trocados por '_'. Nao e busca de
+    Valor INTEIRO de cada literal string FEEL de saida (outputEntry — inclusive literais dentro de
+    expressoes —, defaultOutputEntry e outputValues), normalizado para maiusculas com '-' e espaco trocados por '_'. Nao e busca de
     substring: ASSISTENCIAL_CONTESTA_NEGATIVA e rotulo de classificacao, nao merito (mesmo criterio
     de tests/integration/processes/test_sp_op_nip_001.py:1999-2002). Texto livre (motivo, fonte)
     nunca casa com um token. As cercas por processo, mais estritas (substring), continuam valendo.
@@ -130,6 +130,27 @@ maezo:
       fontes: ["test_sp_op_adequacao_001.py:1344,1362"]
     - valor: GARANTIR_REEMBOLSO
       fontes: ["test_sp_op_adequacao_001.py:1344"]
+    # --- formas derivadas (participio/substantivo) dos tokens do ADR-0018/ADR-0040 acima ---
+    - valor: INDEFERIDO
+      fontes: ["forma derivada de INDEFERIR (ADR-0018:73, ADR-0040:149)"]
+    - valor: INDEFERIDA
+      fontes: ["forma derivada de INDEFERIR (ADR-0018:73, ADR-0040:149)"]
+    - valor: NEGADA
+      fontes: ["forma derivada de NEGAR (ADR-0018:72); NEGADO ja listado acima"]
+    - valor: GLOSADO
+      fontes: ["forma derivada de GLOSAR (ADR-0040:147)"]
+    - valor: GLOSADA
+      fontes: ["forma derivada de GLOSAR (ADR-0040:147)"]
+    - valor: INADMITIDO
+      fontes: ["forma derivada de INADMITIR (ADR-0040:151)"]
+    - valor: INADMITIDA
+      fontes: ["forma derivada de INADMITIR (ADR-0040:151)"]
+    - valor: DEFERIDO_PARCIAL
+      fontes: ["forma derivada de DEFERIR_PARCIAL (ADR-0040:150)"]
+    - valor: RESCISAO
+      fontes: ["forma substantiva de RESCINDIR (_hard_frozen.yaml contract_termination)"]
+    - valor: SUSPENSAO
+      fontes: ["forma substantiva de SUSPENDER (test_sp_op_cancel_001.py:1611)"]
   # Excecao EXPLICITA e localizada: so vale para o trio (arquivo, saida, valor) declarado e precisa
   # de citacao do ADR/cerca que a autoriza. Permissao que nao casa com nenhuma saida real reprova
   # (permissao orfa). Hoje nenhuma tabela do primeiro nivel emite valor adverso: lista vazia.
