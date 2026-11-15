@@ -150,6 +150,9 @@ _SUBTREES_ESPERADOS = {
     # ADR-0066/DL-0134: o contrato do roteador de habilidades da Helena (`roteador_contrato.caminho_padrao`),
     # dentro de `spec/agents` (ja' empacotado).
     "spec/agents/helena",
+    # DL-0167/HEL-2: `spec/conhecimento/cobertura` volta a ser citado (o YAML de sinonimos, em
+    # `cobertura/procedimento.caminho_padrao`); o force-include e a COPY dele continuam no lugar.
+    "spec/conhecimento/cobertura",
 }
 
 
