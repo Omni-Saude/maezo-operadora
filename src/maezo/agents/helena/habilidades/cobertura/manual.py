@@ -13,7 +13,10 @@ e' sintetica). O diretorio do pacote contem EXATAMENTE estes tres arquivos:
 
       {"formato": "rco-k2-v1", "versao": str, "commit_rco": str (40 hex),
        "gerado_em": str (ISO-8601 UTC), "ratificado": bool,
-       "arquivos": {"search-index.json": "<sha256 hex>", "capitulo-geral.yaml": "<sha256 hex>"}}
+       "arquivos": {"search-index.json": "sha256:<hex>", "capitulo-geral.yaml": "sha256:<hex>"}}
+
+  O digest de cada arquivo vai na notacao `sha256:<64 hex>` (a mesma das imagens OCI): o hex cru ao lado do
+  nome do arquivo e' lido como chave de API pela regra `generic-api-key` do gitleaks.
 
 - `search-index.json`: lista de regras
   `{"id": str, "url": str, "titulo": str, "resumo": str, "texto": str, "sinonimos": [str, ...]}`;
@@ -72,7 +75,8 @@ TAMANHO_MAXIMO: Final[int] = 20 * 1024 * 1024
 _TOKEN_MINIMO_DO_TITULO: Final[int] = 3
 
 _HEX40: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
-_HEX64: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
+_DIGEST: Final[re.Pattern[str]] = re.compile(r"sha256:[0-9a-f]{64}")
+_PREFIXO_DO_DIGEST: Final[str] = "sha256:"
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]+")
 _CAMPOS_DO_MANIFESTO: Final[frozenset[str]] = frozenset(
     {"formato", "versao", "commit_rco", "gerado_em", "ratificado", "arquivos"}
@@ -233,7 +237,7 @@ def _verificar_manifesto(dados: bytes, pin: PinDoK2) -> tuple[str, str, dict[str
     if not isinstance(arquivos, dict) or set(arquivos) != ARQUIVOS_DO_PACOTE:
         raise PacoteK2InvalidoError("lista_de_arquivos_invalida")
     for hash_ in arquivos.values():
-        if not isinstance(hash_, str) or not _HEX64.fullmatch(hash_):
+        if not isinstance(hash_, str) or not _DIGEST.fullmatch(hash_):
             raise PacoteK2InvalidoError("lista_de_arquivos_invalida")
     return manifesto["versao"], commit, dict(arquivos)
 
@@ -257,7 +261,7 @@ def _verificar_diretorio(diretorio: Path, listados: Mapping[str, str]) -> dict[s
     conteudos: dict[str, bytes] = {}
     for nome, hash_ in listados.items():
         dados = _ler(diretorio / nome, ausente="arquivo_listado_ausente")
-        if hashlib.sha256(dados).hexdigest() != hash_:
+        if _PREFIXO_DO_DIGEST + hashlib.sha256(dados).hexdigest() != hash_:
             raise PacoteK2InvalidoError("sha256_de_arquivo_diferente")
         conteudos[nome] = dados
     return conteudos

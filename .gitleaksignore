@@ -257,3 +257,10 @@ f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 # por isso o Security de main ficou vermelho em c6cbd383 antes do merge. Se o #1187 for squash-merged, o SHA
 # do squash gera outro fingerprint: acrescente-o aqui depois do merge (como o #812/#951).
 cfe289424e0e56b5b2847070e9c69a13d65fa20d:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93
+
+# Falso positivo: digest sha256 (hex cru) de um arquivo da AMOSTRA SINTETICA do pacote K2 da Helena
+# (`tests/unit/agents/helena_k2_amostra/pacote/manifesto.json`, HEL-3a, PR #1227). A regra 'generic-api-key'
+# pega o hex ao lado do nome do arquivo; nao e' credencial (e' o sha256 publico do `capitulo-geral.yaml`
+# ficticio). O formato passou a `sha256:<hex>`, que a regra nao pega; esta impressao cobre so' o commit
+# historico imutavel (sem force-push).
+72de3a4294c7ab0c1aeaa42de9bf811c7b22c323:tests/unit/agents/helena_k2_amostra/pacote/manifesto.json:generic-api-key:10
