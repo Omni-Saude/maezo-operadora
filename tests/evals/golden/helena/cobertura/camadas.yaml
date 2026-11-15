@@ -1,0 +1,9 @@
+# Dominio do gabarito do rco -> camada da cobertura da Helena (DL-0167): 1 regra geral (pacote K2), 2 seu plano
+# (rotas do lago), 3 seu caso (tabelas do rco com os dados da pessoa, Onda 3). Dominio fora daqui = a_classificar
+# (nao conta como camada 1). Os dominios abaixo sao os da AMOSTRA SINTETICA; os reais vem com o K2 (Onda 2).
+camadas:
+  autorizacao: 1
+  quantidades: 1
+  prazos: 1
+  prestador: 1
+  carencia: 2
