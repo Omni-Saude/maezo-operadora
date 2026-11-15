@@ -92,6 +92,7 @@ from maezo.tools.workers.engine_var_types import (
     declared_long_variable,
     validate_centavos_engine_var,
 )
+from maezo.tools.workers.rco_pin import rco_audit_fields, rco_pinned_table
 
 logger = structlog.get_logger(__name__)
 
@@ -303,9 +304,18 @@ class DmnVersion:
     version: int
     deployment_id: str
 
-    def to_audit_dict(self) -> dict[str, Any]:
-        """Shape for `AuditRecord.dmn_versions[key]` (ADR-0028 §5, `gateway/audit.py`)."""
-        return {"version": self.version, "id": self.id, "deploymentId": self.deployment_id}
+    def to_audit_dict(self, row: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Shape for `AuditRecord.dmn_versions[key]` (ADR-0028 §5, `gateway/audit.py`).
+
+        Maezo table: exactly `{version, id, deploymentId}` — unchanged for every existing reader.
+        rco K1 table (`rco_` key, ADR-0075 §(f)): the same keys plus `shaDmn` (and `versaoRegra`
+        once the pin carries a manifest) from `rules.lock.json`, never from the engine, plus
+        `idRegra` from `row` (the matched row) when it carries that output. Raises
+        `RcoRulesPinError` for an `rco_` key the pin does not attest (see `rco_pin.py`).
+        """
+        entry: dict[str, Any] = {"version": self.version, "id": self.id, "deploymentId": self.deployment_id}
+        entry.update(rco_audit_fields(self.key, row))
+        return entry
 
 
 @runtime_checkable
@@ -632,15 +642,20 @@ def evaluate_sync(
     This is the ONE funnel every worker DMN eval passes through, so a single hook covers all
     ~11 migrated tables.
     """
+    # MZO-5a (ADR-0075 §(f)): an `rco_` table the pin does not attest is refused BEFORE it is
+    # evaluated — its audit entry could not carry a genuine `shaDmn`. No-op for Maezo tables.
+    rco_pinned_table(decision_key)
     try:
         rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
     except DmnDeterministicEvaluationError as exc:
         # MZO-1c: the version WAS resolved before the evaluation failed, and it is exactly what the
-        # refusal audit row must attest (which table version could not be evaluated).
+        # refusal audit row must attest (which table version could not be evaluated). No row
+        # matched authoritatively, so an rco entry carries `shaDmn` but no `idRegra`.
         if exc.version is not None:
             record_dmn_version(exc.version)
         raise
-    record_dmn_version(version)
+    # `idRegra` is read only from a single authoritative row (UNIQUE/FIRST); otherwise it is absent.
+    record_dmn_version(version, row=rows[0] if len(rows) == 1 else None)
     return rows, version
 
 
