@@ -92,6 +92,9 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         "adequacao_shadow",
         "phi_vars",  # one-way PHI redaction helper
         "_audit_ctx",  # per-task DMN-version collector (T-B)
+        # MZO-5a (ADR-0075 (f)): stdlib reader of the rco K1 pin (rules.lock.json) that stamps
+        # shaDmn/versaoRegra/idRegra on rco_ audit entries; no engine client, no worker registration.
+        "rco_pin",
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
         # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
         # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.
