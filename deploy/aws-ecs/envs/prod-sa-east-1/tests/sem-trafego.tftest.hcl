@@ -114,7 +114,7 @@ run "nasce_sem_trafego" {
     error_message = "Retomada/inbox com task em prod sem cutover."
   }
   assert {
-    condition     = alltrue([for s in aws_scheduler_schedule.lembrete_cobranca : s.state == "DISABLED"])
+    condition     = alltrue([for s in aws_scheduler_schedule.lembrete_cobranca : s.state == "DISABLED"]) && alltrue([for s in aws_scheduler_schedule.custodia_limpeza : s.state == "DISABLED"])
     error_message = "Rotina agendada ligada em prod sem cutover."
   }
   assert {

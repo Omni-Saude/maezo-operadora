@@ -30,7 +30,7 @@ Diferença que **acrescenta** PR cruzado: o ALB interno do HAPI de prod só acei
 
 | Variável | Default | Efeito |
 |---|---|---|
-| `servicos_habilitados` | `false` | `false` = todo `aws_ecs_service` com `desired_count = 0` e o agendamento do lembrete `DISABLED`. |
+| `servicos_habilitados` | `false` | `false` = todo `aws_ecs_service` com `desired_count = 0` e os agendamentos do lembrete e da limpeza da custodia `DISABLED`. |
 | `borda_publica_habilitada` | `false` | Túnel Cloudflare de prod. Só sobe com **os dois** em `true`: dá para provar o ambiente inteiro sem entrada pública. |
 | `ecs_exec_habilitado` | `false` | Shell nas tasks (break-glass por PR). |
 | `engine_db_schema_update` | `false` | DDL automática do CIB Seven (só no primeiro boot). |
