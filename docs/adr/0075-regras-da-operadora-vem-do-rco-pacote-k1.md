@@ -1,6 +1,7 @@
 # ADR-0075: Regras de negócio da operadora vêm do `regras-contratos-operadora` (pacote K1); o Maezo mantém as tabelas de processo
 
 **Status:** Proposed — rascunho escrito por agente (sub-orquestradora T-MZO-A, Programa Circuito Fechado, unidade MZO-0c) com base nas decisões do dono de 14/11/2026. Aceitar este ADR é ato separado do dono, porque `/docs/adr/` é caminho de CODEOWNERS. Esta unidade não muda código, DMN, worker nem política de autonomia.
+**Aceite parcial:** os itens implementados na Onda 1 (§(b) pasta, varredura, pin e regras por pasta; §(c) erro determinístico permanente; §(d) só o lint estático de vocabulário) foram aceitos pelo ADR-0076, por ordem do dono de 15/11/2026 (Programa Circuito Fechado, Onda 1). O ADR-0076 também corrige o §(c): a sobreposição `UNIQUE` não é mais transiente. O restante deste ADR segue Proposed.
 **Data:** 2026-11-14
 **Área:** Integração / Regras de negócio / Motor de processos / Autonomia
 
