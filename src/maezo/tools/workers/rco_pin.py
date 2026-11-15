@@ -12,8 +12,9 @@ ganha, alem das chaves do motor (`version`, `id`, `deploymentId`), ate tres camp
 - `versaoRegra`: do manifesto K1 que o pin fixa (`manifest_pin`). Enquanto `estado` e `sem_pacote`
   nao ha manifesto, entao o campo fica AUSENTE (nunca `null`, nunca inventado).
 - `idRegra`: da SAIDA `idRegra` da linha casada (o ADR diz "da saida da tabela"). So entra quando a
-  avaliacao devolveu exatamente uma linha e essa saida e texto nao vazio; senao fica AUSENTE. O
-  exemplo sintetico de hoje nao tem essa saida.
+  avaliacao devolveu exatamente uma linha com essa saida nao nula; sem ela fica AUSENTE. Valor fora
+  de `^[A-Za-z0-9._-]{1,64}$` (ex.: eco de variavel de entrada, PHI) levanta `RcoRulesPinError` e
+  nunca e gravado. O exemplo sintetico de hoje nao tem essa saida.
 
 Para tabela Maezo (id sem o prefixo `rco_`) nada muda: nenhuma chave nova, e o pin nem e lido.
 
@@ -67,6 +68,9 @@ SAIDA_ID_REGRA: Final[str] = "idRegra"
 ERR_DMN_RCO_PIN: Final[str] = "ERR_DMN_RCO_PIN"
 
 _SHA256: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
+#: Forma aceita de `idRegra`: identificador curto, nunca texto livre. Uma saida FEEL pode ecoar uma
+#: variavel de entrada (dado de caso/PHI); fora deste padrao o valor NUNCA e gravado (fail-closed).
+_ID_REGRA: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _DMN_NS: Final[str] = "{https://www.omg.org/spec/DMN/20191111/MODEL/}"
 
 
@@ -226,8 +230,15 @@ def rco_audit_fields(decision_key: str, row: Mapping[str, Any] | None = None) ->
         return {}
     fields = pinned.audit_fields()
     id_regra = row.get(SAIDA_ID_REGRA) if row is not None else None
-    if isinstance(id_regra, str) and id_regra:
-        fields["idRegra"] = id_regra
+    if id_regra is None:
+        return fields
+    if not isinstance(id_regra, str) or _ID_REGRA.fullmatch(id_regra) is None:
+        # O valor nao entra nem na mensagem: pode ser dado de caso ecoado pela tabela.
+        raise RcoRulesPinError(
+            f"decisao {decision_key!r}: saida {SAIDA_ID_REGRA!r} fora do padrao {_ID_REGRA.pattern!r}; "
+            "valor nao gravado na auditoria"
+        )
+    fields["idRegra"] = id_regra
     return fields
 
 

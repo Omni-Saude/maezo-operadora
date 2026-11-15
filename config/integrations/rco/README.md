@@ -32,6 +32,14 @@ sem rede, fail-closed. Saída 0 = passa; 1 = falha; 2 = uso inválido da linha d
 - O gate recalcula o sha256 do manifesto e de cada arquivo listado e recusa: arquivo listado
   ausente, digest divergente, `.dmn` em `rco/` fora da lista, subpasta, link simbólico, caminho
   absoluto ou com `..` e entrada duplicada.
+- **O runtime ainda recusa `fixado`.** `rco_pin.load_rco_rules_pin`
+  (`src/maezo/tools/workers/rco_pin.py`) só lê `sem_pacote`. A leitura de `versaoRegra` do manifesto K1
+  chega na Onda 2. Passar o pin para `fixado` antes disso passa no CI, mas faz falhar em produção
+  toda avaliação de decisão `rco_` (`ERR_DMN_RCO_PIN`, incidente sem retry). As tabelas Maezo não
+  são afetadas.
+- O `shaDmn` gravado em `dmn_versions` é o do arquivo pinado na árvore local, re-hasheado na carga.
+  Ele não vem do deploy no motor: `version`/`deploymentId` do motor ainda não são cruzados com o pin
+  (fica para a Onda 2).
 
 ## Como o pin muda
 

@@ -192,7 +192,9 @@ def test_rco_table_entry_carries_sha_from_the_pin() -> None:
 def test_rco_id_regra_comes_from_the_single_matched_row() -> None:
     version = DmnVersion(key=_SINTETICO, id="x", version=1, deployment_id="d")
     assert version.to_audit_dict({"idRegra": "K1-R-001"})["idRegra"] == "K1-R-001"
-    for row in (None, {}, {"idRegra": None}, {"idRegra": ""}, {"idRegra": 7}):
+    assert version.to_audit_dict({"idRegra": "a.B_9-z"})["idRegra"] == "a.B_9-z"
+    assert version.to_audit_dict({"idRegra": "x" * 64})["idRegra"] == "x" * 64
+    for row in (None, {}, {"idRegra": None}):
         assert "idRegra" not in version.to_audit_dict(row)
 
     fake = FakeDmnTransport()
@@ -267,3 +269,30 @@ def test_pin_loader_fails_closed(tmp_path: Path, sha: str | None, estado: str, r
         (rules_dir / "rco_exemplo_sintetico.dmn").unlink()
     with pytest.raises(RcoRulesPinError):
         load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+
+
+@pytest.mark.parametrize(
+    "id_regra",
+    [
+        "x" * 65,  # too long
+        "",
+        "regra 1",  # space
+        "regração",  # accents
+        "K1-R-001\nnome=Maria",  # injected text
+        "123.456.789-00 Joao",  # echoed case data
+        7,
+    ],
+)
+def test_rco_id_regra_out_of_pattern_fails_closed_and_is_never_written(id_regra: object) -> None:
+    version = DmnVersion(key=_SINTETICO, id="x", version=1, deployment_id="d")
+    with pytest.raises(RcoRulesPinError) as excinfo:
+        version.to_audit_dict({"idRegra": id_regra})
+    assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+    if isinstance(id_regra, str) and id_regra:
+        assert id_regra not in str(excinfo.value)
+
+    fake = FakeDmnTransport()
+    fake.register(_SINTETICO, [{"idRegra": id_regra}])
+    with collect_dmn_versions() as collected, pytest.raises(RcoRulesPinError):
+        evaluate_sync(fake, _SINTETICO, {})
+    assert collected == {}
