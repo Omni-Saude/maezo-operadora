@@ -1,0 +1,31 @@
+# AMOSTRA SINTETICA na forma de `validacao/teste-uso/fase-e/perguntas.yaml` do rco (descrita pela ROOT,
+# rco origin/main 40b8df37). Nenhuma pergunta real: casos inventados sobre a amostra sintetica do K2
+# (`tests/unit/agents/helena_k2_amostra`). Substituir pelas 180 reais quando o K2 chegar (Onda 2).
+perguntas:
+  - id: S9-001
+    publico: beneficiario
+    pergunta: Preciso de autorização pra fazer ressonância?
+  - id: S9-002
+    publico: beneficiario
+    pergunta: Quantas sessões de fisioterapia vale cada pedido médico?
+  - id: S9-003
+    publico: beneficiario
+    pergunta: Em quanto tempo eu tenho que conseguir consulta com clínico geral?
+  - id: S9-004
+    publico: beneficiario
+    pergunta: O plano cobre transplante de medula?
+  - id: S9-005
+    publico: beneficiario
+    pergunta: Meu pedido de ressonância vai ser autorizado?
+  - id: S9-006
+    publico: beneficiario
+    pergunta: Como eu faturo a guia do meu consultório?
+  - id: S9-007
+    publico: beneficiario
+    pergunta: A fisioterapia é ilimitada, né?
+  - id: S9-008
+    publico: beneficiario
+    pergunta: Ainda estou em carência para ressonância?
+  - id: S9-101
+    publico: prestador
+    pergunta: Qual o prazo para enviar o lote de guias?

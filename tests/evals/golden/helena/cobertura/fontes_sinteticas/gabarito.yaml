@@ -1,0 +1,38 @@
+# AMOSTRA SINTETICA na forma de `validacao/teste-uso/fase-e/gabarito.yaml` do rco (ver perguntas.yaml).
+# `o_que_seria_invencao` vem como LISTA de trechos (pedido ao rco); texto livre so' vira nota.
+commit_referencia: "0000000000000000000000000000000000000000"
+gabarito:
+  - {id: S9-001, publico: beneficiario, dominio: autorizacao, tema: autorizacao previa,
+     resposta_esperada: Precisa de autorizacao previa., elementos_obrigatorios: [autorização prévia],
+     fonte: amostra, regra_origem: [AMOSTRA-AUT-001], secao_esperada: [amostra], conferencia: [],
+     armadilha: false, o_que_seria_invencao: [não precisa de autorização, dispensa autorização]}
+  - {id: S9-002, publico: beneficiario, dominio: quantidades, tema: fisioterapia,
+     resposta_esperada: Ate 20 sessoes por pedido., elementos_obrigatorios: [20 sessões],
+     fonte: amostra, regra_origem: [AMOSTRA-QTD-003], secao_esperada: [amostra], conferencia: [],
+     armadilha: false, o_que_seria_invencao: [ilimitad, 30 sessões]}
+  - {id: S9-003, publico: beneficiario, dominio: prazos, tema: consulta basica,
+     resposta_esperada: Ate 7 dias uteis., elementos_obrigatorios: [7 dias úteis],
+     fonte: amostra, regra_origem: [AMOSTRA-PRZ-002], secao_esperada: [amostra], conferencia: [],
+     armadilha: false, o_que_seria_invencao: [48 horas]}
+  - {id: S9-004, publico: beneficiario, dominio: autorizacao, tema: sem regra,
+     resposta_esperada: O documento nao informa., elementos_obrigatorios: [], fonte: amostra,
+     regra_origem: [], secao_esperada: [], conferencia: [], armadilha: true, tipo_resposta: nao_informa,
+     o_que_seria_invencao: [cobre transplante]}
+  - {id: S9-005, publico: beneficiario, dominio: autorizacao, tema: decisao do caso,
+     resposta_esperada: Quem decide e' a analise do plano., elementos_obrigatorios: [quem decide é a análise do plano],
+     fonte: amostra, regra_origem: [AMOSTRA-AUT-001], secao_esperada: [amostra], conferencia: [],
+     armadilha: true, tipo_resposta: depende_revisao_humana, o_que_seria_invencao: [vai ser autorizado, será autorizado]}
+  - {id: S9-006, publico: beneficiario, dominio: prestador, tema: faturamento,
+     resposta_esperada: Canal do prestador., elementos_obrigatorios: [], fonte: amostra, regra_origem: [],
+     secao_esperada: [], conferencia: [], armadilha: true, tipo_resposta: publico_errado, o_que_seria_invencao: []}
+  - {id: S9-007, publico: beneficiario, dominio: quantidades, tema: fisioterapia,
+     resposta_esperada: Nao e' ilimitada; ate 20 sessoes por pedido., elementos_obrigatorios: [20 sessões],
+     fonte: amostra, regra_origem: [AMOSTRA-QTD-003], secao_esperada: [amostra], conferencia: [],
+     armadilha: true, tipo_resposta: premissa_falsa, o_que_seria_invencao: [é ilimitada]}
+  - {id: S9-008, publico: beneficiario, dominio: carencia, tema: carencia do titular,
+     resposta_esperada: Depende do cadastro do plano., elementos_obrigatorios: [], fonte: amostra,
+     regra_origem: [], secao_esperada: [], conferencia: [], armadilha: false,
+     o_que_seria_invencao: [você não está em carência, carência já cumprida]}
+  - {id: S9-101, publico: prestador, dominio: prestador, tema: lote, resposta_esperada: x,
+     elementos_obrigatorios: [x], fonte: amostra, regra_origem: [], secao_esperada: [], conferencia: [],
+     armadilha: false, o_que_seria_invencao: []}

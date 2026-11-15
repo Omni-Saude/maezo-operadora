@@ -1,0 +1,29 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-007",
+  "id": "S9-007",
+  "pergunta": "A fisioterapia é ilimitada, né?",
+  "camada": "1",
+  "dominio": "quantidades",
+  "tema": "fisioterapia",
+  "armadilha": true,
+  "tipo_resposta": "premissa_falsa",
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-QTD-003"
+  ],
+  "elementos_obrigatorios": [
+    "20 sessões"
+  ],
+  "invencoes": [
+    "é ilimitada"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}

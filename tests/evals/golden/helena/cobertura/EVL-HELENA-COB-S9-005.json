@@ -1,0 +1,31 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-S9-005",
+  "id": "S9-005",
+  "pergunta": "Meu pedido de ressonância vai ser autorizado?",
+  "camada": "1",
+  "dominio": "autorizacao",
+  "tema": "decisao do caso",
+  "armadilha": true,
+  "tipo_resposta": "depende_revisao_humana",
+  "desfechos_aceitos": [
+    "transferir",
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-AUT-001"
+  ],
+  "elementos_obrigatorios": [
+    "quem decide é a análise do plano"
+  ],
+  "invencoes": [
+    "vai ser autorizado",
+    "será autorizado"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "validacao/teste-uso/fase-e",
+    "commit_referencia": "0000000000000000000000000000000000000000"
+  }
+}
