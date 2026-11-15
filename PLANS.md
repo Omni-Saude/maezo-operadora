@@ -1485,6 +1485,8 @@ Owner ROOT; lane Maezo retida por CI/gatekeeper/merge/main/custódia. Próximo g
 
 Owner ROOT (sessão Claude a pedido do dono). Detalhe e comandos em `RUNBOOK.md`; estado de retomada em `CHECKPOINT.md`.
 
+> **Atualização posterior (mesmo dia):** #1214, #1187 (via #1215), #1205 (via #1216) e a Onda 0 entraram na `main`. #988, #862, #863 e #865 foram fechados sem merge. Os itens "pendente" e "não tocados" abaixo valem para o momento da triagem; o estado atual está em §"Programa Circuito Fechado".
+
 - **Integrados em main** (merge commit): #1207 setup-java 6.2.0 (`492dc985`), #1208 cosign-installer 4.1.3 (`2bc1eab8`). Tips `7cf35fc0`/`7cc11615` ancestrais de `origin/main` `2bc1eab8`.
 - **Fechados sem merge:** #1206 langgraph-sdk 0.4.14 (fere a quarentena `exclude-newer`, sem GHSA; `uv.lock` não atualizado; remove `fairness_weight`); #1209 e #1210 codeql-action (init/analyze separados quebravam `codeql/*`) — substituídos por #1214.
 - **#1214 (pendente de integração):** codeql-action init+analyze 4.39.3 juntos + grupo `codeql-action` no `.github/dependabot.yml` + este registro. Próximo gate: aprovação do security-team (`.github/` é CODEOWNERS e o autor é o owner).
