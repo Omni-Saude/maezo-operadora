@@ -1,0 +1,42 @@
+[
+  {
+    "id": "AMOSTRA-AUT-001",
+    "url": "https://manual.exemplo.invalid/amostra/autorizacao-previa-ressonancia",
+    "titulo": "Ressonância magnética precisa de autorização prévia",
+    "resumo": "Texto fictício: a ressonância magnética eletiva precisa de autorização prévia.",
+    "texto": "Texto fictício de amostra. A ressonância magnética eletiva precisa de autorização prévia da operadora antes de ser feita. O pedido médico deve ser enviado pelo prestador.",
+    "sinonimos": ["ressonância", "RM", "exame de imagem"]
+  },
+  {
+    "id": "AMOSTRA-PRZ-002",
+    "url": "https://manual.exemplo.invalid/amostra/prazo-consulta-basica",
+    "titulo": "Prazo para consulta básica",
+    "resumo": "Texto fictício: a consulta básica deve ser oferecida em até 7 dias úteis.",
+    "texto": "Texto fictício de amostra. A consulta básica (clínica geral, pediatria, ginecologia) deve ser oferecida em até 7 dias úteis a partir do pedido.",
+    "sinonimos": ["consulta", "clínico geral", "marcar consulta"]
+  },
+  {
+    "id": "AMOSTRA-QTD-003",
+    "url": "https://manual.exemplo.invalid/amostra/sessoes-fisioterapia",
+    "titulo": "Sessões de fisioterapia",
+    "resumo": "Texto fictício: até 20 sessões de fisioterapia por pedido médico.",
+    "texto": "Texto fictício de amostra. Cada pedido médico cobre até 20 sessões de fisioterapia; acima disso é preciso um novo pedido.",
+    "sinonimos": ["fisioterapia", "fisio", "sessão de fisioterapia"]
+  },
+  {
+    "id": "AMOSTRA-REE-004",
+    "url": "https://manual.exemplo.invalid/amostra/reembolso-documentos",
+    "titulo": "Documentos para reembolso",
+    "resumo": "Texto fictício: o pedido de reembolso pede nota fiscal e pedido médico.",
+    "texto": "Texto fictício de amostra. Para pedir reembolso, envie a nota fiscal ou o recibo e o pedido médico em até 30 dias corridos depois do atendimento.",
+    "sinonimos": ["reembolso", "devolução do dinheiro", "nota fiscal"]
+  },
+  {
+    "id": "AMOSTRA-REC-005",
+    "url": "https://manual.exemplo.invalid/amostra/como-recorrer",
+    "titulo": "Como recorrer de uma negativa",
+    "resumo": "Texto fictício: a nova análise pode ser pedida em até 10 dias úteis.",
+    "texto": "Texto fictício de amostra. Se o pedido for negado, você pode pedir uma nova análise em até 10 dias úteis depois da resposta, pelos canais oficiais.",
+    "sinonimos": ["recurso", "recorrer", "segunda análise", "exame de imagem"]
+  }
+]
