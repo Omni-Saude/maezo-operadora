@@ -221,3 +221,40 @@ def test_pin_comitado_passa_na_arvore_real() -> None:
     assert lock["lock_format"]["rules_dir"] == RULES_DIR
     assert verify_lock(lock, repo_root=_REPO_ROOT) == []
     assert main([]) == 0
+
+
+def test_manifesto_dmn_nao_libera_dmn_nao_listado(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree
+    real = _write_dmn(root, "carencia_real.dmn")
+    lock["manifest_pin"] = _entry(root, real)
+    assert {"manifesto-dmn", "dmn-nao-listado"} <= _codes(lock, root)
+    assert _run_cli(root, lock) == 1
+
+
+def test_manifesto_via_pasta_link_simbolico_reprova(
+    pinned_tree: tuple[Path, dict[str, Any]], tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    root, lock = pinned_tree
+    outside = tmp_path_factory.mktemp("fora")
+    (outside / "x.json").write_text("{}", encoding="utf-8")
+    (root / "lnk").symlink_to(outside, target_is_directory=True)
+    lock["manifest_pin"] = {"path": "lnk/x.json", "sha256": _sha(outside / "x.json")}
+    assert "link-simbolico" in _codes(lock, root)
+    assert _run_cli(root, lock) == 1
+
+
+def test_ancestral_da_pasta_rco_link_simbolico_reprova(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    outside = tmp_path_factory.mktemp("dmn_fora")
+    (outside / "rco").mkdir()
+    (tmp_path / "spec" / "processes").mkdir(parents=True)
+    (tmp_path / "spec" / "processes" / "dmn").symlink_to(outside, target_is_directory=True)
+    assert "link-simbolico" in _codes(_base_lock("sem_pacote"), tmp_path)
+
+
+def test_chave_json_duplicada_reprova(tmp_path: Path) -> None:
+    raw = json.dumps(_base_lock("sem_pacote"))
+    raw = raw.replace('"estado": "sem_pacote"', '"estado": "fixado", "estado": "sem_pacote"')
+    assert '"estado": "fixado", "estado"' in raw
+    assert _run_cli(tmp_path, raw) == 1

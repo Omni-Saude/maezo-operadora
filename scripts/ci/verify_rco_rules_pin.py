@@ -93,12 +93,39 @@ def sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+class _DuplicateKeyError(ValueError):
+    """Chave repetida no mesmo objeto JSON (json.loads ficaria com a ultima, em silencio)."""
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _DuplicateKeyError(key)
+        out[key] = value
+    return out
+
+
+def _unsafe_path(repo_root: Path, rel: PurePosixPath) -> str | None:
+    """Motivo para recusar `rel` (link simbolico em qualquer componente ou fuga da raiz), ou None."""
+    current = repo_root
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            return f"{current.relative_to(repo_root).as_posix()} e link simbolico; o pin exige caminho real"
+    if not current.resolve().is_relative_to(repo_root.resolve()):
+        return f"{rel} resolve para fora da raiz do repositorio"
+    return None
+
+
 def load_lock(path: Path) -> tuple[dict[str, Any] | None, list[Violation]]:
     """Le e interpreta o pin. Devolve `(lock_ou_None, violacoes)`; nao levanta excecao."""
     if not path.is_file():
         return None, [Violation("lock-ausente", f"pin nao encontrado: {path}")]
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
+        parsed = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_no_duplicate_keys)
+    except _DuplicateKeyError as exc:
+        return None, [Violation("lock-chave-duplicada", f"{path}: chave JSON repetida {exc.args[0]!r}")]
     except (OSError, UnicodeDecodeError) as exc:
         return None, [Violation("lock-ilegivel", f"{path}: {exc}")]
     except json.JSONDecodeError as exc:
@@ -159,8 +186,9 @@ def _check_entries(entries: object, section: str, violations: list[Violation]) -
 
 def _check_digest(repo_root: Path, rel: PurePosixPath, expected: str, label: str) -> list[Violation]:
     path = repo_root / rel
-    if path.is_symlink():
-        return [Violation("link-simbolico", f"{label} {rel} e link simbolico; o pin exige bytes reais")]
+    unsafe = _unsafe_path(repo_root, rel)
+    if unsafe is not None:
+        return [Violation("link-simbolico", f"{label}: {unsafe}")]
     if not path.is_file():
         return [Violation("arquivo-listado-ausente", f"{label} {rel} esta no pin mas nao existe na arvore")]
     if not expected:
@@ -243,6 +271,14 @@ def verify_lock(lock: dict[str, Any], *, repo_root: Path) -> list[Violation]:
             if not isinstance(digest, str) or not _SHA256.match(digest):
                 violations.append(Violation("sha256-invalido", "manifest_pin: 'sha256' exige 64 hex"))
                 digest = ""
+            if manifest_rel is not None and manifest_rel.suffix == ".dmn":
+                violations.append(
+                    Violation(
+                        "manifesto-dmn",
+                        f"manifest_pin: {manifest_rel} e .dmn; .dmn vai em artifacts ou exemplos_sinteticos",
+                    )
+                )
+                manifest_rel = None
             if manifest_rel is not None:
                 violations.extend(_check_digest(repo_root, manifest_rel, digest, "manifesto"))
 
@@ -261,8 +297,9 @@ def _scan_rules_dir(
     """Recusa tudo em `rco/` que o pin nao declara (pasta ausente = vazia)."""
     violations: list[Violation] = []
     rules_dir = repo_root / RULES_DIR
-    if rules_dir.is_symlink():
-        return [Violation("link-simbolico", f"{RULES_DIR} e link simbolico; o pin exige pasta real")]
+    unsafe = _unsafe_path(repo_root, PurePosixPath(RULES_DIR))
+    if unsafe is not None:
+        return [Violation("link-simbolico", f"pasta de regras: {unsafe}")]
     if not rules_dir.exists():
         return []
     if not rules_dir.is_dir():
