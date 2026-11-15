@@ -61,7 +61,7 @@ ADR-0075 recebe só uma linha de remissão no cabeçalho.
    `estado` ∈ {`sem_pacote`, `fixado`} (hoje `sem_pacote`, `:24`), `manifest_pin`, `artifacts` e
    `exemplos_sinteticos` (`:32`); verificador fail-closed, só biblioteca padrão, sem rede,
    `scripts/ci/verify_rco_rules_pin.py:55-56`; alvo `Makefile:168` e passo de CI
-   `.github/workflows/ci.yml:927-928`.
+   `ci.yml:927-928` (`.github/workflows/`).
 8. **Lint estático do vocabulário de saída (ADR-0075 §(d), só a parte estática)** em
    `validate-artifacts` (`src/maezo/platform/validation/vocabulario_saida.py:539-560`), lendo o dado
    `config/integrations/rco/vocabulario-saida.yaml` (`estado: provisorio`, `:24`; a seção `k1` será
