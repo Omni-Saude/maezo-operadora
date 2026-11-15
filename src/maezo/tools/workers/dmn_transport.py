@@ -30,6 +30,12 @@ Error semantics (ADR-0028 §3 — the fail-closed core, NEVER `{}`):
 - A `Json`-typed result variable that fails to decode -> `DmnVariableDecodeError` -> immediate
   incident, NEVER retried (deterministic, same reasoning as `DmnNoResultError` — see T1.5 note
   below).
+- `UNIQUE` hit policy with MORE than one matching rule (engine `DMN-03001`, ADR-0075 §(c)) ->
+  `DmnHitPolicyViolationError` -> immediate incident, NEVER retried (MZO-1c). Overlapping rules
+  are a defect of the TABLE: the identical `evaluate` reproduces the identical overlap, so the old
+  path (HTTP 500 -> `DmnEvaluationError` -> transient -> engine retries) only burned the retry
+  budget before reaching a human. See `_is_unique_multimatch` for the exact engine shape matched;
+  every OTHER engine 4xx/5xx keeps the transient `DmnEvaluationError` classification above.
 
 `DmnEvaluationError` is deliberately a bare `RuntimeError` (no `.code`/`.message`) so
 `tools/workers/base.py`'s `_HARNESS_CLASSIFIED` tuple and `harness.py`'s `_handle` transient
@@ -69,9 +75,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 
 import httpx
 import structlog
@@ -100,6 +107,9 @@ class DmnEvaluationError(RuntimeError):
     engine-retryable — this raises unchanged through `FunctionWorker.execute()` (no
     `.code`/`.message` duck-typing, so it is NOT reclassified into an immediate-incident
     `ValueError`).
+
+    One HTTP 500 is NOT this class: the engine's `UNIQUE` multi-match (`DMN-03001`) raises the
+    permanent `DmnHitPolicyViolationError` instead (MZO-1c, ADR-0075 §(c)).
     """
 
 
@@ -151,6 +161,87 @@ class DmnVariableDecodeError(Exception):
             f"DMN '{decision_key}' returned a malformed Json-typed result variable `{variable_name}`: {error}"
         )
         super().__init__(f"{self.code}: {self.message}")
+
+
+#: Bounded, non-PHI code of a `UNIQUE` hit-policy violation (MZO-1c, ADR-0075 §(c)). Read by the
+#: worker harness (`harness.py::_AUDITED_PERMANENT_REFUSAL_CODES`) to record the refusal in the
+#: ADR-0007 chain before the incident is reported.
+ERR_DMN_HIT_POLICY_VIOLATION: Final[str] = "ERR_DMN_HIT_POLICY_VIOLATION"
+
+
+class DmnHitPolicyViolationError(DmnNoResultError):
+    """A `UNIQUE` table matched MORE than one rule (engine `DMN-03001`) — PERMANENT (MZO-1c).
+
+    ADR-0075 §(c): the rco K1 tables arrive `UNIQUE` (no conversion to `FIRST`, which would rewrite
+    the supplier's rule and break the pin's `shaDmn`), and `UNIQUE` has no mandatory catch-all, so
+    two overlapping rows are a reachable state. The engine answers HTTP 500, which this transport
+    used to map to the TRANSIENT `DmnEvaluationError` — engine retries that could never succeed,
+    because the overlap is a DETERMINISTIC function of the table and the inputs.
+
+    Same family as `DmnNoResultError` (and deliberately a SUBCLASS of it): both mean "the table did
+    not yield exactly one authoritative row", and neither may be resolved by a machine guess (no
+    "take the first of the overlapping rows"). Subclassing keeps every existing consumer correct
+    without a sweep: the agent graphs' `except (DmnEvaluationError, DmnNoResultError)` still takes
+    the declared DMN-unavailable path to a human, and `FunctionWorker.execute()`
+    (`tools/workers/base.py::reclassify_coded_exception`) still turns the `.code`/`.message` pair into
+    `ValueError` -> `failure(retries=0)` -> an engine-guaranteed, human-visible incident. The harness
+    additionally records the refusal (`decision=REFUSED`, `guard_code=ERR_DMN_HIT_POLICY_VIOLATION`)
+    before that incident (`harness.py::_AUDITED_PERMANENT_REFUSAL_CODES`).
+
+    Carries NO engine text: the `DMN-03001` message lists the matched rules WITH their output
+    values, which is case data — only the decision key and the resolved version (provenance) travel.
+    """
+
+    def __init__(self, decision_key: str, *, version: DmnVersion | None = None) -> None:
+        super().__init__(decision_key)
+        self.code = ERR_DMN_HIT_POLICY_VIOLATION
+        self.version = version
+        self.message = (
+            f"DMN '{decision_key}' (hit policy UNIQUE) matched more than one rule for the given "
+            "inputs (engine DMN-03001) — overlapping rules are a table defect, not a transient "
+            "fault: routing to human review, NEVER retried and NEVER resolved by picking a row"
+        )
+        self.args = (f"{self.code}: {self.message}",)
+
+
+#: Engine evidence of a `UNIQUE` multi-match, from the Camunda 7 engine-rest code CIB Seven 2.1.0
+#: forks (read at tag 7.22.0, MZO-1c):
+#:   - `DmnHitPolicyLogger.uniqueHitPolicyOnlyAllowsSingleMatchingRule` raises `DmnHitPolicyException`
+#:     with `exceptionMessage("001", "Hit policy '{}' only allows a single rule to match. Actually
+#:     match rules: '{}'.", HitPolicy.UNIQUE, ...)` under logger component "03" of project "DMN"
+#:     -> message `DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match. ...`;
+#:   - `DecisionDefinitionResourceImpl.evaluateDecision` catches `DmnEngineException` and rethrows
+#:     `RestException(INTERNAL_SERVER_ERROR, e, "Cannot evaluate decision <id>: " + e.getMessage())`;
+#:   - `ExceptionHandlerHelper` serializes `{"type": <exception simple name>, "message": ...}` with
+#:     NO `code` (a `DmnEngineException` is not a `ProcessEngineException`).
+#: So the wire is HTTP 500 + `{"type": "RestException", "message": "Cannot evaluate decision <id>:
+#: DMN-03001 Hit policy 'UNIQUE' only allows a single rule to match. Actually match rules: ..."}`.
+#: Matched CONSERVATIVELY: status 500 AND `type` in the set below (the REST wrapper, or the raw
+#: exception should an engine build ever let it through unwrapped) AND the `DMN-03001` token AND the
+#: literal `'UNIQUE'`. Anything short of all four stays the transient `DmnEvaluationError` — a
+#: false "permanent" would strand a recoverable task in an incident; a false "transient" only costs
+#: the retries this change removes. ANY's `DMN-03002` (unequal outputs) is NOT matched: no table
+#: here uses ANY, and widening is a separate decision.
+_UNIQUE_MULTIMATCH_STATUS: Final[int] = 500
+_UNIQUE_MULTIMATCH_TYPES: Final[frozenset[str]] = frozenset({"RestException", "DmnHitPolicyException"})
+_UNIQUE_MULTIMATCH_CODE_RE: Final[re.Pattern[str]] = re.compile(r"(?<![A-Za-z0-9-])DMN-03001(?![0-9])")
+
+
+def _is_unique_multimatch(response: httpx.Response) -> bool:
+    """True iff `response` is the engine's `UNIQUE` multi-match error (shape: see above). Never raises."""
+    if response.status_code != _UNIQUE_MULTIMATCH_STATUS:
+        return False
+    try:
+        body = response.json()
+    except ValueError:  # json.JSONDecodeError / UnicodeDecodeError — not the engine's JSON error
+        return False
+    if not isinstance(body, dict):
+        return False
+    exc_type = body.get("type")
+    message = body.get("message")
+    if exc_type not in _UNIQUE_MULTIMATCH_TYPES or not isinstance(message, str):
+        return False
+    return _UNIQUE_MULTIMATCH_CODE_RE.search(message) is not None and "'UNIQUE'" in message
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,6 +466,9 @@ class CibSevenDmnTransport:
                 resp = await client.post(eval_path, json=payload)
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
+                if _is_unique_multimatch(exc.response):
+                    # PERMANENT (MZO-1c): overlapping UNIQUE rules — never the transient path below.
+                    raise DmnHitPolicyViolationError(decision_key, version=version) from exc
                 raise DmnEvaluationError(
                     f"CIB Seven DMN evaluate failed [{exc.response.status_code}] for "
                     f"`{decision_key}`: {exc.response.text[:300]}"
@@ -491,7 +585,14 @@ def evaluate_sync(
     This is the ONE funnel every worker DMN eval passes through, so a single hook covers all
     ~11 migrated tables.
     """
-    rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
+    try:
+        rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
+    except DmnHitPolicyViolationError as exc:
+        # MZO-1c: the version WAS resolved before the overlap was found, and it is exactly what the
+        # refusal audit row must attest (which table version had the overlapping rules).
+        if exc.version is not None:
+            record_dmn_version(exc.version)
+        raise
     record_dmn_version(version)
     return rows, version
 
