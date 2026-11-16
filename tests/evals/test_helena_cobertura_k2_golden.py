@@ -309,3 +309,40 @@ def test_origem_tem_arquivo_commit_e_versao_e_serializa() -> None:
     assert dados["origem"] == esperado
     assert dados["eval_id"] == "EVL-HELENA-COB-A6" and dados["formato"] == conv.FORMATO
     assert conv.como_texto(caso).endswith("}\n")
+
+
+# --- Elementos obrigatorios fora de `resposta` (decisao da ROOT, opcao iii) ---
+def _caso_tipo(tipo: str) -> conv.CasoDeCobertura:
+    return conv.CasoDeCobertura(
+        id="T1",
+        pergunta="p",
+        camada="1",
+        dominio="autorizacao",
+        tema="t",
+        armadilha=True,
+        tipo_resposta=tipo,
+        desfechos_aceitos=conv._TIPOS_DE_ARMADILHA[tipo],
+        regras_esperadas=(),
+        elementos_obrigatorios=("quem decide e a analise do plano",),
+        invencoes=("vai ser autorizado",),
+        nota_de_invencao=None,
+    )
+
+
+@pytest.mark.parametrize("tipo", ["nao_informa", "publico_errado"])
+def test_transferir_unico_aceito_cobra_o_elemento(tipo: str) -> None:
+    r = conv.avaliar(_caso_tipo(tipo), desfecho="transferir", texto="Vou te passar para a equipe.")
+    assert not r.correta and r.motivos == ("elemento_ausente",)
+
+
+def test_depende_revisao_humana_transferir_so_desfecho_e_invencao() -> None:
+    caso = _caso_tipo("depende_revisao_humana")
+    sem = conv.avaliar(caso, desfecho="transferir", texto="Vou te passar para a equipe.")
+    assert sem.correta and not sem.invencao
+    inventou = conv.avaliar(caso, desfecho="transferir", texto="Vai ser autorizado; vou te passar.")
+    assert not inventou.correta and inventou.invencao
+
+
+def test_depende_revisao_humana_resposta_cobra_o_elemento() -> None:
+    r = conv.avaliar(_caso_tipo("depende_revisao_humana"), desfecho="resposta", texto="Consulte o plano.")
+    assert not r.correta and "elemento_ausente" in r.motivos

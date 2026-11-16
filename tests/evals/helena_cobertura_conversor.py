@@ -303,8 +303,11 @@ def avaliar(
     """O resultado de UM caso. `fatos_conferem` vem do verificador da camada (fatos x fontes).
 
     Vale para QUALQUER desfecho (um `transferir` tambem pode inventar): trecho de invencao no texto, ou fatos
-    que nao conferem com texto nao vazio (em `resposta`, sempre), e' invencao; os elementos obrigatorios
-    valem em todo desfecho aceito. A regra citada so' se cobra em `resposta`."""
+    que nao conferem com texto nao vazio (em `resposta`, sempre), e' invencao. Os elementos obrigatorios
+    (decisao da ROOT) valem em `resposta` e no desfecho que e' o UNICO aceito (`nao_informa`/
+    `publico_errado`: o `transferir` os cobra, estrito); onde ha' mais de um aceito
+    (`depende_revisao_humana`), o outro desfecho so' responde por desfecho e invencao. A regra citada so' se
+    cobra em `resposta`."""
     motivos: list[str] = []
     corpo = _normal(texto or "")
     invencao = any(_normal(t) in corpo for t in caso.invencoes) or (
@@ -315,7 +318,8 @@ def avaliar(
     if desfecho not in caso.desfechos_aceitos:
         motivos.append("desfecho")
     else:
-        if any(_normal(e) not in corpo for e in caso.elementos_obrigatorios):
+        cobra_elementos = desfecho == "resposta" or caso.desfechos_aceitos == (desfecho,)
+        if cobra_elementos and any(_normal(e) not in corpo for e in caso.elementos_obrigatorios):
             motivos.append("elemento_ausente")
         if (
             desfecho == "resposta"
