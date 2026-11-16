@@ -91,7 +91,7 @@ no manifesto (idRegra que o manifesto não lista para a decisão é recusado, `E
 
 **Item em aberto:** `regras[].sha256_yaml` fica exposto em `RcoPinnedTable.regras`, mas não entra em
 `dmn_versions`. Gravá-lo, como o contrato §3 pede ("o consumidor guarda os dois na auditoria"), depende
-de emenda ao ADR-0075 (f), que hoje define só `idRegra`, `versaoRegra` e `shaDmn`.
+da emenda de 16/11/2026 ao ADR-0075 (f) (campo `sha256Yaml`), que segue Proposed até o aceite do dono.
 
 O `shaDmn` gravado é o do arquivo pinado na árvore local, re-hasheado na carga. Ele não vem do
 deploy no motor: `version`/`deploymentId` do motor ainda não são cruzados com o pin (Onda 2).
