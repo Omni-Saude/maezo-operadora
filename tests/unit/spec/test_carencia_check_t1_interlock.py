@@ -67,9 +67,11 @@ from tests.support.carencia_t1_interlock import (
     TOKEN_RATIFICACAO,
     TOKEN_TRILHA,
     InterlockT1ViolationError,
+    acusar_override_de_manifesto_em_deploy,
     acusar_produtores_de_entradas,
     condicao_i_satisfeita,
     condicao_ii_satisfeita,
+    fontes_consultadas_pelo_criterio_regulatorio,
     interlock_t1_vigente,
     marcadores_de_trilha_ausentes,
     mascaramento_t1_ativo,
@@ -137,6 +139,11 @@ def _aplicar_diff_do_candidato(raiz: ET.Element) -> None:
         _texto(_por_id(raiz, celula)).text = "-"
 
 
+def _diff_do_candidato_mais_edicao_nao_ratificada(raiz: ET.Element) -> None:
+    _aplicar_diff_do_candidato(raiz)
+    _texto(_por_id(raiz, "r08i2")).text = ">= 181"
+
+
 def _tabela_corrigida(destino: Path) -> Path:
     return _copia_mutada(_VIVA, destino, _aplicar_diff_do_candidato)
 
@@ -154,7 +161,7 @@ def _raiz_vigente(tmp_path: Path) -> Path:
     this runs: the table is present (so (ii) cannot hold) and no ratified candidate is archived (so (i)
     cannot hold). Negative cases run against it so they keep proving the refusal after the owner's act."""
     raiz = tmp_path / "raiz_vigente"
-    _copiar(raiz, TABELA_REL)
+    _copiar(raiz, TABELA_REL, AUTH_WORKER_REL)
     return raiz
 
 
@@ -230,8 +237,10 @@ def test_hoje_o_interlock_esta_vigente_e_nenhuma_condicao_de_levantamento_vale()
     assert condicao_i_satisfeita() is False
     assert condicao_ii_satisfeita() is False
     assert interlock_t1_vigente() is True
-    # Non-vacuity of the (ii) resolver: it reads the REAL consumer's key from source.
+    # Non-vacuity of the AST resolvers: they read the REAL consumer from source. The ratification
+    # interlock watches exactly the keys REGULATORIO hands to `_gate_on_ratification(consulted=...)`.
     assert tabela_do_criterio_regulatorio() == "carencia_check"
+    assert fontes_consultadas_pelo_criterio_regulatorio() == {"carencia_check"}
 
 
 def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> None:
@@ -264,6 +273,23 @@ def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> Non
     assert interlock_t1_vigente(r) is True, "a candidate still in spec/processes/dmn/ is not archived"
     r = raiz("i_digest_de_outra_tabela", tabela="corrigida")
     _arquivar_candidato(r, arquivo, sha256="0" * 64)
+    assert interlock_t1_vigente(r) is True
+    # A NON-masking table that is NOT the candidate (here: the candidate's diff plus an unratified
+    # edit of `r08`, eletivo `>= 180` -> `>= 181`) + an archived ratified candidate: still shut.
+    r = raiz("i_tabela_nao_mascara_mas_difere_do_candidato", tabela=None)
+    _copia_mutada(_VIVA, r / TABELA_REL, _diff_do_candidato_mais_edicao_nao_ratificada)
+    assert mascaramento_t1_ativo(read_live_table(r / TABELA_REL)) is False, (
+        "premise: the near-miss does not mask"
+    )
+    _arquivar_candidato(r, arquivo)
+    assert condicao_i_satisfeita(r) is False
+    assert interlock_t1_vigente(r) is True, "a table that differs from the ratified candidate must not lift"
+    # A ratified, bound archive whose rules cannot even be read against the table proves nothing.
+    r = raiz("i_candidato_ilegivel", tabela="corrigida")
+    ilegivel = _arquivar_candidato(r, arquivo)
+    data = yaml.safe_load(ilegivel.read_text(encoding="utf-8"))
+    data["regras_candidatas"][0]["entradas"]["coluna_inventada"] = "-"
+    ilegivel.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     assert interlock_t1_vigente(r) is True
     r = raiz("i_completa", tabela="corrigida")
     _arquivar_candidato(r, arquivo)
@@ -328,6 +354,45 @@ def test_carencia_check_nao_pode_ser_ratificado_enquanto_tabela_viva_mascara(tmp
     assert load_criteria_sources(forjado).is_ratified(FONTE) is True, "premise: the forgery really ratifies"
     with pytest.raises(InterlockT1ViolationError, match=TOKEN_RATIFICACAO):
         verificar_interlock_de_ratificacao(forjado, raiz=_raiz_vigente(tmp_path))
+
+
+def test_ratificar_uma_fonte_nova_consultada_pelo_criterio_regulatorio_tambem_e_recusado(
+    tmp_path: Path,
+) -> None:
+    """A1a must follow what REGULATORIO actually consults, not the literal `carencia_check`: rewiring
+    `_criterio_regulatorio` to `consulted=["carencia_nova"]` and ratifying that new source would
+    otherwise open the criterion while the masked table stands."""
+
+    def ratificar_fonte_nova(data: dict[str, Any]) -> None:
+        data["fontes"]["carencia_nova"] = dict(_RATIFICACAO_COMPLETA)
+
+    forjado = _manifesto_forjado(tmp_path, "fonte_nova.yaml", ratificar_fonte_nova)
+    assert load_criteria_sources(forjado).is_ratified("carencia_nova") is True, (
+        "premise: the new source ratifies"
+    )
+    assert load_criteria_sources(forjado).is_ratified(FONTE) is False
+
+    # CONTROL: the real consumer does not consult the new source, so its ratification opens nothing.
+    raiz = _raiz_vigente(tmp_path)
+    verificar_interlock_de_ratificacao(forjado, raiz=raiz)
+
+    # NEGATIVE: a planted consumer that consults the new source -> refused.
+    worker = raiz / AUTH_WORKER_REL
+    texto = worker.read_text(encoding="utf-8")
+    plantado = texto.replace("consulted=[_DMN_CARENCIA_CHECK],", 'consulted=["carencia_nova"],')
+    assert plantado != texto, "the consumer's consulted= anchor moved — update this forgery"
+    worker.write_text(plantado, encoding="utf-8")
+    assert fontes_consultadas_pelo_criterio_regulatorio(raiz) == {"carencia_nova"}
+    with pytest.raises(InterlockT1ViolationError, match=TOKEN_RATIFICACAO):
+        verificar_interlock_de_ratificacao(forjado, raiz=raiz)
+
+    # NEGATIVE: an unresolvable `consulted=` fails closed rather than watching nothing.
+    worker.write_text(
+        texto.replace("consulted=[_DMN_CARENCIA_CHECK],", "consulted=fontes_dinamicas,"), encoding="utf-8"
+    )
+    assert fontes_consultadas_pelo_criterio_regulatorio(raiz) is None
+    with pytest.raises(InterlockT1ViolationError, match=TOKEN_RATIFICACAO):
+        verificar_interlock_de_ratificacao(_MANIFESTO, raiz=raiz)
 
 
 # =================================================================================================
@@ -458,6 +523,30 @@ def test_o_scanner_acusa_o_contrato_que_ganha_fonte_e_o_ratchet_que_encolhe(tmp_
     }
     with pytest.raises(InterlockT1ViolationError, match=TOKEN_ENTRADAS):
         verificar_interlock_de_entradas(raiz)
+
+
+def test_nenhum_deploy_aponta_o_manifesto_de_ratificacao_para_outro_arquivo(tmp_path: Path) -> None:
+    """PROC-01's residual risk, closed: if a deploy set `MAEZO_AUTH_CRITERIA_MANIFEST_PATH`, the runtime
+    gate would read a manifest A1a/A1b never saw. And the producer ratchet covers `deploy/`, `config/`
+    and `tools/` as well as `src/`/`spec/`."""
+    assert acusar_override_de_manifesto_em_deploy() == ()
+
+    raiz = _arvore_de_produtores(tmp_path)
+    assert acusar_override_de_manifesto_em_deploy(raiz) == (), "control: no deploy/ in the clean copy"
+    valores = raiz / "deploy/helm/maezo/values-plantado.yaml"
+    valores.parent.mkdir(parents=True)
+    valores.write_text("env:\n  MAEZO_AUTH_CRITERIA_MANIFEST_PATH: /etc/maezo/outro.yaml\n", encoding="utf-8")
+    assert acusar_override_de_manifesto_em_deploy(raiz) == ("deploy/helm/maezo/values-plantado.yaml",)
+
+    for base in ("deploy", "config", "tools"):
+        plantado = raiz / base / "produtor_plantado.yaml"
+        plantado.parent.mkdir(parents=True, exist_ok=True)
+        plantado.write_text("cpt_declarada: true\n", encoding="utf-8")
+    assert {a.arquivo for a in acusar_produtores_de_entradas(raiz) if a.verificacao == "ratchet"} == {
+        "deploy/produtor_plantado.yaml",
+        "config/produtor_plantado.yaml",
+        "tools/produtor_plantado.yaml",
+    }
 
 
 # =================================================================================================

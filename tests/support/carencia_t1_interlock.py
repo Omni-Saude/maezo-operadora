@@ -54,6 +54,7 @@ from tests.support.dmn_first_hit import (
     evaluate,
     load_candidate_ratification,
     load_manifest,
+    read_candidate_table,
     read_live_table,
 )
 
@@ -129,6 +130,14 @@ RATCHET_CPT_DIAS: frozenset[str] = frozenset(
 #: SP-OP-AUTH-001 would live: the gateway, the agents, the AUTH workers, the runtime, the AUTH BPMN.
 RATCHET_TIPO: frozenset[str] = frozenset({AUTH_WORKER_REL})
 
+#: Where a producer of `cpt_declarada`/`dias_desde_adesao` could appear: code, spec, and the
+#: deployment/config/tooling trees (a deploy that injects the inputs is a producer too). Missing
+#: directories are simply empty.
+BASES_RATCHET_CPT_DIAS: tuple[str, ...] = ("src", "spec", "deploy", "config", "tools")
+#: The env override of the ratification-manifest path (`auth_criteria.MANIFEST_PATH_ENV`). PROC-01's
+#: residual risk: if a deploy sets it, A1 checks the wrong file. No file under `deploy/` may name it.
+MANIFEST_OVERRIDE_ENV = "MAEZO_AUTH_CRITERIA_MANIFEST_PATH"
+
 _PALAVRA_CPT_DIAS = re.compile(r"\b(?:cpt_declarada|dias_desde_adesao)\b")
 _PALAVRA_TIPO = re.compile(r"\btipo_procedimento\b")
 _QUALQUER_ENTRADA = re.compile(r"\b(?:tipo_procedimento|dias_desde_adesao|cpt_declarada)\b")
@@ -200,12 +209,35 @@ def _candidato_ratificado_contra_a_tabela_pre_fix(path: Path) -> bool:
     return isinstance(bloco, dict) and bloco.get("sha256") == SHA256_TABELA_PRE_FIX
 
 
-def condicao_i_satisfeita(raiz: Path = REPO_ROOT) -> bool:
-    """(i) live table no longer masks AND the candidate is archived, ratified, bound to the pre-fix bytes."""
-    tabela = raiz / TABELA_REL
-    if not tabela.is_file() or mascaramento_t1_ativo(read_live_table(tabela)):
+def _viva_decide_como_o_candidato(viva: DecisionTable, candidato: Path) -> bool:
+    """The live table decides EXACTLY like the ratified candidate — `carencia_cumprida` and
+    `prazo_restante_dias` — on every cell of the grid. Without this, any non-masking table (an edit
+    nobody ratified) plus an archived ratified candidate would satisfy (i). Fails closed."""
+    try:
+        regras_candidatas = read_candidate_table(candidato, viva)
+        for tipo in _tipos_da_grade(viva):
+            for dias in GRADE_DIAS:
+                for cpt in (True, False):
+                    if _decisao(viva, tipo, dias, cpt) != _decisao(regras_candidatas, tipo, dias, cpt):
+                        return False
+    except Exception:  # fail-closed: a candidate that cannot be read against the table proves nothing
         return False
-    return any(_candidato_ratificado_contra_a_tabela_pre_fix(p) for p in _candidatos_arquivados(raiz))
+    return True
+
+
+def condicao_i_satisfeita(raiz: Path = REPO_ROOT) -> bool:
+    """(i) live table no longer masks BECAUSE the ratified candidate was applied: the candidate is
+    archived, ratified, bound to the pre-fix bytes, AND the live table decides exactly like it."""
+    tabela = raiz / TABELA_REL
+    if not tabela.is_file():
+        return False
+    viva = read_live_table(tabela)
+    if mascaramento_t1_ativo(viva):
+        return False
+    return any(
+        _candidato_ratificado_contra_a_tabela_pre_fix(p) and _viva_decide_como_o_candidato(viva, p)
+        for p in _candidatos_arquivados(raiz)
+    )
 
 
 def _string_de_modulo(arvore: ast.Module, nome: str) -> str | None:
@@ -262,6 +294,52 @@ def tabela_do_criterio_regulatorio(raiz: Path = REPO_ROOT) -> str | None:
     return next(iter(chaves)) if len(chaves) == 1 else None
 
 
+def _chave_de_string(arvore: ast.Module, no: ast.expr) -> str | None:
+    if isinstance(no, ast.Constant) and isinstance(no.value, str):
+        return no.value
+    if isinstance(no, ast.Name):
+        return _string_de_modulo(arvore, no.id)
+    return None
+
+
+def fontes_consultadas_pelo_criterio_regulatorio(raiz: Path = REPO_ROOT) -> frozenset[str] | None:
+    """Every ratification key `_criterio_regulatorio` hands to `_gate_on_ratification(consulted=...)`,
+    read from the worker's SOURCE (AST). This is the set of manifest `fontes` whose ratification
+    actually opens the REGULATORIO criterion — so it, not a literal `"carencia_check"`, is what the
+    ratification interlock must watch. Returns None — "not proven" — if the function, the call or any
+    element of `consulted=` cannot be resolved to a string."""
+    fonte = raiz / AUTH_WORKER_REL
+    if not fonte.is_file():
+        return None
+    arvore = ast.parse(fonte.read_text(encoding="utf-8"))
+    funcoes = [
+        no
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.FunctionDef | ast.AsyncFunctionDef) and no.name == "_criterio_regulatorio"
+    ]
+    if len(funcoes) != 1:
+        return None
+    chaves: set[str] = set()
+    chamadas = 0
+    for no in ast.walk(funcoes[0]):
+        if not (
+            isinstance(no, ast.Call)
+            and isinstance(no.func, ast.Name)
+            and no.func.id == "_gate_on_ratification"
+        ):
+            continue
+        chamadas += 1
+        consulted = next((kw.value for kw in no.keywords if kw.arg == "consulted"), None)
+        if not isinstance(consulted, ast.List | ast.Tuple) or not consulted.elts:
+            return None
+        for elemento in consulted.elts:
+            chave = _chave_de_string(arvore, elemento)
+            if chave is None:
+                return None
+            chaves.add(chave)
+    return frozenset(chaves) if chamadas else None
+
+
 def condicao_ii_satisfeita(raiz: Path = REPO_ROOT) -> bool:
     """(ii) `carencia_check` retired: table gone, consumer on an `rco_` table, K1 lock `fixado`."""
     if (raiz / TABELA_REL).exists():
@@ -293,12 +371,23 @@ def verificar_interlock_de_ratificacao(manifesto: Path, raiz: Path = REPO_ROOT) 
     `is_ratified` is asked of the REAL loader, so every runtime suppression (including A1b's entry)
     is honoured — this check is the CI-side backstop that holds even if that entry is deleted.
     """
-    if interlock_t1_vigente(raiz) and load_criteria_sources(manifesto).is_ratified(FONTE):
+    if not interlock_t1_vigente(raiz):
+        return
+    consultadas = fontes_consultadas_pelo_criterio_regulatorio(raiz)
+    if consultadas is None:
         raise InterlockT1ViolationError(
-            f"{TOKEN_RATIFICACAO}: `{FONTE}` reads as ratified in {manifesto.name} while "
-            f"{TABELA_REL} still masks the urgency ladder under CPT (urgencia_emergencia/30/true -> "
-            "r01). Only PROC-01 condition (i) — candidate applied AND ratified — or (ii) — table "
-            "retired for the rco K1 package — may lift this."
+            f"{TOKEN_RATIFICACAO}: cannot resolve the `consulted=` keys of `_criterio_regulatorio` in "
+            f"{AUTH_WORKER_REL} — the sources whose ratification opens REGULATORIO are unknown, so none "
+            "may be trusted while the interlock stands"
+        )
+    sources = load_criteria_sources(manifesto)
+    ratificadas = sorted(chave for chave in consultadas | {FONTE} if sources.is_ratified(chave))
+    if ratificadas:
+        raise InterlockT1ViolationError(
+            f"{TOKEN_RATIFICACAO}: {ratificadas} read as ratified in {manifesto.name} (REGULATORIO "
+            f"consults {sorted(consultadas)}) while {TABELA_REL} still masks the urgency ladder under "
+            "CPT (urgencia_emergencia/30/true -> r01). Only PROC-01 condition (i) — candidate applied "
+            "AND ratified — or (ii) — table retired for the rco K1 package — may lift this."
         )
 
 
@@ -469,7 +558,9 @@ def _escopo_tipo(raiz: Path) -> list[str]:
 def _acusar_ratchet(raiz: Path) -> list[Acusacao]:
     """(4) The set of files that name the inputs must be EXACTLY the frozen set — no more, no fewer."""
     cpt_dias = {
-        rel for rel, texto in _arquivos_de_texto(raiz, ("src", "spec")) if _PALAVRA_CPT_DIAS.search(texto)
+        rel
+        for rel, texto in _arquivos_de_texto(raiz, BASES_RATCHET_CPT_DIAS)
+        if _PALAVRA_CPT_DIAS.search(texto)
     }
     tipo = {rel for rel, texto in _arquivos_de_texto(raiz, _escopo_tipo(raiz)) if _PALAVRA_TIPO.search(texto)}
     acusacoes: list[Acusacao] = []
@@ -496,6 +587,14 @@ def acusar_produtores_de_entradas(raiz: Path = REPO_ROOT) -> tuple[Acusacao, ...
         *_acusar_bpmn(raiz),
         *_acusar_contrato_documental(raiz),
         *_acusar_ratchet(raiz),
+    )
+
+
+def acusar_override_de_manifesto_em_deploy(raiz: Path = REPO_ROOT) -> tuple[str, ...]:
+    """Files under `deploy/` naming `MANIFEST_OVERRIDE_ENV` — each would point the runtime ratification
+    gate at a manifest A1a/A1b never read."""
+    return tuple(
+        rel for rel, texto in _arquivos_de_texto(raiz, ("deploy",)) if MANIFEST_OVERRIDE_ENV in texto
     )
 
 
