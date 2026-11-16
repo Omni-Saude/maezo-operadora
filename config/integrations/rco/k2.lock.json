@@ -1,0 +1,13 @@
+{
+  "lock_format": {
+    "name": "rco-k2-lock",
+    "version": "1.0.0"
+  },
+  "estado": "sem_pacote",
+  "provenance": {
+    "rco_repo": "Omni-Saude/regras-contratos-operadora",
+    "rco_commit_sha": null
+  },
+  "manifest_pin": null,
+  "versao": null
+}

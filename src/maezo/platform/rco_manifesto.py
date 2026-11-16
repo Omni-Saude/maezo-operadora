@@ -299,6 +299,8 @@ def _carregar_json(raw: bytes, rotulo: str, problemas: list[str]) -> Any:
         problemas.append(f"{rotulo}: chave JSON repetida {exc.args[0]!r}")
     except ValueError as exc:  # inclui UnicodeDecodeError e NaN/Infinity
         problemas.append(f"{rotulo}: JSON ilegivel ({type(exc).__name__})")
+    except RecursionError:  # `[` aninhado demais
+        problemas.append(f"{rotulo}: JSON ilegivel (RecursionError)")
     return None
 
 
