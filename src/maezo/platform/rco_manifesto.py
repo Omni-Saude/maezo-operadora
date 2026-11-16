@@ -696,6 +696,7 @@ def _ler_provas(no: object, problemas: list[str]) -> tuple[ProvaK1, ...]:
     provas: list[ProvaK1] = []
     ids: set[str] = set()
     caminhos: set[str] = set()
+    minusculos: dict[str, str] = {}  # `casefold` -> caminho: sistemas de arquivos que ignoram caixa colidem
     for i, item in enumerate(no):
         rotulo = f"provas[{i}]"
         obj = _objeto(item, CAMPOS_PROVA, rotulo, problemas)
@@ -725,6 +726,10 @@ def _ler_provas(no: object, problemas: list[str]) -> tuple[ProvaK1, ...]:
                     continue
                 if caminho in caminhos:
                     problemas.append(f"{rot_arq}.caminho: {caminho!r} repetido")
+                    continue
+                antes = minusculos.setdefault(caminho.casefold(), caminho)
+                if antes != caminho:
+                    problemas.append(f"{rot_arq}.caminho: {caminho!r} colide com {antes!r} ignorando caixa")
                     continue
                 caminhos.add(caminho)
                 arquivos.append(ArquivoProvaK1(caminho, sha))
@@ -891,13 +896,20 @@ def carregar_vocabulario(manifesto: ManifestoK1, *, k1_dir: Path) -> Vocabulario
     return vocab
 
 
-def ids_de_decisao(raw: bytes, rotulo: str) -> list[str]:
-    """Ids das `<decision>` de um DMN do K1, todos com prefixo `rco_`; ou `ManifestoK1InvalidoError`."""
+def ids_de_decisao(raw: bytes, rotulo: str, *, exigir_prefixo: bool = True) -> list[str]:
+    """Ids das `<decision>` de um DMN do K1, todos com prefixo `rco_`; ou `ManifestoK1InvalidoError`.
+
+    `exigir_prefixo=False` (DMN de prova, que NAO pode usar `rco_`): so exige ao menos uma decisao com id.
+    """
     try:
         root = _parse_xml_sem_dtd(raw)
     except (ET.ParseError, ValueError) as exc:
         raise ManifestoK1InvalidoError([f"{rotulo}: nao e DMN legivel ({type(exc).__name__})"]) from exc
     ids = [str(el.get("id") or "") for el in root.iter(f"{_DMN_NS}decision")]
+    if not exigir_prefixo:
+        if not ids or not all(ids):
+            raise ManifestoK1InvalidoError([f"{rotulo}: DMN sem decisao com id"])
+        return ids
     if not ids or any(not i.startswith(PREFIXO_DECISAO) for i in ids):
         raise ManifestoK1InvalidoError(
             [f"{rotulo}: tem de declarar decisoes com prefixo {PREFIXO_DECISAO!r}"]

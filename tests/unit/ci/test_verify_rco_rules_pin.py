@@ -434,3 +434,32 @@ def test_ativacao_nao_texto_e_violacao_codificada(tmp_path: Path, ativacao: obje
     sint.regravar(tmp_path, manifesto)
     assert _codes(sint.lock(tmp_path), tmp_path) == {"manifesto-invalido"}
     assert main(["--repo-root", str(tmp_path)]) == 1
+
+
+# --- arvore 2.1 com provas[] (contrato-k1.md §4 item 7) -------------------------------------------
+
+
+@pytest.fixture
+def pinned_tree_21(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+    sint.com_provas(tmp_path, sint.montar(tmp_path))
+    return tmp_path, sint.lock(tmp_path)
+
+
+def test_arvore_21_com_provas_passa(pinned_tree_21: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree_21
+    assert _codes(lock, root) == set()
+
+
+def test_arvore_21_arquivo_solto_em_provas_reprova(pinned_tree_21: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree_21
+    solto = root / K1_DIR / "provas" / "outra" / "x.json"
+    solto.parent.mkdir(parents=True)
+    solto.write_text("{}", encoding="utf-8")
+    assert "prova-fora-do-manifesto" in _codes(lock, root)
+
+
+def test_arvore_21_arquivo_de_prova_em_artifacts_reprova(pinned_tree_21: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree_21
+    prova = root / K1_DIR / "provas" / sint.PROVA_ID / "dmn" / "prova-sint.dmn"
+    lock["artifacts"].append(_entry(root, prova))
+    assert _codes(lock, root) != set()
