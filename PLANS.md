@@ -95,10 +95,10 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - Condição deste arquivo para o escritor livre da Helena.
   - **Item 5 (ativação por classe de risco):** desenho aprovado pela ROOT em 16/11/2026, com as respostas às perguntas abertas.
     - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
-    - **#1255, em revisão:** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
+    - **#1255, incorporado (aea220fc):** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
     - **5c, em duas partes (tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos):**
-      - **5c-1, #1256, incorporado:** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
-      - **5c-2, PR da branch `prog/mzo/5c2-registro-k1`:** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
+      - **5c-1, #1256, incorporado (b5fafb2a):** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
+      - **5c-2, #1260 (branch `prog/mzo/5c2-registro-k1`):** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
         - **A revisar em 5d/5e antes de qualquer efeito:** a linha perdida no caminho fail-open do registro desloca os ordinais seguintes (e a janela da revisão inicial). A chave de negócio não é gravada (minimização, decisão da ROOT de 16/11/2026).
     - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
     - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
@@ -108,6 +108,34 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - isenção da cerca de perspectiva para `spec/processes/dmn/rco/`;
     - provas executadas sem divergência;
     - 2.0.0 fail-closed até o 5c.
+  - **Retomada por outro coordenador (16/11/2026, ~11h UTC; parada por ordem do dono, limite semanal em 98%, retorno ~20/11 14h UTC):**
+    - **Incorporados neste dia:**
+      - #1254: ADR-0077 Proposed;
+      - #1255: 5a;
+      - #1256: 5c-1 (main b5fafb2a);
+      - #1250: ADR-0075 §(f), `sha256Yaml` opcional, incorporado pelo dono (17f7f4a8);
+      - #1243: rede credenciada, incorporado pelo dono.
+    - **Em PR:** #1260, o 5c-2. Se o CI fechar verde, a ROOT incorpora.
+    - **Faltam do ADR-0077 (§7), nesta ordem, cada um com o OK da ROOT e revisão independente:**
+      - **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
+      - **5e:** monitor de reversão com janela acumulada e móvel, override e alertas. Só o 5e retira a recusa `ativacao_nao_suportada`. Antes de qualquer efeito, resolver o ordinal deslocado por linha perdida no fail-open;
+      - **5b:** provas do pacote, quando a trilha rco publicar o formato de `provas[]` (PROG-RCO-8).
+    - **Primeiro pin real do K1:** o pin não vai a `fixado` sem duas condições:
+      - provar no motor implantado (CIB Seven 2.1.0, perfil `deployed-runtime-compatibility`) a tabela-verdade do teste unário booleano (`false, null` → 0 1 1; `null, true` → 1 0 1; `not(false)` → 1 0 1; `true` → 1 0 0; `false` → 0 1 0; `null` → 0 0 1; branch rco `prog/rco/teste-unario-booleano`), com qualquer divergência barrando o pin;
+      - ter a isenção da cerca de perspectiva para `spec/processes/dmn/rco/`.
+    - **Unidade proposta, sem OK ainda:** gravar `sha256Yaml` no runtime, depois do #1250.
+    - **Decisão de minimização (ROOT, 16/11/2026; LGPD, necessidade):**
+      - `rco_decisao_regra` não grava a chave de negócio, nem pseudonimizada; ela só passa em memória, para a amostragem;
+      - o vínculo com o caso existe só via `task_id` (no hash `chave_idempotencia`) e a auditoria; a eliminação segue o regime da auditoria;
+      - o DPO é informado de forma assíncrona.
+    - **Pendências do dono:**
+      - liberação explícita para alterar `spec/policies/autonomy/`. O desenho do dev em enforcing e dos aprovadores dono + auditor-neutro está no ADR-0077 §8; esta sessão é proibida de tocar a pasta;
+      - MZO-2c, retirar o caráter padrão do Rafael: aguarda o OK do usuário;
+      - nome da operadora e dos canais no K2 da Helena;
+      - retenção e base legal de `rco_decisao_regra` e `rco_decisao_regra_desfecho` (PENDENTE no erasure-plan, camadas 47 e 48);
+      - fonte do registro de aditivo aceito por prestador (LACUNA do ADR-0077 §3);
+      - grupos `auditoria-enfermagem`/`regulacao-assistencial` e desempates do K6;
+      - provisionar o segredo da amostragem (`RCO_AMOSTRA_HMAC_KEY` e `_ID`); sem ele, tudo é amostrado.
 - **Fora desta fila até decisão do dono:** emenda ao ADR-0018 e adendo ao ADR-0040 (negativa administrativa e glosa determinística automáticas em L2), mudanças em `spec/policies/autonomy/`, DMN e workers.
 
 ## 0. GROUND TRUTH (2026-07-19) — leia primeiro
