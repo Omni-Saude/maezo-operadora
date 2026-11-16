@@ -41,11 +41,18 @@ do formato). Nao ha' tolerancia a anotacoes com `_`. JSON e YAML sao lidos de fo
 BOM UTF-8, `NaN`/`Infinity` (JSON), ancora/alias e chave de merge (YAML) recusam o arquivo; aninhamento que
 estoura a pilha ou a memoria vira o motivo de arquivo invalido, nunca excecao solta.
 
-RATIFICACAO: a ratificacao e' ato humano no rco. O padrao RECUSA pacote com `ratificado: false`. So' um
-`AceiteDeNaoRatificado` o aceita, e o UNICO jeito publico de obter um e' o portao `aceite_de_nao_ratificado`
-(decisao da ROOT): PRODUCAO NUNCA recebe aceite, ambiente desconhecido ou vazio tambem nao (falha fechada);
-em dev vale a configuracao nomeada `CHAVE_ACEITAR_NAO_RATIFICADO`. A garantia e' por construcao: nao ha'
-booleano que um chamador possa ligar.
+RATIFICACAO: a ratificacao e' ato humano no rco. O padrao RECUSA pacote com `ratificado: false` (decisao da
+ROOT). Aceitar um pacote nao ratificado exige DUAS coisas, ambas fora do alcance de quem chama:
+
+1. um `AceiteDeNaoRatificado` GENUINO, que so' o portao `aceite_de_nao_ratificado(configurado=...)` emite
+   (selo privado; construir direto levanta). O portao NAO recebe o ambiente: le' ele mesmo a variavel
+   `MAEZO_ENV` do processo e so' emite em ambiente de `AMBIENTES_QUE_PODEM_ACEITAR` com a configuracao
+   nomeada `CHAVE_ACEITAR_NAO_RATIFICADO` exatamente `True`;
+2. o ambiente VIVO no momento da carga: `carregar` le' `MAEZO_ENV` de novo e recusa se ele nao estiver na
+   lista. Um aceite emitido em dev deixa de valer quando o processo esta' em producao.
+
+Producao, ambiente desconhecido e ambiente vazio ou ausente NUNCA carregam pacote nao ratificado, seja qual
+for a configuracao ou o argumento: a regra vale por construcao, nao por convencao do chamador.
 
 O PIN E' A ANCORA DE CONFIANCA: o sha256 dos bytes do manifesto e' comparado com o pin ANTES de qualquer
 interpretacao do conteudo. VERIFICACAO (falha fechada; `PacoteK2InvalidoError(motivo)`, motivo curto e NUNCA
@@ -182,30 +189,37 @@ class PinDoK2:
 _SELO_DO_ACEITE: Final[object] = object()
 
 
-@dataclass(frozen=True, slots=True)
 class AceiteDeNaoRatificado:
-    """O aceite OPACO de pacote nao ratificado. So' `aceite_de_nao_ratificado` o constroi (o selo e'
-    privado); construir direto levanta `TypeError`. Producao nunca recebe um."""
+    """O aceite OPACO de pacote nao ratificado, SEM dado nenhum (nem o ambiente: o ambiente e' sempre o vivo,
+    relido por `carregar`). So' `aceite_de_nao_ratificado` o constroi (selo privado); construir direto
+    levanta `TypeError`. Nao e' dataclass (`dataclasses.replace` nao se aplica) e uma copia profunda perde o
+    selo; de todo modo nenhuma copia vale fora de ambiente permitido."""
 
-    ambiente: str
-    _selo: object = field(repr=False, compare=False)
+    __slots__ = ("_selo",)
 
-    def __post_init__(self) -> None:
-        if self._selo is not _SELO_DO_ACEITE:
+    def __init__(self, selo: object) -> None:
+        if selo is not _SELO_DO_ACEITE:
             raise TypeError("AceiteDeNaoRatificado so' sai de aceite_de_nao_ratificado")
+        self._selo = selo
+
+    def __repr__(self) -> str:
+        return "AceiteDeNaoRatificado()"
 
 
-def aceite_de_nao_ratificado(*, ambiente: object, configurado: object) -> AceiteDeNaoRatificado | None:
-    """O portao da ratificacao (decisao da ROOT): `None` em producao e em ambiente desconhecido, vazio ou de
-    tipo errado (falha fechada); nos ambientes de `AMBIENTES_QUE_PODEM_ACEITAR`, um aceite so' se a
-    configuracao `CHAVE_ACEITAR_NAO_RATIFICADO` for exatamente `True`. Nenhuma configuracao faz producao
-    aceitar."""
-    if configurado is not True or not isinstance(ambiente, str):
+def _ambiente_vivo_permite() -> bool:
+    """O ambiente do PROCESSO agora (`MAEZO_ENV`), nunca um valor passado por quem chama."""
+    ambiente = os.environ.get(VARIAVEL_DO_AMBIENTE, "")
+    return ambiente.strip().lower() in AMBIENTES_QUE_PODEM_ACEITAR
+
+
+def aceite_de_nao_ratificado(*, configurado: object) -> AceiteDeNaoRatificado | None:
+    """O portao da ratificacao (decisao da ROOT). Le' o ambiente ELE MESMO (`MAEZO_ENV`): `None` em producao
+    e em ambiente desconhecido, vazio ou ausente (falha fechada); nos ambientes de
+    `AMBIENTES_QUE_PODEM_ACEITAR`, um aceite so' se a configuracao `CHAVE_ACEITAR_NAO_RATIFICADO` for
+    exatamente `True`. Nenhuma configuracao faz producao aceitar."""
+    if configurado is not True or not _ambiente_vivo_permite():
         return None
-    nome = ambiente.strip().lower()
-    if nome not in AMBIENTES_QUE_PODEM_ACEITAR:
-        return None
-    return AceiteDeNaoRatificado(ambiente=nome, _selo=_SELO_DO_ACEITE)
+    return AceiteDeNaoRatificado(_SELO_DO_ACEITE)
 
 
 def _aceite_valido(aceite: object) -> bool:
@@ -316,11 +330,14 @@ class ManualK2:
 
 
 # --- Leitura limitada ---------------------------------------------------------------------------------------
-_FLAGS_DE_LEITURA: Final[int] = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+_FLAGS_DE_LEITURA: Final[int] = (
+    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+)
 
 
 def _abrir(caminho: Path) -> int:
-    """Abre para leitura sem seguir link (`O_NOFOLLOW`) e sem travar em FIFO (`O_NONBLOCK`)."""
+    """Abre para leitura sem seguir link (`O_NOFOLLOW`), sem travar em FIFO (`O_NONBLOCK`) e sem virar
+    terminal de controle (`O_NOCTTY`)."""
     return os.open(caminho, _FLAGS_DE_LEITURA)
 
 
@@ -498,7 +515,8 @@ def _verificar_manifesto(
     ratificado = bruto["ratificado"]
     if not isinstance(ratificado, bool):
         raise PacoteK2InvalidoError("ratificado_invalido")
-    if not ratificado and not _aceite_valido(aceite):
+    # o aceite GENUINO e o ambiente VIVO do processo, relido agora (um aceite de dev nao vale em producao)
+    if not ratificado and not (_aceite_valido(aceite) and _ambiente_vivo_permite()):
         raise PacoteK2InvalidoError("pacote_nao_ratificado")
     commit = bruto["commit_rco"]
     if not isinstance(commit, str) or not _HEX40.fullmatch(commit):
@@ -718,7 +736,8 @@ def _congelar(mapa: Mapping[str, tuple[str, ...]]) -> Mapping[str, tuple[str, ..
 def carregar(diretorio: Path, *, pin: PinDoK2, aceite: AceiteDeNaoRatificado | None = None) -> ManualK2:
     """Le' e verifica o pacote K2 contra o pin. Qualquer desvio -> `PacoteK2InvalidoError` (falha fechada).
 
-    `aceite` so' sai de `aceite_de_nao_ratificado` (producao nunca recebe um). `OSError` de leitura
+    `aceite` so' sai de `aceite_de_nao_ratificado`, e o pacote nao ratificado so' carrega se o ambiente VIVO
+    (`MAEZO_ENV`, relido aqui) ainda permitir. `OSError` de leitura
     (permissao, disco) sobe como esta; `carregar_ou_nenhum` trata tudo."""
     if not isinstance(diretorio, Path):
         raise PacoteK2InvalidoError("diretorio_invalido")

@@ -8,6 +8,8 @@ manifesto, o `manifesto.sha256` e o pin para que a checagem sob teste seja a que
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import hashlib
 import json
 import os
@@ -35,8 +37,20 @@ _PIN = PinDoK2(
     versao="amostra-0.1.0",
     sha256_manifesto="f9124f357352eaffa58cf06f3af7576209deb25f6d5dfe0cc1624115e49e15cd",
 )
-#: O aceite de nao ratificado dos testes: sai do PORTAO, como em dev (nunca construido direto).
-_ACEITE = k2.aceite_de_nao_ratificado(ambiente="dev", configurado=True)
+#: Marca de "use o aceite do portao" no `_recusa`.
+_PADRAO: Any = object()
+
+
+@pytest.fixture(autouse=True)
+def _ambiente_de_teste(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Os testes rodam como DEV (ambiente de teste, permitido pela decisao do dono); o `monkeypatch` desfaz
+    ao fim de cada teste. Quem testa producao troca o `MAEZO_ENV` dentro do proprio teste."""
+    monkeypatch.setenv("MAEZO_ENV", "dev")
+
+
+def _aceite() -> k2.AceiteDeNaoRatificado | None:
+    """O aceite dos testes: sai do PORTAO, sob o ambiente vivo (nunca construido direto)."""
+    return k2.aceite_de_nao_ratificado(configurado=True)
 
 
 def _sha(caminho: Path) -> str:
@@ -97,12 +111,12 @@ def _regravar_sinonimos(pacote: Path, sinonimos: Any) -> PinDoK2:
 
 
 def _carregar(pacote: Path, pin: PinDoK2) -> ManualK2:
-    return carregar(pacote, pin=pin, aceite=_ACEITE)
+    return carregar(pacote, pin=pin, aceite=_aceite())
 
 
-def _recusa(pacote: Path, pin: Any, *, aceite: Any = _ACEITE) -> str:
+def _recusa(pacote: Path, pin: Any, *, aceite: Any = _PADRAO) -> str:
     with pytest.raises(PacoteK2InvalidoError) as exc:
-        carregar(pacote, pin=pin, aceite=aceite)
+        carregar(pacote, pin=pin, aceite=_aceite() if aceite is _PADRAO else aceite)
     return exc.value.motivo
 
 
@@ -303,6 +317,9 @@ def test_ratificado_nao_booleano_recusa(tmp_path: Path, valor: object) -> None:
         ("dev", True, True),  # dev com a configuracao nomeada: aceita
         ("DEV ", True, True),
         ("dev", False, False),  # dev sem a configuracao: recusa
+        ("dev", 1, False),
+        ("dev", "true", False),
+        ("dev", None, False),
         ("prod", True, False),  # PRODUCAO com a configuracao ligada: recusa assim mesmo
         ("producao", True, False),
         ("production", True, False),
@@ -311,24 +328,39 @@ def test_ratificado_nao_booleano_recusa(tmp_path: Path, valor: object) -> None:
         ("  ", True, False),
     ],
 )
-def test_o_portao_do_aceite(ambiente: str, configurado: bool, aceita: bool) -> None:
-    aceite = k2.aceite_de_nao_ratificado(ambiente=ambiente, configurado=configurado)
+def test_o_portao_le_o_ambiente_do_processo(
+    monkeypatch: pytest.MonkeyPatch, ambiente: str, configurado: object, aceita: bool
+) -> None:
+    monkeypatch.setenv("MAEZO_ENV", ambiente)
+    aceite = k2.aceite_de_nao_ratificado(configurado=configurado)
     assert (aceite is not None) is aceita
-    if aceite is not None:
-        assert isinstance(aceite, k2.AceiteDeNaoRatificado) and aceite.ambiente == "dev"
+    assert aceite is None or isinstance(aceite, k2.AceiteDeNaoRatificado)
 
 
-@pytest.mark.parametrize(
-    ("ambiente", "configurado"),
-    [(None, True), (1, True), ("dev", 1), ("dev", "true"), ("dev", None), (b"dev", True)],
-)
-def test_o_portao_com_tipo_errado_nao_da_aceite(ambiente: object, configurado: object) -> None:
-    assert k2.aceite_de_nao_ratificado(ambiente=ambiente, configurado=configurado) is None
+@pytest.mark.parametrize("configurado", [True, False, 1, "true", None])
+def test_em_producao_o_portao_nunca_da_aceite(monkeypatch: pytest.MonkeyPatch, configurado: object) -> None:
+    monkeypatch.setenv("MAEZO_ENV", "prod")
+    assert k2.aceite_de_nao_ratificado(configurado=configurado) is None
 
 
-def test_producao_com_a_configuracao_ligada_recusa_o_pacote() -> None:
+def test_sem_maezo_env_o_portao_nao_da_aceite(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_ENV", raising=False)
+    assert k2.aceite_de_nao_ratificado(configurado=True) is None
+    monkeypatch.setenv("MAEZO_ENV", "")
+    assert k2.aceite_de_nao_ratificado(configurado=True) is None
+
+
+def test_o_portao_nao_recebe_o_ambiente_de_quem_chama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O furo da segunda revisao: processo em producao, chamador dizendo "dev". Nao ha' esse parametro."""
+    monkeypatch.setenv("MAEZO_ENV", "prod")
+    with pytest.raises(TypeError):
+        k2.aceite_de_nao_ratificado(ambiente="dev", configurado=True)  # type: ignore[call-arg]
+
+
+def test_producao_com_a_configuracao_ligada_recusa_o_pacote(monkeypatch: pytest.MonkeyPatch) -> None:
     """O teste negativo exigido pela ROOT: em producao nenhuma configuracao aceita o nao ratificado."""
-    aceite = k2.aceite_de_nao_ratificado(ambiente="prod", configurado=True)
+    monkeypatch.setenv("MAEZO_ENV", "prod")
+    aceite = k2.aceite_de_nao_ratificado(configurado=True)
     assert aceite is None
     with pytest.raises(PacoteK2InvalidoError, match="pacote_nao_ratificado"):
         carregar(_AMOSTRA, pin=_PIN, aceite=aceite)
@@ -337,16 +369,44 @@ def test_producao_com_a_configuracao_ligada_recusa_o_pacote() -> None:
     assert [e["motivo"] for e in logs] == ["pacote_invalido"]
 
 
+@pytest.mark.parametrize("ambiente_na_carga", ["prod", "", "staging", None])
+def test_aceite_de_dev_nao_vale_quando_o_ambiente_vira_producao(
+    monkeypatch: pytest.MonkeyPatch, ambiente_na_carga: str | None
+) -> None:
+    """O ambiente e' relido na CARGA: o aceite emitido em dev nao carrega nada fora de dev."""
+    aceite = _aceite()  # emitido sob MAEZO_ENV=dev (fixture do modulo)
+    assert aceite is not None
+    if ambiente_na_carga is None:
+        monkeypatch.delenv("MAEZO_ENV")
+    else:
+        monkeypatch.setenv("MAEZO_ENV", ambiente_na_carga)
+    assert _recusa(_AMOSTRA, _PIN, aceite=aceite) == "pacote_nao_ratificado"
+    with capture_logs():
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=aceite) is None
+
+
+def test_copias_do_aceite_nao_ganham_nada(monkeypatch: pytest.MonkeyPatch) -> None:
+    aceite = _aceite()
+    assert aceite is not None
+    with pytest.raises(TypeError):
+        dataclasses.replace(aceite)  # type: ignore[type-var]
+    assert not hasattr(aceite, "ambiente")  # nenhum dado em que alguem confie
+    assert _recusa(_AMOSTRA, _PIN, aceite=copy.deepcopy(aceite)) == "aceite_invalido"  # o selo nao se copia
+    raso = copy.copy(aceite)
+    monkeypatch.setenv("MAEZO_ENV", "prod")
+    assert _recusa(_AMOSTRA, _PIN, aceite=raso) == "pacote_nao_ratificado"
+
+
 def test_dev_com_a_configuracao_carrega() -> None:
-    aceite = k2.aceite_de_nao_ratificado(ambiente="dev", configurado=True)
+    aceite = k2.aceite_de_nao_ratificado(configurado=True)
     assert carregar(_AMOSTRA, pin=_PIN, aceite=aceite).versao == _PIN.versao
 
 
 def test_o_aceite_nao_se_constroi_fora_do_portao() -> None:
     with pytest.raises(TypeError):
-        k2.AceiteDeNaoRatificado(ambiente="prod", _selo=object())
+        k2.AceiteDeNaoRatificado(object())
     with pytest.raises(TypeError):
-        k2.AceiteDeNaoRatificado("prod")  # type: ignore[call-arg]
+        k2.AceiteDeNaoRatificado()  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("aceite", [True, 1, "dev", object()])
@@ -403,7 +463,7 @@ def test_o_pin_e_conferido_antes_de_interpretar_o_manifesto(tmp_path: Path) -> N
     (pacote / "manifesto.json").write_bytes(b"[" * 100_000 + b"]" * 100_000)
     assert _recusa(pacote, _PIN) == "sha256_do_manifesto_diferente_do_pin"
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(pacote, pin=_PIN, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(pacote, pin=_PIN, aceite=_aceite()) is None
     assert [e["motivo"] for e in logs] == ["pacote_invalido"]
 
 
@@ -838,7 +898,7 @@ def test_motivo_nunca_carrega_conteudo(tmp_path: Path) -> None:
 
 # --- carregar_ou_nenhum -------------------------------------------------------------------------------------
 def test_carregar_ou_nenhum_ok() -> None:
-    manual = carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE)
+    manual = carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_aceite())
     assert manual is not None and manual.versao == _PIN.versao
 
 
@@ -850,7 +910,7 @@ def test_carregar_ou_nenhum_sem_configuracao(
     diretorio: Path | None, pin: PinDoK2 | None, motivo: str
 ) -> None:
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_aceite()) is None
     assert logs == [{"event": "helena_k2_recusado", "motivo": motivo, "log_level": "warning"}]
 
 
@@ -876,7 +936,7 @@ def test_carregar_ou_nenhum_erro_de_leitura(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(k2, "_abrir", _falha)
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_aceite()) is None
     assert logs == [
         {
             "event": "helena_k2_recusado",
@@ -1027,7 +1087,7 @@ def test_json_de_dados_fundo_demais_recusa(tmp_path: Path, nome: str, motivo: st
     pin = _regravar_arquivo(pacote, nome, "[" * 100_000 + "]" * 100_000)
     assert _recusa(pacote, pin) == motivo
     with capture_logs():
-        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_aceite()) is None
 
 
 _YAMLS_PROIBIDOS: list[str] = [
@@ -1048,7 +1108,7 @@ def test_yaml_estrito_recusa(tmp_path: Path, conteudo: str) -> None:
     pin = _regravar_arquivo(pacote, "capitulo-geral.yaml", conteudo)
     assert _recusa(pacote, pin) == "capitulo_geral_yaml_invalido"
     with capture_logs():
-        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_aceite()) is None
 
 
 def test_yaml_bilhao_de_risadas_recusa(tmp_path: Path) -> None:
@@ -1085,7 +1145,7 @@ def test_carregar_ou_nenhum_nunca_levanta(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(k2, "_carregar", _inesperado)
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_aceite()) is None
     assert logs == [
         {
             "event": "helena_k2_recusado",
@@ -1102,7 +1162,7 @@ def test_carregar_ou_nenhum_nunca_levanta(monkeypatch: pytest.MonkeyPatch) -> No
 )
 def test_carregar_ou_nenhum_com_tipo_errado_devolve_nenhum(diretorio: Any, pin: Any) -> None:
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_ACEITE) is None
+        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_aceite()) is None
     assert [e["motivo"] for e in logs] == ["pacote_invalido"]
 
 
@@ -1196,3 +1256,9 @@ def test_lock_com_outro_commit_recusa_o_pacote(tmp_path: Path) -> None:
     pin = k2.pin_do_lock(_gravar_lock(tmp_path, lock))
     assert pin is not None
     assert _recusa(_AMOSTRA, pin) == "commit_rco_diferente_do_pin"
+
+
+def test_flags_de_abertura() -> None:
+    """Sem seguir link, sem travar em FIFO e sem virar terminal de controle."""
+    for flag in ("O_NOFOLLOW", "O_NONBLOCK", "O_NOCTTY"):
+        assert k2._FLAGS_DE_LEITURA & getattr(os, flag) == getattr(os, flag)

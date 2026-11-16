@@ -33,7 +33,11 @@ _PIN = PinDoK2(
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA, pin=_PIN, aceite=aceite_de_nao_ratificado(ambiente="dev", configurado=True))
+    # MAEZO_ENV=dev so' durante a carga (ambiente de teste, permitido pela decisao do dono): o contexto do
+    # MonkeyPatch desfaz ao sair, nada vaza para outros testes.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MAEZO_ENV", "dev")
+        return carregar(_AMOSTRA, pin=_PIN, aceite=aceite_de_nao_ratificado(configurado=True))
 
 
 def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:
