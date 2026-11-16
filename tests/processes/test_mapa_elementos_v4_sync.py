@@ -145,11 +145,20 @@ def _avaliar_soma(expr: str) -> int | None:
         arvore = ast.parse(expr, mode="eval")
     except SyntaxError:
         return None
-    for no in ast.walk(arvore):
-        if not isinstance(no, (ast.Expression, ast.BinOp, ast.Add, ast.Constant)):
+    return _somar_ast(arvore.body)
+
+
+def _somar_ast(no: ast.expr) -> int | None:
+    """Avalia uma arvore que so contem '+' e inteiros; qualquer outro no devolve None."""
+    if isinstance(no, ast.Constant) and type(no.value) is int:
+        return no.value
+    if isinstance(no, ast.BinOp) and isinstance(no.op, ast.Add):
+        esq = _somar_ast(no.left)
+        dir_ = _somar_ast(no.right)
+        if esq is None or dir_ is None:
             return None
-    valor = eval(compile(arvore, "<soma>", "eval"), {"__builtins__": {}})  # noqa: S307 - so '+' e inteiros
-    return int(valor)
+        return esq + dir_
+    return None
 
 
 # --------------------------------------------------------------------------- verificacoes puras
