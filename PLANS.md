@@ -127,8 +127,13 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - **#1259 (intertrava T1 de `carencia_check`), incorporado pelo dono (`bf01634c`):**
       - o caso de integração `inst_f` ficou sem veredito no run 43857174139 da `main`;
       - a linha EP-PROC-01a do evidence-ledger diz "implemented — unverified" até o caso passar;
-      - mudar esse status é PR pequeno da fila, depois do verde;
+      - **resolvido:** o #1262 (só teste, incorporado como `9d51a883`) corrigiu a leitura das listas do histórico, que o motor real devolve como nó Jackson. O `inst_f` passou no run 43883670396, e a EP-PROC-01a passou a `verified`;
       - o commit `23a5a23` da história traz um estado forjado do manifesto de ratificação e não é ratificação (DL-0168).
+    - **Pendência do dono, cobertura de integração na `main`:** o push na `main` pula os shards de integração (`integration (${{ matrix.shard }})` fica `skipped`, por exemplo no run 43857174139). "Verde na `main`" não prova os testes de integração; só o CI de PR os roda. O dono decide entre rodar integração na `main` e aceitar esse limite.
+    - **Próximo PR pequeno, antes do 5d:** o rco publica o K1 em `formato_manifesto` 2.1.0, com o campo novo `provas[]`.
+      - O leitor (`src/maezo/platform/rco_manifesto.py`) recusa campo desconhecido e precisa aceitar `provas[]`.
+      - As provas rodam no CIB Seven 2.1.0, a começar pela tabela-verdade do teste unário, antes do primeiro pin real.
+      - Começa quando a ROOT avisar que a unidade 8 do rco entrou na `main` com o contrato final.
     - **5d aprovado pela ROOT no mérito (16/11/2026), a começar na próxima janela:**
       - User Tasks de conferência e de revisão, código escuro atrás de `efeito_k1_habilitado`;
       - timer que nunca decide por decurso;
