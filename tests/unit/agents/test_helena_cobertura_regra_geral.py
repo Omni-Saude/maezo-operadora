@@ -141,6 +141,11 @@ async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK
         "quanto tempo demora a autorização das tomografias? fiz ressonância ano passado",
         "precisa de autorização pra TC? fiz ressonância ano passado",
         "a angiotomografia precisa de liberação? fiz ressonância ano passado",
+        # terceira revisao: sigla em minuscula e apelido (WhatsApp)
+        "quanto demora a autorização do pet? fiz ressonância ano passado",
+        "precisa de autorização pra tc? fiz ressonância",
+        "a mamo precisa de liberação? já fiz ressonância",
+        "e o eco? a ressonância precisa de autorização?",
     ],
 )
 async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:

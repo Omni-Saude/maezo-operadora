@@ -217,7 +217,9 @@ def test_sinonimo_extra_fora_do_formato_e_ignorado(sinonimos: Sinonimos) -> None
         ("TUSS 99000002", "unico", {RM_CRANIO.codigo}),
         ("99000001 ou 99000004", "esclarecer", {RM_JOELHO.codigo, RM_OMBRO.codigo}),
         ("o codigo e' 12345678", "sem_candidato", set()),  # fora do catalogo: nao cai para as palavras
-        ("ressonância 12345678", "sem_candidato", set()),
+        # sem contexto, o numero nao e' codigo: valem as palavras (pergunta qual ressonancia, sem escolher)
+        ("ressonância 12345678", "esclarecer", {"99000001", "99000002", "99000003", "99000004"}),
+        ("ressonância 99000002", "esclarecer", {"99000001", "99000002", "99000003", "99000004"}),
         ("1234567", "sem_candidato", set()),  # 7 digitos nao e' codigo
     ],
 )
@@ -237,7 +239,20 @@ def test_numero_de_8_digitos_sem_contexto_nao_vira_codigo(sinonimos: Sinonimos) 
 
 
 @pytest.mark.parametrize(
-    "texto", ["protocolo 99000002", "cpf 99000002", "carteirinha 99000002", "nº 99000002", "guia 99000002"]
+    "texto",
+    [
+        "protocolo 99000002",
+        "cpf 99000002",
+        "carteirinha 99000002",
+        "nº 99000002",
+        "guia 99000002",
+        # terceira revisao: qualquer palavra ao lado do numero tira o "so' numero"
+        "boleto 99000002",
+        "atendimento 99000002",
+        "beneficiário 99000002",
+        "carteira 99000002",
+        "ficha 99000002",
+    ],
 )
 def test_numero_de_outra_coisa_nunca_vira_codigo(sinonimos: Sinonimos, texto: str) -> None:
     """HEL-5a (segunda revisao): numero ao lado de protocolo ou documento nao e' codigo TUSS."""

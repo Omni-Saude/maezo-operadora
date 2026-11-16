@@ -32,8 +32,8 @@ from maezo.agents.helena.habilidades.cobertura import procedimento as _procedime
 from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, RegraDoManual, normalizar
 from maezo.agents.helena.habilidades.cobertura.verificador import (
     FORMULA_FIXA,
-    _singular,
     procedimentos_citados,
+    singular,
     verificar,
 )
 from maezo.ports.tina import ProcedimentoCatalogo
@@ -152,7 +152,7 @@ class CamadaRegraGeral:
         `verificador.procedimentos_citados`) que a regra NAO cita nos sinonimos nem no titulo?"""
         da_regra = " ".join([*regra.sinonimos, regra.titulo])
         da_regra_citados = procedimentos_citados(da_regra, self._procedimentos)
-        palavras_da_regra = {_singular(p) for p in normalizar(da_regra).split()}
+        palavras_da_regra = {singular(p) for p in normalizar(da_regra).split()}
         return any(
             c not in da_regra_citados and not set(c.split()) <= palavras_da_regra
             for c in procedimentos_citados(texto, self._procedimentos)

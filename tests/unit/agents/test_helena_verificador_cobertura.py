@@ -118,6 +118,15 @@ _FONTE_FISIO = "AMOSTRA. Cada pedido médico vale até 20 sessões de fisioterap
         "As tomografias precisam de autorização prévia.",
         "A mamografia precisa de autorização prévia.",
         "A ressonância precisa de autorização prévia. A tomografia também.",
+        # terceira revisao: sigla, procedimento numa frase e autorizacao na seguinte, outras anaforas, apelido
+        "A TC precisa de autorização prévia.",
+        "O PET-CT precisa de autorização prévia.",
+        "A tomografia? Precisa de autorização prévia.",
+        "Quanto à tomografia: sim. Precisa de autorização prévia.",
+        "A ressonância precisa de autorização prévia. Com a tomografia é igual.",
+        "A ressonância precisa de autorização prévia. Isso se aplica à tomografia.",
+        "A ressonância precisa de autorização prévia. Vale igual para a tomografia.",
+        "A ressonância precisa de autorização prévia. A mamo também.",
     ],
 )
 def test_autorizacao_de_outro_procedimento_nao_confere(corpo: str) -> None:
@@ -140,6 +149,15 @@ def test_autorizacao_do_procedimento_da_fonte_confere() -> None:
         ("São até 20 sessões mensais.", "quantidade"),
         ("Por mês, são até 20 sessões.", "quantidade"),
         ("Toda semana, são até 20 sessões.", "quantidade"),
+        # terceira revisao: numero sem unidade, frequencia em outra frase, somada, ou fora da lista
+        ("O reembolso máximo é de 20.", "quantidade"),
+        ("O valor é 20, em reais.", "quantidade"),
+        ("Por mês: 20.", "quantidade"),
+        ("São até 20 sessões. Isso vale por mês.", "quantidade"),
+        ("São até 20 sessões por pedido e por mês.", "quantidade"),
+        ("São até 20 sessões no mês.", "quantidade"),
+        ("São até 20 sessões, mensalmente.", "quantidade"),
+        ("São até 20 sessões, semanalmente.", "quantidade"),
     ],
 )
 def test_numero_solto_e_frequencia_inventada_nao_conferem(corpo: str, motivo: str) -> None:
@@ -149,3 +167,32 @@ def test_numero_solto_e_frequencia_inventada_nao_conferem(corpo: str, motivo: st
 
 def test_a_frequencia_da_fonte_confere() -> None:
     assert verificar(_r("São até 20 sessões por pedido."), [_FONTE_FISIO]).ok
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "A ressonância precisa de autorização prévia.",
+        "A ressonância magnética eletiva precisa de autorização.",
+    ],
+)
+def test_texto_literal_da_fonte_continua_conferindo(corpo: str) -> None:
+    """Sem falso positivo no caminho legitimo: a frase da fonte (ou o seu sujeito) passa."""
+    assert verificar(_r(corpo), [_FONTE_RM]).ok
+
+
+def test_frase_literal_da_fonte_colada_a_autorizacao_nao_herda_a_afirmacao() -> None:
+    """A frase da propria fonte ao lado da autorizacao continua passando (camada 1 envia o texto da regra)."""
+    fonte = "AMOSTRA. A ressonância precisa de autorização prévia. A consulta de retorno é agendada pelo app."
+    corpo = "A ressonância precisa de autorização prévia. A consulta de retorno é agendada pelo app."
+    assert verificar(_r(corpo), [fonte]).ok
+
+
+def test_palavra_comum_com_sufixo_nao_e_procedimento() -> None:
+    corpo = "Envie a fotografia do pedido: a ressonância precisa de autorização prévia."
+    assert verificar(_r(corpo), [_FONTE_RM]).ok
+
+
+def test_exame_que_nenhuma_fonte_cita_nao_passa_nem_sem_afirmar_autorizacao() -> None:
+    v = verificar(_r("Com a tomografia é igual."), [_FONTE_RM])
+    assert not v.ok and "procedimento_sem_fonte" in v.motivos
