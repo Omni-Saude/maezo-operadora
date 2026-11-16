@@ -124,6 +124,15 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
       - provar no motor implantado (CIB Seven 2.1.0, perfil `deployed-runtime-compatibility`) a tabela-verdade do teste unário booleano (`false, null` → 0 1 1; `null, true` → 1 0 1; `not(false)` → 1 0 1; `true` → 1 0 0; `false` → 0 1 0; `null` → 0 0 1; branch rco `prog/rco/teste-unario-booleano`), com qualquer divergência barrando o pin;
       - ter a isenção da cerca de perspectiva para `spec/processes/dmn/rco/`.
     - **Unidade proposta, sem OK ainda:** gravar `sha256Yaml` no runtime, depois do #1250.
+    - **#1259 (intertrava T1 de `carencia_check`), incorporado pelo dono (`bf01634c`):**
+      - o caso de integração `inst_f` ficou sem veredito no run 43857174139 da `main`;
+      - a linha EP-PROC-01a do evidence-ledger diz "implemented — unverified" até o caso passar;
+      - mudar esse status é PR pequeno da fila, depois do verde;
+      - o commit `23a5a23` da história traz um estado forjado do manifesto de ratificação e não é ratificação (DL-0168).
+    - **5d aprovado pela ROOT no mérito (16/11/2026), a começar na próxima janela:**
+      - User Tasks de conferência e de revisão, código escuro atrás de `efeito_k1_habilitado`;
+      - timer que nunca decide por decurso;
+      - ordinal por contagem mais linhas perdidas, em PR próprio se crescer.
     - **Decisão de minimização (ROOT, 16/11/2026; LGPD, necessidade):**
       - `rco_decisao_regra` não grava a chave de negócio, nem pseudonimizada; ela só passa em memória, para a amostragem;
       - o vínculo com o caso existe só via `task_id` (no hash `chave_idempotencia`) e a auditoria; a eliminação segue o regime da auditoria;
