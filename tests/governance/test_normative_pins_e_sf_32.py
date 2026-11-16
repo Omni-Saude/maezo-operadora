@@ -140,7 +140,7 @@ def _render(violations: list[Violation]) -> str:
 
 # --------------------------------------------------------------------------- REG-25 (MP 2.177-44)
 
-TOKEN_REG25 = "locator_refuted_REG-25"
+MOTIVO_REG25 = "locator_refuted_REG-25"
 _MP2177 = re.compile(r"2\.?177-44")
 # "art. 5º" / "artigo 5" / "Art. 5°" — nunca "art. 15", "art. 50", "art. 35-E".
 _ART5 = re.compile(r"(?<![0-9])\bart(?:igo|\.)?\s*5(?![0-9])", re.IGNORECASE)
@@ -157,24 +157,24 @@ def _is_reg25_violation(line: str) -> bool:
 
 
 def find_reg25(corpus: Corpus) -> list[Violation]:
-    return _scan(corpus, TOKEN_REG25, _is_reg25_violation)
+    return _scan(corpus, MOTIVO_REG25, _is_reg25_violation)
 
 
 # --------------------------------------------------------------------------- REG-26a (RN 413/558)
 
-TOKEN_REG26A = "minuta_not_source_of_vigente"
+MOTIVO_REG26A = "minuta_not_source_of_vigente"
 # A cópia oficial "Minuta de Norma … alterada" (SEI 33910.025318/2024-75), servida como
 # .../audiencias-publicas/50/SEI_<n>_Minuta_de_Norma.pdf.
 _MINUTA = re.compile(r"SEI_\d+_Minuta_de_Norma", re.IGNORECASE)
 
 
 def find_reg26a(corpus: Corpus) -> list[Violation]:
-    return _scan(corpus, TOKEN_REG26A, lambda line: bool(_MINUTA.search(line)))
+    return _scan(corpus, MOTIVO_REG26A, lambda line: bool(_MINUTA.search(line)))
 
 
 # --------------------------------------------------------------------------- REG-26b (RN 558 art. 5º)
 
-TOKEN_REG26B = "citation_pending_GAP-2r"
+MOTIVO_REG26B = "citation_pending_GAP-2r"
 _RN558 = re.compile(
     r"\bRN\s*(?:n[º°o.]*\s*)?558(?![0-9])|\b558/2022\b|Resolu[çc][ãa]o Normativa[^\n]{0,24}?558"
 )
@@ -188,12 +188,12 @@ _ART5_CAPUT = re.compile(
 
 def find_reg26b(corpus: Corpus) -> list[Violation]:
     scoped = tuple(item for item in corpus if not item[0].startswith(RENDER_EXCLUDED_PREFIX))
-    return _scan(scoped, TOKEN_REG26B, lambda line: bool(_RN558.search(line) and _ART5_CAPUT.search(line)))
+    return _scan(scoped, MOTIVO_REG26B, lambda line: bool(_RN558.search(line) and _ART5_CAPUT.search(line)))
 
 
 # --------------------------------------------------------------------------- REG-27a (RN 561)
 
-TOKEN_REG27A = "rn561_not_cited_from_dou"
+MOTIVO_REG27A = "rn561_not_cited_from_dou"
 # Nome de arquivo da cópia Saúde Legis (bvsms) da RN 561/2022.
 _RN561_SAUDELEGIS = re.compile(r"res0*561_\d", re.IGNORECASE)
 
@@ -238,7 +238,7 @@ def find_reg27a(corpus: Corpus, known_debt: frozenset[tuple[str, str]] = frozens
     # Cada entrada de dívida cobre UMA ocorrência: cópia idêntica da mesma linha volta a falhar.
     seen: set[tuple[str, str]] = set()
     out: list[Violation] = []
-    for v in _scan(corpus, TOKEN_REG27A, lambda line: bool(_RN561_SAUDELEGIS.search(line))):
+    for v in _scan(corpus, MOTIVO_REG27A, lambda line: bool(_RN561_SAUDELEGIS.search(line))):
         key = (v.path, v.line)
         if key in known_debt and key not in seen:
             seen.add(key)
@@ -249,7 +249,7 @@ def find_reg27a(corpus: Corpus, known_debt: frozenset[tuple[str, str]] = frozens
 
 # --------------------------------------------------------------------------- REG-28a (RN 500)
 
-TOKEN_REG28A = "rn500_cited_as_buyer_confirmation_duty_REG-28"
+MOTIVO_REG28A = "rn500_cited_as_buyer_confirmation_duty_REG-28"
 _RN500 = re.compile(
     r"\bRN\s*(?:n[º°o.]*\s*)?500(?![0-9])|\b500/2022\b|Resolu[çc][ãa]o Normativa[^\n]{0,24}?500"
 )
@@ -260,7 +260,7 @@ _BUYER = re.compile(r"comprador|proponente|interessad|contratante|consumidor|buy
 def find_reg28a(corpus: Corpus) -> list[Violation]:
     return _scan(
         corpus,
-        TOKEN_REG28A,
+        MOTIVO_REG28A,
         lambda line: bool(_RN500.search(line) and _CONFIRMA.search(line) and _BUYER.search(line)),
     )
 
@@ -363,7 +363,7 @@ def test_reg25_guard_rejects_injected_locator(tmp_path: Path) -> None:
     vizinho = "Lei 9.656, art. 15 (redação dada pela MP 2.177-44/2001), faixas.\n"
     _inject(tmp_path, "docs/x/vizinho.md", vizinho)
     found = find_reg25(_dir_corpus(tmp_path, CITATION_ROOTS))
-    assert [(v.path, v.token) for v in found] == [("docs/x/artefato.md", TOKEN_REG25)]
+    assert [(v.path, v.token) for v in found] == [("docs/x/artefato.md", MOTIVO_REG25)]
 
 
 def test_reg26a_guard_rejects_injected_minuta_source(tmp_path: Path) -> None:
@@ -379,7 +379,7 @@ def test_reg26a_guard_rejects_injected_minuta_source(tmp_path: Path) -> None:
         "resolucao-normativa-rn-n-413-de-11-de-novembro-de-2016-24504005'\n",
     )
     found = find_reg26a(_dir_corpus(tmp_path, CITATION_ROOTS))
-    assert [(v.path, v.token) for v in found] == [("spec/x/regra.yaml", TOKEN_REG26A)]
+    assert [(v.path, v.token) for v in found] == [("spec/x/regra.yaml", MOTIVO_REG26A)]
 
 
 @pytest.mark.parametrize(
@@ -393,7 +393,7 @@ def test_reg26a_guard_rejects_injected_minuta_source(tmp_path: Path) -> None:
 def test_reg26b_guard_rejects_injected_template(tmp_path: Path, line: str) -> None:
     _inject(tmp_path, "src/maezo/x/templates/carta.html", line + "\n")
     found = find_reg26b(_dir_corpus(tmp_path, RENDER_ROOTS))
-    assert [(v.path, v.token) for v in found] == [("src/maezo/x/templates/carta.html", TOKEN_REG26B)]
+    assert [(v.path, v.token) for v in found] == [("src/maezo/x/templates/carta.html", MOTIVO_REG26B)]
 
 
 @pytest.mark.parametrize(
@@ -428,14 +428,14 @@ def test_reg27a_guard_rejects_injected_saudelegis_citation(tmp_path: Path) -> No
         "resolucao-normativa-ans-n-561-de-15-de-dezembro-de-2022-454883907\n",
     )
     found = find_reg27a(_dir_corpus(tmp_path, CITATION_ROOTS), _RN561_KNOWN_DEBT)
-    assert [(v.path, v.token) for v in found] == [("docs/x/cancelamento.md", TOKEN_REG27A)]
+    assert [(v.path, v.token) for v in found] == [("docs/x/cancelamento.md", MOTIVO_REG27A)]
 
 
 def test_reg27a_known_debt_does_not_cover_an_edited_line(tmp_path: Path) -> None:
     path, line = sorted(_RN561_KNOWN_DEBT)[0]
     _inject(tmp_path, path, line + " (editada)\n")
     found = find_reg27a(_dir_corpus(tmp_path, CITATION_ROOTS), _RN561_KNOWN_DEBT)
-    assert [(v.path, v.token) for v in found] == [(path, TOKEN_REG27A)]
+    assert [(v.path, v.token) for v in found] == [(path, MOTIVO_REG27A)]
 
 
 def test_reg28a_guard_rejects_injected_buyer_confirmation_duty(tmp_path: Path) -> None:
@@ -446,11 +446,11 @@ def test_reg28a_guard_rejects_injected_buyer_confirmation_duty(tmp_path: Path) -
         "RN 500/2022, art. 3º, §1º: as operadoras mantêm o cadastro atualizado, correto e fidedigno.\n",
     )
     found = find_reg28a(_dir_corpus(tmp_path, CITATION_ROOTS))
-    assert [(v.path, v.token) for v in found] == [("docs/x/premissa.md", TOKEN_REG28A)]
+    assert [(v.path, v.token) for v in found] == [("docs/x/premissa.md", MOTIVO_REG28A)]
 
 
 def test_reg27a_known_debt_covers_one_occurrence_only(tmp_path: Path) -> None:
     path, line = sorted(_RN561_KNOWN_DEBT)[0]
     _inject(tmp_path, path, line + "\n" + line + "\n")
     found = find_reg27a(_dir_corpus(tmp_path, CITATION_ROOTS), _RN561_KNOWN_DEBT)
-    assert [(v.path, v.line_no, v.token) for v in found] == [(path, 2, TOKEN_REG27A)]
+    assert [(v.path, v.line_no, v.token) for v in found] == [(path, 2, MOTIVO_REG27A)]
