@@ -170,7 +170,8 @@ verify-rco-rules-pin: ## ADR-0075 (b) (MZO-1d): pin do pacote de regras K1 do rc
 	# guarda so o pin (config/integrations/rco/rules.lock.json) + os bytes em spec/processes/dmn/rco/.
 	# O gate recomputa o sha256 do manifesto e de cada rco/*.dmn e recusa arquivo nao-listado.
 	# Estado `sem_pacote`: a pasta so' aceita README.md + exemplos sinteticos declarados no pin.
-	# stdlib-only e SEM rede.
+	# Estado `fixado` (MZO-2a): o manifesto K1 (config/integrations/rco/k1/) e' lido por
+	# maezo.platform.rco_manifesto, o mesmo leitor do runtime (stdlib-only). SEM rede.
 	.venv/bin/python scripts/ci/verify_rco_rules_pin.py
 
 xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/xfail-census.json + PLANS.md (gate de drift)

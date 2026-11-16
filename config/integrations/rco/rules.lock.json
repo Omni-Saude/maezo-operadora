@@ -10,6 +10,10 @@
       "Este arquivo nao e editavel a mao para 'consertar' digest. Muda so por (1) nova",
       "publicacao do K1 no rco, que leva estado a 'fixado' com commit, manifesto e artefatos,",
       "ou (2) entrada/saida de exemplo sintetico declarado.",
+      "Digest: todo sha256 e 'sha256:<64 hex>' (notacao do pacote, contrato-k1.md secao 1); hex cru",
+      "e recusado. Em 'fixado' o manifesto e os anexos ficam em config/integrations/rco/k1/ e",
+      "manifest_pin.path e config/integrations/rco/k1/manifesto.json (leitor:",
+      "src/maezo/platform/rco_manifesto.py, o mesmo no gate e no runtime).",
       "Gate: scripts/ci/verify_rco_rules_pin.py (make verify-rco-rules-pin), stdlib, sem rede,",
       "fail-closed. Formato descrito em config/integrations/rco/README.md."
     ],
@@ -18,8 +22,8 @@
     "name": "rco-rules-lock",
     "package": "K1",
     "rules_dir": "spec/processes/dmn/rco",
-    "version": "1.0.0",
-    "work_package": "MZO-1d"
+    "version": "2.0.0",
+    "work_package": "MZO-1d; MZO-2a (leitor do manifesto K1, digest sha256:<hex>)"
   },
   "estado": "sem_pacote",
   "provenance": {
@@ -32,7 +36,7 @@
   "exemplos_sinteticos": [
     {
       "path": "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn",
-      "sha256": "3499da1441031aaf68059139293c98b824f08efb64a61bd5e76f8edd88ee6524"
+      "sha256": "sha256:3499da1441031aaf68059139293c98b824f08efb64a61bd5e76f8edd88ee6524"
     }
   ]
 }

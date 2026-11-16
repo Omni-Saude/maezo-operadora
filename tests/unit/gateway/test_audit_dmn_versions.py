@@ -28,6 +28,7 @@ import httpx
 import pytest
 
 from maezo.gateway.audit import AuditRecord
+from maezo.tools.workers import rco_pin
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import reclassify_coded_exception
 from maezo.tools.workers.dmn_transport import (
@@ -42,6 +43,7 @@ from maezo.tools.workers.rco_pin import (
     RcoRulesPinError,
     load_rco_rules_pin,
 )
+from tests.unit.platform import rco_k1_sintetico as sint
 
 
 def test_dmn_version_to_audit_dict_shape_matches_column_expectation() -> None:
@@ -161,6 +163,7 @@ def test_pin_path_constants_match_the_ci_gate() -> None:
 
     assert RCO_RULES_PIN_RELATIVE_PATH == gate.DEFAULT_LOCK_PATH
     assert RCO_RULES_DIR == gate.RULES_DIR
+    assert rco_pin.LOCK_VERSION == gate.LOCK_VERSION
 
 
 def test_maezo_table_entry_has_no_rco_keys() -> None:
@@ -175,7 +178,8 @@ def test_maezo_table_entry_has_no_rco_keys() -> None:
 
 def test_rco_table_entry_carries_sha_from_the_pin() -> None:
     sha = _lock_sha(_SINTETICO_REL)
-    assert sha == hashlib.sha256((_REPO / _SINTETICO_REL).read_bytes()).hexdigest()
+    # notacao do pacote K1 (contrato-k1.md §1): shaDmn = decisoes[].sha256 = `sha256:<hex>`
+    assert sha == "sha256:" + hashlib.sha256((_REPO / _SINTETICO_REL).read_bytes()).hexdigest()
     fake = FakeDmnTransport()
     fake.register(_SINTETICO, [{"decisao": "liberar", "classeAdverso": None, "fila": None}], version=1)
     with collect_dmn_versions() as collected:
@@ -250,20 +254,23 @@ def test_pin_loader_maps_decision_to_sha(tmp_path: Path) -> None:
     lock_path, rules_dir = _write_pin(tmp_path, sha=_lock_sha(_SINTETICO_REL))
     pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
     assert pin.tables[_SINTETICO].sha_dmn == _lock_sha(_SINTETICO_REL)
-    assert pin.tables[_SINTETICO].versao_regra is None
+    assert pin.tables[_SINTETICO].regras is None  # sem manifesto: versaoRegra nunca inventada
 
 
 @pytest.mark.parametrize(
     ("sha", "estado", "remove_file"),
     [
-        ("0" * 64, "sem_pacote", False),  # pin sha diverges from the bytes on board
+        ("sha256:" + "0" * 64, "sem_pacote", False),  # pin sha diverges from the bytes on board
         ("nao-e-sha", "sem_pacote", False),  # sha missing/malformed in the pin
+        ("PLACEHOLDER_RAW_HEX", "sem_pacote", False),  # raw hex (no `sha256:` prefix) is refused
         (None, "sem_pacote", True),  # listed file absent
-        (None, "fixado", False),  # versaoRegra source (K1 manifest) not implemented yet: Onda 2
+        (None, "fixado", False),  # `fixado` with no K1 manifest pinned
         (None, "outro", False),
     ],
 )
 def test_pin_loader_fails_closed(tmp_path: Path, sha: str | None, estado: str, remove_file: bool) -> None:
+    if sha == "PLACEHOLDER_RAW_HEX":
+        sha = _lock_sha(_SINTETICO_REL).removeprefix("sha256:")
     lock_path, rules_dir = _write_pin(tmp_path, sha=sha or _lock_sha(_SINTETICO_REL), estado=estado)
     if remove_file:
         (rules_dir / "rco_exemplo_sintetico.dmn").unlink()
@@ -296,3 +303,114 @@ def test_rco_id_regra_out_of_pattern_fails_closed_and_is_never_written(id_regra:
     with collect_dmn_versions() as collected, pytest.raises(RcoRulesPinError):
         evaluate_sync(fake, _SINTETICO, {})
     assert collected == {}
+
+
+# ---------------------------------------------------------------------------------------------
+# MZO-2a (contrato-k1.md §11): estado `fixado` lido com o manifesto K1 — pacote SINTETICO
+# ---------------------------------------------------------------------------------------------
+
+
+def _fixado(tmp_path: Path) -> tuple[Path, Path]:
+    sint.montar(tmp_path)
+    return tmp_path / sint.LOCK_REL, tmp_path / sint.RULES_DIR
+
+
+def test_fixado_loads_the_package_and_versao_regra_comes_from_the_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock_path, rules_dir = _fixado(tmp_path)
+    pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    assert pin.estado == "fixado"
+    assert set(pin.tables) == {"rco_sint_a", "rco_sint_b"}
+    manifesto = json.loads((tmp_path / sint.K1_DIR / "manifesto.json").read_bytes())
+    sha_a = manifesto["decisoes"][0]["sha256"]
+    assert pin.tables["rco_sint_a"].sha_dmn == sha_a  # shaDmn = decisoes[].sha256
+    regras = pin.tables["rco_sint_a"].regras
+    assert regras is not None
+    assert regras["SINT-A-0002"].sha256_yaml == manifesto["decisoes"][0]["regras"][1]["sha256_yaml"]
+
+    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: pin)
+    version = DmnVersion(key="rco_sint_a", id="x", version=3, deployment_id="d")
+    assert version.to_audit_dict({"idRegra": "SINT-A-0002"}) == {
+        "version": 3,
+        "id": "x",
+        "deploymentId": "d",
+        "shaDmn": sha_a,
+        "idRegra": "SINT-A-0002",
+        "versaoRegra": "1.0.1",
+    }
+    # Sem linha casada unica nao ha idRegra, logo nao ha versaoRegra (ausente, nunca inventada).
+    assert set(version.to_audit_dict(None)) == {"version", "id", "deploymentId", "shaDmn"}
+    # idRegra que o manifesto nao lista para a decisao: recusado, nada gravado.
+    with pytest.raises(RcoRulesPinError, match="regras"):
+        version.to_audit_dict({"idRegra": "SINT-B-0001"})
+
+
+def test_fixado_keeps_maezo_synthetic_examples_without_versao_regra(tmp_path: Path) -> None:
+    lock_path, rules_dir = _fixado(tmp_path)
+    (rules_dir / "rco_exemplo_sintetico.dmn").write_bytes((_REPO / _SINTETICO_REL).read_bytes())
+    lock = sint.lock(tmp_path)
+    lock["exemplos_sinteticos"] = [{"path": _SINTETICO_REL, "sha256": _lock_sha(_SINTETICO_REL)}]
+    sint.gravar_lock(tmp_path, lock)
+    pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    assert pin.tables[_SINTETICO].regras is None
+    assert pin.tables[_SINTETICO].audit_fields("K1-R-001") == {"shaDmn": _lock_sha(_SINTETICO_REL)}
+
+
+def _sem_sujo(m: dict[str, Any]) -> None:
+    m["origem"]["sujo"] = True
+
+
+@pytest.mark.parametrize(
+    "estragar",
+    [
+        # manifesto: digest do pin divergente
+        lambda root: (root / sint.K1_DIR / "manifesto.json").write_bytes(b"{}"),
+        # manifesto recusado pelo leitor, mesmo repinado
+        lambda root: sint.regravar(root, {**_manifesto(root), "campo_novo": 1}),
+        lambda root: sint.regravar(root, _mutado(root, _sem_sujo)),
+        lambda root: sint.regravar(root, {**_manifesto(root), "formato_manifesto": "3.0.0"}),
+        # anexo adulterado
+        lambda root: (root / sint.K1_DIR / "k6-filas.json").write_bytes(b"{}"),
+        # DMN adulterado
+        lambda root: (root / sint.RULES_DIR / "sint_a.dmn").write_bytes(b"<x/>"),
+        # artifacts diferentes de decisoes[]
+        lambda root: sint.gravar_lock(
+            root, {**sint.lock(root), "artifacts": sint.lock(root)["artifacts"][:1]}
+        ),
+        # provenance diferente da origem
+        lambda root: sint.gravar_lock(
+            root,
+            {**sint.lock(root), "provenance": {**sint.lock(root)["provenance"], "rco_commit_sha": "f" * 40}},
+        ),
+        # manifest_pin fora do caminho fixo
+        lambda root: sint.gravar_lock(
+            root,
+            {
+                **sint.lock(root),
+                "manifest_pin": {**sint.lock(root)["manifest_pin"], "path": "x/manifesto.json"},
+            },
+        ),
+        # lock no formato antigo
+        lambda root: sint.gravar_lock(
+            root, {**sint.lock(root), "lock_format": {**sint.lock(root)["lock_format"], "version": "1.0.0"}}
+        ),
+    ],
+)
+def test_fixado_fails_closed(tmp_path: Path, estragar: Any) -> None:
+    lock_path, rules_dir = _fixado(tmp_path)
+    load_rco_rules_pin(lock_path, rules_dir=rules_dir)  # integro: carrega
+    estragar(tmp_path)
+    with pytest.raises(RcoRulesPinError) as excinfo:
+        load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+
+
+def _manifesto(root: Path) -> dict[str, Any]:
+    return dict(json.loads((root / sint.K1_DIR / "manifesto.json").read_bytes()))
+
+
+def _mutado(root: Path, mutar: Any) -> dict[str, Any]:
+    m = _manifesto(root)
+    mutar(m)
+    return m
