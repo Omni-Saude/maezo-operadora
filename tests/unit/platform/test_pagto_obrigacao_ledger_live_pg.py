@@ -13,7 +13,7 @@ Cadeia alembic REAL sobre um schema de tenant descartavel no Postgres do compose
 - APPEND-ONLY: UPDATE, DELETE e TRUNCATE direto no banco levantam a excecao do trigger; CHECKs
   fechados recusam evento/origem/chave fora do vocabulario;
 - banco fora -> `RazaoIndisponivelError` (o detector a traduz em INDETERMINADA);
-- `downgrade -1` (so' a 0034, qualquer que seja o pai no merge) apaga tabela e funcao, e um
+- `downgrade 0033` (apaga a 0034 e o que veio depois, ex.: a 0035) apaga tabela e funcao, e um
   segundo `upgrade head` as restaura.
 """
 
@@ -230,7 +230,7 @@ async def test_niveis_idempotencia_e_append_only_ao_vivo() -> None:
         finally:
             await raw.close()
 
-        await _migrate(dsn, tenant, "downgrade", "-1")
+        await _migrate(dsn, tenant, "downgrade", "0033")
         raw = await asyncpg.connect(dsn)
         try:
             existe = await raw.fetchval("SELECT to_regclass($1)", f'"{tenant}".pagto_obrigacao_ledger')

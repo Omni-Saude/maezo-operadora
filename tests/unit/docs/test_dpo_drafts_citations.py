@@ -614,10 +614,14 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # DL-0162 adds `reembolso_coleta` (0033), also NOT covered (sem probe).
     # PAGTO PR-E (0034) adds `pagto_obrigacao_ledger`, also NOT covered (sem coluna de titular de
     # beneficiario; razao DARK das obrigacoes de pagamento — mesma pergunta do prestador PF ao DPO).
-    assert len(covered | uncovered) == 46  # 43 + o ledger (0032) + a coleta (0033) + a razao (0034)
-    assert len(uncovered) == 35  # 32 + o ledger + a coleta + a razao (todos sem probe)
-    assert len((covered | uncovered) - journal) == 40  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E)
-    assert len(uncovered - journal) == 29  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E)
+    # MZO-5c-2 (0035) adds `rco_decisao_regra` and `rco_decisao_regra_desfecho`, also NOT covered (sem
+    # coluna de titular; registro DARK das decisoes das regras K1, ADR-0077 §4).
+    assert (
+        len(covered | uncovered) == 48
+    )  # 43 + o ledger (0032) + a coleta (0033) + a razao (0034) + 2 (0035)
+    assert len(uncovered) == 37  # 32 + o ledger + a coleta + a razao + 2 do registro K1 (todos sem probe)
+    assert len((covered | uncovered) - journal) == 42  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E) +0035
+    assert len(uncovered - journal) == 31  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E) +0035 (5c-2)
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

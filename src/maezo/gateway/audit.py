@@ -208,7 +208,9 @@ class AuditRecord:
             `idRegra` (only when the matched row has that output); with a MAJOR 2 manifest also
             `ativacaoPacote` and `exigeAditivo` (`"true"`/`"false"`, ADR-0077 §4) — all strings, from
             `rules.lock.json` + manifest / the table output, never from the engine
-            (`maezo.tools.workers.rco_pin`). Maezo entries never carry them (absent, not null).
+            (`maezo.tools.workers.rco_pin`). With the same presence rule as `ativacaoPacote` the
+            entry also carries `estadoManual`, `ativacaoEfetiva` and `modo` (ADR-0077 §4, 5c-2).
+            Maezo entries never carry them (absent, not null).
             The column is free-form jsonb and `canonicalize_jsonb` leaves strings untouched, so
             neither the schema nor `verify_chain()` changes.
         model_id: LLM model identifier, when the action involved one.

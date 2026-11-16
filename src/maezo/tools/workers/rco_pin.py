@@ -66,6 +66,8 @@ from typing import Any, Final
 
 from maezo.agents import resolve_spec_dir
 from maezo.platform import rco_manifesto
+from maezo.platform.rco_ativacao import efeito_k1_habilitado, estados_em_cache
+from maezo.platform.rco_registro import AvaliacaoRegra, avaliar_regra
 
 #: Prefixo obrigatorio do id de decisao do K1 (ADR-0075 secao (b); `platform/validation/dmn.py`).
 RCO_DECISION_PREFIX: Final[str] = "rco_"
@@ -342,16 +344,24 @@ def rco_pinned_table(decision_key: str) -> RcoPinnedTable | None:
     return pinned
 
 
-def rco_audit_fields(decision_key: str, row: Mapping[str, Any] | None = None) -> dict[str, str]:
-    """Campos extras da entrada de `dmn_versions`: `{}` para Maezo; `shaDmn` (+ opcionais) para rco."""
+def rco_avaliacao(
+    decision_key: str, row: Mapping[str, Any] | None = None
+) -> tuple[dict[str, str], AvaliacaoRegra | None]:
+    """Campos extras da entrada de `dmn_versions` e, quando ha regra K1 casada num manifesto MAJOR 2, a
+    avaliacao que alimenta o registro de decisoes (ADR-0077 §4, 5c-2).
+
+    `{}`/`None` para Maezo. Para rco: `shaDmn` (+ `idRegra`, `versaoRegra`, `ativacaoPacote`,
+    `exigeAditivo`); e, so com `ativacaoPacote` (mesma regra de presenca), `estadoManual`,
+    `ativacaoEfetiva` e `modo`, calculados UMA vez aqui para que a auditoria e o registro digam o mesmo.
+    """
     pinned = rco_pinned_table(decision_key)
     if pinned is None:
-        return {}
+        return {}, None
     id_regra = row.get(SAIDA_ID_REGRA) if row is not None else None
     if id_regra is None or id_regra == "":
         # `""` e o vazio canonico do K1 (contrato §6): linha nao adversa sem regra identificada. So
         # `shaDmn` e gravado; o gate exige `idRegra` preenchido em linha adversa.
-        return pinned.audit_fields()
+        return pinned.audit_fields(), None
     if not isinstance(id_regra, str) or _ID_REGRA.fullmatch(id_regra) is None:
         # O valor nao entra nem na mensagem: pode ser dado de caso ecoado pela tabela.
         raise RcoRulesPinError(
@@ -360,7 +370,26 @@ def rco_audit_fields(decision_key: str, row: Mapping[str, Any] | None = None) ->
         )
     fields = pinned.audit_fields(id_regra)
     fields["idRegra"] = id_regra
-    return fields
+    avaliacao: AvaliacaoRegra | None = None
+    parametros = rco_rules_pin().parametros_ativacao
+    if "ativacaoPacote" in fields and pinned.regras is not None and parametros is not None:
+        avaliacao = avaliar_regra(
+            decision_key=decision_key,
+            sha_dmn=pinned.sha_dmn,
+            regra=pinned.regras[id_regra],
+            parametros=parametros,
+            row=row,
+            estados=estados_em_cache(),
+            habilitado=efeito_k1_habilitado(),
+        )
+    if avaliacao is not None:
+        fields.update(avaliacao.campos_de_auditoria())
+    return fields, avaliacao
+
+
+def rco_audit_fields(decision_key: str, row: Mapping[str, Any] | None = None) -> dict[str, str]:
+    """Campos extras da entrada de `dmn_versions`: `{}` para Maezo; `shaDmn` (+ opcionais) para rco."""
+    return rco_avaliacao(decision_key, row)[0]
 
 
 __all__ = [
@@ -374,6 +403,7 @@ __all__ = [
     "is_rco_decision",
     "load_rco_rules_pin",
     "rco_audit_fields",
+    "rco_avaliacao",
     "rco_pinned_table",
     "rco_rules_pin",
 ]

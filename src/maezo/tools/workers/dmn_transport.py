@@ -86,13 +86,14 @@ from typing import Any, Final, Protocol, runtime_checkable
 import httpx
 import structlog
 
+from maezo.platform.rco_registro import AvaliacaoRegra
 from maezo.tools.workers._audit_ctx import record_dmn_version
 from maezo.tools.workers.engine_var_types import (
     camunda_int_type,
     declared_long_variable,
     validate_centavos_engine_var,
 )
-from maezo.tools.workers.rco_pin import rco_audit_fields, rco_pinned_table
+from maezo.tools.workers.rco_pin import rco_avaliacao, rco_pinned_table
 
 logger = structlog.get_logger(__name__)
 
@@ -313,9 +314,19 @@ class DmnVersion:
         output and then, once the pin fixes a K1 manifest, that rule's `versaoRegra` from it. Raises
         `RcoRulesPinError` for an `rco_` key the pin does not attest (see `rco_pin.py`).
         """
+        return self.audit_pair(row)[0]
+
+    def audit_pair(
+        self, row: Mapping[str, Any] | None = None
+    ) -> tuple[dict[str, Any], AvaliacaoRegra | None]:
+        """`to_audit_dict(row)` e a avaliacao da regra K1 casada (ADR-0077 §4, 5c-2), calculadas juntas.
+
+        A avaliacao e `None` para tabela Maezo e para linha sem regra K1 identificada com `ativacao`.
+        """
         entry: dict[str, Any] = {"version": self.version, "id": self.id, "deploymentId": self.deployment_id}
-        entry.update(rco_audit_fields(self.key, row))
-        return entry
+        campos, avaliacao = rco_avaliacao(self.key, row)
+        entry.update(campos)
+        return entry, avaliacao
 
 
 @runtime_checkable
