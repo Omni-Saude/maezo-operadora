@@ -308,9 +308,9 @@ class DmnVersion:
         """Shape for `AuditRecord.dmn_versions[key]` (ADR-0028 §5, `gateway/audit.py`).
 
         Maezo table: exactly `{version, id, deploymentId}` — unchanged for every existing reader.
-        rco K1 table (`rco_` key, ADR-0075 §(f)): the same keys plus `shaDmn` (and `versaoRegra`
-        once the pin carries a manifest) from `rules.lock.json`, never from the engine, plus
-        `idRegra` from `row` (the matched row) when it carries that output. Raises
+        rco K1 table (`rco_` key, ADR-0075 §(f)): the same keys plus `shaDmn` from `rules.lock.json`,
+        never from the engine, plus `idRegra` from `row` (the matched row) when it carries that
+        output and then, once the pin fixes a K1 manifest, that rule's `versaoRegra` from it. Raises
         `RcoRulesPinError` for an `rco_` key the pin does not attest (see `rco_pin.py`).
         """
         entry: dict[str, Any] = {"version": self.version, "id": self.id, "deploymentId": self.deployment_id}

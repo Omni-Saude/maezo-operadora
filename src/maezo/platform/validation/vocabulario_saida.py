@@ -13,7 +13,9 @@ Dois gates, um por pasta (`dmn.is_rco_dmn` separa as duas):
     expressoes (`if x then "NEGAR" else ...`) contam como saida.
 
 (b) **Tabelas do pacote K1** (`spec/processes/dmn/rco/*.dmn`, ADR-0075 (d)): vocabulario FECHADO.
-    `decisao` e `classeAdverso` so aceitam os valores declarados; `negar`/`glosar`/
+    `decisao` e `classeAdverso` so aceitam os valores declarados (o vazio de `classeAdverso` nas
+    formas que `k1.vazio.textos_de_saida` lista; o canonico do pacote e a string `""`,
+    contrato-k1.md §6); `negar`/`glosar`/
     `recomendar_negativa` exigem `classeAdverso` e `fila` preenchidas; `classeAdverso=clinico`
     nunca acompanha `negar`. As tabelas do K1 nao passam por (a): o K1 emite o adverso por desenho,
     e quem o executa e o worker guardado (ADR-0075 (d)).
@@ -29,6 +31,8 @@ vocabulario, nunca encolher o piso do ADR-0018/ADR-0040/ADR-0075 fixado aqui (`*
 
 Leitura das celulas de saida (`<outputEntry><text>`):
 - texto vazio/ausente ou o literal `null` -> AUSENTE (o motor devolve null nos dois casos);
+- a string vazia `""` e STRING de valor vazio: e o vazio CANONICO do K1 (contrato-k1.md §6) e so
+  vale como vazio de `classeAdverso` se `k1.vazio.textos_de_saida` listar `'""'` (dado, nao codigo);
 - um unico literal string FEEL (`"negar"`, aspas escapadas com `\\`) -> STRING;
 - qualquer outra coisa (numero, booleano, `-`, expressao FEEL) -> EXPRESSAO. Em (a) expressao nao e
   token e nao casa; em (b) `decisao`, `classeAdverso` e `fila` tem de ser literais.
@@ -65,6 +69,10 @@ ADVERSOS_MINIMOS = frozenset({"DENY", "NEGAR", "NEGATIVA", "INDEFERIR", "GLOSAR"
 EXIGEM_CLASSE_E_FILA_MINIMO = frozenset({"negar", "glosar", "recomendar_negativa"})
 #: ADR-0075 (d):116,:215 — negativa clinica e sempre do medico auditor.
 CLASSES_PROIBIDAS_MINIMAS = frozenset({("clinico", "negar")})
+#: Textos de saida que podem representar o vazio do K1: outputEntry sem texto e `null` (o motor devolve
+#: null) e a string vazia `""` (o vazio canonico do pacote, contrato-k1.md §6 e §11 item 3).
+TEXTO_STRING_VAZIA = '""'
+TEXTOS_VAZIO_ACEITOS = frozenset({"", "null", TEXTO_STRING_VAZIA})
 #: Elementos de expressao DMN 1.3 que podem ser o corpo de uma `decision` alem de `decisionTable`.
 _EXPRESSOES_NAO_TABELA = frozenset(
     {"literalExpression", "context", "invocation", "relation", "list", "functionDefinition"}
@@ -235,9 +243,10 @@ def _ler_k1(no: object) -> VocabularioK1:
     if not isinstance(textos, list) or not textos or not all(isinstance(t, str) for t in textos):
         raise VocabularioInvalidoError("k1.vazio.textos_de_saida: esperada uma lista nao vazia de textos")
     textos_vazio = frozenset(t.strip() for t in textos)
-    if not textos_vazio <= {"", "null"}:
+    if not textos_vazio <= TEXTOS_VAZIO_ACEITOS:
         raise VocabularioInvalidoError(
-            "k1.vazio.textos_de_saida: so '' (outputEntry vazio) e 'null' representam ausencia no motor"
+            "k1.vazio.textos_de_saida: so '' (outputEntry vazio), 'null' e '\"\"' (string vazia, o vazio "
+            "canonico do K1) representam o vazio"
         )
 
     regras = _exigir_mapa(mapa.get("regras"), "k1.regras")
@@ -482,6 +491,7 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
         i_decisao = tabela.saidas.index("decisao")
         i_classe = tabela.saidas.index("classeAdverso")
         i_fila = tabela.saidas.index("fila")
+        i_id_regra = tabela.saidas.index("idRegra") if "idRegra" in tabela.saidas else None
         for rid, celulas in tabela.regras:
             onde = f"regra '{rid}'"
             decisao, classe, fila = celulas[i_decisao], celulas[i_classe], celulas[i_fila]
@@ -502,13 +512,15 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
                 valor_classe = classe.valor
             elif classe.tipo is Tipo.AUSENTE and classe.texto in k1.textos_vazio:
                 valor_classe = None
+            elif classe.tipo is Tipo.STRING and classe.valor == "" and TEXTO_STRING_VAZIA in k1.textos_vazio:
+                valor_classe = None  # `""`: o vazio canonico do pacote K1 (contrato-k1.md §6)
             else:
                 classe_ok = False
                 erro(
                     did,
                     f"{onde}: classeAdverso {classe.texto or '(vazio)'} fora do vocabulario "
                     f"{sorted(k1.classes)} — '{k1.vazio}' se escreve como "
-                    f"{' ou '.join(repr(t) if t else 'outputEntry vazio' for t in sorted(k1.textos_vazio))}",
+                    f"{' ou '.join(t if t else 'outputEntry vazio' for t in sorted(k1.textos_vazio))}",
                 )
 
             fila_preenchida = False
@@ -522,6 +534,15 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
                     erro(did, f"{onde}: decisao '{valor_decisao}' exige classeAdverso preenchida")
                 if not fila_preenchida:
                     erro(did, f"{onde}: decisao '{valor_decisao}' exige fila preenchida (dono humano, K6)")
+                if i_id_regra is not None:
+                    id_regra = celulas[i_id_regra]
+                    if id_regra.tipo is not Tipo.STRING or not id_regra.valor.strip():
+                        erro(
+                            did,
+                            f"{onde}: decisao '{valor_decisao}' exige idRegra preenchido "
+                            '(contrato-k1.md §6, combinacao.adversa_exige_preenchidos; `""` so vale em '
+                            "linha nao adversa)",
+                        )
             for proibida in k1.classes_proibidas:
                 if valor_classe == proibida.classe and valor_decisao in proibida.decisoes:
                     erro(
