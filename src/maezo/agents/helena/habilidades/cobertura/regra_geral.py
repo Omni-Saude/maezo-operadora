@@ -51,11 +51,11 @@ PREFIXO: Final[str] = PREFIXO_DA_REGRA_GERAL
 class RedatorDaRegraGeral(Protocol):
     """Redacao livre com fatos presos: recebe a pergunta e a regra; o verificador decide se o texto sai.
 
-    CONDICAO PARA LIGAR (HEL-5a, revisao independente): nenhum redator esta' ligado em `src/`. O verificador de
-    vocabulario fechado NAO fecha recombinacao das palavras da propria fonte que inverte o sentido ("deve ser
-    feita antes da autorizacao", "acima de 20 sessoes", "a partir de 7 dias", "nota fiscal OU pedido").
-    Ligar um redator exige outro desenho, aprovado pela ROOT: por exemplo, cada frase de FATO do rascunho igual
-    a uma frase da fonte, e redacao livre so' nas frases de ligacao sem conteudo."""
+    CONDICAO PARA LIGAR (HEL-5a, revisao independente): nenhum redator esta' ligado em `src/`. O verificador
+    de vocabulario fechado NAO fecha recombinacao das palavras da propria fonte que inverte o sentido ("deve
+    ser feita antes da autorizacao", "acima de 20 sessoes", "a partir de 7 dias", "nota fiscal OU pedido").
+    Ligar um redator exige outro desenho, aprovado pela ROOT: por exemplo, cada frase de FATO do rascunho
+    igual a uma frase da fonte, e redacao livre so' nas frases de ligacao sem conteudo."""
 
     async def redigir(self, pergunta: PerguntaDeCobertura, regra: RegraDoManual) -> str | None: ...
 
