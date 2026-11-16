@@ -1,0 +1,30 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-AMOSTRA-AV-001",
+  "id": "AMOSTRA-AV-001",
+  "pergunta": "Preciso de autorização para fazer ressonância?",
+  "camada": "1",
+  "dominio": "autorizacao",
+  "tema": "Ressonância magnética precisa de autorização prévia",
+  "armadilha": false,
+  "tipo_resposta": null,
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-AUT-001"
+  ],
+  "elementos_obrigatorios": [
+    "autorização prévia"
+  ],
+  "invencoes": [
+    "prazo de resposta da autorização"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "k2/avaliacoes.yaml",
+    "commit_referencia": "0000000000000000000000000000000000000000",
+    "versao": "amostra-0.1.0"
+  }
+}

@@ -23,6 +23,16 @@ confere com as fontes. Corte (`corte`): >= 95% de acerto nos casos de camada 1 e
 
 `o_que_seria_invencao` como TEXTO LIVRE nao e' verificavel por maquina: o conversor aceita lista de trechos
 (o pedido ao rco) e, se vier texto, guarda como nota e conta so' o verificador de fatos.
+
+FONTE UNICA (HEL-6b): os golden passam a vir do `avaliacoes.yaml` DENTRO do pacote K2 pinado
+(`converter_k2`), com as regras de cada avaliacao fixadas pelo mesmo commit e versao; o lock separado do
+teste de uso foi cancelado. `converter` fica so' para as fontes sinteticas do resultado fixado. Gerar golden
+de pacote NAO ratificado exige rodar com `MAEZO_ENV=dev` e `--aceitar-nao-ratificado` (o portao
+`aceite_de_nao_ratificado` le' o ambiente ele mesmo; o CLI nunca o define).
+
+PROXIMO PASSO (fora daqui): o corte de 95% sobre o K2 REAL entra quando o pin real chegar, com o pacote em
+`config/integrations/rco/k2/` e o pin lido de `config/integrations/rco/k2.lock.json` por
+`manual.pin_do_lock`.
 """
 
 from __future__ import annotations
@@ -36,6 +46,15 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 import yaml
+
+from maezo.agents.helena.habilidades.cobertura.manual import (
+    AvaliacaoDoManual,
+    ManualK2,
+    PacoteK2InvalidoError,
+    PinDoK2,
+    aceite_de_nao_ratificado,
+    carregar,
+)
 
 FORMATO: Final[str] = "helena-cobertura-eval-v1"
 Camada = Literal["1", "2", "3", "a_classificar"]
@@ -60,6 +79,15 @@ _CAMPOS_DO_GABARITO: Final[frozenset[str]] = frozenset(
         "armadilha",
     }
 )
+#: `comportamento` da avaliacao do K2 -> `tipo_resposta` (os desfechos saem de `_TIPOS_DE_ARMADILHA`).
+_COMPORTAMENTO_PARA_TIPO: Final[dict[str, str]] = {
+    "corrige_premissa": "premissa_falsa",
+    "declara_ausencia": "nao_informa",
+    "identifica_publico": "publico_errado",
+}
+#: Dominio de avaliacao sem regra, ou com regras de dominios diferentes: nunca conta como camada 1.
+A_CLASSIFICAR: Final[str] = "a_classificar"
+ARQUIVO_K2: Final[str] = "k2/avaliacoes.yaml"
 #: Acerto minimo nos casos de camada 1 e o teto de invencao (dono, Onda 1).
 ACERTO_MINIMO: Final[float] = 0.95
 INVENCAO_MAXIMA: Final[int] = 0
@@ -182,6 +210,49 @@ def converter(perguntas: Path, gabarito: Path, camadas: Mapping[str, Camada]) ->
     return casos
 
 
+def _dominio_e_tema(manual: ManualK2, regra_origem: Sequence[str]) -> tuple[str, str]:
+    """O dominio comum das regras de origem (vazio, regra ausente ou dominios diferentes -> `a_classificar`)
+    e o titulo da primeira regra (ou "")."""
+    regras = [manual.regras.get(i) for i in regra_origem]
+    dominios = {r.dominio for r in regras if r is not None}
+    dominio = dominios.pop() if regras and None not in regras and len(dominios) == 1 else A_CLASSIFICAR
+    primeira = regras[0] if regras else None
+    return dominio, primeira.titulo if primeira is not None else ""
+
+
+def _caso_k2(manual: ManualK2, av: AvaliacaoDoManual, camadas: Mapping[str, Camada]) -> CasoDeCobertura:
+    dominio, tema = _dominio_e_tema(manual, av.regra_origem)
+    if av.comportamento is not None and av.comportamento not in _COMPORTAMENTO_PARA_TIPO:
+        raise FonteInvalidaError(f"{av.id}: comportamento desconhecido")
+    tipo = _COMPORTAMENTO_PARA_TIPO.get(av.comportamento) if av.comportamento is not None else None
+    return CasoDeCobertura(
+        id=av.id,
+        pergunta=av.pergunta,
+        camada=camadas.get(dominio, "a_classificar"),
+        dominio=dominio,
+        tema=tema,
+        armadilha=tipo is not None,
+        tipo_resposta=tipo,
+        desfechos_aceitos=_TIPOS_DE_ARMADILHA[tipo] if tipo is not None else ("resposta",),
+        regras_esperadas=tuple(av.regra_origem),
+        elementos_obrigatorios=tuple(av.elementos_obrigatorios),
+        invencoes=tuple(av.o_que_seria_invencao),
+        nota_de_invencao=None,
+        origem={"arquivo": ARQUIVO_K2, "commit_referencia": manual.commit_rco, "versao": manual.versao},
+    )
+
+
+def converter_k2(manual: ManualK2, camadas: Mapping[str, Camada]) -> list[CasoDeCobertura]:
+    """As avaliacoes do pacote K2 (ja' verificado por `carregar`) -> casos, na ordem do `avaliacoes.yaml`.
+    O leitor ja' garante publico `beneficiario`, ids unicos e regras de origem existentes."""
+    return [_caso_k2(manual, av, camadas) for av in manual.avaliacoes]
+
+
+def como_texto(caso: CasoDeCobertura) -> str:
+    """O conteudo EXATO do JSON versionado de um caso (o mesmo dump para as duas fontes)."""
+    return json.dumps(caso.como_json(), ensure_ascii=False, indent=2) + "\n"
+
+
 def _normal(texto: str) -> str:
     sem = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii").casefold()
     return " ".join(sem.split())
@@ -243,20 +314,47 @@ def corte(resultados: Sequence[Resultado]) -> Corte:
     return Corte(len(camada_1), acertos, invencoes, aprovado)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--perguntas", type=Path, required=True)
-    parser.add_argument("--gabarito", type=Path, required=True)
+def _argumentos(argv: Sequence[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    fonte = parser.add_mutually_exclusive_group(required=True)
+    fonte.add_argument("--perguntas", type=Path, help="teste de uso sintetico (com --gabarito)")
+    fonte.add_argument("--k2", type=Path, help="diretorio do pacote K2 (com --pin-versao e --pin-sha256)")
+    parser.add_argument("--gabarito", type=Path)
+    parser.add_argument("--pin-versao")
+    parser.add_argument("--pin-sha256", help="sha256 dos bytes do manifesto.json (64 hex, sem prefixo)")
+    parser.add_argument(
+        "--aceitar-nao-ratificado",
+        action="store_true",
+        help="pacote nao ratificado: so' vale com MAEZO_ENV=dev no ambiente (o CLI nao o define)",
+    )
     parser.add_argument("--camadas", type=Path, required=True)
     parser.add_argument("--saida", type=Path, required=True)
     args = parser.parse_args(argv)
-    casos = converter(args.perguntas, args.gabarito, carregar_camadas(args.camadas))
+    if args.perguntas is not None and (args.gabarito is None or args.pin_versao or args.pin_sha256):
+        parser.error("--perguntas exige --gabarito e nao aceita --pin-versao/--pin-sha256")
+    if args.k2 is not None and (args.gabarito is not None or not args.pin_versao or not args.pin_sha256):
+        parser.error("--k2 exige --pin-versao e --pin-sha256 e nao aceita --gabarito")
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _argumentos(argv)
+    camadas = carregar_camadas(args.camadas)
+    if args.k2 is not None:
+        pin = PinDoK2(versao=args.pin_versao, sha256_manifesto=args.pin_sha256)
+        try:
+            manual = carregar(
+                args.k2, pin=pin, aceite=aceite_de_nao_ratificado(configurado=args.aceitar_nao_ratificado)
+            )
+        except PacoteK2InvalidoError as exc:
+            print(f"pacote K2 recusado: {exc.motivo}")
+            return 2
+        casos = converter_k2(manual, camadas)
+    else:
+        casos = converter(args.perguntas, args.gabarito, camadas)
     args.saida.mkdir(parents=True, exist_ok=True)
     for caso in casos:
-        destino = args.saida / f"EVL-HELENA-COB-{caso.id}.json"
-        destino.write_text(
-            json.dumps(caso.como_json(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        (args.saida / f"EVL-HELENA-COB-{caso.id}.json").write_text(como_texto(caso), encoding="utf-8")
     print(f"{len(casos)} casos de beneficiario convertidos em {args.saida}")
     return 0
 
