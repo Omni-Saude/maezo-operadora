@@ -205,7 +205,8 @@ class AuditRecord:
             is no longer, though, evidence that nothing calls `emit()` in production.
             MZO-5a (ADR-0075 §(f)): an entry for an rco K1 table (`rco_` key) additionally
             carries `shaDmn` (always), `versaoRegra` (pinned K1 manifest, for the matched rule) and
-            `idRegra` (only when the matched row has that output) — all strings, from
+            `idRegra` (only when the matched row has that output); with a MAJOR 2 manifest also
+            `ativacaoPacote` and `exigeAditivo` (`"true"`/`"false"`, ADR-0077 §4) — all strings, from
             `rules.lock.json` + manifest / the table output, never from the engine
             (`maezo.tools.workers.rco_pin`). Maezo entries never carry them (absent, not null).
             The column is free-form jsonb and `canonicalize_jsonb` leaves strings untouched, so

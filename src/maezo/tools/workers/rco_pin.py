@@ -2,7 +2,7 @@
 
 O QUE ISTO FAZ. Para uma decisao DMN que vem do pacote K1 do rco (arquivo em
 `spec/processes/dmn/rco/`, id de decisao prefixado `rco_`), a entrada de `AuditRecord.dmn_versions`
-ganha, alem das chaves do motor (`version`, `id`, `deploymentId`), ate tres campos:
+ganha, alem das chaves do motor (`version`, `id`, `deploymentId`), ate cinco campos:
 
 - `shaDmn`: o digest `sha256:<hex>` do arquivo `.dmn`, lido do pin
   `config/integrations/rco/rules.lock.json` (secao `artifacts` ou `exemplos_sinteticos`). Para tabela
@@ -16,6 +16,9 @@ ganha, alem das chaves do motor (`version`, `id`, `deploymentId`), ate tres camp
   inventado). `idRegra` que o manifesto nao lista para a decisao levanta `RcoRulesPinError`.
   `regras[].sha256_yaml` fica exposto em `RcoPinnedTable.regras` (sem chave nova em `dmn_versions`:
   o ADR-0075 (f) define so os tres campos).
+- `ativacaoPacote` e `exigeAditivo` (ADR-0077 §4, MZO-5a): `regras[].ativacao` e `regras[].exige_aditivo`
+  da mesma regra, so quando o manifesto pinado e MAJOR 2; `exigeAditivo` e o texto `"true"`/`"false"`.
+  Ausentes no MAJOR 1, sem manifesto e sem `idRegra` (nunca `null`, nunca inventados), como `versaoRegra`.
 - `idRegra`: da SAIDA `idRegra` da linha casada (o ADR diz "da saida da tabela"). So entra quando a
   avaliacao devolveu exatamente uma linha com essa saida nao nula e nao vazia (`""` e o vazio canonico
   do K1, contrato §6: linha nao adversa sem regra identificada); sem ela fica AUSENTE. Valor fora
@@ -113,7 +116,12 @@ class RcoPinnedTable:
     regras: Mapping[str, rco_manifesto.RegraK1] | None = None
 
     def audit_fields(self, id_regra: str | None = None) -> dict[str, str]:
-        """Campos do pin para a entrada de `dmn_versions`; `versaoRegra` so quando o manifesto a da."""
+        """Campos do pin para a entrada de `dmn_versions`.
+
+        `versaoRegra` so quando o manifesto a da; `ativacaoPacote` e `exigeAditivo` (ADR-0077 §4) so no
+        manifesto MAJOR 2 (no MAJOR 1 a regra nao os tem: ausentes, nunca `null`). `exigeAditivo` e o
+        texto `"true"`/`"false"`: o valor de `dict[str, str]` e a coluna jsonb so guardam texto aqui.
+        """
         fields = {"shaDmn": self.sha_dmn}
         if id_regra is None or self.regras is None:
             return fields
@@ -124,6 +132,9 @@ class RcoPinnedTable:
                 "pinado; sem versaoRegra atestada a linha nao e auditada"
             )
         fields["versaoRegra"] = regra.versao_regra
+        if regra.ativacao is not None and regra.exige_aditivo is not None:
+            fields["ativacaoPacote"] = regra.ativacao
+            fields["exigeAditivo"] = "true" if regra.exige_aditivo else "false"
         return fields
 
 

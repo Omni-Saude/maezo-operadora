@@ -87,7 +87,12 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 Na auditoria (`dmn_versions`, ADR-0075 (f)) a tabela do pacote leva `shaDmn` = `decisoes[].sha256`
 e, quando a linha casada emite `idRegra` não vazio, `versaoRegra` = `regras[].versaoRegra` dessa regra
 no manifesto (idRegra que o manifesto não lista para a decisão é recusado, `ERR_DMN_RCO_PIN`). Linha com
-`idRegra` `""` grava só `shaDmn`.
+`idRegra` `""` grava só `shaDmn`. Com manifesto MAJOR 2 a mesma linha leva também `ativacaoPacote` =
+`regras[].ativacao` e `exigeAditivo` = `regras[].exige_aditivo` como texto `"true"`/`"false"` (ADR-0077 §4);
+no MAJOR 1 esses dois campos ficam ausentes. Os parâmetros de `ativacao.parametros` têm faixa checada na
+leitura (gate e runtime): `revisao_inicial_decisoes`, `revisao_inicial_prazo_dias`,
+`limiar_reversao_min_decisoes` e `conferencia_negativa_admin_decisoes` são inteiros JSON > 0;
+`amostra_posterior_pct` e `limiar_reversao_pct` são números em (0, 100] com no máximo 4 casas decimais.
 
 **Item em aberto:** `regras[].sha256_yaml` fica exposto em `RcoPinnedTable.regras`, mas não entra em
 `dmn_versions`. Gravá-lo, como o contrato §3 pede ("o consumidor guarda os dois na auditoria"), depende

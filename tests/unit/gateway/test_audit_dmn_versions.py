@@ -341,6 +341,9 @@ def test_fixado_loads_the_package_and_versao_regra_comes_from_the_manifest(
         "shaDmn": sha_a,
         "idRegra": "SINT-A-0002",
         "versaoRegra": "1.0.1",
+        # MAJOR 2 (ADR-0077 §4): o pacote sintetico fixado so tem `plena` sem aditivo (o resto e recusado).
+        "ativacaoPacote": "plena",
+        "exigeAditivo": "false",
     }
     # Sem linha casada unica nao ha idRegra, logo nao ha versaoRegra (ausente, nunca inventada).
     assert set(version.to_audit_dict(None)) == {"version", "id", "deploymentId", "shaDmn"}
@@ -427,6 +430,9 @@ def test_fixado_major1_has_no_activation_parameters(tmp_path: Path) -> None:
     sint.montar(tmp_path, major=1)
     pin = load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
     assert pin.parametros_ativacao is None
+    # MAJOR 1: a regra nao tem ativacao/exige_aditivo, logo a auditoria nao os grava (ausentes, nunca null).
+    campos = pin.tables["rco_sint_a"].audit_fields("SINT-A-0001")
+    assert set(campos) == {"shaDmn", "versaoRegra"}
     assert pin.tables["rco_sint_a"].regras is not None
 
 
@@ -517,3 +523,22 @@ def test_fixado_unhashable_activation_is_coded_error(tmp_path: Path, ativacao: o
     with pytest.raises(RcoRulesPinError) as excinfo:
         load_rco_rules_pin(lock_path, rules_dir=rules_dir)
     assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+
+
+def test_audit_fields_major2_carry_activation_and_aditivo_as_text() -> None:
+    """ADR-0077 §4: `ativacaoPacote`/`exigeAditivo` (texto) so quando a regra do manifesto os tem."""
+    regras = {
+        "R-1": rco_manifesto.RegraK1("R-1", "1.0.0", "a" * 64, "conferida", True),
+        "R-2": rco_manifesto.RegraK1("R-2", "1.0.0", "b" * 64, "plena", False),
+        "R-3": rco_manifesto.RegraK1("R-3", "1.0.0", "c" * 64),  # MAJOR 1: sem os dois campos
+    }
+    tabela = rco_pin.RcoPinnedTable("rco_x", "spec/x.dmn", "sha256:" + "0" * 64, regras)
+    assert tabela.audit_fields("R-1") == {
+        "shaDmn": tabela.sha_dmn,
+        "versaoRegra": "1.0.0",
+        "ativacaoPacote": "conferida",
+        "exigeAditivo": "true",
+    }
+    assert tabela.audit_fields("R-2")["exigeAditivo"] == "false"
+    assert set(tabela.audit_fields("R-3")) == {"shaDmn", "versaoRegra"}
+    assert set(tabela.audit_fields()) == {"shaDmn"}
