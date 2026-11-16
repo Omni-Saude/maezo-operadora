@@ -45,10 +45,16 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 
 - o sha256 do manifesto diverge de `manifest_pin`, ou os bytes não são os canônicos (contrato §3);
 - `formato_manifesto` não tem MAJOR 1 ou 2 ou tem MINOR maior que o que o leitor conhece (hoje `1.0.x` e
-  `2.0.x`; no MAJOR 2, por regra, sai `ratificavel_automatico` e entram `ativacao` ∈ {`plena`,
-  `conferida`, `em_correcao`} e `exige_aditivo` booleano — o restante do contrato 2.0.0 do rco ainda
-  não foi publicado, então o leitor exige a forma do 1.0.0 no resto):
-  o leitor é atualizado antes de pinar (contrato §5);
+  `2.0.x`); o leitor é atualizado antes de pinar (contrato §5). No 2.0.0 (PROG-RCO-8, contrato §3 e §7)
+  cada regra tem exatamente `idRegra`, `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`,
+  `ativacao` ∈ {`plena`, `conferida`, `em_correcao`}, `exige_aditivo` (booleano) e `sha256_yaml` — sem
+  `ratificavel_automatico`;
+- (2.0.0) `vocabulario.json` sem o bloco `ativacao`, com `ativacao.valores` diferente do conjunto
+  fechado, com regra cuja `ativacao` não está em `ativacao.valores`, ou com `ativacao.parametros` sem
+  exatamente `revisao_inicial_decisoes`, `revisao_inicial_prazo_dias`, `amostra_posterior_pct`,
+  `limiar_reversao_pct`, `limiar_reversao_min_decisoes` e `conferencia_negativa_admin_decisoes`, cada um
+  número finito ≥ 0. Os números ficam expostos em `RcoRulesPin.parametros_ativacao` e vêm sempre do
+  pacote, nunca do código; quem os aplica (D1/D2, amostra, `em_correcao`, aditivo) é unidade posterior;
 - existe `origem.sujo` (pacote de workspace sujo);
 - falta ou sobra campo no topo, em `origem`, nos anexos, em cada decisão, entrada, saída, regra ou
   exemplo (contrato §4 item 7);

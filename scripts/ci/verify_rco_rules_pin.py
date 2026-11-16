@@ -32,7 +32,8 @@ Estados do pin (`estado`)
   `origem` do manifesto; `manifest_pin` com `path` = `config/integrations/rco/k1/manifesto.json` e
   `sha256` (o conteudo de `manifesto.sha256` do pacote); e `artifacts` nao vazio, igual a
   `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`). O manifesto e lido por
-  `maezo.platform.rco_manifesto` (o mesmo leitor do runtime; so biblioteca padrao): formato MAJOR 1 ou 2,
+  `maezo.platform.rco_manifesto` (o mesmo leitor do runtime; so biblioteca padrao): formato MAJOR 1 ou 2
+  (2.0.0: `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`),
   sem `origem.sujo`, campos exatos, prefixo `rco_`, anexos (`vocabulario.json`, `entradas.json`,
   `k6-filas.json`) com o sha256 do manifesto e colunas de saida dentro do `saidas[]` de cada decisao.
   Em `config/integrations/rco/k1/` so entram o manifesto e esses anexos (os exemplos do pacote ficam

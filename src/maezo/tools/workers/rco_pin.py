@@ -130,6 +130,10 @@ class RcoRulesPin:
 
     estado: str
     tables: Mapping[str, RcoPinnedTable]
+    #: `vocabulario.json` `ativacao.parametros` do pacote pinado (manifesto MAJOR 2, contrato-k1.md
+    #: §7). So exposto: a politica de execucao (D1/D2, amostra, aditivo) e de unidade posterior.
+    #: `None` sem pacote ou com manifesto MAJOR 1.
+    parametros_ativacao: rco_manifesto.ParametrosAtivacao | None = None
 
 
 def is_rco_decision(decision_key: str) -> bool:
@@ -167,8 +171,11 @@ def _decision_ids(raw: bytes, rel: PurePosixPath) -> list[str]:
 
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
-) -> dict[str, rco_manifesto.DecisaoK1]:
-    """Estado `fixado`: le e confere o manifesto K1 pinado. Devolve as decisoes por caminho do pin."""
+) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None]:
+    """Estado `fixado`: le e confere o manifesto K1 pinado.
+
+    Devolve as decisoes por caminho do pin e os parametros de ativacao de `vocabulario.json`.
+    """
     pin = lock.get("manifest_pin")
     if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
         raise RcoRulesPinError("pin: estado 'fixado' exige manifest_pin com exatamente path e sha256")
@@ -201,7 +208,11 @@ def _manifesto_fixado(
     problemas = rco_manifesto.verificar_pacote(manifesto, k1_dir=k1_dir, rules_dir=rules_dir)
     if problemas:
         raise RcoRulesPinError(f"pin: pacote K1 nao confere com o manifesto: {'; '.join(problemas)}")
-    return manifesto.decisao_por_caminho()
+    try:
+        vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)
+    except rco_manifesto.ManifestoK1InvalidoError as exc:
+        raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
+    return manifesto.decisao_por_caminho(), vocab.parametros_ativacao
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -233,8 +244,9 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     estado = lock.get("estado")
     artifacts = _entries(lock, "artifacts")
     por_caminho: dict[str, rco_manifesto.DecisaoK1] = {}
+    parametros: rco_manifesto.ParametrosAtivacao | None = None
     if estado == ESTADO_FIXADO:
-        por_caminho = _manifesto_fixado(lock, lock_path, rules_dir)
+        por_caminho, parametros = _manifesto_fixado(lock, lock_path, rules_dir)
         pinados = {str(rel): digest for rel, digest in artifacts}
         if len(pinados) != len(artifacts) or pinados != {c: d.sha256 for c, d in por_caminho.items()}:
             raise RcoRulesPinError("pin: artifacts tem de ser exatamente decisoes[] do manifesto K1")
@@ -260,7 +272,7 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
                 raise RcoRulesPinError(f"pin: {rel} declara {decision_key!r}, o manifesto diz {decisao.id!r}")
             regras = decisao.regras if decisao is not None else None
             tables[decision_key] = RcoPinnedTable(decision_key, str(rel), digest, regras=regras)
-    return RcoRulesPin(estado=estado, tables=MappingProxyType(tables))
+    return RcoRulesPin(estado=estado, tables=MappingProxyType(tables), parametros_ativacao=parametros)
 
 
 def _default_lock_path() -> Path:

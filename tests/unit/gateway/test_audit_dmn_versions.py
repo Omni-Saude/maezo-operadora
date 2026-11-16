@@ -28,6 +28,7 @@ import httpx
 import pytest
 
 from maezo.gateway.audit import AuditRecord
+from maezo.platform import rco_manifesto
 from maezo.tools.workers import rco_pin
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import reclassify_coded_exception
@@ -321,6 +322,8 @@ def test_fixado_loads_the_package_and_versao_regra_comes_from_the_manifest(
     lock_path, rules_dir = _fixado(tmp_path)
     pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
     assert pin.estado == "fixado"
+    # formato 2.0.0: os numeros de D1/D2 sao lidos do vocabulario.json pinado e so expostos.
+    assert pin.parametros_ativacao == rco_manifesto.ParametrosAtivacao(**sint.PARAMETROS_ATIVACAO)
     assert set(pin.tables) == {"rco_sint_a", "rco_sint_b"}
     manifesto = json.loads((tmp_path / sint.K1_DIR / "manifesto.json").read_bytes())
     sha_a = manifesto["decisoes"][0]["sha256"]
@@ -370,6 +373,10 @@ def _sem_sujo(m: dict[str, Any]) -> None:
         lambda root: sint.regravar(root, {**_manifesto(root), "campo_novo": 1}),
         lambda root: sint.regravar(root, _mutado(root, _sem_sujo)),
         lambda root: sint.regravar(root, {**_manifesto(root), "formato_manifesto": "3.0.0"}),
+        # bloco `ativacao` do vocabulario.json fora do contrato (repinado: so o leitor recusa)
+        lambda root: sint.trocar_vocabulario(
+            root, _manifesto(root), sint.vocabulario_bytes(2, valores=["plena", "conferida"])
+        ),
         # anexo adulterado
         lambda root: (root / sint.K1_DIR / "k6-filas.json").write_bytes(b"{}"),
         # DMN adulterado
@@ -414,3 +421,10 @@ def _mutado(root: Path, mutar: Any) -> dict[str, Any]:
     m = _manifesto(root)
     mutar(m)
     return m
+
+
+def test_fixado_major1_has_no_activation_parameters(tmp_path: Path) -> None:
+    sint.montar(tmp_path, major=1)
+    pin = load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
+    assert pin.parametros_ativacao is None
+    assert pin.tables["rco_sint_a"].regras is not None

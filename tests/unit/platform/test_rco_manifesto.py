@@ -43,7 +43,7 @@ def test_constantes_batem_com_o_gate() -> None:
 def test_caminho_feliz_expoe_o_que_a_auditoria_usa(pacote: tuple[Path, dict[str, Any]]) -> None:
     raiz, manifesto = pacote
     lido = _ler(raiz)
-    assert lido.formato_manifesto == "1.0.0"
+    assert lido.formato_manifesto == "2.0.0"
     assert (lido.repo, lido.commit_sha) == (sint.REPO, sint.COMMIT)
     assert set(lido.decisoes) == {"rco_sint_a", "rco_sint_b"}
     a = lido.decisoes["rco_sint_a"]
@@ -85,7 +85,6 @@ _HEX_CRU = "a" * 64
         (_mutacao(["origem", "sujo"], False), "origem.sujo"),  # a chave, presente, ja recusa
         (_mutacao(["formato_manifesto"], "3.0.0"), "formato_manifesto 3.0.0"),
         (_mutacao(["formato_manifesto"], "2.1.0"), "formato_manifesto 2.1.0"),
-        (_mutacao(["formato_manifesto"], "2.0.0"), "desconhecidos ['ratificavel_automatico']"),
         (_mutacao(["formato_manifesto"], "1.1.0"), "formato_manifesto 1.1.0"),
         (_mutacao(["formato_manifesto"], "1"), "formato_manifesto"),
         (_mutacao(["campo_novo"], 1), "desconhecidos ['campo_novo']"),
@@ -215,58 +214,109 @@ def test_id_da_decisao_no_dmn_diferente_do_manifesto_reprova(pacote: tuple[Path,
 
 
 # ---------------------------------------------------------------------------------------------
-# formato_manifesto MAJOR 2 (PROG-RCO-8 no rco; contrato 2.0.0 ainda nao publicado): por regra sai
-# `ratificavel_automatico` e entram `ativacao` (conjunto fechado) e `exige_aditivo` (booleano).
+# formato_manifesto 2.0.0 (contrato-k1.md do rco em 75015304, PROG-RCO-8, §3 e §7): cada regra tem
+# EXATAMENTE idRegra, versaoRegra, situacao, validacao_status, classe_adverso, ativacao, exige_aditivo
+# e sha256_yaml; `vocabulario.json` traz `ativacao` = {valores, parametros}.
 # ---------------------------------------------------------------------------------------------
 
+_CAMPOS_REGRA_2 = {
+    "idRegra",
+    "versaoRegra",
+    "situacao",
+    "validacao_status",
+    "classe_adverso",
+    "ativacao",
+    "exige_aditivo",
+    "sha256_yaml",
+}
 
-def _para_major2(manifesto: dict[str, Any], ativacao: object = "conferida", aditivo: object = True) -> None:
-    manifesto["formato_manifesto"] = "2.0.0"
-    for decisao in manifesto["decisoes"]:
-        for regra in decisao["regras"]:
-            del regra["ratificavel_automatico"]
-            regra["ativacao"] = ativacao
-            regra["exige_aditivo"] = aditivo
+
+def test_major2_campos_exatos_da_regra_sao_os_do_contrato() -> None:
+    assert k1.CAMPOS_REGRA_POR_MAJOR[2] == _CAMPOS_REGRA_2
+    assert {"plena", "conferida", "em_correcao"} == k1.ATIVACOES
 
 
-@pytest.mark.parametrize("ativacao", sorted(k1.ATIVACOES))
-def test_major2_le_ativacao_e_exige_aditivo(pacote: tuple[Path, dict[str, Any]], ativacao: str) -> None:
-    raiz, manifesto = pacote
-    _para_major2(manifesto, ativacao)
-    sint.regravar(raiz, manifesto)
-    regra = _ler(raiz).decisoes["rco_sint_a"].regras["SINT-A-0001"]
-    assert (regra.ativacao, regra.exige_aditivo, regra.versao_regra) == (ativacao, True, "1.0.0")
+def test_major2_le_ativacao_exige_aditivo_e_parametros(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, _ = pacote
+    lido = _ler(raiz)
+    assert (lido.formato_manifesto, lido.major) == ("2.0.0", 2)
+    regras = lido.decisoes["rco_sint_a"].regras
+    assert (regras["SINT-A-0001"].ativacao, regras["SINT-A-0001"].exige_aditivo) == ("plena", False)
+    assert (regras["SINT-A-0002"].ativacao, regras["SINT-A-0002"].exige_aditivo) == ("conferida", True)
+    vocab = k1.carregar_vocabulario(lido, k1_dir=raiz / sint.K1_DIR)
+    assert vocab.ativacoes == k1.ATIVACOES
+    assert vocab.parametros_ativacao == k1.ParametrosAtivacao(**sint.PARAMETROS_ATIVACAO)
     assert _verificar(raiz) == []
 
 
-def test_major1_nao_inventa_campos_do_major2(pacote: tuple[Path, dict[str, Any]]) -> None:
-    raiz, _ = pacote
-    regra = _ler(raiz).decisoes["rco_sint_a"].regras["SINT-A-0001"]
-    assert (regra.ativacao, regra.exige_aditivo) == (None, None)
+def test_major1_continua_lido_sem_campos_do_major2(tmp_path: Path) -> None:
+    sint.montar(tmp_path, major=1)
+    lido = _ler(tmp_path)
+    regra = lido.decisoes["rco_sint_a"].regras["SINT-A-0001"]
+    assert (lido.major, regra.ativacao, regra.exige_aditivo) == (1, None, None)
+    vocab = k1.carregar_vocabulario(lido, k1_dir=tmp_path / sint.K1_DIR)
+    assert (vocab.ativacoes, vocab.parametros_ativacao) == (None, None)
+    assert _verificar(tmp_path) == []
 
 
 @pytest.mark.parametrize(
-    ("ativacao", "aditivo", "trecho"),
+    ("mutar", "trecho"),
     [
-        ("automatica", True, "ativacao"),
-        ("PLENA", True, "ativacao"),
-        (None, True, "ativacao"),
-        ("plena", "sim", "exige_aditivo"),
-        ("plena", None, "exige_aditivo"),
+        (_mutacao(["decisoes", 0, "regras", 0, "ativacao"], "automatica"), "ativacao"),
+        (_mutacao(["decisoes", 0, "regras", 0, "ativacao"], "PLENA"), "ativacao"),
+        (_mutacao(["decisoes", 0, "regras", 0, "ativacao"], None), "ativacao"),
+        (_mutacao(["decisoes", 0, "regras", 0, "exige_aditivo"], "sim"), "exige_aditivo"),
+        (_mutacao(["decisoes", 0, "regras", 0, "exige_aditivo"], 0), "exige_aditivo"),
+        (_mutacao(["decisoes", 0, "regras", 0, "ativacao"], _REMOVER), "faltam ['ativacao']"),
+        (_mutacao(["decisoes", 0, "regras", 0, "exige_aditivo"], _REMOVER), "faltam ['exige_aditivo']"),
+        (
+            _mutacao(["decisoes", 0, "regras", 0, "ratificavel_automatico"], False),
+            "desconhecidos ['ratificavel_automatico']",
+        ),
+        (_mutacao(["formato_manifesto"], "1.0.0"), "desconhecidos ['ativacao', 'exige_aditivo']"),
     ],
 )
-def test_major2_valor_desconhecido_reprova(
-    pacote: tuple[Path, dict[str, Any]], ativacao: object, aditivo: object, trecho: str
+def test_major2_regra_fora_do_contrato_reprova(
+    pacote: tuple[Path, dict[str, Any]], mutar: Callable[[dict[str, Any]], None], trecho: str
 ) -> None:
     _, manifesto = pacote
-    _para_major2(manifesto, ativacao, aditivo)
-    with pytest.raises(k1.ManifestoK1InvalidoError, match=trecho):
+    mutar(manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError) as excinfo:
         k1.ler_manifesto(sint.canonico(manifesto))
+    assert trecho in str(excinfo.value)
 
 
-def test_major2_com_ratificavel_automatico_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
-    _, manifesto = pacote
-    _para_major2(manifesto)
-    manifesto["decisoes"][0]["regras"][0]["ratificavel_automatico"] = False
-    with pytest.raises(k1.ManifestoK1InvalidoError, match="ratificavel_automatico"):
-        k1.ler_manifesto(sint.canonico(manifesto))
+_PARAMS = dict(sint.PARAMETROS_ATIVACAO)
+
+
+@pytest.mark.parametrize(
+    ("ativacao", "trecho"),
+    [
+        ({"valores": ["plena", "conferida"]}, "ativacao.valores"),
+        ({"valores": ["plena", "conferida", "em_correcao", "nova"]}, "ativacao.valores"),
+        ({"valores": ["plena", "conferida", "em_correcao", "plena"]}, "ativacao.valores"),
+        ({"parametros": {k: v for k, v in _PARAMS.items() if k != "limiar_reversao_pct"}}, "faltam"),
+        ({"parametros": {**_PARAMS, "parametro_novo": 1}}, "desconhecidos ['parametro_novo']"),
+        ({"parametros": {**_PARAMS, "REVISAO_INICIAL_DECISOES": 30}}, "desconhecidos"),
+        ({"parametros": {**_PARAMS, "amostra_posterior_pct": "5"}}, "amostra_posterior_pct"),
+        ({"parametros": {**_PARAMS, "amostra_posterior_pct": True}}, "amostra_posterior_pct"),
+        ({"parametros": {**_PARAMS, "limiar_reversao_pct": -1}}, "limiar_reversao_pct"),
+        ({"parametros": {**_PARAMS, "limiar_reversao_pct": None}}, "limiar_reversao_pct"),
+        ({"extra": 1}, "desconhecidos ['extra']"),
+    ],
+)
+def test_major2_bloco_ativacao_do_vocabulario_invalido_reprova(
+    pacote: tuple[Path, dict[str, Any]], ativacao: dict[str, Any], trecho: str
+) -> None:
+    raiz, manifesto = pacote
+    sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(2, **ativacao))
+    problemas = _verificar(raiz)
+    assert any(trecho in p for p in problemas), problemas
+    with pytest.raises(k1.ManifestoK1InvalidoError):
+        k1.carregar_vocabulario(_ler(raiz), k1_dir=raiz / sint.K1_DIR)
+
+
+def test_major2_vocabulario_sem_bloco_ativacao_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(1))
+    assert any("exige o bloco 'ativacao'" in p for p in _verificar(raiz))

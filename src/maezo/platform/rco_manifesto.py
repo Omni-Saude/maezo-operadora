@@ -15,9 +15,12 @@ So biblioteca padrao (mais `maezo.platform.xml_safe`, tambem so biblioteca padra
 FAIL-CLOSED (contrato §4 e §5):
 - digest em toda parte no formato `sha256:<64 hex minusculos>`; hex cru e recusado (§1 — o hex cru
   dispara o detector de segredos; mesma notacao do K2, HEL-3a);
-- `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece; outro e recusado
-  (MAJOR 2: `regras[].ativacao` em conjunto fechado e `exige_aditivo` booleano, sem
-  `ratificavel_automatico`; o resto da forma do 2.0.0 segue a do 1.0.0 ate o rco publicar o contrato);
+- `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece; outro e recusado.
+  MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, rco 75015304): cada regra tem exatamente `idRegra`,
+  `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`, `ativacao`, `exige_aditivo` e
+  `sha256_yaml` (sem `ratificavel_automatico`); `ativacao` no conjunto fechado, igual a
+  `vocabulario.json` `ativacao.valores`; `exige_aditivo` booleano; o bloco `ativacao.parametros` de
+  `vocabulario.json` (numeros de D1/D2) e lido tipado e exposto — a politica de execucao NAO e daqui;
 - `origem.sujo` presente (pacote de workspace sujo) e recusado;
 - campos EXATOS no topo, em cada objeto aninhado, em cada decisao e em cada regra: campo a mais ou a
   menos e erro (§4 item 7; um MINOR novo de formato exige atualizar este leitor antes de pinar);
@@ -36,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -55,12 +59,22 @@ RULES_DIR: Final[str] = "spec/processes/dmn/rco"
 PREFIXO_DECISAO: Final[str] = "rco_"
 
 #: MAJOR do `formato_manifesto` que este leitor suporta -> o maior MINOR que ele conhece (§5).
-#: MAJOR 2 (PROG-RCO-8 no rco, contrato ainda nao publicado): por regra, sai `ratificavel_automatico`
-#: e entram `ativacao` (conjunto fechado) e `exige_aditivo` (booleano). O resto da forma e o do
-#: MAJOR 1 ate o contrato 2.0.0 estabilizar; campo a mais ou a menos continua recusado.
+#: MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8): por regra, sai `ratificavel_automatico` e entram
+#: `ativacao` (conjunto fechado) e `exige_aditivo` (booleano); `vocabulario.json` ganha o bloco
+#: `ativacao` (`valores` + `parametros`). Campo a mais ou a menos continua recusado.
 FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 0})
-#: Valores de `regras[].ativacao` (MAJOR 2). Valor fora do conjunto reprova (fail-closed).
+#: Valores de `regras[].ativacao` (MAJOR 2, contrato §7). Valor fora do conjunto reprova (fail-closed).
 ATIVACOES: Final[frozenset[str]] = frozenset({"plena", "conferida", "em_correcao"})
+#: Chaves EXATAS de `vocabulario.json` `ativacao.parametros` (MAJOR 2). Os numeros vem do pacote,
+#: nunca do codigo (provisorios no rco: `validacao/calibracao/parametros-provisorios/comum.csv`).
+PARAMETROS_ATIVACAO: Final[tuple[str, ...]] = (
+    "revisao_inicial_decisoes",
+    "revisao_inicial_prazo_dias",
+    "amostra_posterior_pct",
+    "limiar_reversao_pct",
+    "limiar_reversao_min_decisoes",
+    "conferencia_negativa_admin_decisoes",
+)
 
 #: Papeis dos anexos do manifesto -> (secao do manifesto, campo com o sha256 do ARQUIVO).
 ANEXOS: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -197,8 +211,37 @@ class ManifestoK1:
     anexos: Mapping[str, AnexoK1]  # por papel
     exemplos: tuple[str, ...]  # caminhos dos exemplos no pacote: so listados, nunca vendorizados
 
+    @property
+    def major(self) -> int:
+        return int(self.formato_manifesto.split(".", 1)[0])
+
     def decisao_por_caminho(self) -> dict[str, DecisaoK1]:
         return {d.caminho_consumidor: d for d in self.decisoes.values()}
+
+
+@dataclass(frozen=True, slots=True)
+class ParametrosAtivacao:
+    """`vocabulario.json` `ativacao.parametros` (MAJOR 2, contrato §7): os numeros de D1/D2.
+
+    So leitura tipada; quem aplica (contadores, amostra, limiar) e unidade posterior. Os valores sao
+    provisorios no rco e mudam com o pacote, nunca no codigo.
+    """
+
+    revisao_inicial_decisoes: int | float
+    revisao_inicial_prazo_dias: int | float
+    amostra_posterior_pct: int | float
+    limiar_reversao_pct: int | float
+    limiar_reversao_min_decisoes: int | float
+    conferencia_negativa_admin_decisoes: int | float
+
+
+@dataclass(frozen=True, slots=True)
+class VocabularioPacoteK1:
+    """O que o leitor tira de `vocabulario.json` (pinado pelo hash do manifesto)."""
+
+    saidas_obrigatorias: tuple[str, ...]
+    ativacoes: frozenset[str] | None  # `ativacao.valores`; None no MAJOR 1
+    parametros_ativacao: ParametrosAtivacao | None  # None no MAJOR 1
 
 
 class _ChaveDuplicadaError(ValueError):
@@ -489,15 +532,81 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
     )
 
 
-def _saidas_obrigatorias(raw: bytes, problemas: list[str]) -> tuple[str, ...] | None:
-    vocab = _carregar_json(raw, "vocabulario.json", problemas)
-    if vocab is None:
+def _numero(valor: object) -> bool:
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return False
+    return math.isfinite(valor) and valor >= 0
+
+
+def _ler_ativacao(no: object, problemas: list[str]) -> tuple[frozenset[str], ParametrosAtivacao] | None:
+    onde = "vocabulario.json: ativacao"
+    bloco = _objeto(no, frozenset({"valores", "parametros"}), onde, problemas)
+    if bloco is None:
         return None
-    saidas = vocab.get("saidas_obrigatorias") if isinstance(vocab, dict) else None
+    valores = bloco["valores"]
+    if (
+        not isinstance(valores, list)
+        or len(set(map(str, valores))) != len(valores)
+        or not all(isinstance(v, str) for v in valores)
+        or set(valores) != ATIVACOES
+    ):
+        problemas.append(f"{onde}.valores tem de ser exatamente {sorted(ATIVACOES)}, sem repeticao")
+        return None
+    parametros = _objeto(bloco["parametros"], frozenset(PARAMETROS_ATIVACAO), f"{onde}.parametros", problemas)
+    if parametros is None:
+        return None
+    ruins = [k for k in PARAMETROS_ATIVACAO if not _numero(parametros[k])]
+    if ruins:
+        problemas.append(f"{onde}.parametros {ruins}: tem de ser numero finito >= 0 (nao booleano)")
+        return None
+    return frozenset(valores), ParametrosAtivacao(**{k: parametros[k] for k in PARAMETROS_ATIVACAO})
+
+
+def _ler_vocabulario(raw: bytes, major: int, problemas: list[str]) -> VocabularioPacoteK1 | None:
+    vocab = _carregar_json(raw, "vocabulario.json", problemas)
+    if not isinstance(vocab, dict):
+        if vocab is not None:
+            problemas.append("vocabulario.json: tem de ser objeto")
+        return None
+    saidas = vocab.get("saidas_obrigatorias")
     if not isinstance(saidas, list) or not saidas or not all(isinstance(s, str) and s for s in saidas):
         problemas.append("vocabulario.json: 'saidas_obrigatorias' tem de ser lista nao vazia de textos")
         return None
-    return tuple(saidas)
+    if major == 1:
+        return VocabularioPacoteK1(tuple(saidas), None, None)
+    if "ativacao" not in vocab:
+        problemas.append("vocabulario.json: formato MAJOR 2 exige o bloco 'ativacao' (contrato §7)")
+        return None
+    ativacao = _ler_ativacao(vocab["ativacao"], problemas)
+    if ativacao is None:
+        return None
+    return VocabularioPacoteK1(tuple(saidas), ativacao[0], ativacao[1])
+
+
+def _anexo_raw(manifesto: ManifestoK1, papel: str, k1_dir: Path, problemas: list[str]) -> bytes | None:
+    anexo = manifesto.anexos.get(papel)
+    if anexo is None:
+        problemas.append(f"anexo {papel!r} ausente do manifesto")
+        return None
+    caminho = k1_dir / anexo.nome
+    if caminho.is_symlink() or not caminho.is_file():
+        problemas.append(f"{K1_DIR}/{anexo.nome}: anexo {papel!r} ausente (ou link simbolico)")
+        return None
+    raw = caminho.read_bytes()
+    if sha256_prefixado(raw) != anexo.sha256:
+        problemas.append(f"{K1_DIR}/{anexo.nome}: sha256 diverge do manifesto")
+        return None
+    return raw
+
+
+def carregar_vocabulario(manifesto: ManifestoK1, *, k1_dir: Path) -> VocabularioPacoteK1:
+    """`vocabulario.json` pinado pelo manifesto, lido e tipado. Levanta `ManifestoK1InvalidoError`."""
+    problemas: list[str] = []
+    raw = _anexo_raw(manifesto, "vocabulario", k1_dir, problemas)
+    vocab = _ler_vocabulario(raw, manifesto.major, problemas) if raw is not None else None
+    if vocab is None or problemas:
+        raise ManifestoK1InvalidoError(problemas or ["vocabulario.json invalido"])
+    return vocab
 
 
 def _colunas_de_saida(raw: bytes, decisao: DecisaoK1, problemas: list[str]) -> list[str] | None:
@@ -529,23 +638,23 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
     problemas: list[str] = []
     anexos_raw: dict[str, bytes] = {}
     for papel in ANEXOS:
-        anexo = manifesto.anexos.get(papel)
-        if anexo is None:
-            problemas.append(f"anexo {papel!r} ausente do manifesto")
-            continue
-        caminho = k1_dir / anexo.nome
-        if caminho.is_symlink() or not caminho.is_file():
-            problemas.append(f"{K1_DIR}/{anexo.nome}: anexo {papel!r} ausente (ou link simbolico)")
-            continue
-        raw = caminho.read_bytes()
-        if sha256_prefixado(raw) != anexo.sha256:
-            problemas.append(f"{K1_DIR}/{anexo.nome}: sha256 diverge do manifesto")
-            continue
-        anexos_raw[papel] = raw
+        raw = _anexo_raw(manifesto, papel, k1_dir, problemas)
+        if raw is not None:
+            anexos_raw[papel] = raw
 
     obrigatorias: tuple[str, ...] | None = None
     if "vocabulario" in anexos_raw:
-        obrigatorias = _saidas_obrigatorias(anexos_raw["vocabulario"], problemas)
+        vocab = _ler_vocabulario(anexos_raw["vocabulario"], manifesto.major, problemas)
+        if vocab is not None:
+            obrigatorias = vocab.saidas_obrigatorias
+            if vocab.ativacoes is not None:
+                for decisao in manifesto.decisoes.values():
+                    for regra in decisao.regras.values():
+                        if regra.ativacao not in vocab.ativacoes:
+                            problemas.append(
+                                f"{decisao.id}/{regra.id_regra}: ativacao {regra.ativacao!r} fora de "
+                                "vocabulario.json ativacao.valores"
+                            )
 
     for decisao in manifesto.decisoes.values():
         onde = decisao.caminho_consumidor
@@ -581,6 +690,10 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
 __all__ = [
     "ANEXOS",
     "ATIVACOES",
+    "PARAMETROS_ATIVACAO",
+    "ParametrosAtivacao",
+    "VocabularioPacoteK1",
+    "carregar_vocabulario",
     "CAMPOS_REGRA_POR_MAJOR",
     "FORMATOS_SUPORTADOS",
     "K1_DIR",

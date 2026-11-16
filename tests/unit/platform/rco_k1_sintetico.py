@@ -6,6 +6,10 @@ do contrato `regras-contratos-operadora/docs/programa/contrato-k1.md` §3 (manif
 tabela `rco_sint_b` tem uma saida extra (`acaoSintetica`) listada no seu `saidas[]` (contrato §6).
 O pacote tem um exemplo listado no manifesto e NAO vendorizado (fora do lock, contrato §3).
 
+Formato padrao: `formato_manifesto` 2.0.0 (contrato-k1.md do rco em 75015304, PROG-RCO-8): regras com
+`ativacao`/`exige_aditivo` e `vocabulario.json` com o bloco `ativacao` (valores + parametros, numeros
+inventados — nao sao os provisorios do rco). `montar(raiz, major=1)` gera o formato 1.0.0.
+
 `montar(raiz)` escreve a arvore e o pin em estado `fixado`; `regravar(raiz, manifesto)` reescreve o
 manifesto em bytes canonicos e atualiza `manifest_pin.sha256`, para testar uma mutacao por vez.
 """
@@ -86,19 +90,43 @@ _TABELAS: dict[str, tuple[list[str], list[list[str]], list[str]]] = {
 }
 
 
-def _regra(id_regra: str, versao: str) -> dict[str, Any]:
-    return {
+#: Numeros inventados para o bloco `ativacao.parametros` (so forma; nao sao os provisorios do rco).
+PARAMETROS_ATIVACAO: dict[str, int | float] = {
+    "revisao_inicial_decisoes": 11,
+    "revisao_inicial_prazo_dias": 3,
+    "amostra_posterior_pct": 2.5,
+    "limiar_reversao_pct": 9,
+    "limiar_reversao_min_decisoes": 13,
+    "conferencia_negativa_admin_decisoes": 17,
+}
+ATIVACOES = ["plena", "conferida", "em_correcao"]
+
+
+def _regra(id_regra: str, versao: str, major: int, ativacao: str) -> dict[str, Any]:
+    regra: dict[str, Any] = {
         "classe_adverso": "",
         "idRegra": id_regra,
-        "ratificavel_automatico": False,
         "sha256_yaml": sha(f"yaml sintetico {id_regra} {versao}".encode()),
         "situacao": "vigente",
         "validacao_status": "nao_validada_modo_sombra",
         "versaoRegra": versao,
     }
+    if major == 1:
+        regra["ratificavel_automatico"] = False
+    else:
+        regra["ativacao"] = ativacao
+        regra["exige_aditivo"] = id_regra.endswith("2")
+    return regra
 
 
-def montar(raiz: Path) -> dict[str, Any]:
+def vocabulario_bytes(major: int = 2, **ativacao: Any) -> bytes:
+    vocab: dict[str, Any] = {"saidas_obrigatorias": SAIDAS_OBRIGATORIAS, "vazio": ""}
+    if major == 2:
+        vocab["ativacao"] = {"parametros": dict(PARAMETROS_ATIVACAO), "valores": list(ATIVACOES), **ativacao}
+    return canonico(vocab)
+
+
+def montar(raiz: Path, *, major: int = 2) -> dict[str, Any]:
     """Escreve o pacote sintetico e o pin `fixado` em `raiz`. Devolve o manifesto (dict)."""
     k1 = raiz / K1_DIR
     rco = raiz / RULES_DIR
@@ -106,7 +134,7 @@ def montar(raiz: Path) -> dict[str, Any]:
     rco.mkdir(parents=True, exist_ok=True)
     (rco / "README.md").write_text("# rco (teste)\n", encoding="utf-8")
 
-    vocabulario = canonico({"saidas_obrigatorias": SAIDAS_OBRIGATORIAS, "vazio": ""})
+    vocabulario = vocabulario_bytes(major)
     entradas = canonico({"entradas": [], "sha256_conteudo": sha(b"entradas"), "versao": "1.0.0"})
     k6 = canonico({"filas": [], "versao": "1.0.0"})
     (k1 / "vocabulario.json").write_bytes(vocabulario)
@@ -137,7 +165,9 @@ def montar(raiz: Path) -> dict[str, Any]:
                 "hit_policy": "UNIQUE",
                 "id": did,
                 "id_original": original,
-                "regras": [_regra(i, f"1.0.{n}") for n, i in enumerate(ids)],
+                "regras": [
+                    _regra(i, f"1.0.{n}", major, ATIVACOES[n % len(ATIVACOES)]) for n, i in enumerate(ids)
+                ],
                 "saidas": [{"nome": s, "nome_snake": s.lower(), "typeRef": "string"} for s in saidas],
                 "sha256": sha(raw),
             }
@@ -159,7 +189,7 @@ def montar(raiz: Path) -> dict[str, Any]:
                 "sha256": sha(b"exemplo"),
             }
         ],
-        "formato_manifesto": "1.0.0",
+        "formato_manifesto": f"{major}.0.0",
         "k6": {"path": "k6-filas.json", "sha256": sha(k6), "versao": "1.0.0"},
         "origem": {"commit_sha": COMMIT, "repo": REPO},
         "prefixo_decisao": "rco_",
@@ -197,3 +227,10 @@ def regravar(raiz: Path, manifesto: dict[str, Any], *, raw: bytes | None = None)
     atual["manifest_pin"]["sha256"] = sha(dados)
     gravar_lock(raiz, atual)
     return dados
+
+
+def trocar_vocabulario(raiz: Path, manifesto: dict[str, Any], raw: bytes) -> None:
+    """Grava `vocabulario.json` e repina o hash no manifesto e o manifesto no lock."""
+    (raiz / K1_DIR / "vocabulario.json").write_bytes(raw)
+    manifesto["vocabulario"]["sha256"] = sha(raw)
+    regravar(raiz, manifesto)
