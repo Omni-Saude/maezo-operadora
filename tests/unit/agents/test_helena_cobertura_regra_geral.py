@@ -172,6 +172,20 @@ async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2,
 
 
 @pytest.mark.parametrize(
+    "pergunta",
+    [
+        # quarta revisao: o qualificador na oracao do sinonimo que escolheu a regra (consulta BASICA)
+        "quanto tempo pra marcar consulta com cardiologista?",
+        "em quanto tempo consigo consulta com ortopedista?",
+        "consulta de urgência demora quanto?",
+    ],
+)
+async def test_qualificador_que_a_regra_nao_diz_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")
+
+
+@pytest.mark.parametrize(
     ("pergunta", "regra"),
     [
         ("precisa de autorização pra fazer ressonância?", "AMOSTRA-AUT-001"),

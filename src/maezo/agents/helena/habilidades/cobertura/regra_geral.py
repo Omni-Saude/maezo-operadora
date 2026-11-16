@@ -17,6 +17,7 @@ conteudo K2 do rco (`manual.ManualK2`), e com nada mais:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Final, Protocol, runtime_checkable
 
@@ -48,7 +49,13 @@ PREFIXO: Final[str] = PREFIXO_DA_REGRA_GERAL
 
 @runtime_checkable
 class RedatorDaRegraGeral(Protocol):
-    """Redacao livre com fatos presos: recebe a pergunta e a regra; o verificador decide se o texto sai."""
+    """Redacao livre com fatos presos: recebe a pergunta e a regra; o verificador decide se o texto sai.
+
+    CONDICAO PARA LIGAR (HEL-5a, revisao independente): nenhum redator esta' ligado em `src/`. O verificador de
+    vocabulario fechado NAO fecha recombinacao das palavras da propria fonte que inverte o sentido ("deve ser
+    feita antes da autorizacao", "acima de 20 sessoes", "a partir de 7 dias", "nota fiscal OU pedido").
+    Ligar um redator exige outro desenho, aprovado pela ROOT: por exemplo, cada frase de FATO do rascunho igual
+    a uma frase da fonte, e redacao livre so' nas frases de ligacao sem conteudo."""
 
     async def redigir(self, pergunta: PerguntaDeCobertura, regra: RegraDoManual) -> str | None: ...
 
@@ -182,7 +189,9 @@ _PALAVRAS_DA_PERGUNTA: Final[frozenset[str]] = frozenset(
         "quanta", "tempo", "demora", "demorar", "prazo", "como", "funciona", "pedir", "solicitar", "oi",
         "ola", "bom", "boa", "dia", "tarde", "noite", "favor", "obrigado", "obrigada", "nao", "sei", "saber",
         "qual", "previa", "previo", "pre", "autorizacao", "autorizar", "liberacao", "liberar", "guia",
-        "senha", "exame", "procedimento", "ai", "agora", "mesmo", "ainda", "sim",
+        "senha", "exame", "procedimento", "ai", "agora", "mesmo", "ainda", "sim", "ne", "vale", "valer",
+        "limite", "limitado", "limitada", "ilimitado", "ilimitada", "maximo", "pediu",
+        "medico", "medica", "consigo", "conseguir", "marcar", "agendar", "fiz", "feito", "cada",
     }
 )  # fmt: skip
 
@@ -195,9 +204,17 @@ def _sujeito_fora_da_regra(texto: str, regra: RegraDoManual) -> bool:
     da_regra = palavras_de_conteudo(" ".join([*regra.sinonimos, regra.titulo, regra.resumo, regra.texto]))
     return any(
         p not in da_regra and p not in _PALAVRAS_DA_PERGUNTA
-        for oracao in oracoes_sobre_autorizacao(texto)
+        for oracao in [*oracoes_sobre_autorizacao(texto), *_oracoes_do_sinonimo(texto, regra)]
         for p in palavras_de_conteudo(oracao)
     )
+
+
+def _oracoes_do_sinonimo(texto: str, regra: RegraDoManual) -> list[str]:
+    """HEL-5a (quarta revisao): as oracoes que citam o sinonimo que ESCOLHEU a regra; o qualificador dito ali
+    ("consulta com cardiologista", "consulta de urgencia") tem de estar na regra, senao nada se escolhe."""
+    termos = [normalizar(s) for s in (*regra.sinonimos, regra.titulo) if normalizar(s)]
+    oracoes = [normalizar(o) for o in re.split(r"[?.!;,:]+", texto)]
+    return [o for o in oracoes if any(f" {t} " in f" {o} " for t in termos)]
 
 
 #: Procedimentos genericos que, citados junto com o sinonimo de OUTRA regra, tornam a pergunta ambigua.
