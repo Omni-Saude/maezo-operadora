@@ -87,8 +87,8 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - #1235, `a9f3506d`: OpenTelemetry, GHSA;
     - #1237, `f7f35aef`: guarda do containerInsights do dev;
     - #1239, `9477f1df`: permissões de mensagem entre sessões.
-  - **Abertos, aguardando o dono:**
-    - #1250: ADR-0075 §(f) com `sha256Yaml` opcional;
+  - **Incorporados pelo dono:**
+    - #1250, `17f7f4a8`: ADR-0075 §(f) com `sha256Yaml` opcional (emenda incorporada em 16/11/2026, 09:51). A gravação de `sha256Yaml` no runtime fica como unidade própria, a propor à ROOT.
   - **Pedidos da T-MZO-B:** os quatro estão fechados com o #1243 (rede credenciada), incorporado pelo dono (main 3d756b1a).
   - **Aguardando o OK do usuário:**
     - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; `auth_sla.dmn` intacto; teste-cerca contra caráter literal.
