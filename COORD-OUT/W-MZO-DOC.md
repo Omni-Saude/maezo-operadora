@@ -1,0 +1,21 @@
+# COORD-OUT — W-MZO-DOC (onda 1, Funil de Vendas)
+
+Ramo só de coordenação; nunca vira PR. Só acréscimo.
+
+## Q-W-MZO-DOC-01 — E-SF-33: blobs de origem omni já presentes no maezo (PROVISÓRIO-aguarda-coordenador)
+A guarda 09a encontra 9 arquivos rastreados do maezo idênticos a blobs de `omni_sales_platform@b3de4b4` que apareceram primeiro no omni (contratos candidatos C4, C5, C6-1..C6-4 em `tests/candidate_artifacts/commercial/`, `ROOT-OWNERSHIP.md`, dois SOURCE-FREEZE). Outros 16 idênticos nasceram no maezo e não são recusados.
+Opções: (a) catraca exata por (caminho, sha) que só encolhe, sem valor de licença; (b) guarda vermelha até adjudicação; (c) retirar os 9 arquivos.
+Recomendação: (a), adotada no ramo `sf-w1/doc/E-SF-33`. A origem jurídica dos 9 é ponto jurídico (CORE-09, CA-01 aponta AMH para os C*): não decidido pela janela.
+
+## Q-W-MZO-DOC-02 — E-SF-33: PRs só de agente/pacote não rodam `tests/governance` (PROVISÓRIO-aguarda-coordenador)
+As guardas novas rodam no shard `unit (restante)` da trilha plataforma. PRs da trilha agente/pacote e o push do merge deles não as rodam; só o noturno pega.
+Opções: (a) aceitar e declarar (feito em `docs/governance/README.md`); (b) job novo em `ci.yml` ligado ao agregador obrigatório, o que muda na prática a lista de checks obrigatórios (CD-11 item 8 proíbe sem decisão).
+Recomendação: (a) nesta onda; (b) só com decisão da coordenação do programa.
+
+## Q-W-MZO-DOC-03 — E-SF-32: 5 citações antigas da RN 561 por cópia não-DOU (PROVISÓRIO-aguarda-coordenador)
+A guarda `test_rn561_cited_from_dou` acusa 5 linhas pré-existentes em `docs/compliance/legal/R-054-RATIFICACAO-CITACOES-POR-LINHA.md` e `docs/compliance/rn-currency-review.md`.
+Opções: (a) lista de dívida exata, uma ocorrência por entrada, que só encolhe, com errata proposta; (b) editar os documentos de ratificação; (c) guarda vermelha.
+Recomendação: (a), adotada; (b) mexe em registro de ratificação e fica para quem o custodia.
+
+ACHADO docs/compliance/legal/MANIFEST.sha256 — a linha de `R-054-RATIFICACAO-CITACOES-POR-LINHA.md` não confere desde `581fc51` (arquivo editado depois da selagem); confirmado em `211c6ae`. A janela não re-hasheou (re-selar seria forjar custódia).
+ACHADO docs/plans/maezo-completion-program.md:251 — cita MAPA-ELEMENTOS-V4:106; após E-SF-30 o alvo está em :108 (caminho fora da janela).
