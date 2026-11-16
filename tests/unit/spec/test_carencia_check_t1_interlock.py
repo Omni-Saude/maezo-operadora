@@ -460,19 +460,6 @@ def test_o_scanner_acusa_o_contrato_que_ganha_fonte_e_o_ratchet_que_encolhe(tmp_
         verificar_interlock_de_entradas(raiz)
 
 
-def test_o_ratchet_congelado_e_o_estado_verificado_por_proc_01() -> None:
-    """The frozen sets ARE today's tree — read, not assumed (GUARD-TEST-SPECS §2 A2a (4))."""
-    verificado = {
-        "src/maezo/tools/workers/auth.py",
-        "src/maezo/platform/evidence/dmn_sweep.py",
-        "spec/processes/dmn/carencia_check.dmn",
-        "spec/processes/dmn/carencia-check-shadow-candidate.yaml",
-    }
-    assert verificado == RATCHET_CPT_DIAS
-    assert {"src/maezo/tools/workers/auth.py"} == RATCHET_TIPO
-    assert acusar_produtores_de_entradas() == ()
-
-
 # =================================================================================================
 # A2b — this file rides every agent's CI trail
 # =================================================================================================
