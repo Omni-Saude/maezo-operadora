@@ -74,9 +74,17 @@ _NUMERO_COM_SEGUINTE: Final[re.Pattern[str]] = re.compile(
     r"(?<![\d/.,$-])(\d+(?:[.,]\d+)?)(?!\d)(?:\s*(%|[a-z]+(?: [a-z]+)?))?"
 )
 #: A frequencia em qualquer ponto da frase (HEL-5a: "por mes, sao 20", "mensais", "toda semana").
+#: "por exemplo", "por favor", "por cento": "por" que nao diz o ESCOPO do limite.
+_NAO_E_ESCOPO: Final[str] = (
+    r"exemplo|favor|isso|meio|causa|conta|parte|cento|fim|outro|outra|enquanto|que|vida"
+)
+#: O escopo de um limite: periodo ("por mes"), unidade ("por pedido") ou qualquer "por <substantivo>" ("por
+#: beneficiario", "por tratamento"), "no total", "ao todo", "por vida" (HEL-5a, terceira revisao).
 _PERIODO: Final[str] = r"(?:dias?|semanas?|mes|meses|anos?|semestres?|trimestres?|bimestres?|quinzenas?)"
 _FREQUENCIA: Final[re.Pattern[str]] = re.compile(
-    rf"\b(?:por|a cada|ao|cada|todo|toda|todos|todas)\s+({_PERIODO}|pedidos?|guias?|sessao|consulta|vez)\b"
+    rf"\b(?:ao|todo|toda|todos|todas)\s+({_PERIODO}|pedidos?|guias?|sessao|consulta|vez)\b"
+    rf"|\b(?:por|a cada|cada)\s+(?!(?:{_NAO_E_ESCOPO})\b)([a-z]{{3,}})\b"
+    r"|\b(no total|ao todo|vitalici\w*|por vida)\b"
     rf"|\b(?:no|na|num|numa|em um|em uma)\s+({_PERIODO})\b"
     r"|\b((?:mensa|anua|semana|semestra|trimestra|bimestra|quinzena)(?:l|is|lmente)|diari(?:o|a|os|as|amente))\b"
 )
@@ -106,6 +114,10 @@ _UM_COM_UNIDADE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:um|uma) (?=(?:dia|hora|semana|mes|ano|sessao|consulta|vez)\b)"
 )
 _LINK: Final[re.Pattern[str]] = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|br|org|gov|net|invalid)\b")
+
+
+#: A abertura fixa do texto da regra geral ("Pela regra geral: <resumo>. <formula>"): moldura, nao fato.
+PREFIXO_DA_REGRA_GERAL: Final[str] = "Pela regra geral:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,8 +183,11 @@ def _frequencias(frase: str) -> frozenset[str]:
     achadas: set[str] = set()
     for m in _FREQUENCIA.finditer(frase):
         palavra = next(g for g in m.groups() if g)
+        if m.group(5):
+            achadas.add("total" if palavra in ("no total", "ao todo") else "vida")
+            continue
         normal = next((p for radical, p in _FREQUENCIA_NORMAL if palavra.startswith(radical)), None)
-        if m.group(3) is None or normal is None:
+        if m.group(4) is None or normal is None:
             normal = _UNIDADES.get(palavra, singular(palavra))
         achadas.add(normal)
     return frozenset(achadas)
@@ -235,7 +250,9 @@ def verificar(
         return Veredito(False, ("sem_fonte",))
     if not texto.endswith(FORMULA_FIXA):
         motivos.append("sem_formula_fixa")
-    corpo = _normal(texto[: -len(FORMULA_FIXA)] if texto.endswith(FORMULA_FIXA) else texto)
+    sem_moldura = texto[: -len(FORMULA_FIXA)] if texto.endswith(FORMULA_FIXA) else texto
+    sem_moldura = sem_moldura.removeprefix(PREFIXO_DA_REGRA_GERAL)  # a moldura fixa e' nossa, nao e' fato
+    corpo = _normal(sem_moldura)
     fontes = [_normal(t) for t in trechos]
     if _LINK.search(_plano(rascunho)):
         motivos.append("link")
@@ -261,7 +278,9 @@ def verificar(
         motivos.append("autorizacao")
     elif afirmado and not _sujeito_confere(corpo, fontes, procedimentos | siglas):
         motivos.append("autorizacao_de_outro_procedimento")
-    elif not afirmado and _procedimento_sem_fonte(corpo, fontes, procedimentos | siglas):
+    if _palavras_sem_fonte(corpo, fontes):
+        motivos.append("palavra_sem_fonte")
+    if not afirmado and _procedimento_sem_fonte(corpo, fontes, procedimentos | siglas):
         # Sem afirmar autorizacao, o rascunho tambem nao cita exame que nenhuma fonte cita ("Com a tomografia
         # e' igual." contra a regra da ressonancia): a frase solta retoma o que a pessoa perguntou.
         motivos.append("procedimento_sem_fonte")
@@ -302,6 +321,36 @@ def _cita(frase_da_fonte: str, citado: str) -> bool:
     palavras = [singular(p) for p in _palavras(frase_da_fonte)]
     alvo = citado.split()
     return any(palavras[i : i + len(alvo)] == alvo for i in range(len(palavras) - len(alvo) + 1))
+
+
+def palavras_de_conteudo(texto: str) -> set[str]:
+    """As palavras de conteudo do texto, no singular, sem as gramaticais e sem numeros."""
+    return {
+        p
+        for p in (singular(q) for q in _palavras(texto))
+        if not p.isdigit() and p not in _PALAVRAS_GRAMATICAIS
+    }
+
+
+def oracoes_sobre_autorizacao(texto: str) -> list[str]:
+    """As oracoes (entre `?.!;,:`) que falam de autorizacao, ja' normalizadas."""
+    return [
+        o for o in (o.strip() for o in re.split(r"[?.!;,:]+", _plano(texto))) if o and _AUTORIZACAO.search(o)
+    ]
+
+
+def _palavras_sem_fonte(corpo: str, fontes: Sequence[str]) -> set[str]:
+    """VOCABULARIO FECHADO (HEL-5a, terceira revisao): toda palavra de conteudo do rascunho tem de estar em
+    alguma fonte (no singular). Listas de procedimentos, frequencias e negacoes nunca ficam completas; o
+    vocabulario fechado sim: "transplante", "direto", "exceto", "no total", "por beneficiario" e "aval" que
+    a fonte nao diz nao passam. Fora dele so' as palavras GRAMATICAIS de `_PALAVRAS_GRAMATICAIS` (nenhuma
+    que mude o sentido: "nao", "sem", "pode", "exceto" nao estao la')."""
+    da_fonte = {singular(p) for fonte in fontes for p in _palavras(fonte)}
+    return {
+        p
+        for p in (singular(q) for q in _palavras(corpo))
+        if not p.isdigit() and p not in da_fonte and p not in _PALAVRAS_GRAMATICAIS
+    }
 
 
 def _procedimento_sem_fonte(corpo: str, fontes: Sequence[str], procedimentos: frozenset[str]) -> bool:
@@ -385,6 +434,16 @@ _SIGLAS_QUE_NAO_SAO: Final[frozenset[str]] = frozenset(
 _ANAFORA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:tambem|idem|o mesmo|a mesma|igualmente|da mesma forma|igual|isso|isto|vale|valem|se aplica\w*)\b"
 )
+#: As palavras gramaticais que o rascunho pode usar sem estarem na fonte: artigos, preposicoes (sem "sem"),
+#: conjuncoes, pronomes e o verbo de ligacao. Nada que negue, excetue, permita ou quantifique.
+_PALAVRAS_GRAMATICAIS: Final[frozenset[str]] = frozenset(
+    {
+        "a", "o", "as", "os", "um", "uma", "de", "da", "do", "em", "no", "na", "num", "numa", "por", "pelo",
+        "pela", "para", "pra", "pro", "ao", "com", "e", "ou", "que", "se", "esse", "essa", "este", "esta",
+        "isso", "isto", "ele", "ela", "lhe", "seu", "sua", "voce", "sim", "tambem", "ja", "assim", "entao",
+        "sao", "estao", "ser", "como", "qual", "quai", "onde", "quando",
+    }
+)  # fmt: skip
 #: Palavras comuns com sufixo de procedimento, que NAO sao procedimento ("programa", "fotografia").
 _PALAVRAS_COMUNS_COM_SUFIXO: Final[frozenset[str]] = frozenset(
     {
@@ -397,7 +456,7 @@ _PALAVRAS_COMUNS_COM_SUFIXO: Final[frozenset[str]] = frozenset(
 APELIDOS_DE_PROCEDIMENTO: Final[frozenset[str]] = frozenset(
     {
         "tc", "rm", "rnm", "pet", "pet ct", "pet scan", "rx", "raio x", "usg", "us", "eco", "ecg", "eeg",
-        "emg", "mamo", "tomo", "colono", "endo", "cintilo", "dexa", "holter", "mapa",
+        "emg", "mamo", "colono", "cintilo", "dexa", "holter",
     }
 )  # fmt: skip
 
@@ -424,8 +483,11 @@ PROCEDIMENTOS_GENERICOS: Final[frozenset[str]] = frozenset(
 __all__ = [
     "APELIDOS_DE_PROCEDIMENTO",
     "FORMULA_FIXA",
+    "PREFIXO_DA_REGRA_GERAL",
     "PROCEDIMENTOS_GENERICOS",
     "Veredito",
+    "oracoes_sobre_autorizacao",
+    "palavras_de_conteudo",
     "procedimentos_citados",
     "singular",
     "verificar",

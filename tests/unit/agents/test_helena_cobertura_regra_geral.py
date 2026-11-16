@@ -71,13 +71,27 @@ class _Redator:
 
 
 async def test_redacao_livre_que_confere_sai(manual: ManualK2) -> None:
+    """A redacao e' livre DENTRO do vocabulario da fonte (HEL-5a: vocabulario fechado)."""
+    livre = (
+        "Sim: a ressonância eletiva precisa de autorização prévia da operadora, e o pedido médico é enviado "
+        f"pelo prestador. {cob.FORMULA_FIXA}"
+    )
+    r = await CamadaRegraGeral(manual, redator=_Redator(livre)).responder(
+        _pergunta("ressonância precisa de guia?")
+    )
+    assert r is not None and r.texto == livre
+
+
+async def test_redacao_com_palavra_que_a_fonte_nao_diz_cai_no_texto_da_regra(manual: ManualK2) -> None:
+    """HEL-5a (terceira revisao): parafrase com palavra nova ("antecedencia") nunca sai; vale o texto
+    deterministico da regra (falso positivo seguro)."""
     livre = (
         f"Para a ressonância marcada com antecedência, é preciso pedir autorização prévia. {cob.FORMULA_FIXA}"
     )
     r = await CamadaRegraGeral(manual, redator=_Redator(livre)).responder(
         _pergunta("ressonância precisa de guia?")
     )
-    assert r is not None and r.texto == livre
+    assert r is not None and r.desfecho == "resposta" and r.texto != livre
 
 
 @pytest.mark.parametrize(
@@ -146,6 +160,9 @@ async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK
         "precisa de autorização pra tc? fiz ressonância",
         "a mamo precisa de liberação? já fiz ressonância",
         "e o eco? a ressonância precisa de autorização?",
+        # terceira revisao: procedimento fora de toda lista, como sujeito da autorizacao
+        "o transplante precisa de autorização? fiz ressonância ano passado",
+        "a prótese precisa de liberação? fiz ressonância",
     ],
 )
 async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:

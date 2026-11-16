@@ -32,6 +32,9 @@ from maezo.agents.helena.habilidades.cobertura import procedimento as _procedime
 from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, RegraDoManual, normalizar
 from maezo.agents.helena.habilidades.cobertura.verificador import (
     FORMULA_FIXA,
+    PREFIXO_DA_REGRA_GERAL,
+    oracoes_sobre_autorizacao,
+    palavras_de_conteudo,
     procedimentos_citados,
     singular,
     verificar,
@@ -40,7 +43,7 @@ from maezo.ports.tina import ProcedimentoCatalogo
 
 logger = structlog.get_logger(__name__)
 
-PREFIXO: Final[str] = "Pela regra geral:"
+PREFIXO: Final[str] = PREFIXO_DA_REGRA_GERAL
 
 
 @runtime_checkable
@@ -94,7 +97,10 @@ class CamadaRegraGeral:
                 item = resolucao.candidatos[0]
                 termos += [t for t in (item.descricao, item.tuss) if t]
         regras = self._regras(termos, pergunta)
-        if len(regras) == 1 and self._outro_procedimento(pergunta.texto, regras[0]):
+        if len(regras) == 1 and (
+            self._outro_procedimento(pergunta.texto, regras[0])
+            or _sujeito_fora_da_regra(pergunta.texto, regras[0])
+        ):
             # HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra ("a
             # tomografia ... fiz ressonancia ano passado"): o sinonimo citado de passagem nao escolhe a regra.
             logger.info("helena_cobertura_outro_procedimento", regra=regras[0].id)
@@ -166,6 +172,32 @@ class CamadaRegraGeral:
             for i in range(len(palavras) - n + 1):
                 ids.update(por_termo.get(" ".join(palavras[i : i + n]), ()))
         return ids
+
+
+#: O que a PERGUNTA sobre autorizacao pode dizer alem do procedimento: o pedido, o tempo, quem pergunta.
+_PALAVRAS_DA_PERGUNTA: Final[frozenset[str]] = frozenset(
+    {
+        "precisa", "preciso", "precisam", "precisar", "necessario", "necessaria", "tem", "ter", "tenho",
+        "fazer", "faco", "fizer", "vou", "quero", "queria", "posso", "pode", "meu", "minha", "eu", "quanto",
+        "quanta", "tempo", "demora", "demorar", "prazo", "como", "funciona", "pedir", "solicitar", "oi",
+        "ola", "bom", "boa", "dia", "tarde", "noite", "favor", "obrigado", "obrigada", "nao", "sei", "saber",
+        "qual", "previa", "previo", "pre", "autorizacao", "autorizar", "liberacao", "liberar", "guia",
+        "senha", "exame", "procedimento", "ai", "agora", "mesmo", "ainda", "sim",
+    }
+)  # fmt: skip
+
+
+def _sujeito_fora_da_regra(texto: str, regra: RegraDoManual) -> bool:
+    """HEL-5a (terceira revisao): na oracao da pergunta que fala de autorizacao, toda palavra de conteudo tem
+    de estar na regra (sinonimos, titulo, resumo, texto) ou ser do proprio ato de perguntar; "o transplante
+    precisa de autorizacao? fiz ressonancia" nao escolhe a regra da ressonancia, cite o procedimento que
+    citar (lista nenhuma fica completa)."""
+    da_regra = palavras_de_conteudo(" ".join([*regra.sinonimos, regra.titulo, regra.resumo, regra.texto]))
+    return any(
+        p not in da_regra and p not in _PALAVRAS_DA_PERGUNTA
+        for oracao in oracoes_sobre_autorizacao(texto)
+        for p in palavras_de_conteudo(oracao)
+    )
 
 
 #: Procedimentos genericos que, citados junto com o sinonimo de OUTRA regra, tornam a pergunta ambigua.

@@ -6,7 +6,12 @@ from __future__ import annotations
 
 import pytest
 
-from maezo.agents.helena.habilidades.cobertura.verificador import FORMULA_FIXA, verificar
+from maezo.agents.helena.habilidades.cobertura.verificador import (
+    FORMULA_FIXA,
+    PROCEDIMENTOS_GENERICOS,
+    procedimentos_citados,
+    verificar,
+)
 
 _FONTE = (
     "AMOSTRA. O exame de exemplo precisa de autorização prévia do plano. O prazo de resposta é de 10 dias "
@@ -22,11 +27,11 @@ def _r(corpo: str) -> str:
 @pytest.mark.parametrize(
     "corpo",
     [
-        "Esse exame precisa de autorização prévia, e a resposta sai em até 10 dias úteis.",
-        "A resposta sai em dez dias úteis.",
+        "Esse exame precisa de autorização prévia, e o prazo de resposta é de 10 dias úteis.",
+        "O prazo de resposta é de dez dias úteis.",
         "São até doze sessões por ano.",
         "Isso vale desde 01/02/2026 (norma 465/2021).",
-        "Para esse exame, peça a autorização antes de marcar.",
+        "Para esse exame, precisa de autorização prévia do plano.",
     ],
 )
 def test_fatos_que_batem_com_a_fonte_passam(corpo: str) -> None:
@@ -99,7 +104,7 @@ def test_sinonimo_de_autorizacao_sem_fonte_nao_passa(corpo: str) -> None:
 
 
 def test_um_exame_nao_vira_numero() -> None:
-    assert verificar(_r("Esse exame precisa de autorização prévia, com um pedido médico."), [_FONTE]).ok
+    assert verificar(_r("Um exame de exemplo precisa de autorização prévia do plano."), [_FONTE]).ok
 
 
 # --- HEL-5a: bloqueios da revisao independente --------------------------------------------------------
@@ -189,8 +194,34 @@ def test_frase_literal_da_fonte_colada_a_autorizacao_nao_herda_a_afirmacao() -> 
 
 
 def test_palavra_comum_com_sufixo_nao_e_procedimento() -> None:
-    corpo = "Envie a fotografia do pedido: a ressonância precisa de autorização prévia."
-    assert verificar(_r(corpo), [_FONTE_RM]).ok
+    assert procedimentos_citados("envie a fotografia do programa", PROCEDIMENTOS_GENERICOS) == set()
+
+
+@pytest.mark.parametrize(
+    ("corpo", "fonte"),
+    [
+        # terceira revisao: procedimento fora de toda lista, escopo inventado, inversao por parafrase
+        ("O transplante precisa de autorização prévia.", _FONTE_RM),
+        ("A prótese precisa de autorização prévia.", _FONTE_RM),
+        ("A acupuntura precisa de autorização prévia.", _FONTE_RM),
+        ("A angiorressonância precisa de autorização prévia.", _FONTE_RM),
+        ("A ressonância precisa de autorização prévia. O exame de sangue, não.", _FONTE_RM),
+        ("São até 20 sessões no total.", _FONTE_FISIO),
+        ("São até 20 sessões ao todo.", _FONTE_FISIO),
+        ("São até 20 sessões por beneficiário.", _FONTE_FISIO),
+        ("São até 20 sessões por tratamento.", _FONTE_FISIO),
+        ("São até 20 sessões por vida.", _FONTE_FISIO),
+        ("A ressonância pode ser feita direto, sem pedir nada à operadora.", _FONTE_RM),
+        ("A ressonância não depende de aval da operadora.", _FONTE_RM),
+        ("Pode marcar a ressonância direto no laboratório.", _FONTE_RM),
+        ("A ressonância precisa de autorização prévia, exceto a de urgência.", _FONTE_RM),
+        ("Exames simples estão liberados.", _FONTE_RM),
+    ],
+)
+def test_palavra_que_a_fonte_nao_diz_nao_passa(corpo: str, fonte: str) -> None:
+    """VOCABULARIO FECHADO: toda palavra de conteudo do rascunho tem de estar na fonte."""
+    v = verificar(_r(corpo), [fonte])
+    assert not v.ok and "palavra_sem_fonte" in v.motivos
 
 
 def test_exame_que_nenhuma_fonte_cita_nao_passa_nem_sem_afirmar_autorizacao() -> None:
