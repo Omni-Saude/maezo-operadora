@@ -18,3 +18,9 @@ Adicionar `docs/adr/0078-*.md` deixa vermelhos os checks de contagem. `check_pla
 Sigo por (A): PROVISÓRIO-aguarda-coordenador.
 
 Ponto relacionado, já corrigido: na minha mensagem anterior à CD-20, eu disse que a disclosure de `plan_choices` sem A1 ficaria fora do E-SF-03. Errei: o DEC-CORE (EP-CORE-00a, §(4)(b)) exige fechá-la. O E-SF-03 fecha esse caminho com um gate de disclosure.
+
+## 2026-11-16 ~20:20Z — E-SF-03
+
+- PR #1270 aberto (head 5d88ee6). Q-W-MZO-GATE-01 seguiu pela opção (A), PROVISÓRIO. A mescladora confirmou o ADR 0078 por mensagem (20:12Z).
+- Bloqueio de revisão: `flip-path-review-gate` está vermelho porque `docs/adr/` tem um único code owner, o autor do PR. É preciso a aprovação de um membro ativo da equipe sobre o head 5d88ee6; um push não resolve. Comentário no PR registrado.
+- PRONTO do #1270 só depois do restante do CI verde e da integração lida no junit.
