@@ -22,7 +22,8 @@ from tests.unit.platform import rco_k1_sintetico as sint
 
 @pytest.fixture
 def pacote(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
-    return tmp_path, sint.montar(tmp_path)
+    # Teste do LEITOR: o 2.0.0 ainda e lido (diagnostico); a recusa sem provas e no pin.
+    return tmp_path, sint.montar(tmp_path, provas=False)
 
 
 def _ler(raiz: Path) -> k1.ManifestoK1:
@@ -256,7 +257,11 @@ def test_major2_le_ativacao_exige_aditivo_e_parametros(tmp_path: Path) -> None:
     """O LEITOR le todo o conjunto fechado; quem recusa o que ainda nao tem significado e
     `ativacao_nao_suportada` (gate e runtime)."""
     raiz = tmp_path
-    sint.montar(raiz, ativacoes={"SINT-A-0002": ("conferida", True), "SINT-B-0001": ("em_correcao", False)})
+    sint.montar(
+        raiz,
+        ativacoes={"SINT-A-0002": ("conferida", True), "SINT-B-0001": ("em_correcao", False)},
+        provas=False,
+    )
     lido = _ler(raiz)
     assert (lido.formato_manifesto, lido.major) == ("2.0.0", 2)
     regras = lido.decisoes["rco_sint_a"].regras
@@ -425,7 +430,7 @@ def test_regras_do_manifesto_tem_de_ser_os_idregra_emitidos(pacote: tuple[Path, 
     sint.regravar(raiz, manifesto)
     assert any("so na tabela ['SINT-A-0002']" in p for p in _verificar(raiz))
 
-    sint.montar(raiz)
+    sint.montar(raiz, provas=False)
     manifesto = json.loads((raiz / sint.K1_DIR / "manifesto.json").read_bytes())
     extra = copy.deepcopy(manifesto["decisoes"][1]["regras"][0])
     extra["idRegra"] = "SINT-B-9999"
@@ -589,6 +594,20 @@ def test_provas_em_formato_anterior_e_campo_desconhecido(
     sint.regravar(raiz, manifesto)
     with pytest.raises(k1.ManifestoK1InvalidoError, match="desconhecidos"):
         _ler(raiz)
+
+
+def test_pin_exige_provas_mas_o_leitor_ainda_le_1x_e_20(tmp_path: Path) -> None:
+    """Decisao da ROOT (16/11/2026): o leitor le 1.x/2.0 para diagnostico; `provas_ausentes_no_pin`
+    (a recusa comum ao gate e ao runtime) recusa os dois e aceita 2.1 com provas."""
+    sint.montar(tmp_path)
+    assert _ler(tmp_path).formato_manifesto == "2.1.0"
+    assert k1.provas_ausentes_no_pin(_ler(tmp_path)) == []
+    variantes: list[dict[str, Any]] = [{"provas": False}, {"major": 1}]
+    for n, kwargs in enumerate(variantes):
+        raiz = tmp_path / f"v{n}"
+        sint.montar(raiz, **kwargs)
+        (motivo,) = k1.provas_ausentes_no_pin(_ler(raiz))
+        assert "nao tem provas[]" in motivo and "2.1.0" in motivo
 
 
 def test_minor_acima_do_conhecido_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:

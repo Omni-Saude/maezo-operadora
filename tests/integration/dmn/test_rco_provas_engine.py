@@ -4,6 +4,13 @@ do rco (copia vendorizada, commit 323fec5c) avaliada no CIB Seven.
 O `esperado` e o do rco, observado la no feel-engine 1.19.3; aqui ele NUNCA e ajustado ao que o motor
 devolve: divergencia significa que as tabelas do rco se comportam diferente no motor do Maezo e e
 escalada, nao corrigida no teste. Prova tambem que um `esperado` invertido e recusado.
+
+`test_provas_do_pacote_pinado_casam_no_motor` le o PIN de bordo (`config/integrations/rco/rules.lock.json`):
+com pacote fixado, roda TODAS as `provas[]` dele no CIB Seven e falha em qualquer divergencia (decisao da
+ROOT, 16/11/2026: pin real so com provas executadas com sucesso). Este arquivo roda no shard `restante`
+da lane `integration`, que todo PR que toca `config/integrations/rco/**` dispara (filtro de caminhos da
+lane: so `docs/**`, `*.md`, `src/maezo/portal/web/**` e `.github/**` pulam). Sem pacote (`sem_pacote`) o
+teste afirma esse estado explicitamente: nunca passa vazio sem motivo.
 """
 
 from __future__ import annotations
@@ -20,7 +27,10 @@ from maezo.platform import rco_provas as rp
 pytestmark = pytest.mark.integration
 
 K1_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "rco"
-SPEC_DMN = Path(__file__).resolve().parents[3] / "spec" / "processes" / "dmn"
+REPO = Path(__file__).resolve().parents[3]
+SPEC_DMN = REPO / "spec" / "processes" / "dmn"
+PIN = REPO / "config" / "integrations" / "rco" / "rules.lock.json"
+PIN_K1_DIR = REPO / k1.K1_DIR
 ID = "teste-unario-booleano"
 CASOS = f"provas/{ID}/validacao/casos"
 
@@ -72,3 +82,21 @@ async def test_esperado_invertido_e_recusado(engine_client: httpx.AsyncClient, t
     assert [(d.caso.rsplit("#", 1)[-1], d.esperado, d.obtido) for d in divergencias] == [
         ("C01T", "nao_casa", "casa")
     ]
+
+
+async def test_provas_do_pacote_pinado_casam_no_motor(engine_client: httpx.AsyncClient) -> None:
+    resultado = await rp.executar_provas_do_pin(
+        PIN,
+        k1_dir=PIN_K1_DIR,
+        motor=rp.MotorCibSeven(engine_client),
+        chaves_do_repo=rp.chaves_de_decisao_do_repo(SPEC_DMN),
+    )
+    if resultado.estado == rp.ESTADO_SEM_PACOTE:
+        # Sem pacote nao ha prova a rodar: o pin tem de DIZER isso (nada de pasta k1/ nem artefatos).
+        lock = json.loads(PIN.read_text(encoding="utf-8"))
+        assert (lock["estado"], lock["manifest_pin"], lock["artifacts"]) == ("sem_pacote", None, [])
+        assert resultado.provas == () and resultado.divergencias == ()
+        return
+    assert resultado.estado == rp.ESTADO_FIXADO
+    assert resultado.provas, "pacote fixado sem provas executadas"
+    assert [d.render() for d in resultado.divergencias] == []

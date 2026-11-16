@@ -38,8 +38,11 @@ pin).
 ESTADO `fixado` (MZO-2a, contrato-k1.md §11 itens 1-6). O manifesto vendorizado em
 `config/integrations/rco/k1/manifesto.json` (ao lado do pin, no checkout e na copia do wheel) e
 re-hasheado contra `manifest_pin.sha256` e lido por `maezo.platform.rco_manifesto` — o MESMO leitor do
-gate de CI: formato MAJOR 1 ou 2, sem `origem.sujo`, campos exatos, prefixo `rco_`, anexos pelo hash,
-colunas de saida dentro do `saidas[]`, `idRegra` emitidos = `regras[]`, linha adversa preenchida.
+gate de CI: formato MAJOR 1 ou 2 LIDO, mas o pin exige 2.1.0+ com `provas[]` nao vazia
+(`rco_manifesto.provas_ausentes_no_pin`, decisao da ROOT de 16/11/2026; as provas rodam no CIB Seven
+no shard de integracao, `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos exatos,
+prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegra` emitidos =
+`regras[]`, linha adversa preenchida.
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
 `provenance` a `origem` dele. Manifesto 2.0.0 (contrato estavel na branch `prog/rco/ativacao-k1` do
 rco, commit 75015304, ainda nao em `main` do rco) com regra fora de `ativacao: plena` sem aditivo e
@@ -214,6 +217,10 @@ def _manifesto_fixado(
         raise RcoRulesPinError(
             f"pin: manifesto K1 recusado ({len(exc.problemas)} problema(s)): {exc}"
         ) from exc
+    sem_provas = rco_manifesto.provas_ausentes_no_pin(manifesto)
+    if sem_provas:
+        # Mesma recusa do gate (`pin-sem-provas`): pin real so com provas do motor (decisao da ROOT).
+        raise RcoRulesPinError(f"pin: pacote K1 sem provas do motor: {'; '.join(sem_provas)}")
     provenance = lock.get("provenance")
     if (
         not isinstance(provenance, dict)

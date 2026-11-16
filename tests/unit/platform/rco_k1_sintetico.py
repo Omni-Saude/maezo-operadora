@@ -6,9 +6,11 @@ do contrato `regras-contratos-operadora/docs/programa/contrato-k1.md` §3 (manif
 tabela `rco_sint_b` tem uma saida extra (`acaoSintetica`) listada no seu `saidas[]` (contrato §6).
 O pacote tem um exemplo listado no manifesto e NAO vendorizado (fora do lock, contrato §3).
 
-Formato padrao: `formato_manifesto` 2.0.0 (contrato-k1.md do rco em 75015304, PROG-RCO-8): regras com
-`ativacao`/`exige_aditivo` e `vocabulario.json` com o bloco `ativacao` (valores + parametros, numeros
-inventados — nao sao os provisorios do rco). `montar(raiz, major=1)` gera o formato 1.0.0.
+Formato padrao: `formato_manifesto` 2.1.0 com uma prova sintetica (`com_provas`): o pin real exige
+`provas[]` (decisao da ROOT, 16/11/2026). Regras com `ativacao`/`exige_aditivo` e `vocabulario.json` com
+o bloco `ativacao` (valores + parametros, numeros inventados — nao sao os provisorios do rco).
+`montar(raiz, provas=False)` gera o 2.0.0 e `montar(raiz, major=1)` o 1.0.0: o leitor os le, o pin os
+recusa (`pin-sem-provas`).
 
 `montar(raiz)` escreve a arvore e o pin em estado `fixado`; `regravar(raiz, manifesto)` reescreve o
 manifesto em bytes canonicos e atualiza `manifest_pin.sha256`, para testar uma mutacao por vez.
@@ -19,6 +21,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -135,12 +138,17 @@ def vocabulario_bytes(major: int = 2, **ativacao: Any) -> bytes:
 
 
 def montar(
-    raiz: Path, *, major: int = 2, ativacoes: dict[str, tuple[str, bool]] | None = None
+    raiz: Path,
+    *,
+    major: int = 2,
+    ativacoes: dict[str, tuple[str, bool]] | None = None,
+    provas: bool = True,
 ) -> dict[str, Any]:
     """Escreve o pacote sintetico e o pin `fixado` em `raiz`. Devolve o manifesto (dict).
 
     `ativacoes`: `idRegra` -> (`ativacao`, `exige_aditivo`) no MAJOR 2; o padrao e `plena` sem aditivo
-    em todas (o unico caso que o consumidor executa hoje).
+    em todas (o unico caso que o consumidor executa hoje). `provas` (so no MAJOR 2): promove a 2.1.0
+    com a prova sintetica (`com_provas`); sem ela o pacote fica 2.0.0, que o pin recusa.
     """
     ativacoes = ativacoes or {}
     k1 = raiz / K1_DIR
@@ -224,6 +232,8 @@ def montar(
     }
     (raiz / LOCK_REL).write_text(json.dumps(lock, indent=2), encoding="utf-8")
     regravar(raiz, manifesto)
+    if provas and major == 2:
+        com_provas(raiz, manifesto)
     return copy.deepcopy(manifesto)
 
 
@@ -253,9 +263,38 @@ def trocar_vocabulario(raiz: Path, manifesto: dict[str, Any], raw: bytes) -> Non
 
 
 PROVA_ID = "prova-sint"
+#: Decisao da prova sintetica (sem o prefixo `rco_`, como as do rco): FIRST, linha 1 = celula testada
+#: (`true`) -> "casa"; linha 2 = `-` -> "nao_casa" (forma da fixture `teste-unario-booleano`).
+PROVA_DECISAO = "prova_sint_c1"
+PROVA_DMN = f"""<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="defs_{PROVA_DECISAO}"
+  name="{PROVA_DECISAO}" namespace="http://example.invalid/rco-sintetico-prova">
+  <decision id="{PROVA_DECISAO}" name="{PROVA_DECISAO} (sintetico)">
+    <decisionTable id="dt_{PROVA_DECISAO}" hitPolicy="FIRST">
+      <input id="in_{PROVA_DECISAO}">
+        <inputExpression typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="o_{PROVA_DECISAO}" name="resultado" typeRef="string"/>
+      <rule id="r1_{PROVA_DECISAO}"><inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r2_{PROVA_DECISAO}"><inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+</definitions>
+""".encode()
+#: Casos da prova: `flag` true casa, false nao casa.
+PROVA_CASOS: dict[str, Any] = {
+    "casos": [
+        {"entradas": {"flag": True}, "esperado": {"resultado": "casa"}, "id": "C1T"},
+        {"entradas": {"flag": False}, "esperado": {"resultado": "nao_casa"}, "id": "C1F"},
+    ],
+    "decisao": PROVA_DECISAO,
+    "dmn": "dmn/prova-sint.dmn",
+}
 _PROVA_ARQUIVOS: dict[str, bytes] = {
-    "dmn/prova-sint.dmn": b"<definitions/>",
-    "validacao/casos/c1.json": b'{"casos":[],"decisao":"c1","dmn":"dmn/prova-sint.dmn"}',
+    "dmn/prova-sint.dmn": PROVA_DMN,
+    "validacao/casos/c1.json": canonico(PROVA_CASOS),
 }
 
 
@@ -276,5 +315,14 @@ def com_provas(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
             "id": PROVA_ID,
         }
     ]
+    regravar(raiz, manifesto)
+    return manifesto
+
+
+def provas_vazias(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
+    """Pacote 2.1.0 com `provas: []` e sem a pasta `provas/` (so a lista vazia difere do pacote valido)."""
+    manifesto["formato_manifesto"] = "2.1.0"
+    manifesto["provas"] = []
+    shutil.rmtree(raiz / K1_DIR / "provas", ignore_errors=True)
     regravar(raiz, manifesto)
     return manifesto

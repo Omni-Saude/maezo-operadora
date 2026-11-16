@@ -283,10 +283,10 @@ def test_manifesto_sujo_reprova_mesmo_com_pin_coerente(pinned_tree: tuple[Path, 
 
 
 @pytest.mark.parametrize("formato", ["3.0.0", "2.1.0", "1.1.0", "0.9.0"])
-def test_formato_de_manifesto_nao_suportado_reprova(
-    pinned_tree: tuple[Path, dict[str, Any]], formato: str
-) -> None:
-    root, _ = pinned_tree
+def test_formato_de_manifesto_nao_suportado_reprova(tmp_path: Path, formato: str) -> None:
+    # Base 2.0.0 (sem `provas` no topo nem pasta provas/): so o leitor recusa o formato.
+    root = tmp_path
+    sint.montar(root, provas=False)
     manifesto = json.loads((root / K1_MANIFEST_PATH).read_bytes())
     manifesto["formato_manifesto"] = formato
     sint.regravar(root, manifesto)
@@ -463,3 +463,32 @@ def test_arvore_21_arquivo_de_prova_em_artifacts_reprova(pinned_tree_21: tuple[P
     prova = root / K1_DIR / "provas" / sint.PROVA_ID / "dmn" / "prova-sint.dmn"
     lock["artifacts"].append(_entry(root, prova))
     assert _codes(lock, root) != set()
+
+
+# --- pin sem provas (decisao da ROOT, 16/11/2026): 1.x/2.0 e 2.1 com provas[] vazia reprovam ---------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "formato"), [({"provas": False}, "2.0.0"), ({"major": 1}, "1.0.0")], ids=["2.0", "1.0"]
+)
+def test_pin_de_formato_sem_provas_reprova(tmp_path: Path, kwargs: dict[str, Any], formato: str) -> None:
+    sint.montar(tmp_path, **kwargs)
+    violations = verify_lock(sint.lock(tmp_path), repo_root=tmp_path)
+    assert {v.code for v in violations} == {"pin-sem-provas"}
+    (violacao,) = violations
+    assert f"formato_manifesto {formato} nao tem provas[]" in violacao.detail
+    assert main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_pin_21_com_provas_vazia_reprova(tmp_path: Path) -> None:
+    sint.provas_vazias(tmp_path, sint.montar(tmp_path))
+    violations = verify_lock(sint.lock(tmp_path), repo_root=tmp_path)
+    assert {v.code for v in violations} == {"manifesto-invalido"}
+    assert any("provas: tem de ser lista nao vazia" in v.detail for v in violations)
+    assert main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_sem_pacote_segue_valido(tmp_path: Path) -> None:
+    """O estado `sem_pacote` nao tem manifesto: a exigencia de provas nao se aplica."""
+    lock = _base_lock("sem_pacote")
+    assert verify_lock(lock, repo_root=tmp_path) == []

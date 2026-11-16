@@ -1,6 +1,7 @@
 """Logica de `rco_provas`: carga de casos e comparacao com o `esperado`, com avaliador FALSO.
 
-O motor real roda em `tests/integration/dmn/test_rco_provas_engine.py`.
+O motor real roda em `tests/integration/dmn/test_rco_provas_engine.py`, que chama
+`executar_provas_do_pin` sobre o pin de bordo; aqui a mesma funcao roda num pin sintetico 2.1.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import pytest
 
 from maezo.platform import rco_manifesto as k1
 from maezo.platform import rco_provas as rp
+from tests.unit.platform import rco_k1_sintetico as sint
 
 PROVA = "p"
 BASE = f"provas/{PROVA}"
@@ -197,3 +199,95 @@ def test_so_carrega_o_que_o_manifesto_lista(tmp_path: Path) -> None:
 )
 def test_resultado_da_avaliacao(linhas: list[dict[str, Any]], esperado: str) -> None:
     assert rp.resultado_da_avaliacao(linhas) == esperado
+
+
+# --- executar_provas_do_pin: o ponto de entrada do teste de integracao que le o pin ---------------
+
+
+class FakeMotor:
+    """`Motor` falso: devolve um `FakeAvaliador` (ou `inverter` = responde sempre o contrario)."""
+
+    def __init__(self, *, inverter: bool = False) -> None:
+        self.inverter = inverter
+        self.implantadas: list[tuple[str, frozenset[str]]] = []
+
+    async def implantar(
+        self, prova: k1.ProvaK1, *, k1_dir: Path, chaves_do_repo: frozenset[str]
+    ) -> rp.Avaliador:
+        self.implantadas.append((prova.id, chaves_do_repo))
+        if self.inverter:
+            return _Invertido()
+        return FakeAvaliador()
+
+
+class _Invertido:
+    async def avaliar(self, decisao: str, entradas: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return [{"resultado": "nao_casa" if entradas["flag"] is True else "casa"}]
+
+
+def _pin(tmp_path: Path, **kwargs: Any) -> tuple[Path, Path]:
+    sint.montar(tmp_path, **kwargs)
+    return tmp_path / sint.LOCK_REL, tmp_path / sint.K1_DIR
+
+
+async def test_pin_fixado_roda_todas_as_provas_e_passa(tmp_path: Path) -> None:
+    lock, k1_dir = _pin(tmp_path)
+    motor = FakeMotor()
+    resultado = await rp.executar_provas_do_pin(
+        lock, k1_dir=k1_dir, motor=motor, chaves_do_repo=frozenset({"rco_sint_a"})
+    )
+    assert (resultado.estado, resultado.provas, resultado.divergencias) == ("fixado", ("prova-sint",), ())
+    assert motor.implantadas == [("prova-sint", frozenset({"rco_sint_a"}))]
+
+
+async def test_pin_fixado_com_divergencia_falha(tmp_path: Path) -> None:
+    lock, k1_dir = _pin(tmp_path)
+    resultado = await rp.executar_provas_do_pin(
+        lock, k1_dir=k1_dir, motor=FakeMotor(inverter=True), chaves_do_repo=frozenset()
+    )
+    assert resultado.estado == "fixado"
+    assert [(d.caso.rsplit("#", 1)[-1], d.esperado, d.obtido) for d in resultado.divergencias] == [
+        ("C1T", "casa", "nao_casa"),
+        ("C1F", "nao_casa", "casa"),
+    ]
+
+
+async def test_sem_pacote_nao_roda_nada(tmp_path: Path) -> None:
+    lock = tmp_path / "rules.lock.json"
+    lock.write_text(json.dumps({"estado": "sem_pacote", "manifest_pin": None}), encoding="utf-8")
+    motor = FakeMotor()
+    resultado = await rp.executar_provas_do_pin(
+        lock, k1_dir=tmp_path / "k1", motor=motor, chaves_do_repo=frozenset()
+    )
+    assert (resultado.estado, resultado.provas, resultado.divergencias) == ("sem_pacote", (), ())
+    assert motor.implantadas == []
+
+
+@pytest.mark.parametrize("kwargs", [{"provas": False}, {"major": 1}], ids=["2.0", "1.0"])
+async def test_pin_sem_provas_e_recusado_antes_do_motor(tmp_path: Path, kwargs: dict[str, Any]) -> None:
+    lock, k1_dir = _pin(tmp_path, **kwargs)
+    motor = FakeMotor()
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="nao tem provas"):
+        await rp.executar_provas_do_pin(lock, k1_dir=k1_dir, motor=motor, chaves_do_repo=frozenset())
+    assert motor.implantadas == []
+
+
+async def test_decisao_da_prova_que_colide_com_o_repo_e_recusada_antes_do_motor(tmp_path: Path) -> None:
+    lock, k1_dir = _pin(tmp_path)
+    motor = FakeMotor()
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="colide com o repo"):
+        await rp.executar_provas_do_pin(
+            lock, k1_dir=k1_dir, motor=motor, chaves_do_repo=frozenset({sint.PROVA_DECISAO})
+        )
+    assert motor.implantadas == []
+
+
+@pytest.mark.parametrize("estado", ["fixado", "outro"])
+async def test_pin_incoerente_e_recusado(tmp_path: Path, estado: str) -> None:
+    lock, k1_dir = _pin(tmp_path)
+    dados = json.loads(lock.read_text(encoding="utf-8"))
+    dados["estado"] = estado
+    dados["manifest_pin"]["sha256"] = "sha256:" + "0" * 64  # manifesto nao bate com o pin
+    lock.write_text(json.dumps(dados), encoding="utf-8")
+    with pytest.raises(k1.ManifestoK1InvalidoError):
+        await rp.executar_provas_do_pin(lock, k1_dir=k1_dir, motor=FakeMotor(), chaves_do_repo=frozenset())
