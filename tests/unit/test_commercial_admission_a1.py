@@ -611,3 +611,32 @@ async def test_a1_and_a2_admitted_journey_discloses_plan_choices(schema_bytes):
     assert served.json()["data"]["plan_choices"] == formal_entry_data()["plan_choices"]
     assert b"SYN-CATALOG" in served.content
     assert len(calls) == 1
+
+
+# E-SF-04 / TB-E-24-a — wire fence over the pinned C6-4 (read-only): no commercial slot for
+# a score, segment or health value in any successor of the quote command or its results.
+
+
+def test_offer_quote_payload_has_no_score_slot(schema_bytes):
+    from maezo.gateway.commercial_fences import (  # noqa: PLC0415
+        OFFER_QUOTE_KEYS,
+        offer_quote_slot_violations,
+        result_score_slots,
+    )
+
+    document = json.loads(schema_bytes)
+    payload = document["$defs"]["OfferQuotePayload"]
+    assert set(payload["properties"]) == OFFER_QUOTE_KEYS
+    assert offer_quote_slot_violations(document) == ()
+    results = ("quoteResultData", "journey_snapshotResultData", "RecoveredJourneySnapshotResultData")
+    assert result_score_slots(document, results) == ()
+    # Injected violation: a successor adds `risk_score` to the quote payload / opens it.
+    successor = json.loads(schema_bytes)
+    successor["$defs"]["OfferQuotePayload"]["properties"]["risk_score"] = {"type": "number"}
+    assert offer_quote_slot_violations(successor) == ("risk_score",)
+    opened = json.loads(schema_bytes)
+    opened["$defs"]["OfferQuotePayload"]["additionalProperties"] = True
+    assert offer_quote_slot_violations(opened) == ("additionalProperties",)
+    scored = json.loads(schema_bytes)
+    scored["$defs"]["quoteResultData"]["properties"]["propensity"] = {"type": "number"}
+    assert result_score_slots(scored, results) == ("quoteResultData.propensity",)

@@ -19,9 +19,11 @@ The receipt mirrors exactly what was stored and who stored it — structure, win
 precedence, audit columns — and nothing else.
 """
 
+import re
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -29,6 +31,45 @@ from maezo.portal.contracts.intake import DecimalRevision, ResourceRef
 
 #: The closed dimension domain (D-36): exactly the three dimensions, no fourth, no "global".
 CommissionDimensao = Literal["produto", "canal", "corretor"]
+
+#: TB-E-21-c (E-SF-04) anti-benchmark fence: the competitor-operator markers the spec names
+#: (`'operadora_externa'`, `competitor_*`, "operadora concorrente", benchmark). No commission
+#: structure, column, route or report name may carry one — a cross-operator comparison of
+#: commission is never a dimension of this surface (G-CADE).
+COMPETITOR_OPERATOR_MARKERS: Final = (
+    "operadora_externa",
+    "external_operator",
+    "competitor",
+    "concorrente",
+    "benchmark",
+)
+COMMISSION_BENCHMARK_FORBIDDEN: Final = "commission_benchmark_forbidden"
+
+
+class CommissionBenchmarkForbiddenError(ValueError):
+    """Typed refusal of a competitor-operator dimension; never echoes the offending name."""
+
+    def __init__(self) -> None:
+        self.code = COMMISSION_BENCHMARK_FORBIDDEN
+        super().__init__(COMMISSION_BENCHMARK_FORBIDDEN)
+
+
+def commission_benchmark_markers(names: Iterable[str]) -> tuple[str, ...]:
+    """The names (dimension values, fields, columns, routes) carrying a competitor marker."""
+    return tuple(
+        name
+        for name in names
+        if any(
+            marker in re.sub(r"[^a-z0-9]+", "_", name.casefold()) for marker in COMPETITOR_OPERATOR_MARKERS
+        )
+    )
+
+
+def refuse_commission_benchmark(names: Iterable[str]) -> None:
+    """TB-E-21-c: refuse with `commission_benchmark_forbidden` on any competitor marker."""
+    if commission_benchmark_markers(names):
+        raise CommissionBenchmarkForbiddenError
+
 
 #: The closed adjustment KIND domain — the structure of an adjustment, never its value.
 CommissionAjusteTipo = Literal["percentual", "valor", "faixa"]
@@ -96,6 +137,8 @@ class _EstruturaBase(Closed):
 
     @model_validator(mode="after")
     def _estrutura_consistente(self) -> Self:
+        # TB-E-21-c: the target ref never names a competitor operator (anti-benchmark).
+        refuse_commission_benchmark((self.dimensao_ref,))
         if self.vigencia_inicio is not None:
             _aware(self.vigencia_inicio)
         if self.vigencia_fim is not None:
