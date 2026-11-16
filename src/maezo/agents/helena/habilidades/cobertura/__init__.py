@@ -63,9 +63,14 @@ Desfecho = Literal["resposta", "esclarecer", "transferir"]
 DESFECHOS: Final[tuple[Desfecho, ...]] = ("resposta", "esclarecer", "transferir")
 
 #: A oferta de uma pessoa quando nenhuma fonte responde com seguranca. Caso so' com o "sim" (ADR-0066).
+#: AGUARDA O CONTENT-SIGNOFF DO DONO (texto ao beneficiario e' ato dele). Cita os canais pelos nomes da
+#: decisao do dono de 21/09/2026 (F7, `CANAIS_CONFIRMADOS`), sem telefone; "quem decide e' a analise do
+#: plano" vale porque este texto so' sai da habilidade `cobertura` (HEL-6b: o gabarito pede a orientacao).
 TEXTO_TRANSFERIR: Final[str] = (
-    "Essa dúvida eu não consigo responder com segurança por aqui. Se você quiser, posso passar o seu "
-    "atendimento para uma pessoa da nossa equipe. Quer? Responda sim ou não."
+    "Essa dúvida eu não consigo responder com segurança por aqui. Quem decide cada pedido é a análise do "
+    "plano. Você pode falar com o plano pelo aplicativo Austa Clínicas, pelo portal do plano ou pela "
+    "central de atendimento do plano. Se quiser, posso passar o seu atendimento para uma pessoa da nossa "
+    "equipe. Quer? Responda sim ou não."
 )
 
 

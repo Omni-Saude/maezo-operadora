@@ -321,3 +321,20 @@ def test_a_marca_do_texto_e_de_uso_unico() -> None:
     cob._guardar(texto)
     assert cob.e_texto_da_cobertura(texto) is True
     assert cob.e_texto_da_cobertura(texto) is False
+
+
+def test_texto_de_transferir_orienta_pelos_canais_confirmados_e_passa_nas_cercas() -> None:
+    """O texto de transferencia cita os TRES canais da decisao do dono (21/09/2026), sem telefone, diz que a
+    decisao e' da analise do plano e sai pelas cercas de saida (nao nega acesso nem decide o caso)."""
+    from maezo.agents.helena.graph import _nega_acesso, _plano
+    from maezo.agents.helena.habilidades.cobertura.travas import DECISAO_DO_CASO
+    from maezo.domain.comunicacao.cerca_de_saida import motivo_de_canal_nao_confirmado
+
+    texto = cob.TEXTO_TRANSFERIR
+    for canal in ("aplicativo Austa Clínicas", "portal do plano", "central de atendimento do plano"):
+        assert canal in texto
+    assert "quem decide cada pedido é a análise do plano" in texto.lower()
+    assert motivo_de_canal_nao_confirmado(texto) is None
+    assert not _nega_acesso(texto)
+    assert not DECISAO_DO_CASO.search(_plano(texto))
+    assert not any(c.isdigit() for c in texto)  # nenhum telefone
