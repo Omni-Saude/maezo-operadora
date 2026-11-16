@@ -11,8 +11,13 @@ permissions:
   contents: read
 
 # Cancel in-progress runs for the same branch/PR on new pushes.
+# O noturno (`schedule`) tem GRUPO PROPRIO. Antes, `push` e `schedule` em `main` dividiam
+# `CI-refs/heads/main` com cancel-in-progress: um merge perto das 06:00 UTC cancelava o canario
+# noturno no meio (medido 17/10-16/11/2026: 7 de 30 noturnos cancelados, ~1,2 mil job-min pagos
+# sem veredito) e o `red-main-alarm.yml` ficava sem o canario que ele le. PR e push seguem
+# cancelando a run anterior do MESMO ref, como antes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'noturno' || github.ref }}
   cancel-in-progress: true
 
 env:
