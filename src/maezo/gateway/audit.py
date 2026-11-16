@@ -204,9 +204,9 @@ class AuditRecord:
             the `NOT NULL DEFAULT '{}'::jsonb` column default remains the correct, honest value; it
             is no longer, though, evidence that nothing calls `emit()` in production.
             MZO-5a (ADR-0075 §(f)): an entry for an rco K1 table (`rco_` key) additionally
-            carries `shaDmn` (always), `versaoRegra` (only once the pin fixes a K1 manifest) and
+            carries `shaDmn` (always), `versaoRegra` (pinned K1 manifest, for the matched rule) and
             `idRegra` (only when the matched row has that output) — all strings, from
-            `rules.lock.json` / the table output, never from the engine
+            `rules.lock.json` + manifest / the table output, never from the engine
             (`maezo.tools.workers.rco_pin`). Maezo entries never carry them (absent, not null).
             The column is free-form jsonb and `canonicalize_jsonb` leaves strings untouched, so
             neither the schema nor `verify_chain()` changes.
