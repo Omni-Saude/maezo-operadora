@@ -4,8 +4,8 @@ Nesta onda as fontes sao SINTETICAS (`golden/helena/cobertura/fontes_sinteticas/
 do rco) e o pacote K2 e' a amostra sintetica do leitor. O conversor e a avaliacao sao os mesmos que vao rodar
 sobre as 180 perguntas reais quando o K2 chegar (Onda 2): so' as fontes trocam.
 
-O resultado da amostra e' FIXADO aqui (nao e' o corte do dono, que so' vale sobre o K2 real): a amostra
-mostra o que a Onda 1 ainda nao faz (prazo em "dias uteis", pela trava `sem_prazo_da_ans`).
+O resultado da amostra e' FIXADO aqui (nao e' o corte do dono, que so' vale sobre o K2 real): desde a
+HEL-5b o prazo ratificado do K2 passa pela trava `sem_prazo_da_ans`.
 """
 
 from __future__ import annotations
@@ -18,7 +18,12 @@ import pytest
 from structlog.testing import capture_logs
 
 from maezo.agents.helena.habilidades import cobertura as cob
-from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, PinDoK2, carregar
+from maezo.agents.helena.habilidades.cobertura.manual import (
+    ManualK2,
+    PinDoK2,
+    aceite_de_nao_ratificado,
+    carregar,
+)
 from maezo.agents.helena.habilidades.cobertura.regra_geral import CamadaRegraGeral
 from maezo.agents.helena.habilidades.cobertura.verificador import verificar
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
@@ -33,7 +38,7 @@ _FONTES = _RAIZ / "fontes_sinteticas"
 _AMOSTRA_K2 = Path(__file__).parents[1] / "unit" / "agents" / "helena_k2_amostra" / "pacote"
 _PIN = PinDoK2(
     versao="amostra-0.1.0",
-    sha256_manifesto="9af9c38159fc23b4b73e576bab19afbb87cb7562839906a67ff660320e6dd22a",
+    sha256_manifesto="f9124f357352eaffa58cf06f3af7576209deb25f6d5dfe0cc1624115e49e15cd",
 )
 
 
@@ -45,12 +50,17 @@ def _casos() -> list[conv.CasoDeCobertura]:
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA_K2, pin=_PIN)
+    # MAEZO_ENV=dev so' durante a carga (ambiente de teste, permitido pela decisao do dono): o contexto do
+    # MonkeyPatch desfaz ao sair, nada vaza para outros testes.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MAEZO_ENV", "dev")
+        return carregar(_AMOSTRA_K2, pin=_PIN, aceite=aceite_de_nao_ratificado(configurado=True))
 
 
 async def _rodar(manual: ManualK2, caso: conv.CasoDeCobertura) -> conv.Resultado:
     """UMA pergunta pelo grafo inteiro (roteador -> `cobertura` -> camada 1 -> travas -> envio)."""
-    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
+    config = _ligada(CamadaRegraGeral(manual), hash_do_k2=_PIN.sha256_manifesto)
+    grafo, whatsapp, _cib = _grafo(_Modelo(), config)
     with capture_logs() as logs:
         await grafo.ainvoke(_entrada(caso.pergunta))
     texto = whatsapp.enviados[-1]
@@ -141,9 +151,12 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
     resultados = {c.id: await _rodar(manual, c) for c in _casos()}
     erradas = {i: r.motivos for i, r in resultados.items() if not r.correta}
     assert erradas == {
-        "S9-003": ("desfecho",)
-    }  # prazo em "dias uteis": `sem_prazo_da_ans` (pendencia do dono)
+        # camada 2 (carencia, consulta ao plano) nao existe: antes a regra de AUTORIZACAO da ressonancia
+        # respondia a pergunta de carencia pelo sinonimo; desde a HEL-5a a camada 1 transfere (correto).
+        # HEL-5b: S9-003 (prazo ratificado do K2) passou a acertar.
+        "S9-008": ("desfecho",),
+    }
     resumo = conv.corte(list(resultados.values()))
-    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 6, 0)
-    assert not resumo.aprovado  # 85,7% < 95%: o corte do dono so' vale sobre o K2 real
+    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 7, 0)
+    assert resumo.aprovado  # so' a amostra sintetica: o corte do dono vale sobre o K2 real
     print(json.dumps({"acerto_camada_1": round(resumo.acerto, 3), "invencoes": resumo.invencoes}))
