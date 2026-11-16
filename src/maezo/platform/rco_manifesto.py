@@ -999,6 +999,164 @@ def _conferir_linhas(
         )
 
 
+# --- guarda da tolerancia do prazo de conta (MZO-TOL, PROG-COORD-22) -------------------------------
+#: Entrada K1 dos dias alem do prazo de apresentacao do contrato. A tolerancia sobre esse prazo mora SO
+#: na configuracao do Maezo (montador), nunca na tabela: uma linha que LIBERA uma faixa positiva LIMITADA
+#: desta entrada (ex.: `[1..30]`) seria a mesma tolerancia dentro do DMN, e as duas se somariam.
+ENTRADA_DIAS_ALEM_PRAZO: Final[str] = "diasAlemDoPrazoContratual"
+_DECISAO_QUE_LIBERA: Final[str] = "liberar"
+_NUM: Final[str] = r"-?\d+(?:\.\d+)?"
+_UNARIO_NUMERO: Final[re.Pattern[str]] = re.compile(rf"^{_NUM}$")
+_UNARIO_COMPARACAO: Final[re.Pattern[str]] = re.compile(rf"^(<=|<|>=|>)\s*({_NUM})$")
+_UNARIO_INTERVALO: Final[re.Pattern[str]] = re.compile(rf"^[\[\(\]]\s*({_NUM})\s*\.\.\s*({_NUM})\s*[\]\)\[]$")
+
+
+def _partes_unarias(texto: str) -> list[str] | None:
+    """Os testes unarios separados por virgula no nivel zero (fora de aspas e parenteses/colchetes)."""
+    partes: list[str] = []
+    atual: list[str] = []
+    nivel = 0
+    em_aspas = False
+    escape = False
+    for ch in texto:
+        if em_aspas:
+            atual.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                em_aspas = False
+            continue
+        if ch == '"':
+            em_aspas = True
+        elif ch in "([":
+            nivel += 1
+        elif ch in ")]":
+            nivel -= 1
+        if ch == "," and nivel == 0:
+            partes.append("".join(atual).strip())
+            atual = []
+            continue
+        atual.append(ch)
+    if em_aspas:
+        return None
+    partes.append("".join(atual).strip())
+    return partes
+
+
+def _faixa_positiva_limitada(texto: str) -> bool | None:
+    """`True` se o teste unario aceita algum valor > 0 com limite superior finito; `False` se nao;
+    `None` se a celula nao e lida (expressao, `not(...)`, variavel): quem chama trata como achado."""
+    if texto in ("", "-", "null"):
+        return False
+    partes = _partes_unarias(texto)
+    if partes is None:
+        return None
+    achou = False
+    for parte in partes:
+        if parte == "null":
+            continue
+        if _UNARIO_NUMERO.fullmatch(parte):
+            achou = achou or Decimal(parte) > 0
+            continue
+        comparacao = _UNARIO_COMPARACAO.fullmatch(parte)
+        if comparacao is not None:
+            # `>`/`>=` nao tem limite superior: e a faixa "fora do prazo", nunca uma tolerancia.
+            achou = achou or (comparacao.group(1) in ("<", "<=") and Decimal(comparacao.group(2)) > 0)
+            continue
+        intervalo = _UNARIO_INTERVALO.fullmatch(parte)
+        if intervalo is not None:
+            achou = achou or Decimal(intervalo.group(2)) > 0
+            continue
+        return None
+    return achou
+
+
+#: A entrada como token FEEL (nao parte de outro nome).
+_TOKEN_DIAS_ALEM: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![A-Za-z0-9_]){ENTRADA_DIAS_ALEM_PRAZO}(?![A-Za-z0-9_])"
+)
+#: Hit policies em que a ordem das linhas nao muda o resultado (o DMN sem `hitPolicy` e UNIQUE).
+_HIT_POLICIES_SEM_ORDEM: Final[frozenset[str]] = frozenset({"UNIQUE", "ANY"})
+
+
+def tolerancia_prazo_conta_no_dmn(raw: bytes, rotulo: str) -> list[str]:
+    """Achados de tolerancia embutida: linhas que LIBERAM uma faixa positiva limitada de
+    `diasAlemDoPrazoContratual`. Lista vazia = a tabela nao tolera (ou nao usa a entrada).
+
+    Fail-closed (o gate do pin recusa; o montador zera a tolerancia do Maezo). Tambem sao achados:
+    - tabela que usa a entrada com `hitPolicy` diferente de UNIQUE/ANY: com FIRST, PRIORITY, RULE ORDER
+      ou COLLECT a ordem ou a agregacao das linhas pode liberar uma faixa que a celula sozinha nao mostra
+      (ex.: FIRST com `> 30` -> glosar antes de `> 0` -> liberar);
+    - expressao de entrada que cita a entrada sem ser o nome puro (`(diasAlemDoPrazoContratual)`,
+      `diasAlemDoPrazoContratual - 0`), e celula de outra coluna que a cita;
+    - DMN ilegivel, celula que nao se le como teste unario numerico, linha sem as celulas da tabela ou
+      saida `decisao` nao literal numa linha de faixa positiva limitada.
+    So biblioteca padrao (o gate o le).
+    """
+    try:
+        root = _parse_xml_sem_dtd(raw)
+    except (ET.ParseError, ValueError) as exc:
+        return [f"{rotulo}: nao e DMN legivel ({type(exc).__name__})"]
+    achados: list[str] = []
+    for tabela in root.iter(f"{_DMN_NS}decisionTable"):
+        expressoes: list[str] = []
+        for coluna_in in tabela.findall(f"{_DMN_NS}input"):
+            expressao = coluna_in.find(f"{_DMN_NS}inputExpression")
+            expressoes.append(_texto_celula(expressao) if expressao is not None else "")
+        exatas = [i for i, e in enumerate(expressoes) if e == ENTRADA_DIAS_ALEM_PRAZO]
+        indiretas = [i for i, e in enumerate(expressoes) if i not in exatas and _TOKEN_DIAS_ALEM.search(e)]
+        regras = tabela.findall(f"{_DMN_NS}rule")
+        celulas_citam = any(
+            _TOKEN_DIAS_ALEM.search(_texto_celula(e))
+            for regra in regras
+            for e in regra.findall(f"{_DMN_NS}inputEntry")
+        )
+        if not exatas and not indiretas and not celulas_citam:
+            continue
+        onde_tabela = f"{rotulo}: tabela {tabela.get('id') or 'sem id'}"
+        achados.extend(
+            f"{onde_tabela}: entrada {i} cita {ENTRADA_DIAS_ALEM_PRAZO} sem ser o nome puro "
+            f"({expressoes[i]!r})"
+            for i in indiretas
+        )
+        politica = str(tabela.get("hitPolicy") or "UNIQUE").strip().upper()
+        if politica not in _HIT_POLICIES_SEM_ORDEM:
+            achados.append(
+                f"{onde_tabela}: hitPolicy {politica} com {ENTRADA_DIAS_ALEM_PRAZO}; so UNIQUE ou ANY "
+                "(a ordem das linhas poderia liberar uma faixa)"
+            )
+        saidas = [str(o.get("name") or "") for o in tabela.findall(f"{_DMN_NS}output")]
+        coluna_decisao = saidas.index("decisao") if "decisao" in saidas else None
+        for i, regra in enumerate(regras):
+            onde = f"{rotulo}: linha {i} ({regra.get('id') or 'sem id'})"
+            entradas = regra.findall(f"{_DMN_NS}inputEntry")
+            saidas_linha = regra.findall(f"{_DMN_NS}outputEntry")
+            if len(entradas) != len(expressoes) or len(saidas_linha) != len(saidas):
+                achados.append(f"{onde}: celulas diferentes das colunas da tabela")
+                continue
+            if any(
+                j not in exatas and _TOKEN_DIAS_ALEM.search(_texto_celula(e)) for j, e in enumerate(entradas)
+            ):
+                achados.append(f"{onde}: celula de outra coluna cita {ENTRADA_DIAS_ALEM_PRAZO}")
+            decisao = (
+                _literal(_texto_celula(saidas_linha[coluna_decisao])) if coluna_decisao is not None else None
+            )
+            if decisao is not None and decisao != _DECISAO_QUE_LIBERA:
+                continue
+            for coluna in exatas:
+                faixa = _faixa_positiva_limitada(_texto_celula(entradas[coluna]))
+                if faixa is None:
+                    achados.append(f"{onde}: {ENTRADA_DIAS_ALEM_PRAZO} nao e teste unario numerico legivel")
+                elif faixa:
+                    achados.append(
+                        f"{onde}: libera faixa positiva limitada de {ENTRADA_DIAS_ALEM_PRAZO} "
+                        "(tolerancia embutida no DMN; a do Maezo se somaria a ela)"
+                    )
+    return achados
+
+
 def ativacao_nao_suportada(manifesto: ManifestoK1) -> list[str]:
     """Regras do pacote cuja ativacao este consumidor ainda nao executa. Lista vazia = ok.
 
@@ -1249,6 +1407,8 @@ __all__ = [
     "verificar_pacote",
     "SAIDA_ID_REGRA",
     "ativacao_nao_suportada",
+    "ENTRADA_DIAS_ALEM_PRAZO",
+    "tolerancia_prazo_conta_no_dmn",
     "provas_ausentes_no_pin",
     "ids_de_decisao",
     "json_estrito",

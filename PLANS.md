@@ -82,6 +82,13 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - #1249, `9c053cac`: pin do K2, em `sem_pacote`;
     - #1252, `c912b5df`: K2 na composição do grafo da Helena;
     - #1247, `a3b7a7f3`: montador das entradas do K1, nos domínios regras-gerais e diarias-taxas; caráter só da guia; grupo, prazo e saldo de carência ficam nulos até o K3 1.16.
+  - **MZO-TOL (branch `prog/mzo/tol-prazo-conta`, sem PR), decisão do dono PROG-COORD-22:**
+    - a tolerância sobre o prazo de apresentação da conta é só configuração interna do Maezo: `config/integrations/rco/tolerancia-apresentacao-conta.json`, valor único, 30 dias, que é também o teto do leitor;
+    - o montador entrega a `rco_geral_prazos_conta` o valor `max(0, diasAlemDoPrazoContratual − tolerância)` quando os dias são positivos; nulo segue nulo;
+    - configuração inválida zera a tolerância. Também zera quando a tabela pinada já libera uma faixa positiva limitada; o gate do pin recusa essa tabela (`tolerancia-prazo-conta-no-dmn`), e também a que usa essa entrada com `hitPolicy` diferente de UNIQUE/ANY ou numa expressão;
+    - o registro vai em `EntradasMontadas.derivacoes` e não vale para `prazoComprovacaoUsoVencido`;
+    - nunca é publicada a prestador nem a beneficiário. Fica inerte enquanto `diasAteApresentacao` não tiver fórmula no rco;
+    - a branch rco `prog/rco/tolerancia-prazo-conta` foi cancelada.
   - **Manutenção, incorporados:**
     - #1234, `fc4cd944`: pins do runtime implantado;
     - #1235, `a9f3506d`: OpenTelemetry, GHSA;
