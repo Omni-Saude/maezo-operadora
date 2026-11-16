@@ -489,18 +489,95 @@ def test_no_port_module_imports_another_maezo_package() -> None:
 #: `tina-dependentes-nome`
 #: (manifest v1.13), campo fora do `repr`, entregue so' por texto fixo no envio. Qualquer outro slot continua
 #: reprovado; a chave e' (tipo, campo), entao renomear ou copiar o campo nao herda a excecao.
-_SLOTS_DE_PHI_AUTORIZADOS: frozenset[tuple[str, str]] = frozenset(
+_SLOTS_DE_PHI_AUTORIZADOS_PELO_DONO: frozenset[tuple[str, str]] = frozenset(
     {("maezo.ports.tina.DependenteNominal", "nome_completo")}
 )
 
+#: EXCECAO NOMINAL PROPOSTA, *AGUARDANDO A CONFIRMACAO DO DONO* (NAO AUTORIZADA AINDA): a rede credenciada do
+#: plano (contrato AMH `tina-rede-credenciada`, manifest v1.8, pinado; pedido (b) da T-MZO-B, HEL-3/DL-0167).
+#: So' o tipo `EstabelecimentoRede` e so' os tres campos do `Estabelecimento` do OpenAPI pinado que a sonda
+#: reprova: `nome`, `endereco` e `telefone` do ESTABELECIMENTO, o que a operadora ja' publica como rede
+#: credenciada (`bairro`, `municipio`, `uf` e `especialidades` nao precisam de excecao; o contrato nao traz
+#: CNPJ, CPF nem identificador do prestador, e profissional pessoa fisica so' aparece como CONTAGEM). Mesmo
+#: assim a excecao exige a palavra do dono: um prestador PODE ser pessoa natural (um consultorio com o nome
+#: do medico), e a excecao anterior (`DependenteNominal`) foi decidida pelo dono E pelo DPO. Os tres campos
+#: ficam fora do `repr`. Sem a confirmacao, este bloco sai e a porta nao entra (o PR fica parado).
+_SLOTS_DA_REDE_PENDENTES_DO_DONO: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("maezo.ports.tina.EstabelecimentoRede", "nome"),
+        ("maezo.ports.tina.EstabelecimentoRede", "endereco"),
+        ("maezo.ports.tina.EstabelecimentoRede", "telefone"),
+    }
+)
+
+#: O que a sonda (iv) deixa passar: a chave e' (tipo, campo), entao renomear o tipo ou copiar o campo para
+#: outro tipo nao herda a excecao.
+_SLOTS_DE_PHI_AUTORIZADOS: frozenset[tuple[str, str]] = (
+    _SLOTS_DE_PHI_AUTORIZADOS_PELO_DONO | _SLOTS_DA_REDE_PENDENTES_DO_DONO
+)
+
+
+def _campos_reprovados(value_types: dict[str, type[Any]]) -> dict[str, list[str]]:
+    """Os campos com forma de PHI fora da excecao nominal, por tipo."""
+    offenders: dict[str, list[str]] = {}
+    for qualname, cls in value_types.items():
+        bad = [
+            f.name
+            for f in dataclasses.fields(cls)
+            if any(fragment in f.name.lower() for fragment in _PHI_NAME_FRAGMENTS)
+            and (qualname, f.name) not in _SLOTS_DE_PHI_AUTORIZADOS
+        ]
+        if bad:
+            offenders[qualname] = bad
+    return offenders
+
 
 def test_a_excecao_de_phi_e_so_a_autorizada() -> None:
-    """A excecao nao pode crescer em silencio: so' o nome do dependente, e o campo existe de fato."""
-    assert {"maezo.ports.tina.DependenteNominal"} == {t for t, _ in _SLOTS_DE_PHI_AUTORIZADOS}
+    """A excecao nao pode crescer em silencio: so' o nome do dependente (dono e DPO) e os tres campos do
+    estabelecimento da rede (PENDENTE do dono), e cada campo existe de fato, fora do `repr`."""
+    assert {"maezo.ports.tina.DependenteNominal"} == {t for t, _ in _SLOTS_DE_PHI_AUTORIZADOS_PELO_DONO}
+    assert {"maezo.ports.tina.EstabelecimentoRede"} == {t for t, _ in _SLOTS_DA_REDE_PENDENTES_DO_DONO}
+    assert {c for _, c in _SLOTS_DA_REDE_PENDENTES_DO_DONO} == {"nome", "endereco", "telefone"}
     tipos = _value_types()
     for tipo, campo in _SLOTS_DE_PHI_AUTORIZADOS:
         campos = {f.name: f for f in dataclasses.fields(tipos[tipo])}
         assert campo in campos and campos[campo].repr is False
+
+
+def test_a_excecao_da_rede_nao_vaza_para_outro_tipo() -> None:
+    """Os MESMOS nomes de campo (`nome`, `endereco`, `telefone`) em qualquer OUTRO tipo dos ports continuam
+    reprovados: no `RedeCredenciadaView`, no `DependenteNominal`, em todo tipo que ja' existe e num tipo novo
+    qualquer. A excecao e' do par (tipo, campo), nunca do nome do campo."""
+
+    @dataclasses.dataclass(frozen=True)
+    class _ComOsMesmosCampos:
+        nome: str
+        endereco: str
+        telefone: str
+
+    reais = _value_types()
+    assert not _campos_reprovados(reais)  # o pacote real passa
+    esperado = ["nome", "endereco", "telefone"]
+    for qualname in sorted(reais):
+        if qualname == "maezo.ports.tina.EstabelecimentoRede":
+            continue
+        assert _campos_reprovados({qualname: _ComOsMesmosCampos}) == {qualname: esperado}, qualname
+    for novo in ("maezo.ports.tina.EstabelecimentoRede2", "maezo.ports.rede.EstabelecimentoRede"):
+        assert _campos_reprovados({novo: _ComOsMesmosCampos}) == {novo: esperado}
+    # E o proprio tipo da rede nao ganha outro slot com forma de PHI por tabela.
+    reais_com_extra = {"maezo.ports.tina.EstabelecimentoRede": _com_campo_extra()}
+    assert _campos_reprovados(reais_com_extra) == {"maezo.ports.tina.EstabelecimentoRede": ["email"]}
+
+
+def _com_campo_extra() -> type[Any]:
+    @dataclasses.dataclass(frozen=True)
+    class _EstabelecimentoComEmail:
+        nome: str
+        endereco: str
+        telefone: str
+        email: str
+
+    return _EstabelecimentoComEmail
 
 
 def test_no_port_value_type_has_a_phi_shaped_field() -> None:
@@ -516,20 +593,13 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     # +5 (30/10/2026): condicoes contratuais de reembolso, contrato AMH PROPOSTO `tina-reembolso`
     # (CondicoesReembolsoView, CoparticipacaoReembolso, LimiteReembolso, RegraValorReembolso,
     # VinculoReembolso).
-    assert len(value_types) == 67, (
-        f"expected 67 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +2 (16/11/2026): rede credenciada TINA v1.8 (EstabelecimentoRede, RedeCredenciadaView); excecao
+    # nominal PENDENTE do dono, acima.
+    assert len(value_types) == 69, (
+        f"expected 69 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
-    offenders: dict[str, list[str]] = {}
-    for qualname, cls in value_types.items():
-        bad = [
-            f.name
-            for f in dataclasses.fields(cls)
-            if any(fragment in f.name.lower() for fragment in _PHI_NAME_FRAGMENTS)
-            and (qualname, f.name) not in _SLOTS_DE_PHI_AUTORIZADOS
-        ]
-        if bad:
-            offenders[qualname] = bad
+    offenders = _campos_reprovados(value_types)
     assert not offenders, (
         f"PHI-shaped field name(s) in maezo.ports value types (ADR-0037 prohibition #5): {offenders}"
     )
@@ -542,7 +612,8 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     protocols = _protocol_types()
     # +1 (20/10/2026, DL-0130): TinaCptPort.
     # +1 (30/10/2026): TinaReembolsoPort (contrato AMH PROPOSTO `tina-reembolso`).
-    assert len(protocols) == 18, f"expected exactly 18 port Protocols, found {sorted(protocols)}"
+    # +1 (16/11/2026): TinaRedeCredenciadaPort (contrato AMH `tina-rede-credenciada`, manifest v1.8).
+    assert len(protocols) == 19, f"expected exactly 19 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):
