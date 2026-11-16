@@ -26,7 +26,6 @@ ORDEM = {"plena": 0, "conferida": 1, "conferencia_integral": 2, "em_correcao": 3
 def _ambiente_limpo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(at.CHAVE_EFEITO_K1, raising=False)
     monkeypatch.delenv(at.VARIAVEL_DO_AMBIENTE, raising=False)
-    monkeypatch.delenv(at.ARQUIVO_ESTADO_ENV, raising=False)
 
 
 def test_allowlist_so_tem_dev() -> None:
@@ -87,16 +86,17 @@ def test_ambiente_e_lido_vivo(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_nenhum_arquivo_de_deploy_liga_o_indicador() -> None:
     raiz = Path(__file__).resolve().parents[3]
-    for pasta in ("deploy", "docker", "helm", "charts", ".github"):
+    lidos = 0
+    for pasta in ("deploy", ".github"):
         base = raiz / pasta
-        if not base.is_dir():
-            continue
+        assert base.is_dir(), pasta
         for arq in base.rglob("*"):
-            if arq.is_file() and arq.stat().st_size < 2_000_000:
-                try:
-                    assert at.CHAVE_EFEITO_K1 not in arq.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    continue
+            if not arq.is_file():
+                continue
+            texto = arq.read_bytes().decode("utf-8", errors="replace").upper()
+            lidos += 1
+            assert "RCO_EFEITO" not in texto, arq
+    assert lidos > 50
 
 
 # --- 2. leitor do estado manual -------------------------------------------------------------------
@@ -155,6 +155,10 @@ def test_arquivo_vazio_de_entradas() -> None:
         "  - {idRegra: R-1, versaoRegra: '1.0.0', estado: ativa_l2}\n",
         "version: 1\nversion: 1\nregras: []\n",
         "version: 1\nregras: [\n",
+        # revisao 5c-1: chave nao hasheavel, aninhamento profundo e versao float
+        "? [a]\n: b\n",
+        "[" * 5000,
+        "version: 1.0\nregras: []\n",
     ],
 )
 def test_invalido_vira_tudo_desligado(texto: str) -> None:
@@ -176,12 +180,27 @@ def test_diretorio_no_lugar_do_arquivo(tmp_path: Path) -> None:
     assert at.carregar_estados(tmp_path).ilegivel is True
 
 
-def test_carregar_le_do_disco_e_da_variavel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_carregar_le_do_disco(tmp_path: Path) -> None:
     arq = tmp_path / "e.yaml"
     arq.write_text(VALIDO, encoding="utf-8")
     assert at.carregar_estados(arq).estado_de("R-1", "1.0.0") == "ativa_l2"
-    monkeypatch.setenv(at.ARQUIVO_ESTADO_ENV, str(arq))
-    assert at.carregar_estados().estado_de("R-2", "2.0.0") == "sombra"
+
+
+def test_nenhuma_variavel_de_ambiente_desvia_o_arquivo_de_estado() -> None:
+    # O arquivo decide se uma regra do rco age: o caminho so vem do argumento ou de resolve_spec_dir.
+    fonte = Path(at.__file__).read_text(encoding="utf-8")
+    assert "REGRAS_ESTADO_PATH" not in fonte
+
+
+def test_arquivo_ilegivel_forca_desligada_mesmo_com_estado_sombra() -> None:
+    r = at.ativacao_efetiva(
+        estado_manual="sombra",
+        ativacao_pacote="plena",
+        override=None,
+        efeito_k1_habilitado=True,
+        arquivo_ilegivel=True,
+    )
+    assert r.modo == "desligada" and at.ALERTA_ARQUIVO_ILEGIVEL in r.alertas
 
 
 def test_ilegivel_registra_erro_estruturado() -> None:
@@ -286,11 +305,14 @@ def _f(
     inicial: bool = False,
     amostrada: bool = False,
     fila: str = "faturamento",
+    classe: str | None = None,
 ) -> at.AcaoDeSaida:
+    if classe is None:
+        classe = {"negar": "administrativo", "recomendar_negativa": "clinico"}.get(decisao or "", "contas")
     return at.filtrar_saida(
         estado,
         decisao=decisao,
-        classe_adverso="contas",
+        classe_adverso=classe,
         fila=fila,
         exige_aditivo=exige,
         aditivo_cobre=cobre,
@@ -314,9 +336,52 @@ def test_desligada_adversa_vai_ao_humano(decisao: str, ativacao: str) -> None:
 
 
 @pytest.mark.parametrize("modo", ["desligada", "ativa"])
-@pytest.mark.parametrize("decisao", ["pagar", "encaminhar", None, ""])
-def test_nao_adversa_segue_com_efeito(modo: str, decisao: str | None) -> None:
+@pytest.mark.parametrize("decisao", sorted(at.DECISOES_NAO_ADVERSAS))
+def test_nao_adversa_segue_com_efeito(modo: str, decisao: str) -> None:
     assert _f(_estado(modo, "em_correcao"), decisao, exige=True).acao == "efeito"
+
+
+@pytest.mark.parametrize("modo", ["desligada", "ativa"])
+@pytest.mark.parametrize("decisao", [None, "", "pagar", "NEGAR", "nega", "glosa", "x"])
+def test_decisao_nula_ou_desconhecida_vai_ao_humano(modo: str, decisao: str | None) -> None:
+    assert _f(_estado(modo, "plena"), decisao) == at.AcaoDeSaida(
+        "revisao_humana", "faturamento", at.MARCA_DECISAO_DESCONHECIDA
+    )
+
+
+def test_listas_de_decisao_cobrem_o_vocabulario_k1_sem_sobrepor() -> None:
+    import yaml
+
+    raiz = Path(__file__).resolve().parents[3]
+    voc = yaml.safe_load(
+        (raiz / "config/integrations/rco/vocabulario-saida.yaml").read_text(encoding="utf-8")
+    )
+    assert set(voc["k1"]["decisao"]) == at.DECISOES_ADVERSAS | at.DECISOES_NAO_ADVERSAS
+    assert not at.DECISOES_ADVERSAS & at.DECISOES_NAO_ADVERSAS
+
+
+@pytest.mark.parametrize("ativacao", ["plena", "conferida", "conferencia_integral"])
+@pytest.mark.parametrize(
+    ("decisao", "classe"),
+    [
+        ("negar", "clinico"),
+        ("glosar", "clinico"),
+        ("negar", "contas"),
+        ("negar", None),
+        ("glosar", None),
+        ("glosar", ""),
+    ],
+)
+def test_classe_incoerente_vai_ao_humano(ativacao: str, decisao: str, classe: str | None) -> None:
+    acao = at.filtrar_saida(
+        _estado("ativa", ativacao),
+        decisao=decisao,
+        classe_adverso=classe,
+        fila="auditoria_medica",
+        exige_aditivo=False,
+        aditivo_cobre=None,
+    )
+    assert acao == at.AcaoDeSaida("revisao_humana", "auditoria_medica", at.MARCA_CLASSE_INCOERENTE)
 
 
 @pytest.mark.parametrize("decisao", ["negar", "glosar", "recomendar_negativa"])
@@ -452,6 +517,14 @@ def test_pct_invalido_levanta(pct: object) -> None:
 @pytest.mark.parametrize("chave", [None, b""])
 def test_sem_chave_amostra_tudo(chave: bytes | None) -> None:
     assert at.amostrar(chave, "k1", "c", "R", "1.0.0", 5) == (True, at.MOTIVO_CHAVE_AUSENTE)
+
+
+@pytest.mark.parametrize(
+    ("chave", "negocio", "pct"),
+    [("texto", "c", 5), (CHAVE, "", 5), (CHAVE, None, 5), (CHAVE, "c", -1), (CHAVE, "c", float("nan"))],
+)
+def test_entrada_ruim_amostra_em_vez_de_levantar(chave: object, negocio: object, pct: float) -> None:
+    assert at.amostrar(chave, "k1", negocio, "R", "1.0.0", pct) == (True, at.MOTIVO_CHAVE_AUSENTE)  # type: ignore[arg-type]
 
 
 def test_chave_sem_id_conta_como_ausente() -> None:

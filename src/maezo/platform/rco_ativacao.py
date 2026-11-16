@@ -83,7 +83,6 @@ def efeito_k1_habilitado(*, configurado: object | None = None) -> bool:
 ESTADOS_MANUAIS: Final[tuple[str, ...]] = ("sombra", "ativa_l2", "desligada")
 ESTADO_PADRAO: Final[str] = "sombra"
 ARQUIVO_ESTADO_NOME: Final[str] = "rco-regras-estado.yaml"
-ARQUIVO_ESTADO_ENV: Final[str] = "MAEZO_RCO_REGRAS_ESTADO_PATH"
 _ID_REGRA: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _SEMVER: Final[re.Pattern[str]] = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _CAMPOS_RAIZ: Final[frozenset[str]] = frozenset({"version", "regras"})
@@ -113,6 +112,15 @@ class _CarregadorSemChaveRepetida(yaml.SafeLoader):
         vistas: set[Any] = set()
         for no_chave, _ in node.value:
             chave = self.construct_object(no_chave, deep=deep)
+            try:
+                hash(chave)
+            except TypeError:
+                raise _YamlConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    "chave nao hasheavel",
+                    no_chave.start_mark,
+                ) from None
             if chave in vistas:
                 raise _YamlConstructorError(
                     "while constructing a mapping",
@@ -144,11 +152,12 @@ def ler_estados(texto: str) -> EstadosManuais:
 def _interpretar(texto: str, caminho: Path | None) -> EstadosManuais:
     try:
         dados = yaml.load(texto, Loader=_CarregadorSemChaveRepetida)  # noqa: S506 - SafeLoader subclasse
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, TypeError, ValueError, RecursionError) as exc:
+        # RecursionError: aninhamento profundo; TypeError/ValueError: construtores do PyYAML.
         return _recusar(f"yaml_invalido: {type(exc).__name__}", caminho)
     if not isinstance(dados, dict) or set(dados) != _CAMPOS_RAIZ:
         return _recusar("raiz_invalida", caminho)
-    if dados["version"] != 1 or isinstance(dados["version"], bool):
+    if type(dados["version"]) is not int or dados["version"] != 1:
         return _recusar("versao_desconhecida", caminho)
     lista = dados["regras"]
     if not isinstance(lista, list):
@@ -173,17 +182,17 @@ def _interpretar(texto: str, caminho: Path | None) -> EstadosManuais:
 def carregar_estados(caminho: Path | None = None) -> EstadosManuais:
     """Le o arquivo de estado. Fail-closed: ausente, ilegivel ou invalido => toda regra `desligada`.
 
-    O caminho vem do argumento, de `MAEZO_RCO_REGRAS_ESTADO_PATH` (gancho de teste/operador) ou do
-    padrao via `resolve_spec_dir`. Nunca levanta.
+    O caminho vem do argumento (testes) ou do padrao via `resolve_spec_dir`, que ja tem a guarda de
+    override do diretorio de spec; nao ha variavel de ambiente propria que desvie o arquivo, porque
+    ele decide se uma regra do rco age. Nunca levanta.
     """
     try:
         if caminho is None:
-            override = os.environ.get(ARQUIVO_ESTADO_ENV)
-            caminho = Path(override) if override else caminho_padrao_do_estado()
+            caminho = caminho_padrao_do_estado()
         texto = caminho.read_text(encoding="utf-8")
+        return _interpretar(texto, caminho)
     except Exception as exc:  # noqa: BLE001 - qualquer falha fecha (inclui SpecDirOverrideRefusedError)
         return _recusar(f"leitura_falhou: {type(exc).__name__}", caminho)
-    return _interpretar(texto, caminho)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +247,7 @@ def ativacao_efetiva(
         if _RESTRICAO[OVERRIDE_UNICO] > _RESTRICAO[efetiva]:
             efetiva = OVERRIDE_UNICO
 
-    estado = estado_manual
+    estado = "desligada" if arquivo_ilegivel else estado_manual
     if estado not in ESTADOS_MANUAIS:
         estado = "desligada"
         alertas.append("estado_manual_desconhecido")
@@ -256,6 +265,28 @@ def ativacao_efetiva(
 # ---------------------------------------------------------------------------
 
 DECISOES_ADVERSAS: Final[frozenset[str]] = frozenset({"negar", "glosar", "recomendar_negativa"})
+#: Lista de PERMISSAO das decisoes nao adversas do K1 (`config/integrations/rco/vocabulario-saida.yaml`,
+#: secao `k1.decisao`, menos as adversas do contrato K1 §6). Decisao nula ou fora das duas listas vai
+#: ao humano: dado ausente ou desconhecido nunca chega a efeito.
+DECISOES_NAO_ADVERSAS: Final[frozenset[str]] = frozenset(
+    {
+        "liberar",
+        "exigir_autorizacao",
+        "exigir_documento",
+        "revisao_humana",
+        "pagar_pacote",
+        "pagar_referencia",
+        "limitar",
+        "informar",
+        "prazo",
+    }
+)
+#: Classe de adverso que pode levar cada decisao adversa automatica a efeito (contrato K1 §6):
+#: `contas` so com `glosar`; `administrativo` com `negar` ou `glosar`. Qualquer outra combinacao
+#: (inclusive `clinico` com `negar`) vai ao humano.
+_CLASSES_COM_EFEITO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {"glosar": frozenset({"contas", "administrativo"}), "negar": frozenset({"administrativo"})}
+)
 _COM_AMOSTRAGEM: Final[frozenset[str]] = frozenset({"negar", "glosar"})
 ACOES: Final[frozenset[str]] = frozenset(
     {"registrar_apenas", "revisao_humana", "conferencia", "efeito_com_amostragem", "efeito"}
@@ -264,6 +295,8 @@ MARCA_EM_CORRECAO: Final[str] = "regra_em_correcao"
 MARCA_DESLIGADA: Final[str] = "regra_desligada"
 MARCA_SEM_ADITIVO: Final[str] = "sem_aditivo"
 MARCA_RECOMENDACAO: Final[str] = "recomendacao_clinica"
+MARCA_DECISAO_DESCONHECIDA: Final[str] = "decisao_desconhecida"
+MARCA_CLASSE_INCOERENTE: Final[str] = "classe_incoerente"
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,12 +324,12 @@ def filtrar_saida(
     """Funcao pura do §3. `aditivo_cobre=None` conta como sem aditivo. `conferencia_inicial` diz que o
     caso esta entre as primeiras `conferencia_negativa_admin_decisoes` da regra (so importa em
     `conferida`); `amostrada` vem de `amostrar`/`amostra_inicial`."""
-    del classe_adverso  # a classe decide a fila (ja na linha); o filtro decide pela decisao
     if estado.modo == "sombra":
         return AcaoDeSaida("registrar_apenas")
-    adversa = decisao in DECISOES_ADVERSAS
-    if not adversa:
+    if decisao in DECISOES_NAO_ADVERSAS:
         return AcaoDeSaida("efeito")
+    if decisao not in DECISOES_ADVERSAS:
+        return AcaoDeSaida("revisao_humana", fila, MARCA_DECISAO_DESCONHECIDA)
     if estado.modo == "desligada":
         return AcaoDeSaida("revisao_humana", fila, MARCA_DESLIGADA)
     ativacao = estado.ativacao_efetiva
@@ -306,6 +339,8 @@ def filtrar_saida(
         return AcaoDeSaida("revisao_humana", fila, MARCA_SEM_ADITIVO)
     if decisao == "recomendar_negativa":
         return AcaoDeSaida("revisao_humana", fila, MARCA_RECOMENDACAO)
+    if classe_adverso not in _CLASSES_COM_EFEITO.get(decisao or "", frozenset()):
+        return AcaoDeSaida("revisao_humana", fila, MARCA_CLASSE_INCOERENTE)
     if ativacao == "conferencia_integral":
         return AcaoDeSaida("conferencia", fila)
     if ativacao == "conferida" and conferencia_inicial:
@@ -363,8 +398,14 @@ def amostrar(
     amostra): `(True, "chave_ausente")` — falhar para mais revisao e o lado seguro. Nao amostrada:
     `(False, "")`.
     """
-    limiar = limiar_amostra(pct)
-    if not chave or not id_chave:
+    if not isinstance(chave, bytes) or not chave or not id_chave:
+        return True, MOTIVO_CHAVE_AUSENTE
+    if not all(isinstance(c, str) and c for c in (chave_negocio, id_regra, versao_regra)):
+        # Chave de negocio vazia viraria um bloco unico amostrado (ou nao) em conjunto: revisa.
+        return True, MOTIVO_CHAVE_AUSENTE
+    try:
+        limiar = limiar_amostra(pct)
+    except ValueError:
         return True, MOTIVO_CHAVE_AUSENTE
     msg = _campo(chave_negocio) + _campo(id_regra) + _campo(versao_regra)
     digest = hmac.new(chave, msg, hashlib.sha256).digest()
