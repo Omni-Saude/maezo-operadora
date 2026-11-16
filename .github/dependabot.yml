@@ -13,6 +13,13 @@ updates:
       - "security"
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      pip-minor-patch:
+        # minor + patch de VERSAO num PR so' por ecossistema/semana; major segue individual e
+        # security update segue com PR proprio (`applies-to` padrao = version-updates).
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -35,6 +42,11 @@ updates:
       codeql-action:
         patterns:
           - "github/codeql-action*"
+      # Depois do grupo do codeql (o primeiro grupo que casa leva a dependencia).
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -49,6 +61,13 @@ updates:
       - "docker"
     commit-message:
       prefix: "chore(docker)"
+    groups:
+      docker-minor-patch:
+        # minor + patch de VERSAO num PR so' por ecossistema/semana; major segue individual e
+        # security update segue com PR proprio (`applies-to` padrao = version-updates).
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "terraform"
     directory: "/deploy/terraform"
@@ -63,6 +82,13 @@ updates:
       - "terraform"
     commit-message:
       prefix: "chore(terraform)"
+    groups:
+      terraform-minor-patch:
+        # minor + patch de VERSAO num PR so' por ecossistema/semana; major segue individual e
+        # security update segue com PR proprio (`applies-to` padrao = version-updates).
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
 
   # maven: osv-scanner ja escaneia o pom do motor (security.yml) e ACENA para
   # as vulnerabilidades, mas nada abria PR de patch-currency — o bump do
@@ -84,6 +110,13 @@ updates:
       - "java"
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      maven-engine-minor-patch:
+        # minor + patch de VERSAO num PR so' por ecossistema/semana; major segue individual e
+        # security update segue com PR proprio (`applies-to` padrao = version-updates).
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "maven"
     directory: "/src/maezo/portal/engine/read-provider"
@@ -98,3 +131,10 @@ updates:
       - "java"
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      maven-read-provider-minor-patch:
+        # minor + patch de VERSAO num PR so' por ecossistema/semana; major segue individual e
+        # security update segue com PR proprio (`applies-to` padrao = version-updates).
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]

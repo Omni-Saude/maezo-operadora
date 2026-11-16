@@ -50,6 +50,7 @@ jobs:
   dependency-review:
     name: dependency review
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -188,6 +189,7 @@ jobs:
   codeql:
     name: codeql / python
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -337,6 +339,7 @@ jobs:
   codeql-java:
     name: codeql / java-kotlin
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -446,6 +449,7 @@ jobs:
   gitleaks:
     name: gitleaks / secrets
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write
@@ -592,6 +596,7 @@ jobs:
   osv-scan:
     name: osv-scanner / dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -897,6 +902,7 @@ jobs:
   trivy-iac:
     name: trivy / iac
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write
