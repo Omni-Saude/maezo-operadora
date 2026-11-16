@@ -124,6 +124,14 @@ _EXIGEM_CONTEXTO: Final[frozenset[str]] = _palavras(
 #: cobertura e nao marcam nada ("tomo remedio, preciso de autorizacao?"; revisao independente, HEL-2).
 _MARCADORES: Final[frozenset[str]] = _palavras("exame exames cirurgia operar operacao sessao sessoes")
 _CODIGO_TUSS: Final[re.Pattern[str]] = re.compile(r"^\d{8}$")
+#: As palavras que dizem que o numero e' um codigo de procedimento (sem elas, 8 digitos nao sao codigo).
+_CONTEXTO_DE_CODIGO: Final[frozenset[str]] = frozenset({"codigo", "codigos", "cod", "tuss"})
+#: O que pode ligar codigos numa mensagem que e' so' numero ("99000001 ou 99000004", "o 99000002").
+_LIGA_CODIGOS: Final[frozenset[str]] = frozenset({"ou", "e", "o", "a", "os", "as"})
+#: As palavras que dizem que o numero e' OUTRA coisa (protocolo, documento, "nº"): com elas, nunca e' codigo.
+_NAO_E_CODIGO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:protocolo|carteirinha|cart[aã]o|cpf|rg|pedido|guia|n[uú]mero|matr[ií]cula|senha)\b|\bn\s*[º°o.]\s*\d"
+)
 _SIGLA: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2,4}$")
 _FORA_DO_ALFABETO: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9]+")
 #: O que a pergunta de esclarecimento nunca pode ter (link ou promessa de cobertura).
@@ -313,7 +321,13 @@ class _Indice:
         tokens = _tokens(texto)
         conjunto = frozenset(tokens)
         qualificadores = conjunto & _TODOS_OS_QUALIFICADORES
-        codigos = {t for t in tokens if _CODIGO_TUSS.match(t)}
+        # HEL-5a (revisao independente): numero de 8 digitos so' e' CODIGO com contexto ("codigo", "tuss") ou
+        # quando a mensagem e' SO' numero ("99000001 ou 99000004"); "meu protocolo e' 41101014", "boleto
+        # 41101014" nunca viram procedimento.
+        outra_coisa = bool(_NAO_E_CODIGO.search(texto.lower()))
+        so_numero = all(_CODIGO_TUSS.match(t) or t in _LIGA_CODIGOS for t in tokens)
+        com_codigo = not outra_coisa and (bool(conjunto & _CONTEXTO_DE_CODIGO) or so_numero)
+        codigos = {t for t in tokens if _CODIGO_TUSS.match(t)} if com_codigo else set()
         casamentos: dict[int, frozenset[str]] = {}
         if codigos:
             for i, item in enumerate(self.catalogo):

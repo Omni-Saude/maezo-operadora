@@ -71,13 +71,27 @@ class _Redator:
 
 
 async def test_redacao_livre_que_confere_sai(manual: ManualK2) -> None:
+    """A redacao e' livre DENTRO do vocabulario da fonte (HEL-5a: vocabulario fechado)."""
+    livre = (
+        "Sim: a ressonância eletiva precisa de autorização prévia da operadora, e o pedido médico é enviado "
+        f"pelo prestador. {cob.FORMULA_FIXA}"
+    )
+    r = await CamadaRegraGeral(manual, redator=_Redator(livre)).responder(
+        _pergunta("ressonância precisa de guia?")
+    )
+    assert r is not None and r.texto == livre
+
+
+async def test_redacao_com_palavra_que_a_fonte_nao_diz_cai_no_texto_da_regra(manual: ManualK2) -> None:
+    """HEL-5a (terceira revisao): parafrase com palavra nova ("antecedencia") nunca sai; vale o texto
+    deterministico da regra (falso positivo seguro)."""
     livre = (
         f"Para a ressonância marcada com antecedência, é preciso pedir autorização prévia. {cob.FORMULA_FIXA}"
     )
     r = await CamadaRegraGeral(manual, redator=_Redator(livre)).responder(
         _pergunta("ressonância precisa de guia?")
     )
-    assert r is not None and r.texto == livre
+    assert r is not None and r.desfecho == "resposta" and r.texto != livre
 
 
 @pytest.mark.parametrize(
@@ -129,3 +143,94 @@ async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK
     grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
     await grafo.ainvoke(_entrada("como faço pra recorrer?"))
     assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    [
+        "quanto tempo demora a autorização da tomografia? fiz ressonância ano passado",
+        "meu caso precisa de recurso, preciso de autorização pra cirurgia?",
+        "como faço uma consulta ao andamento do pedido de cirurgia?",
+        # segunda revisao: plural, sigla e nome fora do vocabulario (sufixo tipico)
+        "quanto tempo demora a autorização das tomografias? fiz ressonância ano passado",
+        "precisa de autorização pra TC? fiz ressonância ano passado",
+        "a angiotomografia precisa de liberação? fiz ressonância ano passado",
+        # terceira revisao: sigla em minuscula e apelido (WhatsApp)
+        "quanto demora a autorização do pet? fiz ressonância ano passado",
+        "precisa de autorização pra tc? fiz ressonância",
+        "a mamo precisa de liberação? já fiz ressonância",
+        "e o eco? a ressonância precisa de autorização?",
+        # terceira revisao: procedimento fora de toda lista, como sujeito da autorizacao
+        "o transplante precisa de autorização? fiz ressonância ano passado",
+        "a prótese precisa de liberação? fiz ressonância",
+    ],
+)
+async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
+    """HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra: nada se escolhe."""
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    [
+        # quarta revisao: o qualificador na oracao do sinonimo que escolheu a regra (consulta BASICA)
+        "quanto tempo pra marcar consulta com cardiologista?",
+        "em quanto tempo consigo consulta com ortopedista?",
+        "consulta de urgência demora quanto?",
+        # quinta revisao: o qualificador ou o assunto em OUTRA oracao; a pontuacao nao decide nada
+        "quanto tempo pra marcar consulta? é com cardiologista",
+        "cardiologista: quanto tempo pra consulta?",
+        "é urgência. consulta demora quanto?",
+        "qual a carência? é pra ressonância",
+        "ressonância. quanto custa?",
+        "ressonância? meu plano cobre?",
+        "consulta. qual o valor da coparticipação?",
+        "fisio: quanto custa a sessão?",
+        # a pergunta de PRAZO contra regra que nao diz numero nenhum
+        "quanto tempo demora a autorização da ressonância?",
+        # sexta revisao: "nao" muda o escopo ("nao eletiva")
+        "a ressonância não eletiva precisa de autorização?",
+    ],
+)
+async def test_qualificador_que_a_regra_nao_diz_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")
+
+
+@pytest.mark.parametrize(
+    ("pergunta", "regra"),
+    [
+        ("precisa de autorização pra fazer ressonância?", "AMOSTRA-AUT-001"),
+        ("ressonância precisa de guia pra fazer o exame?", "AMOSTRA-AUT-001"),  # "exame" e' generico
+        ("quantas sessões de fisioterapia por pedido?", "AMOSTRA-QTD-003"),  # citado pela propria regra
+    ],
+)
+async def test_o_procedimento_da_propria_regra_continua_respondendo(
+    manual: ManualK2, pergunta: str, regra: str
+) -> None:
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r is not None and r.desfecho == "resposta" and r.fontes[0].id == regra
+
+
+@pytest.mark.parametrize(
+    "antes",
+    [
+        ("quero marcar com cardiologista",),
+        ("quero marcar com cardiologista", "oi?"),  # sexta revisao: TODAS as falas, nao so' a ultima
+    ],
+)
+async def test_a_fala_anterior_retomada_tambem_e_conferida(manual: ManualK2, antes: tuple[str, ...]) -> None:
+    """HEL-5a (quinta revisao): "quero marcar com cardiologista" -> "e quanto tempo demora a consulta?" nao
+    escolhe a regra da consulta BASICA."""
+    pergunta = _pergunta("e quanto tempo demora a consulta?", *antes)
+    r = await CamadaRegraGeral(manual).responder(pergunta)
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")
+
+
+@pytest.mark.parametrize("antes", [("oi, tudo bem?",), ("boa tarde", "meu médico pediu uma ressonância")])
+async def test_cumprimento_e_contexto_da_propria_regra_nao_atrapalham(
+    manual: ManualK2, antes: tuple[str, ...]
+) -> None:
+    r = await CamadaRegraGeral(manual).responder(_pergunta("precisa de autorização pra ressonância?", *antes))
+    assert r is not None and r.desfecho == "resposta" and r.fontes[0].id == "AMOSTRA-AUT-001"

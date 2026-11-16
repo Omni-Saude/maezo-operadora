@@ -141,8 +141,11 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
     resultados = {c.id: await _rodar(manual, c) for c in _casos()}
     erradas = {i: r.motivos for i, r in resultados.items() if not r.correta}
     assert erradas == {
-        "S9-003": ("desfecho",)
-    }  # prazo em "dias uteis": `sem_prazo_da_ans` (pendencia do dono)
+        "S9-003": ("desfecho",),  # prazo em "dias uteis": `sem_prazo_da_ans` (HEL-5b, PR propria)
+        # camada 2 (carencia, consulta ao plano) nao existe: antes a regra de AUTORIZACAO da ressonancia
+        # respondia a pergunta de carencia pelo sinonimo; desde a HEL-5a a camada 1 transfere (correto).
+        "S9-008": ("desfecho",),
+    }
     resumo = conv.corte(list(resultados.values()))
     assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 6, 0)
     assert not resumo.aprovado  # 85,7% < 95%: o corte do dono so' vale sobre o K2 real
