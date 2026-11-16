@@ -79,7 +79,8 @@ import structlog
 from maezo.gateway.action_execution import Decision as ActionDecision
 from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.tools.workers._audit_ctx import collect_dmn_versions
+from maezo.platform.rco_registro import AvaliacaoRegra, RegistroDecisoesRco, contexto_da_tarefa
+from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 from maezo.tools.workers.dmn_transport import (
     ERR_DMN_EVALUATION_DETERMINISTIC,
@@ -161,6 +162,8 @@ _GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
 #: path (retries=0), the always-human-visible outcome ADR-0008/ADR-0030 §4 prescribe for a guard —
 #: never a modeled boundary, never a silent clean end, never a retry.
 _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
+#: Teto do registro de decisoes K1 (5c-2): o registro e observacional (fail-open), nao pode segurar a tarefa.
+_RCO_REGISTRO_TIMEOUT_S: float = 5.0
 
 #: MZO-1c (ADR-0075 §(c)): PERMANENT failures that are not guard refusals but must still leave an
 #: ADR-0007 row before their incident: a DMN evaluation the engine rejected for these inputs
@@ -1355,6 +1358,7 @@ class WorkerHarness:
         engine_unreachable_after: int = 3,
         audit_sink: AuditEmitter | None = None,
         app_version: str | None = None,
+        rco_decisoes: RegistroDecisoesRco | None = None,
     ) -> None:
         self._transport = transport
         self._worker_id = worker_id
@@ -1373,6 +1377,9 @@ class WorkerHarness:
         # completion without a sink raises `AuditEmitError` -> incident, never a silent
         # un-audited complete. See the T-D seam-contract note in the PR body.
         self._audit_sink = audit_sink
+        # MZO-5c-2 (ADR-0077 §4): registro append-only das decisoes das regras K1 (migracao 0035).
+        # `None` = sem registro (testes, daemon sem DATABASE_URL); nunca afeta o desfecho da tarefa.
+        self._rco_decisoes = rco_decisoes
         self._audit_app_version = _resolve_app_version(app_version)
         self._lock_duration_ms = lock_duration_ms
         self._poll_interval_ms = poll_interval_ms
@@ -1711,6 +1718,52 @@ class WorkerHarness:
         """
         return f"{self._tenant}:{task.task_id}"
 
+    async def _registrar_decisoes_rco(
+        self, task: ExternalTask, avaliacoes: Mapping[str, AvaliacaoRegra]
+    ) -> None:
+        """Grava o registro de decisoes das regras K1 desta tarefa (ADR-0077 §4, 5c-2). FAIL-OPEN.
+
+        Por que aqui: so o harness conhece a tarefa (`task_id`, `business_key`) e o tenant; roda DEPOIS de
+        `_emit_audit`, entao o registro nunca existe sem a linha de auditoria, e a re-entrega depois da
+        auditoria cai na mesma `chave_idempotencia` (nada duplica, nenhum ordinal e consumido).
+
+        Por que FAIL-OPEN (ao contrario da auditoria, que e fail-closed): em 5c-2 toda regra esta em
+        `sombra` e o registro e so observacao, o caso segue o processo humano de sempre. A fonte da
+        verdade e `dmn_versions`, ja gravada; perder uma linha de registro (banco fora, timeout, chave
+        PHI ausente) nao pode parar nem desviar o caso. Qualquer excecao vira log estruturado e a tarefa
+        completa. REVISAR em 5d/5e antes de ligar qualquer efeito: com `ativa_l2` ou `conferencia`, o
+        ordinal e a amostra decidem quem revisa, e uma linha perdida passaria a ser um caso sem revisao.
+        """
+        store = self._rco_decisoes
+        if store is None or not avaliacoes:
+            return
+        for decision_key, avaliacao in avaliacoes.items():
+            try:
+                if avaliacao.alertas:
+                    logger.warning(
+                        "rco_ativacao_alerta",
+                        task_id=task.task_id,
+                        decision_key=decision_key,
+                        id_regra=avaliacao.id_regra,
+                        alertas=list(avaliacao.alertas),
+                    )
+                contexto = contexto_da_tarefa(
+                    tenant=self._tenant,
+                    task_id=task.task_id,
+                    decision_key=decision_key,
+                    business_key=task.business_key,
+                )
+                await asyncio.wait_for(store.registrar(avaliacao, contexto), timeout=_RCO_REGISTRO_TIMEOUT_S)
+            except Exception:
+                logger.error(
+                    "rco_decisao_registro_falhou_fail_open",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    decision_key=decision_key,
+                    id_regra=avaliacao.id_regra,
+                    exc_info=True,
+                )
+
     async def _emit_audit(self, record: AuditRecord, task: ExternalTask) -> str:
         """Durably emit `record` exactly-once BEFORE the effect is committed. FAIL-CLOSED.
 
@@ -1882,7 +1935,7 @@ class WorkerHarness:
                 # DMN provenance capture (T-B): a fresh per-task collector is bound for the
                 # handler run; `evaluate_sync` populates it in-thread via the ContextVar bridge
                 # (design §3.2). Reset-per-task in `collect_dmn_versions`'s `finally`.
-                with collect_dmn_versions() as dmn_versions:
+                with collect_dmn_versions() as dmn_versions, collect_rco_avaliacoes() as rco_avaliacoes:
                     # MZO-040 (ADR-0037 XRD-09): the per-call chokepoint, evaluated BEFORE the
                     # handler runs — the handler IS where the external effect happens, so a
                     # denial must pre-empt it, not follow it. In SHADOW (today, always)
@@ -1919,6 +1972,7 @@ class WorkerHarness:
                 # impossible (design §4.2).
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
                 audit_record_hash = await self._emit_audit(record, task)
+                await self._registrar_decisoes_rco(task, rco_avaliacoes)
                 await self._transport.complete(
                     task.task_id,
                     self._worker_id,

@@ -840,9 +840,12 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # append-only payment-obligation ledger, `SEM_COLUNA_DE_TITULAR`: no beneficiary column exists
     # (order/provider ids, lote, competencia, cents, closed enums; guia/glosa only inside the key
     # digest); the PF-provider question is left OPEN for the DPO; DARK behind a flag, empty by default.
-    assert len(camadas) == 46, [entry["tabela"] for entry in camadas]
+    # MZO-5c-2 (ADR-0077 §4, 16/11/2026) grew it by two (`rco_decisao_regra` and
+    # `rco_decisao_regra_desfecho`, migration 0035) — the append-only K1 rule-decision record,
+    # `SEM_COLUNA_DE_TITULAR` (token outputs, closed enums, keyed business-key pseudonym only).
+    assert len(camadas) == 48, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 46, pendentes
+    assert len(pendentes) == 48, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

@@ -89,14 +89,16 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - #1239, `9477f1df`: permissões de mensagem entre sessões.
   - **Abertos, aguardando o dono:**
     - #1250: ADR-0075 §(f) com `sha256Yaml` opcional;
-    - #1243: porta da rede credenciada, com a exceção de pureza `EstabelecimentoRede` proposta. Não incorporar antes da decisão.
+  - **Pedidos da T-MZO-B:** os quatro estão fechados com o #1243 (rede credenciada), incorporado pelo dono (main 3d756b1a).
   - **Aguardando o OK do usuário:**
     - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; `auth_sla.dmn` intacto; teste-cerca contra caráter literal.
     - Condição deste arquivo para o escritor livre da Helena.
   - **Item 5 (ativação por classe de risco):** desenho aprovado pela ROOT em 16/11/2026, com as respostas às perguntas abertas.
     - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
     - **#1255, em revisão:** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
-    - **Autorizado pela ROOT, a seguir:** 5c, estado efetivo, registro append-only e amostragem HMAC; tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos.
+    - **5c, em duas partes (tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos):**
+      - **5c-1, #1256:** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
+      - **5c-2, pronto na branch `prog/mzo/5c2-registro-k1`, PR por abrir:** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
     - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
     - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
     - **LACUNA do dono:** o registro de aditivo aceito por prestador (versão, data de aceite, vigência e regras cobertas).

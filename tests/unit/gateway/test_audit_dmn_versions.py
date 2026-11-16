@@ -344,6 +344,11 @@ def test_fixado_loads_the_package_and_versao_regra_comes_from_the_manifest(
         # MAJOR 2 (ADR-0077 §4): o pacote sintetico fixado so tem `plena` sem aditivo (o resto e recusado).
         "ativacaoPacote": "plena",
         "exigeAditivo": "false",
+        # 5c-2 (ADR-0077 §4): estado efetivo no instante da decisao; o arquivo de estado comitado nao tem
+        # entradas (toda regra em sombra) e o indicador de efeito esta desligado.
+        "estadoManual": "sombra",
+        "ativacaoEfetiva": "plena",
+        "modo": "sombra",
     }
     # Sem linha casada unica nao ha idRegra, logo nao ha versaoRegra (ausente, nunca inventada).
     assert set(version.to_audit_dict(None)) == {"version", "id", "deploymentId", "shaDmn"}

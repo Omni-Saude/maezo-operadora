@@ -21,7 +21,9 @@ import hmac
 import math
 import os
 import re
-from collections.abc import Hashable, Mapping
+import threading
+import time
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -197,6 +199,41 @@ def carregar_estados(caminho: Path | None = None) -> EstadosManuais:
         return _recusar(f"leitura_falhou: {type(exc).__name__}", caminho)
 
 
+#: Validade do cache do estado manual por processo (segundos). O arquivo e do deploy (spec/ da imagem):
+#: a janela so evita reler o disco e repetir o erro de arquivo ilegivel a cada decisao, e e curta para
+#: que um arquivo corrigido valha logo. A fonte da auditoria nao e o cache: cada linha grava o estado
+#: que de fato usou (`estadoManual`).
+TTL_CACHE_ESTADOS_S: Final[float] = 30.0
+_cache_lock = threading.Lock()
+_cache_estados: tuple[float, EstadosManuais] | None = None
+
+
+def estados_em_cache(
+    *, ttl_s: float = TTL_CACHE_ESTADOS_S, relogio: Callable[[], float] = time.monotonic
+) -> EstadosManuais:
+    """`carregar_estados()` com cache por processo e validade curta (`TTL_CACHE_ESTADOS_S`).
+
+    Seguro entre threads (o worker despacha cada tarefa numa thread). `carregar_estados` nunca levanta,
+    entao o cache nunca guarda excecao; um arquivo ilegivel e guardado como ilegivel (fail-closed) pela
+    mesma janela.
+    """
+    global _cache_estados
+    agora = relogio()
+    with _cache_lock:
+        if _cache_estados is not None and 0 <= agora - _cache_estados[0] < ttl_s:
+            return _cache_estados[1]
+        estados = carregar_estados()
+        _cache_estados = (agora, estados)
+        return estados
+
+
+def limpar_cache_estados() -> None:
+    """Esquece o cache (testes e troca de arquivo)."""
+    global _cache_estados
+    with _cache_lock:
+        _cache_estados = None
+
+
 # ---------------------------------------------------------------------------
 # 3. Ativacao efetiva (ADR-0077 §2)
 # ---------------------------------------------------------------------------
@@ -289,7 +326,9 @@ DECISOES_NAO_ADVERSAS: Final[frozenset[str]] = frozenset(
 _CLASSES_COM_EFEITO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {"glosar": frozenset({"contas", "administrativo"}), "negar": frozenset({"administrativo"})}
 )
-_COM_AMOSTRAGEM: Final[frozenset[str]] = frozenset({"negar", "glosar"})
+#: Decisoes adversas com amostragem e contagem de ordinal por regra (§3): `recomendar_negativa` e do medico.
+DECISOES_COM_AMOSTRAGEM: Final[frozenset[str]] = frozenset({"negar", "glosar"})
+_COM_AMOSTRAGEM: Final[frozenset[str]] = DECISOES_COM_AMOSTRAGEM
 ACOES: Final[frozenset[str]] = frozenset(
     {"registrar_apenas", "revisao_humana", "conferencia", "efeito_com_amostragem", "efeito"}
 )
@@ -431,6 +470,7 @@ __all__ = [
     "AcaoDeSaida",
     "CHAVE_EFEITO_K1",
     "DECISOES_ADVERSAS",
+    "DECISOES_COM_AMOSTRAGEM",
     "ESTADOS_MANUAIS",
     "EstadoEfetivo",
     "EstadosManuais",
@@ -440,7 +480,9 @@ __all__ = [
     "ativacao_efetiva",
     "carregar_estados",
     "efeito_k1_habilitado",
+    "estados_em_cache",
     "filtrar_saida",
     "ler_estados",
     "limiar_amostra",
+    "limpar_cache_estados",
 ]

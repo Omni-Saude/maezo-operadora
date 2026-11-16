@@ -45,11 +45,15 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from maezo.platform.rco_registro import AvaliacaoRegra
     from maezo.tools.workers.dmn_transport import DmnVersion
 
 # Module-level collector. `None` means "not inside an audited dispatch" — see module docstring.
 # The value is a MUTABLE dict deliberately (the container survives the to_thread context copy).
 _DMN_AUDIT_COLLECTOR: ContextVar[dict[str, Any] | None] = ContextVar("dmn_audit_collector", default=None)
+# MZO-5c-2 (ADR-0077 §4): as avaliacoes de regra K1 da mesma tarefa, por decision key (ultima vence, como
+# `dmn_versions`). Mesmo desenho: container mutavel que sobrevive a copia de contexto do `to_thread`.
+_RCO_AVALIACOES: ContextVar[dict[str, AvaliacaoRegra] | None] = ContextVar("rco_avaliacoes", default=None)
 
 
 def record_dmn_version(version: DmnVersion, *, row: Mapping[str, Any] | None = None) -> None:
@@ -66,7 +70,16 @@ def record_dmn_version(version: DmnVersion, *, row: Mapping[str, Any] | None = N
     """
     collector = _DMN_AUDIT_COLLECTOR.get()
     if collector is not None:
-        collector[version.key] = version.to_audit_dict(row)
+        entry, avaliacao = version.audit_pair(row)
+        collector[version.key] = entry
+        avaliacoes = _RCO_AVALIACOES.get()
+        if avaliacoes is not None:
+            # Ultima vence; sem regra casada agora, uma avaliacao anterior da mesma tabela sai (a
+            # auditoria tambem so guarda a ultima entrada).
+            if avaliacao is None:
+                avaliacoes.pop(version.key, None)
+            else:
+                avaliacoes[version.key] = avaliacao
 
 
 @contextmanager
@@ -83,3 +96,15 @@ def collect_dmn_versions() -> Iterator[dict[str, Any]]:
         yield collector
     finally:
         _DMN_AUDIT_COLLECTOR.reset(token)
+
+
+@contextmanager
+def collect_rco_avaliacoes() -> Iterator[dict[str, AvaliacaoRegra]]:
+    """Liga um coletor novo das avaliacoes de regra K1 da tarefa (5c-2); o harness o le depois da
+    auditoria para gravar o registro de decisoes. Reset por tarefa, como `collect_dmn_versions`."""
+    avaliacoes: dict[str, AvaliacaoRegra] = {}
+    token = _RCO_AVALIACOES.set(avaliacoes)
+    try:
+        yield avaliacoes
+    finally:
+        _RCO_AVALIACOES.reset(token)

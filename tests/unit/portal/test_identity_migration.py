@@ -47,7 +47,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # (re-pointed to 0031 if PR #1074's 0031 merges first).
     # DL-0162 (reembolso pelo WhatsApp) adds `reembolso_coleta` as 0033 after 0032.
     # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0033.
-    assert heads == {"0034"}, f"expected 0034 to be the sole head, got {heads}"
+    # MZO-5c-2 (16/11/2026) adds the dark append-only K1 rule-decision record as 0035 after 0034.
+    assert heads == {"0035"}, f"expected 0035 to be the sole head, got {heads}"
+    assert revisions["0035"] == "0034"
     assert revisions["0034"] == "0033"
     assert revisions["0033"] == "0032"
     assert revisions["0032"] == "0030"
@@ -70,7 +72,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0034"
+    current = "0035"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

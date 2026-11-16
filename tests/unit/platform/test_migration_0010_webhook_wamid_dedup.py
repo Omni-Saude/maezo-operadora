@@ -152,7 +152,9 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # DL-0162 (reembolso pelo WhatsApp) appends 0033 (`reembolso_coleta`) after 0032; still linear.
     # PAGTO PR-E (01/11/2026) appends 0034 (razao append-only das obrigacoes de pagamento, escura)
     # after 0033; still linear.
-    assert script.get_heads() == ["0034"]
+    # MZO-5c-2 (ADR-0077 §4, 16/11/2026) appends 0035 (registro append-only das decisoes K1, escuro).
+    assert script.get_heads() == ["0035"]
+    assert script.get_revision("0035").down_revision == "0034"
     assert script.get_revision("0034").down_revision == "0033"
     assert script.get_revision("0033").down_revision == "0032"
     assert script.get_revision("0032").down_revision == "0030"

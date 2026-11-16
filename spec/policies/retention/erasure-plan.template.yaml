@@ -983,3 +983,32 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: execucao do contrato com o prestador e controles internos de pagamento (Lei 9.656/1998 art. 17; RN 503/2022; RN 518/2022), sem dado de beneficiario na relacao e sem decisao ratificada"
     retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado (PROPOSTA do dono em DEC-31 D31-5: 5 anos = 1825 dias, linhas de prestador PF eliminadas ao fim — ver proposta_dono); superficie DARK e tabela vazia por padrao; o DPO decide e assina"
+  - camada: registro_decisoes_regras_k1
+    tabela: rco_decisao_regra
+    migracao: "0035_rco_decisao_regra.py::upgrade (rco_decisao_regra; append-only triggers)"
+    identificacao: "tenant + chave_idempotencia (sha256 de `tenant:task_id:decision_key`) + id_regra + versao_regra; a linha guarda so' o id e a versao da regra, o sha da DMN pinada, saidas da DMN em token fechado (decisao, classe_adverso, motivo_tab38, fila), os enums fechados de ativacao, o resultado da amostragem e um pseudonimo KEYED (`hk1_`) da chave de negocio, nunca a chave bruta. Sem CPF, nome, dado de saude ou texto livre; beneficiario nao e' titular aqui e o pseudonimo keyed nao e' ponte para um. Tabela DARK (toda regra em sombra, indicador de efeito desligado) e o unico escritor e' fail-open"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 47
+    tensao: null
+    notas: >-
+      Unidade 5c-2 do ADR-0077 §4: registro append-only (triggers recusam UPDATE/DELETE/TRUNCATE) de
+      cada avaliacao que casou regra do K1, em qualquer estado manual, idempotente por tarefa. Alimenta o
+      painel de concordancia e o monitor de reversao (5e). Retencao, base legal e eliminacao pendem do DPO;
+      este artefato e' o DRAFT e nao decide nada.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
+    retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"
+  - camada: registro_decisoes_regras_k1
+    tabela: rco_decisao_regra_desfecho
+    migracao: "0035_rco_decisao_regra.py::upgrade (rco_decisao_regra_desfecho; append-only triggers)"
+    identificacao: "rco_decisao_regra_id (FK da linha da decisao) + concordou (enum fechado sim/nao/sem_desfecho) + desfecho_em/registrado_em; sem chave de negocio, texto ou pessoa: o desfecho humano e' ligado depois (5d/5e) como NOVA linha e nao tem coluna de titular"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 48
+    tensao: null
+    notas: >-
+      Unidade 5c-2 do ADR-0077 §4: o desfecho humano de uma decisao K1 e' tabela propria porque a linha da
+      decisao e' append-only. Vale o ultimo desfecho por decisao. Retencao, base legal e eliminacao pendem
+      do DPO.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
+    retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"

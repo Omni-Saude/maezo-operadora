@@ -366,6 +366,15 @@ escopo_b:
         PROPOSTA do dono (DEC-31 D31-5, #1084, 2026-11-02; campo proposta_dono do template do plano de
         eliminacao): 5 anos (1825 dias), alinhada ao historico do motor e ao Codigo Civil art. 206
         par. 5, I, com as linhas de prestador PF eliminadas ao fim; a decisao e a assinatura seguem do DPO
+    - camada: registro_decisoes_regras_k1
+      tabelas: [rco_decisao_regra, rco_decisao_regra_desfecho]
+      motivo: >-
+        fora do escopo B; 0035 (registro append-only das decisoes das regras K1 do rco, ADR-0077 §4,
+        unidade 5c-2) guarda so' id e versao da regra, sha da DMN, saidas da DMN em token fechado, enums
+        fechados de ativacao, o resultado da amostragem e um pseudonimo keyed (hk1_) da chave de negocio,
+        nunca a chave bruta; o desfecho humano e' tabela propria (append-only) ligada depois. Sem CPF,
+        nome, dado de saude ou texto livre; sem coluna de titular de beneficiario e sem ponte DSR. Sem
+        sonda (count_statement: None). Retencao e base legal a ratificar pelo DPO, sem prazo escolhido aqui
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

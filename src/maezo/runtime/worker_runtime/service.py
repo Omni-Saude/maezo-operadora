@@ -73,6 +73,7 @@ from maezo.platform.observability import (
     get_metrics_collector,
 )
 from maezo.platform.pagto_obrigacao.ledger import PostgresRazaoObrigacoesPagamento, RazaoObrigacoesPagamento
+from maezo.platform.rco_registro import PostgresRegistroDecisoesRco
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
 from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -1133,6 +1134,13 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 bpmn_error_allowlist=PRODUCTION_BPMN_ERROR_ALLOWLIST,
                 # T-C seam, direct since the wave merge (the pre-merge `**` indirection is gone).
                 audit_sink=state.audit_sink,
+                # MZO-5c-2 (ADR-0077 §4): registro append-only das decisoes K1 (migracao 0035). Fail-open
+                # no harness; sem DATABASE_URL nao ha registro (a auditoria `dmn_versions` segue valendo).
+                rco_decisoes=(
+                    PostgresRegistroDecisoesRco(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.database_url
+                    else None
+                ),
             )
             # Worker seams: the pooled `state.audit_sink` serves the harness on the daemon's main
             # loop; the `audit_sink` SEAM for sync per-call workers (handoff_rescisao's fenced

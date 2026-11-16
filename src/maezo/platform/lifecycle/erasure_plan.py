@@ -998,6 +998,40 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "e assinatura seguem PENDENTE."
         ),
     ),
+    PersistenceLayer(
+        camada="registro_decisoes_regras_k1",
+        tabela="rco_decisao_regra",
+        migracao="0035_rco_decisao_regra.py::upgrade (rco_decisao_regra; append-only triggers)",
+        identificacao=(
+            "tenant + chave_idempotencia (sha256 of `tenant:task_id:decision_key`) + id_regra + "
+            "versao_regra; the row holds only the rule id/version, the pinned DMN sha, closed-token DMN "
+            "outputs (decisao, classe_adverso, motivo_tab38, fila), the closed activation enums, the "
+            "sampling outcome and a KEYED pseudonym (`hk1_`) of the business key - never the raw key. "
+            "No CPF, name, "
+            "health data or free text; a beneficiary is not a subject here, and the keyed pseudonym is not "
+            "a bridge to one. The table is DARK (every rule in sombra, effect indicator off) and the "
+            "single writer is fail-open"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=47,
+        subject_column=None,
+        # No probe: no titular column; a count would say nothing about a subject.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="registro_decisoes_regras_k1",
+        tabela="rco_decisao_regra_desfecho",
+        migracao="0035_rco_decisao_regra.py::upgrade (rco_decisao_regra_desfecho; append-only triggers)",
+        identificacao=(
+            "rco_decisao_regra_id (FK to the decision row) + concordou (closed enum sim/nao/sem_desfecho) "
+            "+ desfecho_em/registrado_em; no business key, no text, no person: the human outcome is linked "
+            "later (5d/5e) as a NEW row and carries no titular column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=48,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
