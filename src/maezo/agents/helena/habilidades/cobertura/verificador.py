@@ -67,11 +67,21 @@ _UNIDADE: Final[str] = (
 _QUANTIDADE: Final[re.Pattern[str]] = re.compile(rf"(?<![\d/.,-])(\d+(?:[.,]\d+)?)\s*({_UNIDADE})(?![a-z])")
 #: Valor em reais ("R$ 20", "r$20,50"): quantidade com unidade propria (HEL-5a).
 _DINHEIRO: Final[re.Pattern[str]] = re.compile(r"r\$\s*(\d+(?:[.,]\d+)?)")
-#: A frequencia logo depois da quantidade ("por mes", "por pedido medico"), ate' quatro palavras adiante.
-_POR: Final[re.Pattern[str]] = re.compile(
-    r"^(?:\s+\w+){0,4}?\s+(?:por|a cada|ao|a)\s+(dia|dias|semana|semanas|mes|meses|ano|anos|pedido|guia"
-    r"|sessao|consulta|vez)\b"
+#: Numero seguido da palavra que diz O QUE ele conta ("20 sessoes", "20 exames", "20 reais", "10 dias uteis").
+_NUMERO_COM_SEGUINTE: Final[re.Pattern[str]] = re.compile(
+    r"(?<![\d/.,$-])(\d+(?:[.,]\d+)?)\s*(%|[a-z]+(?: [a-z]+)?)"
 )
+#: A frequencia em qualquer ponto da frase (HEL-5a: "por mes, sao 20", "mensais", "toda semana").
+_FREQUENCIA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:por|a cada|ao|cada|todo|toda|todos|todas)\s+(dia|dias|semana|semanas|mes|meses|ano|anos|pedido"
+    r"|pedidos|guia|sessao|consulta|vez)\b|\b(mensal|mensais|anual|anuais|semanal|semanais|diario|diaria"
+    r"|diarios|diarias)\b"
+)
+_FREQUENCIA_NORMAL: Final[dict[str, str]] = {
+    "mensal": "mes", "mensais": "mes", "anual": "ano", "anuais": "ano", "semanal": "semana",
+    "semanais": "semana", "diario": "dia", "diaria": "dia", "diarios": "dia", "diarias": "dia",
+    "pedidos": "pedido",
+}  # fmt: skip
 _DATA: Final[re.Pattern[str]] = re.compile(r"^(?:\d{1,2}/\d{1,2}(?:/\d{2,4})?|\d{4}-\d{2}-\d{2})$")
 #: Todo "token com digito" (numero, data, norma `465/2021`, codigo, `24h`): tem de existir igual numa fonte.
 _TOKEN_COM_DIGITO: Final[re.Pattern[str]] = re.compile(r"[\w/.,%-]*\d[\w/.,%-]*")
@@ -121,31 +131,66 @@ def _normal(texto: str) -> str:
 
 
 def _numero(bruto: str) -> str:
-    return bruto.replace(",", ".")
+    """ "20,00" e "20.0" valem "20" (centavos zerados nao sao outro valor)."""
+    numero = bruto.replace(",", ".")
+    return re.sub(r"\.0+$", "", numero)
+
+
+def _singular(palavra: str) -> str:
+    if palavra.endswith("oes"):
+        return palavra[:-3] + "ao"
+    if palavra.endswith("ais"):
+        return palavra[:-3] + "al"
+    if palavra.endswith("es") and len(palavra) > 4 and palavra[-3] in "rsz":
+        return palavra[:-2]
+    if palavra.endswith("s") and len(palavra) > 3:
+        return palavra[:-1]
+    return palavra
+
+
+def _unidade(seguinte: str) -> str:
+    """A unidade de uma quantidade: a conhecida (`_UNIDADES`), "reais" = brl, ou a PROPRIA palavra seguinte no
+    singular ("20 exames" e' 20 exame, nunca 20 sessao)."""
+    for multipla in ("dias uteis", "dia util", "por cento"):
+        if seguinte.startswith(multipla):
+            return _UNIDADES[multipla]
+    palavra = seguinte.split()[0] if seguinte.split() else ""
+    if palavra in ("real", "reais"):
+        return "brl"
+    if palavra == "%":
+        return "pct"
+    return _UNIDADES.get(palavra) or _singular(palavra)
+
+
+def _frequencia(frase: str) -> str | None:
+    """A frequencia dita na FRASE ("por mes", "mensal", "toda semana", "ao ano"...), em qualquer posicao."""
+    m = _FREQUENCIA.search(frase)
+    if m is None:
+        return None
+    palavra = next(g for g in m.groups() if g)
+    return _FREQUENCIA_NORMAL.get(palavra, _UNIDADES.get(palavra, _singular(palavra)))
 
 
 def _quantidades(plano: str) -> set[tuple[str, str, str | None]]:
-    """(numero, unidade, por): "20 sessoes por mes" = ("20", "sessao", "mes"); "R$ 20" = ("20", "brl", None).
-    O `por` e' o primeiro "por <periodo/pedido>" ate' quatro palavras depois, na mesma frase (HEL-5a)."""
+    """(numero, unidade, frequencia): "20 sessoes por mes" = ("20", "sessao", "mes"); "R$ 20" = ("20", "brl",
+    None); "20 exames" = ("20", "exame", None). A frequencia e' a da frase (HEL-5a)."""
     achadas: set[tuple[str, str, str | None]] = set()
-    for m in _QUANTIDADE.finditer(plano):
-        achadas.add((_numero(m.group(1)), _UNIDADES[m.group(2)], _por(plano, m.end())))
-    for m in _DINHEIRO.finditer(plano):
-        achadas.add((_numero(m.group(1)), "brl", _por(plano, m.end())))
+    for frase in _frases(plano):
+        por = _frequencia(frase)
+        for m in _NUMERO_COM_SEGUINTE.finditer(frase):
+            unidade = _unidade(m.group(2))
+            if unidade:
+                achadas.add((_numero(m.group(1)), unidade, por))
+        for m in _DINHEIRO.finditer(frase):
+            achadas.add((_numero(m.group(1)), "brl", por))
     return achadas
-
-
-def _por(plano: str, fim: int) -> str | None:
-    resto = re.split(r"[.;!?]", plano[fim:], maxsplit=1)[0]
-    m = _POR.match(resto)
-    return _UNIDADES.get(m.group(1), m.group(1)) if m else None
 
 
 def _quantidades_conferem(
     do_rascunho: set[tuple[str, str, str | None]], das_fontes: set[tuple[str, str, str | None]]
 ) -> bool:
-    """Cada quantidade do rascunho existe numa fonte com o MESMO numero e unidade; se o rascunho diz "por X",
-    a fonte tem de dizer o mesmo "por X" (frequencia inventada nao passa)."""
+    """Cada quantidade do rascunho existe numa fonte com o MESMO numero e unidade; se o rascunho diz uma
+    frequencia, a fonte tem de dizer a mesma (frequencia inventada nao passa)."""
     return all(
         any(n == fn and u == fu and (por is None or por == fpor) for fn, fu, fpor in das_fontes)
         for n, u, por in do_rascunho
@@ -211,14 +256,32 @@ def _frases(plano: str) -> list[str]:
     return [f.strip() for f in re.split(r"[.;!?]+", plano) if f.strip()]
 
 
-def _mencoes(frase: str, procedimentos: frozenset[str]) -> set[str]:
-    palavras = frase.split()
-    return {
+def _palavras(texto: str) -> list[str]:
+    """Minusculas, sem acento e SEM pontuacao ("tomografia," e "Tomografia:" sao "tomografia")."""
+    return re.sub(r"[^a-z0-9]+", " ", _plano(texto)).split()
+
+
+def procedimentos_citados(texto: str, procedimentos: frozenset[str]) -> set[str]:
+    """Os procedimentos que o texto cita, no SINGULAR: frases do vocabulario (1 a 4 palavras), palavras com
+    sufixo de procedimento ("mamografia", "angiotomografia") e siglas em maiuscula do texto original ("TC",
+    "PET") que nao sao de documento (HEL-5a, revisao independente)."""
+    palavras = [_singular(p) for p in _palavras(texto)]
+    vocabulario = {" ".join(_singular(p) for p in v.split()) for v in procedimentos}
+    citados = {
         " ".join(palavras[i : i + n])
         for n in range(1, 5)
         for i in range(len(palavras) - n + 1)
-        if " ".join(palavras[i : i + n]) in procedimentos
+        if " ".join(palavras[i : i + n]) in vocabulario
     }
+    citados.update(p for p in palavras if len(p) >= 7 and _SUFIXO_DE_PROCEDIMENTO.search(p))
+    citados.update(s.lower() for s in _SIGLA.findall(texto) if s not in _SIGLAS_QUE_NAO_SAO)
+    return citados
+
+
+def _cita(frase_da_fonte: str, citado: str) -> bool:
+    palavras = [_singular(p) for p in _palavras(frase_da_fonte)]
+    alvo = citado.split()
+    return any(palavras[i : i + len(alvo)] == alvo for i in range(len(palavras) - len(alvo) + 1))
 
 
 def _sujeito_confere(corpo: str, fontes: Sequence[str], procedimentos: frozenset[str]) -> bool:
@@ -226,17 +289,33 @@ def _sujeito_confere(corpo: str, fontes: Sequence[str], procedimentos: frozenset
     so' confere se TODO procedimento que ela cita aparece numa frase da fonte que afirma o MESMO sobre
     autorizacao ("a consulta basica precisa de autorizacao" contra a regra da ressonancia nao passa)."""
     frases_das_fontes = [f for fonte in fontes for f in _frases(fonte) if _autorizacao(f)]
+    anterior: set[bool] = set()
     for frase in _frases(corpo):
         polaridade = _autorizacao(frase)
+        if not polaridade and anterior and _ANAFORA.search(frase):
+            polaridade = anterior  # "A ressonancia precisa de autorizacao. A tomografia tambem."
+        anterior = polaridade
         if not polaridade:
             continue
-        for mencao in _mencoes(frase, procedimentos):
-            if not any(
-                re.search(rf"\b{re.escape(mencao)}\b", f) and polaridade <= _autorizacao(f)
-                for f in frases_das_fontes
-            ):
+        for citado in procedimentos_citados(frase, procedimentos):
+            if not any(_cita(f, citado) and polaridade <= _autorizacao(f) for f in frases_das_fontes):
                 return False
     return True
+
+
+#: Sufixos de nome de procedimento (o vocabulario nunca e' completo: "mamografia", "angiotomografia").
+_SUFIXO_DE_PROCEDIMENTO: Final[re.Pattern[str]] = re.compile(
+    r"(?:grafia|scopia|tomia|ectomia|plastia|metria|terapia|grama|cintilo\w*)$"
+)
+#: Siglas em maiuscula no texto original (PET, TC, RM); as de documento/orgao nao contam.
+_SIGLA: Final[re.Pattern[str]] = re.compile(r"\b[A-Z]{2,4}\b")
+_SIGLAS_QUE_NAO_SAO: Final[frozenset[str]] = frozenset(
+    {"ANS", "SUS", "CPF", "RG", "OK", "CID", "TUSS", "DUT", "CPT", "NIP", "CNPJ", "BRL", "SMS", "APP"}
+)
+#: A frase seguinte que retoma a afirmacao anterior ("A tomografia tambem.").
+_ANAFORA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:tambem|idem|o mesmo|a mesma|igualmente|da mesma forma)\b"
+)
 
 
 #: Procedimentos genericos, sempre no vocabulario do sujeito da autorizacao (HEL-5a).
@@ -258,4 +337,4 @@ PROCEDIMENTOS_GENERICOS: Final[frozenset[str]] = frozenset(
     }
 )
 
-__all__ = ["FORMULA_FIXA", "PROCEDIMENTOS_GENERICOS", "Veredito", "verificar"]
+__all__ = ["FORMULA_FIXA", "PROCEDIMENTOS_GENERICOS", "Veredito", "procedimentos_citados", "verificar"]

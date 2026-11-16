@@ -113,6 +113,11 @@ _FONTE_FISIO = "AMOSTRA. Cada pedido médico vale até 20 sessões de fisioterap
     [
         "A consulta básica precisa de autorização.",  # o mesmo "precisa", mas de OUTRO procedimento
         "A tomografia precisa de autorização prévia.",
+        # segunda revisao: pontuacao colada, plural, nome fora do vocabulario e anafora
+        "A tomografia, por exemplo, precisa de autorização prévia.",
+        "As tomografias precisam de autorização prévia.",
+        "A mamografia precisa de autorização prévia.",
+        "A ressonância precisa de autorização prévia. A tomografia também.",
     ],
 )
 def test_autorizacao_de_outro_procedimento_nao_confere(corpo: str) -> None:
@@ -129,6 +134,12 @@ def test_autorizacao_do_procedimento_da_fonte_confere() -> None:
     [
         ("O reembolso é de até R$ 20.", "quantidade"),  # "20" existe na fonte, mas como sessoes
         ("São até 20 sessões de fisioterapia por mês.", "quantidade"),  # frequencia inventada
+        # segunda revisao: unidade por extenso, outra unidade, frequencia antes do numero ou adjetiva
+        ("O reembolso é de até 20 reais.", "quantidade"),
+        ("São até 20 exames.", "quantidade"),
+        ("São até 20 sessões mensais.", "quantidade"),
+        ("Por mês, são até 20 sessões.", "quantidade"),
+        ("Toda semana, são até 20 sessões.", "quantidade"),
     ],
 )
 def test_numero_solto_e_frequencia_inventada_nao_conferem(corpo: str, motivo: str) -> None:

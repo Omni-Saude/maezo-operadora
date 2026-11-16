@@ -126,6 +126,10 @@ _MARCADORES: Final[frozenset[str]] = _palavras("exame exames cirurgia operar ope
 _CODIGO_TUSS: Final[re.Pattern[str]] = re.compile(r"^\d{8}$")
 #: As palavras que dizem que o numero e' um codigo de procedimento (sem elas, 8 digitos nao sao codigo).
 _CONTEXTO_DE_CODIGO: Final[frozenset[str]] = frozenset({"codigo", "codigos", "cod", "tuss"})
+#: As palavras que dizem que o numero e' OUTRA coisa (protocolo, documento, "nº"): com elas, nunca e' codigo.
+_NAO_E_CODIGO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:protocolo|carteirinha|cart[aã]o|cpf|rg|pedido|guia|n[uú]mero|matr[ií]cula|senha)\b|\bn\s*[º°o.]\s*\d"
+)
 _SIGLA: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2,4}$")
 _FORA_DO_ALFABETO: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9]+")
 #: O que a pergunta de esclarecimento nunca pode ter (link ou promessa de cobertura).
@@ -317,7 +321,8 @@ class _Indice:
         qualificadores = conjunto & _TODOS_OS_QUALIFICADORES
         # HEL-5a (revisao independente): numero de 8 digitos so' e' CODIGO com contexto ("codigo", "tuss") ou
         # quando a mensagem e' so' o numero; "meu protocolo e' 41101014" nunca vira procedimento.
-        com_codigo = bool(conjunto & _CONTEXTO_DE_CODIGO) or len(tokens) <= 2
+        outra_coisa = bool(_NAO_E_CODIGO.search(texto.lower()))
+        com_codigo = not outra_coisa and (bool(conjunto & _CONTEXTO_DE_CODIGO) or len(tokens) <= 2)
         codigos = {t for t in tokens if _CODIGO_TUSS.match(t)} if com_codigo else set()
         casamentos: dict[int, frozenset[str]] = {}
         if codigos:

@@ -236,6 +236,15 @@ def test_numero_de_8_digitos_sem_contexto_nao_vira_codigo(sinonimos: Sinonimos) 
     assert r.desfecho == "unico" and _codigos(r) == {RM_JOELHO.codigo}
 
 
+@pytest.mark.parametrize(
+    "texto", ["protocolo 99000002", "cpf 99000002", "carteirinha 99000002", "nº 99000002", "guia 99000002"]
+)
+def test_numero_de_outra_coisa_nunca_vira_codigo(sinonimos: Sinonimos, texto: str) -> None:
+    """HEL-5a (segunda revisao): numero ao lado de protocolo ou documento nao e' codigo TUSS."""
+    r = resolver(texto, catalogo=CATALOGO, sinonimos=sinonimos)
+    assert r.desfecho == "sem_candidato"
+
+
 # --- sem candidato, nunca por aproximacao ----------------------------------------------------------
 @pytest.mark.parametrize(
     "texto",

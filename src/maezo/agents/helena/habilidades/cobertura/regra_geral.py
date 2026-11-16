@@ -30,7 +30,12 @@ from maezo.agents.helena.habilidades.cobertura import (
 )
 from maezo.agents.helena.habilidades.cobertura import procedimento as _procedimento
 from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, RegraDoManual, normalizar
-from maezo.agents.helena.habilidades.cobertura.verificador import FORMULA_FIXA, verificar
+from maezo.agents.helena.habilidades.cobertura.verificador import (
+    FORMULA_FIXA,
+    _singular,
+    procedimentos_citados,
+    verificar,
+)
 from maezo.ports.tina import ProcedimentoCatalogo
 
 logger = structlog.get_logger(__name__)
@@ -89,6 +94,11 @@ class CamadaRegraGeral:
                 item = resolucao.candidatos[0]
                 termos += [t for t in (item.descricao, item.tuss) if t]
         regras = self._regras(termos, pergunta)
+        if len(regras) == 1 and self._outro_procedimento(pergunta.texto, regras[0]):
+            # HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra ("a
+            # tomografia ... fiz ressonancia ano passado"): o sinonimo citado de passagem nao escolhe a regra.
+            logger.info("helena_cobertura_outro_procedimento", regra=regras[0].id)
+            return RespostaDaCobertura("transferir", lacuna="outro_procedimento")
         if len(regras) != 1:
             lacuna = "sem_regra" if not regras else "regras_multiplas"
             return RespostaDaCobertura("transferir", lacuna=lacuna)
@@ -135,26 +145,18 @@ class CamadaRegraGeral:
         if termos:
             pelo_nome = {r.id for r in self._manual.buscar(termos)}
             ids = (ids & pelo_nome) or (pelo_nome if not ids else set())
-        regras = tuple(r for i in sorted(ids) if (r := self._manual.regra(i)) is not None)
-        if len(regras) == 1 and self._outro_procedimento(pergunta.texto, regras[0]):
-            # HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra ("a
-            # tomografia ... fiz ressonancia ano passado"): o sinonimo citado de passagem nao escolhe a regra.
-            logger.info("helena_cobertura_outro_procedimento", regra=regras[0].id)
-            return (regras[0], regras[0])
-        return regras
+        return tuple(r for i in sorted(ids) if (r := self._manual.regra(i)) is not None)
 
     def _outro_procedimento(self, texto: str, regra: RegraDoManual) -> bool:
-        """A mensagem cita um procedimento (vocabulario do `sinonimos.yaml` e os genericos) que a regra NAO
-        cita (nem nos sinonimos nem no titulo)? Casamento exato de frase, como a busca."""
-        da_regra = {normalizar(s) for s in regra.sinonimos} | {normalizar(regra.titulo)}
-        palavras_da_regra = set(" ".join(da_regra).split())
-        palavras = normalizar(texto).split()
-        for n in range(1, 5):
-            for i in range(len(palavras) - n + 1):
-                frase = " ".join(palavras[i : i + n])
-                if frase in self._procedimentos and not set(frase.split()) <= palavras_da_regra:
-                    return True
-        return False
+        """A mensagem cita um procedimento (vocabulario, sufixo de procedimento ou sigla, no singular:
+        `verificador.procedimentos_citados`) que a regra NAO cita nos sinonimos nem no titulo?"""
+        da_regra = " ".join([*regra.sinonimos, regra.titulo])
+        da_regra_citados = procedimentos_citados(da_regra, self._procedimentos)
+        palavras_da_regra = {_singular(p) for p in normalizar(da_regra).split()}
+        return any(
+            c not in da_regra_citados and not set(c.split()) <= palavras_da_regra
+            for c in procedimentos_citados(texto, self._procedimentos)
+        )
 
     def _ids_por_sinonimo(self, texto: str) -> set[str]:
         por_termo = self._manual.sinonimos_por_termo()

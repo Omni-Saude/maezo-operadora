@@ -137,12 +137,16 @@ async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK
         "quanto tempo demora a autorização da tomografia? fiz ressonância ano passado",
         "meu caso precisa de recurso, preciso de autorização pra cirurgia?",
         "como faço uma consulta ao andamento do pedido de cirurgia?",
+        # segunda revisao: plural, sigla e nome fora do vocabulario (sufixo tipico)
+        "quanto tempo demora a autorização das tomografias? fiz ressonância ano passado",
+        "precisa de autorização pra TC? fiz ressonância ano passado",
+        "a angiotomografia precisa de liberação? fiz ressonância ano passado",
     ],
 )
 async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
     """HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra: nada se escolhe."""
     r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
-    assert r == cob.RespostaDaCobertura("transferir", lacuna="regras_multiplas")
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")
 
 
 @pytest.mark.parametrize(
