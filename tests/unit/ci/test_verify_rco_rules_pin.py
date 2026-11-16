@@ -463,3 +463,53 @@ def test_arvore_21_arquivo_de_prova_em_artifacts_reprova(pinned_tree_21: tuple[P
     prova = root / K1_DIR / "provas" / sint.PROVA_ID / "dmn" / "prova-sint.dmn"
     lock["artifacts"].append(_entry(root, prova))
     assert _codes(lock, root) != set()
+
+
+# --- MZO-TOL (PROG-COORD-22): tolerancia do prazo de conta nunca dentro do DMN ----------------------
+
+
+def _repinar_sint_a_com_dias_alem(root: Path, celula: str) -> dict[str, Any]:
+    """Troca a entrada de `rco_sint_a` por `diasAlemDoPrazoContratual`, com `celula` na linha `liberar`, e
+    repina tudo (manifesto e lock) como uma publicacao coerente do rco faria."""
+    target = root / RULES_DIR / "sint_a.dmn"
+    raw = (
+        target.read_bytes()
+        .replace(b"<text>tipoSintetico</text>", b"<text>diasAlemDoPrazoContratual</text>")
+        .replace(b'<inputEntry><text>"A"</text>', f"<inputEntry><text>{celula}</text>".encode())
+    )
+    target.write_bytes(raw)
+    manifesto = json.loads((root / K1_MANIFEST_PATH).read_bytes())
+    decisao = next(d for d in manifesto["decisoes"] if d["id"] == "rco_sint_a")
+    decisao["sha256"] = sint.sha(raw)
+    lock = sint.lock(root)
+    for art in lock["artifacts"]:
+        if art["path"] == decisao["caminho_consumidor"]:
+            art["sha256"] = sint.sha(raw)
+    sint.gravar_lock(root, lock)
+    sint.regravar(root, manifesto)
+    return sint.lock(root)
+
+
+def test_dmn_que_libera_faixa_positiva_limitada_de_dias_alem_reprova(
+    pinned_tree: tuple[Path, dict[str, Any]],
+) -> None:
+    root, _ = pinned_tree
+    lock = _repinar_sint_a_com_dias_alem(root, "[1..30]")
+    violations = verify_lock(lock, repo_root=root)
+    assert {v.code for v in violations} == {"tolerancia-prazo-conta-no-dmn"}
+    assert "sint_a.dmn" in violations[0].detail
+    assert _run_cli(root, lock) == 1
+
+
+def test_dmn_com_dias_alem_sem_tolerancia_passa(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    """A forma de `main` do rco: liberar com `<= 0` (no prazo); a glosa fica com `> 0`."""
+    root, _ = pinned_tree
+    lock = _repinar_sint_a_com_dias_alem(root, "&lt;= 0")
+    assert verify_lock(lock, repo_root=root) == []
+    assert _run_cli(root, lock) == 0
+
+
+def test_sem_pacote_nao_checa_tolerancia(tmp_path: Path) -> None:
+    """Em `sem_pacote` nao ha `artifacts`: a guarda nao olha nada (nem exemplo sintetico do Maezo)."""
+    lock = _base_lock("sem_pacote")
+    assert "tolerancia-prazo-conta-no-dmn" not in _codes(lock, tmp_path)

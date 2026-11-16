@@ -43,6 +43,12 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    tres entradas entram nulas, mesmo com o K3 pinado.
 8. `FatosDoCaso.versao_k3_pinada` vem de quem chama: LIGAR O MONTADOR EXIGE preenche-la so com
    `AmhContractPin.versao_manifesto_pinada` do pin verificado (`load_contract_pin`), nunca a mao.
+9. `diasAlemDoPrazoContratual` (MZO-TOL, decisao do dono PROG-COORD-22): depois da formula, os dias
+   positivos perdem a tolerancia interna de `config/integrations/rco/tolerancia-apresentacao-conta.json`
+   (`max(0, dias - tolerancia)`); `<= 0` e nulo seguem intactos. Configuracao ausente ou invalida, ou a
+   tabela pinada `rco_geral_prazos_conta` ja liberando faixa positiva limitada (achado do pin), zeram a
+   tolerancia: ela nunca dobra nem se amplia por erro. O registro vai em `EntradasMontadas.derivacoes`.
+   Inerte em producao enquanto `diasAteApresentacao` for nulo por desenho.
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -65,6 +71,7 @@ from typing import Final
 
 from maezo.platform.rco_entradas import DicionarioEntradasK1, EntradaK1
 from maezo.platform.rco_manifesto import DecisaoK1, json_estrito
+from maezo.tools.workers import rco_pin
 
 #: Primeira versao do contrato AMH (manifest aditivo) que traz o K3 das entradas de decisao.
 VERSAO_K3_ENTRADAS: Final[tuple[int, int]] = (1, 16)
@@ -150,6 +157,10 @@ class EntradasMontadas:
     variaveis: Mapping[str, object]  # {nomeDMN: valor | None}, toda entrada da decisao presente
     fontes: Mapping[str, str]  # {nomeDMN: Fonte}
     nulos: Mapping[str, str]  # {nomeDMN: MotivoNulo} das entradas nulas
+    #: {nomeDMN: registro} das derivadas com ajuste de configuracao (hoje so `diasAlemDoPrazoContratual`,
+    #: MZO-TOL): o bruto, o ajuste aplicado, o valor entregue a tabela e o motivo, para reconstruir o
+    #: desfecho na auditoria. So inteiros e codigos: nenhum dado de caso.
+    derivacoes: Mapping[str, Mapping[str, object]] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +230,120 @@ class _FormulaImplementada:
     texto: str  # o texto EXATO de `formula.formula` no dicionario
     termos: tuple[tuple[str, str], ...]  # (nome, origem) de cada termo, na ordem do dicionario
     calcular: Callable[[Mapping[str, object]], tuple[int | None, MotivoNulo | None]]
+    #: Ajuste de CONFIGURACAO do Maezo sobre o valor ja validado (nunca regra de negocio nova): recebe o
+    #: valor e devolve (valor entregue, registro de auditoria). So `diasAlemDoPrazoContratual` tem um.
+    ajuste: Callable[[object], tuple[object, Mapping[str, object]]] | None = None
+
+
+# --- tolerancia do prazo de apresentacao da conta (MZO-TOL, decisao do dono PROG-COORD-22) ----------
+# A regra do rco e o contrato do prestador dizem o prazo do contrato (30 dias no contrato OMNI); o Maezo
+# aceita, por CONFIGURACAO INTERNA, uma folga sobre esse prazo antes de entregar os dias a tabela
+# `rco_geral_prazos_conta`, que segue glosando com `diasAlemDoPrazoContratual > 0`. Valor UNICO para
+# todos os prestadores: um arquivo versionado, sem sobreposicao por prestador, caso ou tenant, e sem
+# variavel de ambiente. Nunca publicado: nem a chave nem o numero aparecem para prestador ou beneficiario
+# (`tests/unit/tools/workers/test_rco_montador_tolerancia.py` varre os caminhos que falam com eles).
+# Nao se aplica a `prazoComprovacaoUsoVencido` (OPME de urgencia), que segue o prazo do contrato.
+TOLERANCIA_CONTA_RELATIVO: Final[str] = "config/integrations/rco/tolerancia-apresentacao-conta.json"
+CHAVE_TOLERANCIA_CONTA: Final[str] = "tolerancia_apresentacao_conta_dias"
+TOLERANCIA_CONTA_MAXIMA_DIAS: Final[int] = 365
+_CAMPOS_TOLERANCIA: Final[frozenset[str]] = frozenset(
+    {"_comentario", CHAVE_TOLERANCIA_CONTA, "decidido_por", "decidido_em"}
+)
+#: A tabela que recebe `diasAlemDoPrazoContratual`; a guarda le o DMN DELA no pin.
+DECISAO_PRAZOS_CONTA: Final[str] = "rco_geral_prazos_conta"
+
+
+class MotivoTolerancia(StrEnum):
+    APLICADA = "aplicada"
+    DENTRO_DO_PRAZO = "dentro_do_prazo_contratual"
+    TERMO_NULO = "termo_nulo"
+    CONFIGURACAO_INVALIDA = "configuracao_invalida"  # ausente ou malformada: tolerancia 0
+    DMN_JA_TOLERA = "dmn_ja_tolera"  # a tabela pinada libera faixa positiva limitada: tolerancia 0
+    DMN_NAO_VERIFICADO = "dmn_nao_verificado"  # pin ilegivel ou tabela fora do pin: tolerancia 0
+
+
+def ler_tolerancia_conta(caminho: Path) -> int | None:
+    """A tolerancia do arquivo, SO com: objeto JSON estrito com exatamente as chaves conhecidas, valor
+    inteiro (nao booleano) em 0..365 e `decidido_por`/`decidido_em` texto nao vazio. Qualquer outra
+    coisa (arquivo ausente, JSON invalido, chave a mais como um valor por prestador, tipo ou faixa
+    errados, sem procedencia) = `None`, que o montador le como tolerancia 0 (o prazo do contrato)."""
+    try:
+        dados = json_estrito(caminho.read_bytes())
+        if not isinstance(dados, dict) or set(dados) != _CAMPOS_TOLERANCIA:
+            return None
+        valor = dados[CHAVE_TOLERANCIA_CONTA]
+        procedencia = all(
+            isinstance(dados[c], str) and dados[c].strip() for c in ("decidido_por", "decidido_em")
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not procedencia or not isinstance(valor, int) or isinstance(valor, bool):
+        return None
+    return valor if 0 <= valor <= TOLERANCIA_CONTA_MAXIMA_DIAS else None
+
+
+@lru_cache(maxsize=1)
+def tolerancia_conta_configurada() -> int | None:
+    """A configuracao de bordo (checkout, depois a copia ao lado do pacote); sem arquivo = `None`."""
+    parents = Path(__file__).resolve().parents
+    for candidato in (parents[4] / TOLERANCIA_CONTA_RELATIVO, parents[2] / TOLERANCIA_CONTA_RELATIVO):
+        if candidato.is_file():
+            return ler_tolerancia_conta(candidato)
+    return None
+
+
+def dmn_prazos_conta_bloqueia_tolerancia() -> MotivoTolerancia | None:
+    """Motivo para zerar a tolerancia do Maezo pelo DMN pinado, ou `None` se ela pode valer.
+
+    Le o achado que o carregador do pin ja calculou sobre os bytes da tabela (a mesma leitura do gate,
+    codigo `tolerancia-prazo-conta-no-dmn`). Fail-closed: pin ilegivel ou tabela fora do pin = nao
+    verificado (tolerancia 0; sem a tabela pinada a decisao nem e avaliada).
+    """
+    try:
+        tabela = rco_pin.rco_rules_pin().tables.get(DECISAO_PRAZOS_CONTA)
+    except rco_pin.RcoRulesPinError:
+        return MotivoTolerancia.DMN_NAO_VERIFICADO
+    if tabela is None:
+        return MotivoTolerancia.DMN_NAO_VERIFICADO
+    return MotivoTolerancia.DMN_JA_TOLERA if tabela.tolerancia_no_dmn else None
+
+
+def aplicar_tolerancia(dias_alem: int | None, tolerancia: int) -> int | None:
+    """`max(0, dias_alem - tolerancia)` so quando `dias_alem > 0`; `<= 0` e nulo passam intactos."""
+    if dias_alem is None or dias_alem <= 0:
+        return dias_alem
+    return max(0, dias_alem - tolerancia)
+
+
+def _registro_tolerancia(
+    bruto: int | None, tolerancia: int | None, entregue: int | None, motivo: MotivoTolerancia
+) -> Mapping[str, object]:
+    return MappingProxyType(
+        {
+            "diasBrutos": bruto,
+            "toleranciaAplicada": tolerancia,
+            "valorEntregue": entregue,
+            "motivoTolerancia": motivo.value,
+        }
+    )
+
+
+def _ajustar_dias_alem_do_prazo(valor: object) -> tuple[object, Mapping[str, object]]:
+    """O ajuste de `diasAlemDoPrazoContratual`. Nulo segue nulo (nunca zero, nunca glosa); `<= 0` segue
+    intacto; positivo perde a tolerancia configurada, que vale 0 com configuracao invalida ou com o DMN
+    pinado ja tolerando (ou nao verificavel). So le configuracao e pin quando ha dias positivos."""
+    if not isinstance(valor, int) or isinstance(valor, bool):
+        return None, _registro_tolerancia(None, None, None, MotivoTolerancia.TERMO_NULO)
+    if valor <= 0:
+        return valor, _registro_tolerancia(valor, 0, valor, MotivoTolerancia.DENTRO_DO_PRAZO)
+    configurada = tolerancia_conta_configurada()
+    if configurada is None:
+        return valor, _registro_tolerancia(valor, 0, valor, MotivoTolerancia.CONFIGURACAO_INVALIDA)
+    bloqueio = dmn_prazos_conta_bloqueia_tolerancia()
+    if bloqueio is not None:
+        return valor, _registro_tolerancia(valor, 0, valor, bloqueio)
+    entregue = aplicar_tolerancia(valor, configurada)
+    return entregue, _registro_tolerancia(valor, configurada, entregue, MotivoTolerancia.APLICADA)
 
 
 def _dias_alem_do_prazo_contratual(termos: Mapping[str, object]) -> tuple[int | None, MotivoNulo | None]:
@@ -247,6 +372,7 @@ FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
             ),
             termos=(("diasAteApresentacao", "derivado"), ("prazoApresentacaoContratualDias", "cadastro")),
             calcular=_dias_alem_do_prazo_contratual,
+            ajuste=_ajustar_dias_alem_do_prazo,
         ),
     }
 )
@@ -430,6 +556,7 @@ def _montar_uma(
     mapa: Mapping[str, MapeamentoEntrada],
     fatos: FatosDoCaso,
     data: object,
+    derivacoes: dict[str, Mapping[str, object]] | None = None,
 ) -> tuple[object, MotivoNulo | None]:
     entrada = dicionario.entradas[nome]
     mapeamento = mapa[nome]
@@ -446,9 +573,15 @@ def _montar_uma(
             else:
                 termos[termo] = fatos.cadastro.get(CAMPOS_TERMO_CADASTRO[termo])
         calculado, motivo = impl.calcular(termos)
-        if motivo is not None:
-            return None, motivo
-        return _validar(entrada, calculado)
+        valor, motivo = (None, motivo) if motivo is not None else _validar(entrada, calculado)
+        if impl.ajuste is None:
+            return valor, motivo
+        entregue, registro = impl.ajuste(valor)
+        if derivacoes is not None:
+            derivacoes[nome] = registro
+        if entregue is None:
+            return None, motivo  # nulo segue nulo, com o motivo de origem
+        return _validar(entrada, entregue)
     if fonte is Fonte.K3_V116:
         if mapeamento.campo is None:  # todo mapeamento K3 nomeia o atributo; sem ele, nao ha fonte
             raise MontadorEntradasError(f"{nome}: mapeamento K3 sem atributo")
@@ -484,8 +617,9 @@ def montar_entradas(
     variaveis: dict[str, object] = {}
     fontes: dict[str, str] = {}
     nulos: dict[str, str] = {}
+    derivacoes: dict[str, Mapping[str, object]] = {}
     for nome in decisao.entradas:
-        valor, motivo = _montar_uma(nome, dicionario, mapa, fatos, data)
+        valor, motivo = _montar_uma(nome, dicionario, mapa, fatos, data, derivacoes)
         variaveis[nome] = valor
         fontes[nome] = mapa[nome].fonte.value
         if valor is None:
@@ -496,4 +630,5 @@ def montar_entradas(
         variaveis=MappingProxyType(variaveis),
         fontes=MappingProxyType(fontes),
         nulos=MappingProxyType(nulos),
+        derivacoes=MappingProxyType(derivacoes),
     )

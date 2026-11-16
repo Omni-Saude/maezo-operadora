@@ -50,6 +50,10 @@ Em ambos os estados: subpasta em `rco/` ou em `k1/`, link simbolico, caminho abs
 entrada duplicada, arquivo listado ausente e exemplo sintetico com id de decisao sem `rco_` ou
 repetido reprovam (a varredura das pastas e `rco_manifesto.verificar_pastas`, a mesma do runtime).
 
+Tolerancia do prazo de conta (MZO-TOL, PROG-COORD-22): `artifacts` com linha que LIBERA uma faixa
+positiva limitada de `diasAlemDoPrazoContratual` (ex.: `[1..30]`) reprova com o codigo
+`tolerancia-prazo-conta-no-dmn`: a tolerancia mora so na configuracao do montador e nao pode dobrar.
+
 Codigos de saida (mesmos do verificador AMH): 0 = passa; 1 = falha (pin ou arvore); 2 = uso
 invalido da linha de comando (argparse).
 """
@@ -344,6 +348,7 @@ def verify_lock(lock: dict[str, Any], *, repo_root: Path) -> list[Violation]:
         violations.extend(_check_digest(repo_root, rel, digest, "exemplo sintetico"))
 
     violations.extend(_check_decision_ids(repo_root, {**artifacts, **exemplos}))
+    violations.extend(_check_tolerancia_prazo_conta(repo_root, artifacts))
     violations.extend(_scan_dirs(repo_root, set(artifacts) | set(exemplos), estado == ESTADO_FIXADO))
     return violations
 
@@ -437,6 +442,25 @@ def _check_decision_ids(repo_root: Path, listed: dict[PurePosixPath, str]) -> li
                     )
                 )
             vistos[decision_id] = rel
+    return violations
+
+
+def _check_tolerancia_prazo_conta(repo_root: Path, artifacts: dict[PurePosixPath, str]) -> list[Violation]:
+    """MZO-TOL (PROG-COORD-22): a tolerancia do prazo de apresentacao da conta mora so na configuracao
+    do Maezo. Pacote cuja tabela LIBERA uma faixa positiva limitada de `diasAlemDoPrazoContratual` (ex.:
+    `[1..30]`) traria a tolerancia para dentro do DMN, e as duas se somariam: o pin e recusado. So os
+    `artifacts` (o pacote real); em `sem_pacote` a lista e vazia e nada e checado. Mesma leitura do
+    runtime (`rco_manifesto.tolerancia_prazo_conta_no_dmn`, que o montador usa para zerar a sua)."""
+    if not artifacts:
+        return []
+    k1 = _k1()
+    violations: list[Violation] = []
+    for rel in sorted(artifacts):
+        path = repo_root / rel
+        if path.is_symlink() or not path.is_file():
+            continue  # ausencia/link ja reportados por _check_digest
+        achados = k1.tolerancia_prazo_conta_no_dmn(path.read_bytes(), str(rel))
+        violations.extend(Violation("tolerancia-prazo-conta-no-dmn", achado) for achado in achados)
     return violations
 
 

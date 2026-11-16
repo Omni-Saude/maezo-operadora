@@ -116,6 +116,10 @@ class RcoPinnedTable:
     #: `regras[]` da decisao no manifesto K1, por `idRegra` (versaoRegra + sha256_yaml). `None` quando
     #: nao ha manifesto: estado `sem_pacote` ou exemplo sintetico do Maezo.
     regras: Mapping[str, rco_manifesto.RegraK1] | None = None
+    #: MZO-TOL (PROG-COORD-22): achados de `rco_manifesto.tolerancia_prazo_conta_no_dmn` no arquivo da
+    #: tabela (linha que libera faixa positiva limitada de `diasAlemDoPrazoContratual`). Nao vazio = o
+    #: DMN ja tolera: o gate recusa o pin e o montador zera a tolerancia do Maezo (nunca dobra).
+    tolerancia_no_dmn: tuple[str, ...] = ()
 
     def audit_fields(self, id_regra: str | None = None) -> dict[str, str]:
         """Campos do pin para a entrada de `dmn_versions`.
@@ -302,13 +306,17 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
         if rco_manifesto.sha256_prefixado(raw) != digest:
             raise RcoRulesPinError(f"pin: sha256 de {rel} diverge do pin")
         decisao = por_caminho.get(str(rel))
+        # MZO-TOL: a MESMA leitura do gate (`tolerancia-prazo-conta-no-dmn`), sobre os bytes ja lidos.
+        tolerancia_no_dmn = tuple(rco_manifesto.tolerancia_prazo_conta_no_dmn(raw, str(rel)))
         for decision_key in _decision_ids(raw, rel):
             if decision_key in tables:
                 raise RcoRulesPinError(f"pin: decisao {decision_key!r} declarada em mais de um arquivo")
             if decisao is not None and decision_key != decisao.id:
                 raise RcoRulesPinError(f"pin: {rel} declara {decision_key!r}, o manifesto diz {decisao.id!r}")
             regras = decisao.regras if decisao is not None else None
-            tables[decision_key] = RcoPinnedTable(decision_key, str(rel), digest, regras=regras)
+            tables[decision_key] = RcoPinnedTable(
+                decision_key, str(rel), digest, regras=regras, tolerancia_no_dmn=tolerancia_no_dmn
+            )
     return RcoRulesPin(estado=estado, tables=MappingProxyType(tables), parametros_ativacao=parametros)
 
 
