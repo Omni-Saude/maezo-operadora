@@ -201,6 +201,8 @@ class DecisaoK1:
     sha256: str  # `sha256:<hex>` do arquivo do pacote; e o `shaDmn` da auditoria
     saidas: tuple[str, ...]  # nomes das colunas de saida declaradas (`saidas[].nome`)
     regras: Mapping[str, RegraK1]  # por `idRegra`
+    dominio: str = ""  # `dominio` do manifesto (pasta do rco); o montador de entradas escolhe por ele
+    entradas: tuple[str, ...] = ()  # `entradas[].nome` (nome DMN), na ordem do manifesto
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,11 +470,18 @@ def _ler_decisao(no: object, i: int, major: int, problemas: list[str]) -> Decisa
     arquivo = _texto(obj["arquivo"], f"{onde}.arquivo", problemas)
     caminho = _texto(obj["caminho_consumidor"], f"{onde}.caminho_consumidor", problemas)
     sha = _digest(obj["sha256"], f"{onde}.sha256", problemas)
+    dominio = _texto(obj["dominio"], f"{onde}.dominio", problemas, _NOME_PLANO)
+    entradas: list[str] = []
     if not isinstance(obj["entradas"], list):
         problemas.append(f"{onde}.entradas: tem de ser lista")
     else:
         for j, entrada in enumerate(obj["entradas"]):
-            _objeto(entrada, CAMPOS_ENTRADA, f"{onde}.entradas[{j}]", problemas)
+            lida = _objeto(entrada, CAMPOS_ENTRADA, f"{onde}.entradas[{j}]", problemas)
+            nome_entrada = _texto(lida["nome"], f"{onde}.entradas[{j}].nome", problemas) if lida else None
+            if nome_entrada is not None:
+                if nome_entrada in entradas:
+                    problemas.append(f"{onde}.entradas[{j}]: nome {nome_entrada!r} repetido")
+                entradas.append(nome_entrada)
     saidas = _ler_saidas(obj["saidas"], f"{onde}.saidas", problemas)
     regras = _ler_regras(obj["regras"], f"{onde}.regras", major, problemas)
     if (
@@ -481,6 +490,7 @@ def _ler_decisao(no: object, i: int, major: int, problemas: list[str]) -> Decisa
         or arquivo is None
         or caminho is None
         or sha is None
+        or dominio is None
         or saidas is None
         or regras is None
     ):
@@ -504,7 +514,16 @@ def _ler_decisao(no: object, i: int, major: int, problemas: list[str]) -> Decisa
         ok = False
     if not ok:
         return None
-    return DecisaoK1(did, arquivo, caminho, sha, saidas, MappingProxyType(regras))
+    return DecisaoK1(
+        did,
+        arquivo,
+        caminho,
+        sha,
+        saidas,
+        MappingProxyType(regras),
+        dominio=dominio,
+        entradas=tuple(entradas),
+    )
 
 
 def ler_manifesto(raw: bytes) -> ManifestoK1:
@@ -660,6 +679,18 @@ def _anexo_raw(manifesto: ManifestoK1, papel: str, k1_dir: Path, problemas: list
     if sha256_prefixado(raw) != anexo.sha256:
         problemas.append(f"{K1_DIR}/{anexo.nome}: sha256 diverge do manifesto")
         return None
+    return raw
+
+
+def anexo_pinado(manifesto: ManifestoK1, papel: str, *, k1_dir: Path) -> bytes:
+    """Bytes do anexo `papel` (`vocabulario`, `entradas`, `k6`) conferidos contra o sha256 do manifesto.
+
+    Levanta `ManifestoK1InvalidoError`. Quem le o CONTEUDO do anexo e o seu leitor proprio (o
+    dicionario de entradas: `maezo.platform.rco_entradas`)."""
+    problemas: list[str] = []
+    raw = _anexo_raw(manifesto, papel, k1_dir, problemas)
+    if raw is None or problemas:
+        raise ManifestoK1InvalidoError(problemas or [f"anexo {papel!r} invalido"])
     return raw
 
 

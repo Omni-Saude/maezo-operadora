@@ -53,6 +53,8 @@ def test_caminho_feliz_expoe_o_que_a_auditoria_usa(pacote: tuple[Path, dict[str,
     assert a.regras["SINT-A-0002"].versao_regra == "1.0.1"
     assert a.regras["SINT-A-0002"].sha256_yaml.startswith("sha256:")
     assert lido.decisoes["rco_sint_b"].saidas[-1] == "acaoSintetica"
+    # MZO-2b: o montador de entradas escolhe o mapeamento pelo dominio e monta as entradas declaradas.
+    assert (a.dominio, a.entradas) == ("sintetico", ("tipoSintetico",))
     assert {p: x.nome for p, x in lido.anexos.items()} == {
         "vocabulario": "vocabulario.json",
         "entradas": "entradas.json",
@@ -106,6 +108,8 @@ _HEX_CRU = "a" * 64
         (_mutacao(["vocabulario", "path"], "../vocabulario.json"), "plano"),
         (_mutacao(["origem", "commit_sha"], "abc"), "commit_sha"),
         (_mutacao(["decisoes"], []), "lista nao vazia"),
+        (_mutacao(["decisoes", 0, "dominio"], "a/b"), "decisoes[0].dominio"),
+        (_mutacao(["decisoes", 0, "entradas", 0, "nome"], ""), "entradas[0].nome"),
     ],
 )
 def test_forma_invalida_reprova(
@@ -117,6 +121,14 @@ def test_forma_invalida_reprova(
     with pytest.raises(k1.ManifestoK1InvalidoError) as excinfo:
         k1.ler_manifesto(sint.canonico(alterado))
     assert trecho in str(excinfo.value)
+
+
+def test_entrada_repetida_na_decisao_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    _, manifesto = pacote
+    entradas = manifesto["decisoes"][0]["entradas"]
+    entradas.append(copy.deepcopy(entradas[0]))
+    with pytest.raises(k1.ManifestoK1InvalidoError, match=r"entradas\[1\]: nome 'tipoSintetico' repetido"):
+        k1.ler_manifesto(sint.canonico(manifesto))
 
 
 def test_decisao_repetida_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
