@@ -33,12 +33,15 @@ Estados do pin (`estado`)
   `sha256` (o conteudo de `manifesto.sha256` do pacote); e `artifacts` nao vazio, igual a
   `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`). O manifesto e lido por
   `src/maezo/platform/rco_manifesto.py` — o mesmo leitor do runtime, carregado aqui PELO CAMINHO do
-  arquivo (sem `import maezo`, entao o gate segue so biblioteca padrao): formato MAJOR 1 ou 2 (2.0.0:
-  `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`; regra fora de
-  `plena` sem aditivo e recusada ate a Onda 2 item 5), sem `origem.sujo`, campos exatos, prefixo
-  `rco_`, anexos (`vocabulario.json`, `entradas.json`, `k6-filas.json`) com o sha256 do manifesto,
-  colunas de saida dentro do `saidas[]` de cada decisao, `idRegra` emitidos = `regras[]` e linha
-  adversa com `idRegra`/`fila`/`classeAdverso`/`motivoTab38` preenchidos.
+  arquivo (sem `import maezo`, entao o gate segue so biblioteca padrao): o leitor ainda LE o formato
+  MAJOR 1 ou 2 (2.0.0: `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`;
+  regra fora de `plena` sem aditivo e recusada ate a Onda 2 item 5), mas o PIN exige 2.1.0 ou maior
+  com `provas[]` nao vazia (codigo `pin-sem-provas`; decisao da ROOT, 16/11/2026: as provas rodam no
+  CIB Seven no shard de integracao do PR que muda o pin, `tests/integration/dmn/
+  test_rco_provas_engine.py`, via `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos
+  exatos, prefixo `rco_`, anexos (`vocabulario.json`, `entradas.json`, `k6-filas.json`) com o
+  sha256 do manifesto, colunas de saida dentro do `saidas[]` de cada decisao, `idRegra` emitidos =
+  `regras[]` e linha adversa com `idRegra`/`fila`/`classeAdverso`/`motivoTab38` preenchidos.
   Em `config/integrations/rco/k1/` so entram o manifesto e esses anexos (os exemplos do pacote ficam
   fora do lock e fora da arvore: contrato §3). No formato 2.1 o manifesto lista tambem `provas[]`:
   cada arquivo de prova fica em `k1/provas/<id>/...` com o sha256 do manifesto, e arquivo em `provas/`
@@ -414,6 +417,8 @@ def _check_package(
     violations.extend(Violation("pacote-k1", problema) for problema in problemas)
     # Mesma recusa do runtime: ativacao sem significado ligado (Onda 2 item 5).
     violations.extend(Violation("ativacao-nao-suportada", p) for p in k1.ativacao_nao_suportada(manifesto))
+    # Mesma recusa do runtime: pin so com provas do motor (formato >= 2.1.0, `provas[]` nao vazia).
+    violations.extend(Violation("pin-sem-provas", p) for p in k1.provas_ausentes_no_pin(manifesto))
     return violations
 
 

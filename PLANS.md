@@ -114,7 +114,8 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
   - **Primeiro pin real do K1, pré-requisitos:**
     - isenção da cerca de perspectiva para `spec/processes/dmn/rco/`;
     - provas executadas sem divergência;
-    - 2.0.0 fail-closed até o 5c.
+    - 2.0.0 fail-closed até o 5c;
+    - pin real exige provas[] executadas com sucesso no CIB Seven; formato < 2.1 ou provas vazias recusados no gate e no runtime (decisão da ROOT, 16/11/2026); a execução acontece no shard de integração do PR que muda o pin.
   - **Retomada por outro coordenador (16/11/2026, ~11h UTC; parada por ordem do dono, limite semanal em 98%, retorno ~20/11 14h UTC):**
     - **Incorporados neste dia:**
       - #1254: ADR-0077 Proposed;
