@@ -95,9 +95,9 @@ fontes:
       Lei 14.254/2021 + RN 465/2021.
 
   carencia_check:
-    ratificado: true
+    ratificado: false
     revisor: "juridico/regulatorio + medico auditor"
-    ratificado_em: "2026-11-16"
+    ratificado_em: null
     observacao: >-
       TODOS os prazos sao SINTETICOS (urgencia 1d, parto 300d, eletivo 180d, CPT 730d).
       Verificar Lei 9.656/1998 art. 11/12/35-C + RN 195/2009 + RN 259/2011 + consolidacoes ANS.
@@ -223,4 +223,4 @@ criterios_nao_cobertos:
       suprimida.
     pertence_a: carencia_check
     revisor_necessario: "juridico/regulatorio + medico auditor"
-    bloqueia_ratificacao_de: dut_rol_coverage
+    bloqueia_ratificacao_de: carencia_check
