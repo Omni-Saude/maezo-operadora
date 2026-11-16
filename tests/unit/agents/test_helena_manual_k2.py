@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -34,6 +35,8 @@ _PIN = PinDoK2(
     versao="amostra-0.1.0",
     sha256_manifesto="f9124f357352eaffa58cf06f3af7576209deb25f6d5dfe0cc1624115e49e15cd",
 )
+#: O aceite de nao ratificado dos testes: sai do PORTAO, como em dev (nunca construido direto).
+_ACEITE = k2.aceite_de_nao_ratificado(ambiente="dev", configurado=True)
 
 
 def _sha(caminho: Path) -> str:
@@ -94,12 +97,12 @@ def _regravar_sinonimos(pacote: Path, sinonimos: Any) -> PinDoK2:
 
 
 def _carregar(pacote: Path, pin: PinDoK2) -> ManualK2:
-    return carregar(pacote, pin=pin, aceitar_nao_ratificado=True)
+    return carregar(pacote, pin=pin, aceite=_ACEITE)
 
 
-def _recusa(pacote: Path, pin: PinDoK2, *, aceitar_nao_ratificado: bool = True) -> str:
+def _recusa(pacote: Path, pin: Any, *, aceite: Any = _ACEITE) -> str:
     with pytest.raises(PacoteK2InvalidoError) as exc:
-        carregar(pacote, pin=pin, aceitar_nao_ratificado=aceitar_nao_ratificado)
+        carregar(pacote, pin=pin, aceite=aceite)
     return exc.value.motivo
 
 
@@ -108,7 +111,7 @@ def manual() -> ManualK2:
     return _carregar(_AMOSTRA, _PIN)
 
 
-# --- Carregamento ok ---------------------------------------------------------------------------------------
+# --- Carregamento ok ----------------------------------------------------------------------------------------
 def test_a_amostra_carrega(manual: ManualK2) -> None:
     assert manual.versao == "amostra-0.1.0"
     assert manual.commit_rco == "0" * 40
@@ -175,7 +178,7 @@ def test_as_estruturas_sao_imutaveis(manual: ManualK2) -> None:
     assert isinstance(regra.sinonimos, tuple)
 
 
-# --- regra(id) ---------------------------------------------------------------------------------------------
+# --- regra(id) ----------------------------------------------------------------------------------------------
 def test_regra_por_id(manual: ManualK2) -> None:
     regra = manual.regra("AMOSTRA-QTD-003")
     assert regra is not None
@@ -185,7 +188,7 @@ def test_regra_por_id(manual: ManualK2) -> None:
     assert manual.regra("amostra-qtd-003") is None  # id e' exato
 
 
-# --- buscar ------------------------------------------------------------------------------------------------
+# --- buscar -------------------------------------------------------------------------------------------------
 def _ids(regras: tuple[k2.RegraDoManual, ...]) -> list[str]:
     return [r.id for r in regras]
 
@@ -252,7 +255,7 @@ def test_normalizar() -> None:
     assert k2.normalizar("Sessão nº 2") == "sessao no 2"
 
 
-# --- O pin -------------------------------------------------------------------------------------------------
+# --- O pin --------------------------------------------------------------------------------------------------
 def test_pin_com_outra_versao_recusa() -> None:
     pin = PinDoK2(versao="amostra-0.2.0", sha256_manifesto=_PIN.sha256_manifesto)
     assert _recusa(_AMOSTRA, pin) == "versao_diferente_do_pin"
@@ -271,11 +274,11 @@ def test_manifesto_mexido_sem_repinar_recusa(tmp_path: Path) -> None:
     assert _recusa(pacote, _PIN) == "sha256_do_manifesto_diferente_do_pin"
 
 
-# --- Ratificacao -------------------------------------------------------------------------------------------
+# --- Ratificacao --------------------------------------------------------------------------------------------
 def test_o_padrao_recusa_pacote_nao_ratificado() -> None:
     with pytest.raises(PacoteK2InvalidoError, match="pacote_nao_ratificado"):
         carregar(_AMOSTRA, pin=_PIN)
-    assert _recusa(_AMOSTRA, _PIN, aceitar_nao_ratificado=False) == "pacote_nao_ratificado"
+    assert _recusa(_AMOSTRA, _PIN, aceite=None) == "pacote_nao_ratificado"
 
 
 def test_pacote_ratificado_carrega_sem_aceite(tmp_path: Path) -> None:
@@ -308,23 +311,48 @@ def test_ratificado_nao_booleano_recusa(tmp_path: Path, valor: object) -> None:
         ("  ", True, False),
     ],
 )
-def test_aceita_nao_ratificado(ambiente: str, configurado: bool, aceita: bool) -> None:
-    assert k2.aceita_nao_ratificado(ambiente=ambiente, configurado=configurado) is aceita
+def test_o_portao_do_aceite(ambiente: str, configurado: bool, aceita: bool) -> None:
+    aceite = k2.aceite_de_nao_ratificado(ambiente=ambiente, configurado=configurado)
+    assert (aceite is not None) is aceita
+    if aceite is not None:
+        assert isinstance(aceite, k2.AceiteDeNaoRatificado) and aceite.ambiente == "dev"
+
+
+@pytest.mark.parametrize(
+    ("ambiente", "configurado"),
+    [(None, True), (1, True), ("dev", 1), ("dev", "true"), ("dev", None), (b"dev", True)],
+)
+def test_o_portao_com_tipo_errado_nao_da_aceite(ambiente: object, configurado: object) -> None:
+    assert k2.aceite_de_nao_ratificado(ambiente=ambiente, configurado=configurado) is None
 
 
 def test_producao_com_a_configuracao_ligada_recusa_o_pacote() -> None:
     """O teste negativo exigido pela ROOT: em producao nenhuma configuracao aceita o nao ratificado."""
-    decidido = k2.aceita_nao_ratificado(ambiente="prod", configurado=True)
+    aceite = k2.aceite_de_nao_ratificado(ambiente="prod", configurado=True)
+    assert aceite is None
     with pytest.raises(PacoteK2InvalidoError, match="pacote_nao_ratificado"):
-        carregar(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=decidido)
+        carregar(_AMOSTRA, pin=_PIN, aceite=aceite)
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=decidido) is None
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=aceite) is None
     assert [e["motivo"] for e in logs] == ["pacote_invalido"]
 
 
 def test_dev_com_a_configuracao_carrega() -> None:
-    decidido = k2.aceita_nao_ratificado(ambiente="dev", configurado=True)
-    assert carregar(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=decidido).versao == _PIN.versao
+    aceite = k2.aceite_de_nao_ratificado(ambiente="dev", configurado=True)
+    assert carregar(_AMOSTRA, pin=_PIN, aceite=aceite).versao == _PIN.versao
+
+
+def test_o_aceite_nao_se_constroi_fora_do_portao() -> None:
+    with pytest.raises(TypeError):
+        k2.AceiteDeNaoRatificado(ambiente="prod", _selo=object())
+    with pytest.raises(TypeError):
+        k2.AceiteDeNaoRatificado("prod")  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("aceite", [True, 1, "dev", object()])
+def test_aceite_que_nao_e_o_token_recusa(aceite: object) -> None:
+    """O booleano antigo (ou qualquer imitacao) nao liga o aceite: e' recusado logo na entrada."""
+    assert _recusa(_AMOSTRA, _PIN, aceite=aceite) == "aceite_invalido"
 
 
 def test_os_nomes_da_configuracao() -> None:
@@ -333,7 +361,7 @@ def test_os_nomes_da_configuracao() -> None:
     assert "prod" not in k2.AMBIENTES_QUE_PODEM_ACEITAR
 
 
-# --- O manifesto -------------------------------------------------------------------------------------------
+# --- O manifesto --------------------------------------------------------------------------------------------
 def test_diretorio_ausente(tmp_path: Path) -> None:
     assert _recusa(tmp_path / "nao_existe", _PIN) == "diretorio_ausente"
 
@@ -344,12 +372,76 @@ def test_manifesto_ausente(tmp_path: Path) -> None:
     assert _recusa(pacote, _PIN) == "manifesto_ausente"
 
 
-def test_manifesto_ilegivel(tmp_path: Path) -> None:
+def _manifesto_cru(pacote: Path, dados: bytes) -> PinDoK2:
+    """Grava bytes quaisquer como manifesto e devolve o pin que CASA com eles (o hash passa; o resto nao)."""
+    (pacote / "manifesto.json").write_bytes(dados)
+    hex_ = _sha(pacote / "manifesto.json")
+    (pacote / "manifesto.sha256").write_text(f"sha256:{hex_}\n", encoding="ascii")
+    return PinDoK2(_PIN.versao, hex_)
+
+
+@pytest.mark.parametrize(
+    "dados",
+    [
+        b"{nao e json",
+        b"[]",
+        b"\xff\xfe",
+        b'{"formato":"rco-k2-v1","formato":"rco-k2-v1"}',  # chave repetida
+        b'{"versao":NaN}',
+        b"\xef\xbb\xbf{}",  # BOM
+        b"[" * 100_000 + b"]" * 100_000,  # estoura a pilha do parser
+    ],
+)
+def test_manifesto_ilegivel(tmp_path: Path, dados: bytes) -> None:
     pacote = _copia(tmp_path)
-    (pacote / "manifesto.json").write_text("{nao e json", encoding="utf-8")
-    assert _recusa(pacote, _PIN) == "manifesto_ilegivel"
-    (pacote / "manifesto.json").write_text("[]", encoding="utf-8")
-    assert _recusa(pacote, _PIN) == "manifesto_ilegivel"
+    assert _recusa(pacote, _manifesto_cru(pacote, dados)) == "manifesto_ilegivel"
+
+
+def test_o_pin_e_conferido_antes_de_interpretar_o_manifesto(tmp_path: Path) -> None:
+    """Manifesto hostil (aninhamento fundo) com pin que NAO casa: recusa pelo hash, sem tocar no parser."""
+    pacote = _copia(tmp_path)
+    (pacote / "manifesto.json").write_bytes(b"[" * 100_000 + b"]" * 100_000)
+    assert _recusa(pacote, _PIN) == "sha256_do_manifesto_diferente_do_pin"
+    with capture_logs() as logs:
+        assert carregar_ou_nenhum(pacote, pin=_PIN, aceite=_ACEITE) is None
+    assert [e["motivo"] for e in logs] == ["pacote_invalido"]
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        PinDoK2(_PIN.versao, _PIN.sha256_manifesto.upper()),  # hex EXATO: maiusculo e' recusado
+        PinDoK2(_PIN.versao, "sha256:" + _PIN.sha256_manifesto),
+        PinDoK2(_PIN.versao, _PIN.sha256_manifesto[:-1]),
+        PinDoK2(_PIN.versao, None),  # type: ignore[arg-type]
+        PinDoK2(None, _PIN.sha256_manifesto),  # type: ignore[arg-type]
+        PinDoK2("", _PIN.sha256_manifesto),
+        PinDoK2(_PIN.versao, _PIN.sha256_manifesto, commit_rco="abc"),
+        PinDoK2(_PIN.versao, _PIN.sha256_manifesto, commit_rco="A" * 40),
+        "nao e pin",
+        None,
+    ],
+)
+def test_pin_invalido(pin: object) -> None:
+    assert _recusa(_AMOSTRA, pin) == "pin_invalido"
+
+
+def test_commit_do_pin_conferido_com_o_manifesto() -> None:
+    assert _carregar(_AMOSTRA, PinDoK2(_PIN.versao, _PIN.sha256_manifesto, commit_rco="0" * 40)).versao
+    pin = PinDoK2(_PIN.versao, _PIN.sha256_manifesto, commit_rco="1" * 40)
+    assert _recusa(_AMOSTRA, pin) == "commit_rco_diferente_do_pin"
+
+
+@pytest.mark.parametrize("diretorio", [str(_AMOSTRA), None, 7])
+def test_diretorio_de_tipo_errado(diretorio: object) -> None:
+    assert _recusa(diretorio, _PIN) == "diretorio_invalido"  # type: ignore[arg-type]
+
+
+def test_diretorio_que_e_link_recusa(tmp_path: Path) -> None:
+    pacote = _copia(tmp_path)
+    link = tmp_path / "link"
+    link.symlink_to(pacote, target_is_directory=True)
+    assert _recusa(link, _PIN) == "diretorio_nao_regular"
 
 
 _SERIALIZACOES_NAO_CANONICAS: list[Callable[[dict[str, Any]], str]] = [
@@ -447,7 +539,7 @@ def test_manifesto_fora_do_formato(
     assert _recusa(pacote, _gravar_manifesto(pacote, manifesto)) == motivo
 
 
-# --- O diretorio -------------------------------------------------------------------------------------------
+# --- O diretorio --------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("nome", sorted(k2.ARQUIVOS_DO_PACOTE))
 def test_arquivo_listado_ausente(tmp_path: Path, nome: str) -> None:
     pacote = _copia(tmp_path)
@@ -485,7 +577,7 @@ def test_arquivo_como_link_recusa(tmp_path: Path, nome: str) -> None:
     assert _recusa(pacote, _PIN) == "arquivo_nao_regular"
 
 
-# --- search-index.json -------------------------------------------------------------------------------------
+# --- search-index.json --------------------------------------------------------------------------------------
 def test_indice_json_invalido(tmp_path: Path) -> None:
     pacote = _copia(tmp_path)
     assert _recusa(pacote, _regravar_arquivo(pacote, "search-index.json", "[{")) == "indice_json_invalido"
@@ -587,7 +679,7 @@ def test_id_de_regra_duplicado(tmp_path: Path) -> None:
     assert _recusa(pacote, _regravar_json(pacote, "search-index.json", indice)) == "id_de_regra_duplicado"
 
 
-# --- sinonimos.json e sinonimos-por-termo.json -------------------------------------------------------------
+# --- sinonimos.json e sinonimos-por-termo.json --------------------------------------------------------------
 def test_sinonimos_json_invalido(tmp_path: Path) -> None:
     pacote = _copia(tmp_path)
     assert _recusa(pacote, _regravar_arquivo(pacote, "sinonimos.json", "{")) == "sinonimos_json_invalido"
@@ -650,7 +742,7 @@ def test_sinonimos_da_regra_inconsistentes(tmp_path: Path, termo: str, ids: list
     assert _recusa(pacote, pin) == "sinonimos_da_regra_inconsistentes"
 
 
-# --- capitulo-geral.yaml -----------------------------------------------------------------------------------
+# --- capitulo-geral.yaml ------------------------------------------------------------------------------------
 _CAPITULOS_INVALIDOS: list[tuple[str, str]] = [
     ("capitulo_geral_yaml_invalido", "secoes: [\n  - id: x\n    titulo: : :"),
     ("capitulo_geral_fora_do_formato", "- 1\n- 2\n"),
@@ -674,7 +766,7 @@ def test_capitulo_geral_fora_do_formato(tmp_path: Path, motivo: str, conteudo: s
     assert _recusa(pacote, _regravar_arquivo(pacote, "capitulo-geral.yaml", conteudo)) == motivo
 
 
-# --- avaliacoes.yaml ---------------------------------------------------------------------------------------
+# --- avaliacoes.yaml ----------------------------------------------------------------------------------------
 _RAIZES_DE_AVALIACOES_INVALIDAS: list[tuple[str, str]] = [
     ("avaliacoes_yaml_invalido", "avaliacoes: [\n  - id: x\n    pergunta: : :"),
     ("avaliacoes_fora_do_formato", "- 1\n"),
@@ -744,9 +836,9 @@ def test_motivo_nunca_carrega_conteudo(tmp_path: Path) -> None:
     assert "AMOSTRA" not in str(exc.value)
 
 
-# --- carregar_ou_nenhum ------------------------------------------------------------------------------------
+# --- carregar_ou_nenhum -------------------------------------------------------------------------------------
 def test_carregar_ou_nenhum_ok() -> None:
-    manual = carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=True)
+    manual = carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE)
     assert manual is not None and manual.versao == _PIN.versao
 
 
@@ -758,7 +850,7 @@ def test_carregar_ou_nenhum_sem_configuracao(
     diretorio: Path | None, pin: PinDoK2 | None, motivo: str
 ) -> None:
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(diretorio, pin=pin, aceitar_nao_ratificado=True) is None
+        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_ACEITE) is None
     assert logs == [{"event": "helena_k2_recusado", "motivo": motivo, "log_level": "warning"}]
 
 
@@ -779,12 +871,12 @@ def test_carregar_ou_nenhum_pacote_invalido_loga_so_o_motivo() -> None:
 
 
 def test_carregar_ou_nenhum_erro_de_leitura(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _falha(_self: Path) -> bytes:
+    def _falha(_caminho: Path) -> int:
         raise PermissionError("sem permissao")
 
-    monkeypatch.setattr(Path, "read_bytes", _falha)
+    monkeypatch.setattr(k2, "_abrir", _falha)
     with capture_logs() as logs:
-        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=True) is None
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE) is None
     assert logs == [
         {
             "event": "helena_k2_recusado",
@@ -795,7 +887,7 @@ def test_carregar_ou_nenhum_erro_de_leitura(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
 
-# --- pin_do_lock -------------------------------------------------------------------------------------------
+# --- pin_do_lock --------------------------------------------------------------------------------------------
 _DIGEST_DO_PIN = f"sha256:{_PIN.sha256_manifesto}"
 
 
@@ -829,7 +921,7 @@ def test_pin_do_lock_sem_pacote(tmp_path: Path) -> None:
 
 def test_pin_do_lock_fixado_tira_o_prefixo_e_carrega_a_amostra(tmp_path: Path) -> None:
     pin = k2.pin_do_lock(_gravar_lock(tmp_path, _lock()))
-    assert pin == _PIN
+    assert pin == PinDoK2(_PIN.versao, _PIN.sha256_manifesto, commit_rco="0" * 40)
     assert _carregar(_AMOSTRA, pin).versao == _PIN.versao
 
 
@@ -869,3 +961,238 @@ def test_pin_do_lock_ilegivel_e_link(tmp_path: Path) -> None:
     link.symlink_to(_gravar_lock(tmp_path, _lock()))
     with pytest.raises(PacoteK2InvalidoError, match="arquivo_nao_regular"):
         k2.pin_do_lock(link)
+
+
+# --- Revisao independente (HEL-3c): leitura estrita, limites e entradas -------------------------------------
+def test_resumo_no_limite_do_contrato(tmp_path: Path) -> None:
+    pacote = _copia(tmp_path)
+    indice = _json(pacote, "search-index.json")
+    indice["documentos"][2]["resumo"] = "a" * k2.RESUMO_MAXIMO
+    assert _carregar(pacote, _regravar_json(pacote, "search-index.json", indice)).regra("AMOSTRA-QTD-003")
+    indice["documentos"][2]["resumo"] = "a" * (k2.RESUMO_MAXIMO + 1)
+    pin = _regravar_json(pacote, "search-index.json", indice)
+    assert _recusa(pacote, pin) == "regra_com_resumo_longo_demais"
+
+
+@pytest.mark.parametrize(
+    ("nome", "motivo"),
+    [
+        ("search-index.json", "indice_json_invalido"),
+        ("sinonimos.json", "sinonimos_json_invalido"),
+        ("sinonimos-por-termo.json", "sinonimos_por_termo_json_invalido"),
+    ],
+)
+def test_json_de_dados_com_chave_repetida_recusa(tmp_path: Path, nome: str, motivo: str) -> None:
+    pacote = _copia(tmp_path)
+    texto = (pacote / nome).read_text(encoding="utf-8")
+    chave, valor = next(iter(json.loads(texto).items()))
+    repetido = (
+        "{" + json.dumps(chave) + ":" + json.dumps(valor, ensure_ascii=False) + "," + texto.lstrip()[1:]
+    )
+    assert _recusa(pacote, _regravar_arquivo(pacote, nome, repetido)) == motivo
+
+
+@pytest.mark.parametrize(
+    ("nome", "motivo"),
+    [
+        ("search-index.json", "indice_json_invalido"),
+        ("sinonimos.json", "sinonimos_json_invalido"),
+        ("capitulo-geral.yaml", "capitulo_geral_yaml_invalido"),
+        ("avaliacoes.yaml", "avaliacoes_yaml_invalido"),
+    ],
+)
+def test_bom_utf8_recusa_em_json_e_yaml(tmp_path: Path, nome: str, motivo: str) -> None:
+    pacote = _copia(tmp_path)
+    conteudo = "﻿" + (pacote / nome).read_text(encoding="utf-8")
+    assert _recusa(pacote, _regravar_arquivo(pacote, nome, conteudo)) == motivo
+
+
+@pytest.mark.parametrize("constante", ["NaN", "Infinity", "-Infinity"])
+def test_json_com_constante_nao_finita_recusa(tmp_path: Path, constante: str) -> None:
+    pacote = _copia(tmp_path)
+    pin = _regravar_arquivo(pacote, "sinonimos-por-termo.json", '{"rm": ' + constante + "}")
+    assert _recusa(pacote, pin) == "sinonimos_por_termo_json_invalido"
+
+
+@pytest.mark.parametrize(
+    ("nome", "motivo"),
+    [
+        ("sinonimos.json", "sinonimos_json_invalido"),
+        ("search-index.json", "indice_json_invalido"),
+        ("sinonimos-por-termo.json", "sinonimos_por_termo_json_invalido"),
+    ],
+)
+def test_json_de_dados_fundo_demais_recusa(tmp_path: Path, nome: str, motivo: str) -> None:
+    pacote = _copia(tmp_path)
+    pin = _regravar_arquivo(pacote, nome, "[" * 100_000 + "]" * 100_000)
+    assert _recusa(pacote, pin) == motivo
+    with capture_logs():
+        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_ACEITE) is None
+
+
+_YAMLS_PROIBIDOS: list[str] = [
+    "secoes: []\nsecoes: [{id: a, titulo: b, texto: c}]\n",  # chave repetida na raiz
+    "secoes: [{id: a, id: b, titulo: c, texto: d}]\n",  # chave repetida dentro
+    "secoes:\n- &s {id: a, titulo: b, texto: c}\n",  # ancora
+    "base: &b {titulo: b, texto: c}\nsecoes: [*b]\n",  # alias
+    "secoes: [{<<: {titulo: b, texto: c}, id: a}]\n",  # chave de merge
+    "secoes: [{? [a, b] : c}]\n",  # chave nao hashable
+    "secoes: " + "[" * 100_000 + "]" * 100_000 + "\n",  # estoura a pilha do parser
+    "secoes:\n- {id: !!python/name:os.system , titulo: b, texto: c}\n",
+]
+
+
+@pytest.mark.parametrize("conteudo", _YAMLS_PROIBIDOS)
+def test_yaml_estrito_recusa(tmp_path: Path, conteudo: str) -> None:
+    pacote = _copia(tmp_path)
+    pin = _regravar_arquivo(pacote, "capitulo-geral.yaml", conteudo)
+    assert _recusa(pacote, pin) == "capitulo_geral_yaml_invalido"
+    with capture_logs():
+        assert carregar_ou_nenhum(pacote, pin=pin, aceite=_ACEITE) is None
+
+
+def test_yaml_bilhao_de_risadas_recusa(tmp_path: Path) -> None:
+    pacote = _copia(tmp_path)
+    linhas = ["a: &a [x, x, x, x, x, x, x, x, x]"]
+    for i in range(8):
+        anterior, atual = chr(97 + i), chr(98 + i)
+        linhas.append(f"{atual}: &{atual} [" + ", ".join([f"*{anterior}"] * 9) + "]")
+    pin = _regravar_arquivo(pacote, "avaliacoes.yaml", "\n".join([*linhas, "avaliacoes: []", ""]))
+    assert _recusa(pacote, pin) == "avaliacoes_yaml_invalido"
+
+
+@pytest.mark.parametrize(
+    "gerado_em", ["２０２６-11-16T00:00:00Z", "٢٠٢٦-١١-١٦T00:00:00Z", "2026-11-16T00:00:0٠Z"]
+)
+def test_gerado_em_com_digito_nao_ascii_recusa(tmp_path: Path, gerado_em: str) -> None:
+    pacote = _copia(tmp_path)
+    manifesto = _manifesto(pacote)
+    manifesto["gerado_em"] = gerado_em
+    assert _recusa(pacote, _gravar_manifesto(pacote, manifesto)) == "gerado_em_invalido"
+
+
+def test_estrutura_funda_que_escape_vira_motivo(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _funda(*_args: object) -> ManualK2:
+        raise RecursionError
+
+    monkeypatch.setattr(k2, "_carregar", _funda)
+    assert _recusa(_AMOSTRA, _PIN) == "estrutura_funda_demais"
+
+
+def test_carregar_ou_nenhum_nunca_levanta(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inesperado(*_args: object) -> ManualK2:
+        raise ValueError("conteudo que nao pode ir ao log")
+
+    monkeypatch.setattr(k2, "_carregar", _inesperado)
+    with capture_logs() as logs:
+        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_ACEITE) is None
+    assert logs == [
+        {
+            "event": "helena_k2_recusado",
+            "motivo": "erro_inesperado",
+            "erro": "ValueError",
+            "log_level": "warning",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("diretorio", "pin"),
+    [(str(_AMOSTRA), _PIN), (_AMOSTRA, PinDoK2(_PIN.versao, None)), (_AMOSTRA, "pin")],  # type: ignore[arg-type]
+)
+def test_carregar_ou_nenhum_com_tipo_errado_devolve_nenhum(diretorio: Any, pin: Any) -> None:
+    with capture_logs() as logs:
+        assert carregar_ou_nenhum(diretorio, pin=pin, aceite=_ACEITE) is None
+    assert [e["motivo"] for e in logs] == ["pacote_invalido"]
+
+
+def test_diretorio_alterado_durante_a_leitura_recusa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pacote = _copia(tmp_path)
+    ler = k2._ler
+
+    def _ler_e_plantar(caminho: Path, *, ausente: str) -> bytes:
+        dados = ler(caminho, ausente=ausente)
+        if caminho.name == "search-index.json":
+            (pacote / "plantado.json").write_text("{}", encoding="utf-8")
+        return dados
+
+    monkeypatch.setattr(k2, "_ler", _ler_e_plantar)
+    assert _recusa(pacote, _PIN) == "diretorio_mudou_durante_a_leitura"
+
+
+def test_fifo_no_lugar_de_arquivo_recusa_sem_travar(tmp_path: Path) -> None:
+    pacote = _copia(tmp_path)
+    (pacote / "sinonimos.json").unlink()
+    os.mkfifo(pacote / "sinonimos.json")
+    assert _recusa(pacote, _PIN) == "arquivo_nao_regular"
+
+
+def test_manifesto_sha256_que_e_diretorio_recusa(tmp_path: Path) -> None:
+    pacote = _copia(tmp_path)
+    (pacote / "manifesto.sha256").unlink()
+    (pacote / "manifesto.sha256").mkdir()
+    assert _recusa(pacote, _PIN) == "arquivo_nao_regular"
+
+
+def test_leitura_limitada_mesmo_se_o_arquivo_crescer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """O `fstat` diz que cabe (o arquivo 'cresceu' depois); a leitura para em `TAMANHO_MAXIMO + 1` bytes."""
+    pacote = _copia(tmp_path)
+    fstat = os.fstat
+    lidos: list[int] = []
+
+    def _fstat_pequeno(descritor: int) -> os.stat_result:
+        real = fstat(descritor)
+        return os.stat_result((real.st_mode, *list(real)[1:6], 0, *list(real)[7:10]))
+
+    class _Espiao:
+        def __init__(self, arquivo: Any) -> None:
+            self._arquivo = arquivo
+
+        def __enter__(self) -> _Espiao:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            self._arquivo.close()
+
+        def fileno(self) -> int:
+            return int(self._arquivo.fileno())
+
+        def read(self, tamanho: int) -> bytes:
+            lidos.append(tamanho)
+            dados: bytes = self._arquivo.read(tamanho)
+            return dados
+
+    fdopen = os.fdopen
+    monkeypatch.setattr(k2, "TAMANHO_MAXIMO", 64)
+    monkeypatch.setattr(k2.os, "fstat", _fstat_pequeno)
+    monkeypatch.setattr(k2.os, "fdopen", lambda d, modo: _Espiao(fdopen(d, modo)))
+    assert _recusa(pacote, _PIN) == "arquivo_grande_demais"
+    assert lidos == [65]
+
+
+# --- pin_do_lock: leitura estrita ---------------------------------------------------------------------------
+def test_pin_do_lock_com_chave_repetida_recusa(tmp_path: Path) -> None:
+    caminho = tmp_path / "k2.lock.json"
+    texto = json.dumps(_lock())
+    caminho.write_text('{"versao": "outra", ' + texto[1:], encoding="utf-8")
+    with pytest.raises(PacoteK2InvalidoError, match="lock_ilegivel"):
+        k2.pin_do_lock(caminho)
+
+
+def test_pin_do_lock_fundo_demais_recusa(tmp_path: Path) -> None:
+    caminho = tmp_path / "k2.lock.json"
+    caminho.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    with pytest.raises(PacoteK2InvalidoError, match="lock_ilegivel"):
+        k2.pin_do_lock(caminho)
+
+
+def test_pin_do_lock_com_caminho_de_tipo_errado_recusa(tmp_path: Path) -> None:
+    with pytest.raises(PacoteK2InvalidoError, match="lock_caminho_invalido"):
+        k2.pin_do_lock(str(tmp_path / "k2.lock.json"))  # type: ignore[arg-type]
+
+
+def test_lock_com_outro_commit_recusa_o_pacote(tmp_path: Path) -> None:
+    lock = _lock(provenance={"rco_repo": "exemplo/rco", "rco_commit_sha": "1" * 40})
+    pin = k2.pin_do_lock(_gravar_lock(tmp_path, lock))
+    assert pin is not None
+    assert _recusa(_AMOSTRA, pin) == "commit_rco_diferente_do_pin"

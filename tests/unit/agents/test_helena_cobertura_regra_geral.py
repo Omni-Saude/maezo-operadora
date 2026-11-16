@@ -12,7 +12,13 @@ from structlog.testing import capture_logs
 
 from maezo.agents.helena.habilidades import cobertura as cob
 from maezo.agents.helena.habilidades.cobertura import procedimento as proc
-from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, PinDoK2, RegraDoManual, carregar
+from maezo.agents.helena.habilidades.cobertura.manual import (
+    ManualK2,
+    PinDoK2,
+    RegraDoManual,
+    aceite_de_nao_ratificado,
+    carregar,
+)
 from maezo.agents.helena.habilidades.cobertura.regra_geral import CamadaRegraGeral, texto_deterministico
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from maezo.ports.tina import ProcedimentoCatalogo
@@ -27,7 +33,7 @@ _PIN = PinDoK2(
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=True)
+    return carregar(_AMOSTRA, pin=_PIN, aceite=aceite_de_nao_ratificado(ambiente="dev", configurado=True))
 
 
 def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:

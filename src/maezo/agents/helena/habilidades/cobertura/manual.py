@@ -20,8 +20,9 @@ pela regra `generic-api-key` do gitleaks). O diretorio do pacote contem EXATAMEN
 - `search-index.json`: `{"versao_manual", "data_versao", "publico": "beneficiario", "sinonimos",
   "documentos"}`; `versao_manual` igual a `versao` do manifesto; `sinonimos` igual ao `sinonimos.json`; cada
   documento com EXATAMENTE `id, titulo, versao, publico ("beneficiario"), publico_nome, dominio,
-  dominio_nome, resumo, url, texto, sinonimos (lista ordenada; pode ser vazia), t_titulo, t_chaves, t_texto`
-  (os `t_*` sao TEXTO: palavras normalizadas separadas por espaco; podem ser vazios);
+  dominio_nome, resumo (ate' `RESUMO_MAXIMO` caracteres), url, texto, sinonimos (lista ordenada; pode ser
+  vazia), t_titulo, t_chaves, t_texto` (os `t_*` sao TEXTO: palavras normalizadas separadas por espaco; podem
+  ser vazios);
 - `capitulo-geral.yaml`: `{"secoes": [{"id", "titulo", "texto"}, ...]}` (nao vazia, ids unicos);
 - `sinonimos.json`: `{termo popular normalizado: [termo tecnico normalizado, ...]}`;
 - `sinonimos-por-termo.json`: `{termo popular: [id de regra, ...]}` (listas podem ser vazias), com as MESMAS
@@ -31,23 +32,33 @@ pela regra `generic-api-key` do gitleaks). O diretorio do pacote contem EXATAMEN
   "elementos_obrigatorios", "o_que_seria_invencao", "regra_origem" (ids existentes; pode ser vazia),
   opcional "comportamento"}, ...]}` (a lista pode ser vazia; ids unicos).
 
+CONFIRMADO COM O CONTRATO (sem regra a mais aqui): `data_versao` e' so' texto nao vazio (o contrato nao fixa
+o formato); `url` e' so' texto nao vazio (metadado de auditoria, nunca vai a resposta); a lista
+`elementos_obrigatorios` pode ser vazia.
+
 Formato FECHADO em todo nivel: campo desconhecido ou ausente recusa o pacote (campo novo do rco = versao nova
-do formato). Nao ha' tolerancia a anotacoes com `_`.
+do formato). Nao ha' tolerancia a anotacoes com `_`. JSON e YAML sao lidos de forma ESTRITA: chave repetida,
+BOM UTF-8, `NaN`/`Infinity` (JSON), ancora/alias e chave de merge (YAML) recusam o arquivo; aninhamento que
+estoura a pilha ou a memoria vira o motivo de arquivo invalido, nunca excecao solta.
 
-RATIFICACAO: a ratificacao e' ato humano no rco. O padrao RECUSA pacote com `ratificado: false`; so'
-`aceitar_nao_ratificado=True` o aceita, e esse booleano vem de `aceita_nao_ratificado` (decisao da ROOT):
-PRODUCAO NUNCA aceita, ambiente desconhecido ou vazio tambem nao (falha fechada); em dev vale a configuracao
-nomeada `CHAVE_ACEITAR_NAO_RATIFICADO`.
+RATIFICACAO: a ratificacao e' ato humano no rco. O padrao RECUSA pacote com `ratificado: false`. So' um
+`AceiteDeNaoRatificado` o aceita, e o UNICO jeito publico de obter um e' o portao `aceite_de_nao_ratificado`
+(decisao da ROOT): PRODUCAO NUNCA recebe aceite, ambiente desconhecido ou vazio tambem nao (falha fechada);
+em dev vale a configuracao nomeada `CHAVE_ACEITAR_NAO_RATIFICADO`. A garantia e' por construcao: nao ha'
+booleano que um chamador possa ligar.
 
-VERIFICACAO (falha fechada; `PacoteK2InvalidoError(motivo)`, motivo curto e NUNCA conteudo), nesta ordem:
-diretorio ausente; manifesto ausente, grande demais ou ilegivel; bytes nao canonicos; `formato` diferente;
-`versao` diferente do pin; sha256 do manifesto diferente do pin; `manifesto.sha256` ausente, fora do formato
-ou diferente; campo do manifesto desconhecido ou ausente; `ratificado` nao booleano ou falso sem aceite;
-`commit_rco`/`gerado_em`/`arquivos` fora do formato; entrada do diretorio fora dos sete (inclusive oculta ou
-subdiretorio); arquivo listado ausente, nao regular (link), grande demais ou com sha256 diferente; o conteudo
-de cada arquivo (JSON/YAML invalido, `yaml.safe_load`; campo ausente, vazio, desconhecido ou de tipo errado;
-publico diferente; id duplicado ou desconhecido; inconsistencia entre indice e sinonimos). Limite de
-`TAMANHO_MAXIMO` bytes por arquivo, checado ANTES de ler.
+O PIN E' A ANCORA DE CONFIANCA: o sha256 dos bytes do manifesto e' comparado com o pin ANTES de qualquer
+interpretacao do conteudo. VERIFICACAO (falha fechada; `PacoteK2InvalidoError(motivo)`, motivo curto e NUNCA
+conteudo), nesta ordem: diretorio/pin/aceite de tipo errado; diretorio ausente ou link; manifesto ausente, nao
+regular ou grande demais; sha256 do manifesto diferente do pin; manifesto ilegivel ou nao canonico;
+`formato` diferente; `versao` diferente do pin; `manifesto.sha256` ausente, fora do formato ou diferente;
+campo do manifesto desconhecido ou ausente; `ratificado` nao booleano ou falso sem aceite;
+`commit_rco` fora do formato ou diferente do pin; `gerado_em`/`arquivos` fora do formato; entrada do
+diretorio fora dos sete (inclusive oculta ou subdiretorio); arquivo listado ausente, nao regular (link, FIFO),
+grande demais ou com sha256 diferente; o conteudo de cada arquivo (campo ausente, vazio, desconhecido ou de
+tipo errado; publico diferente; resumo longo demais; id duplicado ou desconhecido; inconsistencia entre indice
+e sinonimos); diretorio alterado durante a leitura. Leitura LIMITADA: `TAMANHO_MAXIMO` checado pelo `fstat`
+do arquivo aberto (`O_NOFOLLOW`, onde houver) e no maximo `TAMANHO_MAXIMO + 1` bytes lidos.
 
 BUSCA (`ManualK2.buscar`): casamento EXATO, sem similaridade aproximada. Normalizar = NFKD, sem marcas
 combinantes (acentos), minusculas (`casefold`), tokens `[a-z0-9]+` unidos por um espaco. As CHAVES de uma
@@ -64,7 +75,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -96,6 +109,8 @@ PUBLICO: Final[str] = "beneficiario"
 COMPORTAMENTOS: Final[frozenset[str]] = frozenset(
     {"corrige_premissa", "declara_ausencia", "identifica_publico"}
 )
+#: Limite do contrato para o `resumo` de um documento, em caracteres.
+RESUMO_MAXIMO: Final[int] = 220
 #: Teto por arquivo: o pacote real tem algumas centenas de regras; acima disso e' lixo ou erro de publicacao.
 TAMANHO_MAXIMO: Final[int] = 20 * 1024 * 1024
 #: Tokens do titulo mais curtos que isto nao viram chave de busca (artigos e preposicoes).
@@ -112,9 +127,12 @@ AMBIENTES_QUE_PODEM_ACEITAR: Final[frozenset[str]] = frozenset({"dev"})
 FORMATO_DO_LOCK: Final[Mapping[str, str]] = MappingProxyType({"name": "rco-k2-lock", "version": "1.0.0"})
 
 _HEX40: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
+_HEX64: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
 _DIGEST: Final[re.Pattern[str]] = re.compile(r"sha256:[0-9a-f]{64}")
-_INSTANTE_UTC: Final[re.Pattern[str]] = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+#: `[0-9]`, nunca `\d` (que casa digitos de outras escritas, como os de largura cheia).
+_INSTANTE_UTC: Final[re.Pattern[str]] = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 _PREFIXO_DO_DIGEST: Final[str] = "sha256:"
+_BOM: Final[bytes] = b"\xef\xbb\xbf"
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]+")
 _CAMPOS_DO_MANIFESTO: Final[frozenset[str]] = frozenset(
     {"formato", "versao", "commit_rco", "gerado_em", "ratificado", "arquivos"}
@@ -151,11 +169,47 @@ class PacoteK2InvalidoError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class PinDoK2:
-    """O pin do consumidor: a versao do pacote e o sha256 (64 hex, SEM o prefixo `sha256:`) dos BYTES do
-    `manifesto.json`."""
+    """O pin do consumidor: a versao do pacote, o sha256 (64 hex MINUSCULO, SEM o prefixo `sha256:`) dos
+    BYTES do `manifesto.json` e, quando veio do lock, o commit do rco (`commit_rco`, conferido com o do
+    manifesto)."""
 
     versao: str
     sha256_manifesto: str
+    commit_rco: str | None = None
+
+
+#: O selo privado de construcao do aceite: so' o portao o conhece.
+_SELO_DO_ACEITE: Final[object] = object()
+
+
+@dataclass(frozen=True, slots=True)
+class AceiteDeNaoRatificado:
+    """O aceite OPACO de pacote nao ratificado. So' `aceite_de_nao_ratificado` o constroi (o selo e'
+    privado); construir direto levanta `TypeError`. Producao nunca recebe um."""
+
+    ambiente: str
+    _selo: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._selo is not _SELO_DO_ACEITE:
+            raise TypeError("AceiteDeNaoRatificado so' sai de aceite_de_nao_ratificado")
+
+
+def aceite_de_nao_ratificado(*, ambiente: object, configurado: object) -> AceiteDeNaoRatificado | None:
+    """O portao da ratificacao (decisao da ROOT): `None` em producao e em ambiente desconhecido, vazio ou de
+    tipo errado (falha fechada); nos ambientes de `AMBIENTES_QUE_PODEM_ACEITAR`, um aceite so' se a
+    configuracao `CHAVE_ACEITAR_NAO_RATIFICADO` for exatamente `True`. Nenhuma configuracao faz producao
+    aceitar."""
+    if configurado is not True or not isinstance(ambiente, str):
+        return None
+    nome = ambiente.strip().lower()
+    if nome not in AMBIENTES_QUE_PODEM_ACEITAR:
+        return None
+    return AceiteDeNaoRatificado(ambiente=nome, _selo=_SELO_DO_ACEITE)
+
+
+def _aceite_valido(aceite: object) -> bool:
+    return isinstance(aceite, AceiteDeNaoRatificado) and getattr(aceite, "_selo", None) is _SELO_DO_ACEITE
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,13 +256,6 @@ def normalizar(termo: str) -> str:
     decomposto = unicodedata.normalize("NFKD", termo)
     sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c)).casefold()
     return " ".join(_TOKEN.findall(sem_acento))
-
-
-def aceita_nao_ratificado(*, ambiente: str, configurado: bool) -> bool:
-    """O portao da ratificacao (decisao da ROOT): `False` em producao e em ambiente desconhecido ou vazio
-    (falha fechada); nos ambientes de `AMBIENTES_QUE_PODEM_ACEITAR`, igual a `configurado` (a configuracao
-    `CHAVE_ACEITAR_NAO_RATIFICADO`). Nenhuma configuracao faz producao aceitar."""
-    return configurado is True and ambiente.strip().lower() in AMBIENTES_QUE_PODEM_ACEITAR
 
 
 def _chaves_da_regra(regra: RegraDoManual) -> frozenset[str]:
@@ -268,20 +315,118 @@ class ManualK2:
         return MappingProxyType({t: tuple(sorted(ids)) for t, ids in sorted(por_termo.items())})
 
 
-# --- Leitura e verificacao ---------------------------------------------------------------------------------
+# --- Leitura limitada ---------------------------------------------------------------------------------------
+_FLAGS_DE_LEITURA: Final[int] = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+
+
+def _abrir(caminho: Path) -> int:
+    """Abre para leitura sem seguir link (`O_NOFOLLOW`) e sem travar em FIFO (`O_NONBLOCK`)."""
+    return os.open(caminho, _FLAGS_DE_LEITURA)
+
+
 def _ler(caminho: Path, *, ausente: str) -> bytes:
-    if caminho.is_symlink() or not caminho.exists():
-        raise PacoteK2InvalidoError(ausente if not caminho.is_symlink() else "arquivo_nao_regular")
-    if not caminho.is_file():
+    """No maximo `TAMANHO_MAXIMO` bytes de um ARQUIVO REGULAR que nao e' link (falha fechada)."""
+    if caminho.is_symlink():
         raise PacoteK2InvalidoError("arquivo_nao_regular")
-    if caminho.stat().st_size > TAMANHO_MAXIMO:
-        raise PacoteK2InvalidoError("arquivo_grande_demais")
-    dados = caminho.read_bytes()
-    if len(dados) > TAMANHO_MAXIMO:  # o arquivo cresceu entre o stat e a leitura
+    try:
+        descritor = _abrir(caminho)
+    except FileNotFoundError:
+        raise PacoteK2InvalidoError(ausente) from None
+    except OSError:
+        # link trocado entre a checagem e a abertura (`O_NOFOLLOW` -> ELOOP) ou diretorio: nao e' regular
+        if caminho.is_symlink() or caminho.is_dir():
+            raise PacoteK2InvalidoError("arquivo_nao_regular") from None
+        raise
+    try:
+        info = os.fstat(descritor)
+        if not stat.S_ISREG(info.st_mode):
+            raise PacoteK2InvalidoError("arquivo_nao_regular")
+        if info.st_size > TAMANHO_MAXIMO:
+            raise PacoteK2InvalidoError("arquivo_grande_demais")
+        arquivo = os.fdopen(descritor, "rb")
+    except BaseException:
+        os.close(descritor)
+        raise
+    with arquivo:
+        dados = arquivo.read(TAMANHO_MAXIMO + 1)
+    if len(dados) > TAMANHO_MAXIMO:  # o arquivo cresceu entre o fstat e a leitura
         raise PacoteK2InvalidoError("arquivo_grande_demais")
     return dados
 
 
+# --- Interpretacao estrita ----------------------------------------------------------------------------------
+class _RecusadoError(Exception):
+    """Marca interna da leitura estrita (vira o motivo do arquivo; nunca sai do modulo)."""
+
+
+def _sem_chave_repetida(pares: list[tuple[str, Any]]) -> dict[str, Any]:
+    saida: dict[str, Any] = {}
+    for chave, valor in pares:
+        if chave in saida:
+            raise _RecusadoError
+        saida[chave] = valor
+    return saida
+
+
+def _constante_proibida(_nome: str) -> Any:
+    raise _RecusadoError  # NaN, Infinity, -Infinity
+
+
+def _json(dados: bytes, *, motivo: str) -> Any:
+    """JSON ESTRITO: sem BOM, sem chave repetida, sem NaN/Infinity; pilha ou memoria estourada = invalido."""
+    if dados.startswith(_BOM):
+        raise PacoteK2InvalidoError(motivo)
+    try:
+        return json.loads(
+            dados.decode("utf-8"),
+            object_pairs_hook=_sem_chave_repetida,
+            parse_constant=_constante_proibida,
+        )
+    except (UnicodeDecodeError, ValueError, _RecusadoError, RecursionError, MemoryError):
+        raise PacoteK2InvalidoError(motivo) from None
+
+
+class _CarregadorYamlEstrito(yaml.SafeLoader):
+    """`SafeLoader` que recusa ancora, alias, chave de merge e chave repetida."""
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        evento = self.peek_event()  # type: ignore[no-untyped-call]
+        if isinstance(evento, yaml.AliasEvent) or getattr(evento, "anchor", None) is not None:
+            raise _RecusadoError
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+        if isinstance(node, yaml.MappingNode):
+            vistas: set[Any] = set()
+            for no_da_chave, _no_do_valor in node.value:
+                if no_da_chave.tag == "tag:yaml.org,2002:merge":
+                    raise _RecusadoError
+                chave = self.construct_object(no_da_chave, deep=True)
+                try:
+                    repetida = chave in vistas
+                except TypeError:
+                    raise _RecusadoError from None
+                if repetida:
+                    raise _RecusadoError
+                vistas.add(chave)
+        return super().construct_mapping(node, deep=deep)
+
+
+def _yaml(dados: bytes, *, motivo: str) -> Any:
+    """YAML ESTRITO (`_CarregadorYamlEstrito`): sem BOM; pilha ou memoria estourada = invalido."""
+    if dados.startswith(_BOM):
+        raise PacoteK2InvalidoError(motivo)
+    try:
+        carregador = _CarregadorYamlEstrito(dados.decode("utf-8"))
+        try:
+            return carregador.get_single_data()
+        finally:
+            carregador.dispose()  # type: ignore[no-untyped-call]
+    except (UnicodeDecodeError, yaml.YAMLError, _RecusadoError, RecursionError, MemoryError):
+        raise PacoteK2InvalidoError(motivo) from None
+
+
+# --- Verificacao --------------------------------------------------------------------------------------------
 def _campos_exatos(
     bruto: Mapping[str, Any],
     obrigatorios: frozenset[str],
@@ -309,29 +454,35 @@ def _textos(valor: object, *, motivo: str) -> tuple[str, ...]:
     return tuple(_texto(v, motivo=motivo) for v in valor)
 
 
-def _json(dados: bytes, *, motivo: str) -> Any:
-    try:
-        return json.loads(dados.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
-        raise PacoteK2InvalidoError(motivo) from None
-
-
-def _yaml(dados: bytes, *, motivo: str) -> Any:
-    try:
-        return yaml.safe_load(dados.decode("utf-8"))
-    except (UnicodeDecodeError, yaml.YAMLError):
-        raise PacoteK2InvalidoError(motivo) from None
-
-
 def bytes_canonicos(manifesto: Mapping[str, Any]) -> bytes:
     """A serializacao canonica do manifesto pelo contrato (a mesma do gerador do rco)."""
     return json.dumps(manifesto, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
+def _verificar_pin(pin: object) -> PinDoK2:
+    """O pin e' a ancora: tipos certos e hex EXATO (64 minusculos; maiusculo e prefixo sao recusados)."""
+    if (
+        not isinstance(pin, PinDoK2)
+        or not isinstance(pin.versao, str)
+        or not pin.versao.strip()
+        or not isinstance(pin.sha256_manifesto, str)
+        or not _HEX64.fullmatch(pin.sha256_manifesto)
+        or not (
+            pin.commit_rco is None or (isinstance(pin.commit_rco, str) and _HEX40.fullmatch(pin.commit_rco))
+        )
+    ):
+        raise PacoteK2InvalidoError("pin_invalido")
+    return pin
+
+
 def _verificar_manifesto(
-    dados: bytes, linha_sha256: bytes, pin: PinDoK2, *, aceitar_nao_ratificado: bool
+    dados: bytes, linha_sha256: bytes, pin: PinDoK2, *, aceite: AceiteDeNaoRatificado | None
 ) -> tuple[str, str, bool, dict[str, str]]:
-    """O manifesto -> `(versao, commit_rco, ratificado, {arquivo: digest})`, na ordem do docstring."""
+    """O manifesto -> `(versao, commit_rco, ratificado, {arquivo: digest})`, na ordem do docstring. O hash
+    contra o pin vem ANTES de interpretar qualquer byte."""
+    hex_ = hashlib.sha256(dados).hexdigest()
+    if hex_ != pin.sha256_manifesto:
+        raise PacoteK2InvalidoError("sha256_do_manifesto_diferente_do_pin")
     bruto = _json(dados, motivo="manifesto_ilegivel")
     if not isinstance(bruto, dict):
         raise PacoteK2InvalidoError("manifesto_ilegivel")
@@ -340,21 +491,20 @@ def _verificar_manifesto(
     if bruto.get("formato") != FORMATO:
         raise PacoteK2InvalidoError("formato_diferente")
     versao = bruto.get("versao")
-    if not isinstance(versao, str) or not versao.strip() or versao != pin.versao:
+    if not isinstance(versao, str) or versao != pin.versao:
         raise PacoteK2InvalidoError("versao_diferente_do_pin")
-    digest = _PREFIXO_DO_DIGEST + hashlib.sha256(dados).hexdigest()
-    if digest != _PREFIXO_DO_DIGEST + pin.sha256_manifesto.lower():
-        raise PacoteK2InvalidoError("sha256_do_manifesto_diferente_do_pin")
-    _verificar_linha_sha256(linha_sha256, digest)
+    _verificar_linha_sha256(linha_sha256, _PREFIXO_DO_DIGEST + hex_)
     _campos_exatos(bruto, _CAMPOS_DO_MANIFESTO, prefixo="manifesto")
     ratificado = bruto["ratificado"]
     if not isinstance(ratificado, bool):
         raise PacoteK2InvalidoError("ratificado_invalido")
-    if not ratificado and aceitar_nao_ratificado is not True:
+    if not ratificado and not _aceite_valido(aceite):
         raise PacoteK2InvalidoError("pacote_nao_ratificado")
     commit = bruto["commit_rco"]
     if not isinstance(commit, str) or not _HEX40.fullmatch(commit):
         raise PacoteK2InvalidoError("commit_rco_invalido")
+    if pin.commit_rco is not None and commit != pin.commit_rco:
+        raise PacoteK2InvalidoError("commit_rco_diferente_do_pin")
     if not _e_instante_utc(bruto["gerado_em"]):
         raise PacoteK2InvalidoError("gerado_em_invalido")
     arquivos = bruto["arquivos"]
@@ -379,7 +529,7 @@ def _verificar_linha_sha256(linha: bytes, digest: str) -> None:
 
 
 def _e_instante_utc(valor: object) -> bool:
-    """`AAAA-MM-DDTHH:MM:SSZ`, e uma data/hora que existe."""
+    """`AAAA-MM-DDTHH:MM:SSZ` com digitos ASCII, e uma data/hora que existe."""
     if not isinstance(valor, str) or not _INSTANTE_UTC.fullmatch(valor):
         return False
     try:
@@ -389,11 +539,16 @@ def _e_instante_utc(valor: object) -> bool:
     return True
 
 
-def _verificar_diretorio(diretorio: Path, listados: Mapping[str, str]) -> dict[str, bytes]:
+def _entradas(diretorio: Path) -> frozenset[str]:
+    return frozenset(entrada.name for entrada in diretorio.iterdir())
+
+
+def _verificar_diretorio(
+    diretorio: Path, entradas: frozenset[str], listados: Mapping[str, str]
+) -> dict[str, bytes]:
     """Nenhuma entrada fora dos sete; cada arquivo listado presente e com o sha256 do manifesto."""
-    for entrada in diretorio.iterdir():
-        if entrada.name not in ENTRADAS_DO_DIRETORIO:
-            raise PacoteK2InvalidoError("arquivo_nao_listado_no_manifesto")
+    if not entradas <= ENTRADAS_DO_DIRETORIO:
+        raise PacoteK2InvalidoError("arquivo_nao_listado_no_manifesto")
     conteudos: dict[str, bytes] = {}
     for nome, hash_ in sorted(listados.items()):
         dados = _ler(diretorio / nome, ausente="arquivo_listado_ausente")
@@ -430,11 +585,14 @@ def _regra(item: object) -> RegraDoManual:
     for campo in ("t_titulo", "t_chaves", "t_texto"):
         if not isinstance(item[campo], str):
             raise PacoteK2InvalidoError("regra_fora_do_formato")
+    resumo = _texto(item["resumo"], motivo="regra_sem_resumo")
+    if len(resumo) > RESUMO_MAXIMO:
+        raise PacoteK2InvalidoError("regra_com_resumo_longo_demais")
     return RegraDoManual(
         id=_texto(item["id"], motivo="regra_sem_id"),
         url=item["url"],
         titulo=item["titulo"],
-        resumo=_texto(item["resumo"], motivo="regra_sem_resumo"),
+        resumo=resumo,
         texto=_texto(item["texto"], motivo="regra_sem_texto"),
         sinonimos=sinonimos,
         versao=_texto(item["versao"], motivo="regra_fora_do_formato"),
@@ -557,19 +715,39 @@ def _congelar(mapa: Mapping[str, tuple[str, ...]]) -> Mapping[str, tuple[str, ..
     return MappingProxyType(dict(sorted(mapa.items())))
 
 
-def carregar(diretorio: Path, *, pin: PinDoK2, aceitar_nao_ratificado: bool = False) -> ManualK2:
+def carregar(diretorio: Path, *, pin: PinDoK2, aceite: AceiteDeNaoRatificado | None = None) -> ManualK2:
     """Le' e verifica o pacote K2 contra o pin. Qualquer desvio -> `PacoteK2InvalidoError` (falha fechada).
 
-    `aceitar_nao_ratificado` vem de `aceita_nao_ratificado` (producao nunca aceita). `OSError` de leitura
-    (permissao, disco) sobe como esta; `carregar_ou_nenhum` trata os dois."""
+    `aceite` so' sai de `aceite_de_nao_ratificado` (producao nunca recebe um). `OSError` de leitura
+    (permissao, disco) sobe como esta; `carregar_ou_nenhum` trata tudo."""
+    if not isinstance(diretorio, Path):
+        raise PacoteK2InvalidoError("diretorio_invalido")
+    pin = _verificar_pin(pin)
+    if aceite is not None and not _aceite_valido(aceite):
+        raise PacoteK2InvalidoError("aceite_invalido")
+    if diretorio.is_symlink():
+        raise PacoteK2InvalidoError("diretorio_nao_regular")
     if not diretorio.is_dir():
         raise PacoteK2InvalidoError("diretorio_ausente")
+    try:
+        return _carregar(diretorio, pin, aceite)
+    except (RecursionError, MemoryError):
+        # cinto e suspensorio: os leitores ja' traduzem; uma estrutura funda que passe deles para aqui
+        raise PacoteK2InvalidoError("estrutura_funda_demais") from None
+
+
+def _carregar(diretorio: Path, pin: PinDoK2, aceite: AceiteDeNaoRatificado | None) -> ManualK2:
+    entradas = _entradas(diretorio)
     dados_do_manifesto = _ler(diretorio / MANIFESTO, ausente="manifesto_ausente")
+    if hashlib.sha256(dados_do_manifesto).hexdigest() != pin.sha256_manifesto:
+        raise PacoteK2InvalidoError("sha256_do_manifesto_diferente_do_pin")
     linha_sha256 = _ler(diretorio / MANIFESTO_SHA256, ausente="manifesto_sha256_ausente")
     versao, commit_rco, ratificado, listados = _verificar_manifesto(
-        dados_do_manifesto, linha_sha256, pin, aceitar_nao_ratificado=aceitar_nao_ratificado
+        dados_do_manifesto, linha_sha256, pin, aceite=aceite
     )
-    conteudos = _verificar_diretorio(diretorio, listados)
+    conteudos = _verificar_diretorio(diretorio, entradas, listados)
+    if _entradas(diretorio) != entradas:
+        raise PacoteK2InvalidoError("diretorio_mudou_durante_a_leitura")
     termos_tecnicos_brutos = _json(conteudos[SINONIMOS], motivo="sinonimos_json_invalido")
     termos_tecnicos = _mapa_de_listas(termos_tecnicos_brutos, motivo="sinonimos_fora_do_formato")
     regras = _indice(conteudos[INDICE], versao=versao, sinonimos=termos_tecnicos_brutos)
@@ -591,25 +769,27 @@ def carregar(diretorio: Path, *, pin: PinDoK2, aceitar_nao_ratificado: bool = Fa
 
 
 def carregar_ou_nenhum(
-    diretorio: Path | None, *, pin: PinDoK2 | None, aceitar_nao_ratificado: bool = False
+    diretorio: Path | None, *, pin: PinDoK2 | None, aceite: AceiteDeNaoRatificado | None = None
 ) -> ManualK2 | None:
     """`carregar`, ou `None` (a habilidade cai no aviso de canais) com o log `helena_k2_recusado` so' com o
-    motivo: sem diretorio, sem pin, pacote invalido ou erro de leitura."""
+    motivo: sem diretorio, sem pin, pacote invalido, erro de leitura ou erro inesperado. NUNCA levanta."""
     if diretorio is None or pin is None:
         logger.warning("helena_k2_recusado", motivo="sem_diretorio" if diretorio is None else "sem_pin")
         return None
     try:
-        return carregar(diretorio, pin=pin, aceitar_nao_ratificado=aceitar_nao_ratificado)
+        return carregar(diretorio, pin=pin, aceite=aceite)
     except PacoteK2InvalidoError as exc:
         # So' o token de classe no log (cerca LUC-06/NEW-01): o motivo exato e' o de `carregar`, que o teste
         # e o operador obtem chamando-o direto sobre o mesmo pacote.
         logger.warning("helena_k2_recusado", motivo="pacote_invalido", erro=type(exc).__name__)
     except OSError as exc:
         logger.warning("helena_k2_recusado", motivo="erro_de_leitura", erro=type(exc).__name__)
+    except Exception as exc:  # defensivo: quem chama nunca recebe excecao do leitor
+        logger.warning("helena_k2_recusado", motivo="erro_inesperado", erro=type(exc).__name__)
     return None
 
 
-# --- O lock do consumidor ----------------------------------------------------------------------------------
+# --- O lock do consumidor -----------------------------------------------------------------------------------
 def _sub_objeto(valor: object, campos: frozenset[str]) -> dict[str, Any]:
     if not isinstance(valor, dict) or set(valor) != campos:
         raise PacoteK2InvalidoError("lock_fora_do_formato")
@@ -623,13 +803,24 @@ def pin_do_lock(caminho: Path) -> PinDoK2 | None:
          "provenance": {"rco_repo": str, "rco_commit_sha": 40 hex},
          "manifest_pin": {"path": str, "sha256": "sha256:<hex>"}, "versao": str}
 
-    Arquivo ausente ou `estado: sem_pacote` -> `None`; `fixado` -> `PinDoK2` (o hex SEM o prefixo); qualquer
-    outra coisa -> `PacoteK2InvalidoError`. PONTO EM ABERTO: em `sem_pacote` so' `lock_format` e `estado`
-    sao exigidos (nao se sabe se os demais vem); campo fora dos cinco e' recusado em qualquer estado. A versao
-    do formato do lock e' exata (`1.0.0`): versao nova = leitor novo."""
+    Arquivo ausente ou `estado: sem_pacote` -> `None`; `fixado` -> `PinDoK2` (o hex SEM o prefixo, e o
+    `rco_commit_sha` como `commit_rco`, que `carregar` confere com o do manifesto); qualquer outra coisa ->
+    `PacoteK2InvalidoError`. O JSON e' lido ESTRITO (chave repetida recusada).
+
+    `manifest_pin.path` e' so' VALIDADO (texto nao vazio), nao comparado: e' o caminho do manifesto no rco,
+    e QUEM CHAMA decide o diretorio local do pacote; a amarracao forte e' o sha256 do manifesto.
+
+    PONTO EM ABERTO: em `sem_pacote` so' `lock_format` e `estado` sao exigidos (nao se sabe se os demais vem);
+    campo fora dos cinco e' recusado em qualquer estado. A versao do formato do lock e' exata (`1.0.0`):
+    versao nova = leitor novo."""
+    if not isinstance(caminho, Path):
+        raise PacoteK2InvalidoError("lock_caminho_invalido")
     if not caminho.exists() and not caminho.is_symlink():
         return None
-    bruto = _json(_ler(caminho, ausente="lock_ausente"), motivo="lock_ilegivel")
+    try:
+        bruto = _json(_ler(caminho, ausente="lock_ausente"), motivo="lock_ilegivel")
+    except (RecursionError, MemoryError):
+        raise PacoteK2InvalidoError("lock_ilegivel") from None
     if not isinstance(bruto, dict) or not set(bruto) <= _CAMPOS_DO_LOCK:
         raise PacoteK2InvalidoError("lock_fora_do_formato")
     if bruto.get("lock_format") != dict(FORMATO_DO_LOCK):
@@ -652,7 +843,7 @@ def pin_do_lock(caminho: Path) -> PinDoK2 | None:
     if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         raise PacoteK2InvalidoError("lock_fora_do_formato")
     versao = _texto(bruto["versao"], motivo="lock_fora_do_formato")
-    return PinDoK2(versao=versao, sha256_manifesto=digest.removeprefix(_PREFIXO_DO_DIGEST))
+    return PinDoK2(versao=versao, sha256_manifesto=digest.removeprefix(_PREFIXO_DO_DIGEST), commit_rco=commit)
 
 
 __all__ = [
@@ -669,17 +860,19 @@ __all__ = [
     "MANIFESTO",
     "MANIFESTO_SHA256",
     "PUBLICO",
+    "RESUMO_MAXIMO",
     "SINONIMOS",
     "SINONIMOS_POR_TERMO",
     "TAMANHO_MAXIMO",
     "VARIAVEL_DO_AMBIENTE",
+    "AceiteDeNaoRatificado",
     "AvaliacaoDoManual",
     "ManualK2",
     "PacoteK2InvalidoError",
     "PinDoK2",
     "RegraDoManual",
     "SecaoGeral",
-    "aceita_nao_ratificado",
+    "aceite_de_nao_ratificado",
     "bytes_canonicos",
     "carregar",
     "carregar_ou_nenhum",

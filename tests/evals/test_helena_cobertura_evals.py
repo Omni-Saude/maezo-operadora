@@ -18,7 +18,12 @@ import pytest
 from structlog.testing import capture_logs
 
 from maezo.agents.helena.habilidades import cobertura as cob
-from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, PinDoK2, carregar
+from maezo.agents.helena.habilidades.cobertura.manual import (
+    ManualK2,
+    PinDoK2,
+    aceite_de_nao_ratificado,
+    carregar,
+)
 from maezo.agents.helena.habilidades.cobertura.regra_geral import CamadaRegraGeral
 from maezo.agents.helena.habilidades.cobertura.verificador import verificar
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
@@ -45,7 +50,7 @@ def _casos() -> list[conv.CasoDeCobertura]:
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA_K2, pin=_PIN, aceitar_nao_ratificado=True)
+    return carregar(_AMOSTRA_K2, pin=_PIN, aceite=aceite_de_nao_ratificado(ambiente="dev", configurado=True))
 
 
 async def _rodar(manual: ManualK2, caso: conv.CasoDeCobertura) -> conv.Resultado:
