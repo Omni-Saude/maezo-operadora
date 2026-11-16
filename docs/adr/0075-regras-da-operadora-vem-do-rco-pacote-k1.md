@@ -163,7 +163,10 @@ Hoje, `DmnVersion.to_audit_dict` grava `{version, id, deploymentId}` por tabela 
 
 Para decisão do K1, a entrada do `dmn_versions` ganha três campos opcionais:
 - `idRegra`: da saída da tabela;
-- `versaoRegra` e `shaDmn`: do `rules.lock.json` verificado no deploy, não do motor.
+- `versaoRegra` e `shaDmn`: do `rules.lock.json` verificado no deploy, não do motor;
+- `sha256Yaml`: o `regras[].sha256_yaml` do manifesto K1 pinado para o `idRegra` da linha casada, no formato `sha256:<hex>` do pacote. É o hash da fonte YAML da regra no rco (contrato-k1 §3) e responde "qual texto de regra decidiu" mesmo quando duas versões da regra compilam no mesmo DMN. Só aparece junto com `idRegra`; linha sem `idRegra` (por exemplo, o `liberar` padrão com `idRegra = ""`) grava só `shaDmn`.
+
+**Emenda de 16/11/2026 (Programa Circuito Fechado, Onda 2, pedido do contrato-k1 §11 item 2).** O campo `sha256Yaml` acima foi acrescentado depois da redação original, que previa só três campos. O leitor do manifesto (MZO-2a, #1244) já expõe `sha256_yaml` por regra em `RcoPinnedTable.regras`, mas não o grava em `dmn_versions` enquanto esta seção não for aceita. A gravação é a mesma regra das outras chaves: opcional, só para decisão de `rco/`, sem mudar as chaves atuais.
 
 As chaves atuais ficam como estão, para não quebrar leitores. Os campos só aparecem quando a decisão vem de `rco/`. Mudar o formato do registro exige revisar o verificador de cadeia (ADR-0007) e os testes de forma de `AuditRecord`.
 
