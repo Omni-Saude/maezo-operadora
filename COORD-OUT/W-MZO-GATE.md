@@ -24,3 +24,14 @@ Ponto relacionado, já corrigido: na minha mensagem anterior à CD-20, eu disse 
 - PR #1270 aberto (head 5d88ee6). Q-W-MZO-GATE-01 seguiu pela opção (A), PROVISÓRIO. A mescladora confirmou o ADR 0078 por mensagem (20:12Z).
 - Bloqueio de revisão: `flip-path-review-gate` está vermelho porque `docs/adr/` tem um único code owner, o autor do PR. É preciso a aprovação de um membro ativo da equipe sobre o head 5d88ee6; um push não resolve. Comentário no PR registrado.
 - PRONTO do #1270 só depois do restante do CI verde e da integração lida no junit.
+
+## 2026-11-16 ~21:10Z — E-SF-04 pronto localmente
+
+- O ramo `sf-w1/gate/E-SF-04` (0a03c3e) foi publicado sem PR, só para preservar o trabalho; ele está empilhado sobre o E-SF-03. O PR fica para depois do merge do #1270 (um PR aberto por janela). A revisão independente deu FAIL na 1ª rodada (3 major) e PASS na 2ª.
+- GAPs do E-SF-04, cada um com a busca feita:
+  - GAP-04-1. Lista de finalidades pré-DS: não publicada. Busca: grep `purpose_ref` em docs/ e spec/; contracts.json:3285 diz "no new literal purpose enum". Até ser publicada, o codec recusa o descriptor e os values de intake por padrão.
+  - GAP-04-2. Marcador de `requirement_ref` de DS e vocabulário fechado de labels da jornada: inexistentes. Busca em src/, spec/ e docs/; o `health-commercial.ts` citado no DEC-REG não existe no checkout do omni. Até lá, labels são recusados por padrão.
+  - GAP-04-3. O C6-4 pinado tem 6 propriedades `cpt` (PublicCatalog*) fora dos gates :485/:499 citados por EP-REG-02a, então a aceitação (1) não se cumpre literalmente. Decisão do custodiante AMH/DPO.
+  - GAP-04-4. Taxonomia de classe de campo do DPO: RATIFY-LATER. Classe desconhecida é tratada como PHI.
+  - Residual: quando alguém configurar uma lista de finalidades não vazia em produção, será preciso ligar `allowed_field_refs` ao descriptor admitido.
+- Ainda no E-SF-04: a recusa tipada PHI_IN_COMMERCIAL_INPUT não existe no enum de reason_code do C6-4. Levá-la ao fio depende de um schema sucessor.
