@@ -130,6 +130,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -142,6 +143,7 @@ import pytest_asyncio
 
 from maezo.platform.calendario import vencimento_em_dias_uteis
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
+from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
     AUDIT_AGENT_ID,
@@ -169,6 +171,9 @@ _DMN_ADMISS = _REPO / "spec/processes/dmn/auth_admissibility.dmn"
 _DMN_AUTO = _REPO / "spec/processes/dmn/auth_auto_approval.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/auth_sla.dmn"
 _DMN_JUNTA = _REPO / "spec/processes/dmn/auth_junta_admissibility.dmn"  # R-064 (RN 424 art. 3 I)
+# INTERLOCK T1 (PROC-01, A3c): deployed ONLY by the case that seeds its three inputs, so the
+# `auth_probe` instances above keep the documented "no `dmn=` seam" behaviour unchanged.
+_DMN_CARENCIA = _REPO / "spec/processes/dmn/carencia_check.dmn"
 
 # External task topics do contrato SP-OP-AUTH-001.
 _PUBLISH_TOPIC = "operadora.events.publish"
@@ -513,6 +518,22 @@ async def auth_probe(
 
 
 @pytest_asyncio.fixture
+async def auth_probe_dmn(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """PROC-01 A3c: the same probe, with the REAL engine-side DMN seam (`CibSevenDmnTransport`,
+    ADR-0028) wired into `ValidateAutoCriteriaWorker` — so `carencia_check` is evaluated BY THE
+    ENGINE, never by a fake. The ratification manifest is the shipped one (no `sources=` override)."""
+    probe = _build_auth_probe(
+        engine, audit_sink, audit_tenant, dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
+    )
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
+
+
+@pytest_asyncio.fixture
 async def auth_probe_written_notice(
     engine: EngineRest, audit_sink: Any, audit_tenant: str
 ) -> AsyncIterator[AuthEngineProbe]:
@@ -617,9 +638,18 @@ async def _assert_no_denial_without_human_task(engine: EngineRest, iid: str) -> 
 # ===========================================================================
 
 
+def _lista_do_historico(valor: Any) -> list[Any]:
+    """A list process variable read from history: the harness writes lists as `Json`, which the
+    history REST returns serialized. Anything that is not a list after decoding fails the test."""
+    decodificado = json.loads(valor) if isinstance(valor, str) else valor
+    assert isinstance(decodificado, list), f"expected a list variable, got {valor!r}"
+    return decodificado
+
+
 async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
+    auth_probe_dmn: AuthEngineProbe,
     start_auth: Callable[..., Any],
 ) -> None:
     """INVARIANTE L0 (Phase-1 DoD): prova que NENHUM caminho automatizado produz negativa."""
@@ -732,6 +762,38 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     )
     await _assert_no_denial_without_human_task(engine, inst_e["id"])
     results.append(("carencia_nao_cumprida_segue_analise", "ok"))
+
+    # A3c — INTERLOCK T1 (PROC-01, EP-PROC-01a). The day the three `carencia_check` inputs exist,
+    # the T1 repro (`urgencia_emergencia` + 30 days + CPT) must reach the machine ONLY as shadow
+    # evidence and a human route. Inputs SEEDED here on purpose: nothing in `src/` produces them
+    # (that is what the unit interlock pins), and this case must not be read as a producer. The
+    # table is evaluated BY THE REAL ENGINE (`auth_probe_dmn`, `CibSevenDmnTransport`); the masked
+    # verdict (`r01` -> not met) shows up as `REGULATORIO_CARENCIA_NAO_CUMPRIDA` + the shadow token,
+    # and the shipped manifest keeps the source unratified (`REGULATORIO_FONTE_NAO_RATIFICADA`).
+    await engine.deploy(_DMN_CARENCIA, name="SP-OP-AUTH-001-qa-carencia-t1")
+    inst_f = await start_auth(
+        tipo_procedimento="urgencia_emergencia",
+        dias_desde_adesao=30,
+        cpt_declarada=True,
+        dut_atendida=True,
+        dentro_teto_l2=True,
+        rede_credenciada=True,
+    )
+    await auth_probe_dmn.drain()
+    await auth_probe_dmn.drain_analyze()
+    await auth_probe_dmn.drain()
+    assert await engine.get_history_variable(inst_f["id"], "criterio_regulatorio_ok") is False
+    falhas_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_falhas"))
+    assert "REGULATORIO_FONTE_NAO_RATIFICADA" in falhas_f, falhas_f
+    assert "REGULATORIO_CARENCIA_NAO_CUMPRIDA" in falhas_f, falhas_f
+    sombra_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_shadow"))
+    assert "REGULATORIO_SOMBRA_REPROVARIA" in sombra_f, sombra_f
+    ended_f = await engine.activity_instances_ended(inst_f["id"])
+    assert _END_NEGADA not in ended_f, (
+        f"Repro T1 (urgencia + CPT) NAO deve produzir negativa automatica (L0 hard). ended={ended_f}"
+    )
+    await _assert_no_denial_without_human_task(engine, inst_f["id"])
+    results.append(("t1_repro_entradas_presentes_so_sombra_e_rota_humana", "ok"))
 
     assert all(status == "ok" for _, status in results), f"Falhas: {results}"
 
