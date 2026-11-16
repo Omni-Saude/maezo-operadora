@@ -22,7 +22,7 @@ from typing import Any, get_args
 import pytest
 
 from maezo.adapters.amh.commercial import CommercialWire
-from maezo.gateway.commercial_fences import (
+from maezo.adapters.amh.commercial_fences import (
     KNOWN_FALSE_POSITIVES,
     CommercialFenceError,
     CommercialFenceRefusal,

@@ -618,7 +618,7 @@ async def test_a1_and_a2_admitted_journey_discloses_plan_choices(schema_bytes):
 
 
 def test_offer_quote_payload_has_no_score_slot(schema_bytes):
-    from maezo.gateway.commercial_fences import (  # noqa: PLC0415
+    from maezo.adapters.amh.commercial_fences import (  # noqa: PLC0415
         OFFER_QUOTE_KEYS,
         offer_quote_slot_violations,
         result_score_slots,
