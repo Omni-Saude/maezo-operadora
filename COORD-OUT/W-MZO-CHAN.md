@@ -43,3 +43,10 @@ PRONTO maezo-operadora #1269 head aeb4c5b02cc133a873695c907f680919ba3ce1c3 check
    - (A) Autorizar no PR de E-SF-13. (B) Entregar a linha a W-MZO-DOC. Recomendação: (A). PROVISÓRIO-aguarda-coordenador.
 
 Nota de fila: CD-21 item 2 dá prioridade ao E-SF-13 na fila do maezo. Ele só abre depois do merge do #1269 (um PR aberto por janela), salvo instrução em contrário.
+
+## Estado (2026-11-16, após reinício do container)
+
+- E-SF-14: PR #1269, PRONTO registrado acima; aguarda APPROVED de code owner de `/deploy/` e a vez.
+- E-SF-18: revisão independente PASS (be10fd82, ramo local); aguarda a vez.
+- E-SF-17: revisão independente PASS (c572eddf, ramo local); aguarda Q-W-MZO-CHAN-01 e a vez.
+- E-SF-13: revisão independente PASS (dbe3eb0d); CD-25 recebido e em implementação (trava explícita de oposição de beneficiário no job de lembretes); nova revisão depois. Aguarda Q-W-MZO-CHAN-02 e a vez.
