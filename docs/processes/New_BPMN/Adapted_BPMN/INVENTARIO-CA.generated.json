@@ -1,0 +1,3564 @@
+{
+  "schema_version": 1,
+  "gerador": "scripts/docs/gerar_inventario_ca.py",
+  "fonte": "docs/processes/New_BPMN/Adapted_BPMN/CA_*_v4_adaptado.bpmn",
+  "nota": "Inventario gerado, so contagem (nao julga CASA/LACUNA). Denominador = process + tasks (todos os tipos, incl. callActivity e task sem tipo) + gateways + events; subProcess fora. Lanes copiadas literalmente de <bpmn:flowNodeRef>. Regenerar: python -m scripts.docs.gerar_inventario_ca",
+  "metodo": {
+    "parser": "lxml.etree (resolve_entities=False, no_network=True)",
+    "denominador_tipos": {
+      "processos": [
+        "process"
+      ],
+      "tasks": [
+        "userTask",
+        "serviceTask",
+        "sendTask",
+        "receiveTask",
+        "scriptTask",
+        "manualTask",
+        "businessRuleTask",
+        "callActivity",
+        "task"
+      ],
+      "gateways": [
+        "exclusiveGateway",
+        "parallelGateway",
+        "inclusiveGateway",
+        "eventBasedGateway",
+        "complexGateway"
+      ],
+      "events": [
+        "startEvent",
+        "endEvent",
+        "intermediateCatchEvent",
+        "intermediateThrowEvent",
+        "boundaryEvent"
+      ]
+    },
+    "fora_do_denominador": [
+      "subProcess"
+    ]
+  },
+  "arquivos": [
+    {
+      "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn",
+      "chave": "CA_0",
+      "sha256": "b77619a1bdc997b0598627c36ff8273dc6402ac05702acbcad59b0b06381a0e7",
+      "denominador": {
+        "total": 98,
+        "processos": 7,
+        "tasks": {
+          "total": 36,
+          "por_tipo": {
+            "userTask": 2,
+            "serviceTask": 31,
+            "sendTask": 0,
+            "receiveTask": 0,
+            "scriptTask": 0,
+            "manualTask": 0,
+            "businessRuleTask": 0,
+            "callActivity": 3,
+            "task": 0
+          }
+        },
+        "gateways": {
+          "total": 21,
+          "por_tipo": {
+            "exclusiveGateway": 19,
+            "parallelGateway": 2,
+            "inclusiveGateway": 0,
+            "eventBasedGateway": 0,
+            "complexGateway": 0
+          }
+        },
+        "events": {
+          "total": 34,
+          "por_tipo": {
+            "startEvent": 8,
+            "endEvent": 20,
+            "intermediateCatchEvent": 1,
+            "intermediateThrowEvent": 2,
+            "boundaryEvent": 3
+          }
+        }
+      },
+      "agregados": {
+        "sequenceFlow": 91,
+        "subProcess": 0,
+        "textAnnotation": 1,
+        "association": 1,
+        "dataObject": 5,
+        "dataObjectReference": 5,
+        "dataStore": 6,
+        "dataStoreReference": 8,
+        "dataInputAssociation": 12,
+        "dataOutputAssociation": 2,
+        "participant": 9,
+        "messageFlow": 6,
+        "laneSet": 6,
+        "lane": 16,
+        "flowNodeRef": 88,
+        "collaboration": 1,
+        "conditionExpression": 16,
+        "BPMNDiagram": 2,
+        "BPMNPlane": 2,
+        "BPMNShape": 130,
+        "BPMNEdge": 112
+      },
+      "planos_di_sem_id": 0,
+      "declaracoes": {
+        "message": 2,
+        "signal": 1,
+        "error": 1,
+        "escalation": 0,
+        "total": 4
+      },
+      "ids_duplicados": [],
+      "delegate_expressions": {
+        "ocorrencias": 28,
+        "distintos": 28,
+        "valores_distintos": [
+          "${businessEventIngestionService}",
+          "${channelRoutingService}",
+          "${clinicalDataIngestion}",
+          "${coldStartFallbackService}",
+          "${comunicarClientePublisher}",
+          "${contextEventLogger}",
+          "${digitalSignalCollector}",
+          "${enrichmentBatchSelector}",
+          "${eventClassifierAI}",
+          "${explanationService}",
+          "${fallbackChannelDispatcher}",
+          "${featureStoreService}",
+          "${frequencyCappingService}",
+          "${helpCenterPublisher}",
+          "${identityResolutionService}",
+          "${lgpdAuditService}",
+          "${lgpdConsentService}",
+          "${modelRegistryService}",
+          "${omniChannelDispatcher}",
+          "${openDataEnrichmentService}",
+          "${planUsageCollector}",
+          "${preferenceCenterService}",
+          "${proactiveMessageAI}",
+          "${profileAssessmentService}",
+          "${profileConsolidationService}",
+          "${recommendationGuardrailService}",
+          "${recommendationRankingService}",
+          "${surveyResponseCollector}"
+        ]
+      },
+      "elementos": [
+        {
+          "id": "Process_CA_H2_ComunicarCliente",
+          "tipo": "process",
+          "nome": "H2 — Comunicar o cliente",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_Start",
+          "tipo": "startEvent",
+          "nome": "Marco ou informação a comunicar",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Classificar",
+          "tipo": "serviceTask",
+          "nome": "Classificar evento (IA): tipo, urgência, categoria",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_GW_Tipo",
+          "tipo": "exclusiveGateway",
+          "nome": "Evento exige ação ou antecipa dúvida?",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Gerar",
+          "tipo": "serviceTask",
+          "nome": "Gerar mensagem (IA)",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_GW_Confiavel",
+          "tipo": "exclusiveGateway",
+          "nome": "Mensagem confiável e fora do risco clínico 3?",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Revisao",
+          "tipo": "userTask",
+          "nome": "Revisar clinicamente a mensagem",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_B_SLA_Revisao",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 4h sem revisão",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_EscalarRevisao",
+          "tipo": "serviceTask",
+          "nome": "Escalar revisão clínica pendente",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_SLA_Revisao",
+          "tipo": "endEvent",
+          "nome": "Revisão escalada — mensagem retida",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_GW_MergeRevisao",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_CA_Canal",
+          "tipo": "callActivity",
+          "nome": "Selecionar canal e momento",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_GW_Envio",
+          "tipo": "exclusiveGateway",
+          "nome": "Decisão de envio?",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_EV_Janela",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Aguardar próxima janela permitida",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_Suprimido",
+          "tipo": "endEvent",
+          "nome": "Suprimido ou agrupado por preferência",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Enviar",
+          "tipo": "serviceTask",
+          "nome": "Enviar no canal selecionado",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_GW_Entregue",
+          "tipo": "exclusiveGateway",
+          "nome": "Entregue no canal?",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_Informado",
+          "tipo": "endEvent",
+          "nome": "Cliente informado antes de perguntar",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Fallback",
+          "tipo": "serviceTask",
+          "nome": "Enviar por canal de contingência (SMS)",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_Contingencia",
+          "tipo": "endEvent",
+          "nome": "Informado pelo canal de contingência",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Portal",
+          "tipo": "serviceTask",
+          "nome": "Atualizar FAQ personalizada e central de ajuda",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_Portal",
+          "tipo": "endEvent",
+          "nome": "Informação disponível quando o cliente buscar",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_T_Log",
+          "tipo": "serviceTask",
+          "nome": "Registrar evento no contexto do cliente",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "H2_End_Log",
+          "tipo": "endEvent",
+          "nome": "Contexto atualizado",
+          "processo": "Process_CA_H2_ComunicarCliente"
+        },
+        {
+          "id": "Process_CA_H2_SelecionarCanal",
+          "tipo": "process",
+          "nome": "H2.1 — Selecionar canal e momento",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_Start",
+          "tipo": "startEvent",
+          "nome": "Mensagem pronta para envio",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_T_Preferencias",
+          "tipo": "serviceTask",
+          "nome": "Consultar central de preferências",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_GW_OptIn",
+          "tipo": "exclusiveGateway",
+          "nome": "Categoria permitida (opt-in / base legal)?",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_End_OptOut",
+          "tipo": "endEvent",
+          "nome": "Suprimido — sem opt-in",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_T_Canal",
+          "tipo": "serviceTask",
+          "nome": "Mapear urgência para canal",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_GW_Critico",
+          "tipo": "exclusiveGateway",
+          "nome": "Urgência crítica?",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_T_Capping",
+          "tipo": "serviceTask",
+          "nome": "Aplicar frequency capping e horário silencioso",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_GW_Decisao",
+          "tipo": "exclusiveGateway",
+          "nome": "Enviar agora?",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_GW_MergeEnviar",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_End_Enviar",
+          "tipo": "endEvent",
+          "nome": "Enviar",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_End_Adiar",
+          "tipo": "endEvent",
+          "nome": "Adiar até a próxima janela",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "SC_End_Suprimir",
+          "tipo": "endEvent",
+          "nome": "Suprimir (cap atingido / agrupado)",
+          "processo": "Process_CA_H2_SelecionarCanal"
+        },
+        {
+          "id": "Process_CA_H1_IdentidadeConsentimento",
+          "tipo": "process",
+          "nome": "H1 — Identidade e consentimento",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_Start",
+          "tipo": "startEvent",
+          "nome": "Verificação solicitada",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_T_Consentimento",
+          "tipo": "serviceTask",
+          "nome": "Consultar consentimento por finalidade",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_GW_Consentimento",
+          "tipo": "exclusiveGateway",
+          "nome": "Consentimento válido?",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_T_Auditoria",
+          "tipo": "serviceTask",
+          "nome": "Registrar tentativa negada",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_End_Negado",
+          "tipo": "endEvent",
+          "nome": "Consentimento negado",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_T_Diagnostico",
+          "tipo": "serviceTask",
+          "nome": "Avaliar completude do perfil e identidade",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_GW_Identidade",
+          "tipo": "exclusiveGateway",
+          "nome": "Identidade digital já unificada?",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_T_Unificar",
+          "tipo": "serviceTask",
+          "nome": "Unificar identidade digital",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_GW_Merge",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "H1_End_OK",
+          "tipo": "endEvent",
+          "nome": "Cliente identificado e autorizado",
+          "processo": "Process_CA_H1_IdentidadeConsentimento"
+        },
+        {
+          "id": "Process_CA_H3_ConhecerCliente",
+          "tipo": "process",
+          "nome": "H3 — Conhecer o cliente e aprender",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_Start_Ciclo",
+          "tipo": "startEvent",
+          "nome": "Ciclo diário de enriquecimento (03:00)",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_T_Lote",
+          "tipo": "serviceTask",
+          "nome": "Selecionar lote de clientes elegíveis",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_CA_Lote",
+          "tipo": "callActivity",
+          "nome": "Enriquecer clientes do lote",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_T_Retreinar",
+          "tipo": "serviceTask",
+          "nome": "Retreinar modelo de recomendação",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_GW_Modelo",
+          "tipo": "exclusiveGateway",
+          "nome": "Modelo atingiu métricas mínimas?",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_T_Promover",
+          "tipo": "serviceTask",
+          "nome": "Promover modelo ao registro de produção",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_End_Pipeline",
+          "tipo": "endEvent",
+          "nome": "Pipeline diário concluído",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_EV_AlertaDS",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Alertar cientistas de dados",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_End_ModeloRetido",
+          "tipo": "endEvent",
+          "nome": "Modelo anterior mantido",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_Start_Evento",
+          "tipo": "startEvent",
+          "nome": "Evento de negócio recebido",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_T_Registrar",
+          "tipo": "serviceTask",
+          "nome": "Registrar evento de negócio no perfil 360",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_GW_Nutrir",
+          "tipo": "exclusiveGateway",
+          "nome": "Nutrir o cliente com conteúdo?",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_EV_Recomendar",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Enviar recomendação de valor ao cliente",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_GW_MergeEvt",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "H3_End_Evento",
+          "tipo": "endEvent",
+          "nome": "Evento incorporado ao perfil 360",
+          "processo": "Process_CA_H3_ConhecerCliente"
+        },
+        {
+          "id": "Process_CA_H3_EnriquecerCliente",
+          "tipo": "process",
+          "nome": "H3.1 — Enriquecer perfil 360 do cliente",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_Start",
+          "tipo": "startEvent",
+          "nome": "Cliente a enriquecer",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_CA_H1",
+          "tipo": "callActivity",
+          "nome": "Verificar identidade e consentimento",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_B_Negado",
+          "tipo": "boundaryEvent",
+          "nome": "Consentimento negado",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_End_Negado",
+          "tipo": "endEvent",
+          "nome": "Encerrado sem consentimento",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_GW_Split",
+          "tipo": "parallelGateway",
+          "nome": "",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Abertos",
+          "tipo": "serviceTask",
+          "nome": "Extrair dados abertos (DATASUS, ANS)",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Uso",
+          "tipo": "serviceTask",
+          "nome": "Coletar histórico de uso do plano",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Digitais",
+          "tipo": "serviceTask",
+          "nome": "Capturar sinais digitais próprios",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Clinicos",
+          "tipo": "serviceTask",
+          "nome": "Ingerir dados clínicos (HL7 FHIR)",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Pesquisas",
+          "tipo": "serviceTask",
+          "nome": "Coletar pesquisas já respondidas",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_GW_Join",
+          "tipo": "parallelGateway",
+          "nome": "",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_T_Consolidar",
+          "tipo": "serviceTask",
+          "nome": "Consolidar e versionar perfil 360",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "EC_End",
+          "tipo": "endEvent",
+          "nome": "Perfil 360 publicado",
+          "processo": "Process_CA_H3_EnriquecerCliente"
+        },
+        {
+          "id": "Process_CA_H3_ProximaMelhorAcao",
+          "tipo": "process",
+          "nome": "H3.2 — Calcular próxima melhor ação",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_Start",
+          "tipo": "startEvent",
+          "nome": "Cálculo solicitado",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Contexto",
+          "tipo": "serviceTask",
+          "nome": "Carregar perfil 360 e contexto de sessão",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_GW_ColdStart",
+          "tipo": "exclusiveGateway",
+          "nome": "Histórico suficiente?",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Ranquear",
+          "tipo": "serviceTask",
+          "nome": "Ranquear candidatos (item-item + bandit)",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Popularidade",
+          "tipo": "serviceTask",
+          "nome": "Aplicar fallback de cold start",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_GW_Merge",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Guardrails",
+          "tipo": "serviceTask",
+          "nome": "Aplicar guardrails (elegibilidade, cobertura)",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Explicar",
+          "tipo": "serviceTask",
+          "nome": "Gerar explicação da recomendação",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_GW_Clinico",
+          "tipo": "exclusiveGateway",
+          "nome": "Consequência clínica (risco 3)?",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_Revisao",
+          "tipo": "userTask",
+          "nome": "Revisar recomendação clínica",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_B_SLA_Revisao",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 24h sem revisão",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_T_EscalarRevisao",
+          "tipo": "serviceTask",
+          "nome": "Escalar revisão de recomendação pendente",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_End_SLA_Revisao",
+          "tipo": "endEvent",
+          "nome": "Revisão escalada — recomendação retida",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_GW_MergeFim",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "NBA_End",
+          "tipo": "endEvent",
+          "nome": "Recomendação calculada",
+          "processo": "Process_CA_H3_ProximaMelhorAcao"
+        },
+        {
+          "id": "Process_CA_DS_Monitoramento",
+          "tipo": "process",
+          "nome": "DS — Consumir alerta do time de ciência de dados",
+          "processo": "Process_CA_DS_Monitoramento"
+        },
+        {
+          "id": "DS_Start_AlertaDS",
+          "tipo": "startEvent",
+          "nome": "Alerta Time Data Science recebido",
+          "processo": "Process_CA_DS_Monitoramento"
+        },
+        {
+          "id": "DS_T_RegistrarAlerta",
+          "tipo": "serviceTask",
+          "nome": "Registrar alerta para o time de dados",
+          "processo": "Process_CA_DS_Monitoramento"
+        },
+        {
+          "id": "DS_End_AlertaRegistrado",
+          "tipo": "endEvent",
+          "nome": "Alerta registrado para consumo do time",
+          "processo": "Process_CA_DS_Monitoramento"
+        }
+      ],
+      "lanes": [
+        {
+          "id": "LN_CA0_H2_CrmEComunicacao",
+          "nome": "CRM e comunicação",
+          "processo": "Process_CA_H2_ComunicarCliente",
+          "flow_node_refs": [
+            "H2_Start",
+            "H2_T_Classificar",
+            "H2_GW_Tipo",
+            "H2_T_Gerar",
+            "H2_GW_Confiavel",
+            "H2_GW_MergeRevisao",
+            "H2_CA_Canal",
+            "H2_GW_Envio",
+            "H2_EV_Janela",
+            "H2_End_Suprimido",
+            "H2_T_Enviar",
+            "H2_GW_Entregue",
+            "H2_End_Informado",
+            "H2_T_Fallback",
+            "H2_End_Contingencia",
+            "H2_T_Portal",
+            "H2_End_Portal",
+            "H2_T_Log",
+            "H2_End_Log"
+          ]
+        },
+        {
+          "id": "LN_CA0_H2_GovernancaClinica",
+          "nome": "Governança clínica",
+          "processo": "Process_CA_H2_ComunicarCliente",
+          "flow_node_refs": [
+            "H2_T_Revisao",
+            "H2_B_SLA_Revisao",
+            "H2_T_EscalarRevisao",
+            "H2_End_SLA_Revisao"
+          ]
+        },
+        {
+          "id": "LN_CA0_H21_CrmEComunicacao",
+          "nome": "CRM e comunicação",
+          "processo": "Process_CA_H2_SelecionarCanal",
+          "flow_node_refs": [
+            "SC_T_Canal",
+            "SC_GW_Critico",
+            "SC_GW_MergeEnviar",
+            "SC_End_Enviar"
+          ]
+        },
+        {
+          "id": "LN_CA0_H21_AgendaECapacidade",
+          "nome": "Agenda e capacidade",
+          "processo": "Process_CA_H2_SelecionarCanal",
+          "flow_node_refs": [
+            "SC_T_Capping",
+            "SC_GW_Decisao",
+            "SC_End_Adiar",
+            "SC_End_Suprimir"
+          ]
+        },
+        {
+          "id": "LN_CA0_H21_DisponibilizacaoDeInsumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_H2_SelecionarCanal",
+          "flow_node_refs": [
+            "SC_Start",
+            "SC_T_Preferencias",
+            "SC_GW_OptIn",
+            "SC_End_OptOut"
+          ]
+        },
+        {
+          "id": "LN_CA0_H1_VerificadorDeIdentidade",
+          "nome": "Verificador de identidade",
+          "processo": "Process_CA_H1_IdentidadeConsentimento",
+          "flow_node_refs": [
+            "H1_T_Auditoria",
+            "H1_End_Negado",
+            "H1_T_Diagnostico",
+            "H1_GW_Identidade",
+            "H1_T_Unificar",
+            "H1_GW_Merge",
+            "H1_End_OK"
+          ]
+        },
+        {
+          "id": "LN_CA0_H1_DisponibilizacaoDeInsumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_H1_IdentidadeConsentimento",
+          "flow_node_refs": [
+            "H1_Start",
+            "H1_T_Consentimento",
+            "H1_GW_Consentimento"
+          ]
+        },
+        {
+          "id": "LN_CA0_H3_DadosECrm",
+          "nome": "Dados e CRM (consolidação de perfil)",
+          "processo": "Process_CA_H3_ConhecerCliente",
+          "flow_node_refs": [
+            "H3_CA_Lote",
+            "H3_Start_Evento",
+            "H3_T_Registrar",
+            "H3_GW_Nutrir",
+            "H3_EV_Recomendar",
+            "H3_GW_MergeEvt",
+            "H3_End_Evento"
+          ]
+        },
+        {
+          "id": "LN_CA0_H3_ModelagemEGrowth",
+          "nome": "Modelagem e growth (motor de recomendação)",
+          "processo": "Process_CA_H3_ConhecerCliente",
+          "flow_node_refs": [
+            "H3_T_Retreinar",
+            "H3_GW_Modelo",
+            "H3_T_Promover",
+            "H3_End_Pipeline",
+            "H3_EV_AlertaDS",
+            "H3_End_ModeloRetido"
+          ]
+        },
+        {
+          "id": "LN_CA0_H3_DisponibilizacaoDeInsumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_H3_ConhecerCliente",
+          "flow_node_refs": [
+            "H3_Start_Ciclo",
+            "H3_T_Lote"
+          ]
+        },
+        {
+          "id": "LN_CA0_H31_VerificadorDeIdentidade",
+          "nome": "Verificador de identidade",
+          "processo": "Process_CA_H3_EnriquecerCliente",
+          "flow_node_refs": [
+            "EC_Start",
+            "EC_CA_H1",
+            "EC_B_Negado",
+            "EC_End_Negado",
+            "EC_GW_Split"
+          ]
+        },
+        {
+          "id": "LN_CA0_H31_DadosECrm",
+          "nome": "Dados e CRM (consolidação de perfil)",
+          "processo": "Process_CA_H3_EnriquecerCliente",
+          "flow_node_refs": [
+            "EC_T_Consolidar",
+            "EC_End"
+          ]
+        },
+        {
+          "id": "LN_CA0_H31_DisponibilizacaoDeInsumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_H3_EnriquecerCliente",
+          "flow_node_refs": [
+            "EC_T_Abertos",
+            "EC_T_Uso",
+            "EC_T_Digitais",
+            "EC_T_Clinicos",
+            "EC_T_Pesquisas",
+            "EC_GW_Join"
+          ]
+        },
+        {
+          "id": "LN_CA0_H32_ModelagemEGrowth",
+          "nome": "Modelagem e growth (motor de recomendação)",
+          "processo": "Process_CA_H3_ProximaMelhorAcao",
+          "flow_node_refs": [
+            "NBA_T_Ranquear",
+            "NBA_T_Popularidade",
+            "NBA_GW_Merge",
+            "NBA_T_Guardrails",
+            "NBA_T_Explicar",
+            "NBA_GW_Clinico",
+            "NBA_GW_MergeFim",
+            "NBA_End"
+          ]
+        },
+        {
+          "id": "LN_CA0_H32_GovernancaClinica",
+          "nome": "Governança clínica",
+          "processo": "Process_CA_H3_ProximaMelhorAcao",
+          "flow_node_refs": [
+            "NBA_T_Revisao",
+            "NBA_B_SLA_Revisao",
+            "NBA_T_EscalarRevisao",
+            "NBA_End_SLA_Revisao"
+          ]
+        },
+        {
+          "id": "LN_CA0_H32_DisponibilizacaoDeInsumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_H3_ProximaMelhorAcao",
+          "flow_node_refs": [
+            "NBA_Start",
+            "NBA_T_Contexto",
+            "NBA_GW_ColdStart"
+          ]
+        }
+      ],
+      "lanes_resumo": {
+        "flow_node_refs": 88,
+        "refs_fora_do_denominador": [],
+        "refs_em_mais_de_uma_lane": [],
+        "denominador_sem_lane": [
+          "Process_CA_H2_ComunicarCliente",
+          "Process_CA_H2_SelecionarCanal",
+          "Process_CA_H1_IdentidadeConsentimento",
+          "Process_CA_H3_ConhecerCliente",
+          "Process_CA_H3_EnriquecerCliente",
+          "Process_CA_H3_ProximaMelhorAcao",
+          "Process_CA_DS_Monitoramento",
+          "DS_Start_AlertaDS",
+          "DS_T_RegistrarAlerta",
+          "DS_End_AlertaRegistrado"
+        ]
+      }
+    },
+    {
+      "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",
+      "chave": "CA_1",
+      "sha256": "cd571d6dc8e5bdfec2ff731315792cd8e74437c007e4f3ebec3afbe3252d8f79",
+      "denominador": {
+        "total": 104,
+        "processos": 5,
+        "tasks": {
+          "total": 21,
+          "por_tipo": {
+            "userTask": 4,
+            "serviceTask": 10,
+            "sendTask": 0,
+            "receiveTask": 0,
+            "scriptTask": 0,
+            "manualTask": 0,
+            "businessRuleTask": 0,
+            "callActivity": 7,
+            "task": 0
+          }
+        },
+        "gateways": {
+          "total": 21,
+          "por_tipo": {
+            "exclusiveGateway": 20,
+            "parallelGateway": 0,
+            "inclusiveGateway": 0,
+            "eventBasedGateway": 1,
+            "complexGateway": 0
+          }
+        },
+        "events": {
+          "total": 57,
+          "por_tipo": {
+            "startEvent": 10,
+            "endEvent": 28,
+            "intermediateCatchEvent": 4,
+            "intermediateThrowEvent": 6,
+            "boundaryEvent": 9
+          }
+        }
+      },
+      "agregados": {
+        "sequenceFlow": 91,
+        "subProcess": 1,
+        "textAnnotation": 0,
+        "association": 0,
+        "dataObject": 9,
+        "dataObjectReference": 9,
+        "dataStore": 5,
+        "dataStoreReference": 5,
+        "dataInputAssociation": 14,
+        "dataOutputAssociation": 1,
+        "participant": 9,
+        "messageFlow": 15,
+        "laneSet": 5,
+        "lane": 16,
+        "flowNodeRef": 98,
+        "collaboration": 1,
+        "conditionExpression": 17,
+        "BPMNDiagram": 1,
+        "BPMNPlane": 1,
+        "BPMNShape": 139,
+        "BPMNEdge": 121
+      },
+      "planos_di_sem_id": 0,
+      "declaracoes": {
+        "message": 15,
+        "signal": 0,
+        "error": 2,
+        "escalation": 0,
+        "total": 17
+      },
+      "ids_duplicados": [],
+      "delegate_expressions": {
+        "ocorrencias": 24,
+        "distintos": 11,
+        "valores_distintos": [
+          "${authorizationRequestService}",
+          "${autoAuthorizationService}",
+          "${autoRebookingService}",
+          "${businessEventPublisher}",
+          "${capacityPolicyService}",
+          "${comunicarClientePublisher}",
+          "${coverageRulesEngine}",
+          "${journeyTransitionPublisher}",
+          "${offerMatcherService}",
+          "${rewardTrackingService}",
+          "${schedulingAIAgent}"
+        ]
+      },
+      "elementos": [
+        {
+          "id": "Process_CA_COMPRA",
+          "tipo": "process",
+          "nome": "COMPRA — Obter o direito ao cuidado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_Start_NovoBeneficiario",
+          "tipo": "startEvent",
+          "nome": "Novo beneficiário contratado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_Start_ConsumoNaoRealizado",
+          "tipo": "startEvent",
+          "nome": "Consumo não realizado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_MergeIntencao",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_CA_C1",
+          "tipo": "callActivity",
+          "nome": "Entender a necessidade e recomendar",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_B_ConsentimentoNegado",
+          "tipo": "boundaryEvent",
+          "nome": "Consentimento negado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_Proposta",
+          "tipo": "exclusiveGateway",
+          "nome": "Proposta relevante e viável?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_CA_C2",
+          "tipo": "callActivity",
+          "nome": "Decidir e contratar",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_Decisao",
+          "tipo": "exclusiveGateway",
+          "nome": "Decisão do cliente?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_Recusa",
+          "tipo": "endEvent",
+          "nome": "Recusa registrada — slot liberado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_SemDecisao",
+          "tipo": "endEvent",
+          "nome": "Sem decisão no prazo — slot liberado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_MergeHabilitar",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_CA_C3",
+          "tipo": "callActivity",
+          "nome": "Habilitar o direito",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_Habilitado",
+          "tipo": "exclusiveGateway",
+          "nome": "Direito habilitado?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_DireitoHabilitado",
+          "tipo": "endEvent",
+          "nome": "Direito habilitado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_CA_C4",
+          "tipo": "callActivity",
+          "nome": "Manter o direito",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_Manutencao",
+          "tipo": "exclusiveGateway",
+          "nome": "Resultado da manutenção?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_DireitoEncerrado",
+          "tipo": "endEvent",
+          "nome": "Direito encerrado — slot liberado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_MergeSuporte",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_Suporte",
+          "tipo": "endEvent",
+          "nome": "Encaminhado ao SUPORTE com contexto da compra",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_Recovery",
+          "tipo": "endEvent",
+          "nome": "Encaminhado ao SUPORTE para recuperar o direito",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_ES_Start_Ajuda",
+          "tipo": "startEvent",
+          "nome": "Cliente pede ajuda",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_ES_End_Ajuda",
+          "tipo": "endEvent",
+          "nome": "Pedido encaminhado ao SUPORTE — compra segue",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_Start_Necessidade",
+          "tipo": "startEvent",
+          "nome": "Cliente expressa necessidade de cuidado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_Start_Reacao",
+          "tipo": "startEvent",
+          "nome": "Cliente reage a recomendação",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_Start_NovaNecessidade",
+          "tipo": "startEvent",
+          "nome": "Nova necessidade identificada",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_SemConsentimento",
+          "tipo": "endEvent",
+          "nome": "Cliente orientado a consentir",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_SemOferta",
+          "tipo": "exclusiveGateway",
+          "nome": "Busca ativa sem oferta viável?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_Nutrir",
+          "tipo": "endEvent",
+          "nome": "Necessidade registrada para nutrição",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_GW_TipoDireito",
+          "tipo": "exclusiveGateway",
+          "nome": "Tipo de direito?",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_VendaPerdida",
+          "tipo": "endEvent",
+          "nome": "Venda perdida — motivo registrado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "CP_End_Beneficiario",
+          "tipo": "endEvent",
+          "nome": "Beneficiário habilitado",
+          "processo": "Process_CA_COMPRA"
+        },
+        {
+          "id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "tipo": "process",
+          "nome": "C1 — Entender a necessidade e recomendar",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_Start",
+          "tipo": "startEvent",
+          "nome": "Intenção do cliente recebida",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_CA_H1",
+          "tipo": "callActivity",
+          "nome": "Verificar identidade e consentimento",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_CA_NBA",
+          "tipo": "callActivity",
+          "nome": "Calcular próxima melhor ação",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_T_Agenda",
+          "tipo": "serviceTask",
+          "nome": "Consultar agenda em tempo real",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_T_Cruzar",
+          "tipo": "serviceTask",
+          "nome": "Cruzar perfil 360 com oferta de cuidado",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_T_Capacidade",
+          "tipo": "serviceTask",
+          "nome": "Aplicar política de capacidade de acesso",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_T_Reward",
+          "tipo": "serviceTask",
+          "nome": "Registrar recomendação para medir adesão",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_End_Proposta",
+          "tipo": "endEvent",
+          "nome": "Proposta pronta para o cliente",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_GW_Proposta",
+          "tipo": "exclusiveGateway",
+          "nome": "Proposta composta?",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "C1_End_SemProposta",
+          "tipo": "endEvent",
+          "nome": "Sem proposta relevante",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar"
+        },
+        {
+          "id": "Process_CA_COMPRA_C2_DecidirContratar",
+          "tipo": "process",
+          "nome": "C2 — Decidir e contratar",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_Start",
+          "tipo": "startEvent",
+          "nome": "Proposta apresentada",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_EV_Lembrete",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Lembrar cliente da proposta",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_End_Lembrete",
+          "tipo": "endEvent",
+          "nome": "Lembrete enviado — segue aguardando",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_EV_Agendado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: agendado",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_End_Aceite",
+          "tipo": "endEvent",
+          "nome": "Agendamento confirmado",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_End_Recusa",
+          "tipo": "endEvent",
+          "nome": "Recusa registrada",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_End_SemResposta",
+          "tipo": "endEvent",
+          "nome": "Sem decisão no prazo",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_T_Aceite",
+          "tipo": "userTask",
+          "nome": "Decidir sobre a proposta (1 clique)",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_B_PrazoMax",
+          "tipo": "boundaryEvent",
+          "nome": "Prazo máximo de decisão",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_B_Lembrete",
+          "tipo": "boundaryEvent",
+          "nome": "24h sem resposta",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "C2_B_Recusa",
+          "tipo": "boundaryEvent",
+          "nome": "Cliente recusou",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar"
+        },
+        {
+          "id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "tipo": "process",
+          "nome": "C3 — Habilitar o direito",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_Start",
+          "tipo": "startEvent",
+          "nome": "Direito a habilitar",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_Tipo",
+          "tipo": "exclusiveGateway",
+          "nome": "Tipo de direito?",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_CA_Perfil",
+          "tipo": "callActivity",
+          "nome": "Enriquecer perfil 360 inicial",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_Plano",
+          "tipo": "endEvent",
+          "nome": "Direito ao plano habilitado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_MergeEleg",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_Elegibilidade",
+          "tipo": "serviceTask",
+          "nome": "Avaliar elegibilidade",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_Auto",
+          "tipo": "exclusiveGateway",
+          "nome": "Autorização automática possível?",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_AutoAutorizar",
+          "tipo": "serviceTask",
+          "nome": "Emitir autorização automática",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_MergeAut",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_Autorizado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: autorizado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_Habilitado",
+          "tipo": "endEvent",
+          "nome": "Direito habilitado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_MergeReq",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_Requisitar",
+          "tipo": "serviceTask",
+          "nome": "Submeter requisição de autorização",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_EmAnalise",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: em análise",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_Espera",
+          "tipo": "eventBasedGateway",
+          "nome": "Aguardar desfecho da autorização",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_Concedida",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Autorização concedida",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_Pendencia",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Pendência documental",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_Negada",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Autorização negada",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_EV_Expirou",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Prazo de resposta expirado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_Pendencia",
+          "tipo": "exclusiveGateway",
+          "nome": "Pendência resolvida e tentativas < 3?",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_TipoNegativa",
+          "tipo": "exclusiveGateway",
+          "nome": "Negativa de cobertura assistencial?",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_Parecer",
+          "tipo": "userTask",
+          "nome": "Emitir parecer médico da negativa",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_B_SLA_Parecer",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 48h sem parecer",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_EscalarParecer",
+          "tipo": "serviceTask",
+          "nome": "Escalar parecer médico pendente",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_SLA_Parecer",
+          "tipo": "endEvent",
+          "nome": "Parecer escalado — negativa retida",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_MergeReneg",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_Renegociar",
+          "tipo": "userTask",
+          "nome": "Oferecer alternativa ao cliente",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_B_SLA_Renegociar",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 24h sem alternativa",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_T_EscalarRenegociar",
+          "tipo": "serviceTask",
+          "nome": "Escalar oferta de alternativa pendente",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_SLA_Renegociar",
+          "tipo": "endEvent",
+          "nome": "Alternativa escalada — negativa retida",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_GW_Alternativa",
+          "tipo": "exclusiveGateway",
+          "nome": "Cliente aceitou alternativa?",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_Perdida",
+          "tipo": "endEvent",
+          "nome": "Direito não habilitado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "C3_End_Suporte",
+          "tipo": "endEvent",
+          "nome": "Contestação / humano solicitado",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito"
+        },
+        {
+          "id": "Process_CA_COMPRA_C4_ManterDireito",
+          "tipo": "process",
+          "nome": "C4 — Manter o direito",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_Start",
+          "tipo": "startEvent",
+          "nome": "Manutenção solicitada",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_GW_Motivo",
+          "tipo": "exclusiveGateway",
+          "nome": "Motivo da manutenção?",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_T_Reagendar",
+          "tipo": "serviceTask",
+          "nome": "Reagendar automaticamente em slot equivalente",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_B_SemSlot",
+          "tipo": "boundaryEvent",
+          "nome": "Sem slot equivalente",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_T_Confirmar",
+          "tipo": "userTask",
+          "nome": "Confirmar ou ajustar novo slot (1 toque)",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_B_Lembrete",
+          "tipo": "boundaryEvent",
+          "nome": "24h sem resposta",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_B_PrazoMax",
+          "tipo": "boundaryEvent",
+          "nome": "Prazo máximo de confirmação",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_EV_Lembrete",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Lembrar cliente do novo slot",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_End_Lembrete",
+          "tipo": "endEvent",
+          "nome": "Lembrete enviado — segue aguardando",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_EV_Agendado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: reagendado",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_End_Remarcado",
+          "tipo": "endEvent",
+          "nome": "Novo slot confirmado",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_End_SemConfirmacao",
+          "tipo": "endEvent",
+          "nome": "Sem confirmação no prazo",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_End_Cancelado",
+          "tipo": "endEvent",
+          "nome": "Cancelado pelo cliente",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        },
+        {
+          "id": "C4_End_SemSlot",
+          "tipo": "endEvent",
+          "nome": "Sem slot equivalente",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito"
+        }
+      ],
+      "lanes": [
+        {
+          "id": "LN_CA1_COMPRA_ConsultorComercial",
+          "nome": "Consultor comercial",
+          "processo": "Process_CA_COMPRA",
+          "flow_node_refs": [
+            "CP_GW_MergeIntencao",
+            "CP_CA_C1",
+            "CP_GW_Proposta",
+            "CP_GW_MergeSuporte",
+            "CP_End_Suporte",
+            "CP_Start_Necessidade",
+            "CP_Start_Reacao",
+            "CP_Start_NovaNecessidade",
+            "CP_B_ConsentimentoNegado",
+            "CP_End_SemConsentimento",
+            "CP_GW_SemOferta",
+            "CP_End_Nutrir"
+          ]
+        },
+        {
+          "id": "LN_CA1_COMPRA_ContratacaoBackOfficeComercial",
+          "nome": "Contratação e back-office comercial",
+          "processo": "Process_CA_COMPRA",
+          "flow_node_refs": [
+            "CP_CA_C2",
+            "CP_GW_Decisao",
+            "CP_End_Recusa",
+            "CP_End_SemDecisao"
+          ]
+        },
+        {
+          "id": "LN_CA1_COMPRA_CadastroOperacoes",
+          "nome": "Cadastro e operações",
+          "processo": "Process_CA_COMPRA",
+          "flow_node_refs": [
+            "CP_Start_NovoBeneficiario",
+            "CP_GW_MergeHabilitar",
+            "CP_CA_C3",
+            "CP_GW_Habilitado",
+            "CP_End_DireitoHabilitado",
+            "CP_GW_TipoDireito",
+            "CP_End_VendaPerdida",
+            "CP_End_Beneficiario"
+          ]
+        },
+        {
+          "id": "LN_CA1_COMPRA_RetencaoRelacionamento",
+          "nome": "Retenção e relacionamento",
+          "processo": "Process_CA_COMPRA",
+          "flow_node_refs": [
+            "CP_Start_ConsumoNaoRealizado",
+            "CP_CA_C4",
+            "CP_GW_Manutencao",
+            "CP_End_DireitoEncerrado",
+            "CP_End_Recovery"
+          ]
+        },
+        {
+          "id": "LN_CA1_COMPRA_AtendenteSuporte",
+          "nome": "Atendente de suporte",
+          "processo": "Process_CA_COMPRA",
+          "flow_node_refs": [
+            "CP_ES_Ajuda"
+          ]
+        },
+        {
+          "id": "LN_CA1_C1_VerificadorIdentidade",
+          "nome": "Verificador de identidade",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "flow_node_refs": [
+            "C1_Start",
+            "C1_CA_H1"
+          ]
+        },
+        {
+          "id": "LN_CA1_C1_ModelagemGrowth",
+          "nome": "Modelagem e growth (motor de recomendação)",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "flow_node_refs": [
+            "C1_CA_NBA",
+            "C1_T_Reward",
+            "C1_End_Proposta"
+          ]
+        },
+        {
+          "id": "LN_CA1_C1_ConsultorComercial",
+          "nome": "Consultor comercial",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "flow_node_refs": [
+            "C1_T_Cruzar",
+            "C1_GW_Proposta",
+            "C1_End_SemProposta"
+          ]
+        },
+        {
+          "id": "LN_CA1_C1_AgendaCapacidade",
+          "nome": "Agenda e capacidade",
+          "processo": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "flow_node_refs": [
+            "C1_T_Agenda",
+            "C1_T_Capacidade"
+          ]
+        },
+        {
+          "id": "LN_CA1_C2_ContratacaoBackOfficeComercial",
+          "nome": "Contratação e back-office comercial",
+          "processo": "Process_CA_COMPRA_C2_DecidirContratar",
+          "flow_node_refs": [
+            "C2_Start",
+            "C2_EV_Lembrete",
+            "C2_End_Lembrete",
+            "C2_EV_Agendado",
+            "C2_End_Aceite",
+            "C2_End_Recusa",
+            "C2_End_SemResposta",
+            "C2_T_Aceite",
+            "C2_B_PrazoMax",
+            "C2_B_Lembrete",
+            "C2_B_Recusa"
+          ]
+        },
+        {
+          "id": "LN_CA1_C3_CadastroOperacoes",
+          "nome": "Cadastro e operações",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "flow_node_refs": [
+            "C3_Start",
+            "C3_GW_Tipo",
+            "C3_GW_MergeEleg",
+            "C3_T_Elegibilidade",
+            "C3_GW_Auto",
+            "C3_T_AutoAutorizar",
+            "C3_GW_MergeAut",
+            "C3_EV_Autorizado",
+            "C3_End_Habilitado",
+            "C3_GW_MergeReq",
+            "C3_T_Requisitar",
+            "C3_EV_EmAnalise",
+            "C3_GW_Espera",
+            "C3_EV_Concedida",
+            "C3_EV_Pendencia",
+            "C3_EV_Negada",
+            "C3_EV_Expirou",
+            "C3_GW_Pendencia",
+            "C3_GW_TipoNegativa"
+          ]
+        },
+        {
+          "id": "LN_CA1_C3_DadosCRM",
+          "nome": "Dados e CRM (consolidação de perfil)",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "flow_node_refs": [
+            "C3_CA_Perfil",
+            "C3_End_Plano"
+          ]
+        },
+        {
+          "id": "LN_CA1_C3_GovernancaClinica",
+          "nome": "Governança clínica",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "flow_node_refs": [
+            "C3_T_Parecer",
+            "C3_B_SLA_Parecer",
+            "C3_T_EscalarParecer",
+            "C3_End_SLA_Parecer"
+          ]
+        },
+        {
+          "id": "LN_CA1_C3_CentraisExperiencia",
+          "nome": "Centrais de experiência",
+          "processo": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "flow_node_refs": [
+            "C3_GW_MergeReneg",
+            "C3_T_Renegociar",
+            "C3_GW_Alternativa",
+            "C3_End_Perdida",
+            "C3_End_Suporte",
+            "C3_B_SLA_Renegociar",
+            "C3_T_EscalarRenegociar",
+            "C3_End_SLA_Renegociar"
+          ]
+        },
+        {
+          "id": "LN_CA1_C4_RetencaoRelacionamento",
+          "nome": "Retenção e relacionamento",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito",
+          "flow_node_refs": [
+            "C4_Start",
+            "C4_GW_Motivo",
+            "C4_End_Cancelado"
+          ]
+        },
+        {
+          "id": "LN_CA1_C4_AgendaCapacidade",
+          "nome": "Agenda e capacidade",
+          "processo": "Process_CA_COMPRA_C4_ManterDireito",
+          "flow_node_refs": [
+            "C4_T_Reagendar",
+            "C4_B_SemSlot",
+            "C4_T_Confirmar",
+            "C4_B_Lembrete",
+            "C4_B_PrazoMax",
+            "C4_EV_Lembrete",
+            "C4_End_Lembrete",
+            "C4_EV_Agendado",
+            "C4_End_Remarcado",
+            "C4_End_SemConfirmacao",
+            "C4_End_SemSlot"
+          ]
+        }
+      ],
+      "lanes_resumo": {
+        "flow_node_refs": 98,
+        "refs_fora_do_denominador": [
+          "CP_ES_Ajuda"
+        ],
+        "refs_em_mais_de_uma_lane": [],
+        "denominador_sem_lane": [
+          "Process_CA_COMPRA",
+          "CP_ES_Start_Ajuda",
+          "CP_ES_End_Ajuda",
+          "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "Process_CA_COMPRA_C2_DecidirContratar",
+          "Process_CA_COMPRA_C3_HabilitarDireito",
+          "Process_CA_COMPRA_C4_ManterDireito"
+        ]
+      }
+    },
+    {
+      "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_2_UTILIZACAO_v4_adaptado.bpmn",
+      "chave": "CA_2",
+      "sha256": "b85ed1b4c2a130c8d7bab25e09640d367a298ddcd8e9d5b1f21750b6e35af674",
+      "denominador": {
+        "total": 76,
+        "processos": 5,
+        "tasks": {
+          "total": 15,
+          "por_tipo": {
+            "userTask": 2,
+            "serviceTask": 2,
+            "sendTask": 0,
+            "receiveTask": 2,
+            "scriptTask": 0,
+            "manualTask": 0,
+            "businessRuleTask": 0,
+            "callActivity": 4,
+            "task": 5
+          }
+        },
+        "gateways": {
+          "total": 14,
+          "por_tipo": {
+            "exclusiveGateway": 11,
+            "parallelGateway": 2,
+            "inclusiveGateway": 0,
+            "eventBasedGateway": 1,
+            "complexGateway": 0
+          }
+        },
+        "events": {
+          "total": 42,
+          "por_tipo": {
+            "startEvent": 8,
+            "endEvent": 16,
+            "intermediateCatchEvent": 2,
+            "intermediateThrowEvent": 9,
+            "boundaryEvent": 7
+          }
+        }
+      },
+      "agregados": {
+        "sequenceFlow": 63,
+        "subProcess": 3,
+        "textAnnotation": 0,
+        "association": 0,
+        "dataObject": 10,
+        "dataObjectReference": 10,
+        "dataStore": 1,
+        "dataStoreReference": 1,
+        "dataInputAssociation": 9,
+        "dataOutputAssociation": 3,
+        "participant": 8,
+        "messageFlow": 10,
+        "laneSet": 5,
+        "lane": 12,
+        "flowNodeRef": 67,
+        "collaboration": 1,
+        "conditionExpression": 6,
+        "BPMNDiagram": 4,
+        "BPMNPlane": 4,
+        "BPMNShape": 105,
+        "BPMNEdge": 82
+      },
+      "planos_di_sem_id": 0,
+      "declaracoes": {
+        "message": 13,
+        "signal": 0,
+        "error": 0,
+        "escalation": 1,
+        "total": 14
+      },
+      "ids_duplicados": [],
+      "delegate_expressions": {
+        "ocorrencias": 16,
+        "distintos": 5,
+        "valores_distintos": [
+          "${businessEventPublisher}",
+          "${careOutcomeRecorder}",
+          "${comunicarClientePublisher}",
+          "${journeyTransitionPublisher}",
+          "${noShowRecorder}"
+        ]
+      },
+      "elementos": [
+        {
+          "id": "Process_CA_UTILIZACAO",
+          "tipo": "process",
+          "nome": "UTILIZAÇÃO — Receber o cuidado contratado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_Start",
+          "tipo": "startEvent",
+          "nome": "Direito habilitado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_CA_U1",
+          "tipo": "callActivity",
+          "nome": "Preparar o consumo",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_CA_U2",
+          "tipo": "callActivity",
+          "nome": "Receber o cuidado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_B_SLA",
+          "tipo": "boundaryEvent",
+          "nome": "SLA de entrega violado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_End_SLA",
+          "tipo": "endEvent",
+          "nome": "Escalado ao SUPORTE",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_GW_Status",
+          "tipo": "exclusiveGateway",
+          "nome": "Desfecho da entrega?",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_End_NoShow",
+          "tipo": "endEvent",
+          "nome": "Consumo não realizado — no-show",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_CA_U3",
+          "tipo": "callActivity",
+          "nome": "Acompanhar o resultado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_CA_U4",
+          "tipo": "callActivity",
+          "nome": "Liquidar e avaliar o consumo",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_GW_Satisfacao",
+          "tipo": "exclusiveGateway",
+          "nome": "Experiência satisfatória?",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_End_Encerrado",
+          "tipo": "endEvent",
+          "nome": "Consumo encerrado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_End_Insatisfeito",
+          "tipo": "endEvent",
+          "nome": "Experiência insatisfatória",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_ES_Start_CancCliente",
+          "tipo": "startEvent",
+          "nome": "Cliente cancelou",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_ES_End_CancCliente",
+          "tipo": "endEvent",
+          "nome": "Consumo cancelado pelo cliente",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_ES_Start_CancPrestador",
+          "tipo": "startEvent",
+          "nome": "Prestador cancelou",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_ES_End_CancPrestador",
+          "tipo": "endEvent",
+          "nome": "Consumo cancelado pelo prestador",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_EC_Start",
+          "tipo": "startEvent",
+          "nome": "Evento clínico relevante",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_EC_Comunicar",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Informar evento clínico ao cliente",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "UT_EC_End",
+          "tipo": "endEvent",
+          "nome": "Cliente informado",
+          "processo": "Process_CA_UTILIZACAO"
+        },
+        {
+          "id": "Process_CA_UTILIZACAO_U1_Preparar",
+          "tipo": "process",
+          "nome": "U1 — Preparar o consumo",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_Start",
+          "tipo": "startEvent",
+          "nome": "Consumo a preparar",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_GW_Preparo",
+          "tipo": "exclusiveGateway",
+          "nome": "Requer preparo/check-in?",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_T_CheckIn",
+          "tipo": "userTask",
+          "nome": "Fazer check-in digital e preparo",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_B_Lembrete",
+          "tipo": "boundaryEvent",
+          "nome": "Lembrete D-1",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_EV_Lembrete",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: lembrete de preparo",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_End_Lembrete",
+          "tipo": "endEvent",
+          "nome": "Lembrete enviado",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_B_DiaServico",
+          "tipo": "boundaryEvent",
+          "nome": "Dia do serviço",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_GW_Merge",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_EV_Pronto",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: pronto para o serviço",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "U1_End",
+          "tipo": "endEvent",
+          "nome": "Cliente preparado",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar"
+        },
+        {
+          "id": "Process_CA_UTILIZACAO_U2_Receber",
+          "tipo": "process",
+          "nome": "U2 — Receber o cuidado",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_Start",
+          "tipo": "startEvent",
+          "nome": "Cliente preparado",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_GW_Chegada",
+          "tipo": "eventBasedGateway",
+          "nome": "Aguardar chegada",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_EV_Chegou",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Cliente chegou",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_EV_NoShow",
+          "tipo": "intermediateCatchEvent",
+          "nome": "Limite de no-show atingido",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_T_NoShow",
+          "tipo": "serviceTask",
+          "nome": "Registrar no-show e liberar slot",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_End_NoShow",
+          "tipo": "endEvent",
+          "nome": "No-show",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_EV_EmAtendimento",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: em atendimento",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_T_Aguardar",
+          "tipo": "receiveTask",
+          "nome": "Aguardar realização do serviço",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_B_SLA",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 2h estourado",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_EV_Escalar",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Escalar SLA de entrega",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_End_Escalado",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_EV_Realizado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: realizado",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "U2_End_Realizado",
+          "tipo": "endEvent",
+          "nome": "Serviço realizado",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber"
+        },
+        {
+          "id": "Process_CA_UTILIZACAO_U3_Acompanhar",
+          "tipo": "process",
+          "nome": "U3 — Acompanhar o resultado",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_Start",
+          "tipo": "startEvent",
+          "nome": "Serviço realizado",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_GW_Resultado",
+          "tipo": "exclusiveGateway",
+          "nome": "Serviço gera resultado/laudo?",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_T_Aguardar",
+          "tipo": "receiveTask",
+          "nome": "Aguardar liberação do resultado",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_B_Atraso",
+          "tipo": "boundaryEvent",
+          "nome": "Prazo em risco",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_EV_Atraso",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: atraso predito",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_End_Atraso",
+          "tipo": "endEvent",
+          "nome": "Cliente avisado antes do atraso",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_EV_Resultado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Marco: resultado disponível",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_GW_Merge",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "U3_End",
+          "tipo": "endEvent",
+          "nome": "Acompanhamento concluído",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar"
+        },
+        {
+          "id": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar",
+          "tipo": "process",
+          "nome": "U4 — Liquidar e avaliar o consumo",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_Start",
+          "tipo": "startEvent",
+          "nome": "Consumo a encerrar",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_Split",
+          "tipo": "parallelGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_Desfecho",
+          "tipo": "serviceTask",
+          "nome": "Registrar desfecho e próxima ação clínica",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_ProxAcao",
+          "tipo": "exclusiveGateway",
+          "nome": "Próxima ação clínica indicada?",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_EV_ProxAcao",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Nova necessidade de cuidado",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_MergeProx",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_Pesquisa",
+          "tipo": "userTask",
+          "nome": "Responder pesquisa pós-serviço (NPS + desfecho)",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_B_Pesquisa",
+          "tipo": "boundaryEvent",
+          "nome": "72h sem resposta",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_EscapePesquisa",
+          "tipo": "exclusiveGateway",
+          "nome": "Pesquisa respondida ou tempo esgotado?",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_Join",
+          "tipo": "parallelGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_RotaPgto",
+          "tipo": "exclusiveGateway",
+          "nome": "Rota de liquidação?",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_Liquidar",
+          "tipo": "task",
+          "nome": "Liquidar o consumo",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_AuditarContas",
+          "tipo": "task",
+          "nome": "Conferir faturamento, glosa e contas do prestador",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_ApurarCoparticipacao",
+          "tipo": "task",
+          "nome": "Apurar coparticipação do beneficiário",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_ReceberDocReembolso",
+          "tipo": "task",
+          "nome": "Receber a documentação do reembolso",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_T_AnalisarReembolso",
+          "tipo": "task",
+          "nome": "Analisar e pagar o reembolso",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_B_PrazoLegalReembolso",
+          "tipo": "boundaryEvent",
+          "nome": "Prazo legal de 30 dias vencido",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_End_PrazoLegalVencido",
+          "tipo": "endEvent",
+          "nome": "Reembolso fora do prazo legal",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_GW_MergePgto",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        },
+        {
+          "id": "U4_End",
+          "tipo": "endEvent",
+          "nome": "Consumo liquidado e avaliado",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        }
+      ],
+      "lanes": [
+        {
+          "id": "LN_CA2_UTILIZACAO_AgendamentoAutorizacao",
+          "nome": "Agendamento e autorização",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_Start",
+            "UT_CA_U1"
+          ]
+        },
+        {
+          "id": "LN_CA2_UTILIZACAO_EquipeAssistencial",
+          "nome": "Equipe assistencial (prestador)",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_CA_U2",
+            "UT_B_SLA",
+            "UT_End_SLA",
+            "UT_GW_Status",
+            "UT_End_NoShow"
+          ]
+        },
+        {
+          "id": "LN_CA2_UTILIZACAO_AcompanhamentoCuidado",
+          "nome": "Acompanhamento e gestão de cuidado",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_CA_U3"
+          ]
+        },
+        {
+          "id": "LN_CA2_UTILIZACAO_LiquidacaoAuditoria",
+          "nome": "Liquidação e auditoria de contas",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_CA_U4",
+            "UT_GW_Satisfacao",
+            "UT_End_Encerrado",
+            "UT_End_Insatisfeito"
+          ]
+        },
+        {
+          "id": "LN_CA2_UTILIZACAO_EquipeClinicaUrgencia",
+          "nome": "Equipe clínica e urgência",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_ES_EventoClinico"
+          ]
+        },
+        {
+          "id": "LN_CA2_UTILIZACAO_AtendenteSuporte",
+          "nome": "Atendente de suporte",
+          "processo": "Process_CA_UTILIZACAO",
+          "flow_node_refs": [
+            "UT_ES_Cancelamento",
+            "UT_ES_CancelamentoPrestador"
+          ]
+        },
+        {
+          "id": "LN_CA2_U1_AgendamentoAutorizacao",
+          "nome": "Agendamento e autorização",
+          "processo": "Process_CA_UTILIZACAO_U1_Preparar",
+          "flow_node_refs": [
+            "U1_Start",
+            "U1_GW_Preparo",
+            "U1_T_CheckIn",
+            "U1_B_Lembrete",
+            "U1_EV_Lembrete",
+            "U1_End_Lembrete",
+            "U1_B_DiaServico",
+            "U1_GW_Merge",
+            "U1_EV_Pronto",
+            "U1_End"
+          ]
+        },
+        {
+          "id": "LN_CA2_U2_EquipeAssistencial",
+          "nome": "Equipe assistencial (prestador)",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber",
+          "flow_node_refs": [
+            "U2_Start",
+            "U2_GW_Chegada",
+            "U2_EV_Chegou",
+            "U2_EV_EmAtendimento",
+            "U2_T_Aguardar",
+            "U2_B_SLA",
+            "U2_EV_Escalar",
+            "U2_End_Escalado",
+            "U2_EV_Realizado",
+            "U2_End_Realizado"
+          ]
+        },
+        {
+          "id": "LN_CA2_U2_AgendaCapacidade",
+          "nome": "Agenda e capacidade",
+          "processo": "Process_CA_UTILIZACAO_U2_Receber",
+          "flow_node_refs": [
+            "U2_EV_NoShow",
+            "U2_T_NoShow",
+            "U2_End_NoShow"
+          ]
+        },
+        {
+          "id": "LN_CA2_U3_AcompanhamentoCuidado",
+          "nome": "Acompanhamento e gestão de cuidado",
+          "processo": "Process_CA_UTILIZACAO_U3_Acompanhar",
+          "flow_node_refs": [
+            "U3_Start",
+            "U3_GW_Resultado",
+            "U3_T_Aguardar",
+            "U3_B_Atraso",
+            "U3_EV_Atraso",
+            "U3_End_Atraso",
+            "U3_EV_Resultado",
+            "U3_GW_Merge",
+            "U3_End"
+          ]
+        },
+        {
+          "id": "LN_CA2_U4_LiquidacaoAuditoria",
+          "nome": "Liquidação e auditoria de contas",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar",
+          "flow_node_refs": [
+            "U4_Start",
+            "U4_GW_Split",
+            "U4_T_Pesquisa",
+            "U4_B_Pesquisa",
+            "U4_GW_Join",
+            "U4_T_Liquidar",
+            "U4_End",
+            "U4_GW_EscapePesquisa",
+            "U4_GW_RotaPgto",
+            "U4_T_AuditarContas",
+            "U4_T_ApurarCoparticipacao",
+            "U4_GW_MergePgto",
+            "U4_T_ReceberDocReembolso",
+            "U4_T_AnalisarReembolso",
+            "U4_B_PrazoLegalReembolso",
+            "U4_End_PrazoLegalVencido"
+          ]
+        },
+        {
+          "id": "LN_CA2_U4_AcompanhamentoCuidado",
+          "nome": "Acompanhamento e gestão de cuidado",
+          "processo": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar",
+          "flow_node_refs": [
+            "U4_T_Desfecho",
+            "U4_GW_ProxAcao",
+            "U4_EV_ProxAcao",
+            "U4_GW_MergeProx"
+          ]
+        }
+      ],
+      "lanes_resumo": {
+        "flow_node_refs": 67,
+        "refs_fora_do_denominador": [
+          "UT_ES_Cancelamento",
+          "UT_ES_CancelamentoPrestador",
+          "UT_ES_EventoClinico"
+        ],
+        "refs_em_mais_de_uma_lane": [],
+        "denominador_sem_lane": [
+          "Process_CA_UTILIZACAO",
+          "UT_ES_Start_CancCliente",
+          "UT_ES_End_CancCliente",
+          "UT_ES_Start_CancPrestador",
+          "UT_ES_End_CancPrestador",
+          "UT_EC_Start",
+          "UT_EC_Comunicar",
+          "UT_EC_End",
+          "Process_CA_UTILIZACAO_U1_Preparar",
+          "Process_CA_UTILIZACAO_U2_Receber",
+          "Process_CA_UTILIZACAO_U3_Acompanhar",
+          "Process_CA_UTILIZACAO_U4_LiquidarAvaliar"
+        ]
+      }
+    },
+    {
+      "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "chave": "CA_3",
+      "sha256": "666d883e748b510c1915099a1f663648471fd9128aa7d7c0d3e6841e2c1e3576",
+      "denominador": {
+        "total": 89,
+        "processos": 5,
+        "tasks": {
+          "total": 25,
+          "por_tipo": {
+            "userTask": 10,
+            "serviceTask": 10,
+            "sendTask": 0,
+            "receiveTask": 0,
+            "scriptTask": 0,
+            "manualTask": 0,
+            "businessRuleTask": 0,
+            "callActivity": 5,
+            "task": 0
+          }
+        },
+        "gateways": {
+          "total": 18,
+          "por_tipo": {
+            "exclusiveGateway": 18,
+            "parallelGateway": 0,
+            "inclusiveGateway": 0,
+            "eventBasedGateway": 0,
+            "complexGateway": 0
+          }
+        },
+        "events": {
+          "total": 41,
+          "por_tipo": {
+            "startEvent": 7,
+            "endEvent": 22,
+            "intermediateCatchEvent": 0,
+            "intermediateThrowEvent": 2,
+            "boundaryEvent": 10
+          }
+        }
+      },
+      "agregados": {
+        "sequenceFlow": 77,
+        "subProcess": 0,
+        "textAnnotation": 1,
+        "association": 1,
+        "dataObject": 3,
+        "dataObjectReference": 3,
+        "dataStore": 4,
+        "dataStoreReference": 5,
+        "dataInputAssociation": 8,
+        "dataOutputAssociation": 0,
+        "participant": 8,
+        "messageFlow": 5,
+        "laneSet": 5,
+        "lane": 13,
+        "flowNodeRef": 84,
+        "collaboration": 1,
+        "conditionExpression": 15,
+        "BPMNDiagram": 1,
+        "BPMNPlane": 1,
+        "BPMNShape": 114,
+        "BPMNEdge": 91
+      },
+      "planos_di_sem_id": 0,
+      "declaracoes": {
+        "message": 6,
+        "signal": 0,
+        "error": 1,
+        "escalation": 0,
+        "total": 7
+      },
+      "ids_duplicados": [],
+      "delegate_expressions": {
+        "ocorrencias": 7,
+        "distintos": 7,
+        "valores_distintos": [
+          "${businessEventPublisher}",
+          "${comunicarClientePublisher}",
+          "${contactCenterAI}",
+          "${contextAssemblyService}",
+          "${intentTriageAI}",
+          "${interactionLearningService}",
+          "${journeyTransitionPublisher}"
+        ]
+      },
+      "elementos": [
+        {
+          "id": "Process_CA_SUPORTE",
+          "tipo": "process",
+          "nome": "SUPORTE — Ser ouvido e ter o problema resolvido",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_Start_Contato",
+          "tipo": "startEvent",
+          "nome": "Cliente procura atendimento",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_Start_Insatisfacao",
+          "tipo": "startEvent",
+          "nome": "Experiência insatisfatória",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_Start_SLA",
+          "tipo": "startEvent",
+          "nome": "SLA de entrega violado",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_GW_MergeInicio",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_CA_S1",
+          "tipo": "callActivity",
+          "nome": "Ouvir e registrar o caso",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_GW_Origem",
+          "tipo": "exclusiveGateway",
+          "nome": "Origem do suporte?",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_CA_S2",
+          "tipo": "callActivity",
+          "nome": "Diagnosticar e rotear o caso",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_GW_Compra",
+          "tipo": "exclusiveGateway",
+          "nome": "Intenção de compra?",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_End_Compra",
+          "tipo": "endEvent",
+          "nome": "Encaminhado à COMPRA",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_GW_MergeResolver",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_CA_S3",
+          "tipo": "callActivity",
+          "nome": "Resolver ou encaminhar o caso",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_CA_S4",
+          "tipo": "callActivity",
+          "nome": "Confirmar, encerrar e aprender",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_GW_Desfecho",
+          "tipo": "exclusiveGateway",
+          "nome": "Desfecho do caso?",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_End_Resolvido",
+          "tipo": "endEvent",
+          "nome": "Problema resolvido e confirmado",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_End_Ouvidoria",
+          "tipo": "endEvent",
+          "nome": "Encaminhado à ouvidoria/ANS com retorno",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "SP_End_SemConfirmacao",
+          "tipo": "endEvent",
+          "nome": "Encerrado sem confirmação do cliente",
+          "processo": "Process_CA_SUPORTE"
+        },
+        {
+          "id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "tipo": "process",
+          "nome": "S1 — Ouvir e registrar o caso",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_Start",
+          "tipo": "startEvent",
+          "nome": "Caso a registrar",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_CA_H1",
+          "tipo": "callActivity",
+          "nome": "Identificar cliente e verificar consentimento",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_GW_MergeCons",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_T_Contexto",
+          "tipo": "serviceTask",
+          "nome": "Montar contexto completo (360 + histórico)",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_GW_Iniciativa",
+          "tipo": "exclusiveGateway",
+          "nome": "Iniciativa da organização?",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_EV_Cuidando",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Avisar que estamos cuidando",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_GW_Merge",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_End",
+          "tipo": "endEvent",
+          "nome": "Caso registrado",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "S1_B_Consent",
+          "tipo": "boundaryEvent",
+          "nome": "Consentimento negado",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar"
+        },
+        {
+          "id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+          "tipo": "process",
+          "nome": "S2 — Diagnosticar e rotear o caso",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "S2_Start",
+          "tipo": "startEvent",
+          "nome": "Caso registrado",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "S2_T_Triagem",
+          "tipo": "serviceTask",
+          "nome": "Triar intenção (IA): administrativa × clínica",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "S2_GW_Clinico",
+          "tipo": "exclusiveGateway",
+          "nome": "Questão clínica?",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "S2_End_Humano",
+          "tipo": "endEvent",
+          "nome": "Rota: especialista clínico",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "S2_End_IA",
+          "tipo": "endEvent",
+          "nome": "Rota: IA de atendimento",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear"
+        },
+        {
+          "id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "tipo": "process",
+          "nome": "S3 — Resolver ou encaminhar o caso",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_Start",
+          "tipo": "startEvent",
+          "nome": "Caso roteado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_Origem",
+          "tipo": "exclusiveGateway",
+          "nome": "Tipo de tratamento?",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_IA",
+          "tipo": "serviceTask",
+          "nome": "Responder com contexto (IA de atendimento)",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_Confianca",
+          "tipo": "exclusiveGateway",
+          "nome": "Confiança suficiente e resposta verificada?",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_IA",
+          "tipo": "endEvent",
+          "nome": "Resposta entregue pela IA",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_MergeHumano",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_Natureza",
+          "tipo": "exclusiveGateway",
+          "nome": "Caso tem conteúdo clínico?",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Especialista",
+          "tipo": "userTask",
+          "nome": "Resolver com contexto completo",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Especialista",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 2h estourado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarEspecialista",
+          "tipo": "serviceTask",
+          "nome": "Escalar caso com especialista pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Especialista",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — caso com especialista",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Enfermagem",
+          "tipo": "userTask",
+          "nome": "Resolver caso clínico (enfermagem de navegação)",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Enfermagem",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 2h estourado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarEnfermagem",
+          "tipo": "serviceTask",
+          "nome": "Escalar caso clínico de enfermagem pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Enfermagem",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — caso com enfermagem",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_MergeAtend",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_GW_PrimeiroContato",
+          "tipo": "exclusiveGateway",
+          "nome": "Resolvido no primeiro contato?",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Resolvido",
+          "tipo": "endEvent",
+          "nome": "Solução entregue",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Protocolo",
+          "tipo": "userTask",
+          "nome": "Abrir protocolo com prazo de retorno",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Protocolo",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 2h sem protocolo",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarProtocolo",
+          "tipo": "serviceTask",
+          "nome": "Escalar abertura de protocolo pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Protocolo",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — protocolo pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Cumprir",
+          "tipo": "userTask",
+          "nome": "Resolver e retornar ao cliente no prazo",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Priorizar",
+          "tipo": "userTask",
+          "nome": "Priorizar protocolo em risco",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Priorizar",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 4h sem priorização",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarPriorizar",
+          "tipo": "serviceTask",
+          "nome": "Escalar priorização de protocolo pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Priorizar",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — protocolo em risco",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Priorizado",
+          "tipo": "endEvent",
+          "nome": "Protocolo priorizado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Retorno",
+          "tipo": "endEvent",
+          "nome": "Retorno entregue no prazo",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Recovery",
+          "tipo": "userTask",
+          "nome": "Recuperar a experiência do cliente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Supervisor",
+          "tipo": "userTask",
+          "nome": "Escalar ao supervisor da Central",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Supervisor",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 24h sem ação",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarSupervisao",
+          "tipo": "serviceTask",
+          "nome": "Escalar ação de supervisão pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Supervisao",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — supervisão acionada",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Supervisor",
+          "tipo": "endEvent",
+          "nome": "Supervisor acionado — recovery segue",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Recovery",
+          "tipo": "endEvent",
+          "nome": "Recovery realizado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_Intervencao",
+          "tipo": "userTask",
+          "nome": "Intervir na entrega (priorizar cliente)",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLA_Intervencao",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 4h sem intervenção",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_T_EscalarIntervencao",
+          "tipo": "serviceTask",
+          "nome": "Escalar intervenção na entrega pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_SLA_Intervencao",
+          "tipo": "endEvent",
+          "nome": "Escalação registrada — intervenção pendente",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_End_Intervencao",
+          "tipo": "endEvent",
+          "nome": "Intervenção concluída — entrega segue",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_SLARecovery",
+          "tipo": "boundaryEvent",
+          "nome": "SLA 2h estourado",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "S3_B_D1",
+          "tipo": "boundaryEvent",
+          "nome": "D-1 do prazo",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar"
+        },
+        {
+          "id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "tipo": "process",
+          "nome": "S4 — Confirmar, encerrar e aprender",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_Start",
+          "tipo": "startEvent",
+          "nome": "Solução entregue",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_T_Confirmar",
+          "tipo": "userTask",
+          "nome": "Confirmar a resolução (1 toque)",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_GW_Resolvido",
+          "tipo": "exclusiveGateway",
+          "nome": "Cliente confirmou a resolução?",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_GW_Rota",
+          "tipo": "exclusiveGateway",
+          "nome": "Já passou por especialista?",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_T_Ouvidoria",
+          "tipo": "userTask",
+          "nome": "Encaminhar à ouvidoria/ANS com retorno",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_GW_MergeAprender",
+          "tipo": "exclusiveGateway",
+          "nome": "",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_T_Aprender",
+          "tipo": "serviceTask",
+          "nome": "Registrar interação para treinar a IA",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_EV_Aprendizado",
+          "tipo": "intermediateThrowEvent",
+          "nome": "Caso convertido em aprendizado",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_End",
+          "tipo": "endEvent",
+          "nome": "Caso encerrado",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_End_Reencaminhar",
+          "tipo": "endEvent",
+          "nome": "Reencaminhar ao especialista",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        },
+        {
+          "id": "S4_B_Silencio",
+          "tipo": "boundaryEvent",
+          "nome": "24h sem reação",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        }
+      ],
+      "lanes": [
+        {
+          "id": "LN_CA3_SUPORTE_Atendente",
+          "nome": "Atendente de suporte",
+          "processo": "Process_CA_SUPORTE",
+          "flow_node_refs": [
+            "SP_Start_Contato",
+            "SP_Start_Insatisfacao",
+            "SP_Start_SLA",
+            "SP_GW_MergeInicio",
+            "SP_CA_S1",
+            "SP_GW_Origem"
+          ]
+        },
+        {
+          "id": "LN_CA3_SUPORTE_Triagem",
+          "nome": "Analista de triagem e roteamento",
+          "processo": "Process_CA_SUPORTE",
+          "flow_node_refs": [
+            "SP_CA_S2",
+            "SP_GW_Compra",
+            "SP_End_Compra"
+          ]
+        },
+        {
+          "id": "LN_CA3_SUPORTE_Resolucao",
+          "nome": "Resolução e encaminhamento",
+          "processo": "Process_CA_SUPORTE",
+          "flow_node_refs": [
+            "SP_GW_MergeResolver",
+            "SP_CA_S3"
+          ]
+        },
+        {
+          "id": "LN_CA3_SUPORTE_Qualidade",
+          "nome": "Qualidade e melhoria contínua",
+          "processo": "Process_CA_SUPORTE",
+          "flow_node_refs": [
+            "SP_CA_S4",
+            "SP_GW_Desfecho",
+            "SP_End_Resolvido",
+            "SP_End_Ouvidoria",
+            "SP_End_SemConfirmacao"
+          ]
+        },
+        {
+          "id": "LN_CA3_S1_Verificador",
+          "nome": "Verificador de identidade",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "flow_node_refs": [
+            "S1_Start",
+            "S1_CA_H1",
+            "S1_GW_MergeCons",
+            "S1_B_Consent"
+          ]
+        },
+        {
+          "id": "LN_CA3_S1_Insumos",
+          "nome": "Disponibilização de insumos",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "flow_node_refs": [
+            "S1_T_Contexto",
+            "S1_GW_Iniciativa"
+          ]
+        },
+        {
+          "id": "LN_CA3_S1_Atendente",
+          "nome": "Atendente de suporte",
+          "processo": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "flow_node_refs": [
+            "S1_EV_Cuidando",
+            "S1_GW_Merge",
+            "S1_End"
+          ]
+        },
+        {
+          "id": "LN_CA3_S2_Triagem",
+          "nome": "Analista de triagem e roteamento",
+          "processo": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+          "flow_node_refs": [
+            "S2_Start",
+            "S2_T_Triagem",
+            "S2_GW_Clinico",
+            "S2_End_Humano",
+            "S2_End_IA"
+          ]
+        },
+        {
+          "id": "LN_CA3_S3_Resolucao",
+          "nome": "Resolução e encaminhamento",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "flow_node_refs": [
+            "S3_Start",
+            "S3_GW_Origem",
+            "S3_T_IA",
+            "S3_GW_Confianca",
+            "S3_End_IA",
+            "S3_GW_MergeHumano",
+            "S3_GW_Natureza",
+            "S3_T_Especialista",
+            "S3_GW_MergeAtend",
+            "S3_GW_PrimeiroContato",
+            "S3_End_Resolvido",
+            "S3_T_Protocolo",
+            "S3_T_Cumprir",
+            "S3_End_Priorizado",
+            "S3_End_Retorno",
+            "S3_T_Recovery",
+            "S3_End_Supervisor",
+            "S3_End_Recovery",
+            "S3_T_Intervencao",
+            "S3_End_Intervencao",
+            "S3_B_SLARecovery",
+            "S3_B_D1",
+            "S3_B_SLA_Especialista",
+            "S3_T_EscalarEspecialista",
+            "S3_End_SLA_Especialista",
+            "S3_B_SLA_Protocolo",
+            "S3_T_EscalarProtocolo",
+            "S3_End_SLA_Protocolo",
+            "S3_B_SLA_Intervencao",
+            "S3_T_EscalarIntervencao",
+            "S3_End_SLA_Intervencao"
+          ]
+        },
+        {
+          "id": "LN_CA3_S3_Supervisao",
+          "nome": "Supervisão da experiência",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "flow_node_refs": [
+            "S3_T_Priorizar",
+            "S3_T_Supervisor",
+            "S3_B_SLA_Priorizar",
+            "S3_T_EscalarPriorizar",
+            "S3_End_SLA_Priorizar",
+            "S3_B_SLA_Supervisor",
+            "S3_T_EscalarSupervisao",
+            "S3_End_SLA_Supervisao"
+          ]
+        },
+        {
+          "id": "LN_CA3_S3_Enfermagem",
+          "nome": "Enfermagem de navegação",
+          "processo": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "flow_node_refs": [
+            "S3_T_Enfermagem",
+            "S3_B_SLA_Enfermagem",
+            "S3_T_EscalarEnfermagem",
+            "S3_End_SLA_Enfermagem"
+          ]
+        },
+        {
+          "id": "LN_CA3_S4_Qualidade",
+          "nome": "Qualidade e melhoria contínua",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "flow_node_refs": [
+            "S4_Start",
+            "S4_T_Confirmar",
+            "S4_GW_Resolvido",
+            "S4_GW_Rota",
+            "S4_GW_MergeAprender",
+            "S4_T_Aprender",
+            "S4_EV_Aprendizado",
+            "S4_End",
+            "S4_End_Reencaminhar",
+            "S4_B_Silencio"
+          ]
+        },
+        {
+          "id": "LN_CA3_S4_Resolucao",
+          "nome": "Resolução e encaminhamento",
+          "processo": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "flow_node_refs": [
+            "S4_T_Ouvidoria"
+          ]
+        }
+      ],
+      "lanes_resumo": {
+        "flow_node_refs": 84,
+        "refs_fora_do_denominador": [],
+        "refs_em_mais_de_uma_lane": [],
+        "denominador_sem_lane": [
+          "Process_CA_SUPORTE",
+          "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+          "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
+        ]
+      }
+    }
+  ],
+  "totais": {
+    "denominador": {
+      "total": 367,
+      "processos": 22,
+      "tasks": {
+        "total": 97,
+        "por_tipo": {
+          "userTask": 18,
+          "serviceTask": 53,
+          "sendTask": 0,
+          "receiveTask": 2,
+          "scriptTask": 0,
+          "manualTask": 0,
+          "businessRuleTask": 0,
+          "callActivity": 19,
+          "task": 5
+        }
+      },
+      "gateways": {
+        "total": 74,
+        "por_tipo": {
+          "exclusiveGateway": 68,
+          "parallelGateway": 4,
+          "inclusiveGateway": 0,
+          "eventBasedGateway": 2,
+          "complexGateway": 0
+        }
+      },
+      "events": {
+        "total": 174,
+        "por_tipo": {
+          "startEvent": 33,
+          "endEvent": 86,
+          "intermediateCatchEvent": 7,
+          "intermediateThrowEvent": 19,
+          "boundaryEvent": 29
+        }
+      }
+    },
+    "agregados": {
+      "sequenceFlow": 322,
+      "subProcess": 4,
+      "textAnnotation": 2,
+      "association": 2,
+      "dataObject": 27,
+      "dataObjectReference": 27,
+      "dataStore": 16,
+      "dataStoreReference": 19,
+      "dataInputAssociation": 43,
+      "dataOutputAssociation": 6,
+      "participant": 34,
+      "messageFlow": 36,
+      "laneSet": 21,
+      "lane": 57,
+      "flowNodeRef": 337,
+      "collaboration": 4,
+      "conditionExpression": 54,
+      "BPMNDiagram": 8,
+      "BPMNPlane": 8,
+      "BPMNShape": 488,
+      "BPMNEdge": 406
+    },
+    "planos_di_sem_id": 0,
+    "declaracoes": {
+      "message": 36,
+      "signal": 1,
+      "error": 4,
+      "escalation": 1,
+      "total": 42
+    },
+    "ids_duplicados_por_arquivo": 0,
+    "ids_de_denominador_duplicados_no_corpus": [],
+    "delegate_expressions": {
+      "ocorrencias": 75,
+      "distintos_no_corpus": 44,
+      "valores_distintos": [
+        "${authorizationRequestService}",
+        "${autoAuthorizationService}",
+        "${autoRebookingService}",
+        "${businessEventIngestionService}",
+        "${businessEventPublisher}",
+        "${capacityPolicyService}",
+        "${careOutcomeRecorder}",
+        "${channelRoutingService}",
+        "${clinicalDataIngestion}",
+        "${coldStartFallbackService}",
+        "${comunicarClientePublisher}",
+        "${contactCenterAI}",
+        "${contextAssemblyService}",
+        "${contextEventLogger}",
+        "${coverageRulesEngine}",
+        "${digitalSignalCollector}",
+        "${enrichmentBatchSelector}",
+        "${eventClassifierAI}",
+        "${explanationService}",
+        "${fallbackChannelDispatcher}",
+        "${featureStoreService}",
+        "${frequencyCappingService}",
+        "${helpCenterPublisher}",
+        "${identityResolutionService}",
+        "${intentTriageAI}",
+        "${interactionLearningService}",
+        "${journeyTransitionPublisher}",
+        "${lgpdAuditService}",
+        "${lgpdConsentService}",
+        "${modelRegistryService}",
+        "${noShowRecorder}",
+        "${offerMatcherService}",
+        "${omniChannelDispatcher}",
+        "${openDataEnrichmentService}",
+        "${planUsageCollector}",
+        "${preferenceCenterService}",
+        "${proactiveMessageAI}",
+        "${profileAssessmentService}",
+        "${profileConsolidationService}",
+        "${recommendationGuardrailService}",
+        "${recommendationRankingService}",
+        "${rewardTrackingService}",
+        "${schedulingAIAgent}",
+        "${surveyResponseCollector}"
+      ]
+    }
+  }
+}

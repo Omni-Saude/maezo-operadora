@@ -2,29 +2,31 @@
 
 **Data:** 2026-10-23 · **Base:** `main` @ `5a8ba09e` (contém as ondas CORP-2.1..2.6 já merged: CA_3 #930/`179a970a`, CA_0 #932/`3b07bfbb`, CA_2 #933/`5a8ba09e`; CA_1 intocado desde `067cf607`). **Decisão que governa:** D-02, opção (a) — MAPA primeiro; ponte = programa à parte, APENAS para lacuna provada por este mapa, como NOVOS process-keys `SP-OP-*` pelo caminho canônico (allowlist `src/maezo/tools/process_allowlist.py:21-42` + `src/maezo/platform/deploy/engine_deploy.py` + cercas `effect_pep.py:174`/`transport.py:1759`), **NUNCA** como os 44 beans AI delegados (D-02: "forquilha de autoridade de efeitos"; racional integral em `docs/plans/maezo-completion-program.md` §Decisões, ruling D-02).
 
+**Revisão vigente:** re-base in-place pós-LA-02 de 2026-11-16 (EP-PROC-02/EP-PROC-03, registro PROC-02). Contagens de §1/§7 e a coluna sha256 passam a vir do inventário gerado `INVENTARIO-CA.generated.json` (`python -m scripts.docs.gerar_inventario_ca`), guardado por `tests/processes/test_mapa_elementos_v4_sync.py`. Os números da base `5a8ba09e` (359/68/314/24/3/53/477/398) e a causa da mudança (LA-02) ficam no Changelog ao fim. A data e a base acima descrevem a redação original de §2–§12; nenhum ruling CASA/LACUNA foi re-litigado no re-base (os 8 flips da Reconciliação ficam em §7.1, todos pendentes do dono de D-02).
+
 **CA_1 é mapeamento leitura-only.** Nenhum `.bpmn` foi editado por este mapa (a onda de reparos fechou; D-30 resguarda CA_1). Nenhum bloco de aprovação. Nenhuma ponte runtime implementada — o mapa É a entrega (CORP-2.7, opção (a) do ruling).
 
 ---
 
 ## §1 Denominador — contagem própria do XML atual (não do inventário antigo)
 
-Método: parser namespace-aware (ElementTree), qualquer profundidade sob `<process>`; elemento = **processo + tasks (todos os tipos, incl. `callActivity` e a task sem tipo) + gateways + events** (start/end/catch/throw/boundary). O container `subProcess` NÃO entra no denominador (conteúdos contam individualmente) — mesma convenção do inventário da auditoria (324 v3 → 355 v4-pré-CORP), para as tabelas alinharem por diff. Script de contagem/reconciliação: `/tmp/w2_mapa_contagem.py` (python stdlib; saída colada em §7).
+Método: parser namespace-aware, qualquer profundidade sob `<process>`; elemento = **processo + tasks (todos os tipos, incl. `callActivity` e a task sem tipo) + gateways + events** (start/end/catch/throw/boundary). O container `subProcess` NÃO entra no denominador (conteúdos contam individualmente) — mesma convenção do inventário da auditoria (324 v3 → 355 v4-pré-CORP), para as tabelas alinharem por diff. Fonte das contagens (re-base 2026-11-16): `scripts/docs/gerar_inventario_ca.py` (stdlib + lxml, determinístico, sem rede, só conta) → `INVENTARIO-CA.generated.json` (versionado ao lado deste arquivo); resumo transcrito em §7. O script original da base `5a8ba09e` (`/tmp/w2_mapa_contagem.py`, ElementTree) não é versionado.
 
-| Arquivo (sha256 em main @ 5a8ba09e) | processos | tasks | gateways | events | **denominador** |
-|---|---|---|---|---|---|
-| `CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn` (`a01b1a3e…`) | 7 | 36 (2 uT + 31 sT + 3 cA) | 21 (19X + 2P) | 34 (8+20+1+2+3) | **98** |
-| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` (`067cf607…`) | 5 | 21 (4 uT + 10 sT + 7 cA) | 21 (20X + 1EB) | 57 (10+28+4+6+9) | **104** |
-| `CA_2_UTILIZACAO_v4_adaptado.bpmn` (`a2f2ddde…`) | 5 | 11 (2 uT + 2 sT + 2 rT + 4 cA + 1 task) | 12 (9X + 2P + 1EB) | 40 (8+15+2+9+6) | **68** |
-| `CA_3_SUPORTE_v4_adaptado.bpmn` (`f9db4574…`) | 5 | 25 (10 uT + 10 sT + 5 cA) | 18 (18X) | 41 (7+22+0+2+10) | **89** |
-| **TOTAL** | **22** | **93** | **72** | **172** | **359** |
+| Arquivo | sha256 (bytes do arquivo no head do re-base) | processos | tasks | gateways | events | **denominador** |
+|---|---|---|---|---|---|---|
+| `CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn` | `b77619a1bdc997b0598627c36ff8273dc6402ac05702acbcad59b0b06381a0e7` | 7 | 36 (2 uT + 31 sT + 3 cA) | 21 (19X + 2P) | 34 (8+20+1+2+3) | **98** |
+| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | `cd571d6dc8e5bdfec2ff731315792cd8e74437c007e4f3ebec3afbe3252d8f79` | 5 | 21 (4 uT + 10 sT + 7 cA) | 21 (20X + 1EB) | 57 (10+28+4+6+9) | **104** |
+| `CA_2_UTILIZACAO_v4_adaptado.bpmn` | `b85ed1b4c2a130c8d7bab25e09640d367a298ddcd8e9d5b1f21750b6e35af674` | 5 | 15 (2 uT + 2 sT + 2 rT + 4 cA + 5 task) | 14 (11X + 2P + 1EB) | 42 (8+16+2+9+7) | **76** |
+| `CA_3_SUPORTE_v4_adaptado.bpmn` | `666d883e748b510c1915099a1f663648471fd9128aa7d7c0d3e6841e2c1e3576` | 5 | 25 (10 uT + 10 sT + 5 cA) | 18 (18X) | 41 (7+22+0+2+10) | **89** |
+| **TOTAL** | — | **22** | **97** | **74** | **174** | **367** |
 
-Soma checada: 98+104+68+89 = **359** = 22+93+72+172 ✓. Deltas vs inventário v4-pré-CORP (355): **+4, todos no CA_0** (#932: processo `Process_CA_DS_Monitoramento` +3 elementos: start de sinal, serviceTask, end). CA_1/CA_2/CA_3: contagens idênticas (CA_2 ganhou messageFlow 9→10 e DI nomeada — fora do denominador; CA_3 re-tipou `S4_T_Ouvidoria` task→userTask — troca de tipo, mesma contagem).
+Ordem das parcelas de events: start + end + catch + throw + boundary. Soma checada: 98+104+76+89 = **367** = 22+97+74+174 ✓. Delta vs a base `5a8ba09e` (359): **+8, todos no CA_2**, bloco LA-02 (commit `f57f08219`, REG-1.5(b)/D-07) em `Process_CA_UTILIZACAO_U4_LiquidarAvaliar` — +4 `task` sem tipo, +2 XOR, +1 boundary (timer P30D), +1 end; listados em §5. Deltas históricos vs inventário v4-pré-CORP (355): +4 no CA_0 (#932: processo `Process_CA_DS_Monitoramento` +3 elementos: start de sinal, serviceTask, end); CA_3 re-tipou `S4_T_Ouvidoria` task→userTask (mesma contagem).
 
-**Relatados à parte (fora do denominador):** sequenceFlow 314 (91+91+55+77) · subProcess 4 (0+1+3+0) · textAnnotation 2 (CA_0, CA_3) · association 2 · dataObject 24 · dataObjectReference 24 · dataStore 16 · dataStoreReference 19 · dataInputAssociation 43 · dataOutputAssociation 3 · participant 34 · messageFlow 36 (6+15+10+5) · laneSet 21 · lane 57 (16+16+12+13) · declarações 42 (36 message + 1 signal + 4 error + 1 escalation) · BPMNDiagram 8 planos (**0 sem id** — ver §8) · BPMNShape 477 · BPMNEdge 398 · conditionExpression 53 · collaboration 4.
+**Relatados à parte (fora do denominador; parcelas na ordem CA_0+CA_1+CA_2+CA_3):** sequenceFlow 322 (91+91+63+77) · subProcess 4 (0+1+3+0) · textAnnotation 2 (1+0+0+1) · association 2 (1+0+0+1) · dataObject 27 (5+9+10+3) · dataObjectReference 27 (5+9+10+3) · dataStore 16 (6+5+1+4) · dataStoreReference 19 (8+5+1+5) · dataInputAssociation 43 (12+14+9+8) · dataOutputAssociation 6 (2+1+3+0) · participant 34 (9+9+8+8) · messageFlow 36 (6+15+10+5) · laneSet 21 (6+5+5+5) · lane 57 (16+16+12+13) · declarações 42 (36 message + 1 signal + 4 error + 1 escalation) · BPMNDiagram 8 (2+1+4+1) planos (**0 sem id** — ver §8) · BPMNShape 488 (130+139+105+114) · BPMNEdge 406 (112+121+82+91) · conditionExpression 54 (16+17+6+15) · collaboration 4 (1+1+1+1). IDs duplicados: 0 (por arquivo; e 0 entre os IDs de denominador no corpus — 26 IDs fora do denominador, de participant, message, error, dados e DI, repetem-se entre arquivos por desenho e ficam fora desta contagem). `camunda:delegateExpression`: 44 distintos no corpus (75 ocorrências).
 
 ## §2 Estados terminais e catálogo de casas
 
-Cada um dos 359 elementos está em **exatamente 1** estado terminal:
+Cada um dos 367 elementos está em **exatamente 1** estado terminal:
 
 - **CASA** — existe capacidade runtime em main que exerce a função do elemento (worker/motor/fila humana/DMN/escalação/observabilidade), com caminho + teste citáveis. O elemento do v4 é *vocabulário de desenho* dessa capacidade existente; a admissão runtime do desenho é a ponte (à parte, se o mapa provar lacuna de chave).
 - **LACUNA** — nenhuma capacidade existente exerce a função; único candidato legítimo a ponte futura, delimitado ao caminho canônico D-02 (§8/§9). LACUNA **não** é autorização de implementação.
@@ -109,11 +111,13 @@ Famílias: **L3C** oferta/agenda de compra (casa parcial = autoridade comercial 
 | `C4_Start`, `C4_T_Confirmar`, `C4_EV_Agendado`, `C4_End_Remarcado`, `C4_End_Cancelado` | start+uT+throw+end×2 (5) | trigger intake, confirmação humana, marco, cancelamento pelo cliente (→ contrato ≠ slot, A-06) | **SP-OP-CANCEL-001** (só `C4_End_Cancelado`) + fila humana C-7 + marcos C-5 | C-8, C-7, C-5 | **CASA** |
 | `C4_GW_Motivo`, `C4_T_Reagendar`, `C4_B_SemSlot`, `C4_B_Lembrete`, `C4_B_PrazoMax`, `C4_EV_Lembrete`, `C4_End_Lembrete`, `C4_End_SemConfirmacao`, `C4_End_SemSlot` | gw+task+boundary×3+throw+end×3 (9) | reagendamento automático em slot equivalente (`autoRebookingService`; erro `SEM_SLOT_EQUIVALENTE` = contrato declarado externo, F-05/§8) — sem casa (L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
 
-Soma CA_1: (1+1+2+2+1) + 24 + (1+2+2+2+3) + (1+6+5) + (1+32+1) + (1+5+9) = **104** ✓ (CASA 55, LACUNA 49).
+Soma CA_1: (1+1+1+2+2+1) + 24 + (1+2+2+2+1+3) + (1+6+5) + (1+32+1) + (1+5+9) = **104** ✓ (CASA 55, LACUNA 49). (Re-base 2026-11-16: a expressão anterior somava 102 — omitia `CP_B_ConsentimentoNegado` e `C1_T_Cruzar`; as linhas da tabela não mudaram.)
 
-## §5 CA_2 — Utilização (68 = 40 CASA + 28 LACUNA)
+## §5 CA_2 — Utilização (76 = 45 CASA + 31 LACUNA)
 
 Famílias: **L6** agenda/no-show/slot · **L1** comunicação (evento clínico, lembretes, predição) · **L5** ingestão clínica · **L8** desfecho/pesquisa de satisfação.
+
+**Re-base 2026-11-16 (LA-02):** as 3 últimas linhas da tabela são os 8 elementos inseridos por `f57f08219` (REG-1.5(b)/D-07) depois da base `5a8ba09e` deste mapa. Não houve ruling D-02 sobre eles; o estado registrado é o **estado de partida** da Reconciliação de funil (`FUNNEL-INVENTORY-RECONCILIATION.md` §2.3: 5 IMPL + 3 DO), traduzido para o eixo deste mapa (IMPL→CASA, DO→LACUNA, convenção da própria Reconciliação §0.5) e **sujeito ao critério CASA de §2** — o dono pode revê-lo sem re-base. A reclassificação de `U4_B_PrazoLegalReembolso`/`U4_End_PrazoLegalVencido` prevista em EP-PROC-06c não é feita aqui.
 
 | Elemento(s) | Tipo | Capacidade/casa | Processo SP-OP | Código/teste | Estado |
 |---|---|---|---|---|---|
@@ -143,8 +147,11 @@ Famílias: **L6** agenda/no-show/slot · **L1** comunicação (evento clínico, 
 | `U4_T_Liquidar` | task (sem tipo — IA-09 residual) | liquidação de consumo/glosa | **SP-OP-CONTAS-001** / **SP-OP-PAGTO-001** | C-3 | **CASA** (tipo abstrato mantido — GUIA §6) |
 | `U4_T_Pesquisa` | userTask (`ced:pos-servico`, cliente) | fila humana SP-OP (NPS/form = wiring futuro) | — (C-7) | C-7 | **CASA** |
 | `U4_T_Desfecho`, `U4_GW_ProxAcao`, `U4_EV_ProxAcao` | task+gw+throw (3) | desfecho clínico + próxima ação (`careOutcomeRecorder`; L8; LGPD art. 11 §4º = COUNSEL-4/REG-1.8) | — | LACUNA→SP-OP-DESFECHO-001 | LACUNA |
+| `U4_GW_RotaPgto`, `U4_T_AuditarContas`, `U4_GW_MergePgto` | XOR+task (sem tipo)+XOR (3) — **LA-02** | rota de liquidação + conferência de faturamento/glosa de contas do prestador | **SP-OP-CONTAS-001** | C-3 (`src/maezo/tools/workers/contas.py`); pin `tests/processes/test_ca2_v4_reg15b_la02_d07.py` | **CASA** (estado de partida, Reconciliação §2.3) |
+| `U4_T_ReceberDocReembolso`, `U4_T_AnalisarReembolso` | task (sem tipo) ×2 (2) — **LA-02** | recebimento de documentação e análise do reembolso | **SP-OP-REEMBOLSO-001** | `src/maezo/tools/workers/reembolso.py` (`request_documents`, `analyze_request`); spec `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn` | **CASA** (estado de partida, Reconciliação §2.3) |
+| `U4_T_ApurarCoparticipacao`, `U4_B_PrazoLegalReembolso`, `U4_End_PrazoLegalVencido` | task (sem tipo)+boundary (timer P30D)+end (3) — **LA-02** | apuração de coparticipação (sem worker de adjudicação) + prazo legal de 30 dias do reembolso (Lei 9.656/1998 art. 12, VI; sem monitor runtime — o processo deployado trata o prazo como DMN informativa) | — | LACUNA (EP-PROC-06 trata o relógio de 30 dias) | LACUNA (estado de partida, Reconciliação §2.3) |
 
-Soma CA_2: (1+1+1+2+2+2) + (1+3+6) + (1+9+4) + (1+7+2) + (1+7+1+1+3) + 5 processos = **68** ✓ (CASA 40, LACUNA 28).
+Soma CA_2: (1+1+1+2+2+2+3+2+1+2+3) + (1+1+3+6) + (1+9+4) + (1+7+2) + (1+7+1+1+3) + (3+2+3) = **76** ✓ (CASA 45, LACUNA 31). Parcelas por processo: `Process_CA_UTILIZACAO` 20 · U1 11 · U2 14 · U3 10 · U4 13 + 8 LA-02. (Re-base 2026-11-16: a expressão anterior somava 61 contra 68 declarados — omitia as 11 linhas LACUNA de `UT_*`; e a base não tinha os 8 elementos LA-02.)
 
 ## §6 CA_3 — Suporte (89 = 85 CASA + 4 LACUNA)
 
@@ -161,34 +168,77 @@ O suporte é a jornada com mais casa: helena é a porta de atendimento real (ADR
 | `Process_CA_SUPORTE_S4_ConfirmarEncerrar` + `S4_Start`, `S4_T_Confirmar`, `S4_GW_Resolvido`, `S4_GW_Rota`, `S4_T_Ouvidoria` (userTask — tipada em #930; **sem binding** de executor/alçada/conclusão), `S4_GW_MergeAprender`, `S4_End`, `S4_End_Reencaminhar`, `S4_B_Silencio` | process + 9 | confirmação do cliente, rota de ouvidoria/ANS com retorno, reencaminhamento, silêncio 24h | **SP-OP-NIP-001** (casa parcial do rito ouvidoria — prazo ≤7du RN 623 art. 16 = REG-1.3) + fila humana C-7 + C-4 | C-9, C-7, C-4 | **CASA** |
 | `S4_T_Aprender`, `S4_EV_Aprendizado` | serviceTask+throw (2) | registro para treinar a IA (`interactionLearningService`; consentimento de uso do dataset = GUIA Q-2 de S4) — sem casa (L4) | — | LACUNA→SP-OP-NBA-001 (aprendizado) | LACUNA |
 
-Soma CA_3: (1+16) + (1+7) + 1 + 1 + (1+5) + 43 + (1+9) + 2 = **89** ✓ (CASA 85, LACUNA 4).
+Soma CA_3: (1+16) + (1+7) + 1 + 1 + (1+5) + (1+43) + (1+9) + 2 = **89** ✓ (CASA 85, LACUNA 4). (Re-base 2026-11-16: a expressão anterior somava 88 — contava os 43 nós de S3 sem o próprio `Process_CA_SUPORTE_S3_ResolverEncaminhar`; as linhas da tabela não mudaram.)
 
 ## §7 Reconciliação maquinável (soma checada — saída do script)
 
-Script: `/tmp/w2_mapa_contagem.py` (python stdlib; contagem ElementTree namespace-aware, pareamento corpus-inteiro, 0 edições nos `.bpmn`).
+Gerador: `python -m scripts.docs.gerar_inventario_ca --resumo` (stdlib + lxml; contagem namespace-aware; 0 edições nos `.bpmn`). O bloco abaixo é a transcrição literal dessa saída e o teste `tests/processes/test_mapa_elementos_v4_sync.py` exige igualdade byte a byte com a regeneração. O inventário completo (elementos com id/tipo/nome/processo e pertença lane→IDs via `<bpmn:flowNodeRef>`) está em `INVENTARIO-CA.generated.json`.
 
 ```
-A. CONTAGENS POR ARQUIVO
-   CA_0: DENOMINADOR = 98   (process=7 userTask=2 serviceTask=31 callActivity=3 XOR=19 AND=2 start=8 end=20 catch=1 throw=2 boundary=3)
-   CA_1: DENOMINADOR = 104  (process=5 userTask=4 serviceTask=10 callActivity=7 XOR=20 EBG=1 start=10 end=28 catch=4 throw=6 boundary=9)
-   CA_2: DENOMINADOR = 68   (process=5 userTask=2 serviceTask=2 receiveTask=2 callActivity=4 task=1 XOR=9 AND=2 EBG=1 start=8 end=15 catch=2 throw=9 boundary=6)
-   CA_3: DENOMINADOR = 89   (process=5 userTask=10 serviceTask=10 callActivity=5 XOR=18 start=7 end=22 throw=2 boundary=10)
+A. CONTAGENS POR ARQUIVO (gerador: python -m scripts.docs.gerar_inventario_ca)
+   CA_0: DENOMINADOR = 98   (process=7 uT=2 sT=31 cA=3 XOR=19 AND=2 start=8 end=20 catch=1 throw=2 boundary=3)
+   CA_1: DENOMINADOR = 104  (process=5 uT=4 sT=10 cA=7 XOR=20 EBG=1 start=10 end=28 catch=4 throw=6 boundary=9)
+   CA_2: DENOMINADOR = 76   (process=5 uT=2 sT=2 rT=2 cA=4 task=5 XOR=11 AND=2 EBG=1 start=8 end=16 catch=2 throw=9 boundary=7)
+   CA_3: DENOMINADOR = 89   (process=5 uT=10 sT=10 cA=5 XOR=18 start=7 end=22 throw=2 boundary=10)
    planos DI sem id: CA_0=0 CA_1=0 CA_2=0 CA_3=0
-B. RECONCILIACAO — soma checada
-   por arquivo: CA_0=98 | CA_1=104 | CA_2=68 | CA_3=89
-   TOTAL DENOMINADOR CORPUS = 359 = 22 processos + 93 tasks + 72 gateways + 172 events
-   soma por arquivo 359 == total 359: OK
-D. GATE-3 SET-LEVEL
+B. RECONCILIACAO - soma checada
+   por arquivo: CA_0=98 | CA_1=104 | CA_2=76 | CA_3=89
+   TOTAL DENOMINADOR CORPUS = 367 = 22 processos + 97 tasks + 74 gateways + 174 events
+C. AGREGADOS (fora do denominador)
+   sequenceFlow = 322 (91+91+63+77)
+   subProcess = 4 (0+1+3+0)
+   textAnnotation = 2 (1+0+0+1)
+   association = 2 (1+0+0+1)
+   dataObject = 27 (5+9+10+3)
+   dataObjectReference = 27 (5+9+10+3)
+   dataStore = 16 (6+5+1+4)
+   dataStoreReference = 19 (8+5+1+5)
+   dataInputAssociation = 43 (12+14+9+8)
+   dataOutputAssociation = 6 (2+1+3+0)
+   participant = 34 (9+9+8+8)
+   messageFlow = 36 (6+15+10+5)
+   laneSet = 21 (6+5+5+5)
+   lane = 57 (16+16+12+13)
+   flowNodeRef = 337 (88+98+67+84)
+   collaboration = 4 (1+1+1+1)
+   conditionExpression = 54 (16+17+6+15)
+   BPMNDiagram = 8 (2+1+4+1)
+   BPMNPlane = 8 (2+1+4+1)
+   BPMNShape = 488 (130+139+105+114)
+   BPMNEdge = 406 (112+121+82+91)
+D. IDS E DELEGATES
+   ids duplicados por arquivo: 0
    ids de denominador duplicados no corpus: 0
-   [PAREADO] Signal_CA_AlertaDS ('Alerta Time Data Science')
-      THROW: CA_0#H3_EV_AlertaDS
-      CATCH: CA_0#DS_Start_AlertaDS        <- Process_CA_DS_Monitoramento (#932)
-   [PAREADO] Error_CA_ConsentimentoNegado: THROW CA_0#H1_End_Negado; CATCH CA_0#EC_B_Negado, CA_1#CP_B_ConsentimentoNegado, CA_3#S1_B_Consent
-   [SEM-PAR] Error_CA_SemSlotEquivalente ('Sem slot equivalente para reagendamento'): THROW - ; CATCH CA_1#C4_B_SemSlot
-F. DECLARACOES: message=36 (2/15/13/6) · signal=1 · error=4 (1/2/0/1) · escalation=1
+   camunda:delegateExpression: 75 ocorrencias, 44 distintos no corpus
+F. DECLARACOES: 42 = message 36 + signal 1 + error 4 + escalation 1
 ```
 
-Estados terminais (contagem deste documento, somada por arquivo): CA_0 29 CASA + 69 LACUNA = 98 ✓ · CA_1 55 + 49 = 104 ✓ · CA_2 40 + 28 = 68 ✓ · CA_3 85 + 4 = 89 ✓. **Total: 209 CASA + 150 LACUNA = 359 — zero none-por-silêncio** (todo elemento em exatamente 1 estado; nenhum elemento citado em duas linhas; IDs duplicados no corpus: 0).
+Pareamento Gate-3 set-level (transcrito da saída do script da base `5a8ba09e`; o inventário gerado não refaz o pareamento, e LA-02 não alterou declarações — 42 nos dois heads; veredito em §8):
+
+```
+[PAREADO] Signal_CA_AlertaDS ('Alerta Time Data Science'): THROW CA_0#H3_EV_AlertaDS; CATCH CA_0#DS_Start_AlertaDS <- Process_CA_DS_Monitoramento (#932)
+[PAREADO] Error_CA_ConsentimentoNegado: THROW CA_0#H1_End_Negado; CATCH CA_0#EC_B_Negado, CA_1#CP_B_ConsentimentoNegado, CA_3#S1_B_Consent
+[SEM-PAR] Error_CA_SemSlotEquivalente ('Sem slot equivalente para reagendamento'): THROW - ; CATCH CA_1#C4_B_SemSlot
+```
+
+Estados terminais (contagem deste documento, somada por arquivo): CA_0 29 CASA + 69 LACUNA = 98 ✓ · CA_1 55 + 49 = 104 ✓ · CA_2 45 + 31 = 76 ✓ · CA_3 85 + 4 = 89 ✓. **Total: 214 CASA + 153 LACUNA = 367 — zero none-por-silêncio** (todo elemento em exatamente 1 estado; nenhum elemento citado em duas linhas; IDs duplicados no corpus: 0). Os 8 elementos LA-02 entram com o estado de partida da Reconciliação (§5); nenhum dos 8 flips de §7.1 está aplicado.
+
+### §7.1 Divergências element-level registradas (Reconciliação §6.2) — 8 flips, NENHUM aplicado
+
+Fonte: `SALES-FUNNEL-AUDIT-2026-11/FUNNEL-INVENTORY-RECONCILIATION.md` §6.2 (base `fc4cd9448`; sha256 do documento declarado no rodapé dele: `831700b04b129dc64c75fba36d0eba22605258d6ed268a94941978e9891f673b`). O eixo deste mapa (CASA/LACUNA, D-02, ver cabeçalho) difere da regra do auditor (start/receptor sem receptor montado → DO). **Adotar um flip é ato do dono de D-02**; enquanto a coluna de disposição não disser `adotado`, o elemento fica no estado vigente de §3–§6 (o teste de sync recusa flip aplicado sem disposição `adotado`).
+
+| # | Elemento | Arquivo | Estado vigente no MAPA | Reconciliação §6.2 | Evidência do auditor (resumo) | disposição do dono (adotado \| rejeitado \| pendente) |
+|---|---|---|---|---|---|---|
+| 1 | `CP_Start_NovoBeneficiario` | CA_1 | CASA | DO | `cadastro.py` não é onboarding; `acesso.py` sem ramo de prospect | pendente |
+| 2 | `C1_Start` | CA_1 | CASA | DO | sem rota de intake de intenção de compra de prospect; journeys desmontados | pendente |
+| 3 | `C4_Start` | CA_1 | CASA | DO | sem ingress de manutenção de slot | pendente |
+| 4 | `C4_End_Remarcado` | CA_1 | CASA | DO | produtor (`C4_T_Reagendar`) está em LACUNA neste mapa | pendente |
+| 5 | `UT_Start` | CA_2 | CASA | DO | sem ingress montado | pendente |
+| 6 | `U2_Start` | CA_2 | CASA | DO | produtor (U1) sem runtime | pendente |
+| 7 | `U3_Start` | CA_2 | CASA | DO | produtor (U2) sem runtime | pendente |
+| 8 | `CP_End_SemConsentimento` | CA_1 | LACUNA | IMPL | máquina determinística de consentimento `acesso.py` | pendente |
+
+Aritmética de conferência (Reconciliação §6.2): se os 8 fossem adotados, CASA pré-LA-02 iria de 209 a 203 (209 − 7 + 1); hoje permanece 209 (+5 LA-02 = 214).
 
 ## §8 Veredito Gate-3 set-level (re-derivado na árvore nova)
 
@@ -213,7 +263,8 @@ Caminho canônico de qualquer ponte futura (D-02, citado do ruling): nova chave 
 
 ## §10 Proveniência e limites
 
-- Contagem e pareamento: gerados do XML em main @ `5a8ba09e` (shas por arquivo na §1); snapshot dos documentos de auditoria gitignored consumido com cp+sha256 (`/tmp/w2-corp27-snapshot-211616`; FINDINGS `ba2ed41e…`, COMPARISON `b788149e…`, INVENTORY-A-V4 `428dac64…`, TRACEABILITY `87694ddf…`).
+- Contagem e pareamento (redação original): gerados do XML em main @ `5a8ba09e`; snapshot dos documentos de auditoria gitignored consumido com cp+sha256 (`/tmp/w2-corp27-snapshot-211616`; FINDINGS `ba2ed41e…`, COMPARISON `b788149e…`, INVENTORY-A-V4 `428dac64…`, TRACEABILITY `87694ddf…`).
+- Contagem do re-base 2026-11-16: `INVENTARIO-CA.generated.json` (sha256 de cada `.bpmn` na §1, 64 hex, conferido pelo teste de sync contra os bytes do arquivo). Divergência entre §1/§7 e o XML, soma inline falsa, elemento contado e não citado (ou citado duas vezes), sha256 desatualizado ou JSON diferente da regeneração = teste vermelho.
 - "CASA" = capacidade existente que exerce a função, NÃO admissão runtime do desenho v4 (o corpus CA continua `runtime_admitted: false`; F1/F2 em `contracts.json:1814,1892`). A maturidade por elemento permanece `none` no sentido da auditoria; o que este mapa estabelece é a CASA FUNCIONAL de cada vocabulário, conforme D-02 ("cada elemento ganha casa real" sem forquilha).
 - Nomes de empresa/pessoa: zero nos `.bpmn` (heurística re-executada pela auditoria: 0 hits em 500 valores distintos); este documento cita apenas caminhos de código e chaves SP-OP.
 
@@ -245,4 +296,35 @@ Registro do item 7 do despacho (REG-RESIDUAL-AUDIT-v1.md §3.10/§4; snapshot `5
 
 - **Gate humano registrado, não simulado (ADR-0007)**: classes de prazo do art. 3º = SME jurídico (despacho REG-RESIDUAL-AUDIT-v1 §4 item 7; decisão do dono 2026-10-28 — EXECUTAR com verbatim banked; nenhuma ratificação por agente).
 - **Varredura de escopo**: os demais hits "566" do corpus v4 são números coincidentes (`5666`×2 em CA_0 — coordenadas; `2566`×3 em CA_3 — valores), não citações normativas.
-- Esta §12 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — âncoras são documentation-only; `SP-OP-AGENDA-001` segue LACUNA (linha 206) e não recebe contrato nesta leva.
+- Esta §12 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — âncoras são documentation-only; `SP-OP-AGENDA-001` segue LACUNA (§9, item 2 — Agenda/slot/no-show/reagendamento) e não recebe contrato nesta leva.
+
+## Changelog
+
+### 2026-11-16 — re-base in-place pós-LA-02 (EP-PROC-02 + EP-PROC-03, registro PROC-02)
+
+**Causa:** o commit `f57f08219` ("REG-1.5(b) CA_2 v4 per D-07 — LA-02 por inteiro + timer reembolso 30d, Lei 9.656 art. 12, VI") entrou DEPOIS da base `5a8ba09e` deste mapa e inseriu em `Process_CA_UTILIZACAO_U4_LiquidarAvaliar` o bloco de liquidação/pagamento LA-02 (8 elementos de denominador + fluxos, dados e DI). O mapa não foi revisado na época (GAP-MAPA-STALE / REC-GAP-MAPA-STALE, BL-08). Nenhum `.bpmn` foi tocado neste re-base.
+
+**Números da base `5a8ba09e` preservados (substituídos em §1/§2/§5/§7):**
+
+| Grandeza | Base `5a8ba09e` (antes) | Head do re-base (agora) | Delta |
+|---|---|---|---|
+| Denominador do corpus | 359 (22 processos + 93 tasks + 72 gateways + 172 events) | 367 (22 + 97 + 74 + 174) | +8 |
+| Denominador CA_2 | 68 (11 tasks: 2 uT + 2 sT + 2 rT + 4 cA + 1 task · 12 gw: 9X + 2P + 1EB · 40 events: 8+15+2+9+6) | 76 (15 · 14 · 42) | +8 |
+| sequenceFlow | 314 (91+91+55+77) | 322 | +8 |
+| dataObject | 24 | 27 | +3 |
+| dataObjectReference | 24 | 27 | +3 |
+| dataOutputAssociation | 3 | 6 | +3 |
+| conditionExpression | 53 | 54 | +1 |
+| BPMNShape | 477 | 488 | +11 |
+| BPMNEdge | 398 | 406 | +8 |
+| Estados terminais | 209 CASA + 150 LACUNA = 359; CA_2 40 CASA + 28 LACUNA | 214 CASA + 153 LACUNA = 367; CA_2 45 + 31 | +5 / +3 |
+
+Sem mudança: subProcess 4, textAnnotation 2, association 2, dataStore 16, dataStoreReference 19, dataInputAssociation 43, participant 34, messageFlow 36, laneSet 21, lane 57, declarações 42, BPMNDiagram 8 (0 sem id), collaboration 4, CA_0 98, CA_1 104, CA_3 89.
+
+**Somas inline corrigidas (só a expressão; as linhas das tabelas não mudaram):** declarado 104/68/89 × computado 102/61/88 em §4/§5/§6 (CA_0, §3, fechava em 98). §4 omitia `CP_B_ConsentimentoNegado` e `C1_T_Cruzar`; §5 omitia as 11 linhas LACUNA de `UT_*`; §6 contava os 43 nós de S3 sem o processo.
+
+**Coluna sha256 de §1:** antes trazia prefixos de 8 hex rotulados "sha256 em main @ 5a8ba09e" — `a01b1a3e…` (CA_0), `067cf607…` (CA_1), `a2f2ddde…` (CA_2), `f9db4574…` (CA_3); o de CA_1 coincide com o prefixo do commit `067cf607` citado no cabeçalho, o que tornava a coluna ambígua (F-06 / GAP-E2). Agora: sha256 de 64 hex dos bytes de cada arquivo no head do re-base, conferido por teste.
+
+**Cobertura LA-02:** os 8 IDs (`U4_GW_RotaPgto`, `U4_T_AuditarContas`, `U4_T_ApurarCoparticipacao`, `U4_T_ReceberDocReembolso`, `U4_T_AnalisarReembolso`, `U4_B_PrazoLegalReembolso`, `U4_End_PrazoLegalVencido`, `U4_GW_MergePgto`) passam a ser citados em §5 (antes 359/367 IDs citados), com o estado de partida da Reconciliação §2.3 (5 CASA + 3 LACUNA), sujeito ao critério CASA.
+
+**Flips:** os 8 flips element-level da Reconciliação §6.2 ficam registrados em §7.1 com disposição `pendente`; nenhum foi aplicado.
