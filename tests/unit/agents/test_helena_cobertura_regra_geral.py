@@ -21,13 +21,13 @@ from tests.unit.agents.test_helena_cobertura_ampla import _entrada, _grafo, _lig
 _AMOSTRA = Path(__file__).parent / "helena_k2_amostra" / "pacote"
 _PIN = PinDoK2(
     versao="amostra-0.1.0",
-    sha256_manifesto="9af9c38159fc23b4b73e576bab19afbb87cb7562839906a67ff660320e6dd22a",
+    sha256_manifesto="f9124f357352eaffa58cf06f3af7576209deb25f6d5dfe0cc1624115e49e15cd",
 )
 
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA, pin=_PIN)
+    return carregar(_AMOSTRA, pin=_PIN, aceitar_nao_ratificado=True)
 
 
 def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:
