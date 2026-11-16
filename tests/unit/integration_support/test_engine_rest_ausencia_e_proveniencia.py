@@ -36,6 +36,7 @@ from tests.integration.processes.engine_rest import (
     EngineDefinitionProvenanceError,
     EngineRestError,
     assert_definition_provenance,
+    history_variable_params,
     is_variable_absent_response,
 )
 from tests.integration.processes.test_sp_op_recurso_001 import (
@@ -169,3 +170,23 @@ def test_marcador_de_outra_definicao_presente_falha_alto() -> None:
 def test_erro_de_proveniencia_e_um_engine_rest_error() -> None:
     """Subclasse de `EngineRestError`: quem ja capturava o erro do harness continua capturando."""
     assert issubclass(EngineDefinitionProvenanceError, EngineRestError)
+
+
+# ---------------------------------------------------------------------------
+# history_variable_params
+# ---------------------------------------------------------------------------
+
+
+def test_historico_por_padrao_nao_pede_nada_alem_da_instancia_e_do_nome() -> None:
+    assert history_variable_params("iid-1", "auto_criteria_falhas") == {
+        "processInstanceIdIn": "iid-1",
+        "variableName": "auto_criteria_falhas",
+    }
+
+
+def test_historico_sem_desserializar_usa_o_parametro_plural_da_api_de_historico() -> None:
+    params = history_variable_params("iid-1", "auto_criteria_falhas", deserialize=False)
+    assert params["deserializeValues"] == "false"
+    # O singular e' o parametro do endpoint de RUNTIME; no historico o engine o ignora em silencio
+    # e devolve a introspecao do bean SPIN ({'nodeType': 'ARRAY', ...}) em vez da lista.
+    assert "deserializeValue" not in params

@@ -639,8 +639,10 @@ async def _assert_no_denial_without_human_task(engine: EngineRest, iid: str) -> 
 
 
 def _lista_do_historico(valor: Any) -> list[Any]:
-    """A list process variable read from history: the harness writes lists as `Json`, which the
-    history REST returns serialized. Anything that is not a list after decoding fails the test."""
+    """A list process variable read from history with `deserialize=False`: the harness writes lists
+    as `Json`, and the history REST then returns the raw JSON string (with deserialization on it
+    returns the SPIN bean's introspection, not the data). Anything that is not a list after decoding
+    fails the test."""
     decodificado = json.loads(valor) if isinstance(valor, str) else valor
     assert isinstance(decodificado, list), f"expected a list variable, got {valor!r}"
     return decodificado
@@ -783,10 +785,14 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     await auth_probe_dmn.drain_analyze()
     await auth_probe_dmn.drain()
     assert await engine.get_history_variable(inst_f["id"], "criterio_regulatorio_ok") is False
-    falhas_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_falhas"))
+    falhas_f = _lista_do_historico(
+        await engine.get_history_variable(inst_f["id"], "auto_criteria_falhas", deserialize=False)
+    )
     assert "REGULATORIO_FONTE_NAO_RATIFICADA" in falhas_f, falhas_f
     assert "REGULATORIO_CARENCIA_NAO_CUMPRIDA" in falhas_f, falhas_f
-    sombra_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_shadow"))
+    sombra_f = _lista_do_historico(
+        await engine.get_history_variable(inst_f["id"], "auto_criteria_shadow", deserialize=False)
+    )
     assert "REGULATORIO_SOMBRA_REPROVARIA" in sombra_f, sombra_f
     ended_f = await engine.activity_instances_ended(inst_f["id"])
     assert _END_NEGADA not in ended_f, (

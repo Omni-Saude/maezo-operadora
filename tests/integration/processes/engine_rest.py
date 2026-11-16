@@ -68,6 +68,20 @@ class TimerJob:
     due_date: str | None = None  # ISO 8601 (campo `dueDate` do DTO de Job do CIB Seven)
 
 
+def history_variable_params(instance_id: str, name: str, *, deserialize: bool = True) -> dict[str, str]:
+    """Query de `GET /history/variable-instance` para UMA variavel de UMA instancia.
+
+    Funcao pura (sem engine), para que o nome exato do parametro fique pinado em teste unitario:
+    a API de HISTORICO usa `deserializeValues` (plural) e `processInstanceIdIn`; a de runtime usa
+    `deserializeValue` (singular). Trocar um pelo outro e' aceito em silencio pelo engine e devolve
+    a introspecao do bean SPIN em vez dos dados.
+    """
+    params = {"processInstanceIdIn": instance_id, "variableName": name}
+    if not deserialize:
+        params["deserializeValues"] = "false"
+    return params
+
+
 class EngineRestError(RuntimeError):
     """Falha na comunicacao com o engine REST."""
 
@@ -410,7 +424,7 @@ class EngineRest:
             )
         return resp.json().get("value")
 
-    async def get_history_variable(self, instance_id: str, name: str) -> Any:
+    async def get_history_variable(self, instance_id: str, name: str, *, deserialize: bool = True) -> Any:
         """Le o VALOR historico de uma variavel de processo (instancia ATIVA ou JA CONCLUIDA).
 
         `get_variable` acima usa o endpoint de RUNTIME (`/process-instance/{id}/variables/{name}`),
@@ -423,10 +437,18 @@ class EngineRest:
         da API de historico do Camunda/CIB Seven (nao `processInstanceId`, que essa API nao aceita).
         Levanta `EngineRestError` se a variavel nao aparecer no historico da instancia (nome
         errado / nunca setada) — sem "variavel ausente" silenciosa.
+
+        `deserialize=True` (default, byte-identico ao comportamento anterior — nenhum call site
+        existente muda) deixa o engine desserializar o valor. Para uma variavel `Json` SPIN-tipada
+        (toda lista/mapa que o harness grava), isso devolve a introspecao do BEAN `SpinJsonNode`
+        (`{'nodeType': 'ARRAY', 'array': True, ...}`) e NAO os dados — o mesmo defeito que
+        `get_variable` documenta acima para o endpoint de runtime. Passe `deserialize=False` para
+        pedir `deserializeValues=false` (PLURAL nesta API de historico; o runtime usa o singular
+        `deserializeValue`): o engine devolve a string JSON crua, que o chamador decodifica.
         """
         resp = await self._client.get(
             "/history/variable-instance",
-            params={"processInstanceIdIn": instance_id, "variableName": name},
+            params=history_variable_params(instance_id, name, deserialize=deserialize),
         )
         resp.raise_for_status()
         rows = resp.json()
