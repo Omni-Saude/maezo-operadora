@@ -93,11 +93,14 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
   - **Aguardando o OK do usuário:**
     - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; `auth_sla.dmn` intacto; teste-cerca contra caráter literal.
     - Condição deste arquivo para o escritor livre da Helena.
-  - **Item 5 (ativação por classe de risco), desenho enviado à ROOT em 16/11/2026, sem código:**
-    - a ordem dos PRs é ADR-0077 → 5a leitura → 5c estado efetivo por (idRegra, versaoRegra), registro append-only e amostragem HMAC → 5d User Tasks D1/D2 → 5e monitor de reversão;
-    - 5b, as provas do pacote no CIB Seven 2.1.0, corre em paralelo, quando o T-RCO publicar o formato de `provas[]`;
-    - nenhum efeito adverso automático liga antes da Onda 3 e da decisão P7;
-    - perguntas abertas: janela da taxa de reversão; monitor de reversão também em D2; timeout da conferência D2 com os prazos da RN 259/395; fonte do dado "aditivo aceito / modelo OMNI" (LACUNA: o Maezo não tem esse dado de prestador).
+  - **Item 5 (ativação por classe de risco):** desenho aprovado pela ROOT em 16/11/2026, com as respostas às perguntas abertas.
+    - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
+    - **#1255, em revisão:** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
+    - **Autorizado pela ROOT, a seguir:** 5c, estado efetivo, registro append-only e amostragem HMAC; tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos.
+    - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
+    - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
+    - **LACUNA do dono:** o registro de aditivo aceito por prestador (versão, data de aceite, vigência e regras cobertas).
+    - **PR em caminho protegido:** o dev em enforcing e os aprovadores dono + auditor-neutro estão desenhados no ADR-0077 §8 e não foram aplicados. `spec/policies/autonomy/` é vedado a esta sessão pelo usuário, e a ROOT leva ao dono a liberação explícita.
   - **Primeiro pin real do K1, pré-requisitos:**
     - isenção da cerca de perspectiva para `spec/processes/dmn/rco/`;
     - provas executadas sem divergência;
