@@ -1,42 +1,158 @@
-[
-  {
-    "id": "AMOSTRA-AUT-001",
-    "url": "https://manual.exemplo.invalid/amostra/autorizacao-previa-ressonancia",
-    "titulo": "Ressonância magnética precisa de autorização prévia",
-    "resumo": "Texto fictício: a ressonância magnética eletiva precisa de autorização prévia.",
-    "texto": "Texto fictício de amostra. A ressonância magnética eletiva precisa de autorização prévia da operadora antes de ser feita. O pedido médico deve ser enviado pelo prestador.",
-    "sinonimos": ["ressonância", "RM", "exame de imagem"]
+{
+  "versao_manual": "amostra-0.1.0",
+  "data_versao": "2026-11-16",
+  "publico": "beneficiario",
+  "sinonimos": {
+    "carencia": [
+      "periodo de carencia"
+    ],
+    "clinico geral": [
+      "clinica medica"
+    ],
+    "consulta": [
+      "consulta medica"
+    ],
+    "devolucao do dinheiro": [
+      "reembolso de despesas"
+    ],
+    "exame de imagem": [
+      "diagnostico por imagem"
+    ],
+    "fisio": [
+      "fisioterapia"
+    ],
+    "fisioterapia": [
+      "sessao de fisioterapia"
+    ],
+    "marcar consulta": [
+      "agendamento de consulta"
+    ],
+    "nota fiscal": [
+      "comprovante de pagamento"
+    ],
+    "recorrer": [
+      "recurso administrativo"
+    ],
+    "recurso": [
+      "recurso administrativo"
+    ],
+    "reembolso": [
+      "reembolso de despesas"
+    ],
+    "ressonancia": [
+      "ressonancia magnetica"
+    ],
+    "rm": [
+      "ressonancia magnetica"
+    ],
+    "segunda analise": [
+      "reanalise"
+    ],
+    "sessao de fisioterapia": [
+      "fisioterapia"
+    ]
   },
-  {
-    "id": "AMOSTRA-PRZ-002",
-    "url": "https://manual.exemplo.invalid/amostra/prazo-consulta-basica",
-    "titulo": "Prazo para consulta básica",
-    "resumo": "Texto fictício: a consulta básica deve ser oferecida em até 7 dias úteis.",
-    "texto": "Texto fictício de amostra. A consulta básica (clínica geral, pediatria, ginecologia) deve ser oferecida em até 7 dias úteis a partir do pedido.",
-    "sinonimos": ["consulta", "clínico geral", "marcar consulta"]
-  },
-  {
-    "id": "AMOSTRA-QTD-003",
-    "url": "https://manual.exemplo.invalid/amostra/sessoes-fisioterapia",
-    "titulo": "Sessões de fisioterapia",
-    "resumo": "Texto fictício: até 20 sessões de fisioterapia por pedido médico.",
-    "texto": "Texto fictício de amostra. Cada pedido médico cobre até 20 sessões de fisioterapia; acima disso é preciso um novo pedido.",
-    "sinonimos": ["fisioterapia", "fisio", "sessão de fisioterapia"]
-  },
-  {
-    "id": "AMOSTRA-REE-004",
-    "url": "https://manual.exemplo.invalid/amostra/reembolso-documentos",
-    "titulo": "Documentos para reembolso",
-    "resumo": "Texto fictício: o pedido de reembolso pede nota fiscal e pedido médico.",
-    "texto": "Texto fictício de amostra. Para pedir reembolso, envie a nota fiscal ou o recibo e o pedido médico em até 30 dias corridos depois do atendimento.",
-    "sinonimos": ["reembolso", "devolução do dinheiro", "nota fiscal"]
-  },
-  {
-    "id": "AMOSTRA-REC-005",
-    "url": "https://manual.exemplo.invalid/amostra/como-recorrer",
-    "titulo": "Como recorrer de uma negativa",
-    "resumo": "Texto fictício: a nova análise pode ser pedida em até 10 dias úteis.",
-    "texto": "Texto fictício de amostra. Se o pedido for negado, você pode pedir uma nova análise em até 10 dias úteis depois da resposta, pelos canais oficiais.",
-    "sinonimos": ["recurso", "recorrer", "segunda análise", "exame de imagem"]
-  }
-]
+  "documentos": [
+    {
+      "id": "AMOSTRA-AUT-001",
+      "titulo": "Ressonância magnética precisa de autorização prévia",
+      "versao": "1",
+      "publico": "beneficiario",
+      "publico_nome": "Beneficiário",
+      "dominio": "autorizacao",
+      "dominio_nome": "Autorização prévia",
+      "resumo": "Texto fictício: a ressonância magnética eletiva precisa de autorização prévia.",
+      "url": "https://manual.exemplo.invalid/amostra/autorizacao-previa-ressonancia",
+      "texto": "Texto fictício de amostra. A ressonância magnética eletiva precisa de autorização prévia da operadora antes de ser feita. O pedido médico deve ser enviado pelo prestador.",
+      "sinonimos": [
+        "exame de imagem",
+        "ressonancia",
+        "rm"
+      ],
+      "t_titulo": "ressonancia magnetica precisa de autorizacao previa",
+      "t_chaves": "exame de imagem ressonancia rm",
+      "t_texto": "texto ficticio de amostra a ressonancia magnetica eletiva precisa de autorizacao previa da operadora antes de ser feita o pedido medico deve ser enviado pelo prestador"
+    },
+    {
+      "id": "AMOSTRA-PRZ-002",
+      "titulo": "Prazo para consulta básica",
+      "versao": "1",
+      "publico": "beneficiario",
+      "publico_nome": "Beneficiário",
+      "dominio": "prazos",
+      "dominio_nome": "Prazos de atendimento",
+      "resumo": "Texto fictício: a consulta básica deve ser oferecida em até 7 dias úteis.",
+      "url": "https://manual.exemplo.invalid/amostra/prazo-consulta-basica",
+      "texto": "Texto fictício de amostra. A consulta básica (clínica geral, pediatria, ginecologia) deve ser oferecida em até 7 dias úteis a partir do pedido.",
+      "sinonimos": [
+        "clinico geral",
+        "consulta",
+        "marcar consulta"
+      ],
+      "t_titulo": "prazo para consulta basica",
+      "t_chaves": "clinico geral consulta marcar consulta",
+      "t_texto": "texto ficticio de amostra a consulta basica clinica geral pediatria ginecologia deve ser oferecida em ate 7 dias uteis a partir do pedido"
+    },
+    {
+      "id": "AMOSTRA-QTD-003",
+      "titulo": "Sessões de fisioterapia",
+      "versao": "1",
+      "publico": "beneficiario",
+      "publico_nome": "Beneficiário",
+      "dominio": "quantidades",
+      "dominio_nome": "Limites de quantidade",
+      "resumo": "Texto fictício: até 20 sessões de fisioterapia por pedido médico.",
+      "url": "https://manual.exemplo.invalid/amostra/sessoes-fisioterapia",
+      "texto": "Texto fictício de amostra. Cada pedido médico cobre até 20 sessões de fisioterapia; acima disso é preciso um novo pedido.",
+      "sinonimos": [
+        "fisio",
+        "fisioterapia",
+        "sessao de fisioterapia"
+      ],
+      "t_titulo": "sessoes de fisioterapia",
+      "t_chaves": "fisio fisioterapia sessao de fisioterapia",
+      "t_texto": "texto ficticio de amostra cada pedido medico cobre ate 20 sessoes de fisioterapia acima disso e preciso um novo pedido"
+    },
+    {
+      "id": "AMOSTRA-REE-004",
+      "titulo": "Documentos para reembolso",
+      "versao": "1",
+      "publico": "beneficiario",
+      "publico_nome": "Beneficiário",
+      "dominio": "reembolso",
+      "dominio_nome": "Reembolso",
+      "resumo": "Texto fictício: o pedido de reembolso pede nota fiscal e pedido médico.",
+      "url": "https://manual.exemplo.invalid/amostra/reembolso-documentos",
+      "texto": "Texto fictício de amostra. Para pedir reembolso, envie a nota fiscal ou o recibo e o pedido médico em até 30 dias corridos depois do atendimento.",
+      "sinonimos": [
+        "devolucao do dinheiro",
+        "nota fiscal",
+        "reembolso"
+      ],
+      "t_titulo": "documentos para reembolso",
+      "t_chaves": "devolucao do dinheiro nota fiscal reembolso",
+      "t_texto": "texto ficticio de amostra para pedir reembolso envie a nota fiscal ou o recibo e o pedido medico em ate 30 dias corridos depois do atendimento"
+    },
+    {
+      "id": "AMOSTRA-REC-005",
+      "titulo": "Como recorrer de uma negativa",
+      "versao": "1",
+      "publico": "beneficiario",
+      "publico_nome": "Beneficiário",
+      "dominio": "recursos",
+      "dominio_nome": "Recursos",
+      "resumo": "Texto fictício: a nova análise pode ser pedida em até 10 dias úteis.",
+      "url": "https://manual.exemplo.invalid/amostra/como-recorrer",
+      "texto": "Texto fictício de amostra. Se o pedido for negado, você pode pedir uma nova análise em até 10 dias úteis depois da resposta, pelos canais oficiais.",
+      "sinonimos": [
+        "exame de imagem",
+        "recorrer",
+        "recurso",
+        "segunda analise"
+      ],
+      "t_titulo": "como recorrer de uma negativa",
+      "t_chaves": "exame de imagem recorrer recurso segunda analise",
+      "t_texto": "texto ficticio de amostra se o pedido for negado voce pode pedir uma nova analise em ate 10 dias uteis depois da resposta pelos canais oficiais"
+    }
+  ]
+}

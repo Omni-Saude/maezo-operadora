@@ -1,0 +1,48 @@
+# Avaliacoes SINTETICAS da amostra (ver ../LEIAME.md). Perguntas e respostas ficticias.
+avaliacoes:
+  - id: AMOSTRA-AV-001
+    publico: beneficiario
+    pergunta: Preciso de autorização para fazer ressonância?
+    resposta_esperada: >-
+      Texto fictício: sim, a ressonância magnética eletiva precisa de autorização prévia.
+    elementos_obrigatorios:
+      - autorização prévia
+    o_que_seria_invencao:
+      - prazo de resposta da autorização
+    regra_origem:
+      - AMOSTRA-AUT-001
+  - id: AMOSTRA-AV-002
+    publico: beneficiario
+    pergunta: A consulta básica pode demorar até 30 dias, certo?
+    resposta_esperada: >-
+      Texto fictício: não; a consulta básica deve ser oferecida em até 7 dias úteis.
+    elementos_obrigatorios:
+      - 7 dias úteis
+    o_que_seria_invencao:
+      - 30 dias
+    regra_origem:
+      - AMOSTRA-PRZ-002
+    comportamento: corrige_premissa
+  - id: AMOSTRA-AV-003
+    publico: beneficiario
+    pergunta: O manual fala de tratamento no exterior?
+    resposta_esperada: >-
+      Texto fictício: o manual não traz regra sobre isso; a dúvida vai para os canais oficiais.
+    elementos_obrigatorios:
+      - canais oficiais
+    o_que_seria_invencao:
+      - cobertura no exterior
+    regra_origem: []
+    comportamento: declara_ausencia
+  - id: AMOSTRA-AV-004
+    publico: beneficiario
+    pergunta: Sou do consultório, como envio o pedido de fisioterapia?
+    resposta_esperada: >-
+      Texto fictício: este manual é do beneficiário; quem atende segue o canal do prestador.
+    elementos_obrigatorios:
+      - manual do beneficiário
+    o_que_seria_invencao:
+      - passo a passo do prestador
+    regra_origem:
+      - AMOSTRA-QTD-003
+    comportamento: identifica_publico

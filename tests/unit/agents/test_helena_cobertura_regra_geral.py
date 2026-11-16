@@ -13,7 +13,13 @@ from structlog.testing import capture_logs
 
 from maezo.agents.helena.habilidades import cobertura as cob
 from maezo.agents.helena.habilidades.cobertura import procedimento as proc
-from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, PinDoK2, RegraDoManual, carregar
+from maezo.agents.helena.habilidades.cobertura.manual import (
+    ManualK2,
+    PinDoK2,
+    RegraDoManual,
+    aceite_de_nao_ratificado,
+    carregar,
+)
 from maezo.agents.helena.habilidades.cobertura.regra_geral import CamadaRegraGeral, texto_deterministico
 from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from maezo.ports.tina import ProcedimentoCatalogo
@@ -22,13 +28,17 @@ from tests.unit.agents.test_helena_cobertura_ampla import _entrada, _grafo, _lig
 _AMOSTRA = Path(__file__).parent / "helena_k2_amostra" / "pacote"
 _PIN = PinDoK2(
     versao="amostra-0.1.0",
-    sha256_manifesto="9af9c38159fc23b4b73e576bab19afbb87cb7562839906a67ff660320e6dd22a",
+    sha256_manifesto="f9124f357352eaffa58cf06f3af7576209deb25f6d5dfe0cc1624115e49e15cd",
 )
 
 
 @pytest.fixture(scope="module")
 def manual() -> ManualK2:
-    return carregar(_AMOSTRA, pin=_PIN)
+    # MAEZO_ENV=dev so' durante a carga (ambiente de teste, permitido pela decisao do dono): o contexto do
+    # MonkeyPatch desfaz ao sair, nada vaza para outros testes.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MAEZO_ENV", "dev")
+        return carregar(_AMOSTRA, pin=_PIN, aceite=aceite_de_nao_ratificado(configurado=True))
 
 
 def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:
