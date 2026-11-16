@@ -105,11 +105,20 @@ BASE_LEGAL_DO_CATALOGO: Final[str] = "referencia:catalogo-de-procedimentos"
 #: Paginacao do catalogo: o tamanho de pagina pedido e o teto de paginas lidas de UMA foto.
 TAMANHO_PAGINA_CATALOGO: Final[int] = 2000
 MAX_PAGINAS_CATALOGO: Final[int] = 50
-#: Teto da leitura do catalogo inteiro (todas as paginas).
+#: Teto da leitura do catalogo inteiro (todas as paginas, incluindo o recomeco unico da pagina 1).
 PRAZO_TOTAL_CATALOGO_S: Final[float] = 120.0
-#: Por quanto tempo uma foto do catalogo lida com sucesso e' reaproveitada (dado de referencia, sem pessoa;
-#: a falha nunca fica guardada).
-VALIDADE_DO_CATALOGO_S: Final[float] = 6 * 3600.0
+#: Por quanto tempo uma foto NAO VAZIA do catalogo lida com sucesso e' reaproveitada: o `max-age=300` do
+#: `Cache-Control` do contrato `tina-procedimentos` (a `versao_catalogo` muda quando o conteudo muda).
+#: Catalogo vazio nunca fica guardado.
+VALIDADE_DO_CATALOGO_S: Final[float] = 300.0
+#: Depois de uma leitura que falhou, por quanto tempo a fonte responde `None` sem ler de novo (quem esperava
+#: na trava nao refaz a leitura inteira, um atras do outro).
+ESPERA_APOS_FALHA_DO_CATALOGO_S: Final[float] = 45.0
+#: Quanto tempo uma chamada espera a trava do catalogo (outra leitura em curso) antes de devolver `None`.
+PRAZO_DA_TRAVA_DO_CATALOGO_S: Final[float] = PRAZO_TOTAL_CATALOGO_S + 5.0
+#: Quantas leituras inteiras uma consulta faz: a `versao_catalogo` mudou no meio, o contrato manda recomecar
+#: da pagina 1 (uma vez so'; mudou de novo = `None`).
+TENTATIVAS_DO_CATALOGO: Final[int] = 2
 
 
 @dataclass
@@ -124,6 +133,8 @@ class ConsultasPlanoAmh:
     aclose_fn: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
     #: A ultima foto do catalogo lida com sucesso e quando (relogio monotonico).
     _catalogo: tuple[float, CatalogoDeProcedimentos] | None = field(default=None, init=False, repr=False)
+    #: Quando a ultima leitura do catalogo falhou (relogio monotonico), ou `None`.
+    _falha_do_catalogo_em: float | None = field(default=None, init=False, repr=False)
     _trava_catalogo: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     async def _ler(self, ref: str, subtipo: str, base_legal: str) -> PortResult[Any] | None:
@@ -409,65 +420,70 @@ class ConsultasPlanoAmh:
 
     async def consultar_catalogo_procedimentos(self) -> CatalogoDeProcedimentos | None:
         """O catalogo de procedimentos INTEIRO de uma foto (todas as paginas com a MESMA `versao_catalogo`),
-        ou `None`. NUNCA levanta.
+        ou `None`. NUNCA levanta (nem pela trava).
 
-        Dado de referencia (sem sujeito): base legal fixa `BASE_LEGAL_DO_CATALOGO`. Uma foto lida com sucesso
-        e' reaproveitada por `VALIDADE_DO_CATALOGO_S`; a falha nunca e' guardada. `None` = a rota nao esta'
-        carregada, qualquer recusa, prazo, a versao mudou entre paginas, ou mais paginas que
-        `MAX_PAGINAS_CATALOGO` (catalogo parcial nunca e' entregue: a resolucao deixaria procedimentos de
-        fora sem saber)."""
-        async with self._trava_catalogo:
-            guardado = self._catalogo
-            if guardado is not None and time.monotonic() - guardado[0] < VALIDADE_DO_CATALOGO_S:
-                return guardado[1]
-            catalogo = await self._ler_catalogo()
-            if catalogo is not None:
-                self._catalogo = (time.monotonic(), catalogo)
-            return catalogo
+        Dado de referencia (sem sujeito): base legal fixa `BASE_LEGAL_DO_CATALOGO`. Uma foto NAO VAZIA lida
+        com sucesso e' reaproveitada por `VALIDADE_DO_CATALOGO_S` (o `max-age` do contrato); catalogo vazio
+        nunca fica guardado. Depois de uma falha, `None` sem ler de novo por
+        `ESPERA_APOS_FALHA_DO_CATALOGO_S` (quem esperava na trava nao refaz a leitura). `None` = a rota nao
+        esta' carregada, qualquer recusa ou excecao, prazo (da leitura ou da trava), paginas demais, pagina ou
+        contagem incoerente, ou a versao mudou de novo depois do recomeco (catalogo parcial nunca e'
+        entregue: a resolucao deixaria procedimentos de fora sem saber)."""
+        try:
+            achado, guardado = self._catalogo_guardado()
+            if achado:
+                return guardado
+            async with asyncio.timeout(PRAZO_DA_TRAVA_DO_CATALOGO_S):
+                await self._trava_catalogo.acquire()
+            try:
+                achado, guardado = self._catalogo_guardado()
+                if achado:
+                    return guardado
+                catalogo = await self._ler_catalogo()
+                agora = time.monotonic()
+                if catalogo is None:
+                    self._falha_do_catalogo_em = agora
+                else:
+                    self._falha_do_catalogo_em = None
+                    if catalogo.itens:
+                        self._catalogo = (agora, catalogo)
+                return catalogo
+            finally:
+                self._trava_catalogo.release()
+        except TimeoutError:
+            logger.info("helena_catalogo_lido", motivo="trava_ocupada", itens=0)
+            return None
+        except Exception as exc:
+            logger.warning("helena_catalogo_falhou", error_type=type(exc).__name__)
+            return None
+
+    def _catalogo_guardado(self) -> tuple[bool, CatalogoDeProcedimentos | None]:
+        """`(True, foto)` com foto boa dentro da validade; `(True, None)` dentro da espera depois de uma
+        falha; `(False, None)` = precisa ler."""
+        agora = time.monotonic()
+        guardado = self._catalogo
+        if guardado is not None and agora - guardado[0] < VALIDADE_DO_CATALOGO_S:
+            return True, guardado[1]
+        falha_em = self._falha_do_catalogo_em
+        if falha_em is not None and agora - falha_em < ESPERA_APOS_FALHA_DO_CATALOGO_S:
+            return True, None
+        return False, None
 
     async def _ler_catalogo(self) -> CatalogoDeProcedimentos | None:
         if not isinstance(self.port, TinaProcedimentosPort):
             logger.info("helena_catalogo_lido", motivo="rota_nao_carregada", itens=0)
             return None
-        itens: list[ProcedimentoCatalogo] = []
-        versao = ""
-        atualizada_em = ""
-        pagina, total = 1, 1
         motivo = "ok"
         catalogo: CatalogoDeProcedimentos | None = None
         try:
             async with asyncio.timeout(PRAZO_TOTAL_CATALOGO_S):
-                while pagina <= total:
-                    if pagina > MAX_PAGINAS_CATALOGO:
-                        motivo = "paginas_demais"
+                for _ in range(TENTATIVAS_DO_CATALOGO):
+                    # Versao que muda no meio: o contrato manda recomecar da pagina 1 (uma vez so').
+                    motivo, catalogo = await self._ler_uma_foto(self.port)
+                    if motivo != "versao_mudou":
                         break
-                    resultado = await self.port.get_catalogo_procedimentos(
-                        purpose_of_use=PURPOSE_PROCEDIMENTOS,
-                        consent_decision_ref=BASE_LEGAL_DO_CATALOGO,
-                        pagina=pagina,
-                        tamanho=TAMANHO_PAGINA_CATALOGO,
-                        timeout_seconds=PRAZO_LEITURA_S * 2,
-                    )
-                    if not resultado.succeeded or resultado.value is None:
-                        falha = resultado.failure
-                        motivo = falha.reason.value if falha is not None else "recusa"
-                        break
-                    view = resultado.value
-                    if pagina == 1:
-                        versao = view.versao_catalogo
-                        atualizada_em = view.fonte_atualizada_em
-                        total = view.total_paginas
-                    elif view.versao_catalogo != versao:
-                        motivo = "versao_mudou"
-                        break
-                    itens.extend(view.itens)
-                    pagina += 1
-                else:
-                    catalogo = CatalogoDeProcedimentos(
-                        versao_catalogo=versao, itens=tuple(itens), fonte_atualizada_em=atualizada_em
-                    )
         except TimeoutError:
-            motivo = "prazo_estourado"
+            motivo, catalogo = "prazo_estourado", None
         except Exception as exc:
             logger.warning("helena_catalogo_falhou", error_type=type(exc).__name__)
             return None
@@ -475,6 +491,45 @@ class ConsultasPlanoAmh:
             "helena_catalogo_lido", motivo=motivo, itens=len(catalogo.itens) if catalogo is not None else 0
         )
         return catalogo
+
+    @staticmethod
+    async def _ler_uma_foto(port: TinaProcedimentosPort) -> tuple[str, CatalogoDeProcedimentos | None]:
+        """Le' as paginas de UMA foto a partir da 1. `("ok", catalogo)` ou `(motivo, None)`."""
+        itens: list[ProcedimentoCatalogo] = []
+        versao = ""
+        atualizada_em = ""
+        pagina, total, total_itens = 1, 1, 0
+        while pagina <= total:
+            resultado = await port.get_catalogo_procedimentos(
+                purpose_of_use=PURPOSE_PROCEDIMENTOS,
+                consent_decision_ref=BASE_LEGAL_DO_CATALOGO,
+                pagina=pagina,
+                tamanho=TAMANHO_PAGINA_CATALOGO,
+                timeout_seconds=PRAZO_LEITURA_S * 2,
+            )
+            if not resultado.succeeded or resultado.value is None:
+                falha = resultado.failure
+                return (falha.reason.value if falha is not None else "recusa"), None
+            view = resultado.value
+            if pagina == 1:
+                if view.total_paginas > MAX_PAGINAS_CATALOGO:
+                    return "paginas_demais", None
+                versao = view.versao_catalogo
+                atualizada_em = view.fonte_atualizada_em
+                total = view.total_paginas
+                total_itens = view.total_itens
+            elif view.versao_catalogo != versao:
+                return "versao_mudou", None
+            if view.pagina != pagina or view.total_paginas != total:
+                return "catalogo_inconsistente", None
+            itens.extend(view.itens)
+            pagina += 1
+        # O contrato: uma linha por codigo distinto, `total_itens` itens no catalogo inteiro.
+        if len(itens) != total_itens or len({i.codigo for i in itens}) != len(itens):
+            return "catalogo_inconsistente", None
+        return "ok", CatalogoDeProcedimentos(
+            versao_catalogo=versao, itens=tuple(itens), fonte_atualizada_em=atualizada_em
+        )
 
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
@@ -490,6 +545,7 @@ __all__ = [
     "PURPOSE_COBERTURA",
     "PURPOSE_CPT",
     "PURPOSE_PROCEDIMENTOS",
+    "ESPERA_APOS_FALHA_DO_CATALOGO_S",
     "VALIDADE_DO_CATALOGO_S",
     "ConsultasPlanoAmh",
 ]
