@@ -337,6 +337,57 @@ def test_major2_bloco_ativacao_do_vocabulario_invalido_reprova(
         k1.carregar_vocabulario(_ler(raiz), k1_dir=raiz / sint.K1_DIR)
 
 
+_INTEIROS = [
+    "revisao_inicial_decisoes",
+    "revisao_inicial_prazo_dias",
+    "limiar_reversao_min_decisoes",
+    "conferencia_negativa_admin_decisoes",
+]
+_PERCENTUAIS = ["amostra_posterior_pct", "limiar_reversao_pct"]
+
+
+@pytest.mark.parametrize("chave", _INTEIROS)
+@pytest.mark.parametrize("valor", [0, -1, True, False, 30.0, 1.5, "30", None])
+def test_major2_parametro_inteiro_fora_da_faixa_reprova(
+    pacote: tuple[Path, dict[str, Any]], chave: str, valor: object
+) -> None:
+    raiz, manifesto = pacote
+    sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(2, parametros={**_PARAMS, chave: valor}))
+    problemas = _verificar(raiz)
+    assert any(f"parametros.{chave}: tem de ser inteiro JSON > 0" in p for p in problemas), problemas
+
+
+@pytest.mark.parametrize("chave", _PERCENTUAIS)
+@pytest.mark.parametrize(
+    "valor", [0, 0.0, -1, -0.5, 100.01, 101, 1000, 5.00001, 0.00001, 1e-05, True, False, "5", None]
+)
+def test_major2_parametro_percentual_fora_da_faixa_reprova(
+    pacote: tuple[Path, dict[str, Any]], chave: str, valor: object
+) -> None:
+    raiz, manifesto = pacote
+    sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(2, parametros={**_PARAMS, chave: valor}))
+    problemas = _verificar(raiz)
+    assert any(f"parametros.{chave}: tem de ser numero finito em (0, 100]" in p for p in problemas), problemas
+
+
+def test_major2_parametros_nos_limites_da_faixa_passam(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    limites = {
+        **{k: 1 for k in _INTEIROS},
+        "amostra_posterior_pct": 100,
+        "limiar_reversao_pct": 0.0001,
+    }
+    sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(2, parametros=limites))
+    assert _verificar(raiz) == []
+    vocab = k1.carregar_vocabulario(_ler(raiz), k1_dir=raiz / sint.K1_DIR)
+    assert vocab.parametros_ativacao == k1.ParametrosAtivacao(**limites)
+    for pct in (100.0, 99.9999, 5.0001, 2.5):
+        sint.trocar_vocabulario(
+            raiz, manifesto, sint.vocabulario_bytes(2, parametros={**_PARAMS, "amostra_posterior_pct": pct})
+        )
+        assert _verificar(raiz) == [], pct
+
+
 def test_major2_vocabulario_sem_bloco_ativacao_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
     raiz, manifesto = pacote
     sint.trocar_vocabulario(raiz, manifesto, sint.vocabulario_bytes(1))

@@ -53,6 +53,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Final
@@ -247,12 +248,12 @@ class ParametrosAtivacao:
     provisorios no rco e mudam com o pacote, nunca no codigo.
     """
 
-    revisao_inicial_decisoes: int | float
-    revisao_inicial_prazo_dias: int | float
+    revisao_inicial_decisoes: int
+    revisao_inicial_prazo_dias: int
     amostra_posterior_pct: int | float
     limiar_reversao_pct: int | float
-    limiar_reversao_min_decisoes: int | float
-    conferencia_negativa_admin_decisoes: int | float
+    limiar_reversao_min_decisoes: int
+    conferencia_negativa_admin_decisoes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,10 +612,41 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
     )
 
 
-def _numero(valor: object) -> bool:
+#: Parametros de contagem/prazo: inteiros > 0. Faixa escolhida pelo Maezo (ADR-0077 §7 item 2).
+_PARAMETROS_INTEIROS: Final[frozenset[str]] = frozenset(
+    {
+        "revisao_inicial_decisoes",
+        "revisao_inicial_prazo_dias",
+        "limiar_reversao_min_decisoes",
+        "conferencia_negativa_admin_decisoes",
+    }
+)
+#: Parametros percentuais: numero finito em (0, 100] com no maximo 4 casas decimais.
+_PARAMETROS_PERCENTUAIS: Final[frozenset[str]] = frozenset({"amostra_posterior_pct", "limiar_reversao_pct"})
+_CASAS_DECIMAIS_PCT: Final = 4
+
+
+def _inteiro_positivo(valor: object) -> bool:
+    # JSON int estrito: `bool` e subclasse de int e `30.0` (float) sao recusados — o rco emite inteiros.
+    return isinstance(valor, int) and not isinstance(valor, bool) and valor > 0
+
+
+def _percentual(valor: object) -> bool:
     if isinstance(valor, bool) or not isinstance(valor, int | float):
         return False
-    return math.isfinite(valor) and valor >= 0
+    if not math.isfinite(valor) or not 0 < valor <= 100:
+        return False
+    # Casas decimais pelo `repr` (menor texto que reconstroi o float, o mesmo que o JSON escreve):
+    # `Decimal(repr(5.0001))` tem expoente -4 (ok) e `Decimal(repr(5.00001))` -5 (recusado). Multiplicar
+    # por 10000 e comparar com `round` erra em binario (0.0001 * 10000 != 1.0 em alguns valores).
+    expoente = Decimal(repr(valor)).as_tuple().exponent
+    return isinstance(expoente, int) and expoente >= -_CASAS_DECIMAIS_PCT
+
+
+def _parametro_valido(chave: str, valor: object) -> bool:
+    if chave in _PARAMETROS_INTEIROS:
+        return _inteiro_positivo(valor)
+    return _percentual(valor)
 
 
 def _ler_ativacao(no: object, problemas: list[str]) -> tuple[frozenset[str], ParametrosAtivacao] | None:
@@ -634,9 +666,18 @@ def _ler_ativacao(no: object, problemas: list[str]) -> tuple[frozenset[str], Par
     parametros = _objeto(bloco["parametros"], frozenset(PARAMETROS_ATIVACAO), f"{onde}.parametros", problemas)
     if parametros is None:
         return None
-    ruins = [k for k in PARAMETROS_ATIVACAO if not _numero(parametros[k])]
+    ruins = [k for k in PARAMETROS_ATIVACAO if not _parametro_valido(k, parametros[k])]
+    for chave in ruins:
+        if chave in _PARAMETROS_INTEIROS:
+            problemas.append(
+                f"{onde}.parametros.{chave}: tem de ser inteiro JSON > 0 (sem booleano, sem decimal)"
+            )
+        else:
+            problemas.append(
+                f"{onde}.parametros.{chave}: tem de ser numero finito em (0, 100] com no maximo "
+                f"{_CASAS_DECIMAIS_PCT} casas decimais (sem booleano)"
+            )
     if ruins:
-        problemas.append(f"{onde}.parametros {ruins}: tem de ser numero finito >= 0 (nao booleano)")
         return None
     return frozenset(valores), ParametrosAtivacao(**{k: parametros[k] for k in PARAMETROS_ATIVACAO})
 
