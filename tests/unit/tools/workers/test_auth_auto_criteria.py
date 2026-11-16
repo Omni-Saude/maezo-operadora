@@ -745,8 +745,15 @@ def test_a_hand_built_sources_object_is_never_more_permissive_than_a_loaded_one(
 def test_the_shipped_manifest_blocks_the_contratual_source() -> None:
     """The real file, read through the loader: the declaration is load-bearing, not prose."""
     sources = load_criteria_sources(_REAL_MANIFEST)
-    assert dict(sources.blocked_by_uncovered) == {"auth_criteria_contratual": ("rede_credenciada",)}
+    # `carencia_check` is blocked too: the INTERLOCK T1 restrictive entry (PROC-01, EP-PROC-01a),
+    # pinned by `tests/unit/spec/test_carencia_check_t1_interlock.py`; it leaves the manifest only
+    # under PROC-01 condition (i) or (ii).
+    assert dict(sources.blocked_by_uncovered) == {
+        "auth_criteria_contratual": ("rede_credenciada",),
+        "carencia_check": ("t1_mascaramento_cpt_urgencia",),
+    }
     assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
 
 
 def test_bloqueia_ratificacao_de_accepts_a_list_of_sources(tmp_path: Path) -> None:

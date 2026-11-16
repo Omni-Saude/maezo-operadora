@@ -89,7 +89,7 @@ foi calculado a mao.
 
 | Artefato | sha256 |
 |---|---|
-| `spec/processes/dmn/auth-criteria-ratification.yaml` (o proprio manifesto) | `899853c5cc078cf9563287cb02f6ca8b4edb215ca2674acfe28277fd19fc385c` |
+| `spec/processes/dmn/auth-criteria-ratification.yaml` (o proprio manifesto) | `158fc93fc59efdc3a5640abdb95de062caed63647d72ac3d3e6dcef49d1f9e9e` |
 | `spec/processes/dmn/dut_rol_coverage.dmn` | `0af3f7ba785b5e197e47222ba21652782a1a1934f7c71df1cf5fa2b257a1a551` |
 | `spec/processes/dmn/dut_criteria_bariatrica.dmn` | `f4ee5adf9c3f70f16165238c266c05ba4575961de88bcfadc684c41d38c550f7` |
 | `spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn` | `f401becbc611b9a0da5a51f0892abf2704428cb92c012b3ffdab142c36d646ef` |
@@ -180,7 +180,7 @@ shadow-candidate.
 
 **Fonte normativa/clinica a conferir.** Citado pelo repositorio (cabecalho da DMN e `observacao` do manifesto): **Lei 9.656/1998** art. 11, art. 12 II "a" e art. 35-C; **RN 195/2009**; **RN 259/2011** (art. 7); **RN 162/2007** (CPT); **RN 465/2021**; **RN 186/2009** para portabilidade (nao implementada). `docs/review-queue.md` acrescenta a advertencia geral de que "RN 259 pode ter sido consolidada/substituida". **A conferir sem fonte no repositorio:** o mapeamento de `tipo_procedimento` para prazo (a DMN o marca DRAFT/verify) e o tratamento de portabilidade/migracao de plano.
 
-**O que muda ao ratificar.** `sources.is_ratified("carencia_check")` passa a `True` e o criterio **REGULATORIO** deixa de sair `false` com `REGULATORIO_FONTE_NAO_RATIFICADA`. **Mas o criterio continua falhando fechado por outro motivo:** as tres entradas (`tipo_procedimento`, `dias_desde_adesao`, `cpt_declarada`) **nao existem no contrato de start de SP-OP-AUTH-001** — sao dado cadastral da fronteira AMH (MZO-050b, bloqueado). O criterio sai `false` com `REGULATORIO_ENTRADA_AUSENTE`, que e um problema de MECANISMO, distinto de `*_FONTE_NAO_RATIFICADA` e deliberadamente nao mascarado por ele. Ratificar esta tabela **nao** abre aprovacao automatica enquanto as entradas nao existirem.
+**O que muda ao ratificar.** `sources.is_ratified("carencia_check")` passa a `True` e o criterio **REGULATORIO** deixa de sair `false` com `REGULATORIO_FONTE_NAO_RATIFICADA`. **Mas o criterio continua falhando fechado por outro motivo:** as tres entradas (`tipo_procedimento`, `dias_desde_adesao`, `cpt_declarada`) **nao existem no contrato de start de SP-OP-AUTH-001** — sao dado cadastral da fronteira AMH (MZO-050b, bloqueado). O criterio sai `false` com `REGULATORIO_ENTRADA_AUSENTE`, que e um problema de MECANISMO, distinto de `*_FONTE_NAO_RATIFICADA` e deliberadamente nao mascarado por ele. Ratificar esta tabela **nao** abre aprovacao automatica enquanto as entradas nao existirem. **Atualizacao (INTERLOCK T1, PROC-01 / EP-PROC-01a):** alem disso, a ratificacao desta fonte esta hoje **SUPRIMIDA por dados** — `criterios_nao_cobertos.t1_mascaramento_cpt_urgencia` declara `bloqueia_ratificacao_de: carencia_check`, porque com CPT declarada o bloco CPT (`r01`/`r02`) e avaliado antes da escada de urgencia de 24h (`urgencia_emergencia` + 30 dias + CPT -> `r01` -> `carencia_cumprida=false`, `prazo_restante_dias=700`). Preencher os tres campos produziria uma ratificacao **inerte**. A entrada sai so pela condicao (i) do PROC-01 (candidato `carencia-check-shadow-candidate.yaml` aplicado a tabela viva e ratificado) ou pela (ii) (tabela aposentada pelo pacote K1 do rco); `tests/unit/spec/test_carencia_check_t1_interlock.py` recusa a ratificacao desta fonte em CI mesmo sem a entrada.
 
 ### `auth_criteria_contratual`
 
