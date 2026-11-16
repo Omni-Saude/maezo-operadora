@@ -535,7 +535,7 @@ def _campos_reprovados(value_types: dict[str, type[Any]]) -> dict[str, list[str]
 def test_a_excecao_de_phi_e_so_a_autorizada() -> None:
     """A excecao nao pode crescer em silencio: so' o nome do dependente (dono e DPO) e os tres campos do
     estabelecimento da rede (PENDENTE do dono), e cada campo existe de fato, fora do `repr`."""
-    assert {"maezo.ports.tina.DependenteNominal"} == {t for t, _ in _SLOTS_DE_PHI_AUTORIZADOS_PELO_DONO}
+    assert {("maezo.ports.tina.DependenteNominal", "nome_completo")} == _SLOTS_DE_PHI_AUTORIZADOS_PELO_DONO
     assert {"maezo.ports.tina.EstabelecimentoRede"} == {t for t, _ in _SLOTS_DA_REDE_PENDENTES_DO_DONO}
     assert {c for _, c in _SLOTS_DA_REDE_PENDENTES_DO_DONO} == {"nome", "endereco", "telefone"}
     tipos = _value_types()

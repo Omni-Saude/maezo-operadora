@@ -195,6 +195,8 @@ async def test_conversao_do_corpo_validado_com_os_campos_fora_do_repr() -> None:
     assert (segundo.nome, segundo.endereco, segundo.telefone, segundo.bairro) == (None, None, None, None)
     texto = repr(view)
     assert "Clinica Exemplo" not in texto and "Rua Exemplo" not in texto and "1700000000" not in texto
+    # Nem a ref do sujeito nem os estabelecimentos (a especialidade procurada) aparecem no `repr`.
+    assert REF not in texto and "Cardiologia" not in texto and "estabelecimentos" not in texto
 
 
 async def test_pagina_vazia_e_estado_valido() -> None:
@@ -211,6 +213,8 @@ async def test_pagina_vazia_e_estado_valido() -> None:
         {"especialidade": "x" * 61},
         {"especialidade": "cardio; drop"},  # fora do alfabeto do contrato
         {"especialidade": None},
+        {"especialidade": "cardiologia\n"},  # `$` do pattern casaria antes do `\n` final
+        {"municipio": "Sao Paulo\n"},
         {"municipio": "S"},
         {"municipio": "Cidade/Exemplo"},
         {"municipio": 10},
@@ -245,8 +249,17 @@ async def test_especialidade_e_municipio_com_acento_sao_aceitos() -> None:
         _corpo(limite=10),  # outro limite que o pedido
         _corpo(limite=5, estabelecimentos=[_estabelecimento()] * 6),  # mais itens que o limite
         _corpo(qualidade={"campos_ausentes": ["cpf"]}),  # codigo fora da lista fechada
+        _corpo(qualidade={"campos_ausentes": ["nome", "nome"]}),  # codigo repetido
     ],
-    ids=["outro_sujeito", "cnpj", "outra_pagina", "outro_limite", "itens_demais", "campo_ausente_aberto"],
+    ids=[
+        "outro_sujeito",
+        "cnpj",
+        "outra_pagina",
+        "outro_limite",
+        "itens_demais",
+        "campo_ausente_aberto",
+        "campo_ausente_repetido",
+    ],
 )
 async def test_resposta_fora_do_contrato_vira_recusa_fechada(corpo: dict[str, Any]) -> None:
     adapter, _ = _montar(corpo)
@@ -258,6 +271,30 @@ async def test_contagem_de_pessoa_fisica_fora_da_pagina_1_e_violacao() -> None:
     adapter, _ = _montar(_corpo(pagina=2, profissionais_sem_identificacao=3))
     resultado = await _ler(adapter, pagina=2)
     assert resultado.failure is not None and resultado.failure.reason is Reason.CONTRACT_VIOLATION
+
+
+async def test_tem_mais_na_ultima_pagina_do_contrato_e_violacao() -> None:
+    from maezo.ports.tina import MAX_REDE_PAGINAS
+
+    ultima = _corpo(pagina=MAX_REDE_PAGINAS, profissionais_sem_identificacao=None, tem_mais=True)
+    adapter, _ = _montar(ultima)
+    resultado = await _ler(adapter, pagina=MAX_REDE_PAGINAS)
+    assert resultado.failure is not None and resultado.failure.reason is Reason.CONTRACT_VIOLATION
+    adapter, _ = _montar({**ultima, "tem_mais": False})
+    assert (await _ler(adapter, pagina=MAX_REDE_PAGINAS)).succeeded
+
+
+async def test_tem_mais_com_menos_itens_que_o_limite_e_tolerado() -> None:
+    adapter, _ = _montar(_corpo(tem_mais=True))  # 1 item, limite 5
+    resultado = await _ler(adapter)
+    assert resultado.succeeded and resultado.value is not None and resultado.value.tem_mais is True
+
+
+async def test_pagina_1_sem_contagem_de_pessoa_fisica_e_aceita() -> None:
+    adapter, _ = _montar(_corpo(profissionais_sem_identificacao=None))
+    resultado = await _ler(adapter)
+    assert resultado.succeeded and resultado.value is not None
+    assert resultado.value.profissionais_sem_identificacao is None
 
 
 async def test_rota_desligada_e_404() -> None:

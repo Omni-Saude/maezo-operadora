@@ -385,16 +385,22 @@ class RedeCredenciadaView:
     """Uma PAGINA da rede credenciada do plano do proprio sujeito, por especialidade (e municipio). FATO do
     cadastro na data da fonte: nao e' agendamento, nao garante vaga nem atendimento.
 
-    `tem_mais` = ha' estabelecimentos alem desta pagina (o consumidor oferece refinar antes de paginar).
+    `tem_mais` = ha' estabelecimentos alem desta pagina (o consumidor oferece refinar antes de paginar);
+    nunca na pagina `MAX_REDE_PAGINAS`, e pode vir com menos que `limite` itens (o contrato nao o proibe).
     `profissionais_sem_identificacao` = contagem APROXIMADA de profissionais pessoa fisica nao identificados
-    neste canal (so' na pagina 1; `None` nas demais). `campos_ausentes` sao os codigos fechados de
-    `qualidade.campos_ausentes` do contrato."""
+    neste canal: so' na pagina 1, e mesmo nela pode ser `None` (o schema a declara anulavel); `None` nas
+    demais. `campos_ausentes` sao os codigos fechados de `qualidade.campos_ausentes`, sem repeticao: e' um
+    AVISO ("campos de algum estabelecimento que a fonte nao tem", no texto do contrato) e pode nao bater
+    com os `None` dos itens; o consumidor confia nos itens e nunca completa um campo.
 
-    portable_subject_ref: str
+    A ref do sujeito e os estabelecimentos ficam fora do `repr`: juntos, ligariam a pessoa a especialidade
+    procurada."""
+
+    portable_subject_ref: str = field(repr=False)
     pagina: int
     limite: int
     tem_mais: bool
-    estabelecimentos: tuple[EstabelecimentoRede, ...]
+    estabelecimentos: tuple[EstabelecimentoRede, ...] = field(repr=False)
     profissionais_sem_identificacao: int | None
     fonte_atualizada_em: str
     campos_ausentes: tuple[str, ...]

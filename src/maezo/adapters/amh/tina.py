@@ -47,7 +47,9 @@ PUBLISHED em 16/10/2026; na AMH e' PROPOSTA ESTACIONADA e a rota nasce DESLIGADA
 `rede_credenciada_openapi_bytes=`, `get_rede_credenciada` recusa com `SCOPE_NOT_SUPPORTED`. A operacao NAO
 entra em `OPERATIONS` nem no gateway ainda (sem executor, classe de efeito nem mapeamento de autonomia):
 so' um executor que a registre a despacha. O tipo de valor traz nome, endereco e telefone do ESTABELECIMENTO,
-excecao da cerca de pureza dos ports PENDENTE da confirmacao do dono; nada da resposta vai a log.
+excecao da cerca de pureza dos ports PENDENTE da confirmacao do dono; nada da resposta vai a log. O
+cabecalho do YAML vendorizado ainda diz "UNPUBLISHED" porque e' anterior a publicacao: quem vale e' o lock
+(`manifest_v1_8`, `PUBLISHED`), que confere os bytes.
 
 CONDICOES CONTRATUAIS DE REEMBOLSO (decisao do dono de 30/10/2026; desenho em
 `docs/design/condicoes-reembolso-contratuais.md`): a rota `GET .../subjects/{ref}/condicoes-reembolso` e' uma
@@ -64,6 +66,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +84,7 @@ from maezo.ports.tina import (
     MAX_COBERTURA_ITENS,
     MAX_DEPENDENTES,
     MAX_LIMITES_REEMBOLSO,
+    MAX_REDE_PAGINAS,
     CarenciaDoItem,
     CarenciaPlano,
     CarenciasView,
@@ -438,6 +442,11 @@ class AmhTinaAdapter:
                     continue
                 validator = Draft4Validator(_json_schema(parameter["schema"]), format_checker=_FORMATS)
                 if not validator.is_valid(value):
+                    return PortResult.refused(Reason.INVALID_REQUEST)
+                # O `pattern` do JSON Schema casa por BUSCA (`re.search`): `$` aceita um `\n` final
+                # ("cardiologia\n" passava). O valor inteiro tem de casar com o padrao do contrato.
+                padrao = parameter["schema"].get("pattern")
+                if isinstance(value, str) and isinstance(padrao, str) and re.fullmatch(padrao, value) is None:
                     return PortResult.refused(Reason.INVALID_REQUEST)
                 if parameter["in"] == "query":
                     if not isinstance(value, (str, int)) or isinstance(value, bool):
@@ -1010,11 +1019,19 @@ def _rede_credenciada(body: dict[str, Any]) -> RedeCredenciadaView:
         )
         for e in body["estabelecimentos"]
     )
-    # Coerencia descrita no contrato: no maximo `limite` itens; a contagem de pessoa fisica so' na pagina 1.
+    # Coerencia descrita no contrato: no maximo `limite` itens; a contagem de pessoa fisica so' na pagina 1
+    # (na pagina 1 ela PODE vir `null`: o schema a declara anulavel e o texto so' fixa `null` nas demais);
+    # nao ha' pagina alem de `MAX_REDE_PAGINAS`, entao `tem_mais` na ultima e' incoerente. `tem_mais` com
+    # menos que `limite` itens e' TOLERADO: o contrato so' diz "ha' estabelecimentos alem desta pagina".
     if len(estabelecimentos) > body["limite"]:
         raise ValueError
     contagem = body["profissionais_sem_identificacao"]
     if body["pagina"] != 1 and contagem is not None:
+        raise ValueError
+    if body["tem_mais"] is True and body["pagina"] >= MAX_REDE_PAGINAS:
+        raise ValueError
+    campos_ausentes = tuple(body["qualidade"]["campos_ausentes"])
+    if len(set(campos_ausentes)) != len(campos_ausentes):
         raise ValueError
     return RedeCredenciadaView(
         portable_subject_ref=body["portable_subject_ref"],
@@ -1024,7 +1041,7 @@ def _rede_credenciada(body: dict[str, Any]) -> RedeCredenciadaView:
         estabelecimentos=estabelecimentos,
         profissionais_sem_identificacao=contagem,
         fonte_atualizada_em=body["fonte_atualizada_em"],
-        campos_ausentes=tuple(body["qualidade"]["campos_ausentes"]),
+        campos_ausentes=campos_ausentes,
     )
 
 
