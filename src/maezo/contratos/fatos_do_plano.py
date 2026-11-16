@@ -18,6 +18,7 @@ from maezo.ports.tina import (
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
+    ProcedimentoCatalogo,
     RequisicoesView,
 )
 
@@ -92,3 +93,26 @@ class FonteDeCpt(Protocol):
     da saude gerativa), para o TITULAR. Nunca levanta; falha = `None` (nenhum aviso de CPT)."""
 
     async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogoDeProcedimentos:
+    """O CATALOGO inteiro de UMA foto (todas as paginas com a mesma `versao_catalogo`; rota
+    `tina-procedimentos`, manifest v1.14). Dado de REFERENCIA, sem pessoa: e' o que a resolucao do
+    procedimento (HEL-2, `habilidades/cobertura/procedimento.resolver`) recebe."""
+
+    versao_catalogo: str
+    itens: tuple[ProcedimentoCatalogo, ...]
+    fonte_atualizada_em: str
+
+
+@runtime_checkable
+class FonteDoCatalogoDeProcedimentos(Protocol):
+    """A fonte que TAMBEM le' o catalogo de procedimentos (rota `tina-procedimentos`, manifest v1.14; DL-0128,
+    DL-0167 HEL-2).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda. Nunca levanta; falha (rota nao carregada, recusa, prazo,
+    a versao mudou no meio da leitura) = `None`, e a resolucao do procedimento nao acontece (a habilidade
+    segue em falha fechada)."""
+
+    async def consultar_catalogo_procedimentos(self) -> CatalogoDeProcedimentos | None: ...
