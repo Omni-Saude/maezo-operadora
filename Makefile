@@ -173,6 +173,8 @@ verify-rco-rules-pin: ## ADR-0075 (b) (MZO-1d): pin do pacote de regras K1 do rc
 	# Estado `fixado` (MZO-2a): o manifesto K1 (config/integrations/rco/k1/) e' lido por
 	# maezo.platform.rco_manifesto, o mesmo leitor do runtime (stdlib-only). SEM rede.
 	.venv/bin/python scripts/ci/verify_rco_rules_pin.py
+	# K2 (Manual do Beneficiario): pin config/integrations/rco/k2.lock.json + bytes em k2/ (stdlib, sem rede).
+	.venv/bin/python scripts/ci/verify_rco_k2_pin.py
 
 xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/xfail-census.json + PLANS.md (gate de drift)
 	# Re-deriva do AST de tests/integration/processes/ todo marcador `@pytest.mark.xfail(reason=_*_REASON,

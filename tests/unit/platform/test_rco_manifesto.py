@@ -453,3 +453,8 @@ def test_decisao_nao_literal_reprova(pacote: tuple[Path, dict[str, Any]]) -> Non
     ]
     _trocar_dmn(raiz, manifesto, 0, sint.dmn_bytes("rco_sint_a", sint.SAIDAS_OBRIGATORIAS, linhas))
     assert any("decisao nao e literal string" in p for p in _verificar(raiz))
+
+
+def test_manifesto_aninhado_demais_e_recusado_sem_recursion_error() -> None:
+    with pytest.raises(k1.ManifestoK1InvalidoError):
+        k1.ler_manifesto(b"[" * 100_000)
