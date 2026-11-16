@@ -638,11 +638,18 @@ async def _assert_no_denial_without_human_task(engine: EngineRest, iid: str) -> 
 # ===========================================================================
 
 
-def _lista_do_historico(valor: Any) -> list[Any]:
-    """A list process variable read from history: the harness writes lists as `Json`, which the
-    history REST returns serialized. Anything that is not a list after decoding fails the test."""
-    decodificado = json.loads(valor) if isinstance(valor, str) else valor
-    assert isinstance(decodificado, list), f"expected a list variable, got {valor!r}"
+async def _lista_do_historico(engine: EngineRest, instance_id: str, name: str) -> list[Any]:
+    """A list process variable read from history. The harness writes lists as `Json`; read with
+    `deserializeValues=false`, the history REST returns the stored JSON TEXT, decoded here. Any other
+    shape (not a string, invalid JSON, or JSON that is not a list) FAILS the test with the raw value:
+    an unknown format is never treated as an empty list."""
+    tipo, valor = await engine.get_history_variable_serialized(instance_id, name)
+    assert isinstance(valor, str), f"expected JSON text for `{name}` (type={tipo!r}), got {valor!r}"
+    try:
+        decodificado = json.loads(valor)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"`{name}` is not valid JSON (type={tipo!r}): {valor!r}") from exc
+    assert isinstance(decodificado, list), f"expected a list in `{name}` ({tipo!r}), got {decodificado!r}"
     return decodificado
 
 
@@ -783,10 +790,10 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     await auth_probe_dmn.drain_analyze()
     await auth_probe_dmn.drain()
     assert await engine.get_history_variable(inst_f["id"], "criterio_regulatorio_ok") is False
-    falhas_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_falhas"))
+    falhas_f = await _lista_do_historico(engine, inst_f["id"], "auto_criteria_falhas")
     assert "REGULATORIO_FONTE_NAO_RATIFICADA" in falhas_f, falhas_f
     assert "REGULATORIO_CARENCIA_NAO_CUMPRIDA" in falhas_f, falhas_f
-    sombra_f = _lista_do_historico(await engine.get_history_variable(inst_f["id"], "auto_criteria_shadow"))
+    sombra_f = await _lista_do_historico(engine, inst_f["id"], "auto_criteria_shadow")
     assert "REGULATORIO_SOMBRA_REPROVARIA" in sombra_f, sombra_f
     ended_f = await engine.activity_instances_ended(inst_f["id"])
     assert _END_NEGADA not in ended_f, (

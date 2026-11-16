@@ -434,6 +434,25 @@ class EngineRest:
             raise EngineRestError(f"history variable `{name}` nao encontrada para a instancia {instance_id}")
         return rows[0].get("value")
 
+    async def get_history_variable_serialized(self, instance_id: str, name: str) -> tuple[str | None, Any]:
+        """Le uma variavel HISTORICA na forma SERIALIZADA: `(type, value)` com `deserializeValues=false`.
+
+        Para variavel `Json` (lista ou mapa escrito pelo harness como `Json`), o `get_history_variable`
+        acima devolve o no' Jackson ja desserializado pelo engine (`{'nodeType': 'ARRAY', ...}`),
+        que nao e' a lista. Com `deserializeValues=false` o engine devolve o TEXTO JSON gravado, que o
+        chamador decodifica com `json.loads`. Levanta `EngineRestError` se a variavel nao existir no
+        historico da instancia, como o metodo acima.
+        """
+        resp = await self._client.get(
+            "/history/variable-instance",
+            params={"processInstanceIdIn": instance_id, "variableName": name, "deserializeValues": "false"},
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        if not rows:
+            raise EngineRestError(f"history variable `{name}` nao encontrada para a instancia {instance_id}")
+        return rows[0].get("type"), rows[0].get("value")
+
     async def external_task_ids(self, instance_id: str, topic: str) -> list[str]:
         """Ids das external tasks que o ENGINE registrou para `topic` nesta instancia.
 
