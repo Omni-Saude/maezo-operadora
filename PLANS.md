@@ -75,6 +75,36 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
   - decidir sobre um acesso próprio ao HAPI do dev, com set e grupo próprios e o aval do DPO (dono e DPO). O desenho proposto está no #1216;
   - ciência do DPO para o ADR-0061, condição para ligar o job de limpeza do #1217;
   - `plan` no dev vivo antes de aplicar o #1215 (os pontos estão na descrição dele).
+- **Estado da T-MZO-A em 16/11/2026 (pausa pelo limite semanal da conta, até ~20/11):**
+  - **Onda 2, incorporados:**
+    - #1240, `34516a74`: consultas da Helena ao plano AMH;
+    - #1244, `1ea8172c`: leitor do manifesto K1 e gate do pin;
+    - #1249, `9c053cac`: pin do K2, em `sem_pacote`;
+    - #1252, `c912b5df`: K2 na composição do grafo da Helena;
+    - #1247, `a3b7a7f3`: montador das entradas do K1, nos domínios regras-gerais e diarias-taxas; caráter só da guia; grupo, prazo e saldo de carência ficam nulos até o K3 1.16.
+  - **Manutenção, incorporados:**
+    - #1234, `fc4cd944`: pins do runtime implantado;
+    - #1235, `a9f3506d`: OpenTelemetry, GHSA;
+    - #1237, `f7f35aef`: guarda do containerInsights do dev;
+    - #1239, `9477f1df`: permissões de mensagem entre sessões.
+  - **Abertos, aguardando o dono:**
+    - #1250: ADR-0075 §(f) com `sha256Yaml` opcional;
+    - #1243: porta da rede credenciada, com a exceção de pureza `EstabelecimentoRede` proposta. Não incorporar antes da decisão.
+  - **Aguardando o OK do usuário:**
+    - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; `auth_sla.dmn` intacto; teste-cerca contra caráter literal.
+    - Condição deste arquivo para o escritor livre da Helena.
+  - **Item 5 (ativação por classe de risco):** desenho aprovado pela ROOT em 16/11/2026, com as respostas às perguntas abertas.
+    - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
+    - **#1255, em revisão:** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
+    - **Autorizado pela ROOT, a seguir:** 5c, estado efetivo, registro append-only e amostragem HMAC; tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos.
+    - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
+    - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
+    - **LACUNA do dono:** o registro de aditivo aceito por prestador (versão, data de aceite, vigência e regras cobertas).
+    - **PR em caminho protegido:** o dev em enforcing e os aprovadores dono + auditor-neutro estão desenhados no ADR-0077 §8 e não foram aplicados. `spec/policies/autonomy/` é vedado a esta sessão pelo usuário, e a ROOT leva ao dono a liberação explícita.
+  - **Primeiro pin real do K1, pré-requisitos:**
+    - isenção da cerca de perspectiva para `spec/processes/dmn/rco/`;
+    - provas executadas sem divergência;
+    - 2.0.0 fail-closed até o 5c.
 - **Fora desta fila até decisão do dono:** emenda ao ADR-0018 e adendo ao ADR-0040 (negativa administrativa e glosa determinística automáticas em L2), mudanças em `spec/policies/autonomy/`, DMN e workers.
 
 ## 0. GROUND TRUTH (2026-07-19) — leia primeiro
