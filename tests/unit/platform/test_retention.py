@@ -7,9 +7,16 @@ Tests 5-year regulatory retention policy with cutoff, expiry, and batch filterin
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
+from maezo.platform.lifecycle import REFUSAL_EXIT_CODE, main
+from maezo.platform.lifecycle.legal_bases_matrix import (
+    LEAD_CATEGORIES,
+    MATRIX_PATH_ENV,
+    load_commercial_matrix,
+)
 from maezo.platform.retention import _RETENTION_DELETE_SQL, DEFAULT_RETENTION_YEARS, RetentionManager
 
 
@@ -212,3 +219,25 @@ def test_retention_delete_map_is_closed_and_literal() -> None:
 def test_retention_years_constant() -> None:
     """DEFAULT_RETENTION_YEARS must be 5 (regulatory minimum per ADR-0007)."""
     assert DEFAULT_RETENTION_YEARS == 5
+
+
+@pytest.mark.parametrize("subcommand", ["expurgo-working", "verify-erasure"])
+def test_no_best_effort_purge(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path, subcommand: str
+) -> None:
+    """E-SF-10 / TB-E-25-a: a VALID commercial matrix (every lead category present) never turns a
+    purge subcommand into a "best effort" run — refusal string + exit 78, no lead elimination
+    without ratification and an execution mechanism (TB-E-25-b stays out of the wave)."""
+    rows = "".join(
+        f'  - {{categoria: "{c}", base_legal: "SYN", retencao: "SYN", acao: "SYN"}}\n'
+        for c in LEAD_CATEGORIES
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text(f"categorias:\n{rows}", encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix))
+    assert len(load_commercial_matrix()) == len(LEAD_CATEGORIES)  # the violation: matrix is valid
+
+    assert main([subcommand]) == REFUSAL_EXIT_CODE == 78
+    err = capsys.readouterr().err
+    assert f"{subcommand} refused" in err
+    assert "loaded successfully" in err and "does not by itself unblock" in err

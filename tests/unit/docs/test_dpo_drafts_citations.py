@@ -41,7 +41,11 @@ import pytest
 import yaml
 
 from maezo.platform.lifecycle.erasure_plan import PERSISTENCE_LAYERS, IdentityResolution
-from maezo.platform.lifecycle.legal_bases_matrix import REQUIRED_ENTRY_FIELDS
+from maezo.platform.lifecycle.legal_bases_matrix import (
+    CANDIDATE_ONLY_CATEGORIES,
+    LEAD_CATEGORIES,
+    REQUIRED_ENTRY_FIELDS,
+)
 from maezo.tools.workers import lgpd
 from maezo.tools.workers.base import WorkerBase
 from maezo.tools.workers.phi_vars import PHI_FREE_TEXT_VARS, PHI_PROCESS_VARS
@@ -829,3 +833,90 @@ def test_package_pointer_does_not_claim_sc07_landed_on_main() -> None:
         "PACKAGE.md again claims SC-07 landed; it is on PR #327's branch, not on main"
     )
     assert "#327" in row and "não foi mergeado" in row
+
+
+# ---------------------------------------------------------------------------------------------
+# 6. E-SF-10 — commercial and lead categories in the candidate (§10)
+# ---------------------------------------------------------------------------------------------
+
+#: REG-04a categories beyond TB-25 (a)-(f): "DS de não convertido" and "histórico de processo
+#: de lead" (EP-REG-04a); the loader does not require them, the signer must still see them.
+_REG04A_EXTRA: tuple[str, ...] = ("lead_ds_nao_convertido", "lead_historico_processo")
+_SECTION_10 = "## 10. Adendo — categorias comerciais e de lead (E-SF-10"
+#: A period in any unit ("90 dias", "2 anos", "72 h", "P180D") — what a §10 `prazo` cell must never hold.
+_PERIOD_RE = re.compile(r"\d+\s*(?:dias?|d|anos?|meses|m[eê]s|h|horas?)\b|\bP\d+[DMY]\b", re.IGNORECASE)
+_ROW_RE = re.compile(r"^\| 10\.\d+ \|(.*)\|$", re.MULTILINE)
+
+
+def _section_10_rows(text: str) -> dict[str, list[str]]:
+    start = text.index(_SECTION_10)
+    end = text.find("\n## ", start + 1)
+    section = text[start:] if end == -1 else text[start:end]
+    rows: dict[str, list[str]] = {}
+    for match in _ROW_RE.finditer(section):
+        cells = [cell.strip() for cell in match.group(1).split(" | ")]
+        categoria = cells[0].strip("`")
+        assert categoria not in rows, f"duplicate §10 row {categoria!r}"
+        rows[categoria] = cells
+    return rows
+
+
+def _assert_commercial_categories_enumerated(text: str) -> None:
+    rows = _section_10_rows(text)
+    expected = set(LEAD_CATEGORIES) | set(_REG04A_EXTRA) | set(CANDIDATE_ONLY_CATEGORIES)
+    assert set(rows) == expected, (
+        f"§10 of RETENTION-MATRIX-CANDIDATE.md must enumerate exactly the commercial/lead "
+        f"categories — missing: {sorted(expected - set(rows))}, extra: {sorted(set(rows) - expected)}"
+    )
+    for categoria, cells in rows.items():
+        assert len(cells) == 7, f"§10 row {categoria!r} has {len(cells)} cells, expected 7"
+        _cat, origem, base, prazo, gatilho, executor, estado = cells
+        assert all((origem, base, gatilho, executor)), f"§10 row {categoria!r} has an empty column"
+        # No invented period: the prazo is a GAP for the DPO/jurídico (TB-25 (iv)), never a number.
+        assert prazo.startswith("GAP") and not _PERIOD_RE.search(prazo), (
+            f"§10 row {categoria!r} proposes a period ({prazo!r}); TB-25 (iv) chooses none"
+        )
+        assert estado == "candidata", f"§10 row {categoria!r} is {estado!r}, not a candidate"
+    # The ex-beneficiary row carries the closed state of ADDENDUM-01 §7 (e) in words the signer reads.
+    ex = rows["ex_beneficiario"][2]
+    assert "sem reativação proativa" in ex and "não sobrevive" in ex
+    # The signable YAML block is not where these rows live: it stays scope B and unratified.
+    block_categorias = {entry["categoria"] for entry in _candidate_matrix_block()["categorias"]}
+    assert not block_categorias & expected
+
+
+def test_commercial_categories_enumerated_in_retention_candidate() -> None:
+    """EP-REG-04a: every commercial/lead category (REG-04a + TB-25 (a)-(f) + ADDENDUM-01 §6
+    candidates) sits in §10 with origin, candidate basis, a GAP period, start trigger and executor;
+    removing one (e.g. `supressao_lead`) turns this red."""
+    text = _draft_text("RETENTION-MATRIX-CANDIDATE.md")
+    _assert_commercial_categories_enumerated(text)
+    removed = "\n".join(
+        line for line in text.splitlines() if not line.startswith("| 10.4 | `supressao_lead`")
+    )
+    with pytest.raises(AssertionError, match="supressao_lead"):
+        _assert_commercial_categories_enumerated(removed)
+
+
+#: EP-REG-04c debt (REG-04, "decidido técnico" (iii)): the lead BPMNs' `historyTimeToLive` is still
+#: a literal; deriving it from the matrix waits for ratification. Inventoried, not changed.
+_LEAD_TTL_DEBT: dict[str, str] = {
+    "spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn": "1825",
+    "spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn": "1825",
+}
+
+
+def test_lead_process_ttl_literal_is_inventoried_debt() -> None:
+    """Honest rename of the plan's `test_lead_process_ttl_not_literal` (EP-REG-04c, pre-req:
+    ratification). The literal cannot leave before a ratified value exists, so the fence holds the
+    debt instead: the literal each lead BPMN carries is exactly the inventoried one, and §10 names
+    both files and the value. A changed literal (a new unratified number) goes red."""
+    camunda = "{http://camunda.org/schema/1.0/bpmn}historyTimeToLive"
+    process = "{http://www.omg.org/spec/BPMN/20100524/MODEL}process"
+    row = _section_10_rows(_draft_text("RETENTION-MATRIX-CANDIDATE.md"))["lead_historico_processo"]
+    for path, literal in _LEAD_TTL_DEBT.items():
+        values = {node.get(camunda) for node in ET.parse(_REPO_ROOT / path).getroot().iter(process)}
+        assert values == {literal}, (
+            f"{path}: historyTimeToLive {values} is not the inventoried debt {literal!r}"
+        )
+        assert path in row[5] and literal in row[5], f"§10 lead_historico_processo does not inventory {path}"

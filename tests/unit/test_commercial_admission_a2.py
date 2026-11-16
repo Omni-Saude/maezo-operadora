@@ -24,7 +24,9 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -34,6 +36,7 @@ from fastapi import FastAPI
 import maezo.adapters.amh.commercial as wire_module
 from maezo.adapters.amh.commercial import SCHEMA_VERSION, CommercialWire
 from maezo.gateway.commercial_admission import (
+    LEAD_INTAKE_COMMANDS,
     compose_commercial_gateway,
     compose_public_catalog_gateway,
 )
@@ -44,16 +47,27 @@ from maezo.gateway.commercial_sales_admission import (
     parse_sales_session_admission,
     read_sales_session_admission,
 )
+from maezo.platform.lifecycle.legal_bases_matrix import (
+    LEAD_CATEGORIES,
+    MATRIX_PATH_ENV,
+    REASON_LEAD_CATEGORIES_MISSING,
+    REASON_RETENTION_CLASS_UNRESOLVED,
+    REASON_UNRATIFIED_TEMPLATE,
+    RetentionMatrixUnavailableError,
+)
 from maezo.portal.api.commercial import (
     COMMERCIAL_PATH,
     PUBLIC_CATALOG_PATH,
     commercial_command,
     commercial_router,
 )
+from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_c6 import (
     PublicScope,
     PublicSource,
     catalog_admission,
+    encode,
+    envelope,
     public_body,
 )
 from tests.unit.test_commercial_http import (
@@ -490,3 +504,150 @@ def test_a2_record_without_dpo_countersignature_is_refused(owners):
     with pytest.raises(SalesSessionAdmissionError) as err:
         parse_sales_session_admission(a2_record(owners=owners), now=datetime.now(UTC))
     assert err.value.reason_code == "admission_owner_invalid"
+
+
+# ---------------------------------------------------------------------------------------------
+# E-SF-10 — REAL lead intake behind the lifecycle gate (TB-E-25-a (3), EP-REG-04b)
+# ---------------------------------------------------------------------------------------------
+
+TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml"
+)
+#: Schema-valid C6-4 payloads of the three intake commands (TB-25 (i)); synthetic refs only.
+INTAKE_PAYLOADS = {
+    "prospect.save": {
+        "prospect_ref": None,
+        "descriptor_ref": "SYN-DESCRIPTOR",
+        "descriptor_revision": 1,
+        "values": [],
+    },
+    "contact.request": {
+        "prospect_ref": "SYN-PROSPECT",
+        "contact_ref": "SYN-CONTACT",
+        "contact_permission_ref": "SYN-PERMISSION",
+        "topic": "product_information",
+    },
+    "journey.save": {"quote_ref": "SYN-QUOTE", "source_revision": 1, "terms_digest": "b" * 64},
+}
+
+
+class IntakeScope(UnitScope):
+    """Session scope that GRANTS the intake commands, so the only possible refuser is the gate."""
+
+    def __init__(self):
+        super().__init__()
+        self.scope = replace(
+            self.scope,
+            allowed_operations=self.scope.allowed_operations | LEAD_INTAKE_COMMANDS,
+            granted_scopes=self.scope.granted_scopes | {"interop/sales.journey.write"},
+            resource_grant_ref="SYN-JOURNEY-GRANT",
+            journey_linkage_ref="SYN-JOURNEY-LINKAGE",
+        )
+
+
+def intake_app(schema_bytes, calls, *, every_record):
+    # Lazy: a3/a5 import this module at their top.
+    from tests.unit.test_commercial_admission_a3 import a3_admission
+    from tests.unit.test_commercial_admission_a5 import a5_admission
+
+    authority = IntakeScope()
+    kwargs = dict(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=authority,
+        source_authority=UnitSourceAuthority(authority.scope),
+        transport=counting_transport(calls),
+        sales_admission=a2_admission(),
+    )
+    if every_record:  # A1 + A3 + A5 admitted: no admission gate is left to refuse anything
+        kwargs.update(
+            catalog_admission=catalog_admission(),
+            acceptance_admission=a3_admission(),
+            support_admission=a5_admission(),
+        )
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(**kwargs)
+    app.include_router(commercial_router)
+    return app, authority
+
+
+async def post_wire(app, command):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maezo.invalid"
+    ) as client:
+        return await client.post(
+            COMMERCIAL_PATH,
+            headers={
+                "Authorization": CREDENTIAL,
+                "X-Commercial-Connection": CONNECTION,
+                "Content-Type": "application/json",
+            },
+            content=json.dumps(command).encode(),
+        )
+
+
+async def assert_intake_closed(schema_bytes, name, *, every_record, reason):
+    calls = []
+    app, authority = intake_app(schema_bytes, calls, every_record=every_record)
+    gateway = app.state.commercial_gateway
+    command = envelope(name, INTAKE_PAYLOADS[name])
+    response = await post_wire(app, command)
+    assert response.status_code == 503
+    body = response.json()
+    assert (body["status"], body["reason_code"], body["data"]) == (
+        "unavailable",
+        "lifecycle_unqualified",
+        None,
+    )
+    assert calls == []  # zero network: no source step ran
+    assert authority.phases == ["before_body"]  # the gate refused at the first phase knowing the command
+    # The typed cause is the lifecycle refusal, never a generic error.
+    parsed = gateway.codec.parse_command(encode(command))
+    with pytest.raises(CommercialRefusalError) as refused:
+        await gateway.admission.current(authority.scope, phase="before_source", command=parsed)
+    assert (refused.value.status, refused.value.reason_code) == ("unavailable", "lifecycle_unqualified")
+    assert isinstance(refused.value.__cause__, RetentionMatrixUnavailableError)
+    assert refused.value.__cause__.reason == reason
+    # Control: the same session still serves a non-intake command — the gate is targeted.
+    served = await post_wire(app, wire_command())
+    assert served.status_code == 200 and served.json() == wire_result()
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("every_record", [False, True], ids=["a2-only", "a1-a3-a5-admitted"])
+@pytest.mark.parametrize("name", sorted(LEAD_INTAKE_COMMANDS))
+async def test_intake_refused_without_ratified_retention_matrix(
+    schema_bytes, monkeypatch, name, every_record
+):
+    """TB-E-25-a (3): `MAEZO_RETENTION_MATRIX_PATH` -> the template (`unratified: true`) with the
+    intake on: `RetentionMatrixUnavailableError(reason="unratified_template")` and the command
+    refused before any source step (C6-4 :445)."""
+    assert frozenset(INTAKE_PAYLOADS) == LEAD_INTAKE_COMMANDS
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(TEMPLATE))
+    await assert_intake_closed(
+        schema_bytes, name, every_record=every_record, reason=REASON_UNRATIFIED_TEMPLATE
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(LEAD_INTAKE_COMMANDS))
+async def test_commercial_intake_without_retention_class_refused(schema_bytes, monkeypatch, tmp_path, name):
+    """EP-REG-04b: even a ratified-shaped matrix carrying every lead category does not open the
+    intake — the C6-4 source resolves no `retention_class`, so persistence is refused; and a
+    matrix without the lead rows is refused for the commercial profile (TB-E-25-a (2))."""
+    rows = "".join(
+        f'  - {{categoria: "{c}", base_legal: "SYN", retencao: "SYN", acao: "SYN"}}\n'
+        for c in LEAD_CATEGORIES
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text(f"categorias:\n{rows}", encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix))
+    await assert_intake_closed(
+        schema_bytes, name, every_record=True, reason=REASON_RETENTION_CLASS_UNRESOLVED
+    )
+    matrix.write_text(
+        'categorias:\n  - {categoria: "SYN", base_legal: "SYN", retencao: "SYN", acao: "SYN"}\n'
+    )
+    await assert_intake_closed(schema_bytes, name, every_record=True, reason=REASON_LEAD_CATEGORIES_MISSING)
