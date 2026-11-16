@@ -189,6 +189,40 @@ def _k1_dir(lock_path: Path) -> Path:
     return lock_path.parent / PurePosixPath(rco_manifesto.K1_DIR).name
 
 
+def checar_lock_format(lock: Mapping[str, Any]) -> None:
+    """`lock_format` do pin (nome, pasta e versao). Levanta `RcoRulesPinError`. Usado tambem por
+    `rco_provas.manifesto_do_pin`, para que a execucao das provas leia o pin com a MESMA checagem."""
+    fmt = lock.get("lock_format")
+    if (
+        not isinstance(fmt, dict)
+        or fmt.get("name") != LOCK_NAME
+        or fmt.get("rules_dir") != RCO_RULES_DIR
+        or fmt.get("version") != LOCK_VERSION
+    ):
+        raise RcoRulesPinError(
+            f"pin: lock_format exige name={LOCK_NAME!r}, rules_dir={RCO_RULES_DIR!r} "
+            f"e version={LOCK_VERSION!r}"
+        )
+
+
+def checar_manifest_pin(lock: Mapping[str, Any]) -> str:
+    """`manifest_pin` do estado `fixado`: exatamente `path` (= `K1_MANIFESTO_PATH`) e `sha256`
+    `sha256:<64 hex>`. Devolve o digest; levanta `RcoRulesPinError`. Mesmo uso de `checar_lock_format`."""
+    pin = lock.get("manifest_pin")
+    if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
+        raise RcoRulesPinError("pin: estado 'fixado' exige manifest_pin com exatamente path e sha256")
+    digest = pin.get("sha256")
+    if (
+        pin.get("path") != rco_manifesto.K1_MANIFESTO_PATH
+        or not isinstance(digest, str)
+        or not (rco_manifesto.is_digest(digest))
+    ):
+        raise RcoRulesPinError(
+            f"pin: manifest_pin exige path={rco_manifesto.K1_MANIFESTO_PATH!r} e sha256 sha256:<64 hex>"
+        )
+    return digest
+
+
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
 ) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None, set[str]]:
@@ -197,19 +231,13 @@ def _manifesto_fixado(
     Devolve as decisoes por caminho do pin, os parametros de ativacao de `vocabulario.json` e os
     nomes aceitos em `k1/` (manifesto, anexos e arquivos de provas, como o gate).
     """
-    pin = lock.get("manifest_pin")
-    if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
-        raise RcoRulesPinError("pin: estado 'fixado' exige manifest_pin com exatamente path e sha256")
-    if pin.get("path") != rco_manifesto.K1_MANIFESTO_PATH or not rco_manifesto.is_digest(pin.get("sha256")):
-        raise RcoRulesPinError(
-            f"pin: manifest_pin exige path={rco_manifesto.K1_MANIFESTO_PATH!r} e sha256 sha256:<64 hex>"
-        )
+    digest = checar_manifest_pin(lock)
     k1_dir = _k1_dir(lock_path)
     try:
         raw = (k1_dir / rco_manifesto.K1_MANIFESTO_NOME).read_bytes()
     except OSError as exc:
         raise RcoRulesPinError(f"pin: manifesto K1 ausente ou ilegivel em {k1_dir}") from exc
-    if rco_manifesto.sha256_prefixado(raw) != pin["sha256"]:
+    if rco_manifesto.sha256_prefixado(raw) != digest:
         raise RcoRulesPinError("pin: sha256 do manifesto K1 diverge de manifest_pin")
     try:
         manifesto = rco_manifesto.ler_manifesto(raw)
@@ -262,17 +290,7 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
         raise RcoRulesPinError(f"pin ilegivel em {lock_path} ({type(exc).__name__})") from exc
     if not isinstance(lock, dict):
         raise RcoRulesPinError("pin: raiz nao e objeto")
-    fmt = lock.get("lock_format")
-    if (
-        not isinstance(fmt, dict)
-        or fmt.get("name") != LOCK_NAME
-        or fmt.get("rules_dir") != RCO_RULES_DIR
-        or fmt.get("version") != LOCK_VERSION
-    ):
-        raise RcoRulesPinError(
-            f"pin: lock_format exige name={LOCK_NAME!r}, rules_dir={RCO_RULES_DIR!r} "
-            f"e version={LOCK_VERSION!r}"
-        )
+    checar_lock_format(lock)
 
     estado = lock.get("estado")
     artifacts = _entries(lock, "artifacts")
@@ -408,6 +426,8 @@ __all__ = [
     "RcoPinnedTable",
     "RcoRulesPin",
     "RcoRulesPinError",
+    "checar_lock_format",
+    "checar_manifest_pin",
     "is_rco_decision",
     "load_rco_rules_pin",
     "rco_audit_fields",

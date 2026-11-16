@@ -95,8 +95,9 @@ async def test_provas_do_pacote_pinado_casam_no_motor(engine_client: httpx.Async
         # Sem pacote nao ha prova a rodar: o pin tem de DIZER isso (nada de pasta k1/ nem artefatos).
         lock = json.loads(PIN.read_text(encoding="utf-8"))
         assert (lock["estado"], lock["manifest_pin"], lock["artifacts"]) == ("sem_pacote", None, [])
-        assert resultado.provas == () and resultado.divergencias == ()
+        assert (resultado.provas, resultado.casos, resultado.divergencias) == ((), 0, ())
         return
     assert resultado.estado == rp.ESTADO_FIXADO
     assert resultado.provas, "pacote fixado sem provas executadas"
+    assert resultado.casos > 0, "pacote fixado sem casos avaliados no motor"
     assert [d.render() for d in resultado.divergencias] == []
