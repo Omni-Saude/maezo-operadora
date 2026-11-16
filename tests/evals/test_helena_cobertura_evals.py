@@ -141,7 +141,12 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
     """O resultado FIXADO da amostra sintetica (relatorio da HEL-6a). Mudou? Atualize aqui e no relatorio."""
     resultados = {c.id: await _rodar(manual, c) for c in _casos()}
     erradas = {i: r.motivos for i, r in resultados.items() if not r.correta}
-    assert erradas == {}  # HEL-5b: o prazo ratificado do K2 passa (antes S9-003 caia no aviso)
+    assert erradas == {
+        # camada 2 (carencia, consulta ao plano) nao existe: antes a regra de AUTORIZACAO da ressonancia
+        # respondia a pergunta de carencia pelo sinonimo; desde a HEL-5a a camada 1 transfere (correto).
+        # HEL-5b: S9-003 (prazo ratificado do K2) passou a acertar.
+        "S9-008": ("desfecho",),
+    }
     resumo = conv.corte(list(resultados.values()))
     assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 7, 0)
     assert resumo.aprovado  # so' a amostra sintetica: o corte do dono vale sobre o K2 real
