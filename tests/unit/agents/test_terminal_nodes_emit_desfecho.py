@@ -190,8 +190,8 @@ def test_desfecho_erro_inicio_processo_literal_matches_start_outcome() -> None:
     divergem silenciosamente."""
     assert turn_telemetry._DESFECHO_ERRO_INICIO_PROCESSO == start_outcome.DESFECHO_ERRO_INICIO_PROCESSO
     for agent_id, vocab in turn_telemetry._DESFECHO_VOCAB.items():
-        if agent_id == "beatriz":
-            continue  # nunca chama start_process — o desfecho de erro nao se aplica
+        if agent_id in ("beatriz", "comercial"):
+            continue  # nunca chama start_process (comercial: `process_keys: []`, E-SF-17)
         assert start_outcome.DESFECHO_ERRO_INICIO_PROCESSO in vocab, agent_id
 
 

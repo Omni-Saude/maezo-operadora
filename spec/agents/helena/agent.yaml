@@ -10,6 +10,7 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
   - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
+  - passagem_comercial                 # E-SF-17/GTM-E-13: "quero contratar/cotar um plano" SEM sinal de saude -> agente comercial (so' referencia, nunca texto), SO' com o roteador comercial ligado (desligado; aditamento de ADR-0062/DL-0053 a Compras pendente). Saude vence comercial.
   # ESCOPO REAL (DL-0101, 14/10/2026; decisao do dono): a lista acima tinha so' os quatro itens originais.
   - consulta_fatos_do_plano            # elegibilidade, carteirinha, carencia, autorizacao e dependentes (TINA, SO' com MAEZO_HELENA_CONSULTAS_AMH ligado); resposta so' com fatos do cadastro
   - duvida_de_saude_sem_sintoma        # explica o que a Helena pode fazer; NUNCA orientacao clinica

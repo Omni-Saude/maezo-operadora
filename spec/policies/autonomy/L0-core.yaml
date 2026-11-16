@@ -77,6 +77,12 @@ actions:
   # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)
   send_beneficiary_message:     { level: L3 }
   send_beneficiary_template:    { level: L2 }
+  # Agente `comercial` (E-SF-17 / GTM-E-12; flag desligada): resposta ao PROSPECT (nao beneficiario) SO'
+  # na sessao que o proprio prospect iniciou — nunca outbound proativo, nunca campanha (GTM-04/05). L3,
+  # o mesmo teto de `send_beneficiary_message`; NAO e' hard. Acao propria; o chokepoint do WhatsApp
+  # ainda a classifica como send_beneficiary_message ate a classe comunicacao_prospect existir
+  # (pendente, fora deste pacote). Aditiva (CD-13): nenhuma acao existente muda.
+  send_prospect_message:        { level: L3 }
   # mcp_memory: leitura/escrita de memória episódica/semântica (dados pseudonimizados)
   read_write_memory:            { level: L3 }
   erase_patient_memory:         { level: L1 }   # LGPD erasure: agente propõe, DPO/humano confirma
