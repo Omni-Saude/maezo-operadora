@@ -353,17 +353,29 @@ ainda nao esta ligado a nenhum worker deste processo. Regras:
 - **Dado ausente entra nulo** (`None`): nunca inventado, presumido, com valor padrao ou inferido. Valor fora
   do tipo ou do dominio do dicionario tambem entra nulo, com o motivo registrado. Toda entrada do K1 tem
   `fallback_nulo = nunca_negar`, e o leitor recusa um dicionario que diga outra coisa.
-- **Guia (origem `tiss`)** vem das variaveis deste contrato, pelo nome Maezo que o dicionario declara:
-  `data_atendimento` (acima), `codigo_procedimento_tuss` e `carater_atendimento`. O carater passa pelo de-para
-  que o proprio rco declara para a TUSS tabela 23 (`eletivo` = `1`; `urgencia` e `emergencia` = `2`; `1` e `2`
-  aceitos como estao); qualquer outro valor entra nulo.
+- **Guia (origem `tiss`):** `data_atendimento` (acima) e `codigo_procedimento_tuss` vem das variaveis deste
+  contrato, pelo nome Maezo que o dicionario declara; o valor ainda passa pelo tipo e pelo dominio do dicionario
+  (fora deles, nulo). Nao e garantia de que a variavel foi copiada da guia sem alteracao: isso e dever de quem
+  inicia o processo.
+- **O carater do atendimento NUNCA vem da variavel `carater_atendimento` deste contrato.** O caminho de start de
+  hoje a preenche com `"eletivo"` quando falta (`src/maezo/agents/rafael/delegation.py`, `graph.py`), e
+  `eletivo` = `1` e justamente o valor que deixa casar as linhas `negar` de `rco_geral_carencia` e
+  `rco_geral_elegibilidade`. O montador so le o carater de um campo explicito (`carater_atendimento_guia`: o
+  valor do elemento `caraterAtendimento` da guia TISS, sem padrao); sem ele, a entrada e nula. O de-para para a
+  TUSS tabela 23 e o que o rco declara (`config/integrations/rco/carater-tuss23.json`, com a origem): `eletivo`
+  = `1`; `urgencia` e `emergencia` = `2`; `1` e `2` como estao; casamento exato; qualquer outro valor entra nulo.
+  **Ligar o montador (MZO-3) exige que o start carregue o carater da guia ou nulo:** os padroes `"eletivo"` do
+  Rafael saem antes da ligacao.
 - **Cadastro e solicitacao fora da TISS nunca vem das variaveis de processo** (sementes do start, nao
   verificadas): so dos fatos que o worker que os resolveu entregar ao montador. Hoje nenhum worker do AUTH os
   resolve, entao entram nulos.
 - **Carencia com grupo e saldo, situacao cadastral e CPT na data** vem do K3 (manifest AMH v1.16, ainda nao
   publicado). Enquanto o contrato AMH pinado (`config/integrations/amh/contracts.lock.json`, hoje v1.15) for
-  anterior a 1.16, essas entradas entram nulas, mesmo que alguem passe fatos do K3. Fato do K3 avaliado em data
-  diferente de `data_atendimento` tambem entra nulo. A tabela `rco_geral_carencia` com essas entradas nulas cai
+  anterior a 1.16, essas entradas entram nulas, mesmo que alguem passe fatos do K3. Ligar o montador exige que a
+  versao pinada venha so de `AmhContractPin.versao_manifesto_pinada` do pin verificado. Fato do K3 avaliado em
+  data diferente de `data_atendimento` tambem entra nulo. Grupo, prazo e saldo da carencia ficam nulos mesmo com
+  o pin em 1.16 enquanto `LACUNA_SALDO_ISENCOES_FECHADA` for `False` (padrao): o K3 declara que nao se sabe se o
+  saldo ja considera isencoes e portabilidade, e so o negocio fecha essa lacuna. A tabela `rco_geral_carencia` com essas entradas nulas cai
   em `revisao_humana` (fila `cadastro`), nunca em `negar` (motor real:
   `tests/integration/dmn/test_rco_carencia_nulos_engine.py`).
 - **Entrada derivada sem formula estruturada** no dicionario entra nula. A unica derivada com formula nos

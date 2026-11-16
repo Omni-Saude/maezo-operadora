@@ -1,0 +1,22 @@
+{
+  "_comentario": [
+    "De-para do carater do atendimento do Maezo para a TUSS tabela 23, DECLARADO PELO RCO (nao e regra do Maezo).",
+    "Copiado de `valores_maezo` da entrada `caraterAtendimento` do dicionario de dados do rco, que o K1 ainda nao",
+    "publica em entradas.json (pedido ao rco: publicar `valores_maezo` no K1). Casamento EXATO, como o adaptador do",
+    "rco (scripts/adaptador_maezo.py): sem trim nem caixa. Lido por src/maezo/tools/workers/rco_montador.py.",
+    "Muda so quando o rco mudar a fonte: atualize `fonte.commit_sha` e o teste que pina este arquivo."
+  ],
+  "fonte": {
+    "repo": "Omni-Saude/regras-contratos-operadora",
+    "commit_sha": "fe1dc8975c0a486da0699f0fd6a0279e4b70f9af",
+    "arquivo": "docs/dicionario-dados.yaml",
+    "linhas": "303-314",
+    "campo": "caraterAtendimento.valores_maezo"
+  },
+  "valores_maezo": {
+    "eletivo": "1",
+    "urgencia": "2",
+    "emergencia": "2"
+  },
+  "aceitos_sem_conversao": ["1", "2"]
+}

@@ -1,10 +1,12 @@
 """Carga do recorte REAL do K1 usado pelos testes do montador de entradas (MZO-2b).
 
-`tests/fixtures/rco/k1-1.1.0-recorte/` traz, sem alteracao, o que o pacote K1 gerado do rco no commit
-fe1dc897 (dicionario de entradas 1.1.0) publica para os dominios `regras-gerais` e `diarias-taxas`:
-`entradas.json` (as entradas desses dominios), `decisoes.json` (id, dominio, entradas e saidas das
-decisoes, recortados do manifesto; procedencia no proprio arquivo) e `geral_carencia.dmn` (a tabela de
-carencia como o pacote a publica, com o id `rco_geral_carencia`). Material de teste: nada disso e
+`tests/fixtures/rco/k1-1.1.0-recorte/` e um RECORTE do pacote K1 gerado do rco no commit
+fe1dc8975c0a486da0699f0fd6a0279e4b70f9af (dicionario de entradas 1.1.0, modo nao publicacao), para os
+dominios `regras-gerais` e `diarias-taxas`: `entradas.json` (so as entradas desses dominios; cada
+entrada como o pacote a escreve, mas `sha256_conteudo` e o hash do dicionario COMPLETO, nao do
+recorte), `decisoes.json` (id, dominio, entradas e saidas das decisoes, recortados do manifesto;
+procedencia no proprio arquivo) e `geral_carencia.dmn` (o arquivo da tabela de carencia do pacote, id
+`rco_geral_carencia`). Material de teste: nada disso e
 regra do Maezo nem entra em `spec/processes/dmn/rco/` (o pin segue `sem_pacote`).
 """
 

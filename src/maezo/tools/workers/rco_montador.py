@@ -26,7 +26,21 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    `saldoCarenciaDias`/`cptVigente`) manda calcular na data do atendimento, nunca na corrente. Fatos K3
    avaliados em outra data (ou sem a data do atendimento na guia) entram nulos.
 5. Cadastro e fora da TISS NUNCA vem das variaveis de processo (sementes do start, nao verificadas):
-   so dos mapas que o worker que os resolveu entrega. A guia vem das variaveis do contrato de start.
+   so dos mapas que o worker que os resolveu entrega. Da guia, `data_atendimento` e
+   `codigo_procedimento_tuss` vem das variaveis do contrato de start, pelo nome que o dicionario
+   declara (o valor ainda passa pelo tipo e pelo dominio do dicionario).
+6. O CARATER DO ATENDIMENTO NUNCA vem das variaveis de start: o caminho de start de hoje o preenche com
+   `"eletivo"` quando falta (`agents/rafael/delegation.py`, `agents/rafael/graph.py`), e `eletivo` -> `1`
+   e o unico valor que deixa casar as linhas `negar` de `rco_geral_carencia`/`rco_geral_elegibilidade`.
+   Ele so entra por `FatosDoCaso.carater_atendimento_guia` (valor da guia TISS, sem padrao), senao nulo.
+   LIGAR O MONTADOR (MZO-3) EXIGE que o start carregue o carater da guia ou nulo: os padroes `"eletivo"`
+   do Rafael saem antes.
+7. Carencia do K3 (grupo, prazo e saldo) exige, alem do pin >= 1.16, `LACUNA_SALDO_ISENCOES_FECHADA`:
+   o K3 declara que nao se sabe se `saldo_dias` ja considera isencoes e portabilidade
+   (k1-entradas-origem.yaml, `saldoCarenciaDias`, `ressalva`). Enquanto o negocio nao confirmar, essas
+   tres entradas entram nulas, mesmo com o K3 pinado.
+8. `FatosDoCaso.versao_k3_pinada` vem de quem chama: LIGAR O MONTADOR EXIGE preenche-la so com
+   `AmhContractPin.versao_manifesto_pinada` do pin verificado (`load_contract_pin`), nunca a mao.
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -42,14 +56,22 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import lru_cache
+from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
 from maezo.platform.rco_entradas import DicionarioEntradasK1, EntradaK1
-from maezo.platform.rco_manifesto import DecisaoK1
+from maezo.platform.rco_manifesto import DecisaoK1, json_estrito
 
 #: Primeira versao do contrato AMH (manifest aditivo) que traz o K3 das entradas de decisao.
 VERSAO_K3_ENTRADAS: Final[tuple[int, int]] = (1, 16)
+#: LACUNA do K3 sobre `saldo_dias` (isencoes/portabilidade; k1-entradas-origem.yaml `saldoCarenciaDias`
+#: `ressalva` e tina-carencia-grupo.openapi.yaml `saldo_dias`). `False` = aberta: grupo, prazo e saldo do
+#: K3 entram nulos mesmo com o pin >= 1.16. Muda so por PR, com a confirmacao do negocio citada.
+LACUNA_SALDO_ISENCOES_FECHADA: Final[bool] = False
+#: Atributos de `FatosK3V116` que a lacuna acima segura (as entradas da tabela de carencia).
+_K3_CARENCIA: Final[frozenset[str]] = frozenset({"grupo", "dias", "saldo_dias"})
 
 
 class MontadorEntradasError(ValueError):
@@ -62,6 +84,7 @@ class DominioNaoSuportadoError(MontadorEntradasError):
 
 class Fonte(StrEnum):
     GUIA = "guia"  # variavel do contrato de start, lida da guia TISS
+    GUIA_EXPLICITA = "guia_explicita"  # campo de `FatosDoCaso` com o valor da guia, nunca o start
     CADASTRO = "cadastro"  # fato de cadastro entregue pelo worker que o resolveu
     FORA_TISS = "fora_tiss"  # fato da solicitacao fora da TISS
     K3_V116 = "k3_v1_16"  # rota TINA do K3 (manifest AMH v1.16)
@@ -78,6 +101,7 @@ class MotivoNulo(StrEnum):
     PRAZO_CONTRATUAL_NEGATIVO = "prazo_contratual_negativo"
     K3_NAO_PINADO = "k3_v1_16_nao_pinado"
     K3_FORA_DA_DATA = "k3_fora_da_data_do_atendimento"
+    K3_LACUNA_SALDO_ABERTA = "k3_lacuna_saldo_isencoes_aberta"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,10 +132,14 @@ class FatosDoCaso:
     """As fontes de fatos de um caso. Campo ausente = fato ausente."""
 
     guia: Mapping[str, object]  # variaveis do contrato de start (nomes Maezo)
-    versao_k3_pinada: tuple[int, int]  # `AmhContractPin.versao_manifesto_pinada`
+    #: SO `AmhContractPin.versao_manifesto_pinada` do pin verificado (regra 8 do modulo).
+    versao_k3_pinada: tuple[int, int]
     cadastro: Mapping[str, object] = field(default_factory=dict)
     fora_tiss: Mapping[str, object] = field(default_factory=dict)
     k3: FatosK3V116 | None = None
+    #: Valor do elemento `caraterAtendimento` da guia TISS, como a guia o traz, SEM PADRAO: nunca a
+    #: variavel de start `carater_atendimento` (preenchida com "eletivo" quando falta). None = nulo.
+    carater_atendimento_guia: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,17 +160,33 @@ class MapeamentoEntrada:
     #: so K3: atributo de `FatosK3V116`. Guia, cadastro e fora da TISS usam o nome Maezo que o PROPRIO
     #: dicionario declara (`nome_maezo`, senao `nome_snake`): o montador nao inventa nome de variavel.
     campo: str | None = None
-    conversao: Mapping[str, str] | None = None  # de-para declarado pelo rco (so texto -> texto)
 
 
 # --- conversao declarada pelo rco ----------------------------------------------------------------
-#: `caraterAtendimento`: o dicionario do rco declara `nome_maezo = carater_atendimento` e o de-para dos
-#: valores do Maezo para a TUSS tabela 23 (`docs/dicionario-dados.yaml`, campo `caraterAtendimento`,
-#: `valores_maezo`: eletivo=1, urgencia=2, emergencia=2; "os codigos 1 e 2 tambem sao aceitos sem
-#: conversao"). LACUNA: o `entradas.json` publicado no K1 nao carrega `valores_maezo`; pedido ao rco.
-CARATER_TUSS23: Final[Mapping[str, str]] = MappingProxyType(
-    {"eletivo": "1", "urgencia": "2", "emergencia": "2", "1": "1", "2": "2"}
-)
+#: `caraterAtendimento`: o de-para dos valores do Maezo para a TUSS tabela 23 e o que o rco DECLARA
+#: (`valores_maezo` do seu dicionario de dados; o K1 ainda nao o publica em `entradas.json`). Versionado,
+#: com a origem (repo, commit, linhas), em `config/integrations/rco/carater-tuss23.json`. Casamento exato.
+CARATER_TUSS23_RELATIVO: Final[str] = "config/integrations/rco/carater-tuss23.json"
+
+
+@lru_cache(maxsize=1)
+def carater_tuss23() -> Mapping[str, str]:
+    """`valores_maezo` + `aceitos_sem_conversao` do arquivo versionado. Levanta `MontadorEntradasError`."""
+    parents = Path(__file__).resolve().parents
+    for candidato in (parents[4] / CARATER_TUSS23_RELATIVO, parents[2] / CARATER_TUSS23_RELATIVO):
+        if candidato.is_file():
+            try:
+                dados = json_estrito(candidato.read_bytes())
+                tabela = {str(k): str(v) for k, v in dict(dados["valores_maezo"]).items()}
+                tabela.update({str(c): str(c) for c in list(dados["aceitos_sem_conversao"])})
+            except (ValueError, KeyError, TypeError) as exc:
+                raise MontadorEntradasError(
+                    f"{CARATER_TUSS23_RELATIVO} ilegivel ({type(exc).__name__})"
+                ) from None
+            if not set(tabela.values()) <= {"1", "2"}:
+                raise MontadorEntradasError(f"{CARATER_TUSS23_RELATIVO}: valor fora da TUSS 23")
+            return MappingProxyType(tabela)
+    raise MontadorEntradasError(f"{CARATER_TUSS23_RELATIVO} nao encontrado")
 
 
 # --- formulas publicadas (derivacao.formula) -------------------------------------------------------
@@ -189,8 +233,8 @@ CAMPOS_TERMO_CADASTRO: Final[Mapping[str, str]] = MappingProxyType(
 
 
 # --- mapeamento por dominio ------------------------------------------------------------------------
-def _guia(conversao: Mapping[str, str] | None = None) -> MapeamentoEntrada:
-    return MapeamentoEntrada("tiss", Fonte.GUIA, conversao=conversao)
+def _guia() -> MapeamentoEntrada:
+    return MapeamentoEntrada("tiss", Fonte.GUIA)
 
 
 _CADASTRO: Final[MapeamentoEntrada] = MapeamentoEntrada("cadastro", Fonte.CADASTRO)
@@ -209,7 +253,8 @@ _COMUNS: Final[dict[str, MapeamentoEntrada]] = {
     # TISS dataSolicitacao (pedido) / dataExecucao (conta) da guia, AAAA-MM-DD: contrato de start
     # `data_atendimento` (SP-OP-AUTH-001, MZO-2b). NAO e `data_solicitacao_iso` (instante do Maezo).
     "dataAtendimento": _guia(),
-    "caraterAtendimento": _guia(CARATER_TUSS23),
+    # So do campo explicito da guia (regra 6 do modulo), nunca da variavel de start.
+    "caraterAtendimento": MapeamentoEntrada("tiss", Fonte.GUIA_EXPLICITA, "carater_atendimento_guia"),
 }
 
 MAPEAMENTOS: Final[Mapping[str, Mapping[str, MapeamentoEntrada]]] = MappingProxyType(
@@ -350,6 +395,8 @@ def _k3_valor(
         return None, MotivoNulo.AUSENTE
     if data is None or k3.data_atendimento != data:
         return None, MotivoNulo.K3_FORA_DA_DATA
+    if atributo in _K3_CARENCIA and not LACUNA_SALDO_ISENCOES_FECHADA:
+        return None, MotivoNulo.K3_LACUNA_SALDO_ABERTA
     return _validar(entrada, getattr(k3, atributo))
 
 
@@ -382,11 +429,15 @@ def _montar_uma(
         if mapeamento.campo is None:  # todo mapeamento K3 nomeia o atributo; sem ele, nao ha fonte
             raise MontadorEntradasError(f"{nome}: mapeamento K3 sem atributo")
         return _k3_valor(entrada, mapeamento.campo, fatos, data)
+    if fonte is Fonte.GUIA_EXPLICITA:
+        if nome != "caraterAtendimento" or mapeamento.campo != "carater_atendimento_guia":
+            raise MontadorEntradasError(f"{nome}: campo explicito da guia so existe para o carater")
+        bruto: object = fatos.carater_atendimento_guia
+        if isinstance(bruto, str):
+            bruto = carater_tuss23().get(bruto, bruto)  # exato, como o adaptador do rco
+        return _validar(entrada, bruto)
     origem_fatos = {Fonte.GUIA: fatos.guia, Fonte.CADASTRO: fatos.cadastro, Fonte.FORA_TISS: fatos.fora_tiss}
-    bruto = origem_fatos[fonte].get(entrada.variavel_maezo)
-    if mapeamento.conversao is not None and isinstance(bruto, str):
-        bruto = mapeamento.conversao.get(bruto.strip().lower(), bruto)
-    return _validar(entrada, bruto)
+    return _validar(entrada, origem_fatos[fonte].get(entrada.variavel_maezo))
 
 
 def montar_entradas(
@@ -394,6 +445,8 @@ def montar_entradas(
 ) -> EntradasMontadas:
     """Monta as entradas de `decisao`. Levanta `DominioNaoSuportadoError` (caso para pessoa) ou
     `MontadorEntradasError` (mapeamento divergente do dicionario/manifesto: incidente, sem retry)."""
+    if not decisao.entradas:
+        raise MontadorEntradasError(f"{decisao.id}: decisao sem entradas declaradas no manifesto")
     if decisao.dominio not in MAPEAMENTOS:
         raise DominioNaoSuportadoError(
             f"{decisao.id}: dominio {decisao.dominio!r} sem mapeamento no montador"

@@ -55,6 +55,9 @@ def test_caminho_feliz_expoe_o_que_a_auditoria_usa(pacote: tuple[Path, dict[str,
     assert lido.decisoes["rco_sint_b"].saidas[-1] == "acaoSintetica"
     # MZO-2b: o montador de entradas escolhe o mapeamento pelo dominio e monta as entradas declaradas.
     assert (a.dominio, a.entradas) == ("sintetico", ("tipoSintetico",))
+    assert a.entradas_declaradas == (("tipoSintetico", "fora_tiss", None),)
+    assert lido.dicionario_entradas_versao == "1.0.0"
+    assert lido.dicionario_entradas_sha256 == manifesto["dicionario_entradas"]["sha256"]
     assert {p: x.nome for p, x in lido.anexos.items()} == {
         "vocabulario": "vocabulario.json",
         "entradas": "entradas.json",

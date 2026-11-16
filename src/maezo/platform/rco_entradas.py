@@ -31,10 +31,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Final
 
-from maezo.platform.rco_manifesto import ManifestoK1InvalidoError, json_estrito
+from maezo.platform.rco_manifesto import ManifestoK1, ManifestoK1InvalidoError, anexo_pinado, json_estrito
 
 #: Versoes do dicionario de entradas que o montador conhece (k1-entradas-origem.yaml `versao`).
 VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0"})
@@ -314,3 +315,34 @@ def ler_dicionario_entradas(raw: bytes) -> DicionarioEntradasK1:
     if problemas or versao is None or sha is None:
         raise ManifestoK1InvalidoError(problemas or ["entradas.json invalido"])
     return DicionarioEntradasK1(versao=versao, sha256_conteudo=sha, entradas=MappingProxyType(entradas))
+
+
+def carregar_dicionario_entradas(manifesto: ManifestoK1, *, k1_dir: Path) -> DicionarioEntradasK1:
+    """`entradas.json` pinado pelo manifesto, lido e CRUZADO com ele. Levanta `ManifestoK1InvalidoError`.
+
+    Alem do sha256 do arquivo (`anexo_pinado`): `dicionario_entradas.versao`/`.sha256` do manifesto
+    iguais a `versao`/`sha256_conteudo` do arquivo, e cada `entradas[]` de cada decisao com a mesma
+    `origem` e o mesmo `nome_maezo` do dicionario (entrada que o dicionario nao tem tambem reprova).
+    """
+    dicionario = ler_dicionario_entradas(anexo_pinado(manifesto, "entradas", k1_dir=k1_dir))
+    problemas: list[str] = []
+    if manifesto.dicionario_entradas_versao != dicionario.versao:
+        problemas.append(
+            f"dicionario_entradas.versao {manifesto.dicionario_entradas_versao!r} do manifesto != "
+            f"versao {dicionario.versao!r} de entradas.json"
+        )
+    if manifesto.dicionario_entradas_sha256 != dicionario.sha256_conteudo:
+        problemas.append("dicionario_entradas.sha256 do manifesto != sha256_conteudo de entradas.json")
+    for decisao in manifesto.decisoes.values():
+        for nome, origem, nome_maezo in decisao.entradas_declaradas:
+            entrada = dicionario.entradas.get(nome)
+            if entrada is None:
+                problemas.append(f"{decisao.id}: entrada {nome!r} ausente do dicionario")
+            elif (origem, nome_maezo) != (entrada.origem, entrada.nome_maezo):
+                problemas.append(
+                    f"{decisao.id}: entrada {nome!r} com origem/nome_maezo {(origem, nome_maezo)!r} no "
+                    f"manifesto e {(entrada.origem, entrada.nome_maezo)!r} no dicionario"
+                )
+    if problemas:
+        raise ManifestoK1InvalidoError(problemas)
+    return dicionario

@@ -1,15 +1,18 @@
 """Leitor do dicionario de entradas do K1 (`maezo.platform.rco_entradas`, MZO-2b; contrato-k1.md §1/§5).
 
 Contra o RECORTE REAL `tests/fixtures/rco/k1-1.1.0-recorte/entradas.json` (as entradas dos dominios
-`regras-gerais` e `diarias-taxas`, copiadas sem alteracao do `entradas.json` gerado do rco no commit
-fe1dc897, dicionario 1.1.0; procedencia em `decisoes.json`) e cada recusa fail-closed.
+`regras-gerais` e `diarias-taxas`, recortadas do `entradas.json` gerado do rco no commit
+fe1dc8975c0a486da0699f0fd6a0279e4b70f9af, dicionario 1.1.0; `sha256_conteudo` e o do dicionario
+COMPLETO; procedencia em `decisoes.json`) e cada recusa fail-closed.
 """
 
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -150,3 +153,81 @@ def test_nome_repetido_reprova() -> None:
 def test_json_estrito(raw: bytes) -> None:
     with pytest.raises(ManifestoK1InvalidoError, match="JSON ilegivel"):
         ent.ler_dicionario_entradas(raw)
+
+
+# --- carregar_dicionario_entradas: anexo cruzado com o manifesto -------------------------------------
+
+
+def _manifesto(k1_dir: Path, raw: bytes, **mudancas: Any) -> Any:
+    from maezo.platform import rco_manifesto as k1
+    from tests.unit.tools.workers import rco_recorte
+
+    dic = ent.ler_dicionario_entradas(raw)
+    (k1_dir / "entradas.json").write_bytes(raw)
+    decisoes = {
+        did: dataclasses.replace(
+            d,
+            entradas_declaradas=tuple(
+                (n, dic.entradas[n].origem, dic.entradas[n].nome_maezo) for n in d.entradas
+            ),
+        )
+        for did, d in rco_recorte.decisoes().items()
+    }
+    campos: dict[str, Any] = {
+        "formato_manifesto": "1.0.0",
+        "versao_pacote": "3.0.0",
+        "repo": "Omni-Saude/regras-contratos-operadora",
+        "commit_sha": "fe1dc8975c0a486da0699f0fd6a0279e4b70f9af",
+        "decisoes": MappingProxyType(decisoes),
+        "anexos": MappingProxyType(
+            {"entradas": k1.AnexoK1("entradas", "entradas.json", k1.sha256_prefixado(raw))}
+        ),
+        "exemplos": (),
+        "dicionario_entradas_versao": dic.versao,
+        "dicionario_entradas_sha256": dic.sha256_conteudo,
+    }
+    campos.update(mudancas)
+    return k1.ManifestoK1(**campos)
+
+
+def test_carregar_cruza_versao_hash_e_entradas_das_decisoes(tmp_path: Path) -> None:
+    raw = (RECORTE / "entradas.json").read_bytes()
+    dic = ent.carregar_dicionario_entradas(_manifesto(tmp_path, raw), k1_dir=tmp_path)
+    assert dic.versao == "1.1.0"
+
+
+@pytest.mark.parametrize(
+    ("mudancas", "trecho"),
+    [
+        ({"dicionario_entradas_versao": "1.0.0"}, "dicionario_entradas.versao"),
+        ({"dicionario_entradas_sha256": "sha256:" + "0" * 64}, "sha256_conteudo"),
+    ],
+)
+def test_carregar_recusa_versao_ou_hash_divergente(
+    tmp_path: Path, mudancas: dict[str, Any], trecho: str
+) -> None:
+    raw = (RECORTE / "entradas.json").read_bytes()
+    with pytest.raises(ManifestoK1InvalidoError, match=trecho):
+        ent.carregar_dicionario_entradas(_manifesto(tmp_path, raw, **mudancas), k1_dir=tmp_path)
+
+
+def test_carregar_recusa_origem_ou_nome_maezo_divergente_na_decisao(tmp_path: Path) -> None:
+    raw = (RECORTE / "entradas.json").read_bytes()
+    manifesto = _manifesto(tmp_path, raw)
+    carencia = manifesto.decisoes["rco_geral_carencia"]
+    errada = dataclasses.replace(
+        carencia, entradas_declaradas=(("caraterAtendimento", "cadastro", "carater_atendimento"),)
+    )
+    alterado = dataclasses.replace(
+        manifesto, decisoes=MappingProxyType({**manifesto.decisoes, carencia.id: errada})
+    )
+    with pytest.raises(ManifestoK1InvalidoError, match="origem/nome_maezo"):
+        ent.carregar_dicionario_entradas(alterado, k1_dir=tmp_path)
+
+
+def test_carregar_recusa_anexo_adulterado(tmp_path: Path) -> None:
+    raw = (RECORTE / "entradas.json").read_bytes()
+    manifesto = _manifesto(tmp_path, raw)
+    (tmp_path / "entradas.json").write_bytes(raw + b" ")
+    with pytest.raises(ManifestoK1InvalidoError, match="sha256 diverge"):
+        ent.carregar_dicionario_entradas(manifesto, k1_dir=tmp_path)

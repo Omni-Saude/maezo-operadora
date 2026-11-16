@@ -113,6 +113,14 @@ leitor só aceita as versões do dicionário que o montador conhece (`VERSOES_SU
 e só a política de nulo `nunca_negar`. Pinar um K1 com dicionário de versão nova exige rever antes o
 montador (`src/maezo/tools/workers/rco_montador.py`): entrada nova sem mapeamento, origem diferente ou
 fórmula publicada diferente da implementada fazem o montador recusar a decisão.
+`rco_entradas.carregar_dicionario_entradas` ainda cruza o arquivo com o manifesto: versão e
+`sha256_conteudo` iguais a `dicionario_entradas.versao`/`.sha256`, e `origem`/`nome_maezo` de cada
+entrada das decisões iguais aos do dicionário.
+
+`carater-tuss23.json` guarda o de-para do caráter do atendimento para a TUSS tabela 23 que o rco
+declara (`valores_maezo` de `caraterAtendimento` no dicionário de dados dele), com repo, commit e
+linhas da origem; um teste pina o conteúdo. **Pedido ao rco:** publicar `valores_maezo` no K1
+(`entradas.json`), para que este arquivo deixe de existir.
 
 ## `vocabulario-saida.yaml` — vocabulário de saída das tabelas DMN (MZO-1b)
 

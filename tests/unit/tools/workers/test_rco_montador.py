@@ -93,8 +93,8 @@ def test_mapeamento_segue_a_origem_e_a_formula_do_dicionario(dic: DicionarioEntr
                 assert m.campo is None, nome
             if m.fonte is mt.Fonte.K3_V116:
                 assert m.campo in {f.name for f in dataclasses.fields(mt.FatosK3V116)}, nome
-            if m.conversao is not None:
-                assert nome == "caraterAtendimento"  # unica conversao, declarada pelo rco
+            if m.fonte is mt.Fonte.GUIA_EXPLICITA:
+                assert (nome, m.campo) == ("caraterAtendimento", "carater_atendimento_guia")
 
 
 def test_k3_so_para_as_entradas_que_o_lago_deriva_no_v116(dic: DicionarioEntradasK1) -> None:
@@ -119,7 +119,9 @@ _K3_CARENCIA = ("grupoCarencia", "carenciaContratualDias", "saldoCarenciaDias")
 def test_carencia_nula_enquanto_o_pin_amh_e_anterior_a_v116(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
-    fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_SEM_K3, k3=_k3())  # fatos K3 presentes
+    fatos = mt.FatosDoCaso(
+        guia=_guia(), versao_k3_pinada=PIN_SEM_K3, k3=_k3(), carater_atendimento_guia="1"
+    )  # fatos K3 presentes
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert dict(montadas.variaveis) == {
         "dataAtendimento": DATA,
@@ -133,10 +135,24 @@ def test_carencia_nula_enquanto_o_pin_amh_e_anterior_a_v116(
     assert montadas.versao_dicionario == "1.1.0"
 
 
-def test_carencia_com_k3_pinado_le_o_item_do_procedimento(
+def test_carencia_k3_nula_com_pin_v116_enquanto_a_lacuna_do_saldo_esta_aberta(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
+    assert mt.LACUNA_SALDO_ISENCOES_FECHADA is False  # padrao: lacuna aberta
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=_k3())
+    montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
+    assert {n: montadas.nulos[n] for n in _K3_CARENCIA} == dict.fromkeys(
+        _K3_CARENCIA, "k3_lacuna_saldo_isencoes_aberta"
+    )
+    eleg = mt.montar_entradas(decisoes["rco_geral_elegibilidade"], dic, fatos)
+    assert eleg.variaveis["situacaoCadastral"] == "ativo"  # a lacuna e so da carencia
+
+
+def test_carencia_com_k3_pinado_e_lacuna_fechada_le_o_item_do_procedimento(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)
+    fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=_k3(), carater_atendimento_guia="1")
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert [montadas.variaveis[n] for n in _K3_CARENCIA] == ["demais", 180, 40]
     assert montadas.nulos == {}
@@ -152,8 +168,13 @@ def test_carencia_com_k3_pinado_le_o_item_do_procedimento(
     ],
 )
 def test_grupo_k3_fora_do_contrato_entra_nulo(
-    dic: DicionarioEntradasK1, decisoes: dict[str, Any], k3: mt.FatosK3V116, motivo: str
+    dic: DicionarioEntradasK1,
+    decisoes: dict[str, Any],
+    k3: mt.FatosK3V116,
+    motivo: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=k3)
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert montadas.variaveis["grupoCarencia"] is None
@@ -206,26 +227,60 @@ def test_carencia_com_k3_nulo_nao_tem_linha_negar_que_case(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
     """A tabela PUBLICADA (`rco_geral_carencia`): toda linha `negar` testa grupo, prazo e saldo com um
-    literal, faixa ou comparacao — celula que nunca casa nulo em FEEL (nem `-`, nem `null`, nem
-    `not(...)`). Com o K3 nulo pelo pin, nenhuma linha `negar` pode casar: o motor cai em
-    `revisao_humana` (provado no motor no teste de integracao)."""
+    literal, faixa fechada ou comparacao (lista PERMITIDA `_nunca_casa_nulo`). Com o K3 nulo pelo pin,
+    nenhuma linha `negar` pode casar: o motor cai em `revisao_humana` (provado no teste de integracao)."""
     entradas, negar = _celulas_negar(rco_recorte.CARENCIA_DMN)
     assert entradas == list(decisoes["rco_geral_carencia"].entradas)
     assert negar, "a tabela nega com dado presente; o teste precisa de linhas negar para valer"
     montadas = mt.montar_entradas(
         decisoes["rco_geral_carencia"],
         dic,
-        mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_SEM_K3, k3=_k3()),
+        # pior caso para `negar`: carater eletivo ("1") presente, K3 trazido mas segurado pelo pin
+        mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_SEM_K3, k3=_k3(), carater_atendimento_guia="1"),
     )
     nulas = [i for i, nome in enumerate(entradas) if montadas.variaveis[nome] is None]
     assert {entradas[i] for i in nulas} == set(_K3_CARENCIA)
     for celulas in negar:
         for i in nulas:
-            celula = celulas[i]
-            assert celula != "-" and "null" not in celula and not celula.startswith("not("), (
-                entradas[i],
-                celula,
-            )
+            assert _nunca_casa_nulo(celulas[i]), (entradas[i], celulas[i])
+
+
+# Lista PERMITIDA de testes unarios que nunca casam nulo em FEEL: literal entre aspas, numero,
+# comparacao com literal ou numero, faixa fechada `[a..b]`, ou lista separada por virgula desses.
+# Qualquer outra coisa reprova — inclusive "" (curinga do Camunda), "-", `null`, `not(...)`, `?`.
+_NUM = r"-?[0-9]+(?:\.[0-9]+)?"
+_LIT = r'"[^"\\]*"'
+_ITEM_SEGURO = re.compile(
+    rf"^(?:{_LIT}|{_NUM}|(?:<|<=|>|>=)\s*(?:{_LIT}|{_NUM})|\[\s*{_NUM}\s*\.\.\s*{_NUM}\s*\])$"
+)
+
+
+def _nunca_casa_nulo(celula: str) -> bool:
+    itens = [i.strip() for i in celula.split(",")]
+    return bool(celula.strip()) and all(_ITEM_SEGURO.fullmatch(i) and i != "null" for i in itens)
+
+
+@pytest.mark.parametrize(
+    ("celula", "seguro"),
+    [
+        ('"parto_a_termo"', True),
+        ("[0..300]", True),
+        ("> 0", True),
+        ('>= "2026-11-03"', True),
+        ("1, 2", True),
+        ("", False),
+        ("-", False),
+        ("null", False),
+        ("< 0, > 300, null", False),
+        ('not("1")', False),
+        ('not ("1")', False),
+        ("? > 0", False),
+        ("x is defined", False),
+        ("]0..300]", False),
+    ],
+)
+def test_lista_permitida_de_celulas(celula: str, seguro: bool) -> None:
+    assert _nunca_casa_nulo(celula) is seguro
 
 
 # --- guia: conversao declarada, nunca palpite -------------------------------------------------------
@@ -239,7 +294,8 @@ def test_carencia_com_k3_nulo_nao_tem_linha_negar_que_case(
         ("emergencia", "2", None),
         ("1", "1", None),
         ("2", "2", None),
-        (" Urgencia ", "2", None),
+        (" urgencia", None, "fora_do_dominio"),  # casamento exato, como o adaptador do rco
+        ("Urgencia", None, "fora_do_dominio"),
         ("programada", None, "fora_do_dominio"),
         (2, None, "tipo_invalido"),
         (None, None, "ausente_na_fonte"),
@@ -249,10 +305,55 @@ def test_carencia_com_k3_nulo_nao_tem_linha_negar_que_case(
 def test_carater_pela_tabela_23_declarada_pelo_rco(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any], valor: object, esperado: object, motivo: str | None
 ) -> None:
-    fatos = mt.FatosDoCaso(guia=_guia(carater_atendimento=valor), versao_k3_pinada=PIN_SEM_K3)
+    fatos = mt.FatosDoCaso(
+        guia=_guia(),
+        versao_k3_pinada=PIN_SEM_K3,
+        carater_atendimento_guia=valor,  # type: ignore[arg-type]
+    )
     montadas = mt.montar_entradas(decisoes["rco_geral_elegibilidade"], dic, fatos)
     assert montadas.variaveis["caraterAtendimento"] == esperado
     assert montadas.nulos.get("caraterAtendimento") == motivo
+    assert montadas.fontes["caraterAtendimento"] == "guia_explicita"
+
+
+@pytest.mark.parametrize("semente", ["eletivo", "1", "urgencia"])
+def test_carater_da_variavel_de_start_e_ignorado(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], semente: str
+) -> None:
+    """O start de hoje preenche `carater_atendimento="eletivo"` quando falta (agents/rafael). Sem o
+    carater da guia, a entrada e NULA — nunca `1`, que e o que deixa casar as linhas `negar`."""
+    fatos = mt.FatosDoCaso(guia=_guia(carater_atendimento=semente), versao_k3_pinada=PIN_SEM_K3)
+    for decisao in ("rco_geral_carencia", "rco_geral_elegibilidade"):
+        montadas = mt.montar_entradas(decisoes[decisao], dic, fatos)
+        assert montadas.variaveis["caraterAtendimento"] is None
+        assert montadas.nulos["caraterAtendimento"] == "ausente_na_fonte"
+
+
+def test_tabela_23_vem_do_arquivo_versionado_com_a_fonte_do_rco() -> None:
+    raiz = Path(__file__).resolve().parents[4]
+    dados = json.loads((raiz / mt.CARATER_TUSS23_RELATIVO).read_text(encoding="utf-8"))
+    assert dados["fonte"] == {
+        "repo": "Omni-Saude/regras-contratos-operadora",
+        "commit_sha": "fe1dc8975c0a486da0699f0fd6a0279e4b70f9af",
+        "arquivo": "docs/dicionario-dados.yaml",
+        "linhas": "303-314",
+        "campo": "caraterAtendimento.valores_maezo",
+    }
+    assert dados["valores_maezo"] == {"eletivo": "1", "urgencia": "2", "emergencia": "2"}
+    assert dados["aceitos_sem_conversao"] == ["1", "2"]
+    assert dict(mt.carater_tuss23()) == {
+        "eletivo": "1",
+        "urgencia": "2",
+        "emergencia": "2",
+        "1": "1",
+        "2": "2",
+    }
+
+
+def test_decisao_sem_entradas_recusa(dic: DicionarioEntradasK1, decisoes: dict[str, Any]) -> None:
+    vazia = dataclasses.replace(decisoes["rco_geral_carencia"], entradas=())
+    with pytest.raises(mt.MontadorEntradasError, match="sem entradas"):
+        mt.montar_entradas(vazia, dic, mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_SEM_K3))
 
 
 @pytest.mark.parametrize("data", ["2026-13-01", "01/12/2026", "2026-12-01T10:00:00-03:00", 20261201])

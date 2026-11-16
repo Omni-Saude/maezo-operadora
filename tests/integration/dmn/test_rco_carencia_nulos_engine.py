@@ -3,10 +3,11 @@
 O montador de entradas (`maezo.tools.workers.rco_montador`) manda nulos `grupoCarencia`,
 `carenciaContratualDias` e `saldoCarenciaDias` enquanto o contrato AMH pinado for anterior ao v1.16
 (K3 nao publicado). Este arquivo prova, avaliando no CIB Seven a tabela PUBLICADA pelo pacote K1
-(`tests/fixtures/rco/k1-1.1.0-recorte/geral_carencia.dmn`, `rco_geral_carencia`, copia sem alteracao
-do pacote gerado do rco no commit fe1dc897), que essas entradas nulas levam a `revisao_humana` (fila
-`cadastro`) e NUNCA a `negar`, para todo carater e data, e que a mesma tabela nega quando o K3 traz
-saldo positivo (o nulo nao e um acaso da tabela: e o pin que segura a negativa).
+(`tests/fixtures/rco/k1-1.1.0-recorte/geral_carencia.dmn`, `rco_geral_carencia`, o arquivo do pacote
+gerado do rco no commit fe1dc8975c0a486da0699f0fd6a0279e4b70f9af), que essas entradas nulas levam a
+`revisao_humana` (fila `cadastro`) e NUNCA a `negar`, para todo carater e data, e que a mesma tabela nega
+quando o K3 traz saldo positivo (o nulo nao e um acaso da tabela: sao o pin e a lacuna do saldo que
+seguram a negativa).
 
 A tabela e FIXTURE DE TESTE, nunca de `spec/` (o pin do rco segue `sem_pacote`). Sem motor
 alcancavel, o pacote inteiro PULA com motivo explicito (`tests/integration/conftest.py`).
@@ -59,10 +60,16 @@ async def dmn(engine_base_url: str) -> AsyncIterator[CibSevenDmnTransport]:
 
 
 def _entradas(
-    guia: dict[str, object], *, versao_k3: tuple[int, int], k3: mt.FatosK3V116
+    data: str | None, carater: str | None, *, versao_k3: tuple[int, int], k3: mt.FatosK3V116
 ) -> dict[str, object]:
     decisao = rco_recorte.decisoes()[_KEY]
-    fatos = mt.FatosDoCaso(guia=guia, versao_k3_pinada=versao_k3, k3=k3)
+    # A variavel de start `carater_atendimento` e ignorada pelo montador; o carater vem so da guia.
+    fatos = mt.FatosDoCaso(
+        guia={"data_atendimento": data, "carater_atendimento": "eletivo"},
+        versao_k3_pinada=versao_k3,
+        k3=k3,
+        carater_atendimento_guia=carater,
+    )
     return dict(mt.montar_entradas(decisao, rco_recorte.dicionario(), fatos).variaveis)
 
 
@@ -74,8 +81,7 @@ _K3_NEGARIA = mt.FatosK3V116(data_atendimento="2026-12-01", grupo="demais", dias
 async def test_k3_nulo_pelo_pin_vai_a_revisao_humana_nunca_negar(
     dmn: CibSevenDmnTransport, carencia_deployed: str, carater: str | None, data: str | None
 ) -> None:
-    guia: dict[str, object] = {"carater_atendimento": carater, "data_atendimento": data}
-    entradas = _entradas(guia, versao_k3=(1, 15), k3=_K3_NEGARIA)
+    entradas = _entradas(data, carater, versao_k3=(1, 15), k3=_K3_NEGARIA)
     assert entradas["grupoCarencia"] is None and entradas["saldoCarenciaDias"] is None
     rows, version = await dmn.evaluate(_KEY, entradas)
     assert version.id == carencia_deployed
@@ -85,10 +91,10 @@ async def test_k3_nulo_pelo_pin_vai_a_revisao_humana_nunca_negar(
 
 
 async def test_mesma_tabela_nega_com_saldo_k3_positivo_o_pin_e_que_segura(
-    dmn: CibSevenDmnTransport, carencia_deployed: str
+    dmn: CibSevenDmnTransport, carencia_deployed: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    guia: dict[str, object] = {"carater_atendimento": "eletivo", "data_atendimento": "2026-12-01"}
-    entradas = _entradas(guia, versao_k3=(1, 16), k3=_K3_NEGARIA)
+    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)  # so para provar o efeito do gate
+    entradas = _entradas("2026-12-01", "eletivo", versao_k3=(1, 16), k3=_K3_NEGARIA)
     rows, _version = await dmn.evaluate(_KEY, entradas)
     assert [r["decisao"] for r in rows] == ["negar"], rows
     assert rows[0]["classeAdverso"] == "administrativo", rows
