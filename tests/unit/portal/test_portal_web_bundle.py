@@ -165,3 +165,20 @@ async def test_missing_bundle_in_production_logs_and_serves_nothing(
     (tmp_path / "empty").mkdir()
     assert spa.load_bundle(tmp_path / "empty", production=True) is None
     assert spa.load_bundle(None, production=False) is None
+
+
+#: E-SF-03 (EP-CORE-07e): the staff CSP spelled out as a fixed literal. `_spa_headers`
+#: compares against `spa.CSP` itself, so a relaxed constant would pass there; this literal
+#: makes any change to the served policy (an added host, `unsafe-*`) a red test.
+STAFF_CSP_LITERAL = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+    "img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
+
+
+async def test_staff_csp_is_pinned_literal(c: httpx.AsyncClient) -> None:
+    for path in ("/", "/tarefas", "/assets/index-abc123.js"):
+        response = await c.get(path)
+        assert response.status_code == 200, path
+        assert response.headers.get_list("content-security-policy") == [STAFF_CSP_LITERAL], path

@@ -29,6 +29,7 @@ admission whose pin does not match the wired schema bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from copy import deepcopy
 from dataclasses import replace
@@ -848,3 +849,30 @@ def test_fixture_variants_stay_schema_true():
     assert value["coverage"]["coverageState"] == "active"
     assert value["contract"]["state"] == "issued"
     assert value["commercial_acceptance"]["decision"] == "accepted"
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A4 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A4_REQUIRED_SIGNATORIES = ("steward AMH", "direito")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A4_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A4_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a4_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(CoverageReadAdmissionError) as err:
+        parse_coverage_read_admission(a4_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A4_REQUIRED_SIGNATORIES)))
+def test_a4_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_coverage_read_admission(a4_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A4_REQUIRED_SIGNATORIES)

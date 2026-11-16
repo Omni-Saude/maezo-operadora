@@ -22,6 +22,7 @@ does not match the wired schema bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -453,3 +454,39 @@ async def test_malformed_bearer_refuses_before_one_body_byte(schema_bytes):
     assert response.status_code == 403
     assert json.loads(bytes(response.body)) == ADMISSION_REQUIRED_BODY
     assert reads == [] and calls == []
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A2 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A2_REQUIRED_SIGNATORIES = ("identity", "channel", "security", "DPO")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A2_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A2_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a2_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(SalesSessionAdmissionError) as err:
+        parse_sales_session_admission(a2_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A2_REQUIRED_SIGNATORIES)))
+def test_a2_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_sales_session_admission(a2_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A2_REQUIRED_SIGNATORIES)
+
+
+@pytest.mark.parametrize("owners", [["identity"], ["identity", "channel", "security"]])
+def test_a2_record_without_dpo_countersignature_is_refused(owners):
+    # EP-CORE-02a (subsumed by E-SF-02): the prospect session is never admitted without
+    # the DPO countersignature next to identity, channel and security.
+    with pytest.raises(SalesSessionAdmissionError) as err:
+        parse_sales_session_admission(a2_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"

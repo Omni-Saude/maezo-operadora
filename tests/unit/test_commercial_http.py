@@ -277,7 +277,7 @@ def support_handoff_admission():
         "schema": "omni-commercial-admission-record.v1",
         "admission_id": "A5",
         "decision": "admitted",
-        "owners": ["case owner", "channel owner"],
+        "owners": ["case owner", "channel owner", "human owners"],
         "decided_at": "2026-10-24T00:00:00+00:00",
         "valid_until": "2099-01-01T00:00:00+00:00",
         "unlocks": "P6.4 (suporte)",

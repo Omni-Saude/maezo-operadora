@@ -1361,6 +1361,13 @@ def test_c6_4_choices_are_bounded_private_closed_source_selectors(schema_bytes, 
         parse(CommercialWire(schema_bytes), journey_request(), data)
 
 
+def _a1_admission():
+    # Imported lazily: the A1 test module imports this one at module level.
+    from tests.unit.test_commercial_admission_a1 import a1_admission
+
+    return a1_admission()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", [None, "foreign_choice", "foreign_owner", "no_current_source"])
 async def test_c6_4_fresh_formal_choices_need_exact_current_owner_source_proof(schema_bytes, change):
@@ -1402,6 +1409,8 @@ async def test_c6_4_fresh_formal_choices_need_exact_current_owner_source_proof(s
         source_authority=source,
         amh_origin="https://amh.invalid",
         sales_admission=sales_session_admission(),
+        # E-SF-03 (EP-CORE-00a): plan_choices are disclosed only with the A1 record.
+        catalog_admission=_a1_admission(),
         transport=httpx.MockTransport(transport),
     )
     trusted = await gateway.admission.transport("Bearer SYN-SALES-CREDENTIAL", "SYN-SALES-CONNECTION")

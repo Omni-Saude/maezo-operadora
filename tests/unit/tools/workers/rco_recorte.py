@@ -6,7 +6,9 @@ dominios `regras-gerais` e `diarias-taxas`: `entradas.json` (so as entradas dess
 entrada como o pacote a escreve, mas `sha256_conteudo` e o hash do dicionario COMPLETO, nao do
 recorte), `decisoes.json` (id, dominio, entradas e saidas das decisoes, recortados do manifesto;
 procedencia no proprio arquivo) e `geral_carencia.dmn` (o arquivo da tabela de carencia do pacote, id
-`rco_geral_carencia`). Material de teste: nada disso e
+`rco_geral_carencia`) e `geral_prazos_conta.dmn` (a tabela de prazos de conta, id `rco_geral_prazos_conta`,
+de `dmn/regras-gerais/geral_prazos_conta.dmn` no mesmo commit, igual a `main` do rco em 323fec5c, com o
+mesmo prefixo `rco_` que o pacote poe no id; MZO-TOL). Material de teste: nada disso e
 regra do Maezo nem entra em `spec/processes/dmn/rco/` (o pin segue `sem_pacote`).
 """
 
@@ -21,6 +23,7 @@ from maezo.platform.rco_manifesto import DecisaoK1
 
 RECORTE = Path(__file__).resolve().parents[3] / "fixtures" / "rco" / "k1-1.1.0-recorte"
 CARENCIA_DMN = RECORTE / "geral_carencia.dmn"
+PRAZOS_CONTA_DMN = RECORTE / "geral_prazos_conta.dmn"
 
 
 def dicionario() -> DicionarioEntradasK1:

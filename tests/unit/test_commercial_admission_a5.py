@@ -30,6 +30,7 @@ whose pin does not match the wired schema bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -53,6 +54,7 @@ from maezo.gateway.commercial_admission import (
     AcceptanceSupportUnadmittedSalesAdmission,
     AcceptanceUnadmittedSalesAdmission,
     AuthenticatedSalesAdmission,
+    CatalogUnadmittedSalesAdmission,
     SupportGatedCodec,
     SupportUnadmittedSalesAdmission,
     compose_commercial_gateway,
@@ -78,6 +80,7 @@ from maezo.gateway.commercial_support_admission import (
 )
 from maezo.portal.api.commercial import COMMERCIAL_PATH, commercial_router
 from maezo.ports.commercial import CommercialRefusalError
+from tests.unit.test_commercial_admission_a1 import a1_admission
 from tests.unit.test_commercial_admission_a2 import (
     ADMISSION_REQUIRED_BODY,
     SOURCE_UNAVAILABLE_BODY,
@@ -133,7 +136,7 @@ def a5_record(**changes):
             "schema": "omni-commercial-admission-record.v1",
             "admission_id": "A5",
             "decision": "admitted",
-            "owners": ["case owner", "channel owner"],
+            "owners": ["case owner", "channel owner", "human owners"],
             "decided_at": "2026-10-24T00:00:00+00:00",
             "valid_until": "2099-01-01T00:00:00+00:00",
             "unlocks": "P6.4 (suporte)",
@@ -480,12 +483,22 @@ def test_gate_class_follows_exactly_the_admitted_dimensions(schema_bytes):
         return type(gateway.admission)
 
     assert (
-        admission_class(acceptance_admission=a3_admission(), support_admission=a5_admission())
+        admission_class(
+            catalog_admission=a1_admission(),
+            acceptance_admission=a3_admission(),
+            support_admission=a5_admission(),
+        )
         is AuthenticatedSalesAdmission
     )
     assert admission_class(acceptance_admission=a3_admission()) is SupportUnadmittedSalesAdmission
     assert admission_class(support_admission=a5_admission()) is AcceptanceUnadmittedSalesAdmission
     assert admission_class() is AcceptanceSupportUnadmittedSalesAdmission
+    # E-SF-03 (EP-CORE-00a): the A1 record is a dimension of its own — with A3 and A5
+    # admitted but no A1, only the catalog gate remains.
+    assert (
+        admission_class(acceptance_admission=a3_admission(), support_admission=a5_admission())
+        is CatalogUnadmittedSalesAdmission
+    )
 
 
 @pytest.mark.asyncio
@@ -990,3 +1003,30 @@ def test_fixture_variants_stay_schema_true():
     assert issued == journey_with_coverage("unknown", "absent_generation", issued=True) | {
         "support": case_arm("projection")
     }
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A5 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A5_REQUIRED_SIGNATORIES = ("case owner", "channel owner", "human owners")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A5_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A5_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a5_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(SupportHandoffAdmissionError) as err:
+        parse_support_handoff_admission(a5_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A5_REQUIRED_SIGNATORIES)))
+def test_a5_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_support_handoff_admission(a5_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A5_REQUIRED_SIGNATORIES)

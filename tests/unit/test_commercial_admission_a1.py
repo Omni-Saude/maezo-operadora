@@ -15,7 +15,9 @@ an admission whose pin does not match the wired schema bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -25,7 +27,11 @@ from fastapi import FastAPI
 
 import maezo.adapters.amh.commercial as wire_module
 from maezo.adapters.amh.commercial import CommercialWire, _strip_replay_actions
+from maezo.gateway.commercial import _METHODS
 from maezo.gateway.commercial_admission import (
+    A1_CATALOG_DERIVED_COMMANDS,
+    AcceptanceSupportUnadmittedSalesAdmission,
+    CatalogUnadmittedSalesAdmission,
     compose_commercial_gateway,
     compose_public_catalog_gateway,
 )
@@ -35,19 +41,28 @@ from maezo.gateway.commercial_catalog_admission import (
     parse_catalog_source_admission,
     read_catalog_source_admission,
 )
-from maezo.portal.api.commercial import PUBLIC_CATALOG_PATH, commercial_router
+from maezo.portal.api.commercial import COMMERCIAL_PATH, PUBLIC_CATALOG_PATH, commercial_router
 from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_c6 import (
+    CurrentResultSource,
     PublicScope,
     PublicSource,
     envelope,
+    formal_entry_data,
     journey,
+    journey_request,
     journey_result,
     parse,
     public_body,
     recovery,
 )
-from tests.unit.test_commercial_http import UnitCaller
+from tests.unit.test_commercial_http import (
+    UnitCaller,
+    UnitScope,
+    sales_session_admission,
+    wire_command,
+    wire_result,
+)
 from tests.unit.test_commercial_http import (
     schema_bytes as schema_bytes,
 )
@@ -332,3 +347,267 @@ async def test_recovery_never_bootstraps_plan_choices(schema_bytes):
     surfaced = json.loads(parsed.wire_bytes)["data"]["original_result"]["data"]["plan_choices"]
     assert surfaced == []
     assert seeded["plan_choices"] != []
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A1 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A1_REQUIRED_SIGNATORIES = ("produto", "comercial", "legal")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A1_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A1_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a1_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(CatalogSourceAdmissionError) as err:
+        parse_catalog_source_admission(a1_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A1_REQUIRED_SIGNATORIES)))
+def test_a1_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_catalog_source_admission(a1_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A1_REQUIRED_SIGNATORIES)
+
+
+@pytest.mark.parametrize("owners", [["comercial"], ["produto", "comercial"], ["comercial", "legal"]])
+def test_a1_record_missing_the_legal_signatory_is_refused(owners):
+    # EP-CORE-01a (subsumed by E-SF-02): the catalog record is a produto+comercial+legal
+    # act; a record without the legal leg (or with any other leg missing) never binds.
+    with pytest.raises(CatalogSourceAdmissionError) as err:
+        parse_catalog_source_admission(a1_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+# E-SF-03 (EP-CORE-00a): the A1 gate on the private Sales POST path. A bound A2 session
+# must not consume the catalog source while no A1 record exists — the A2 record never
+# stands in for A1 (dossiê A1: "antes de qualquer consumo REAL").
+SALES_HEADERS = {
+    "Authorization": "Bearer SYN-SALES-CREDENTIAL",
+    "X-Commercial-Connection": "SYN-SALES-CONNECTION",
+    "Content-Type": "application/json",
+}
+
+
+def quote_command():
+    # A schema-valid C6-4 `offer.quote` (`OfferQuotePayload`, scope interop/sales.contract).
+    return {
+        "schema_version": "omni-commercial.proposed.v1",
+        "command": "offer.quote",
+        "command_ref": "SYN-QUOTE-CMD",
+        "expected_revision": None,
+        "payload": {
+            "catalog_ref": "SYN-CATALOG",
+            "catalog_version": 1,
+            "product_ref": "SYN-PRODUCT",
+            "profile_ref": "SYN-PROFILE",
+        },
+    }
+
+
+def quote_result():
+    return {
+        **wire_result(),
+        "data": {
+            "kind": "quote",
+            "quote_ref": "SYN-QUOTE",
+            "source_revision": 7,
+            "catalog_ref": "SYN-CATALOG",
+            "catalog_version": 1,
+            "product_ref": "SYN-PRODUCT",
+            "network_version": 1,
+            "terms_digest": "b" * 64,
+            "money": {"amount_minor": 12345, "currency": "BRL"},
+            "valid_until": "2099-01-01T00:00:00Z",
+            "contractable": True,
+        },
+    }
+
+
+class QuoteSource(CurrentResultSource):
+    """Source authority that would let `offer.quote` through — isolates the A1 gate."""
+
+    async def prepare(self, command, scope):
+        prepared = await super().prepare(command, scope)
+        return replace(prepared, registry_readiness_ref="SYN-REGISTRY", ready_methods=frozenset(_METHODS))
+
+
+def quote_rig(schema_bytes, calls, *, catalog_admitted, effects_admitted=False):
+    scope_authority = UnitScope()
+    scope_authority.scope = replace(
+        scope_authority.scope,
+        allowed_operations=scope_authority.scope.allowed_operations | {"offer.quote"},
+    )
+
+    def transport(request):
+        calls.append(request)
+        quoted = json.loads(request.content)["command"] == "offer.quote"
+        return httpx.Response(200, json=quote_result() if quoted else wire_result())
+
+    kwargs = dict(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=scope_authority,
+        source_authority=QuoteSource(scope_authority.scope),
+        sales_admission=sales_session_admission(),
+        transport=httpx.MockTransport(transport),
+    )
+    if catalog_admitted:
+        kwargs["catalog_admission"] = a1_admission()
+    if effects_admitted:
+        # A3 and A5 admitted: the A1 command leg is the only gate left
+        # (`CatalogUnadmittedSalesAdmission` branch of the composition).
+        from tests.unit.test_commercial_admission_a3 import a3_admission
+        from tests.unit.test_commercial_admission_a5 import a5_admission
+
+        kwargs["acceptance_admission"] = a3_admission()
+        kwargs["support_admission"] = a5_admission()
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(**kwargs)
+    app.include_router(commercial_router)
+    return app, scope_authority
+
+
+async def post_sales(app, command):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maezo.invalid"
+    ) as client:
+        return await client.post(COMMERCIAL_PATH, headers=SALES_HEADERS, content=json.dumps(command).encode())
+
+
+def test_catalog_derived_set_is_the_contract_quote_binding(schema_bytes):
+    # The gated set is read off the frozen contract, not chosen here: the Sales commands
+    # whose payload binds the source catalog/version/product triple.
+    contract = json.loads(schema_bytes)
+    derived = {
+        name
+        for name, spec in contract["x-commands"].items()
+        if {"catalog_ref", "catalog_version", "product_ref"}
+        <= set(contract["$defs"][spec["payload_schema"].rsplit("/", 1)[1]].get("properties", {}))
+    }
+    assert derived == set(A1_CATALOG_DERIVED_COMMANDS) == {"offer.quote"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("effects_admitted", [False, True])
+async def test_a2_session_without_a1_record_refuses_catalog_derived_commands(schema_bytes, effects_admitted):
+    # Violation injected: a valid A2 session composed with `catalog_admission=None` and a
+    # valid `offer.quote` whose scope and source would both let it through. The gate
+    # refuses `unavailable/binding_unqualified` (503) before any source step: zero bytes
+    # reach the executor transport and no effect phase runs.
+    calls = []
+    app, scope_authority = quote_rig(
+        schema_bytes, calls, catalog_admitted=False, effects_admitted=effects_admitted
+    )
+    expected = (
+        CatalogUnadmittedSalesAdmission if effects_admitted else AcceptanceSupportUnadmittedSalesAdmission
+    )
+    assert type(app.state.commercial_gateway.admission) is expected
+    refused = await post_sales(app, quote_command())
+    assert refused.status_code == 503
+    body = refused.json()
+    assert body["status"] == "unavailable" and body["reason_code"] == "binding_unqualified"
+    assert body["data"] is None
+    assert calls == []
+    assert scope_authority.phases == ["before_body"]
+    # The same bound session keeps serving the non-catalog command exactly as shipped.
+    served = await post_sales(app, wire_command())
+    assert served.status_code == 200 and served.json() == wire_result()
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a1_and_a2_admitted_quote_reaches_the_source_unchanged(schema_bytes):
+    # Control: with A1 and A2 the gate is not the refuser — the quote walks the full
+    # phase ladder and the source answer is disclosed byte-for-byte as before.
+    calls = []
+    app, scope_authority = quote_rig(schema_bytes, calls, catalog_admitted=True)
+    served = await post_sales(app, quote_command())
+    assert served.status_code == 200 and served.json() == quote_result()
+    assert len(calls) == 1 and json.loads(calls[0].content) == quote_command()
+    assert scope_authority.phases == ["before_body", "before_source", "before_effect", "before_disclosure"]
+
+
+def test_commercial_composition_refuses_an_a1_admission_off_the_wired_contract(schema_bytes):
+    scope_authority = UnitScope()
+    with pytest.raises(ValueError, match="commercial_catalog_admission_invalid"):
+        compose_commercial_gateway(
+            schema_bytes=schema_bytes,
+            amh_origin=AMH_ORIGIN,
+            caller=UnitCaller(),
+            scope_authority=scope_authority,
+            source_authority=QuoteSource(scope_authority.scope),
+            sales_admission=sales_session_admission(),
+            catalog_admission=SimpleNamespace(contract_sha256="0" * 64),
+        )
+
+
+def plan_choices_rig(schema_bytes, calls, *, catalog_admitted):
+    # A2 bound, scope grants `journey.get`, and the source answers the formal-entry
+    # snapshot with one source-qualified plan choice (catalog/version/product).
+    scope_authority = UnitScope()
+    scope_authority.scope = replace(
+        scope_authority.scope,
+        allowed_operations=frozenset({"operator.get", "journey.get"}),
+        granted_scopes=frozenset({"interop/sales.journey.read"}),
+        resource_grant_ref="SYN-RESOURCE-GRANT",
+        journey_linkage_ref="SYN-LINKAGE",
+    )
+
+    def transport(request):
+        calls.append(request)
+        return httpx.Response(200, json={**wire_result(), "data": formal_entry_data()})
+
+    kwargs = dict(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=scope_authority,
+        source_authority=CurrentResultSource(scope_authority.scope),
+        sales_admission=sales_session_admission(),
+        transport=httpx.MockTransport(transport),
+    )
+    if catalog_admitted:
+        kwargs["catalog_admission"] = a1_admission()
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(**kwargs)
+    app.include_router(commercial_router)
+    return app
+
+
+@pytest.mark.asyncio
+async def test_a2_session_without_a1_record_refuses_plan_choices_disclosure(schema_bytes):
+    # Disclosure leg of EP-CORE-00a (DEC-CORE CORE-00 §(4)(b)): with A2 and no A1 record a
+    # `journey.get` whose source result carries a non-empty `plan_choices` never discloses
+    # it. The gate refuses after the read ran at the source, so the effective answer is
+    # the post-dispatch custody `202 uncertain/reconciliation_required` with no data —
+    # not `succeeded`, no catalog byte, one source read and no re-dispatch.
+    calls = []
+    app = plan_choices_rig(schema_bytes, calls, catalog_admitted=False)
+    refused = await post_sales(app, journey_request())
+    assert refused.status_code == 202
+    body = refused.json()
+    assert body["status"] != "succeeded"
+    assert body["status"] == "uncertain" and body["reason_code"] == "reconciliation_required"
+    assert body["data"] is None
+    assert b"SYN-CATALOG" not in refused.content and b"plan_choices" not in refused.content
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a1_and_a2_admitted_journey_discloses_plan_choices(schema_bytes):
+    # Control: with A1 and A2 the same source snapshot is served with its plan choice.
+    calls = []
+    app = plan_choices_rig(schema_bytes, calls, catalog_admitted=True)
+    served = await post_sales(app, journey_request())
+    assert served.status_code == 200
+    assert served.json()["data"]["plan_choices"] == formal_entry_data()["plan_choices"]
+    assert b"SYN-CATALOG" in served.content
+    assert len(calls) == 1

@@ -12,7 +12,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import httpx
 
@@ -46,6 +46,19 @@ from maezo.ports.commercial import (
     SalesAdmission,
     SalesTransport,
 )
+
+# The A1 catalog dimension of the Sales POST path (EP-CORE-00a; DEC-CORE CORE-00 §(4)(b):
+# "uma sessão A2 sem registro A1 recusa `journey.get` com `plan_choices` não vazio e recusa
+# `offer.quote`"). Two legs, both closed while the registered A1 record
+# (`commercial_catalog_admission`) is absent (dossiê A1: "antes de qualquer consumo REAL"):
+# - command leg: the commands derived from the source catalog — the C6-4
+#   `OfferQuotePayload` binds `catalog_ref`/`catalog_version`/`product_ref` ("existing
+#   offer.quote uses the exact source catalog/version/product/profile",
+#   `x-journey-formal-entry.selection`), pinned equal to the contract-derived set by test —
+#   refuse before any source step (`CatalogUnadmittedSalesAdmission` or `also_refused`);
+# - disclosure leg: source-qualified `plan_choices` (catalog/version/product selectors) in
+#   a `journey.get` result never cross the disclosure boundary (`CatalogGatedCodec`).
+A1_CATALOG_DERIVED_COMMANDS: Final = frozenset({"offer.quote"})
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -136,10 +149,25 @@ class AcceptanceUnadmittedSalesAdmission(AuthenticatedSalesAdmission):
     step, so no OP03/OP04 effect can execute. It subclasses the A2 session admission
     because the route's pre-body session admission must keep its exact type; every other
     command and phase delegates unchanged, so an A2-bound gateway without A3 behaves
-    identically to the shipped state outside the acceptance surface.
+    identically to the shipped state outside the acceptance surface. The composition may
+    inject `also_refused` — the A1 catalog-derived commands
+    (`A1_CATALOG_DERIVED_COMMANDS`) when the A1 record is absent — so one gate instance
+    refuses the exact union of the absent records' command sets.
     """
 
     refused_commands: frozenset[str] = A3_ADMITTED_COMMANDS
+
+    def __init__(
+        self,
+        *,
+        caller: SalesCallerVerifier,
+        authority: SalesScopeAuthority,
+        also_refused: frozenset[str] = frozenset(),
+    ) -> None:
+        # `also_refused` carries the other closed dimensions (the A1 catalog-derived
+        # commands) so one gate instance refuses the exact union of absent records.
+        super().__init__(caller=caller, authority=authority)
+        self.refused_commands = type(self).refused_commands | also_refused
 
     async def current(
         self,
@@ -178,6 +206,21 @@ class AcceptanceSupportUnadmittedSalesAdmission(SupportUnadmittedSalesAdmission)
     """
 
     refused_commands = A3_ADMITTED_COMMANDS | A5_ADMITTED_COMMANDS
+
+
+class CatalogUnadmittedSalesAdmission(AcceptanceUnadmittedSalesAdmission):
+    """A2-bound session whose catalog source (A1) is not admitted (EP-CORE-00a).
+
+    The A1 record (`commercial_catalog_admission`) is the only registered key the
+    catalog source binds through; while it is absent the catalog-derived commands
+    (`A1_CATALOG_DERIVED_COMMANDS`) refuse the shipped fail-closed refusal before any
+    source step, exactly like the acceptance gate. Installed when A3 and A5 are both
+    admitted; otherwise the A1 set rides on the A3/A5 gate as `also_refused`. This is the
+    command leg only: the disclosure leg (non-empty `plan_choices` in a `journey.get`
+    result) is `CatalogGatedCodec`, installed by the composition under the same condition.
+    """
+
+    refused_commands = A1_CATALOG_DERIVED_COMMANDS
 
 
 class CoverageGatedCodec(CommercialCodec):
@@ -242,6 +285,56 @@ class CoverageGatedCodec(CommercialCodec):
             return result
         if any(journey["coverage"]["coverageState"] != "unknown" for journey in journeys):
             raise CommercialRefusalError("denied", "purpose_denied")
+        return result
+
+
+class CatalogGatedCodec(CommercialCodec):
+    """Sales codec whose catalog-choice disclosure stays A1-gated (EP-CORE-00a).
+
+    A fresh `journey.get` result carries source-qualified `plan_choices`
+    (`JourneyPlanChoice`: `catalog_ref`/`catalog_version`/`product_ref`) — catalog facts
+    the A2 session record does not bind. Without the registered A1 record
+    (`commercial_catalog_admission`) a non-empty `plan_choices` does not cross the
+    disclosure boundary: this gate refuses it with the shipped
+    `unavailable/binding_unqualified` before any byte is disclosed. The check runs on the
+    parsed source result, i.e. after dispatch, so the gateway's post-dispatch custody
+    discipline turns it into the effective HTTP answer `202 uncertain/
+    reconciliation_required` with `data: null` — the read ran at the source, nothing of it
+    is disclosed, nothing is re-dispatched. The recovery carrier (`operation.get`,
+    `original_command == "journey.get"`) is closed by the C6-4 codec itself, which strips
+    recovery to `[]` ("Before any persistence/recovery, plan_choices is []"). An
+    empty `plan_choices` and every other dimension pass byte-exact; with the A1 record the
+    gate is inert.
+    """
+
+    def __init__(self, inner: CommercialCodec, *, gated: bool) -> None:
+        self._inner = inner
+        self._gated = gated
+
+    @property
+    def schema_digest(self) -> str:
+        return self._inner.schema_digest
+
+    def parse_command(self, body: bytes) -> CommercialCommand:
+        return self._inner.parse_command(body)
+
+    def parse_public_result(self, body: bytes) -> bytes:
+        return self._inner.parse_public_result(body)
+
+    def refusal(
+        self, status: CommercialStatus, reason_code: str, operation_ref: str | None = None
+    ) -> OperationalResult:
+        return self._inner.refusal(status, reason_code, operation_ref)
+
+    def parse_result(self, body: bytes, command: CommercialCommand) -> OperationalResult:
+        result = self._inner.parse_result(body, command)
+        if not self._gated or result.status != "succeeded":
+            return result
+        value = json.loads(result.wire_bytes)
+        if command.command != "journey.get":
+            return result
+        if value["data"].get("plan_choices"):
+            raise CommercialRefusalError("unavailable", "binding_unqualified")
         return result
 
 
@@ -334,6 +427,7 @@ def compose_commercial_gateway(
     scope_authority: SalesScopeAuthority | None = None,
     source_authority: AmhCommercialAuthority | None = None,
     sales_admission: SalesSessionAdmission | None = None,
+    catalog_admission: CatalogSourceAdmission | None = None,
     acceptance_admission: AcceptanceRecordAdmission | None = None,
     coverage_admission: CoverageReadAdmission | None = None,
     support_admission: SupportHandoffAdmission | None = None,
@@ -344,7 +438,13 @@ def compose_commercial_gateway(
 
     Authority ports alone never bind the Sales session: binding additionally requires
     the registered A2 admission (`commercial_sales_admission`), sha-pinned to the frozen
-    contract these schema bytes must be. The acceptance/enrollment effect dimension is
+    contract these schema bytes must be. The catalog-derived commands
+    (`A1_CATALOG_DERIVED_COMMANDS`) are their own admission: without the registered A1
+    record (`commercial_catalog_admission`, equally sha-pinned) a bound session refuses
+    them with the shipped fail-closed refusal before any source step, and the codec keeps a
+    non-empty `plan_choices` of a `journey.get` result from being disclosed
+    (`CatalogGatedCodec`, effective answer `uncertain` after dispatch) — the A2 record
+    never stands in for the catalog source. The acceptance/enrollment effect dimension is
     its own admission: without the registered A3 record (`commercial_acceptance_admission`,
     equally sha-pinned) a bound session still refuses `acceptance.record` with the shipped
     fail-closed refusal before any source step — the A2 record never opens an effect.
@@ -370,6 +470,7 @@ def compose_commercial_gateway(
     )
     codec: CommercialCodec = CoverageGatedCodec(wire, gated=coverage_admission is None)
     codec = SupportGatedCodec(codec, gated=support_admission is None)
+    codec = CatalogGatedCodec(codec, gated=catalog_admission is None)
     if (
         caller is None
         or scope_authority is None
@@ -380,6 +481,8 @@ def compose_commercial_gateway(
         return CommercialGateway(codec=codec, timeout_seconds=timeout_seconds)
     if sales_admission.contract_sha256 != wire.schema_digest:
         raise ValueError("commercial_sales_admission_invalid")
+    if catalog_admission is not None and catalog_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_catalog_admission_invalid")
     if acceptance_admission is not None and acceptance_admission.contract_sha256 != wire.schema_digest:
         raise ValueError("commercial_acceptance_admission_invalid")
     if coverage_admission is not None and coverage_admission.contract_sha256 != wire.schema_digest:
@@ -389,14 +492,21 @@ def compose_commercial_gateway(
     executor = HttpCommercialExecutor(
         origin=amh_origin, authority=source_authority, timeout_seconds=timeout_seconds, transport=transport
     )
-    admission_cls: type[AuthenticatedSalesAdmission] = AuthenticatedSalesAdmission
+    catalog_refused = A1_CATALOG_DERIVED_COMMANDS if catalog_admission is None else frozenset()
+    gate_cls: type[AcceptanceUnadmittedSalesAdmission] | None = None
     if acceptance_admission is None and support_admission is None:
-        admission_cls = AcceptanceSupportUnadmittedSalesAdmission
+        gate_cls = AcceptanceSupportUnadmittedSalesAdmission
     elif acceptance_admission is None:
-        admission_cls = AcceptanceUnadmittedSalesAdmission
+        gate_cls = AcceptanceUnadmittedSalesAdmission
     elif support_admission is None:
-        admission_cls = SupportUnadmittedSalesAdmission
-    admission = admission_cls(caller=caller, authority=scope_authority)
+        gate_cls = SupportUnadmittedSalesAdmission
+    elif catalog_admission is None:
+        gate_cls = CatalogUnadmittedSalesAdmission
+    admission: AuthenticatedSalesAdmission = (
+        AuthenticatedSalesAdmission(caller=caller, authority=scope_authority)
+        if gate_cls is None
+        else gate_cls(caller=caller, authority=scope_authority, also_refused=catalog_refused)
+    )
     return CommercialGateway(
         codec=codec,
         admission=admission,
