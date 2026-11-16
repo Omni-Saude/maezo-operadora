@@ -15,18 +15,24 @@ As rotas (rota do lago; contrato pinado; porta hoje em `ports/tina.py`; o que re
   cadastro (Rol, extra, fora da segmentacao), diretriz de utilizacao, carencia do item.
 - `/cpt`; `tina-cpt` v1.15; `TinaCptPort.get_cpt_vigente`; CPT vigente (sim/nao, quantas, maior data fim).
 - `/procedimentos`; `tina-procedimentos` v1.14; `TinaProcedimentosPort`; catalogo (resolucao, HEL-2).
-- `/rede-credenciada`; `tina-rede-credenciada`; NENHUMA porta (pedido a T-MZO-A); prestadores da rede.
+- `/rede-credenciada`; `tina-rede-credenciada` v1.8; NENHUMA porta (pendente, ver o item (b)); prestadores.
 
 Como entra na resposta: primeiro a regra geral (camada 1, quando ha'), depois "No cadastro do seu plano:" e
 os fatos, e a formula fixa no fim. Nunca: "esta coberto", "vai ser autorizado" (o cadastro PREVE, nao
 decide); `coberto=None`/`indeterminado` = "o cadastro nao informa" e a oferta de uma pessoa; `itens` vazio
 NAO e' "nao cobre"; `truncada` = pergunta de esclarecimento (HEL-2), nunca a escolha de um item.
 
-O que falta para implementar (pedidos a T-MZO-A, que e' dona de `ports/tina.py` e da composicao):
-(a) a fonte da Helena (`maezo.contratos.fatos_do_plano`) ja' declara `FonteDeCobertura` e `FonteDeCpt`, mas a
-composicao do receptor nao injeta nenhuma implementacao delas (sairam com o DL-0154); (b) uma porta fina de
-leitura da rede credenciada sobre o contrato pinado `tina-rede-credenciada`; (c) a fonte do catalogo
-(`TinaProcedimentosPort`) injetada para a resolucao do procedimento.
+Pedidos a T-MZO-A (dona de `ports/tina.py` e da composicao), situacao:
+(a) ATENDIDO: a fonte injetada no receptor (`platform/webhooks/whatsapp/helena_consultas.ConsultasPlanoAmh`, a
+mesma `consultas_plano` que o despachante passa ao grafo) implementa de novo `FonteDeCobertura` e `FonteDeCpt`
+(so' leitura pela rota pinada; nada da cobertura assistida do DL-0154 volta). (c) ATENDIDO: a mesma fonte
+implementa `FonteDoCatalogoDeProcedimentos` (`maezo.contratos.fatos_do_plano`), que entrega o catalogo
+inteiro de uma foto como `ProcedimentoCatalogo` para `procedimento.resolver`. (b) PENDENTE: o contrato
+`tina-rede-credenciada` esta' pinado (bloco `manifest_v1_8`), mas o tipo de valor da porta traria `nome`,
+`endereco` e `telefone` do estabelecimento, e a cerca de PHI dos ports (`tests/unit/ports/test_ports_purity`)
+so' aceita slot assim com excecao nominal decidida pelo dono e DPO; sem essa decisao nao ha' porta.
+Falta tambem a camada 2 propriamente dita (a implementacao de `ConsultaDoSeuPlano` sobre essas fontes) e a
+composicao dela no `graph.build`.
 """
 
 from __future__ import annotations
