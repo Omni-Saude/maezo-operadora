@@ -37,7 +37,8 @@ def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:
 async def test_recupera_a_regra_pelo_sinonimo_e_cita_o_id(manual: ManualK2) -> None:
     r = await CamadaRegraGeral(manual).responder(_pergunta("precisa de autorização pra fazer ressonância?"))
     assert r is not None and r.desfecho == "resposta"
-    assert r.fontes == (cob.Fonte("regra_k2", "AMOSTRA-AUT-001", "amostra-0.1.0"),)
+    assert r.fontes == (cob.Fonte("regra_k2", "AMOSTRA-AUT-001", "amostra-0.1.0", _PIN.sha256_manifesto),)
+    assert r.veredito_ok and r.prazo_ratificado()
     assert r.texto == texto_deterministico(manual.regra("AMOSTRA-AUT-001"))  # type: ignore[arg-type]
     assert "AMOSTRA" not in r.texto and "http" not in r.texto and r.texto.endswith(cob.FORMULA_FIXA)
 
@@ -123,9 +124,63 @@ async def test_pelo_grafo_a_regra_geral_sai_literal_e_o_id_vai_ao_log(manual: Ma
     assert log["fontes"] == ["regra_k2:AMOSTRA-AUT-001@amostra-0.1.0"]
 
 
-async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK2) -> None:
-    """PENDENCIA DO DONO (DL-0167): a trava de saida `sem_prazo_da_ans` corta frase com "dias uteis"; o
-    esqueleto recusa o texto que ela mudaria. Ate' o dono decidir, prazo do K2 nao sai (falha fechada)."""
+async def test_pelo_grafo_prazo_ratificado_do_k2_sai_inteiro(manual: ManualK2) -> None:
+    """HEL-5b (ROOT, 16/11/2026): o prazo em "dias uteis" da regra do K2, com o hash do pacote e o veredito ok
+    do verificador, passa pela trava `sem_prazo_da_ans`; antes caia no aviso de canais."""
     grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
     await grafo.ainvoke(_entrada("como faço pra recorrer?"))
+    assert whatsapp.enviados[-1] == texto_deterministico(manual.regra("AMOSTRA-REC-005"))  # type: ignore[arg-type]
+    assert "10 dias úteis" in whatsapp.enviados[-1]
+
+
+class _CamadaComPrazo:
+    """Camada que devolve um texto com prazo da ANS, com e sem as condicoes da isencao (testes negativos)."""
+
+    def __init__(self, resposta: cob.RespostaDaCobertura) -> None:
+        self._resposta = resposta
+
+    @property
+    def camada(self) -> cob.Camada:
+        return "regra_geral"
+
+    async def responder(self, pergunta: cob.PerguntaDeCobertura) -> cob.RespostaDaCobertura:
+        return self._resposta
+
+
+_COM_PRAZO = f"Pela regra geral: a nova análise pode ser pedida em até 10 dias úteis. {cob.FORMULA_FIXA}"
+
+
+@pytest.mark.parametrize(
+    "resposta",
+    [
+        # veredito do verificador ausente
+        cob.RespostaDaCobertura(
+            "resposta", _COM_PRAZO, (cob.Fonte("regra_k2", "R-1", "v", _PIN.sha256_manifesto),)
+        ),
+        # fonte do K2 sem o hash do pacote
+        cob.RespostaDaCobertura(
+            "resposta", _COM_PRAZO, (cob.Fonte("regra_k2", "R-1", "v"),), veredito_ok=True
+        ),
+        # hash que nao e' sha256
+        cob.RespostaDaCobertura(
+            "resposta", _COM_PRAZO, (cob.Fonte("regra_k2", "R-1", "v", "abc"),), veredito_ok=True
+        ),
+        # fonte que nao e' do K2
+        cob.RespostaDaCobertura(
+            "resposta", _COM_PRAZO, (cob.Fonte("lago", "/cobertura", "v1.9"),), veredito_ok=True
+        ),
+    ],
+)
+async def test_prazo_sem_as_condicoes_da_isencao_continua_barrado(resposta: cob.RespostaDaCobertura) -> None:
+    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(_CamadaComPrazo(resposta)))
+    await grafo.ainvoke(_entrada("como faço pra recorrer?"))
     assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+
+
+def test_prazo_vindo_do_modelo_continua_cortado_na_saida() -> None:
+    """A trava do `respond` corta o prazo de qualquer texto sem a marca (o do modelo, inclusive)."""
+    from maezo.agents.helena import travas_saida
+
+    assert "dias úteis" not in travas_saida.na_saida(_COM_PRAZO)
+    assert cob.prazo_ratificado(_COM_PRAZO) is False  # sem marca: nada e' isento
+    assert travas_saida.na_saida(_COM_PRAZO, prazo_ratificado=True) == _COM_PRAZO

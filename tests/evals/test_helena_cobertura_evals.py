@@ -4,8 +4,8 @@ Nesta onda as fontes sao SINTETICAS (`golden/helena/cobertura/fontes_sinteticas/
 do rco) e o pacote K2 e' a amostra sintetica do leitor. O conversor e a avaliacao sao os mesmos que vao rodar
 sobre as 180 perguntas reais quando o K2 chegar (Onda 2): so' as fontes trocam.
 
-O resultado da amostra e' FIXADO aqui (nao e' o corte do dono, que so' vale sobre o K2 real): a amostra
-mostra o que a Onda 1 ainda nao faz (prazo em "dias uteis", pela trava `sem_prazo_da_ans`).
+O resultado da amostra e' FIXADO aqui (nao e' o corte do dono, que so' vale sobre o K2 real): desde a
+HEL-5b o prazo ratificado do K2 passa pela trava `sem_prazo_da_ans`.
 """
 
 from __future__ import annotations
@@ -140,10 +140,8 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
     """O resultado FIXADO da amostra sintetica (relatorio da HEL-6a). Mudou? Atualize aqui e no relatorio."""
     resultados = {c.id: await _rodar(manual, c) for c in _casos()}
     erradas = {i: r.motivos for i, r in resultados.items() if not r.correta}
-    assert erradas == {
-        "S9-003": ("desfecho",)
-    }  # prazo em "dias uteis": `sem_prazo_da_ans` (pendencia do dono)
+    assert erradas == {}  # HEL-5b: o prazo ratificado do K2 passa (antes S9-003 caia no aviso)
     resumo = conv.corte(list(resultados.values()))
-    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 6, 0)
-    assert not resumo.aprovado  # 85,7% < 95%: o corte do dono so' vale sobre o K2 real
+    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 7, 0)
+    assert resumo.aprovado  # so' a amostra sintetica: o corte do dono vale sobre o K2 real
     print(json.dumps({"acerto_camada_1": round(resumo.acerto, 3), "invencoes": resumo.invencoes}))

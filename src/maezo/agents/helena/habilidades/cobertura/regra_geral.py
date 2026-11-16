@@ -92,14 +92,14 @@ class CamadaRegraGeral:
             lacuna = "sem_regra" if not regras else "regras_multiplas"
             return RespostaDaCobertura("transferir", lacuna=lacuna)
         [regra] = regras
-        fonte = Fonte("regra_k2", regra.id, self._manual.versao)
+        fonte = Fonte("regra_k2", regra.id, self._manual.versao, self._manual.sha256_manifesto or None)
         trechos = (regra.texto, regra.resumo)
         if self._redator is not None:
             rascunho = await self._redator.redigir(pergunta, regra)
             if rascunho:
                 veredito = verificar(rascunho, trechos)
                 if veredito.ok:
-                    return RespostaDaCobertura("resposta", rascunho, (fonte,))
+                    return RespostaDaCobertura("resposta", rascunho, (fonte,), veredito_ok=True)
                 logger.warning(
                     "helena_cobertura_rascunho_barrado", regra=regra.id, motivos=list(veredito.motivos)
                 )
@@ -108,7 +108,7 @@ class CamadaRegraGeral:
         if not veredito.ok:
             logger.error("helena_cobertura_regra_nao_confere", regra=regra.id, motivos=list(veredito.motivos))
             return RespostaDaCobertura("transferir", lacuna="regra_nao_confere")
-        return RespostaDaCobertura("resposta", deterministico, (fonte,))
+        return RespostaDaCobertura("resposta", deterministico, (fonte,), veredito_ok=True)
 
     def _sinonimos_do_k2(self) -> Mapping[str, Sequence[str]]:
         """Termo popular do K2 -> os titulos das regras que o citam (a resolucao so' acrescenta termo)."""

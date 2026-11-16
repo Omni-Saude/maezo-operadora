@@ -145,6 +145,8 @@ class ManualK2:
     commit_rco: str
     regras: Mapping[str, RegraDoManual]
     capitulo_geral: tuple[SecaoGeral, ...]
+    #: O sha256 dos bytes do manifesto, ja' conferido contra o pin (`carregar`); vai a `Fonte` da resposta.
+    sha256_manifesto: str = ""
     #: chave de busca normalizada -> ids de regra em ordem (derivado de `regras`).
     _por_chave: Mapping[str, tuple[str, ...]] = field(init=False, repr=False, compare=False)
 
@@ -345,6 +347,7 @@ def carregar(diretorio: Path, *, pin: PinDoK2) -> ManualK2:
         commit_rco=commit_rco,
         regras=MappingProxyType(dict(sorted(regras.items()))),
         capitulo_geral=_capitulo_geral(conteudos[CAPITULO_GERAL]),
+        sha256_manifesto=pin.sha256_manifesto,
     )
 
 

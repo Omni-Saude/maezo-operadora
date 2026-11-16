@@ -26,6 +26,7 @@ travas de entrada e a porta da saude; caso so' abre com o "sim" da pessoa (a tra
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -87,6 +88,8 @@ class Fonte:
     id: str
     #: A versao do pacote K2 ou do contrato pinado da rota.
     versao: str
+    #: O sha256 do manifesto do pacote K2 (64 hex), conferido contra o pin; `None` fora do K2.
+    hash_do_pacote: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +101,17 @@ class RespostaDaCobertura:
     fontes: tuple[Fonte, ...] = ()
     #: O motivo curto da lacuna de conteudo (`sem_regra`, `dado_conflitante`...), nunca o texto da pessoa.
     lacuna: str | None = None
+    #: A camada conferiu os fatos do texto com as fontes (`verificador.verificar`) e o veredito foi ok.
+    veredito_ok: bool = False
+
+    def prazo_ratificado(self) -> bool:
+        """HEL-5b (ROOT, 16/11/2026): resposta com veredito ok e TODA fonte do K2 identificada por hash."""
+        return (
+            self.desfecho == "resposta"
+            and self.veredito_ok
+            and bool(self.fontes)
+            and all(f.tipo == "regra_k2" and _e_sha256(f.hash_do_pacote) for f in self.fontes)
+        )
 
     def valida(self) -> bool:
         if self.desfecho not in DESFECHOS:
@@ -154,12 +168,31 @@ _MAX_TEXTOS: Final[int] = 4096
 _TEXTOS_DA_COBERTURA: OrderedDict[str, None] = OrderedDict()
 
 
+#: Os textos aceitos com prazo RATIFICADO (HEL-5b): o `respond` consulta (e consome) antes de `na_saida`.
+_PRAZO_RATIFICADO: OrderedDict[str, None] = OrderedDict()
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _e_sha256(valor: object) -> bool:
+    return isinstance(valor, str) and _SHA256.fullmatch(valor) is not None
+
+
+def prazo_ratificado(texto: object) -> bool:
+    """O texto foi aceito com prazo ratificado (fonte K2 por hash e veredito ok)? Consome a marca."""
+    return isinstance(texto, str) and _PRAZO_RATIFICADO.pop(_impressao(texto), 0) is None
+
+
 def _impressao(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
-def _guardar(texto: str) -> None:
+def _guardar(texto: str, *, prazo: bool = False) -> None:
     chave = _impressao(texto)
+    if prazo:
+        _PRAZO_RATIFICADO[chave] = None
+        _PRAZO_RATIFICADO.move_to_end(chave)
+        while len(_PRAZO_RATIFICADO) > _MAX_TEXTOS:
+            _PRAZO_RATIFICADO.popitem(last=False)
     _TEXTOS_DA_COBERTURA[chave] = None
     _TEXTOS_DA_COBERTURA.move_to_end(chave)
     while len(_TEXTOS_DA_COBERTURA) > _MAX_TEXTOS:
@@ -218,13 +251,16 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
             return _transferir(grafo, state)
         texto_da_camada = resposta.texto or ""  # `valida()` ja' exigiu o texto
         esclarecer = resposta.desfecho == "esclarecer"
-        motivo = _travas.motivo_de_recusa(grafo, texto_da_camada, esclarecer=esclarecer)
+        prazo = resposta.prazo_ratificado()
+        motivo = _travas.motivo_de_recusa(
+            grafo, texto_da_camada, esclarecer=esclarecer, prazo_ratificado=prazo
+        )
         if motivo is not None:
             # As travas de politica sao do ESQUELETO (B1 da revisao independente): reprovou, nao sai.
             logger.warning("helena_cobertura_texto_barrado", camada=camada.camada, motivo=motivo)
             return texto_do_aviso(grafo, state)
         final = _com_192_se_preciso(state, texto_da_camada)
-        _guardar(final)
+        _guardar(final, prazo=prazo)
         return grafo._texto_fixo(grafo._update_sem_modelo(state), final)
     # Nenhuma camada respondeu: a lacuna de conteudo fica registrada e vale o aviso de canais (falha fechada).
     logger.info("helena_cobertura_lacuna", lacuna="sem_camada_que_responda", camadas=len(config.camadas))
@@ -270,5 +306,6 @@ __all__ = [
     "atender",
     "da_configuracao",
     "e_texto_da_cobertura",
+    "prazo_ratificado",
     "texto_do_aviso",
 ]
