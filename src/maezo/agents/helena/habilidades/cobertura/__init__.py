@@ -179,14 +179,19 @@ def _e_sha256(valor: object) -> bool:
     return isinstance(valor, str) and _SHA256.fullmatch(valor) is not None
 
 
-def _conversa(state: Mapping[str, Any]) -> str:
-    return str(state.get("conversation_id") or "")
+def _conversa(state: Mapping[str, Any]) -> str | None:
+    """A chave da conversa (tenant + id); `None` sem id: conversa sem id nunca recebe a isencao."""
+    conversa = state.get("conversation_id")
+    if not isinstance(conversa, str) or not conversa:
+        return None
+    return f"{state.get('tenant_id') or ''}:{conversa}"
 
 
 def prazo_ratificado(state: Mapping[str, Any], texto: object) -> bool:
     """O texto que o `respond` vai enviar e' EXATAMENTE o aceito com prazo ratificado neste turno, nesta
     conversa? Consome a marca da conversa em qualquer caso (nunca fica pendurada)."""
-    marca = _PRAZO_RATIFICADO.pop(_conversa(state), None)
+    conversa = _conversa(state)
+    marca = _PRAZO_RATIFICADO.pop(conversa, None) if conversa is not None else None
     return marca is not None and isinstance(texto, str) and marca == _impressao(texto)
 
 

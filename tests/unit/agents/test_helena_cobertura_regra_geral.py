@@ -206,10 +206,11 @@ def test_prazo_vindo_do_modelo_continua_cortado_na_saida() -> None:
 
 def test_a_marca_e_por_conversa_de_uso_unico_e_nunca_fica_pendurada() -> None:
     """Revisao independente da HEL-5b: a marca vale so' na conversa e no turno em que foi dada."""
-    cob._guardar(_COM_PRAZO, prazo_da_conversa="c-1")
+    assert cob.prazo_ratificado({"conversation_id": ""}, _COM_PRAZO) is False  # sem id: nunca isenta
+    cob._guardar(_COM_PRAZO, prazo_da_conversa=":c-1")
     assert cob.prazo_ratificado({"conversation_id": "c-2"}, _COM_PRAZO) is False  # outra conversa
     assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is True
     assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is False  # uso unico
-    cob._guardar(_COM_PRAZO, prazo_da_conversa="c-1")
+    cob._guardar(_COM_PRAZO, prazo_da_conversa=":c-1")
     assert cob.prazo_ratificado({"conversation_id": "c-1"}, "Entendi. " + _COM_PRAZO) is False  # transformado
     assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is False  # e a marca nao ficou
