@@ -198,13 +198,16 @@ k1:
     - informar
     - prazo
   classeAdverso: [clinico, administrativo, contas, vazio]
-  # `vazio` nao e um literal: e o nome, no vocabulario, da AUSENCIA de classe. Na tabela ele e
-  # escrito como `null` (literal FEEL) ou como outputEntry com <text> vazio — o motor devolve null
-  # nos dois casos. O literal string "vazio" e a string vazia "" sao RECUSADOS em classeAdverso: o
-  # worker leria uma string, nao a ausencia. A mesma leitura de ausencia vale para `fila`.
+  # `vazio` nao e um literal: e o nome, no vocabulario, da AUSENCIA de classe. O pacote K1 do rco
+  # escreve o vazio como a string vazia `""` — o vazio CANONICO (contrato-k1.md §6, `vocabulario.json`
+  # chave `vazio`, campos classeAdverso, fila e motivoTab38; §11 item 3 do consumidor) — e o pacote
+  # nao o reescreve (trocar por null mudaria o hash e o comportamento no motor). Tambem valem `null`
+  # (literal FEEL) e outputEntry com <text> vazio, em que o motor devolve null (o exemplo sintetico
+  # do Maezo usa `null`). O worker trata as tres formas como ausencia. O literal string "vazio" e
+  # RECUSADO em classeAdverso. Para `fila`, `""`, `null` e texto vazio ja sao lidos como vazia.
   vazio:
     valor: vazio
-    textos_de_saida: ["null", ""]
+    textos_de_saida: ['""', "null", ""]
   regras:
     # Decisao adversa sem classe e sem fila nao tem dono humano (ADR-0075 (d):114-117, :132).
     exigem_classe_e_fila: [negar, glosar, recomendar_negativa]
