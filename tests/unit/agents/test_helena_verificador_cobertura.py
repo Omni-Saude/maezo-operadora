@@ -100,3 +100,41 @@ def test_sinonimo_de_autorizacao_sem_fonte_nao_passa(corpo: str) -> None:
 
 def test_um_exame_nao_vira_numero() -> None:
     assert verificar(_r("Esse exame precisa de autorização prévia, com um pedido médico."), [_FONTE]).ok
+
+
+# --- HEL-5a: bloqueios da revisao independente --------------------------------------------------------
+
+_FONTE_RM = "AMOSTRA. A ressonância magnética eletiva precisa de autorização prévia da operadora."
+_FONTE_FISIO = "AMOSTRA. Cada pedido médico vale até 20 sessões de fisioterapia por pedido."
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "A consulta básica precisa de autorização.",  # o mesmo "precisa", mas de OUTRO procedimento
+        "A tomografia precisa de autorização prévia.",
+    ],
+)
+def test_autorizacao_de_outro_procedimento_nao_confere(corpo: str) -> None:
+    v = verificar(_r(corpo), [_FONTE_RM])
+    assert not v.ok and "autorizacao_de_outro_procedimento" in v.motivos
+
+
+def test_autorizacao_do_procedimento_da_fonte_confere() -> None:
+    assert verificar(_r("A ressonância precisa de autorização prévia."), [_FONTE_RM]).ok
+
+
+@pytest.mark.parametrize(
+    ("corpo", "motivo"),
+    [
+        ("O reembolso é de até R$ 20.", "quantidade"),  # "20" existe na fonte, mas como sessoes
+        ("São até 20 sessões de fisioterapia por mês.", "quantidade"),  # frequencia inventada
+    ],
+)
+def test_numero_solto_e_frequencia_inventada_nao_conferem(corpo: str, motivo: str) -> None:
+    v = verificar(_r(corpo), [_FONTE_FISIO])
+    assert not v.ok and motivo in v.motivos
+
+
+def test_a_frequencia_da_fonte_confere() -> None:
+    assert verificar(_r("São até 20 sessões por pedido."), [_FONTE_FISIO]).ok

@@ -65,6 +65,13 @@ _UNIDADE: Final[str] = (
     r"(?:" + "|".join(re.escape(u) for u in sorted(_UNIDADES, key=len, reverse=True)) + r")"
 )
 _QUANTIDADE: Final[re.Pattern[str]] = re.compile(rf"(?<![\d/.,-])(\d+(?:[.,]\d+)?)\s*({_UNIDADE})(?![a-z])")
+#: Valor em reais ("R$ 20", "r$20,50"): quantidade com unidade propria (HEL-5a).
+_DINHEIRO: Final[re.Pattern[str]] = re.compile(r"r\$\s*(\d+(?:[.,]\d+)?)")
+#: A frequencia logo depois da quantidade ("por mes", "por pedido medico"), ate' quatro palavras adiante.
+_POR: Final[re.Pattern[str]] = re.compile(
+    r"^(?:\s+\w+){0,4}?\s+(?:por|a cada|ao|a)\s+(dia|dias|semana|semanas|mes|meses|ano|anos|pedido|guia"
+    r"|sessao|consulta|vez)\b"
+)
 _DATA: Final[re.Pattern[str]] = re.compile(r"^(?:\d{1,2}/\d{1,2}(?:/\d{2,4})?|\d{4}-\d{2}-\d{2})$")
 #: Todo "token com digito" (numero, data, norma `465/2021`, codigo, `24h`): tem de existir igual numa fonte.
 _TOKEN_COM_DIGITO: Final[re.Pattern[str]] = re.compile(r"[\w/.,%-]*\d[\w/.,%-]*")
@@ -117,8 +124,32 @@ def _numero(bruto: str) -> str:
     return bruto.replace(",", ".")
 
 
-def _quantidades(plano: str) -> set[tuple[str, str]]:
-    return {(_numero(n), _UNIDADES[u]) for n, u in _QUANTIDADE.findall(plano)}
+def _quantidades(plano: str) -> set[tuple[str, str, str | None]]:
+    """(numero, unidade, por): "20 sessoes por mes" = ("20", "sessao", "mes"); "R$ 20" = ("20", "brl", None).
+    O `por` e' o primeiro "por <periodo/pedido>" ate' quatro palavras depois, na mesma frase (HEL-5a)."""
+    achadas: set[tuple[str, str, str | None]] = set()
+    for m in _QUANTIDADE.finditer(plano):
+        achadas.add((_numero(m.group(1)), _UNIDADES[m.group(2)], _por(plano, m.end())))
+    for m in _DINHEIRO.finditer(plano):
+        achadas.add((_numero(m.group(1)), "brl", _por(plano, m.end())))
+    return achadas
+
+
+def _por(plano: str, fim: int) -> str | None:
+    resto = re.split(r"[.;!?]", plano[fim:], maxsplit=1)[0]
+    m = _POR.match(resto)
+    return _UNIDADES.get(m.group(1), m.group(1)) if m else None
+
+
+def _quantidades_conferem(
+    do_rascunho: set[tuple[str, str, str | None]], das_fontes: set[tuple[str, str, str | None]]
+) -> bool:
+    """Cada quantidade do rascunho existe numa fonte com o MESMO numero e unidade; se o rascunho diz "por X",
+    a fonte tem de dizer o mesmo "por X" (frequencia inventada nao passa)."""
+    return all(
+        any(n == fn and u == fu and (por is None or por == fpor) for fn, fu, fpor in das_fontes)
+        for n, u, por in do_rascunho
+    )
 
 
 def _tokens_com_digito(plano: str) -> set[str]:
@@ -137,8 +168,14 @@ def _autorizacao(plano: str) -> set[bool]:
     return polaridades
 
 
-def verificar(rascunho: str, trechos: Sequence[str]) -> Veredito:
-    """O rascunho confere com os trechos? Sem trecho nenhum, nada confere (falha fechada)."""
+def verificar(
+    rascunho: str, trechos: Sequence[str], *, procedimentos: frozenset[str] = frozenset()
+) -> Veredito:
+    """O rascunho confere com os trechos? Sem trecho nenhum, nada confere (falha fechada).
+
+    `procedimentos`: o vocabulario de procedimentos (frases normalizadas) para conferir A QUE procedimento a
+    autorizacao afirmada se refere; vazio, vale o vocabulario generico (`PROCEDIMENTOS_GENERICOS`)."""
+    procedimentos = procedimentos | PROCEDIMENTOS_GENERICOS
     motivos: list[str] = []
     texto = rascunho.strip()
     if not texto or not trechos or not any(t.strip() for t in trechos):
@@ -151,8 +188,8 @@ def verificar(rascunho: str, trechos: Sequence[str]) -> Veredito:
         motivos.append("link")
     if DECISAO_DO_CASO.search(corpo):
         motivos.append("decisao_do_caso")
-    quantidades_das_fontes = set().union(*(_quantidades(f) for f in fontes))
-    if not _quantidades(corpo) <= quantidades_das_fontes:
+    quantidades_das_fontes: set[tuple[str, str, str | None]] = set().union(*(_quantidades(f) for f in fontes))
+    if not _quantidades_conferem(_quantidades(corpo), quantidades_das_fontes):
         motivos.append("quantidade")
     tokens_das_fontes = set().union(*(_tokens_com_digito(f) for f in fontes))
     soltos = _tokens_com_digito(corpo) - tokens_das_fontes
@@ -165,7 +202,60 @@ def verificar(rascunho: str, trechos: Sequence[str]) -> Veredito:
     if afirmado and (not afirmado <= nas_fontes or len(nas_fontes) > 1):
         # Fonte que diz as duas coisas (precisa e nao precisa) e' dado CONFLITANTE: nada se afirma.
         motivos.append("autorizacao")
+    elif afirmado and not _sujeito_confere(corpo, fontes, procedimentos):
+        motivos.append("autorizacao_de_outro_procedimento")
     return Veredito(not motivos, tuple(motivos))
 
 
-__all__ = ["FORMULA_FIXA", "Veredito", "verificar"]
+def _frases(plano: str) -> list[str]:
+    return [f.strip() for f in re.split(r"[.;!?]+", plano) if f.strip()]
+
+
+def _mencoes(frase: str, procedimentos: frozenset[str]) -> set[str]:
+    palavras = frase.split()
+    return {
+        " ".join(palavras[i : i + n])
+        for n in range(1, 5)
+        for i in range(len(palavras) - n + 1)
+        if " ".join(palavras[i : i + n]) in procedimentos
+    }
+
+
+def _sujeito_confere(corpo: str, fontes: Sequence[str], procedimentos: frozenset[str]) -> bool:
+    """HEL-5a (revisao independente): a frase do rascunho que afirma (ou nega) a necessidade de autorizacao
+    so' confere se TODO procedimento que ela cita aparece numa frase da fonte que afirma o MESMO sobre
+    autorizacao ("a consulta basica precisa de autorizacao" contra a regra da ressonancia nao passa)."""
+    frases_das_fontes = [f for fonte in fontes for f in _frases(fonte) if _autorizacao(f)]
+    for frase in _frases(corpo):
+        polaridade = _autorizacao(frase)
+        if not polaridade:
+            continue
+        for mencao in _mencoes(frase, procedimentos):
+            if not any(
+                re.search(rf"\b{re.escape(mencao)}\b", f) and polaridade <= _autorizacao(f)
+                for f in frases_das_fontes
+            ):
+                return False
+    return True
+
+
+#: Procedimentos genericos, sempre no vocabulario do sujeito da autorizacao (HEL-5a).
+PROCEDIMENTOS_GENERICOS: Final[frozenset[str]] = frozenset(
+    {
+        "cirurgia",
+        "consulta",
+        "consulta basica",
+        "internacao",
+        "terapia",
+        "fisioterapia",
+        "quimioterapia",
+        "radioterapia",
+        "parto",
+        "ressonancia",
+        "tomografia",
+        "endoscopia",
+        "colonoscopia",
+    }
+)
+
+__all__ = ["FORMULA_FIXA", "PROCEDIMENTOS_GENERICOS", "Veredito", "verificar"]

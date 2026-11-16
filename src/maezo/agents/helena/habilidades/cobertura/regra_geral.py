@@ -67,6 +67,7 @@ class CamadaRegraGeral:
         self._catalogo = tuple(catalogo)
         self._sinonimos = sinonimos
         self._redator = redator
+        self._procedimentos = _vocabulario_de_procedimentos(sinonimos)
 
     @property
     def camada(self) -> Camada:
@@ -97,14 +98,14 @@ class CamadaRegraGeral:
         if self._redator is not None:
             rascunho = await self._redator.redigir(pergunta, regra)
             if rascunho:
-                veredito = verificar(rascunho, trechos)
+                veredito = verificar(rascunho, trechos, procedimentos=self._procedimentos)
                 if veredito.ok:
                     return RespostaDaCobertura("resposta", rascunho, (fonte,))
                 logger.warning(
                     "helena_cobertura_rascunho_barrado", regra=regra.id, motivos=list(veredito.motivos)
                 )
         deterministico = texto_deterministico(regra)
-        veredito = verificar(deterministico, trechos)
+        veredito = verificar(deterministico, trechos, procedimentos=self._procedimentos)
         if not veredito.ok:
             logger.error("helena_cobertura_regra_nao_confere", regra=regra.id, motivos=list(veredito.motivos))
             return RespostaDaCobertura("transferir", lacuna="regra_nao_confere")
@@ -134,7 +135,26 @@ class CamadaRegraGeral:
         if termos:
             pelo_nome = {r.id for r in self._manual.buscar(termos)}
             ids = (ids & pelo_nome) or (pelo_nome if not ids else set())
-        return tuple(r for i in sorted(ids) if (r := self._manual.regra(i)) is not None)
+        regras = tuple(r for i in sorted(ids) if (r := self._manual.regra(i)) is not None)
+        if len(regras) == 1 and self._outro_procedimento(pergunta.texto, regras[0]):
+            # HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra ("a
+            # tomografia ... fiz ressonancia ano passado"): o sinonimo citado de passagem nao escolhe a regra.
+            logger.info("helena_cobertura_outro_procedimento", regra=regras[0].id)
+            return (regras[0], regras[0])
+        return regras
+
+    def _outro_procedimento(self, texto: str, regra: RegraDoManual) -> bool:
+        """A mensagem cita um procedimento (vocabulario do `sinonimos.yaml` e os genericos) que a regra NAO
+        cita (nem nos sinonimos nem no titulo)? Casamento exato de frase, como a busca."""
+        da_regra = {normalizar(s) for s in regra.sinonimos} | {normalizar(regra.titulo)}
+        palavras_da_regra = set(" ".join(da_regra).split())
+        palavras = normalizar(texto).split()
+        for n in range(1, 5):
+            for i in range(len(palavras) - n + 1):
+                frase = " ".join(palavras[i : i + n])
+                if frase in self._procedimentos and not set(frase.split()) <= palavras_da_regra:
+                    return True
+        return False
 
     def _ids_por_sinonimo(self, texto: str) -> set[str]:
         por_termo = self._manual.sinonimos_por_termo()
@@ -144,6 +164,37 @@ class CamadaRegraGeral:
             for i in range(len(palavras) - n + 1):
                 ids.update(por_termo.get(" ".join(palavras[i : i + n]), ()))
         return ids
+
+
+#: Procedimentos genericos que, citados junto com o sinonimo de OUTRA regra, tornam a pergunta ambigua.
+_PROCEDIMENTOS_GENERICOS: Final[frozenset[str]] = frozenset(
+    {
+        "cirurgia",
+        "consulta",
+        "internacao",
+        "terapia",
+        "fisioterapia",
+        "quimioterapia",
+        "radioterapia",
+        "parto",
+    }
+)
+
+
+def _vocabulario_de_procedimentos(sinonimos: _procedimento.Sinonimos | None) -> frozenset[str]:
+    """As frases que nomeiam procedimento: as do `sinonimos.yaml` (populares e oficiais) e as genericas."""
+    if sinonimos is None:
+        try:
+            sinonimos = _procedimento.carregar_sinonimos()
+        except _procedimento.SinonimosInvalidosError:
+            logger.error("helena_cobertura_sinonimos_indisponiveis")
+            sinonimos = None
+    frases = set(_PROCEDIMENTOS_GENERICOS)
+    for entrada in sinonimos.entradas if sinonimos is not None else ():
+        frases.update(normalizar(p) for p in entrada.populares)
+        frases.add(normalizar(entrada.oficial))
+    frases.discard("")
+    return frozenset(frases)
 
 
 __all__ = ["PREFIXO", "CamadaRegraGeral", "RedatorDaRegraGeral", "texto_deterministico"]

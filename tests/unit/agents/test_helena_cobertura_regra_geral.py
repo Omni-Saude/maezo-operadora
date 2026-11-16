@@ -129,3 +129,32 @@ async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK
     grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
     await grafo.ainvoke(_entrada("como faço pra recorrer?"))
     assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    [
+        "quanto tempo demora a autorização da tomografia? fiz ressonância ano passado",
+        "meu caso precisa de recurso, preciso de autorização pra cirurgia?",
+        "como faço uma consulta ao andamento do pedido de cirurgia?",
+    ],
+)
+async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
+    """HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra: nada se escolhe."""
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="regras_multiplas")
+
+
+@pytest.mark.parametrize(
+    ("pergunta", "regra"),
+    [
+        ("precisa de autorização pra fazer ressonância?", "AMOSTRA-AUT-001"),
+        ("ressonância precisa de guia pra fazer o exame?", "AMOSTRA-AUT-001"),  # "exame" e' generico
+        ("quantas sessões de fisioterapia por pedido?", "AMOSTRA-QTD-003"),  # citado pela propria regra
+    ],
+)
+async def test_o_procedimento_da_propria_regra_continua_respondendo(
+    manual: ManualK2, pergunta: str, regra: str
+) -> None:
+    r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
+    assert r is not None and r.desfecho == "resposta" and r.fontes[0].id == regra

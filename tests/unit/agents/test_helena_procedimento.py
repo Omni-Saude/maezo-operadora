@@ -213,7 +213,8 @@ def test_sinonimo_extra_fora_do_formato_e_ignorado(sinonimos: Sinonimos) -> None
 @pytest.mark.parametrize(
     ("texto", "desfecho", "codigos"),
     [
-        ("o 99000002 tem cobertura?", "unico", {RM_CRANIO.codigo}),
+        ("o codigo 99000002 tem cobertura?", "unico", {RM_CRANIO.codigo}),
+        ("TUSS 99000002", "unico", {RM_CRANIO.codigo}),
         ("99000001 ou 99000004", "esclarecer", {RM_JOELHO.codigo, RM_OMBRO.codigo}),
         ("o codigo e' 12345678", "sem_candidato", set()),  # fora do catalogo: nao cai para as palavras
         ("ressonância 12345678", "sem_candidato", set()),
@@ -224,6 +225,15 @@ def test_codigo_tuss(sinonimos: Sinonimos, texto: str, desfecho: str, codigos: s
     r = resolver(texto, catalogo=CATALOGO, sinonimos=sinonimos)
     assert r.desfecho == desfecho
     assert _codigos(r) == codigos
+
+
+def test_numero_de_8_digitos_sem_contexto_nao_vira_codigo(sinonimos: Sinonimos) -> None:
+    """HEL-5a (revisao independente): o protocolo de 8 digitos (aqui, igual ao codigo da RM de cranio) nunca
+    escolhe o procedimento; vale o que a pessoa escreveu (RM do joelho)."""
+    r = resolver(
+        "meu protocolo é 99000002, a ressonância do joelho cobre?", catalogo=CATALOGO, sinonimos=sinonimos
+    )
+    assert r.desfecho == "unico" and _codigos(r) == {RM_JOELHO.codigo}
 
 
 # --- sem candidato, nunca por aproximacao ----------------------------------------------------------

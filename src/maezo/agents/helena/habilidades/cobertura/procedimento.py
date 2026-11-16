@@ -124,6 +124,8 @@ _EXIGEM_CONTEXTO: Final[frozenset[str]] = _palavras(
 #: cobertura e nao marcam nada ("tomo remedio, preciso de autorizacao?"; revisao independente, HEL-2).
 _MARCADORES: Final[frozenset[str]] = _palavras("exame exames cirurgia operar operacao sessao sessoes")
 _CODIGO_TUSS: Final[re.Pattern[str]] = re.compile(r"^\d{8}$")
+#: As palavras que dizem que o numero e' um codigo de procedimento (sem elas, 8 digitos nao sao codigo).
+_CONTEXTO_DE_CODIGO: Final[frozenset[str]] = frozenset({"codigo", "codigos", "cod", "tuss"})
 _SIGLA: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2,4}$")
 _FORA_DO_ALFABETO: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9]+")
 #: O que a pergunta de esclarecimento nunca pode ter (link ou promessa de cobertura).
@@ -313,7 +315,10 @@ class _Indice:
         tokens = _tokens(texto)
         conjunto = frozenset(tokens)
         qualificadores = conjunto & _TODOS_OS_QUALIFICADORES
-        codigos = {t for t in tokens if _CODIGO_TUSS.match(t)}
+        # HEL-5a (revisao independente): numero de 8 digitos so' e' CODIGO com contexto ("codigo", "tuss") ou
+        # quando a mensagem e' so' o numero; "meu protocolo e' 41101014" nunca vira procedimento.
+        com_codigo = bool(conjunto & _CONTEXTO_DE_CODIGO) or len(tokens) <= 2
+        codigos = {t for t in tokens if _CODIGO_TUSS.match(t)} if com_codigo else set()
         casamentos: dict[int, frozenset[str]] = {}
         if codigos:
             for i, item in enumerate(self.catalogo):
