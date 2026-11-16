@@ -35,3 +35,12 @@ Ponto relacionado, já corrigido: na minha mensagem anterior à CD-20, eu disse 
   - GAP-04-4. Taxonomia de classe de campo do DPO: RATIFY-LATER. Classe desconhecida é tratada como PHI.
   - Residual: quando alguém configurar uma lista de finalidades não vazia em produção, será preciso ligar `allowed_field_refs` ao descriptor admitido.
 - Ainda no E-SF-04: a recusa tipada PHI_IN_COMMERCIAL_INPUT não existe no enum de reason_code do C6-4. Levá-la ao fio depende de um schema sucessor.
+
+## Q-W-MZO-GATE-02 — E-SF-06 / TB-E-16-b precisa de caminho de outra janela
+
+TB-E-16-b pede o guarda `records_access_notice_present` em `tests/unit/reembolso/test_textos.py`, mais o aviso do art. 19 no catálogo de textos de reembolso. Os dois caminhos não são da GATE.
+- (A) **Recomendada.** A janela dona do reembolso (PROC) entrega o filho TB-E-16-b como linha dela.
+- (B) A coordenação libera os dois caminhos para a GATE neste épico.
+- (C) TB-E-16-b fica para a onda 2.
+
+Sigo por (A): o PR do E-SF-06 sai sem TB-E-16-b e declara isso. PROVISÓRIO-aguarda-coordenador.
