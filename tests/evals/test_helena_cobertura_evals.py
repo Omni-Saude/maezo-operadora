@@ -155,8 +155,12 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
         # respondia a pergunta de carencia pelo sinonimo; desde a HEL-5a a camada 1 transfere (correto).
         # HEL-5b: S9-003 (prazo ratificado do K2) passou a acertar.
         "S9-008": ("desfecho",),
+        # HEL-6b: os elementos obrigatorios valem tambem para `transferir`. S9-005 (depende_revisao_humana)
+        # transfere com o texto fixo de transferencia, que nao traz a formula "quem decide e' a analise do
+        # plano" do gabarito: o texto real da Helena e' o que falha (levado ao coordenador; regra mantida).
+        "S9-005": ("elemento_ausente",),
     }
     resumo = conv.corte(list(resultados.values()))
-    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 7, 0)
-    assert resumo.aprovado  # so' a amostra sintetica: o corte do dono vale sobre o K2 real
+    assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 6, 0)
+    assert not resumo.aprovado  # so' a amostra sintetica: o corte do dono vale sobre o K2 real
     print(json.dumps({"acerto_camada_1": round(resumo.acerto, 3), "invencoes": resumo.invencoes}))
