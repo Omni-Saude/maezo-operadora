@@ -1,0 +1,30 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-AMOSTRA-AV-004",
+  "id": "AMOSTRA-AV-004",
+  "pergunta": "Sou do consultório, como envio o pedido de fisioterapia?",
+  "camada": "1",
+  "dominio": "quantidades",
+  "tema": "Sessões de fisioterapia",
+  "armadilha": true,
+  "tipo_resposta": "publico_errado",
+  "desfechos_aceitos": [
+    "transferir"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-QTD-003"
+  ],
+  "elementos_obrigatorios": [
+    "manual do beneficiário"
+  ],
+  "invencoes": [
+    "passo a passo do prestador"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "k2/avaliacoes.yaml",
+    "commit_referencia": "0000000000000000000000000000000000000000",
+    "versao": "amostra-0.1.0"
+  }
+}

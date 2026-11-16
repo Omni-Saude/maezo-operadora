@@ -1,0 +1,28 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-AMOSTRA-AV-003",
+  "id": "AMOSTRA-AV-003",
+  "pergunta": "O manual fala de tratamento no exterior?",
+  "camada": "a_classificar",
+  "dominio": "a_classificar",
+  "tema": "",
+  "armadilha": true,
+  "tipo_resposta": "nao_informa",
+  "desfechos_aceitos": [
+    "transferir"
+  ],
+  "regras_esperadas": [],
+  "elementos_obrigatorios": [
+    "canais oficiais"
+  ],
+  "invencoes": [
+    "cobertura no exterior"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "k2/avaliacoes.yaml",
+    "commit_referencia": "0000000000000000000000000000000000000000",
+    "versao": "amostra-0.1.0"
+  }
+}

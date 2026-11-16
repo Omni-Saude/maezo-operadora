@@ -155,6 +155,8 @@ async def test_resultado_da_amostra_com_a_chave_ligada(manual: ManualK2) -> None
         # respondia a pergunta de carencia pelo sinonimo; desde a HEL-5a a camada 1 transfere (correto).
         # HEL-5b: S9-003 (prazo ratificado do K2) passou a acertar.
         "S9-008": ("desfecho",),
+        # HEL-6b (decisao da ROOT): os elementos obrigatorios valem para `transferir` so' quando ele e' o
+        # UNICO desfecho aceito; S9-005 (depende_revisao_humana) transfere e segue certo (sem invencao).
     }
     resumo = conv.corte(list(resultados.values()))
     assert (resumo.casos_camada_1, resumo.acertos_camada_1, resumo.invencoes) == (7, 7, 0)

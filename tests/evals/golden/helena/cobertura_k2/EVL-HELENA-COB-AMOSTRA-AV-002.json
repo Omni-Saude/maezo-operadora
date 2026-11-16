@@ -1,0 +1,30 @@
+{
+  "formato": "helena-cobertura-eval-v1",
+  "agent": "helena",
+  "eval_id": "EVL-HELENA-COB-AMOSTRA-AV-002",
+  "id": "AMOSTRA-AV-002",
+  "pergunta": "A consulta básica pode demorar até 30 dias, certo?",
+  "camada": "1",
+  "dominio": "prazos",
+  "tema": "Prazo para consulta básica",
+  "armadilha": true,
+  "tipo_resposta": "premissa_falsa",
+  "desfechos_aceitos": [
+    "resposta"
+  ],
+  "regras_esperadas": [
+    "AMOSTRA-PRZ-002"
+  ],
+  "elementos_obrigatorios": [
+    "7 dias úteis"
+  ],
+  "invencoes": [
+    "30 dias"
+  ],
+  "nota_de_invencao": null,
+  "origem": {
+    "arquivo": "k2/avaliacoes.yaml",
+    "commit_referencia": "0000000000000000000000000000000000000000",
+    "versao": "amostra-0.1.0"
+  }
+}
