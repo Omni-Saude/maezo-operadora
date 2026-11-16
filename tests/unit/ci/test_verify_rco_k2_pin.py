@@ -25,7 +25,7 @@ from tests.unit.platform import rco_k1_sintetico as sint
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _LOCK_REL = "config/integrations/rco/k2.lock.json"
-_COMMIT = "a" * 39 + "b"
+_COMMIT = sint.COMMIT  # o do K1 sintetico: o K2 fixado exige K1 fixado coerente
 _VERSAO = "1.0.0"
 _RCO_REPO = "Omni-Saude/regras-contratos-operadora"
 
@@ -101,6 +101,7 @@ def _mutar_manifesto(root: Path, mutacao: Any) -> None:
 
 @pytest.fixture
 def fixado(tmp_path: Path) -> Path:
+    sint.montar(tmp_path)  # K1 sintetico fixado (versao_pacote 1.0.0, mesmo commit)
     _montar_k2(tmp_path)
     return tmp_path
 
@@ -204,6 +205,8 @@ def test_manifesto_campo_extra_ou_faltando_reprova(fixado: Path) -> None:
         ("gerado_em", "2026-01-02T03:04:05+00:00", "manifesto-gerado-em"),
         ("gerado_em", "2026-13-02T03:04:05Z", "manifesto-gerado-em"),
         ("gerado_em", "2026-01-02", "manifesto-gerado-em"),
+        ("gerado_em", "2026-1-2T3:4:5Z", "manifesto-gerado-em"),
+        ("gerado_em", "٢٠٢٦-٠١-٠٢T٠٣:٠٤:٠٥Z", "manifesto-gerado-em"),
         ("ratificado", "false", "manifesto-ratificado"),
         ("ratificado", 0, "manifesto-ratificado"),
     ],
@@ -295,23 +298,29 @@ def test_lock_commit_diferente_do_manifesto_reprova(fixado: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutacao",
+    ("mutacao", "codigo"),
     [
-        lambda lock: lock["manifest_pin"].update(path="config/integrations/rco/k2/../k2/manifesto.json"),
-        lambda lock: lock["manifest_pin"].update(path="/abs/manifesto.json"),
-        lambda lock: lock["manifest_pin"].update(extra=1),
-        lambda lock: lock["provenance"].update(rco_repo="outro/repo"),
-        lambda lock: lock["lock_format"].update(version="2.0.0"),
-        lambda lock: lock.update(extra=1),
-        lambda lock: lock.update(estado="outro"),
-        lambda lock: lock.update(manifest_pin=None),
+        (
+            lambda lock: lock["manifest_pin"].update(path="config/integrations/rco/k2/../k2/m.json"),
+            "manifesto-caminho",
+        ),
+        (lambda lock: lock["manifest_pin"].update(path="/abs/manifesto.json"), "manifesto-caminho"),
+        (lambda lock: lock["manifest_pin"].update(extra=1), "manifesto"),
+        (lambda lock: lock["provenance"].update(rco_repo="outro/repo"), "proveniencia"),
+        (lambda lock: lock["provenance"].update(rco_commit_sha="abc"), "proveniencia"),
+        (lambda lock: lock["provenance"].update(extra=1), "proveniencia"),
+        (lambda lock: lock["lock_format"].update(version="2.0.0"), "lock-formato"),
+        (lambda lock: lock.update(extra=1), "lock-campos"),
+        (lambda lock: lock.update(estado="outro"), "estado-invalido"),
+        (lambda lock: lock.update(manifest_pin=None), "manifesto"),
+        (lambda lock: lock.update(versao=""), "versao"),
     ],
 )
-def test_lock_malformado_reprova(fixado: Path, mutacao: Any) -> None:
+def test_lock_malformado_reprova(fixado: Path, mutacao: Any, codigo: str) -> None:
     lock = _ler_lock(fixado)
     mutacao(lock)
     _gravar_lock(fixado, lock)
-    assert _codes(fixado) != set()
+    assert codigo in _codes(fixado)
     assert main(["--repo-root", str(fixado)]) == 1
 
 
@@ -335,16 +344,6 @@ def test_link_simbolico_da_pasta_reprova(fixado: Path) -> None:
     assert "link-simbolico" in _codes(fixado)
 
 
-def test_cruzamento_k1_k2_coerente_passa(fixado: Path) -> None:
-    sint.montar(fixado)
-    _mutar_k2(fixado, versao=sint_versao(), commit=sint.COMMIT)
-    assert _codes(fixado) == set()
-
-
-def sint_versao() -> str:
-    return "1.0.0"
-
-
 def _mutar_k2(root: Path, *, versao: str, commit: str) -> None:
     manifesto = _manifesto_base(root)
     manifesto["versao"], manifesto["commit_rco"] = versao, commit
@@ -354,30 +353,67 @@ def _mutar_k2(root: Path, *, versao: str, commit: str) -> None:
     _gravar_lock(root, lock)
 
 
+def test_cruzamento_k1_k2_coerente_passa(fixado: Path) -> None:
+    assert _codes(fixado) == set()
+
+
 def test_cruzamento_versao_diferente_reprova(fixado: Path) -> None:
-    sint.montar(fixado)
     _mutar_k2(fixado, versao="2.0.0", commit=sint.COMMIT)
     assert _codes(fixado) == {"cruzamento-versao"}
 
 
 def test_cruzamento_commit_diferente_reprova(fixado: Path) -> None:
-    sint.montar(fixado)
-    _mutar_k2(fixado, versao="1.0.0", commit=_COMMIT)
+    _mutar_k2(fixado, versao="1.0.0", commit="d" * 40)
     assert _codes(fixado) == {"cruzamento-commit"}
 
 
-def test_cruzamento_so_com_k1_fixado(fixado: Path) -> None:
-    sint.montar(fixado)
+def test_k2_fixado_com_k1_sem_pacote_reprova(fixado: Path) -> None:
     k1 = copy.deepcopy(sint.lock(fixado))
     k1["estado"] = "sem_pacote"
     sint.gravar_lock(fixado, k1)
-    assert _codes(fixado) == set()  # K1 nao fixado: nada a cruzar
+    assert _codes(fixado) == {"cruzamento-k1"}
+
+
+def test_k1_fixado_com_k2_sem_pacote_passa(tmp_path: Path) -> None:
+    sint.montar(tmp_path)
+    _montar_sem_pacote(tmp_path)
+    assert _codes(tmp_path) == set()
+
+
+def test_k2_fixado_sem_lock_k1_reprova(fixado: Path) -> None:
+    (fixado / sint.LOCK_REL).unlink()
+    assert _codes(fixado) == {"cruzamento-k1"}
+
+
+@pytest.mark.parametrize("raw", [b"\xff\xfe", b'{"estado":"fixado","estado":"fixado"}', b"[]", b"{"])
+def test_k2_fixado_com_lock_k1_ilegivel_reprova(fixado: Path, raw: bytes) -> None:
+    (fixado / sint.LOCK_REL).write_bytes(raw)
+    assert _codes(fixado) == {"cruzamento-k1"}
+
+
+def test_k2_fixado_com_lock_k1_link_simbolico_reprova(fixado: Path) -> None:
+    lock_k1 = fixado / sint.LOCK_REL
+    real = fixado / "k1-real.json"
+    real.write_bytes(lock_k1.read_bytes())
+    lock_k1.unlink()
+    lock_k1.symlink_to(real)
+    assert _codes(fixado) == {"cruzamento-k1"}
 
 
 def test_cruzamento_k1_fixado_sem_manifesto_reprova(fixado: Path) -> None:
-    sint.montar(fixado)
     (fixado / sint.K1_DIR / "manifesto.json").unlink()
     assert "cruzamento-k1" in _codes(fixado)
+
+
+@pytest.mark.parametrize("raw", [b"{", b"[]", b'{"a":1,"a":2}', b"[" * 100_000])
+def test_cruzamento_manifesto_k1_invalido_reprova(fixado: Path, raw: bytes) -> None:
+    (fixado / sint.K1_DIR / "manifesto.json").write_bytes(raw)
+    assert "cruzamento-k1" in _codes(fixado)
+
+
+def test_json_aninhado_demais_reprova(fixado: Path) -> None:
+    _regravar(fixado, _manifesto_base(fixado), raw=b"[" * 100_000)
+    assert "manifesto-json-invalido" in _codes(fixado)
 
 
 def test_arvore_real_passa() -> None:

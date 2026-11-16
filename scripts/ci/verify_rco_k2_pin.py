@@ -79,7 +79,7 @@ ESTADOS = (ESTADO_SEM_PACOTE, ESTADO_FIXADO)
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
-_GERADO_EM = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_GERADO_EM = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 _MODULE_NAME = "_verify_rco_k2_pin_rco_manifesto"
 
 
@@ -129,6 +129,8 @@ def _parse_json(raw: bytes, label: str) -> tuple[Any, list[Violation]]:
     """JSON estrito (sem chave repetida, sem NaN/Infinity). Devolve `(valor, violacoes)`."""
     try:
         return _reader().json_estrito(raw), []
+    except RecursionError:
+        return None, [Violation(f"{label}-json-invalido", f"{label}: JSON aninhado demais")]
     except ValueError as exc:
         if type(exc).__name__ == "_ChaveDuplicadaError":
             return None, [
@@ -203,7 +205,8 @@ def _check_lock_shape(lock: dict[str, Any]) -> tuple[Any, list[Violation]]:
         violations.append(
             Violation("proveniencia", "provenance tem de ter exatamente rco_repo e rco_commit_sha")
         )
-        return estado, violations
+    if not isinstance(prov, dict):
+        prov = {}
     if prov.get("rco_repo") != RCO_REPO:
         violations.append(Violation("proveniencia", f"provenance.rco_repo tem de ser {RCO_REPO!r}"))
     commit, pin, versao = prov.get("rco_commit_sha"), lock.get("manifest_pin"), lock.get("versao")
@@ -392,9 +395,17 @@ def _check_manifest(repo_root: Path, lock: dict[str, Any]) -> tuple[dict[str, An
 
 def _check_cross_pin(repo_root: Path, k2: dict[str, Any] | None) -> list[Violation]:
     """Com K1 e K2 `fixado`: mesma versao do pacote e mesmo commit (contrato-k2 §2)."""
-    k1_lock, _ = load_lock(repo_root / K1_LOCK_PATH)
-    if k1_lock is None or k1_lock.get("estado") != ESTADO_FIXADO:
-        return []  # sem K1 fixado nao ha o que cruzar (K1 ilegivel e problema do gate K1)
+    k1_lock, achados = load_lock(repo_root / K1_LOCK_PATH)
+    if k1_lock is None:
+        detalhe = "; ".join(v.render() for v in achados)
+        return [Violation("cruzamento-k1", f"K2 fixado exige o lock K1 legivel: {detalhe}")]
+    if k1_lock.get("estado") != ESTADO_FIXADO:
+        return [
+            Violation(
+                "cruzamento-k1",
+                "K2 fixado exige K1 fixado (contrato-k2 §2: mesma versao e mesmo commit do K1)",
+            )
+        ]
     raw = _read_regular(repo_root, K1_MANIFEST_PATH)
     if raw is None:
         return [Violation("cruzamento-k1", f"K1 fixado mas {K1_MANIFEST_PATH} ausente; nao da para cruzar")]

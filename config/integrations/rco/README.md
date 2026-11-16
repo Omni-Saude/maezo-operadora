@@ -144,7 +144,10 @@ auxiliares do leitor K1 carregados pelo caminho do arquivo.
   exatamente `formato` (`rco-k2-v1`), `versao`, `commit_rco`, `gerado_em` (UTC `AAAA-MM-DDTHH:MM:SSZ`),
   `ratificado` e `arquivos` (os 5 de dados, cada um com o digest). Lock e manifesto concordam em hash,
   `versao` e commit.
-- Com K1 e K2 `fixado`: `versao` do K2 = `versao_pacote` do K1 e `commit_rco` = `origem.commit_sha` do K1.
+- K2 `fixado` exige K1 `fixado` (contrato-k2 §2: mesma versão e mesmo commit do K1): com o lock K1 ausente,
+  ilegível ou `sem_pacote`, ou com o manifesto K1 ausente ou ilegível, o gate reprova (`cruzamento-k1`). Com
+  os dois `fixado`: `versao` do K2 = `versao_pacote` do K1 e `commit_rco` = `origem.commit_sha` do K1.
+- K1 `fixado` com K2 `sem_pacote` é permitido: o runtime das regras não precisa do K2.
 - `ratificado: false` passa no gate: recusá-lo em produção é do leitor, não da integridade dos bytes.
 - Recusados: arquivo fora do manifesto, subpasta, link simbólico, chave JSON repetida, `NaN`/`Infinity`,
   hex cru sem `sha256:`.
