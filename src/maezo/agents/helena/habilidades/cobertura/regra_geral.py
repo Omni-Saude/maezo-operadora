@@ -184,7 +184,8 @@ _PALAVRAS_DA_PERGUNTA: Final[frozenset[str]] = frozenset(
         "precisa", "preciso", "precisam", "precisar", "necessario", "necessaria", "tem", "ter", "tenho",
         "fazer", "faco", "fizer", "vou", "quero", "queria", "posso", "pode", "meu", "minha", "eu", "como",
         "funciona", "pedir", "solicitar", "oi", "ola", "bom", "boa", "dia", "tarde", "noite", "favor",
-        "obrigado", "obrigada", "nao", "sei", "saber", "qual", "previa", "previo", "pre", "autorizacao",
+        "obrigado", "obrigada", "tudo", "bem", "beleza", "valeu", "sei", "saber", "qual", "previa", "previo",
+        "pre", "autorizacao",
         "autorizar", "liberacao", "liberar", "guia", "senha", "exame", "procedimento", "ai", "agora", "mesmo",
         "ainda", "sim", "ne", "pediu", "medico", "medica", "fiz", "feito",
     }
@@ -201,21 +202,20 @@ _PALAVRAS_DE_QUANTIDADE: Final[frozenset[str]] = frozenset(
 
 def _sujeito_fora_da_regra(pergunta: PerguntaDeCobertura, regra: RegraDoManual) -> bool:
     """HEL-5a (revisao independente): VOCABULARIO FECHADO na pergunta. Toda palavra de conteudo da
-    mensagem INTEIRA (todas as oracoes: a pontuacao nao decide nada) e da ultima fala anterior da pessoa tem
-    de estar na regra (sinonimos, titulo, resumo, texto) ou ser do ato de perguntar; senao a regra nao e'
-    escolhida (transfere). "o transplante precisa de autorizacao? fiz ressonancia", "consulta? e' com
-    cardiologista", "ressonancia. quanto custa?" e "quero marcar com cardiologista" -> "e quanto tempo demora
-    a consulta?" nao escolhem nada: lista nenhuma de procedimento ou de assunto fica completa; o vocabulario
-    da regra sim. As palavras de PRAZO e QUANTIDADE ("quanto tempo", "limite") so' valem contra regra que diz
-    numero."""
+    mensagem INTEIRA (todas as oracoes: a pontuacao nao decide nada) e de TODAS as falas anteriores da
+    pessoa tem de estar na regra (sinonimos, titulo, resumo, texto) ou ser do ato de perguntar; senao a
+    regra nao e' escolhida (transfere). "o transplante precisa de autorizacao? fiz ressonancia",
+    "consulta? e' com cardiologista", "ressonancia. quanto custa?" e "quero marcar com cardiologista" ->
+    "e quanto tempo demora a consulta?" nao escolhem nada: lista nenhuma de procedimento ou de assunto fica
+    completa; o vocabulario da regra sim. As palavras de PRAZO e QUANTIDADE ("quanto tempo", "limite") so'
+    valem contra regra que diz numero; "nao" nunca e' do ato de perguntar ("nao eletiva")."""
     da_regra = palavras_de_conteudo(" ".join([*regra.sinonimos, regra.titulo, regra.resumo, regra.texto]))
     permitidas = _PALAVRAS_DA_PERGUNTA
     if any(c.isdigit() for c in f"{regra.resumo} {regra.texto}"):
         permitidas = permitidas | _PALAVRAS_DE_QUANTIDADE
-    falas = [pergunta.texto]
-    anteriores = [f for f in pergunta.falas_anteriores if f != pergunta.texto]
-    if anteriores:
-        falas.append(anteriores[-1])
+    # TODAS as falas do historico curto da pessoa (ja' limitado, DL-0080): no WhatsApp o pedido vem quebrado
+    # em varias mensagens curtas ("quero marcar com cardiologista", "oi?", "e quanto tempo demora?").
+    falas = [pergunta.texto, *pergunta.falas_anteriores]
     return any(
         p not in da_regra and p not in permitidas for fala in falas for p in palavras_de_conteudo(fala)
     )
