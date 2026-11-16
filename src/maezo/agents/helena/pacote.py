@@ -39,6 +39,9 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "dependentes_nome": ("helena_dependentes_nome_enabled",),
     # COBERTURA AMPLA (dono, 14/11/2026, DL-0167): ausente = desligada (o aviso de canais do DL-0154).
     "cobertura_ampla": ("helena_cobertura_ampla_enabled",),
+    # PACOTE K2 NAO RATIFICADO (ROOT, 16/11/2026): ausente = recusado. Mesmo ligada, so' vale em `dev`: o
+    # portao (`cobertura.manual.aceite_de_nao_ratificado`) le' o `MAEZO_ENV` vivo e producao nunca aceita.
+    "cobertura_k2_aceitar_nao_ratificado": ("cobertura_k2_aceitar_nao_ratificado",),
 }
 #: LIMPEZA DA SAUDE, ETAPA 3 (dono, 02/11/2026): as chaves booleanas das camadas que sairam do codigo (triagem
 #: v2, v4, base de saude, protocolos) e a da porta unica, que ficou incondicional. O pacote PUBLICADO ainda

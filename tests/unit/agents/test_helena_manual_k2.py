@@ -1256,3 +1256,69 @@ def test_flags_de_abertura() -> None:
     """Sem seguir link, sem travar em FIFO e sem virar terminal de controle."""
     for flag in ("O_NOFOLLOW", "O_NONBLOCK", "O_NOCTTY"):
         assert k2._FLAGS_DE_LEITURA & getattr(os, flag) == getattr(os, flag)
+
+
+# --- A costura da composicao: configuracao do grafo -> aceite -----------------------------------------------
+@pytest.mark.parametrize(
+    ("ambiente", "valor", "aceita"),
+    [
+        ("dev", True, True),
+        ("dev", "true", False),  # so' `True` exato
+        ("dev", None, False),
+        ("prod", True, False),  # producao nunca, nem com a chave ligada
+        ("", True, False),
+    ],
+)
+def test_aceite_da_configuracao(
+    monkeypatch: pytest.MonkeyPatch, ambiente: str, valor: object, aceita: bool
+) -> None:
+    from maezo.agents.helena.habilidades.cobertura.manual import (
+        CHAVE_ACEITAR_NAO_RATIFICADO,
+        aceite_da_configuracao,
+    )
+
+    monkeypatch.setenv(k2.VARIAVEL_DO_AMBIENTE, ambiente)
+    cfg = {} if valor is None else {CHAVE_ACEITAR_NAO_RATIFICADO: valor}
+    assert (aceite_da_configuracao(cfg) is not None) is aceita
+
+
+def test_o_pacote_de_comportamento_leva_a_chave_ao_grafo_com_o_nome_do_leitor() -> None:
+    """A chave do pacote vira EXATAMENTE a chave que o leitor le' (nenhum nome intermediario); ausente, nada
+    entra; tipo errado recusa o pacote inteiro."""
+    import yaml
+
+    from maezo.agents.helena import pacote as _pacote
+    from maezo.agents.helena.habilidades.cobertura.manual import CHAVE_ACEITAR_NAO_RATIFICADO
+    from maezo.runtime.pacote_do_agente import PacoteDoAgente, PacoteInvalidoError
+
+    def _pacote_com(**extra: object) -> PacoteDoAgente:
+        dados = {"formato": _pacote.FORMATO_CONFIGURACAO, **extra}
+        return PacoteDoAgente(
+            agente="helena",
+            versao="t",
+            sha256="0" * 64,
+            arquivos={_pacote.ARQUIVO_CONFIGURACAO: yaml.safe_dump(dados)},
+        )
+
+    class _Carregador:
+        def __init__(self, pacote: PacoteDoAgente) -> None:
+            self._pacote = pacote
+
+        def atual(self) -> PacoteDoAgente:
+            return self._pacote
+
+    ligado = _pacote.PacoteDaHelena(_Carregador(_pacote_com(cobertura_k2_aceitar_nao_ratificado=True)))  # type: ignore[arg-type]
+    assert ligado.aplicar_no_grafo({})[CHAVE_ACEITAR_NAO_RATIFICADO] is True
+    ausente = _pacote.PacoteDaHelena(_Carregador(_pacote_com()))  # type: ignore[arg-type]
+    assert CHAVE_ACEITAR_NAO_RATIFICADO not in ausente.aplicar_no_grafo({})
+    with pytest.raises(PacoteInvalidoError):
+        _pacote.configuracao(_pacote_com(cobertura_k2_aceitar_nao_ratificado="sim"))
+
+
+def test_o_pacote_publicado_nao_aceita_pacote_nao_ratificado() -> None:
+    import yaml
+
+    from maezo.agents import resolve_spec_dir
+
+    dados = yaml.safe_load((resolve_spec_dir() / "agents/helena/pacote/configuracao.yaml").read_text())
+    assert dados.get("cobertura_k2_aceitar_nao_ratificado", False) is False

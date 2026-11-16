@@ -222,6 +222,13 @@ def aceite_de_nao_ratificado(*, configurado: object) -> AceiteDeNaoRatificado | 
     return AceiteDeNaoRatificado(_SELO_DO_ACEITE)
 
 
+def aceite_da_configuracao(cfg: Mapping[str, Any]) -> AceiteDeNaoRatificado | None:
+    """A UNICA costura da composicao: a configuracao do grafo (`graph.build`, com o pacote de comportamento
+    ja' aplicado) -> o aceite do portao. So' `True` EXATO em `CHAVE_ACEITAR_NAO_RATIFICADO` conta; o ambiente
+    continua sendo o do processo (`aceite_de_nao_ratificado`), entao producao nunca recebe aceite."""
+    return aceite_de_nao_ratificado(configurado=cfg.get(CHAVE_ACEITAR_NAO_RATIFICADO))
+
+
 def _aceite_valido(aceite: object) -> bool:
     return isinstance(aceite, AceiteDeNaoRatificado) and getattr(aceite, "_selo", None) is _SELO_DO_ACEITE
 
@@ -877,6 +884,7 @@ __all__ = [
     "AVALIACOES",
     "CAPITULO_GERAL",
     "CHAVE_ACEITAR_NAO_RATIFICADO",
+    "aceite_da_configuracao",
     "COMPORTAMENTOS",
     "ENTRADAS_DO_DIRETORIO",
     "FORMATO",
