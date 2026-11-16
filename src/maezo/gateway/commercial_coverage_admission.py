@@ -175,7 +175,9 @@ def parse_coverage_read_admission(record: bytes, *, now: datetime) -> CoverageRe
         or not owners
         or not all(isinstance(owner, str) for owner in owners)
         or len(set(owners)) != len(owners)
-        or not set(owners).issubset(A4_OWNER_ROLES)
+        # EXACTLY the A-INDEX signatories (steward AMH+direito) —
+        # a record signed by a strict subset never parses; same mold as A6–A10 (E-SF-02, EP-CORE-00b-SIGN).
+        or set(owners) != A4_OWNER_ROLES
     ):
         raise _refuse("admission_owner_invalid")
     scope = value["admitted_scope"]

@@ -24,6 +24,7 @@ bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from copy import deepcopy
 from dataclasses import replace
@@ -56,8 +57,10 @@ from tests.unit.test_commercial_admission_a2 import (
     get_public,
 )
 from tests.unit.test_commercial_c6 import (
+    CurrentResultSource,
     DeliveryOrigins,
     continuation_journey,
+    journey_request,
     parse_continuation,
 )
 from tests.unit.test_commercial_http import (
@@ -470,3 +473,115 @@ def test_accepted_without_a_source_receipt_is_never_admitted(schema_bytes):
     diverged["commercial_acceptance"]["quote_ref"] = "FOREIGN"
     with pytest.raises(CommercialRefusalError):
         parse_continuation(codec, diverged, False)
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A3 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A3_REQUIRED_SIGNATORIES = ("cliente", "issuer")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A3_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A3_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a3_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(AcceptanceRecordAdmissionError) as err:
+        parse_acceptance_record_admission(a3_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A3_REQUIRED_SIGNATORIES)))
+def test_a3_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_acceptance_record_admission(a3_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A3_REQUIRED_SIGNATORIES)
+
+
+def journey_snapshot_transport(calls, journey_value):
+    def transport(request):
+        calls.append(request)
+        snapshot = {
+            "kind": "journey_snapshot",
+            "journeys": [journey_value],
+            "next_cursor": None,
+            "plan_choices": [],
+        }
+        return httpx.Response(200, json={**wire_result(), "data": snapshot})
+
+    return httpx.MockTransport(transport)
+
+
+def build_admitted_journey_app(schema_bytes, calls, journey_value):
+    # A2 and A3 admitted, the scope grants `journey.get`, and the source answers the
+    # continuation snapshot given by the test — the bound route is the only refuser.
+    scope_authority = AcceptanceScopeAuthority()
+    scope_authority.scope = replace(
+        scope_authority.scope,
+        allowed_operations=scope_authority.scope.allowed_operations | {"journey.get"},
+        granted_scopes=frozenset({"interop/sales.journey.read"}),
+        resource_grant_ref="SYN-RESOURCE-GRANT",
+        journey_linkage_ref="SYN-LINKAGE",
+    )
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=scope_authority,
+        source_authority=CurrentResultSource(scope_authority.scope),
+        delivery_origins=DeliveryOrigins(),
+        sales_admission=a2_admission(),
+        acceptance_admission=a3_admission(),
+        transport=journey_snapshot_transport(calls, journey_value),
+    )
+    app.include_router(commercial_router)
+    return app
+
+
+@pytest.mark.asyncio
+async def test_admitted_route_serves_a_continuation_with_a_source_receipt(schema_bytes):
+    # Control for the negative below: the same admitted route serves the continuation
+    # when the source carries its commercial acceptance receipt.
+    calls = []
+    app = build_admitted_journey_app(schema_bytes, calls, continuation_journey())
+    served = await post_command(app, journey_request())
+    assert served.status_code == 200
+    journey_out = served.json()["data"]["journeys"][0]
+    assert journey_out["commercial_acceptance"]["acceptance_receipt_ref"] == "SYN-COMMERCIAL-RECEIPT"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("receipt", [None, "", "   "])
+async def test_accepted_without_source_receipt_refused_even_when_a3_admitted(schema_bytes, receipt):
+    # TB-E-07-b ("clique não é prova"): with A2 and A3 admitted and composed into the
+    # bound gateway, a source continuation that reports `accepted` without an
+    # authenticated commercial `acceptance_receipt_ref` is refused on the HTTP route by
+    # the C6-3 checks (the control above serves the same journey with its receipt) —
+    # the admission binds the codec-checked path, it never stands in
+    # for the source receipt. Nothing of the fabricated acceptance reaches the caller and
+    # no effect command follows the single source read.
+    calls = []
+    value = continuation_journey()
+    value["commercial_acceptance"]["acceptance_receipt_ref"] = receipt
+    app = build_admitted_journey_app(schema_bytes, calls, value)
+    refused = await post_command(app, journey_request())
+    # The read already ran at the source, so the post-dispatch custody discipline answers
+    # `uncertain/reconciliation_required` with no data — never `succeeded`, never a
+    # re-dispatch.
+    assert refused.status_code == 202
+    body = refused.json()
+    assert body["status"] == "uncertain" and body["reason_code"] == "reconciliation_required"
+    assert body["data"] is None
+    assert b"accepted" not in refused.content and b"SYN-QUOTE" not in refused.content
+    assert len(calls) == 1
+    assert json.loads(calls[0].content)["command"] == "journey.get"
+    # The generic post-dispatch answer is tied to this very journey: the C6-3 codec
+    # refuses it on its own.
+    with pytest.raises(CommercialRefusalError):
+        parse_continuation(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), value, False)
