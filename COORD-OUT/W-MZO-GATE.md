@@ -44,3 +44,17 @@ TB-E-16-b pede o guarda `records_access_notice_present` em `tests/unit/reembolso
 - (C) TB-E-16-b fica para a onda 2.
 
 Sigo por (A): o PR do E-SF-06 sai sem TB-E-16-b e declara isso. PROVISÓRIO-aguarda-coordenador.
+
+## 2026-11-16 ~21:50Z
+
+PRONTO maezo-operadora #1270 head 5d88ee6a0acb7657bf632a158fe05e0185765750 checks verdes (integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skips). Exceção: `flip-path-review-gate` fica vermelho até haver aprovação humana de um membro da equipe que não seja o autor, porque o único code owner de `docs/adr/` é o autor do PR. Com essa aprovação, o check fica verde sem novo push.
+
+E-SF-06 pronto localmente. O ramo `sf-w1/gate/E-SF-06` (25c2e02) foi publicado sem PR, empilhado sobre o E-SF-04. A revisão independente deu FAIL, FAIL e PASS na 3ª rodada. GAPs do épico, com o que foi buscado (C6-4, source-readiness.json, src/):
+- GAP-06-1. EP-REG-01a: `contact.request` do C6-4 não tem slot de protocolo. O nome do plano `test_prospect_contact_returns_protocol_first` virou `test_prospect_contact_protocol_first_is_gap_at_c64_pin`, sem xfail.
+- GAP-06-2. CR-F5: vocabulário de casos não publicado. O pedido foi registrado em source-readiness.json como `requested_not_published`; a publicação é ato de dono A5.
+- GAP-06-3. EP-REG-29a: `reason_ref` humano em `review_required` não existe no pin C6-4 (depende de sucessor).
+- GAP-06-4. EP-REG-29b: recusa motivada só depois da ratificação RL-REG-29; o estado fechado está provado por teste.
+- GAP-06-5. TB-E-08-a: alerta de compliance sem emissor no plano. TB-E-08-c: prazo de fila ≤ dia 25 depende do relógio de TB-E-09-a/E-SF-07 e da ratificação TB-08.
+- GAP-06-6. EP-REG-02b: formato de `review_route` indefinido.
+- Limite declarado: `sla_claim_marker` é heurística de marcador; a garantia é o estado fechado até Q1/DEC-18.
+- TB-E-16-b fora do épico: ver Q-W-MZO-GATE-02.
