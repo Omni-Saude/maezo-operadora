@@ -11,8 +11,13 @@ permissions:
   contents: read
 
 # Cancel in-progress runs for the same branch/PR on new pushes.
+# O noturno (`schedule`) tem GRUPO PROPRIO. Antes, `push` e `schedule` em `main` dividiam
+# `CI-refs/heads/main` com cancel-in-progress: um merge perto das 06:00 UTC cancelava o canario
+# noturno no meio (medido 17/10-16/11/2026: 7 de 30 noturnos cancelados, ~1,2 mil job-min pagos
+# sem veredito) e o `red-main-alarm.yml` ficava sem o canario que ele le. PR e push seguem
+# cancelando a run anterior do MESMO ref, como antes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'noturno' || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -580,6 +585,7 @@ jobs:
   portal-web:
     name: portal-web
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     defaults:
@@ -639,6 +645,7 @@ jobs:
   portal-e2e:
     name: portal-e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: [portal-web]
     # ── PUSH NA MAIN NAO DISPARA (22/09/2026, dedup de faturamento). O bundle que este job
     # prova e' o do PR que acabou de mergea-lo byte-a-byte; o push re-provava o mesmo produto
@@ -713,6 +720,7 @@ jobs:
   artifact-validation:
     name: validate-artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # fetch-depth: 0 (F2, r5/tooling-fences REVISE round): the two ledger range-scoped gates
       # below (check-ledger-hashes, check-ledger-row-cell-count) resolve their `<base>..HEAD` range
@@ -1032,6 +1040,7 @@ jobs:
   ai-attribution-gate:
     name: ai-attribution-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -1077,6 +1086,7 @@ jobs:
   content-signoff-gate:
     name: content-signoff-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1135,7 +1145,10 @@ jobs:
     # a cobertura. Nao se mede menos; para-se de medir duas vezes. Fail-closed: artefato ausente,
     # ilegivel ou com zero casos REPROVA — nunca vira "0 passed" em silencio.
     needs: [unit]
-    timeout-minutes: 150
+    # 45, nao 150: medido 17/10-16/11/2026, max 3,0 min em 25 amostras; o pior caso registrado
+    # (disco esgotado no flip privado de 2026-09-20) foi 28 min. 150 so' deixava um job travado
+    # queimar 2,5 h de runner antes de ficar vermelho.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -1270,6 +1283,7 @@ jobs:
   validate-terraform:
     name: terraform validate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     steps:
@@ -1345,6 +1359,7 @@ jobs:
   java-plugin:
     name: plugin humano Java (mvn verify)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     services:
@@ -1402,6 +1417,7 @@ jobs:
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     steps:
@@ -2358,6 +2374,7 @@ jobs:
   evals:
     name: evals (agent-touching paths)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [quality]
     # dorny/paths-filter cai no fallback da API listFiles (pulls/{n}/files) em alguns PRs; sem
     # `pull-requests: read` o GITHUB_TOKEN (default read-only deste repo) recebe "Resource not
@@ -2503,6 +2520,7 @@ jobs:
   evals-nightly:
     name: evals-nightly (full suite)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

@@ -68,6 +68,7 @@ jobs:
   red-main-alarm:
     name: red-main-alarm
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}

@@ -231,6 +231,7 @@ async def test_lista_vazia_e_fonte_sem_data_sao_estado_valido() -> None:
         {"procedimento": "ab"},  # termo curto demais
         {"procedimento": "x" * 81},
         {"procedimento": "ressonancia; drop"},  # fora do alfabeto do contrato
+        {"procedimento": "ressonancia\n"},  # `$` do pattern casaria antes do `\n` final
         {"procedimento": ""},
         {"procedimento": 40101010},
         {"limite": 0},

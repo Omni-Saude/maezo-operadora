@@ -41,6 +41,16 @@ CPT VIGENTE (caso C1 autorizado pelo dono e DPO em 20/10/2026, DL-0130): a rota
 cobertura): a E/S vai por um executor PROPRIO (`cpt_executor=`). A resposta e' minimizada na fonte (sem CID
 nem doenca): so' o sim/nao, a contagem e a maior data de fim.
 
+REDE CREDENCIADA (pedido (b) da T-MZO-B, HEL-3; DL-0167): a rota `GET .../subjects/{ref}/rede-credenciada`
+vive no artefato `tina-rede-credenciada.openapi.yaml` (manifest aditivo v1.8, bloco `manifest_v1_8` do pin,
+PUBLISHED em 16/10/2026; na AMH e' PROPOSTA ESTACIONADA e a rota nasce DESLIGADA, 404). OPCIONAL: sem
+`rede_credenciada_openapi_bytes=`, `get_rede_credenciada` recusa com `SCOPE_NOT_SUPPORTED`. A operacao NAO
+entra em `OPERATIONS` nem no gateway ainda (sem executor, classe de efeito nem mapeamento de autonomia):
+so' um executor que a registre a despacha. O tipo de valor traz nome, endereco e telefone do ESTABELECIMENTO,
+excecao da cerca de pureza dos ports PENDENTE da confirmacao do dono; nada da resposta vai a log. O
+cabecalho do YAML vendorizado ainda diz "UNPUBLISHED" porque e' anterior a publicacao: quem vale e' o lock
+(`manifest_v1_8`, `PUBLISHED`), que confere os bytes.
+
 CONDICOES CONTRATUAIS DE REEMBOLSO (decisao do dono de 30/10/2026; desenho em
 `docs/design/condicoes-reembolso-contratuais.md`): a rota `GET .../subjects/{ref}/condicoes-reembolso` e' uma
 PROPOSTA do Maezo para o artefato `tina-reembolso`, AINDA NAO PUBLICADO pela AMH. Mesmo molde fail-closed das
@@ -56,6 +66,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,6 +84,7 @@ from maezo.ports.tina import (
     MAX_COBERTURA_ITENS,
     MAX_DEPENDENTES,
     MAX_LIMITES_REEMBOLSO,
+    MAX_REDE_PAGINAS,
     CarenciaDoItem,
     CarenciaPlano,
     CarenciasView,
@@ -89,8 +101,10 @@ from maezo.ports.tina import (
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
+    EstabelecimentoRede,
     LimiteReembolso,
     ProcedimentoCatalogo,
+    RedeCredenciadaView,
     RegraValorReembolso,
     RequisicaoPlano,
     RequisicoesView,
@@ -115,6 +129,9 @@ ARTIFACT_CPT: Final[str] = "schemas/openapi/maezo/v1/tina-cpt.openapi.yaml"
 #: este digest hoje: ate' a AMH publicar e o pin XRG-3 conferir, `reembolso_openapi_bytes=` faz o construtor
 #: recusar.
 ARTIFACT_REEMBOLSO: Final[str] = "schemas/openapi/maezo/v1/tina-reembolso.openapi.yaml"
+#: Manifest aditivo v1.8 (PUBLISHED em 16/10/2026): a rede credenciada do plano. Digest no bloco
+#: `manifest_v1_8`.
+ARTIFACT_REDE_CREDENCIADA: Final[str] = "schemas/openapi/maezo/v1/tina-rede-credenciada.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
 OP_CARENCIAS: Final[str] = "amh.tina_get_carencias"
 OP_REQUISICOES: Final[str] = "amh.tina_get_requisicoes"
@@ -130,6 +147,11 @@ OP_PROCEDIMENTOS: Final[str] = "amh.tina_get_catalogo_procedimentos"
 OP_CPT: Final[str] = "amh.tina_get_cpt_vigente"
 #: `operationId: getCondicoesReembolso` da PROPOSTA `tina-reembolso`. FORA de `OPERATIONS` de proposito.
 OP_REEMBOLSO: Final[str] = "amh.tina_get_condicoes_reembolso"
+#: `operationId: getRedeCredenciada` do contrato `tina-rede-credenciada`. FORA de `OPERATIONS` ate' o gateway
+#: ter executor, classe de efeito e mapeamento de autonomia para ela.
+OP_REDE_CREDENCIADA: Final[str] = "amh.tina_get_rede_credenciada"
+#: A UNICA finalidade da rota da rede credenciada (enum do contrato).
+PURPOSE_REDE_CREDENCIADA: Final[str] = "atendimento_whatsapp"
 #: A UNICA finalidade proposta da rota das condicoes de reembolso.
 PURPOSE_REEMBOLSO: Final[str] = "analise_reembolso"
 #: A UNICA finalidade da rota da CPT (enum do contrato `tina-cpt`).
@@ -170,6 +192,7 @@ _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_PROCEDIMENTOS: ("/procedimentos", "CatalogoProcedimentos"),
     OP_CPT: ("/subjects/{portable_subject_ref}/cpt", "CptVigente"),
     OP_REEMBOLSO: ("/subjects/{portable_subject_ref}/condicoes-reembolso", "CondicoesReembolso"),
+    OP_REDE_CREDENCIADA: ("/subjects/{portable_subject_ref}/rede-credenciada", "RedeCredenciada"),
 }
 _ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
@@ -260,6 +283,8 @@ class AmhTinaAdapter:
         cpt_executor: GovernedTinaExecutor | None = None,
         reembolso_openapi_bytes: bytes | None = None,
         reembolso_executor: GovernedTinaExecutor | None = None,
+        rede_credenciada_openapi_bytes: bytes | None = None,
+        rede_credenciada_executor: GovernedTinaExecutor | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
@@ -281,6 +306,10 @@ class AmhTinaAdapter:
             if cpt_executor is not None and not isinstance(cpt_executor, GovernedTinaExecutor):
                 raise ValueError
             if reembolso_executor is not None and not isinstance(reembolso_executor, GovernedTinaExecutor):
+                raise ValueError
+            if rede_credenciada_executor is not None and not isinstance(
+                rede_credenciada_executor, GovernedTinaExecutor
+            ):
                 raise ValueError
             pin = load_contract_pin(pin_path)
             self._validators: dict[str, Draft4Validator] = {}
@@ -337,6 +366,16 @@ class AmhTinaAdapter:
                     reembolso_openapi_bytes, ARTIFACT_REEMBOLSO, pin.artifact_digests, (OP_REEMBOLSO,)
                 )
             self._executor_reembolso = reembolso_executor or executor
+            # Rede credenciada (manifest v1.8): so' com os bytes; o digest TEM de estar no pin.
+            self._rede_credenciada = rede_credenciada_openapi_bytes is not None
+            if rede_credenciada_openapi_bytes is not None:
+                self._carregar(
+                    rede_credenciada_openapi_bytes,
+                    ARTIFACT_REDE_CREDENCIADA,
+                    pin.artifact_digests,
+                    (OP_REDE_CREDENCIADA,),
+                )
+            self._executor_rede_credenciada = rede_credenciada_executor or executor
             self._executor = executor
             self._executor_carteirinha = carteirinha_executor or executor
             self._executor_cobertura = cobertura_executor or executor
@@ -404,6 +443,11 @@ class AmhTinaAdapter:
                 validator = Draft4Validator(_json_schema(parameter["schema"]), format_checker=_FORMATS)
                 if not validator.is_valid(value):
                     return PortResult.refused(Reason.INVALID_REQUEST)
+                # O `pattern` do JSON Schema casa por BUSCA (`re.search`): `$` aceita um `\n` final
+                # ("cardiologia\n" passava). O valor inteiro tem de casar com o padrao do contrato.
+                padrao = parameter["schema"].get("pattern")
+                if isinstance(value, str) and isinstance(padrao, str) and re.fullmatch(padrao, value) is None:
+                    return PortResult.refused(Reason.INVALID_REQUEST)
                 if parameter["in"] == "query":
                     if not isinstance(value, (str, int)) or isinstance(value, bool):
                         return PortResult.refused(Reason.INVALID_REQUEST)
@@ -425,6 +469,8 @@ class AmhTinaAdapter:
                 executor = self._executor_cpt
             elif operacao == OP_REEMBOLSO:
                 executor = self._executor_reembolso
+            elif operacao == OP_REDE_CREDENCIADA:
+                executor = self._executor_rede_credenciada
             else:
                 executor = self._executor
             registradas = executor.registered_operations
@@ -712,6 +758,59 @@ class AmhTinaAdapter:
             return PortResult.refused(Reason.CONTRACT_VIOLATION)
         return _converter(resultado, _condicoes_reembolso)
 
+    async def get_rede_credenciada(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        especialidade: str,
+        municipio: str | None = None,
+        limite: int = 5,
+        pagina: int = 1,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[RedeCredenciadaView]:
+        """Uma pagina dos estabelecimentos da rede credenciada do plano do proprio sujeito (manifest
+        v1.8). Sem o artefato `tina-rede-credenciada` carregado, recusa fechada (`SCOPE_NOT_SUPPORTED`).
+        Parametro fora do contrato (especialidade, municipio, `limite` 1..10, `pagina` 1..20, finalidade) =
+        `INVALID_REQUEST` sem despacho. `404` (rota desligada, sujeito sem plano) = `NOT_FOUND`. A resposta
+        tem de ser a pagina e o limite PEDIDOS; senao `CONTRACT_VIOLATION`."""
+        if not self._rede_credenciada:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        if (
+            type(especialidade) is not str
+            or (municipio is not None and type(municipio) is not str)
+            or type(limite) is not int
+            or type(pagina) is not int
+        ):
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._consultar(
+            OP_REDE_CREDENCIADA,
+            portable_subject_ref,
+            {
+                "purpose_of_use": purpose_of_use,
+                "especialidade": especialidade,
+                "municipio": municipio,
+                "limite": limite,
+                "pagina": pagina,
+            },
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        valor = resultado.value
+        # A pagina e o limite da resposta tem de ser os PEDIDOS: outra pagina nunca vale por esta.
+        if (
+            resultado.succeeded
+            and valor is not None
+            and (valor.get("pagina"), valor.get("limite"))
+            != (
+                pagina,
+                limite,
+            )
+        ):
+            return PortResult.refused(Reason.CONTRACT_VIOLATION)
+        return _converter(resultado, _rede_credenciada)
+
 
 def compor_condicoes_reembolso(
     *,
@@ -907,6 +1006,45 @@ def _cobertura(body: dict[str, Any]) -> CoberturaView:
     )
 
 
+def _rede_credenciada(body: dict[str, Any]) -> RedeCredenciadaView:
+    estabelecimentos = tuple(
+        EstabelecimentoRede(
+            nome=e["nome"],
+            endereco=e["endereco"],
+            bairro=e["bairro"],
+            municipio=e["municipio"],
+            uf=e["uf"],
+            telefone=e["telefone"],
+            especialidades=tuple(e["especialidades"]),
+        )
+        for e in body["estabelecimentos"]
+    )
+    # Coerencia descrita no contrato: no maximo `limite` itens; a contagem de pessoa fisica so' na pagina 1
+    # (na pagina 1 ela PODE vir `null`: o schema a declara anulavel e o texto so' fixa `null` nas demais);
+    # nao ha' pagina alem de `MAX_REDE_PAGINAS`, entao `tem_mais` na ultima e' incoerente. `tem_mais` com
+    # menos que `limite` itens e' TOLERADO: o contrato so' diz "ha' estabelecimentos alem desta pagina".
+    if len(estabelecimentos) > body["limite"]:
+        raise ValueError
+    contagem = body["profissionais_sem_identificacao"]
+    if body["pagina"] != 1 and contagem is not None:
+        raise ValueError
+    if body["tem_mais"] is True and body["pagina"] >= MAX_REDE_PAGINAS:
+        raise ValueError
+    campos_ausentes = tuple(body["qualidade"]["campos_ausentes"])
+    if len(set(campos_ausentes)) != len(campos_ausentes):
+        raise ValueError
+    return RedeCredenciadaView(
+        portable_subject_ref=body["portable_subject_ref"],
+        pagina=body["pagina"],
+        limite=body["limite"],
+        tem_mais=body["tem_mais"],
+        estabelecimentos=estabelecimentos,
+        profissionais_sem_identificacao=contagem,
+        fonte_atualizada_em=body["fonte_atualizada_em"],
+        campos_ausentes=campos_ausentes,
+    )
+
+
 def _cpt(body: dict[str, Any]) -> CptVigenteView:
     tem, quantas, termina = body["tem_cpt_vigente"], body["cpt_vigentes"], body["termina_em"]
     # Coerencia que o schema nao expressa (descrita no contrato): sem CPT vigente, contagem 0 e sem data;
@@ -1029,6 +1167,7 @@ __all__ = [
     "ARTIFACT_COBERTURA",
     "ARTIFACT_CPT",
     "ARTIFACT_REEMBOLSO",
+    "ARTIFACT_REDE_CREDENCIADA",
     "ARTIFACT_DEPENDENTES_NOME",
     "ARTIFACT_PROCEDIMENTOS",
     "ARTIFACT_DEPENDENTES",
@@ -1039,6 +1178,8 @@ __all__ = [
     "OP_COBERTURA",
     "OP_CPT",
     "OP_REEMBOLSO",
+    "OP_REDE_CREDENCIADA",
+    "PURPOSE_REDE_CREDENCIADA",
     "OP_DEPENDENTES_NOME",
     "OP_PROCEDIMENTOS",
     "PURPOSE_PROCEDIMENTOS",
