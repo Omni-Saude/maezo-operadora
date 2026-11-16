@@ -101,6 +101,7 @@ jobs:
   flip-path-review-gate:
     name: flip-path-review-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # Checks out the workflow's own ref to get `scripts/ci/check_flip_path_review.py`. For a
       # `pull_request` event that is the PR's merge ref; the SCRIPT itself is therefore the PR's

@@ -87,6 +87,7 @@ jobs:
   build-and-push:
     name: build & push image
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
@@ -183,6 +184,7 @@ jobs:
   deploy-staging:
     name: deploy → staging
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: [build-and-push]
     # Staging deploys only from main (and from workflow_dispatch that is NOT a
     # prod-promotion run).
@@ -275,6 +277,7 @@ jobs:
   smoke-staging:
     name: smoke tests → staging
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [deploy-staging]
     if: >-
       github.ref == 'refs/heads/main' &&
@@ -327,6 +330,7 @@ jobs:
   require-production-approval:
     name: require-production-approval
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'workflow_dispatch' && inputs.promote_to_production
     permissions:
       contents: read
@@ -360,6 +364,7 @@ jobs:
   promote-production:
     name: promote → production (manual approval)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: [require-production-approval]
     # O `needs:` sozinho ja implica sucesso — MAS so' enquanto este `if:` nao contiver funcao de
     # status. Acrescentar `always()` (ou `failure()`) aqui converteria o gate em no-op EM SILENCIO:
