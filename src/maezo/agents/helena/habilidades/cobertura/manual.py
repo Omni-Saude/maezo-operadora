@@ -293,6 +293,9 @@ class ManualK2:
     #: termo popular (como publicado) -> termos tecnicos (`sinonimos.json`).
     termos_tecnicos: Mapping[str, tuple[str, ...]]
     avaliacoes: tuple[AvaliacaoDoManual, ...]
+    #: O sha256 dos bytes do manifesto, ja' conferido contra o pin (`carregar`); vai a `Fonte` da resposta
+    #: (HEL-5b: o prazo do K2 so' passa com fonte identificada por este hash).
+    sha256_manifesto: str = ""
     #: chave de busca normalizada -> ids de regra em ordem (derivado de `regras`).
     _por_chave: Mapping[str, tuple[str, ...]] = field(init=False, repr=False, compare=False)
 
@@ -785,6 +788,7 @@ def _carregar(diretorio: Path, pin: PinDoK2, aceite: AceiteDeNaoRatificado | Non
         termos=_congelar(termos),
         termos_tecnicos=_congelar(termos_tecnicos),
         avaliacoes=_avaliacoes(conteudos[AVALIACOES], regras),
+        sha256_manifesto=pin.sha256_manifesto,
     )
 
 
