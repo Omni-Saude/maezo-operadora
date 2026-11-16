@@ -160,7 +160,9 @@ def parse_catalog_source_admission(record: bytes, *, now: datetime) -> CatalogSo
         or not owners
         or not all(isinstance(owner, str) for owner in owners)
         or len(set(owners)) != len(owners)
-        or not set(owners).issubset(A1_OWNER_ROLES)
+        # EXACTLY the A-INDEX signatories (produto+comercial+legal) —
+        # a record signed by a strict subset never parses; same mold as A6–A10 (E-SF-02, EP-CORE-00b-SIGN).
+        or set(owners) != A1_OWNER_ROLES
     ):
         raise _refuse("admission_owner_invalid")
     commands = value["admitted_commands"]

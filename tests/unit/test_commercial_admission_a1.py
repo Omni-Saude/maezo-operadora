@@ -15,6 +15,7 @@ an admission whose pin does not match the wired schema bytes.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -332,3 +333,39 @@ async def test_recovery_never_bootstraps_plan_choices(schema_bytes):
     surfaced = json.loads(parsed.wire_bytes)["data"]["original_result"]["data"]["plan_choices"]
     assert surfaced == []
     assert seeded["plan_choices"] != []
+
+
+# E-SF-02 (EP-CORE-00b-SIGN): the A1 signatories are the A-INDEX set, spelled out here
+# rather than imported so a widened or shrunk constant in the loader cannot hide a defect.
+A1_REQUIRED_SIGNATORIES = ("produto", "comercial", "legal")
+
+
+@pytest.mark.parametrize(
+    "owners",
+    [
+        list(subset)
+        for size in range(1, len(A1_REQUIRED_SIGNATORIES))
+        for subset in itertools.combinations(A1_REQUIRED_SIGNATORIES, size)
+    ],
+)
+def test_a1_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
+    # A record `admitted` by only part of the required signatories never parses: the
+    # refusal is typed and happens in the parser, before any binding exists.
+    with pytest.raises(CatalogSourceAdmissionError) as err:
+        parse_catalog_source_admission(a1_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
+
+
+@pytest.mark.parametrize("owners", list(itertools.permutations(A1_REQUIRED_SIGNATORIES)))
+def test_a1_record_signed_by_every_required_role_is_admitted(owners):
+    admission = parse_catalog_source_admission(a1_record(owners=list(owners)), now=datetime.now(UTC))
+    assert set(admission.owners) == set(A1_REQUIRED_SIGNATORIES)
+
+
+@pytest.mark.parametrize("owners", [["comercial"], ["produto", "comercial"], ["comercial", "legal"]])
+def test_a1_record_missing_the_legal_signatory_is_refused(owners):
+    # EP-CORE-01a (subsumed by E-SF-02): the catalog record is a produto+comercial+legal
+    # act; a record without the legal leg (or with any other leg missing) never binds.
+    with pytest.raises(CatalogSourceAdmissionError) as err:
+        parse_catalog_source_admission(a1_record(owners=owners), now=datetime.now(UTC))
+    assert err.value.reason_code == "admission_owner_invalid"
