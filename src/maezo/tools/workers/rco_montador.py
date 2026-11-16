@@ -35,9 +35,11 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    Ele so entra por `FatosDoCaso.carater_atendimento_guia` (valor da guia TISS, sem padrao), senao nulo.
    LIGAR O MONTADOR (MZO-3) EXIGE que o start carregue o carater da guia ou nulo: os padroes `"eletivo"`
    do Rafael saem antes.
-7. Carencia do K3 (grupo, prazo e saldo) exige, alem do pin >= 1.16, `LACUNA_SALDO_ISENCOES_FECHADA`:
-   o K3 declara que nao se sabe se `saldo_dias` ja considera isencoes e portabilidade
-   (k1-entradas-origem.yaml, `saldoCarenciaDias`, `ressalva`). Enquanto o negocio nao confirmar, essas
+7. Carencia do K3 (grupo, prazo e saldo) exige, alem do pin >= 1.16, a lacuna
+   `saldo_isencoes_portabilidade` FECHADA na configuracao `config/integrations/rco/k3-lacunas.json`: o K3
+   declara que nao se sabe se `saldo_dias` ja considera isencoes e portabilidade (k1-entradas-origem.yaml
+   237-240). Configuracao explicita, desligada por padrao, nunca efeito do pin; lida fail-closed (ausente
+   ou malformada = aberta; `fechada: true` sem `decidido_por` e `decidido_em` = aberta). Aberta, essas
    tres entradas entram nulas, mesmo com o K3 pinado.
 8. `FatosDoCaso.versao_k3_pinada` vem de quem chama: LIGAR O MONTADOR EXIGE preenche-la so com
    `AmhContractPin.versao_manifesto_pinada` do pin verificado (`load_contract_pin`), nunca a mao.
@@ -66,10 +68,9 @@ from maezo.platform.rco_manifesto import DecisaoK1, json_estrito
 
 #: Primeira versao do contrato AMH (manifest aditivo) que traz o K3 das entradas de decisao.
 VERSAO_K3_ENTRADAS: Final[tuple[int, int]] = (1, 16)
-#: LACUNA do K3 sobre `saldo_dias` (isencoes/portabilidade; k1-entradas-origem.yaml `saldoCarenciaDias`
-#: `ressalva` e tina-carencia-grupo.openapi.yaml `saldo_dias`). `False` = aberta: grupo, prazo e saldo do
-#: K3 entram nulos mesmo com o pin >= 1.16. Muda so por PR, com a confirmacao do negocio citada.
-LACUNA_SALDO_ISENCOES_FECHADA: Final[bool] = False
+#: Configuracao das lacunas do K3 (regra 7 do modulo). Muda so por PR, com a decisao do negocio citada.
+K3_LACUNAS_RELATIVO: Final[str] = "config/integrations/rco/k3-lacunas.json"
+LACUNA_SALDO: Final[str] = "saldo_isencoes_portabilidade"
 #: Atributos de `FatosK3V116` que a lacuna acima segura (as entradas da tabela de carencia).
 _K3_CARENCIA: Final[frozenset[str]] = frozenset({"grupo", "dias", "saldo_dias"})
 
@@ -167,6 +168,29 @@ class MapeamentoEntrada:
 #: (`valores_maezo` do seu dicionario de dados; o K1 ainda nao o publica em `entradas.json`). Versionado,
 #: com a origem (repo, commit, linhas), em `config/integrations/rco/carater-tuss23.json`. Casamento exato.
 CARATER_TUSS23_RELATIVO: Final[str] = "config/integrations/rco/carater-tuss23.json"
+
+
+def ler_lacuna_saldo_fechada(caminho: Path) -> bool:
+    """`True` SO com `saldo_isencoes_portabilidade.fechada is True` E `decidido_por`/`decidido_em` texto nao
+    vazio. Qualquer outra coisa (arquivo ausente, JSON invalido, campo faltando, sem procedencia) = aberta."""
+    try:
+        lacuna = json_estrito(caminho.read_bytes())[LACUNA_SALDO]
+        fechada = lacuna["fechada"] is True
+        procedencia = all(
+            isinstance(lacuna[c], str) and lacuna[c].strip() for c in ("decidido_por", "decidido_em")
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return fechada and procedencia
+
+
+def lacuna_saldo_fechada() -> bool:
+    """A configuracao de bordo (checkout, depois a copia ao lado do pacote); sem arquivo = aberta."""
+    parents = Path(__file__).resolve().parents
+    for candidato in (parents[4] / K3_LACUNAS_RELATIVO, parents[2] / K3_LACUNAS_RELATIVO):
+        if candidato.is_file():
+            return ler_lacuna_saldo_fechada(candidato)
+    return False
 
 
 @lru_cache(maxsize=1)
@@ -395,7 +419,7 @@ def _k3_valor(
         return None, MotivoNulo.AUSENTE
     if data is None or k3.data_atendimento != data:
         return None, MotivoNulo.K3_FORA_DA_DATA
-    if atributo in _K3_CARENCIA and not LACUNA_SALDO_ISENCOES_FECHADA:
+    if atributo in _K3_CARENCIA and not lacuna_saldo_fechada():
         return None, MotivoNulo.K3_LACUNA_SALDO_ABERTA
     return _validar(entrada, getattr(k3, atributo))
 

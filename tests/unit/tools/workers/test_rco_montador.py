@@ -138,7 +138,7 @@ def test_carencia_nula_enquanto_o_pin_amh_e_anterior_a_v116(
 def test_carencia_k3_nula_com_pin_v116_enquanto_a_lacuna_do_saldo_esta_aberta(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
-    assert mt.LACUNA_SALDO_ISENCOES_FECHADA is False  # padrao: lacuna aberta
+    assert mt.lacuna_saldo_fechada() is False  # configuracao de bordo: lacuna aberta
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=_k3())
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert {n: montadas.nulos[n] for n in _K3_CARENCIA} == dict.fromkeys(
@@ -148,10 +148,64 @@ def test_carencia_k3_nula_com_pin_v116_enquanto_a_lacuna_do_saldo_esta_aberta(
     assert eleg.variaveis["situacaoCadastral"] == "ativo"  # a lacuna e so da carencia
 
 
-def test_carencia_com_k3_pinado_e_lacuna_fechada_le_o_item_do_procedimento(
-    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+def _lacunas(tmp_path: Path, lacuna: object) -> Path:
+    caminho = tmp_path / "k3-lacunas.json"
+    caminho.write_text(json.dumps({mt.LACUNA_SALDO: lacuna}), encoding="utf-8")
+    return caminho
+
+
+_FECHADA = {"fechada": True, "fonte": "x", "decidido_por": "negocio (fulano)", "decidido_em": "2026-12-01"}
+
+
+def _fechar(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    caminho = _lacunas(tmp_path, _FECHADA)
+    monkeypatch.setattr(mt, "lacuna_saldo_fechada", lambda: mt.ler_lacuna_saldo_fechada(caminho))
+
+
+def test_configuracao_de_bordo_da_lacuna_esta_aberta_e_com_fonte() -> None:
+    raiz = Path(__file__).resolve().parents[4]
+    dados = json.loads((raiz / mt.K3_LACUNAS_RELATIVO).read_text(encoding="utf-8"))[mt.LACUNA_SALDO]
+    assert dados["fechada"] is False
+    assert (dados["decidido_por"], dados["decidido_em"]) == (None, None)
+    assert "k1-entradas-origem.yaml:237-240" in dados["fonte"]
+
+
+@pytest.mark.parametrize(
+    ("conteudo", "fechada"),
+    [
+        (_FECHADA, True),
+        ({**_FECHADA, "decidido_por": None}, False),  # fechada sem procedencia: recusada (aberta)
+        ({**_FECHADA, "decidido_em": " "}, False),
+        ({**_FECHADA, "fechada": "true"}, False),
+        ({"fechada": True}, False),
+        ("fechada", False),
+    ],
+)
+def test_lacuna_so_fecha_com_procedencia(tmp_path: Path, conteudo: object, fechada: bool) -> None:
+    assert mt.ler_lacuna_saldo_fechada(_lacunas(tmp_path, conteudo)) is fechada
+
+
+def test_lacuna_ausente_ou_malformada_conta_como_aberta(tmp_path: Path) -> None:
+    assert mt.ler_lacuna_saldo_fechada(tmp_path / "nao-existe.json") is False
+    ruim = tmp_path / "ruim.json"
+    ruim.write_text('{"saldo_isencoes_portabilidade": {"fechada": true,', encoding="utf-8")
+    assert mt.ler_lacuna_saldo_fechada(ruim) is False
+
+
+def test_lacuna_fechada_sem_procedencia_mantem_k3_nulo(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)
+    caminho = _lacunas(tmp_path, {**_FECHADA, "decidido_por": None, "decidido_em": None})
+    monkeypatch.setattr(mt, "lacuna_saldo_fechada", lambda: mt.ler_lacuna_saldo_fechada(caminho))
+    fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=_k3())
+    montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
+    assert all(montadas.nulos[n] == "k3_lacuna_saldo_isencoes_aberta" for n in _K3_CARENCIA)
+
+
+def test_carencia_com_k3_pinado_e_lacuna_fechada_le_o_item_do_procedimento(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _fechar(monkeypatch, tmp_path)
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=_k3(), carater_atendimento_guia="1")
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert [montadas.variaveis[n] for n in _K3_CARENCIA] == ["demais", 180, 40]
@@ -173,8 +227,9 @@ def test_grupo_k3_fora_do_contrato_entra_nulo(
     k3: mt.FatosK3V116,
     motivo: str,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)
+    _fechar(monkeypatch, tmp_path)
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_COM_K3, k3=k3)
     montadas = mt.montar_entradas(decisoes["rco_geral_carencia"], dic, fatos)
     assert montadas.variaveis["grupoCarencia"] is None

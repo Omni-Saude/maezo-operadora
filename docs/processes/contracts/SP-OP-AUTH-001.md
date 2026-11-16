@@ -374,8 +374,11 @@ ainda nao esta ligado a nenhum worker deste processo. Regras:
   anterior a 1.16, essas entradas entram nulas, mesmo que alguem passe fatos do K3. Ligar o montador exige que a
   versao pinada venha so de `AmhContractPin.versao_manifesto_pinada` do pin verificado. Fato do K3 avaliado em
   data diferente de `data_atendimento` tambem entra nulo. Grupo, prazo e saldo da carencia ficam nulos mesmo com
-  o pin em 1.16 enquanto `LACUNA_SALDO_ISENCOES_FECHADA` for `False` (padrao): o K3 declara que nao se sabe se o
-  saldo ja considera isencoes e portabilidade, e so o negocio fecha essa lacuna. A tabela `rco_geral_carencia` com essas entradas nulas cai
+  o pin em 1.16 enquanto a lacuna `saldo_isencoes_portabilidade` estiver aberta em
+  `config/integrations/rco/k3-lacunas.json` (padrao: aberta). O K3 declara que nao se sabe se o saldo ja
+  considera isencoes e portabilidade; so o negocio fecha essa lacuna, por PR que muda essa configuracao com
+  `fechada: true`, `decidido_por` e `decidido_em`. Nunca e efeito do pin. Arquivo ausente ou malformado, ou
+  `fechada: true` sem quem e quando decidiu, conta como aberta. A tabela `rco_geral_carencia` com essas entradas nulas cai
   em `revisao_humana` (fila `cadastro`), nunca em `negar` (motor real:
   `tests/integration/dmn/test_rco_carencia_nulos_engine.py`).
 - **Entrada derivada sem formula estruturada** no dicionario entra nula. A unica derivada com formula nos

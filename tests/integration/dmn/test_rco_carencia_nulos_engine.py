@@ -93,7 +93,7 @@ async def test_k3_nulo_pelo_pin_vai_a_revisao_humana_nunca_negar(
 async def test_mesma_tabela_nega_com_saldo_k3_positivo_o_pin_e_que_segura(
     dmn: CibSevenDmnTransport, carencia_deployed: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(mt, "LACUNA_SALDO_ISENCOES_FECHADA", True)  # so para provar o efeito do gate
+    monkeypatch.setattr(mt, "lacuna_saldo_fechada", lambda: True)  # so para provar o efeito do gate
     entradas = _entradas("2026-12-01", "eletivo", versao_k3=(1, 16), k3=_K3_NEGARIA)
     rows, _version = await dmn.evaluate(_KEY, entradas)
     assert [r["decisao"] for r in rows] == ["negar"], rows
