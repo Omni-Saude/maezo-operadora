@@ -97,8 +97,8 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
     - **#1255, em revisão:** 5a, faixa dos parâmetros e `ativacaoPacote`/`exigeAditivo` na auditoria.
     - **5c, em duas partes (tudo em `sombra`, com `efeito_k1_habilitado` por ambiente e falso em todos):**
-      - **5c-1, #1256:** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
-      - **5c-2, pronto na branch `prog/mzo/5c2-registro-k1`, PR por abrir:** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
+      - **5c-1, #1256, incorporado:** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
+      - **5c-2, PR da branch `prog/mzo/5c2-registro-k1`:** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
         - **A revisar em 5d/5e antes de qualquer efeito:** a linha perdida no caminho fail-open do registro desloca os ordinais seguintes (e a janela da revisão inicial). A chave de negócio não é gravada (minimização, decisão da ROOT de 16/11/2026).
     - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
     - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
