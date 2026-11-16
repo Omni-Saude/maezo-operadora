@@ -1139,21 +1139,15 @@ def test_estrutura_funda_que_escape_vira_motivo(monkeypatch: pytest.MonkeyPatch)
     assert _recusa(_AMOSTRA, _PIN) == "estrutura_funda_demais"
 
 
-def test_carregar_ou_nenhum_nunca_levanta(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _inesperado(*_args: object) -> ManualK2:
-        raise ValueError("conteudo que nao pode ir ao log")
+def test_erro_de_programacao_sobe_e_nao_vira_pacote_ruim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEW-12 (`test_broad_except_allowlist`): bug do leitor nunca e' absorvido como "pacote invalido"."""
 
-    monkeypatch.setattr(k2, "_carregar", _inesperado)
-    with capture_logs() as logs:
-        assert carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_aceite()) is None
-    assert logs == [
-        {
-            "event": "helena_k2_recusado",
-            "motivo": "erro_inesperado",
-            "erro": "ValueError",
-            "log_level": "warning",
-        }
-    ]
+    def _bug(*_args: object) -> ManualK2:
+        raise TypeError("assinatura errada")
+
+    monkeypatch.setattr(k2, "_carregar", _bug)
+    with pytest.raises(TypeError):
+        carregar_ou_nenhum(_AMOSTRA, pin=_PIN, aceite=_aceite())
 
 
 @pytest.mark.parametrize(

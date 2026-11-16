@@ -354,6 +354,7 @@ def _ler(caminho: Path, *, ausente: str) -> bytes:
         if caminho.is_symlink() or caminho.is_dir():
             raise PacoteK2InvalidoError("arquivo_nao_regular") from None
         raise
+    arquivo = None
     try:
         info = os.fstat(descritor)
         if not stat.S_ISREG(info.st_mode):
@@ -361,9 +362,9 @@ def _ler(caminho: Path, *, ausente: str) -> bytes:
         if info.st_size > TAMANHO_MAXIMO:
             raise PacoteK2InvalidoError("arquivo_grande_demais")
         arquivo = os.fdopen(descritor, "rb")
-    except BaseException:
-        os.close(descritor)
-        raise
+    finally:
+        if arquivo is None:  # o descritor so' fica com o `fdopen` quando ele deu certo
+            os.close(descritor)
     with arquivo:
         dados = arquivo.read(TAMANHO_MAXIMO + 1)
     if len(dados) > TAMANHO_MAXIMO:  # o arquivo cresceu entre o fstat e a leitura
@@ -791,7 +792,7 @@ def carregar_ou_nenhum(
     diretorio: Path | None, *, pin: PinDoK2 | None, aceite: AceiteDeNaoRatificado | None = None
 ) -> ManualK2 | None:
     """`carregar`, ou `None` (a habilidade cai no aviso de canais) com o log `helena_k2_recusado` so' com o
-    motivo: sem diretorio, sem pin, pacote invalido, erro de leitura ou erro inesperado. NUNCA levanta."""
+    motivo: sem diretorio, sem pin, pacote invalido ou erro de leitura. Erro de programacao sobe (NEW-12)."""
     if diretorio is None or pin is None:
         logger.warning("helena_k2_recusado", motivo="sem_diretorio" if diretorio is None else "sem_pin")
         return None
@@ -803,8 +804,9 @@ def carregar_ou_nenhum(
         logger.warning("helena_k2_recusado", motivo="pacote_invalido", erro=type(exc).__name__)
     except OSError as exc:
         logger.warning("helena_k2_recusado", motivo="erro_de_leitura", erro=type(exc).__name__)
-    except Exception as exc:  # defensivo: quem chama nunca recebe excecao do leitor
-        logger.warning("helena_k2_recusado", motivo="erro_inesperado", erro=type(exc).__name__)
+    # Sem `except Exception` (cerca `test_broad_except_allowlist`, NEW-12): pacote invalido, leitura,
+    # estrutura funda demais e tipo errado ja' viram `None` acima; um ERRO DE PROGRAMACAO sobe, nunca e'
+    # confundido com pacote ruim.
     return None
 
 
