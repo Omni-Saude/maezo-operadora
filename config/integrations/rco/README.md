@@ -176,3 +176,22 @@ auxiliares do leitor K1 carregados pelo caminho do arquivo.
 
 O pin muda só quando o rco publica um K2 novo: copiar os 7 arquivos byte a byte para `k2/` e preencher o
 lock a partir do manifesto.
+
+## Estado manual por regra e indicador de ambiente (ADR-0077 §1-§2, unidade 5c-1)
+
+Só lógica pura, dado e indicador. **Nada disso está ligado a worker ou processo**: a ligação é a unidade
+5c-2 (e 5d/5e). Código: `src/maezo/platform/rco_ativacao.py`.
+
+- **Arquivo de estado:** `spec/processes/dmn/rco-regras-estado.yaml`, irmão de
+  `auth-criteria-ratification.yaml`. Chave (`idRegra`, `versaoRegra`), estados `sombra | ativa_l2 |
+  desligada`. Comitado **sem entradas**: toda regra está em `sombra`. Chave ausente = `sombra`; arquivo
+  ausente, ilegível ou inválido (YAML ruim, chave repetida, estado fora do conjunto, campo a mais ou a
+  menos) = **todas** as regras `desligada`, com alerta (`rco_regras_estado_ilegivel`). Uma `versaoRegra`
+  nova é regra nova e não herda estado. Mudar o arquivo é PR humano.
+- **Indicador `efeito_k1_habilitado`:** chave `MAEZO_RCO_EFEITO_K1` (ou configuração do grafo) **e**
+  `MAEZO_ENV` vivo em `AMBIENTES_QUE_PODEM_LIGAR`, que hoje só tem `dev`. Falso por padrão; produção,
+  ambiente vazio e desconhecido nunca ligam (chave ligada ali gera o aviso
+  `rco_efeito_k1_recusado_ambiente`). **Nenhum ambiente liga a chave**: nada em `deploy/` a define.
+  Com o indicador falso, todo estado manual se comporta como `sombra`.
+- `ativacao_efetiva`, `filtrar_saida` e a amostragem HMAC (`amostrar`, `amostra_inicial`) são funções
+  puras; o registro em banco, as User Tasks e o monitor de reversão ficam para 5c-2, 5d e 5e.

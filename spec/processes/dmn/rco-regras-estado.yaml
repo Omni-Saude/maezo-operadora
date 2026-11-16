@@ -1,0 +1,21 @@
+# Estado manual por regra do pacote K1 do rco (ADR-0077 §2, unidade 5c-1).
+#
+# Irmao de auth-criteria-ratification.yaml e com a mesma postura FAIL-CLOSED. Leitor:
+# src/maezo/platform/rco_ativacao.py (`carregar_estados`).
+#
+# Chave: (idRegra, versaoRegra). Estados: sombra | ativa_l2 | desligada.
+#   - chave ausente = sombra (padrao: so registro, nenhum efeito);
+#   - arquivo ilegivel ou invalido (YAML ruim, chave repetida, estado fora do conjunto, campo a mais ou
+#     a menos) = TODAS as regras `desligada`, com alerta;
+#   - `ativa_l2` e `desligada` so tem efeito com o indicador de ambiente MAEZO_RCO_EFEITO_K1 ligado em
+#     dev (nenhum ambiente o liga hoje; a ligacao no worker e a unidade 5c-2).
+# Uma versaoRegra nova e uma regra nova: nao herda estado (ADR-0077 §2).
+#
+# Entrada (todas as chaves obrigatorias; `versaoRegra` entre aspas, e semver X.Y.Z):
+#   - idRegra: "REGRA-EXEMPLO"
+#     versaoRegra: "1.0.0"
+#     estado: sombra
+#
+# Comitado SEM entradas: toda regra esta em sombra.
+version: 1
+regras: []
