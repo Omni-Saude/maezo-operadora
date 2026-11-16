@@ -99,7 +99,9 @@ class CamadaRegraGeral:
             if rascunho:
                 veredito = verificar(rascunho, trechos)
                 if veredito.ok:
-                    return RespostaDaCobertura("resposta", rascunho, (fonte,), veredito_ok=True)
+                    return RespostaDaCobertura(
+                        "resposta", rascunho, (fonte,), veredito_ok=True, trechos=trechos
+                    )
                 logger.warning(
                     "helena_cobertura_rascunho_barrado", regra=regra.id, motivos=list(veredito.motivos)
                 )
@@ -108,7 +110,7 @@ class CamadaRegraGeral:
         if not veredito.ok:
             logger.error("helena_cobertura_regra_nao_confere", regra=regra.id, motivos=list(veredito.motivos))
             return RespostaDaCobertura("transferir", lacuna="regra_nao_confere")
-        return RespostaDaCobertura("resposta", deterministico, (fonte,), veredito_ok=True)
+        return RespostaDaCobertura("resposta", deterministico, (fonte,), veredito_ok=True, trechos=trechos)
 
     def _sinonimos_do_k2(self) -> Mapping[str, Sequence[str]]:
         """Termo popular do K2 -> os titulos das regras que o citam (a resolucao so' acrescenta termo)."""

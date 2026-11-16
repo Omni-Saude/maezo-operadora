@@ -5863,7 +5863,7 @@ class HelenaGraph:
         if (final := _recusa.texto_final(state, text)) != text:  # dono 25/10: aviso do caso 1x, sem carona
             text = saida["response_text"] = final
         # TRAVAS DE SAIDA (etapa 10 e 25/10/2026): sem link, sem contagem vazada, sem convite a mandar midia.
-        text = _travas_saida.na_saida(text, prazo_ratificado=_cobertura.prazo_ratificado(text))  # HEL-5b
+        text = _travas_saida.na_saida(text, prazo_ratificado=_cobertura.prazo_ratificado(state, text))
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
             # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,

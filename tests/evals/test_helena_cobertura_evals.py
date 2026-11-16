@@ -50,7 +50,8 @@ def manual() -> ManualK2:
 
 async def _rodar(manual: ManualK2, caso: conv.CasoDeCobertura) -> conv.Resultado:
     """UMA pergunta pelo grafo inteiro (roteador -> `cobertura` -> camada 1 -> travas -> envio)."""
-    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
+    config = _ligada(CamadaRegraGeral(manual), hash_do_k2=_PIN.sha256_manifesto)
+    grafo, whatsapp, _cib = _grafo(_Modelo(), config)
     with capture_logs() as logs:
         await grafo.ainvoke(_entrada(caso.pergunta))
     texto = whatsapp.enviados[-1]

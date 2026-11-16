@@ -51,6 +51,8 @@ CHAVE_DO_PACOTE: Final[str] = "cobertura_ampla"
 CHAVE_DO_GRAFO: Final[str] = "helena_cobertura_ampla_enabled"
 #: A chave da configuracao do `graph.build` com as camadas (a composicao as passa; esta onda nao passa).
 CHAVE_DAS_CAMADAS: Final[str] = "cobertura_camadas"
+#: A chave da configuracao do `graph.build` com o sha256 do manifesto do pacote K2 pinado (HEL-5b).
+CHAVE_DO_HASH_K2: Final[str] = "cobertura_k2_sha256"
 
 Camada = Literal["regra_geral", "seu_plano"]
 CAMADAS: Final[tuple[Camada, ...]] = ("regra_geral", "seu_plano")
@@ -103,15 +105,8 @@ class RespostaDaCobertura:
     lacuna: str | None = None
     #: A camada conferiu os fatos do texto com as fontes (`verificador.verificar`) e o veredito foi ok.
     veredito_ok: bool = False
-
-    def prazo_ratificado(self) -> bool:
-        """HEL-5b (ROOT, 16/11/2026): resposta com veredito ok e TODA fonte do K2 identificada por hash."""
-        return (
-            self.desfecho == "resposta"
-            and self.veredito_ok
-            and bool(self.fontes)
-            and all(f.tipo == "regra_k2" and _e_sha256(f.hash_do_pacote) for f in self.fontes)
-        )
+    #: Os trechos das fontes de onde o texto saiu (o esqueleto os confere de novo antes de isentar o prazo).
+    trechos: tuple[str, ...] = ()
 
     def valida(self) -> bool:
         if self.desfecho not in DESFECHOS:
@@ -141,6 +136,8 @@ class ConfiguracaoDaCobertura:
     """A habilidade LIGADA, com as camadas em ordem (`regra_geral` antes de `seu_plano`)."""
 
     camadas: tuple[CamadaDeCobertura, ...] = ()
+    #: O sha256 do manifesto do pacote K2 PINADO na composicao (HEL-5b): so' fonte com este hash isenta prazo.
+    hash_do_k2: str | None = None
 
 
 def da_configuracao(cfg: Mapping[str, Any]) -> ConfiguracaoDaCobertura | None:
@@ -157,7 +154,10 @@ def da_configuracao(cfg: Mapping[str, Any]) -> ConfiguracaoDaCobertura | None:
         else:
             logger.error("helena_cobertura_camada_recusada", tipo=type(camada).__name__)
     camadas.sort(key=lambda c: CAMADAS.index(c.camada))
-    return ConfiguracaoDaCobertura(camadas=tuple(camadas))
+    hash_do_k2 = cfg.get(CHAVE_DO_HASH_K2)
+    return ConfiguracaoDaCobertura(
+        camadas=tuple(camadas), hash_do_k2=hash_do_k2 if _e_sha256(hash_do_k2) else None
+    )
 
 
 # --- Os textos que a habilidade deixou prontos (o `inform` os envia sem modelo) ----------------------------
@@ -168,8 +168,10 @@ _MAX_TEXTOS: Final[int] = 4096
 _TEXTOS_DA_COBERTURA: OrderedDict[str, None] = OrderedDict()
 
 
-#: Os textos aceitos com prazo RATIFICADO (HEL-5b): o `respond` consulta (e consome) antes de `na_saida`.
-_PRAZO_RATIFICADO: OrderedDict[str, None] = OrderedDict()
+#: PRAZO RATIFICADO (HEL-5b): conversa -> impressao do texto aceito com prazo. UMA marca por conversa, trocada
+#: a cada turno e SEMPRE consumida pelo `respond` da conversa (revisao independente: marca pendurada isentava,
+#: depois, um texto igual vindo do modelo; e o mapa por texto valia entre conversas e tenants).
+_PRAZO_RATIFICADO: OrderedDict[str, str] = OrderedDict()
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -177,20 +179,42 @@ def _e_sha256(valor: object) -> bool:
     return isinstance(valor, str) and _SHA256.fullmatch(valor) is not None
 
 
-def prazo_ratificado(texto: object) -> bool:
-    """O texto foi aceito com prazo ratificado (fonte K2 por hash e veredito ok)? Consome a marca."""
-    return isinstance(texto, str) and _PRAZO_RATIFICADO.pop(_impressao(texto), 0) is None
+def _conversa(state: Mapping[str, Any]) -> str:
+    return str(state.get("conversation_id") or "")
+
+
+def prazo_ratificado(state: Mapping[str, Any], texto: object) -> bool:
+    """O texto que o `respond` vai enviar e' EXATAMENTE o aceito com prazo ratificado neste turno, nesta
+    conversa? Consome a marca da conversa em qualquer caso (nunca fica pendurada)."""
+    marca = _PRAZO_RATIFICADO.pop(_conversa(state), None)
+    return marca is not None and isinstance(texto, str) and marca == _impressao(texto)
+
+
+def _isenta_prazo(config: ConfiguracaoDaCobertura, resposta: RespostaDaCobertura) -> bool:
+    """HEL-5b (ROOT, 16/11/2026): resposta com veredito ok, TODA fonte do K2 com o hash do pacote PINADO e os
+    fatos do texto conferidos de novo AQUI contra os trechos (a camada nao se autodeclara ratificada)."""
+    from maezo.agents.helena.habilidades.cobertura.verificador import verificar
+
+    return (
+        resposta.desfecho == "resposta"
+        and resposta.veredito_ok
+        and config.hash_do_k2 is not None
+        and bool(resposta.fontes)
+        and all(f.tipo == "regra_k2" and f.hash_do_pacote == config.hash_do_k2 for f in resposta.fontes)
+        and bool(resposta.trechos)
+        and verificar(resposta.texto or "", resposta.trechos).ok
+    )
 
 
 def _impressao(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
-def _guardar(texto: str, *, prazo: bool = False) -> None:
+def _guardar(texto: str, *, prazo_da_conversa: str | None = None) -> None:
     chave = _impressao(texto)
-    if prazo:
-        _PRAZO_RATIFICADO[chave] = None
-        _PRAZO_RATIFICADO.move_to_end(chave)
+    if prazo_da_conversa is not None:
+        _PRAZO_RATIFICADO[prazo_da_conversa] = chave
+        _PRAZO_RATIFICADO.move_to_end(prazo_da_conversa)
         while len(_PRAZO_RATIFICADO) > _MAX_TEXTOS:
             _PRAZO_RATIFICADO.popitem(last=False)
     _TEXTOS_DA_COBERTURA[chave] = None
@@ -251,7 +275,7 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
             return _transferir(grafo, state)
         texto_da_camada = resposta.texto or ""  # `valida()` ja' exigiu o texto
         esclarecer = resposta.desfecho == "esclarecer"
-        prazo = resposta.prazo_ratificado()
+        prazo = _isenta_prazo(config, resposta)
         motivo = _travas.motivo_de_recusa(
             grafo, texto_da_camada, esclarecer=esclarecer, prazo_ratificado=prazo
         )
@@ -260,7 +284,7 @@ async def atender(grafo: HelenaGraph, state: Mapping[str, Any], texto: str) -> d
             logger.warning("helena_cobertura_texto_barrado", camada=camada.camada, motivo=motivo)
             return texto_do_aviso(grafo, state)
         final = _com_192_se_preciso(state, texto_da_camada)
-        _guardar(final, prazo=prazo)
+        _guardar(final, prazo_da_conversa=_conversa(state) if prazo else None)
         return grafo._texto_fixo(grafo._update_sem_modelo(state), final)
     # Nenhuma camada respondeu: a lacuna de conteudo fica registrada e vale o aviso de canais (falha fechada).
     logger.info("helena_cobertura_lacuna", lacuna="sem_camada_que_responda", camadas=len(config.camadas))
@@ -291,6 +315,7 @@ def _sujeito(state: Mapping[str, Any]) -> str | None:
 __all__ = [
     "CAMADAS",
     "CHAVE_DAS_CAMADAS",
+    "CHAVE_DO_HASH_K2",
     "CHAVE_DO_GRAFO",
     "CHAVE_DO_PACOTE",
     "DESFECHOS",
