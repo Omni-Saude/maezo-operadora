@@ -44,11 +44,22 @@ name: branch-protection-check
 # point of this check is that governance drift must never again pass by going unread.
 # ---------------------------------------------------------------------------
 
+# Cadence (2026-11-16, Actions cost review): both jobs measure REPOSITORY SETTINGS (the `main`
+# ruleset and CODEOWNERS owner resolution), which a push to `main` cannot change — except a push
+# that edits `.github/CODEOWNERS`, which can change the /codeowners/errors count. Measured
+# 2026-10-17..2026-11-16: 387 push runs x 2 jobs = ~774 billable job-min/month re-reading the same
+# settings. Push now fires only for the two files whose content these jobs depend on, and the
+# schedule moves from WEEKLY to DAILY, so a settings change made in the UI is read within 24 h
+# (before: at the next merge, or up to 7 days when nobody merged). Neither context is a required
+# check (ADR-0069), so no merge waits on this trigger.
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/CODEOWNERS"
+      - ".github/workflows/branch-protection-check.yml"
   schedule:
-    - cron: "13 8 * * 1"   # weekly, Monday 08:13 UTC — offset from ci.yml (06:00) and red-main-alarm (:17)
+    - cron: "13 8 * * *"   # daily 08:13 UTC — offset from ci.yml (06:00) and red-main-alarm (:17)
   workflow_dispatch:
 
 permissions:
@@ -149,8 +160,9 @@ jobs:
   # que treina a fila a ignorar um sinal — o modo de morte de gate que R-051 existe para acabar.
   # Ruido e' motivo suficiente para a escolha; "deadlock" seria uma afirmacao de governanca nao
   # medida, que e' a especie de erro que este lote inteiro veio corrigir.
-  # Este job herda os gatilhos deste arquivo (push em `main`, varredura semanal, `workflow_dispatch`),
-  # entao o estado fica MEDIDO e datado a cada push e toda semana, sem ruido por PR.
+  # Este job herda os gatilhos deste arquivo (push em `main` que altere o CODEOWNERS ou este workflow,
+  # varredura DIARIA, `workflow_dispatch`), entao o estado fica MEDIDO e datado a cada mudanca do
+  # CODEOWNERS e todo dia, sem ruido por PR.
   # COMO TORNA-LO EXIGIVEL, quando a contagem chegar a zero — e a ordem importa: acrescentar
   # `pull_request` aos gatilhos **e depois** exigir o contexto na ruleset. As duas coisas juntas, e
   # nessa ordem. Exigir o contexto SEM o gatilho e' a armadilha: um required check que nunca reporta
