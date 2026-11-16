@@ -75,14 +75,14 @@ _TABELAS: dict[str, tuple[list[str], list[list[str]], list[str]]] = {
         SAIDAS_OBRIGATORIAS,
         [
             ['"liberar"', '""', '"SINT-A-0001"', '""', '""'],
-            ['"informar"', '""', '"SINT-A-0002"', '"cadastro"', '""'],
+            ['"negar"', '"3171"', '"SINT-A-0002"', '"cadastro"', '"administrativo"'],
         ],
         ["SINT-A-0001", "SINT-A-0002"],
     ),
     "sint_b": (
         [*SAIDAS_OBRIGATORIAS, "acaoSintetica"],
         [
-            ['"liberar"', '""', '"SINT-B-0001"', '""', '""', '"nada"'],
+            ['"liberar"', '""', '""', '""', '""', '"nada"'],  # idRegra "" = vazio canonico
             ['"informar"', '""', '"SINT-B-0001"', '"cadastro"', '""', '"avisar"'],
         ],
         ["SINT-B-0001"],
@@ -100,9 +100,14 @@ PARAMETROS_ATIVACAO: dict[str, int | float] = {
     "conferencia_negativa_admin_decisoes": 17,
 }
 ATIVACOES = ["plena", "conferida", "em_correcao"]
+#: `combinacao` de `vocabulario.json` (contrato §6), so as chaves que o leitor usa.
+COMBINACAO: dict[str, list[str]] = {
+    "adversa_exige_preenchidos": ["classeAdverso", "fila", "idRegra", "motivoTab38"],
+    "adversas": ["glosar", "negar", "recomendar_negativa"],
+}
 
 
-def _regra(id_regra: str, versao: str, major: int, ativacao: str) -> dict[str, Any]:
+def _regra(id_regra: str, versao: str, major: int, ativacao: tuple[str, bool]) -> dict[str, Any]:
     regra: dict[str, Any] = {
         "classe_adverso": "",
         "idRegra": id_regra,
@@ -114,20 +119,30 @@ def _regra(id_regra: str, versao: str, major: int, ativacao: str) -> dict[str, A
     if major == 1:
         regra["ratificavel_automatico"] = False
     else:
-        regra["ativacao"] = ativacao
-        regra["exige_aditivo"] = id_regra.endswith("2")
+        regra["ativacao"], regra["exige_aditivo"] = ativacao
     return regra
 
 
 def vocabulario_bytes(major: int = 2, **ativacao: Any) -> bytes:
-    vocab: dict[str, Any] = {"saidas_obrigatorias": SAIDAS_OBRIGATORIAS, "vazio": ""}
+    vocab: dict[str, Any] = {
+        "combinacao": dict(COMBINACAO),
+        "saidas_obrigatorias": SAIDAS_OBRIGATORIAS,
+        "vazio": "",
+    }
     if major == 2:
         vocab["ativacao"] = {"parametros": dict(PARAMETROS_ATIVACAO), "valores": list(ATIVACOES), **ativacao}
     return canonico(vocab)
 
 
-def montar(raiz: Path, *, major: int = 2) -> dict[str, Any]:
-    """Escreve o pacote sintetico e o pin `fixado` em `raiz`. Devolve o manifesto (dict)."""
+def montar(
+    raiz: Path, *, major: int = 2, ativacoes: dict[str, tuple[str, bool]] | None = None
+) -> dict[str, Any]:
+    """Escreve o pacote sintetico e o pin `fixado` em `raiz`. Devolve o manifesto (dict).
+
+    `ativacoes`: `idRegra` -> (`ativacao`, `exige_aditivo`) no MAJOR 2; o padrao e `plena` sem aditivo
+    em todas (o unico caso que o consumidor executa hoje).
+    """
+    ativacoes = ativacoes or {}
     k1 = raiz / K1_DIR
     rco = raiz / RULES_DIR
     k1.mkdir(parents=True, exist_ok=True)
@@ -166,7 +181,8 @@ def montar(raiz: Path, *, major: int = 2) -> dict[str, Any]:
                 "id": did,
                 "id_original": original,
                 "regras": [
-                    _regra(i, f"1.0.{n}", major, ATIVACOES[n % len(ATIVACOES)]) for n, i in enumerate(ids)
+                    _regra(i, f"1.0.{n}", major, ativacoes.get(i, ("plena", False)))
+                    for n, i in enumerate(ids)
                 ],
                 "saidas": [{"nome": s, "nome_snake": s.lower(), "typeRef": "string"} for s in saidas],
                 "sha256": sha(raw),

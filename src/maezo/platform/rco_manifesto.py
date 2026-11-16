@@ -8,15 +8,18 @@ repositorio `regras-contratos-operadora`): `manifesto.json` em bytes canonicos, 
 - cada DMN em `spec/processes/dmn/rco/<arquivo>.dmn` (`caminho_consumidor`, plano — §11 item 4);
 - NUNCA os exemplos: sao material de teste do pacote, fora do lock (§3, §11 item 5).
 
-Este modulo e o UNICO leitor do manifesto. O gate de CI (`scripts/ci/verify_rco_rules_pin.py`) e o
-carregador de runtime (`maezo.tools.workers.rco_pin`) o usam, para que nao haja dois formatos.
-So biblioteca padrao (mais `maezo.platform.xml_safe`, tambem so biblioteca padrao) e sem rede.
+Este modulo e o UNICO leitor do manifesto e das pastas do pacote. O gate de CI
+(`scripts/ci/verify_rco_rules_pin.py`, que o carrega PELO CAMINHO do arquivo, sem passar por
+`maezo/platform/__init__.py`) e o carregador de runtime (`maezo.tools.workers.rco_pin`) o usam, para
+que nao haja dois formatos nem duas varreduras. So biblioteca padrao — nenhum import de `maezo` — e
+sem rede.
 
 FAIL-CLOSED (contrato §4 e §5):
 - digest em toda parte no formato `sha256:<64 hex minusculos>`; hex cru e recusado (§1 — o hex cru
   dispara o detector de segredos; mesma notacao do K2, HEL-3a);
 - `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece; outro e recusado.
-  MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, rco 75015304): cada regra tem exatamente `idRegra`,
+  MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, estavel na branch `prog/rco/ativacao-k1` do rco no
+  commit 75015304, ainda NAO em `main` do rco): cada regra tem exatamente `idRegra`,
   `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`, `ativacao`, `exige_aditivo` e
   `sha256_yaml` (sem `ratificavel_automatico`); `ativacao` no conjunto fechado, igual a
   `vocabulario.json` `ativacao.valores`; `exige_aditivo` booleano; o bloco `ativacao.parametros` de
@@ -29,7 +32,14 @@ FAIL-CLOSED (contrato §4 e §5):
 - id de decisao com o prefixo `rco_`, igual ao `<decision>` do arquivo; `idRegra` no padrao;
 - anexos (`vocabulario.json`, `entradas.json`, `k6-filas.json`) com o sha256 do manifesto;
 - colunas de saida da tabela: as obrigatorias de `vocabulario.json` presentes, e qualquer coluna fora
-  do `saidas[]` daquela decisao recusada (§6 "Saidas extras", §11 item 6).
+  do `saidas[]` daquela decisao recusada (§6 "Saidas extras", §11 item 6);
+- o conjunto de `idRegra` literais nao vazios que a tabela emite e exatamente o de `regras[]` (§3: uma
+  entrada por `idRegra` emitido); linha adversa (`combinacao.adversas` de `vocabulario.json`) tem
+  preenchidos os campos de `combinacao.adversa_exige_preenchidos` (§6), `idRegra` incluido;
+- `ativacao_nao_suportada`: pacote MAJOR 2 com regra fora de `ativacao: plena` sem aditivo e
+  recusado ate a Onda 2 item 5 (ativacao por classe de risco) ligar o significado;
+- `verificar_pastas`: `spec/processes/dmn/rco/` e `config/integrations/rco/k1/` so com o que o pin e
+  o manifesto declaram (sem subpasta, link simbolico ou arquivo solto).
 
 Este modulo NAO decide regra de negocio: so le e confere bytes e forma. O vocabulario fechado das
 saidas e conferido pelo lint `platform/validation/vocabulario_saida.py`.
@@ -46,8 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Final
-
-from maezo.platform.xml_safe import parse_xml_without_dtd
+from xml.etree import ElementTree as ET
 
 #: Pasta (relativa a raiz do repo) do manifesto K1 e dos anexos vendorizados. Plana.
 K1_DIR: Final[str] = "config/integrations/rco/k1"
@@ -138,10 +147,14 @@ CAMPOS_EXEMPLO: Final[frozenset[str]] = frozenset({"path", "sha256", "decisao", 
 
 _DIGEST: Final[re.Pattern[str]] = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
-_SEMVER: Final[re.Pattern[str]] = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+_SEMVER: Final[re.Pattern[str]] = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _ID_REGRA: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _NOME_PLANO: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]+$")
 _DMN_NS: Final[str] = "{https://www.omg.org/spec/DMN/20191111/MODEL/}"
+_LITERAL: Final[re.Pattern[str]] = re.compile(r'^"((?:[^"\\]|\\.)*)"$', re.DOTALL)
+#: Saida da tabela que identifica a regra casada (contrato §3/§6).
+SAIDA_ID_REGRA: Final[str] = "idRegra"
+README_NOME: Final[str] = "README.md"
 
 
 class ManifestoK1InvalidoError(ValueError):
@@ -242,6 +255,10 @@ class VocabularioPacoteK1:
     saidas_obrigatorias: tuple[str, ...]
     ativacoes: frozenset[str] | None  # `ativacao.valores`; None no MAJOR 1
     parametros_ativacao: ParametrosAtivacao | None  # None no MAJOR 1
+    #: `combinacao.adversas` e `combinacao.adversa_exige_preenchidos` (contrato §6): decisao adversa
+    #: exige esses campos preenchidos na linha da tabela.
+    adversas: frozenset[str] = frozenset()
+    adversa_exige_preenchidos: tuple[str, ...] = ()
 
 
 class _ChaveDuplicadaError(ValueError):
@@ -257,14 +274,38 @@ def _sem_chave_duplicada(pares: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _sem_constante(nome: str) -> Any:
+    raise ValueError(f"constante JSON nao padrao {nome!r} (NaN/Infinity) recusada")
+
+
+def json_estrito(raw: bytes) -> Any:
+    """`json.loads` fail-closed: UTF-8, sem chave repetida e sem NaN/Infinity. Levanta `ValueError`."""
+    return json.loads(
+        raw.decode("utf-8"), object_pairs_hook=_sem_chave_duplicada, parse_constant=_sem_constante
+    )
+
+
 def _carregar_json(raw: bytes, rotulo: str, problemas: list[str]) -> Any:
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=_sem_chave_duplicada)
+        return json_estrito(raw)
     except _ChaveDuplicadaError as exc:
         problemas.append(f"{rotulo}: chave JSON repetida {exc.args[0]!r}")
-    except (UnicodeDecodeError, ValueError) as exc:
+    except ValueError as exc:  # inclui UnicodeDecodeError e NaN/Infinity
         problemas.append(f"{rotulo}: JSON ilegivel ({type(exc).__name__})")
     return None
+
+
+def _parse_xml_sem_dtd(raw: bytes) -> ET.Element:
+    """Mesma recusa de `maezo.platform.xml_safe.parse_xml_without_dtd` (F-152/F-153), so stdlib.
+
+    Copiada aqui para que o gate carregue este modulo sem importar o pacote `maezo.platform`.
+    """
+    if b"\x00" in raw or raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        raise ValueError("XML tem de ser UTF-8 (UTF-16/32 ou NUL recusados)")
+    upper = raw.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ValueError("XML com DOCTYPE/ENTITY recusado")
+    return ET.fromstring(raw)
 
 
 def _objeto(
@@ -472,7 +513,11 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
     dados = _carregar_json(raw, "manifesto", problemas)
     if dados is None:
         raise ManifestoK1InvalidoError(problemas)
-    if bytes_canonicos(dados) != raw:
+    try:
+        canonicos = bytes_canonicos(dados) == raw
+    except UnicodeEncodeError:  # surrogate solitario (\ud800): nao ha bytes canonicos UTF-8
+        canonicos = False
+    if not canonicos:
         problemas.append("manifesto: bytes nao sao os canonicos (contrato §3); nao reserialize o arquivo")
     if isinstance(dados, dict) and isinstance(dados.get("origem"), dict) and "sujo" in dados["origem"]:
         _ler_origem(dados["origem"], problemas)  # registra a recusa antes da checagem de forma
@@ -517,7 +562,9 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
             exemplo = _objeto(item, CAMPOS_EXEMPLO, f"exemplos_sinteticos[{i}]", problemas)
             if exemplo is not None:
                 _digest(exemplo["sha256"], f"exemplos_sinteticos[{i}].sha256", problemas)
-                exemplos.append(str(exemplo["path"]))
+                caminho = _texto(exemplo["path"], f"exemplos_sinteticos[{i}].path", problemas)
+                if caminho is not None:
+                    exemplos.append(caminho)
 
     if problemas or versao_pacote is None or origem is None:
         raise ManifestoK1InvalidoError(problemas or ["manifesto invalido"])
@@ -562,6 +609,12 @@ def _ler_ativacao(no: object, problemas: list[str]) -> tuple[frozenset[str], Par
     return frozenset(valores), ParametrosAtivacao(**{k: parametros[k] for k in PARAMETROS_ATIVACAO})
 
 
+def _lista_de_textos(no: object) -> list[str] | None:
+    if not isinstance(no, list) or not no or not all(isinstance(v, str) and v for v in no):
+        return None
+    return [str(v) for v in no]
+
+
 def _ler_vocabulario(raw: bytes, major: int, problemas: list[str]) -> VocabularioPacoteK1 | None:
     vocab = _carregar_json(raw, "vocabulario.json", problemas)
     if not isinstance(vocab, dict):
@@ -572,15 +625,26 @@ def _ler_vocabulario(raw: bytes, major: int, problemas: list[str]) -> Vocabulari
     if not isinstance(saidas, list) or not saidas or not all(isinstance(s, str) and s for s in saidas):
         problemas.append("vocabulario.json: 'saidas_obrigatorias' tem de ser lista nao vazia de textos")
         return None
+    combinacao = vocab.get("combinacao")
+    adversas = _lista_de_textos(combinacao.get("adversas") if isinstance(combinacao, dict) else None)
+    exige = _lista_de_textos(
+        combinacao.get("adversa_exige_preenchidos") if isinstance(combinacao, dict) else None
+    )
+    if adversas is None or exige is None:
+        problemas.append(
+            "vocabulario.json: 'combinacao.adversas' e 'combinacao.adversa_exige_preenchidos' tem de ser "
+            "listas nao vazias de textos (contrato §6)"
+        )
+        return None
     if major == 1:
-        return VocabularioPacoteK1(tuple(saidas), None, None)
+        return VocabularioPacoteK1(tuple(saidas), None, None, frozenset(adversas), tuple(exige))
     if "ativacao" not in vocab:
         problemas.append("vocabulario.json: formato MAJOR 2 exige o bloco 'ativacao' (contrato §7)")
         return None
     ativacao = _ler_ativacao(vocab["ativacao"], problemas)
     if ativacao is None:
         return None
-    return VocabularioPacoteK1(tuple(saidas), ativacao[0], ativacao[1])
+    return VocabularioPacoteK1(tuple(saidas), ativacao[0], ativacao[1], frozenset(adversas), tuple(exige))
 
 
 def _anexo_raw(manifesto: ManifestoK1, papel: str, k1_dir: Path, problemas: list[str]) -> bytes | None:
@@ -609,11 +673,39 @@ def carregar_vocabulario(manifesto: ManifestoK1, *, k1_dir: Path) -> Vocabulario
     return vocab
 
 
-def _colunas_de_saida(raw: bytes, decisao: DecisaoK1, problemas: list[str]) -> list[str] | None:
+def ids_de_decisao(raw: bytes, rotulo: str) -> list[str]:
+    """Ids das `<decision>` de um DMN do K1, todos com prefixo `rco_`; ou `ManifestoK1InvalidoError`."""
+    try:
+        root = _parse_xml_sem_dtd(raw)
+    except (ET.ParseError, ValueError) as exc:
+        raise ManifestoK1InvalidoError([f"{rotulo}: nao e DMN legivel ({type(exc).__name__})"]) from exc
+    ids = [str(el.get("id") or "") for el in root.iter(f"{_DMN_NS}decision")]
+    if not ids or any(not i.startswith(PREFIXO_DECISAO) for i in ids):
+        raise ManifestoK1InvalidoError(
+            [f"{rotulo}: tem de declarar decisoes com prefixo {PREFIXO_DECISAO!r}"]
+        )
+    return ids
+
+
+def _texto_celula(entry: ET.Element) -> str:
+    text_el = entry.find(f"{_DMN_NS}text")
+    return (text_el.text or "").strip() if text_el is not None else ""
+
+
+def _literal(texto: str) -> str | None:
+    """Valor de um literal string FEEL; `""` para celula vazia/`null`; `None` para expressao."""
+    if texto in ("", "null"):
+        return ""
+    casou = _LITERAL.match(texto)
+    return re.sub(r"\\(.)", r"\1", casou.group(1)) if casou is not None else None
+
+
+def _tabela(raw: bytes, decisao: DecisaoK1, problemas: list[str]) -> tuple[list[str], list[list[str]]] | None:
+    """Colunas de saida e, por linha, o texto de cada outputEntry."""
     onde = decisao.caminho_consumidor
     try:
-        root = parse_xml_without_dtd(raw)
-    except Exception as exc:  # ParseError / DtdRefusedError
+        root = _parse_xml_sem_dtd(raw)
+    except (ET.ParseError, ValueError) as exc:
         problemas.append(f"{onde}: nao e DMN legivel ({type(exc).__name__})")
         return None
     elementos = list(root.iter(f"{_DMN_NS}decision"))
@@ -624,7 +716,141 @@ def _colunas_de_saida(raw: bytes, decisao: DecisaoK1, problemas: list[str]) -> l
     if len(tabelas) != 1:
         problemas.append(f"{onde}: decisao {decisao.id!r} tem de ser exatamente uma decisionTable")
         return None
-    return [str(o.get("name") or "") for o in tabelas[0].findall(f"{_DMN_NS}output")]
+    colunas = [str(o.get("name") or "") for o in tabelas[0].findall(f"{_DMN_NS}output")]
+    linhas: list[list[str]] = []
+    for i, regra in enumerate(tabelas[0].findall(f"{_DMN_NS}rule")):
+        celulas = [_texto_celula(e) for e in regra.findall(f"{_DMN_NS}outputEntry")]
+        if len(celulas) != len(colunas):
+            problemas.append(f"{onde}: linha {i} tem {len(celulas)} outputEntry para {len(colunas)} saidas")
+            return None
+        linhas.append(celulas)
+    return colunas, linhas
+
+
+def _conferir_linhas(
+    decisao: DecisaoK1,
+    colunas: list[str],
+    linhas: list[list[str]],
+    vocab: VocabularioPacoteK1 | None,
+    problemas: list[str],
+) -> None:
+    """`idRegra` emitidos == `regras[]` (§3) e linha adversa com os campos exigidos preenchidos (§6)."""
+    onde = decisao.caminho_consumidor
+    emitidos: set[str] = set()
+    for i, celulas in enumerate(linhas):
+        linha = dict(zip(colunas, celulas, strict=True))
+        if SAIDA_ID_REGRA in linha:
+            valor = _literal(linha[SAIDA_ID_REGRA])
+            if valor is None:
+                problemas.append(f"{onde}: linha {i}: {SAIDA_ID_REGRA} nao e literal string")
+            elif valor:
+                emitidos.add(valor)
+        if vocab is None or "decisao" not in linha or _literal(linha["decisao"]) not in vocab.adversas:
+            continue
+        vazios = [c for c in vocab.adversa_exige_preenchidos if c in linha and not _literal(linha[c])]
+        if vazios:
+            problemas.append(
+                f"{onde}: linha {i} adversa ({_literal(linha['decisao'])}) sem {vazios} preenchido(s) "
+                "(vocabulario.json combinacao.adversa_exige_preenchidos, contrato §6)"
+            )
+    declarados = set(decisao.regras)
+    if emitidos != declarados:
+        problemas.append(
+            f"{onde}: idRegra emitidos pela tabela diferem de regras[] do manifesto (contrato §3): "
+            f"so na tabela {sorted(emitidos - declarados)}, so no manifesto {sorted(declarados - emitidos)}"
+        )
+
+
+def ativacao_nao_suportada(manifesto: ManifestoK1) -> list[str]:
+    """Regras do pacote cuja ativacao este consumidor ainda nao executa. Lista vazia = ok.
+
+    MAJOR 2 (contrato §7): so `ativacao: plena` sem `exige_aditivo` tem significado ligado hoje. As
+    demais (`conferida`, `em_correcao`, restricao com aditivo) dependem da Onda 2 item 5 (ativacao por
+    classe de risco); ate la o pacote inteiro e recusado, para que nenhum efeito adverso rode sem a
+    regra de ativacao que o contrato manda aplicar.
+    """
+    if manifesto.major < 2:
+        return []
+    problemas: list[str] = []
+    for decisao in manifesto.decisoes.values():
+        for regra in decisao.regras.values():
+            if regra.ativacao != "plena" or regra.exige_aditivo is not False:
+                problemas.append(
+                    f"{decisao.id}/{regra.id_regra}: ativacao={regra.ativacao!r}, "
+                    f"exige_aditivo={regra.exige_aditivo!r} — semantica ainda nao ligada no consumidor "
+                    "(Onda 2 item 5, ativacao por classe de risco); so 'plena' sem aditivo e aceito"
+                )
+    return problemas
+
+
+def nomes_k1_declarados(raw_manifesto: bytes | None) -> set[str]:
+    """Nomes aceitos em `k1/`: o manifesto e os anexos que ele NOMEIA (leitura leniente, so nomes).
+
+    A validacao do manifesto e de `ler_manifesto`; aqui so se evita repetir uma falha ja reportada
+    arquivo a arquivo quando o manifesto e invalido.
+    """
+    nomes = {K1_MANIFESTO_NOME}
+    if raw_manifesto is None:
+        return nomes
+    try:
+        dados = json_estrito(raw_manifesto)
+    except ValueError:
+        return nomes
+    if isinstance(dados, dict):
+        for secao, _campo in ANEXOS.values():
+            bloco = dados.get(secao)
+            nome = bloco.get("path") if isinstance(bloco, dict) else None
+            if isinstance(nome, str) and _NOME_PLANO.fullmatch(nome) and nome not in (".", ".."):
+                nomes.add(nome)
+    return nomes
+
+
+def verificar_pastas(
+    *, rules_dir: Path, k1_dir: Path, listados_rco: set[str], nomes_k1: set[str]
+) -> list[tuple[str, str]]:
+    """Varredura fail-closed das duas pastas do pacote. Devolve `(codigo, detalhe)`; vazia = ok.
+
+    `rules_dir` (`spec/processes/dmn/rco/`) aceita so `README.md` e os nomes em `listados_rco`;
+    `k1_dir` (`config/integrations/rco/k1/`) so os de `nomes_k1` (vazio sem pacote). Pasta ausente e
+    pasta vazia. Link simbolico (na pasta ou dentro dela), subpasta e arquivo solto reprovam.
+    """
+    achados: list[tuple[str, str]] = []
+    for pasta, rotulo, aceitos in (
+        (rules_dir, RULES_DIR, set(listados_rco) | {README_NOME}),
+        (k1_dir, K1_DIR, set(nomes_k1)),
+    ):
+        if pasta.is_symlink():
+            achados.append(("link-simbolico", f"{rotulo} e link simbolico; o pin exige caminho real"))
+            continue
+        if not pasta.exists():
+            continue
+        if not pasta.is_dir():
+            achados.append(("pasta-invalida", f"{rotulo} existe mas nao e pasta"))
+            continue
+        for caminho in sorted(pasta.rglob("*")):
+            rel = f"{rotulo}/{caminho.relative_to(pasta).as_posix()}"
+            if caminho.is_symlink():
+                achados.append(("link-simbolico", f"{rel} e link simbolico; recusado"))
+            elif caminho.is_dir():
+                achados.append(("subpasta-nao-permitida", f"{rel}: {rotulo}/ e plana (ADR-0075 b)"))
+            elif caminho.parent == pasta and caminho.name in aceitos:
+                continue
+            elif pasta == rules_dir and caminho.suffix == ".dmn":
+                achados.append(
+                    (
+                        "dmn-nao-listado",
+                        f"{rel} nao esta no pin (nem em artifacts nem em exemplos_sinteticos); "
+                        "a pasta recebe so arquivos do K1 via atualizacao do pin",
+                    )
+                )
+            else:
+                achados.append(
+                    (
+                        "arquivo-nao-listado",
+                        f"{rel} nao esta no pin nem no manifesto (exemplos do pacote ficam fora do lock)",
+                    )
+                )
+    return achados
 
 
 def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -> list[str]:
@@ -643,6 +869,7 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
             anexos_raw[papel] = raw
 
     obrigatorias: tuple[str, ...] | None = None
+    vocab: VocabularioPacoteK1 | None = None
     if "vocabulario" in anexos_raw:
         vocab = _ler_vocabulario(anexos_raw["vocabulario"], manifesto.major, problemas)
         if vocab is not None:
@@ -666,9 +893,11 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
         if sha256_prefixado(raw) != decisao.sha256:
             problemas.append(f"{onde}: sha256 diverge do manifesto")
             continue
-        colunas = _colunas_de_saida(raw, decisao, problemas)
-        if colunas is None:
+        tabela = _tabela(raw, decisao, problemas)
+        if tabela is None:
             continue
+        colunas, linhas = tabela
+        _conferir_linhas(decisao, colunas, linhas, vocab, problemas)
         repetidas = sorted({c for c in colunas if colunas.count(c) > 1})
         if repetidas:
             problemas.append(f"{onde}: coluna de saida repetida {repetidas}")
@@ -711,4 +940,10 @@ __all__ = [
     "ler_manifesto",
     "sha256_prefixado",
     "verificar_pacote",
+    "SAIDA_ID_REGRA",
+    "ativacao_nao_suportada",
+    "ids_de_decisao",
+    "json_estrito",
+    "nomes_k1_declarados",
+    "verificar_pastas",
 ]

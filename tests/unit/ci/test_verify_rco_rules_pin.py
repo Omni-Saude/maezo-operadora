@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -344,3 +346,80 @@ def test_sem_pacote_com_k1_preenchida_reprova(tmp_path: Path) -> None:
     (tmp_path / K1_DIR).mkdir(parents=True)
     (tmp_path / K1_DIR / "manifesto.json").write_text("{}", encoding="utf-8")
     assert _codes(_base_lock("sem_pacote"), tmp_path) == {"arquivo-nao-listado"}
+
+
+# ---------------------------------------------------------------------------------------------
+# Revisao de 2403c8ed (itens 2, 3, 6, 7 e 8)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_major2_so_plena_sem_aditivo_passa(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree  # pacote sintetico 2.0.0, todas as regras `plena` sem aditivo
+    assert verify_lock(lock, repo_root=root) == []
+
+
+@pytest.mark.parametrize(
+    "ativacao", [("em_correcao", False), ("conferida", False), ("plena", True), ("em_correcao", True)]
+)
+def test_major2_ativacao_nao_ligada_reprova(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+    sint.montar(tmp_path, ativacoes={"SINT-B-0001": ativacao})
+    violations = verify_lock(sint.lock(tmp_path), repo_root=tmp_path)
+    assert {v.code for v in violations} == {"ativacao-nao-suportada"}
+    assert "Onda 2 item 5" in violations[0].detail
+    assert main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_regra_sem_entrada_em_regras_reprova(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    root, _ = pinned_tree
+    manifesto = json.loads((root / K1_MANIFEST_PATH).read_bytes())
+    manifesto["decisoes"][0]["regras"].pop()
+    sint.regravar(root, manifesto)
+    violations = verify_lock(sint.lock(root), repo_root=root)
+    assert {v.code for v in violations} == {"pacote-k1"}
+    assert "SINT-A-0002" in violations[0].detail
+
+
+@pytest.mark.parametrize("const", ["NaN", "Infinity", "-Infinity"])
+def test_lock_com_constante_nao_padrao_reprova(tmp_path: Path, const: str) -> None:
+    raw = json.dumps(_base_lock("sem_pacote")).replace('"status": "NAO_PUBLICADO"', f'"status": {const}')
+    assert const in raw
+    assert _run_cli(tmp_path, raw) == 1
+
+
+def test_exemplo_sintetico_sem_prefixo_rco_reprova(tmp_path: Path) -> None:
+    (tmp_path / RULES_DIR).mkdir(parents=True)
+    path = tmp_path / RULES_DIR / "rco_exemplo.dmn"
+    path.write_text(_EXAMPLE_DMN.format(id="exemplo_sem_prefixo"), encoding="utf-8")
+    lock = _base_lock("sem_pacote")
+    lock["exemplos_sinteticos"] = [_entry(tmp_path, path)]
+    assert _codes(lock, tmp_path) == {"decisao-invalida"}
+
+
+def test_exemplo_com_id_de_decisao_do_pacote_reprova(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    root, lock = pinned_tree
+    path = root / RULES_DIR / "rco_exemplo.dmn"
+    path.write_text(_EXAMPLE_DMN.format(id="rco_sint_a"), encoding="utf-8")
+    lock["exemplos_sinteticos"] = [_entry(root, path)]
+    assert _codes(lock, root) == {"decisao-duplicada"}
+
+
+def test_gate_continua_so_biblioteca_padrao(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+    """Item 7: o gate le o manifesto sem importar o pacote `maezo` (nem structlog)."""
+    root, _ = pinned_tree
+    script = Path(__file__).resolve().parents[3] / "scripts" / "ci" / "verify_rco_rules_pin.py"
+    codigo = (
+        "import runpy, sys\n"
+        f"sys.argv = ['verify', '--repo-root', {str(root)!r}]\n"
+        "try:\n"
+        f"    runpy.run_path({str(script)!r}, run_name='__main__')\n"
+        "except SystemExit as exc:\n"
+        "    rc = exc.code\n"
+        "carregados = sorted("
+        "    m for m in sys.modules if m == 'maezo' or m.startswith(('maezo.', 'structlog'))"
+        ")\n"
+        "print(rc, carregados)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", codigo], capture_output=True, text=True, check=True, timeout=120
+    )
+    assert out.stdout.strip().splitlines()[-1] == "0 []", out.stdout + out.stderr

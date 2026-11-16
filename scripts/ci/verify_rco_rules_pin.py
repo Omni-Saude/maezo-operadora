@@ -32,16 +32,20 @@ Estados do pin (`estado`)
   `origem` do manifesto; `manifest_pin` com `path` = `config/integrations/rco/k1/manifesto.json` e
   `sha256` (o conteudo de `manifesto.sha256` do pacote); e `artifacts` nao vazio, igual a
   `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`). O manifesto e lido por
-  `maezo.platform.rco_manifesto` (o mesmo leitor do runtime; so biblioteca padrao): formato MAJOR 1 ou 2
-  (2.0.0: `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`),
-  sem `origem.sujo`, campos exatos, prefixo `rco_`, anexos (`vocabulario.json`, `entradas.json`,
-  `k6-filas.json`) com o sha256 do manifesto e colunas de saida dentro do `saidas[]` de cada decisao.
+  `src/maezo/platform/rco_manifesto.py` — o mesmo leitor do runtime, carregado aqui PELO CAMINHO do
+  arquivo (sem `import maezo`, entao o gate segue so biblioteca padrao): formato MAJOR 1 ou 2 (2.0.0:
+  `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`; regra fora de
+  `plena` sem aditivo e recusada ate a Onda 2 item 5), sem `origem.sujo`, campos exatos, prefixo
+  `rco_`, anexos (`vocabulario.json`, `entradas.json`, `k6-filas.json`) com o sha256 do manifesto,
+  colunas de saida dentro do `saidas[]` de cada decisao, `idRegra` emitidos = `regras[]` e linha
+  adversa com `idRegra`/`fila`/`classeAdverso`/`motivoTab38` preenchidos.
   Em `config/integrations/rco/k1/` so entram o manifesto e esses anexos (os exemplos do pacote ficam
   fora do lock e fora da arvore: contrato §3). Cada `rco/*.dmn` tem de estar listado com sha256
   igual; nada fora da lista e aceito.
 
 Em ambos os estados: subpasta em `rco/` ou em `k1/`, link simbolico, caminho absoluto ou com `..`,
-entrada duplicada e arquivo listado ausente reprovam.
+entrada duplicada, arquivo listado ausente e exemplo sintetico com id de decisao sem `rco_` ou
+repetido reprovam (a varredura das pastas e `rco_manifesto.verificar_pastas`, a mesma do runtime).
 
 Codigos de saida (mesmos do verificador AMH): 0 = passa; 1 = falha (pin ou arvore); 2 = uso
 invalido da linha de comando (argparse).
@@ -51,12 +55,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from types import ModuleType
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +71,8 @@ RULES_DIR = "spec/processes/dmn/rco"
 #: Pasta plana do manifesto K1 e dos anexos (= `maezo.platform.rco_manifesto.K1_DIR`).
 K1_DIR = "config/integrations/rco/k1"
 K1_MANIFEST_PATH = f"{K1_DIR}/manifesto.json"
+#: Leitor unico do manifesto (gate e runtime), relativo a raiz DESTE repositorio.
+K1_READER = "src/maezo/platform/rco_manifesto.py"
 LOCK_NAME = "rco-rules-lock"
 #: Versao do formato do lock: 2.0.0 trouxe o digest `sha256:<hex>` (contrato-k1.md §11 item 1).
 LOCK_VERSION = "2.0.0"
@@ -125,6 +133,10 @@ def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"constante JSON nao padrao {name!r} (NaN/Infinity) recusada")
+
+
 def _unsafe_path(repo_root: Path, rel: PurePosixPath) -> str | None:
     """Motivo para recusar `rel` (link simbolico em qualquer componente ou fuga da raiz), ou None."""
     current = repo_root
@@ -142,12 +154,16 @@ def load_lock(path: Path) -> tuple[dict[str, Any] | None, list[Violation]]:
     if not path.is_file():
         return None, [Violation("lock-ausente", f"pin nao encontrado: {path}")]
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_no_duplicate_keys)
+        parsed = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_constant,
+        )
     except _DuplicateKeyError as exc:
         return None, [Violation("lock-chave-duplicada", f"{path}: chave JSON repetida {exc.args[0]!r}")]
     except (OSError, UnicodeDecodeError) as exc:
         return None, [Violation("lock-ilegivel", f"{path}: {exc}")]
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:  # JSONDecodeError e NaN/Infinity
         return None, [Violation("lock-json-invalido", f"{path}: JSON invalido ({exc})")]
     if not isinstance(parsed, dict):
         return None, [Violation("lock-nao-objeto", f"{path}: o topo tem de ser um objeto JSON")]
@@ -324,19 +340,38 @@ def verify_lock(lock: dict[str, Any], *, repo_root: Path) -> list[Violation]:
     for rel, digest in sorted(exemplos.items()):
         violations.extend(_check_digest(repo_root, rel, digest, "exemplo sintetico"))
 
-    violations.extend(_scan_rules_dir(repo_root, set(artifacts) | set(exemplos)))
-    violations.extend(_scan_k1_dir(repo_root, estado == ESTADO_FIXADO))
+    violations.extend(_check_decision_ids(repo_root, {**artifacts, **exemplos}))
+    violations.extend(_scan_dirs(repo_root, set(artifacts) | set(exemplos), estado == ESTADO_FIXADO))
     return violations
+
+
+_K1_MODULE_NAME = "_verify_rco_rules_pin_rco_manifesto"
+
+
+def _k1() -> ModuleType:
+    """O leitor `src/maezo/platform/rco_manifesto.py`, carregado PELO CAMINHO do arquivo.
+
+    E o mesmo leitor do runtime (um formato so), mas sem `import maezo...`: isso rodaria
+    `maezo/platform/__init__.py` (structlog etc.) e o gate deixaria de ser so biblioteca padrao. O
+    modulo nao importa nada de `maezo`.
+    """
+    cached = sys.modules.get(_K1_MODULE_NAME)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(_K1_MODULE_NAME, REPO_ROOT / K1_READER)
+    if spec is None or spec.loader is None:  # pragma: no cover - arquivo do proprio repo
+        raise RuntimeError(f"leitor do manifesto K1 nao carregavel: {K1_READER}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[_K1_MODULE_NAME] = module  # dataclasses resolve o modulo por nome
+    spec.loader.exec_module(module)
+    return module
 
 
 def _check_package(
     repo_root: Path, provenance: dict[str, Any], artifacts: dict[PurePosixPath, str]
 ) -> list[Violation]:
     """Le o manifesto pinado com o leitor do runtime e cruza com o pin (so com manifesto integro)."""
-    # Import tardio: o leitor e so biblioteca padrao, mas mora no pacote para que gate e runtime
-    # leiam o MESMO formato. `sem_pacote` nem chega aqui.
-    from maezo.platform import rco_manifesto as k1
-
+    k1 = _k1()
     try:
         manifesto = k1.ler_manifesto((repo_root / K1_MANIFEST_PATH).read_bytes())
     except k1.ManifestoK1InvalidoError as exc:
@@ -369,98 +404,62 @@ def _check_package(
             )
     problemas = k1.verificar_pacote(manifesto, k1_dir=repo_root / K1_DIR, rules_dir=repo_root / RULES_DIR)
     violations.extend(Violation("pacote-k1", problema) for problema in problemas)
+    # Mesma recusa do runtime: ativacao sem significado ligado (Onda 2 item 5).
+    violations.extend(Violation("ativacao-nao-suportada", p) for p in k1.ativacao_nao_suportada(manifesto))
     return violations
 
 
-def _k1_allowed_names(repo_root: Path) -> set[str]:
-    """Nomes aceitos em `k1/` no estado `fixado`: o manifesto e os anexos que ele nomeia.
-
-    Leitura so dos nomes (sem validar): a validacao do manifesto e de `_check_package`, que ja reprova
-    manifesto divergente ou invalido; aqui so se evita repetir essa falha arquivo a arquivo.
-    """
-    allowed = {PurePosixPath(K1_MANIFEST_PATH).name}
-    try:
-        manifesto = json.loads((repo_root / K1_MANIFEST_PATH).read_bytes())
-    except (OSError, ValueError):
-        return allowed
-    if isinstance(manifesto, dict):
-        for secao in ("vocabulario", "dicionario_entradas", "k6"):
-            nome = manifesto.get(secao, {}).get("path") if isinstance(manifesto.get(secao), dict) else None
-            if (
-                isinstance(nome, str)
-                and nome
-                and "/" not in nome
-                and "\\" not in nome
-                and nome not in (".", "..")
-            ):
-                allowed.add(nome)
-    return allowed
-
-
-def _scan_k1_dir(repo_root: Path, fixado: bool) -> list[Violation]:
-    """`k1/` so aceita o manifesto e os anexos que ele pina; sem pacote, nada (pasta ausente = vazia)."""
-    rel_dir = PurePosixPath(K1_DIR)
-    unsafe = _unsafe_path(repo_root, rel_dir)
-    if unsafe is not None:
-        return [Violation("link-simbolico", f"pasta do manifesto K1: {unsafe}")]
-    k1_dir = repo_root / K1_DIR
-    if not k1_dir.exists():
+def _check_decision_ids(repo_root: Path, listed: dict[PurePosixPath, str]) -> list[Violation]:
+    """Ids de decisao de todo `.dmn` listado (artefatos e exemplos sinteticos do Maezo), em qualquer
+    estado: prefixo `rco_` e nenhum id em dois arquivos — a mesma leitura do runtime."""
+    if not listed:
         return []
-    if not k1_dir.is_dir():
-        return [Violation("pasta-invalida", f"{K1_DIR} existe mas nao e pasta")]
-    allowed = _k1_allowed_names(repo_root) if fixado else set()
+    k1 = _k1()
     violations: list[Violation] = []
-    for path in sorted(k1_dir.rglob("*")):
-        rel = PurePosixPath(path.relative_to(repo_root).as_posix())
-        if path.is_symlink():
-            violations.append(Violation("link-simbolico", f"{rel} e link simbolico; recusado"))
-        elif path.is_dir():
-            violations.append(Violation("subpasta-nao-permitida", f"{rel}: {K1_DIR}/ e plana"))
-        elif rel.parent == rel_dir and rel.name in allowed:
+    vistos: dict[str, PurePosixPath] = {}
+    for rel in sorted(listed):
+        path = repo_root / rel
+        if path.is_symlink() or not path.is_file():
+            continue  # ausencia/link ja reportados por _check_digest
+        try:
+            ids = k1.ids_de_decisao(path.read_bytes(), str(rel))
+        except k1.ManifestoK1InvalidoError as exc:
+            violations.extend(Violation("decisao-invalida", p) for p in exc.problemas)
             continue
-        else:
-            violations.append(
-                Violation(
-                    "arquivo-nao-listado",
-                    f"{rel} nao e o manifesto pinado nem anexo dele (exemplos do pacote ficam fora do lock)",
+        for decision_id in ids:
+            if decision_id in vistos:
+                violations.append(
+                    Violation(
+                        "decisao-duplicada", f"{rel}: decisao {decision_id!r} tambem em {vistos[decision_id]}"
+                    )
                 )
-            )
+            vistos[decision_id] = rel
     return violations
 
 
-def _scan_rules_dir(repo_root: Path, listed: set[PurePosixPath]) -> list[Violation]:
-    """Recusa tudo em `rco/` que o pin nao declara (pasta ausente = vazia)."""
+def _scan_dirs(repo_root: Path, listed: set[PurePosixPath], fixado: bool) -> list[Violation]:
+    """`rco/` e `k1/` so com o que pin e manifesto declaram: `rco_manifesto.verificar_pastas`, a MESMA
+    varredura do runtime, mais a recusa de link simbolico nos ancestrais (so faz sentido no checkout)."""
     violations: list[Violation] = []
-    rules_dir = repo_root / RULES_DIR
-    unsafe = _unsafe_path(repo_root, PurePosixPath(RULES_DIR))
-    if unsafe is not None:
-        return [Violation("link-simbolico", f"pasta de regras: {unsafe}")]
-    if not rules_dir.exists():
-        return []
-    if not rules_dir.is_dir():
-        return [Violation("pasta-invalida", f"{RULES_DIR} existe mas nao e pasta")]
-    allowed = set(listed) | {PurePosixPath(RULES_DIR) / README_NAME}
-    for path in sorted(rules_dir.rglob("*")):
-        rel = PurePosixPath(path.relative_to(repo_root).as_posix())
-        if path.is_symlink():
-            violations.append(Violation("link-simbolico", f"{rel} e link simbolico; recusado"))
-        elif path.is_dir():
-            violations.append(
-                Violation("subpasta-nao-permitida", f"{rel}: {RULES_DIR}/ nao aceita subpasta (ADR-0075 b)")
-            )
-        elif rel in allowed:
-            continue
-        elif rel.suffix == ".dmn":
-            violations.append(
-                Violation(
-                    "dmn-nao-listado",
-                    f"{rel} nao esta no pin (nem em artifacts nem em exemplos_sinteticos); "
-                    "a pasta recebe so arquivos do K1 via atualizacao do pin",
-                )
-            )
-        else:
-            violations.append(Violation("arquivo-nao-listado", f"{rel} nao e README.md nem esta no pin"))
-    return violations
+    for rel_dir in (RULES_DIR, K1_DIR):
+        unsafe = _unsafe_path(repo_root, PurePosixPath(rel_dir))
+        if unsafe is not None:
+            violations.append(Violation("link-simbolico", f"pasta {rel_dir}: {unsafe}"))
+    if violations:
+        return violations
+    k1 = _k1()
+    nomes_k1: set[str] = set()
+    if fixado:
+        manifesto = repo_root / K1_MANIFEST_PATH
+        raw = manifesto.read_bytes() if manifesto.is_file() and not manifesto.is_symlink() else None
+        nomes_k1 = k1.nomes_k1_declarados(raw)
+    achados = k1.verificar_pastas(
+        rules_dir=repo_root / RULES_DIR,
+        k1_dir=repo_root / K1_DIR,
+        listados_rco={rel.name for rel in listed},
+        nomes_k1=nomes_k1,
+    )
+    return [Violation(code, detail) for code, detail in achados]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

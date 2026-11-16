@@ -552,3 +552,26 @@ def test_m4_formas_derivadas_sao_adversas(tmp_path: Path, valor: str) -> None:
     assert valor in carregar(VOCAB).adversos
     path = _maezo(tmp_path, "x.dmn", ["status"], [[f'"{valor.lower()}"']])
     assert "valor adverso" in _messages(_run([path]))
+
+
+def _rco_com_id_regra(tmp_path: Path, rows: list[list[str]]) -> Path:
+    path = tmp_path / "dmn" / "rco" / "rco_idr.dmn"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_dmn(path.stem, ["decisao", "idRegra", "fila", "classeAdverso"], rows), encoding="utf-8")
+    return path
+
+
+def test_k1_id_regra_vazio_so_em_linha_nao_adversa(tmp_path: Path) -> None:
+    """contrato-k1.md §6: `""` em idRegra vale em linha nao adversa; adversa exige idRegra."""
+    ok = _rco_com_id_regra(
+        tmp_path,
+        [['"liberar"', '""', '""', '""'], ['"negar"', '"K1-R-1"', '"cadastro"', '"administrativo"']],
+    )
+    assert _run([ok]).ok, _messages(_run([ok]))
+
+
+@pytest.mark.parametrize("vazio", ['""', "null", ""])
+def test_k1_linha_adversa_sem_id_regra_reprova(tmp_path: Path, vazio: str) -> None:
+    path = _rco_com_id_regra(tmp_path, [['"glosar"', vazio, '"faturamento"', '"contas"']])
+    report = _run([path])
+    assert not report.ok and "exige idRegra preenchido" in _messages(report)

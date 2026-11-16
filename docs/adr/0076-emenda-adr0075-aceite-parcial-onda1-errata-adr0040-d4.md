@@ -58,12 +58,12 @@ ADR-0075 recebe só uma linha de remissão no cabeçalho.
 5. **Contagem `dmn_rco` separada** (`scripts/docs/contagens_canonicas.py:122`; `README.md:134`).
 6. **CODEOWNERS** para `/spec/processes/dmn/rco/` e `/config/integrations/rco/` (`.github/CODEOWNERS:107-108`).
 7. **Pin e verificador (ADR-0075 §(b)).** `config/integrations/rco/rules.lock.json` com
-   `estado` ∈ {`sem_pacote`, `fixado`} (hoje `sem_pacote`, `:24`), `manifest_pin`, `artifacts` e
-   `exemplos_sinteticos` (`:32`); verificador fail-closed, só biblioteca padrão, sem rede,
-   `scripts/ci/verify_rco_rules_pin.py:55-56`; alvo `Makefile:168` e passo de CI
+   `estado` ∈ {`sem_pacote`, `fixado`} (hoje `sem_pacote`, `:28`), `manifest_pin`, `artifacts` e
+   `exemplos_sinteticos` (`:36`); verificador fail-closed, só biblioteca padrão, sem rede,
+   `scripts/ci/verify_rco_rules_pin.py:81-82`; alvo `Makefile:168` e passo de CI
    `ci.yml:927-928` (`.github/workflows/`).
 8. **Lint estático do vocabulário de saída (ADR-0075 §(d), só a parte estática)** em
-   `validate-artifacts` (`src/maezo/platform/validation/vocabulario_saida.py:539-560`), lendo o dado
+   `validate-artifacts` (`src/maezo/platform/validation/vocabulario_saida.py:560-581`), lendo o dado
    `config/integrations/rco/vocabulario-saida.yaml` (`estado: provisorio`, `:24`; a seção `k1` será
    congelada pela unidade PROG-RCO-1 no rco):
    - (a) nenhuma saída adversa em tabela do Maezo: ADR-0018 parte 2 como gate estático;

@@ -491,6 +491,7 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
         i_decisao = tabela.saidas.index("decisao")
         i_classe = tabela.saidas.index("classeAdverso")
         i_fila = tabela.saidas.index("fila")
+        i_id_regra = tabela.saidas.index("idRegra") if "idRegra" in tabela.saidas else None
         for rid, celulas in tabela.regras:
             onde = f"regra '{rid}'"
             decisao, classe, fila = celulas[i_decisao], celulas[i_classe], celulas[i_fila]
@@ -533,6 +534,15 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
                     erro(did, f"{onde}: decisao '{valor_decisao}' exige classeAdverso preenchida")
                 if not fila_preenchida:
                     erro(did, f"{onde}: decisao '{valor_decisao}' exige fila preenchida (dono humano, K6)")
+                if i_id_regra is not None:
+                    id_regra = celulas[i_id_regra]
+                    if id_regra.tipo is not Tipo.STRING or not id_regra.valor.strip():
+                        erro(
+                            did,
+                            f"{onde}: decisao '{valor_decisao}' exige idRegra preenchido "
+                            '(contrato-k1.md §6, combinacao.adversa_exige_preenchidos; `""` so vale em '
+                            "linha nao adversa)",
+                        )
             for proibida in k1.classes_proibidas:
                 if valor_classe == proibida.classe and valor_decisao in proibida.decisoes:
                     erro(

@@ -17,7 +17,8 @@ ganha, alem das chaves do motor (`version`, `id`, `deploymentId`), ate tres camp
   `regras[].sha256_yaml` fica exposto em `RcoPinnedTable.regras` (sem chave nova em `dmn_versions`:
   o ADR-0075 (f) define so os tres campos).
 - `idRegra`: da SAIDA `idRegra` da linha casada (o ADR diz "da saida da tabela"). So entra quando a
-  avaliacao devolveu exatamente uma linha com essa saida nao nula; sem ela fica AUSENTE. Valor fora
+  avaliacao devolveu exatamente uma linha com essa saida nao nula e nao vazia (`""` e o vazio canonico
+  do K1, contrato §6: linha nao adversa sem regra identificada); sem ela fica AUSENTE. Valor fora
   de `^[A-Za-z0-9._-]{1,64}$` (ex.: eco de variavel de entrada, PHI) levanta `RcoRulesPinError` e
   nunca e gravado. O exemplo sintetico de hoje nao tem essa saida.
 
@@ -35,9 +36,14 @@ ESTADO `fixado` (MZO-2a, contrato-k1.md §11 itens 1-6). O manifesto vendorizado
 `config/integrations/rco/k1/manifesto.json` (ao lado do pin, no checkout e na copia do wheel) e
 re-hasheado contra `manifest_pin.sha256` e lido por `maezo.platform.rco_manifesto` — o MESMO leitor do
 gate de CI: formato MAJOR 1 ou 2, sem `origem.sujo`, campos exatos, prefixo `rco_`, anexos pelo hash,
-colunas de saida dentro do `saidas[]`. `artifacts` tem de ser exatamente `decisoes[]` do manifesto
-(`caminho_consumidor` + `sha256`) e `provenance` a `origem` dele. Qualquer desvio recusa o pin
-inteiro (so as decisoes `rco_` param; as tabelas Maezo nao dependem disto).
+colunas de saida dentro do `saidas[]`, `idRegra` emitidos = `regras[]`, linha adversa preenchida.
+`artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
+`provenance` a `origem` dele. Manifesto 2.0.0 (contrato estavel na branch `prog/rco/ativacao-k1` do
+rco, commit 75015304, ainda nao em `main` do rco) com regra fora de `ativacao: plena` sem aditivo e
+recusado: esse significado so entra na Onda 2 item 5 (ativacao por classe de risco). As pastas
+`rco/` e `k1/` passam pela MESMA varredura do gate (`rco_manifesto.verificar_pastas`), em qualquer
+estado, e o pin e lido com o mesmo JSON estrito (sem chave repetida, sem NaN/Infinity). Qualquer
+desvio recusa o pin inteiro (so as decisoes `rco_` param; as tabelas Maezo nao dependem disto).
 
 CARGA E CACHE. So biblioteca padrao, sem rede. O pin e lido na primeira decisao `rco_` do processo
 e guardado (`functools.lru_cache`); trocar o pin exige novo deploy, como trocar a tabela. Carga
@@ -47,7 +53,6 @@ do pin do rco.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,7 +63,6 @@ from typing import Any, Final
 
 from maezo.agents import resolve_spec_dir
 from maezo.platform import rco_manifesto
-from maezo.platform.xml_safe import parse_xml_without_dtd
 
 #: Prefixo obrigatorio do id de decisao do K1 (ADR-0075 secao (b); `platform/validation/dmn.py`).
 RCO_DECISION_PREFIX: Final[str] = "rco_"
@@ -81,7 +85,6 @@ _SHA256: Final[re.Pattern[str]] = re.compile(r"^sha256:[0-9a-f]{64}$")
 #: Forma aceita de `idRegra`: identificador curto, nunca texto livre. Uma saida FEEL pode ecoar uma
 #: variavel de entrada (dado de caso/PHI); fora deste padrao o valor NUNCA e gravado (fail-closed).
 _ID_REGRA: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-_DMN_NS: Final[str] = "{https://www.omg.org/spec/DMN/20191111/MODEL/}"
 
 
 class RcoRulesPinError(Exception):
@@ -160,21 +163,23 @@ def _entries(lock: Mapping[str, Any], section: str) -> list[tuple[PurePosixPath,
 
 def _decision_ids(raw: bytes, rel: PurePosixPath) -> list[str]:
     try:
-        root = parse_xml_without_dtd(raw)
-    except Exception as exc:  # ParseError / DtdRefusedError: arquivo do pacote ilegivel
-        raise RcoRulesPinError(f"pin: {rel} nao e DMN legivel ({type(exc).__name__})") from exc
-    ids = [str(el.get("id") or "") for el in root.iter(f"{_DMN_NS}decision")]
-    if not ids or any(not is_rco_decision(i) for i in ids):
-        raise RcoRulesPinError(f"pin: {rel} tem de declarar decisoes com prefixo {RCO_DECISION_PREFIX!r}")
-    return ids
+        return rco_manifesto.ids_de_decisao(raw, f"pin: {rel}")
+    except rco_manifesto.ManifestoK1InvalidoError as exc:
+        raise RcoRulesPinError(str(exc)) from exc
+
+
+def _k1_dir(lock_path: Path) -> Path:
+    """O pin mora em config/integrations/rco/; o manifesto e os anexos, em .../rco/k1/ (checkout e wheel)."""
+    return lock_path.parent / PurePosixPath(rco_manifesto.K1_DIR).name
 
 
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
-) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None]:
+) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None, set[str]]:
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
-    Devolve as decisoes por caminho do pin e os parametros de ativacao de `vocabulario.json`.
+    Devolve as decisoes por caminho do pin, os parametros de ativacao de `vocabulario.json` e os
+    nomes de arquivo aceitos em `k1/` (manifesto + anexos).
     """
     pin = lock.get("manifest_pin")
     if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
@@ -183,9 +188,7 @@ def _manifesto_fixado(
         raise RcoRulesPinError(
             f"pin: manifest_pin exige path={rco_manifesto.K1_MANIFESTO_PATH!r} e sha256 sha256:<64 hex>"
         )
-    # O pin mora em config/integrations/rco/; o manifesto, em config/integrations/rco/k1/ (no checkout
-    # e na copia do wheel, que leva a pasta inteira).
-    k1_dir = lock_path.parent / PurePosixPath(rco_manifesto.K1_DIR).name
+    k1_dir = _k1_dir(lock_path)
     try:
         raw = (k1_dir / rco_manifesto.K1_MANIFESTO_NOME).read_bytes()
     except OSError as exc:
@@ -208,11 +211,19 @@ def _manifesto_fixado(
     problemas = rco_manifesto.verificar_pacote(manifesto, k1_dir=k1_dir, rules_dir=rules_dir)
     if problemas:
         raise RcoRulesPinError(f"pin: pacote K1 nao confere com o manifesto: {'; '.join(problemas)}")
+    nao_ligadas = rco_manifesto.ativacao_nao_suportada(manifesto)
+    if nao_ligadas:
+        raise RcoRulesPinError(
+            f"pin: pacote K1 com {len(nao_ligadas)} regra(s) de ativacao ainda nao ligada no consumidor "
+            "(so 'plena' sem exige_aditivo ate a Onda 2 item 5, ativacao por classe de risco): "
+            + "; ".join(nao_ligadas[:5])
+        )
     try:
         vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)
     except rco_manifesto.ManifestoK1InvalidoError as exc:
         raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
-    return manifesto.decisao_por_caminho(), vocab.parametros_ativacao
+    nomes_k1 = {rco_manifesto.K1_MANIFESTO_NOME} | {a.nome for a in manifesto.anexos.values()}
+    return manifesto.decisao_por_caminho(), vocab.parametros_ativacao, nomes_k1
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -224,7 +235,8 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     (`versaoRegra`/`sha256_yaml` por `idRegra`).
     """
     try:
-        lock = json.loads(lock_path.read_bytes())
+        # Mesmo JSON estrito do gate: chave repetida e NaN/Infinity recusados.
+        lock = rco_manifesto.json_estrito(lock_path.read_bytes())
     except (OSError, ValueError) as exc:
         raise RcoRulesPinError(f"pin ilegivel em {lock_path} ({type(exc).__name__})") from exc
     if not isinstance(lock, dict):
@@ -245,8 +257,9 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     artifacts = _entries(lock, "artifacts")
     por_caminho: dict[str, rco_manifesto.DecisaoK1] = {}
     parametros: rco_manifesto.ParametrosAtivacao | None = None
+    nomes_k1: set[str] = set()
     if estado == ESTADO_FIXADO:
-        por_caminho, parametros = _manifesto_fixado(lock, lock_path, rules_dir)
+        por_caminho, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
         pinados = {str(rel): digest for rel, digest in artifacts}
         if len(pinados) != len(artifacts) or pinados != {c: d.sha256 for c, d in por_caminho.items()}:
             raise RcoRulesPinError("pin: artifacts tem de ser exatamente decisoes[] do manifesto K1")
@@ -256,8 +269,18 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     else:
         raise RcoRulesPinError(f"pin: estado desconhecido {estado!r}")
 
+    listados = [*artifacts, *_entries(lock, "exemplos_sinteticos")]
+    # Mesma varredura do gate (`rco_manifesto.verificar_pastas`): nada fora do pin/manifesto nas pastas.
+    soltos = rco_manifesto.verificar_pastas(
+        rules_dir=rules_dir,
+        k1_dir=_k1_dir(lock_path),
+        listados_rco={rel.name for rel, _ in listados},
+        nomes_k1=nomes_k1,
+    )
+    if soltos:
+        raise RcoRulesPinError("pin: pastas do pacote fora do pin: " + "; ".join(d for _, d in soltos))
     tables: dict[str, RcoPinnedTable] = {}
-    for rel, digest in [*artifacts, *_entries(lock, "exemplos_sinteticos")]:
+    for rel, digest in listados:
         try:
             raw = (rules_dir / rel.name).read_bytes()
         except OSError as exc:
@@ -314,7 +337,9 @@ def rco_audit_fields(decision_key: str, row: Mapping[str, Any] | None = None) ->
     if pinned is None:
         return {}
     id_regra = row.get(SAIDA_ID_REGRA) if row is not None else None
-    if id_regra is None:
+    if id_regra is None or id_regra == "":
+        # `""` e o vazio canonico do K1 (contrato §6): linha nao adversa sem regra identificada. So
+        # `shaDmn` e gravado; o gate exige `idRegra` preenchido em linha adversa.
         return pinned.audit_fields()
     if not isinstance(id_regra, str) or _ID_REGRA.fullmatch(id_regra) is None:
         # O valor nao entra nem na mensagem: pode ser dado de caso ecoado pela tabela.

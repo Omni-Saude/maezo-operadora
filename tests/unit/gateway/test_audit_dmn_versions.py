@@ -199,7 +199,8 @@ def test_rco_id_regra_comes_from_the_single_matched_row() -> None:
     assert version.to_audit_dict({"idRegra": "K1-R-001"})["idRegra"] == "K1-R-001"
     assert version.to_audit_dict({"idRegra": "a.B_9-z"})["idRegra"] == "a.B_9-z"
     assert version.to_audit_dict({"idRegra": "x" * 64})["idRegra"] == "x" * 64
-    for row in (None, {}, {"idRegra": None}):
+    # `""` e o vazio canonico do K1 (contrato §6): linha sem regra identificada, so shaDmn.
+    for row in (None, {}, {"idRegra": None}, {"idRegra": ""}, {"idRegra": "", "decisao": "liberar"}):
         assert "idRegra" not in version.to_audit_dict(row)
 
     fake = FakeDmnTransport()
@@ -283,7 +284,6 @@ def test_pin_loader_fails_closed(tmp_path: Path, sha: str | None, estado: str, r
     "id_regra",
     [
         "x" * 65,  # too long
-        "",
         "regra 1",  # space
         "regração",  # accents
         "K1-R-001\nnome=Maria",  # injected text
@@ -428,3 +428,80 @@ def test_fixado_major1_has_no_activation_parameters(tmp_path: Path) -> None:
     pin = load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
     assert pin.parametros_ativacao is None
     assert pin.tables["rco_sint_a"].regras is not None
+
+
+# ---------------------------------------------------------------------------------------------
+# Revisao de 2403c8ed: `""` em idRegra, ativacao nao ligada, runtime tao estrito quanto o gate
+# ---------------------------------------------------------------------------------------------
+
+
+def test_fixado_empty_id_regra_records_only_sha(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """O pacote real emite `""` em idRegra de linha nao adversa (ex.: liberar): ausente, nao erro."""
+    lock_path, rules_dir = _fixado(tmp_path)
+    pin = load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: pin)
+    fields = rco_pin.rco_audit_fields("rco_sint_b", {"idRegra": "", "decisao": "liberar"})
+    assert fields == {"shaDmn": pin.tables["rco_sint_b"].sha_dmn}
+
+
+@pytest.mark.parametrize("ativacao", [("em_correcao", False), ("conferida", False), ("plena", True)])
+def test_fixado_major2_with_unwired_activation_is_refused(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+    sint.montar(tmp_path, ativacoes={"SINT-A-0001": ativacao})
+    with pytest.raises(RcoRulesPinError, match="Onda 2 item 5") as excinfo:
+        load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
+    assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+
+
+def _symlink_k1(root: Path) -> None:
+    k1 = root / sint.K1_DIR
+    real = root / "k1-real"
+    k1.rename(real)
+    k1.symlink_to(real, target_is_directory=True)
+
+
+@pytest.mark.parametrize(
+    "estragar",
+    [
+        lambda root: (root / sint.K1_DIR / "notas.txt").write_text("x", encoding="utf-8"),
+        lambda root: (root / sint.RULES_DIR / "rco_intruso.dmn").write_bytes(
+            (root / sint.RULES_DIR / "sint_a.dmn").read_bytes()
+        ),
+        lambda root: (root / sint.K1_DIR / "exemplos").mkdir(),
+        _symlink_k1,
+        lambda root: (root / sint.LOCK_REL).write_text(
+            (root / sint.LOCK_REL)
+            .read_text(encoding="utf-8")
+            .replace('"estado": "fixado"', '"estado": "sem_pacote", "estado": "fixado"'),
+            encoding="utf-8",
+        ),
+        lambda root: (root / sint.LOCK_REL).write_text(
+            (root / sint.LOCK_REL).read_text(encoding="utf-8").replace('"PUBLISHED"', "NaN"),
+            encoding="utf-8",
+        ),
+    ],
+    ids=[
+        "arquivo-solto-k1",
+        "dmn-solto-rco",
+        "exemplos-vendorizados",
+        "k1-link",
+        "lock-chave-dupla",
+        "lock-nan",
+    ],
+)
+def test_runtime_refuses_what_the_gate_refuses(tmp_path: Path, estragar: Any) -> None:
+    from scripts.ci.verify_rco_rules_pin import main as gate
+
+    lock_path, rules_dir = _fixado(tmp_path)
+    load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    estragar(tmp_path)
+    assert gate(["--repo-root", str(tmp_path)]) == 1
+    with pytest.raises(RcoRulesPinError):
+        load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+
+
+def test_sem_pacote_runtime_refuses_stray_dmn(tmp_path: Path) -> None:
+    lock_path, rules_dir = _write_pin(tmp_path, sha=_lock_sha(_SINTETICO_REL))
+    load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    (rules_dir / "rco_solto.dmn").write_bytes((rules_dir / "rco_exemplo_sintetico.dmn").read_bytes())
+    with pytest.raises(RcoRulesPinError, match="rco_solto.dmn"):
+        load_rco_rules_pin(lock_path, rules_dir=rules_dir)
