@@ -187,7 +187,7 @@ def test_producao_inerte_enquanto_dias_ate_apresentacao_nao_tem_formula(decisoes
         (30, 30, 0),
         (31, 30, 1),
         (31, 0, 31),
-        (5, 365, 0),
+        (5, 30, 0),
     ],
 )
 def test_aplicar_tolerancia(dias: int | None, tol: int, esperado: int | None) -> None:
@@ -296,8 +296,11 @@ def test_tabela_real_de_main_nao_tolera() -> None:
 
 
 def test_configuracao_de_bordo_vale_30_com_procedencia() -> None:
+    """PROG-COORD-22 (decisao do dono, 16/11/2026): contrato 30, Maezo aceita ate 60 = folga de 30, que e
+    tambem o teto do leitor. Mudar o valor ou o teto exige nova decisao do dono."""
     caminho = RAIZ / mt.TOLERANCIA_CONTA_RELATIVO
     assert mt.ler_tolerancia_conta(caminho) == 30
+    assert mt.TOLERANCIA_CONTA_MAXIMA_DIAS == 30
     dados = json.loads(caminho.read_text(encoding="utf-8"))
     assert "PROG-COORD-22" in dados["decidido_por"]
 
@@ -321,8 +324,10 @@ def _arquivo(tmp_path: Path, conteudo: object) -> Path:
     [
         (_VALIDO, 30),
         ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 0}, 0),
-        ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 365}, 365),
-        ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 366}, None),
+        ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 29}, 29),
+        # teto = a decisao do dono PROG-COORD-22: acima de 30 e invalido (tolerancia 0, nunca amplia)
+        ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 31}, None),
+        ({**_VALIDO, "tolerancia_apresentacao_conta_dias": 365}, None),
         ({**_VALIDO, "tolerancia_apresentacao_conta_dias": -1}, None),
         ({**_VALIDO, "tolerancia_apresentacao_conta_dias": True}, None),
         ({**_VALIDO, "tolerancia_apresentacao_conta_dias": "30"}, None),
@@ -343,6 +348,38 @@ def test_configuracao_estrita(tmp_path: Path, conteudo: object, esperado: int | 
 
 def test_configuracao_ausente_le_none(tmp_path: Path) -> None:
     assert mt.ler_tolerancia_conta(tmp_path / "nao-existe.json") is None
+
+
+def test_leitura_que_falha_nao_fica_em_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So o sucesso fica em cache (como `rco_pin.rco_rules_pin`): uma falha e lida de novo."""
+    monkeypatch.setattr(mt, "_tolerancia_lida", [])
+    leituras: list[int | None] = [None, 30, 7]
+    chamadas: list[Path] = []
+
+    def _ler(caminho: Path) -> int | None:
+        chamadas.append(caminho)
+        return leituras.pop(0)
+
+    monkeypatch.setattr(mt, "ler_tolerancia_conta", _ler)
+    assert mt.tolerancia_conta_configurada() is None
+    assert mt.tolerancia_conta_configurada() == 30
+    assert mt.tolerancia_conta_configurada() == 30  # sucesso em cache: nao rele
+    assert len(chamadas) == 2
+
+
+def test_bruto_fora_do_dominio_fica_na_auditoria(
+    dic_injetado: DicionarioEntradasK1, decisoes: dict[str, Any], tolerancia: None
+) -> None:
+    """Calculo fora da faixa do dicionario (-36500..36500) entra nulo, mas a auditoria guarda o bruto."""
+    montadas = _montar(dic_injetado, decisoes, -36500, 1)  # os dois termos no dominio; a diferenca nao
+    assert montadas.variaveis[DIAS_ALEM] is None
+    assert montadas.nulos[DIAS_ALEM] == "fora_do_dominio"
+    assert dict(montadas.derivacoes[DIAS_ALEM]) == {
+        "diasBrutos": -36501,
+        "toleranciaAplicada": None,
+        "valorEntregue": None,
+        "motivoTolerancia": "fora_do_dominio",
+    }
 
 
 def test_configuracao_invalida_entrega_o_bruto_com_tolerancia_zero(
@@ -427,6 +464,79 @@ def test_guarda_acha_tolerancia_embutida(linha: tuple[str, str, str]) -> None:
 )
 def test_guarda_nao_acha_o_que_nao_e_tolerancia(linha: tuple[str, str, str]) -> None:
     assert mf.tolerancia_prazo_conta_no_dmn(_dmn_sintetico(*_SEM_TOLERANCIA, linha), "sint.dmn") == []
+
+
+def _dmn_variante(
+    *linhas: tuple[str, str, str], politica: str = "UNIQUE", expressao: str = DIAS_ALEM
+) -> bytes:
+    raw = _dmn_sintetico(*linhas).decode()
+    raw = raw.replace('hitPolicy="UNIQUE"', f'hitPolicy="{politica}"')
+    raw = raw.replace(f"<text>{DIAS_ALEM}</text>", f"<text>{expressao}</text>")
+    return raw.encode()
+
+
+#: O desvio pela ordem das linhas: glosa acima de 30 antes, depois libera todo o resto positivo. Cada
+#: celula `liberar` sozinha nao e faixa limitada; com FIRST a tabela tolera 30 (e a do Maezo se somaria).
+_POR_ORDEM = (("&gt; 30", "-", '"glosar"'), ("&gt; 0", "-", '"liberar"'), ("&lt;= 0", "-", '"liberar"'))
+_POR_ORDEM_TRACO = (("&gt; 30", "-", '"glosar"'), ("-", "-", '"liberar"'))
+
+
+@pytest.mark.parametrize(
+    ("linhas", "politica"),
+    [
+        (_POR_ORDEM, "FIRST"),
+        (_POR_ORDEM_TRACO, "FIRST"),
+        (_POR_ORDEM, "PRIORITY"),
+        (_POR_ORDEM, "RULE ORDER"),
+        (_POR_ORDEM, "OUTPUT ORDER"),
+        (_POR_ORDEM, "COLLECT"),
+    ],
+)
+def test_guarda_recusa_hit_policy_com_ordem(linhas: tuple[tuple[str, str, str], ...], politica: str) -> None:
+    achados = mf.tolerancia_prazo_conta_no_dmn(_dmn_variante(*linhas, politica=politica), "sint.dmn")
+    assert any(f"hitPolicy {politica}" in a for a in achados), achados
+
+
+@pytest.mark.parametrize("politica", ["UNIQUE", "ANY"])
+def test_guarda_aceita_hit_policy_sem_ordem(politica: str) -> None:
+    assert mf.tolerancia_prazo_conta_no_dmn(_dmn_variante(*_SEM_TOLERANCIA, politica=politica), "s.dmn") == []
+
+
+def test_guarda_hit_policy_ausente_e_unique() -> None:
+    raw = _dmn_sintetico(*_SEM_TOLERANCIA).replace(b' hitPolicy="UNIQUE"', b"")
+    assert mf.tolerancia_prazo_conta_no_dmn(raw, "s.dmn") == []
+
+
+@pytest.mark.parametrize(
+    "expressao",
+    [
+        f"({DIAS_ALEM})",
+        f"{DIAS_ALEM} - 0",
+        f"{DIAS_ALEM} - 30",
+        f"max([0, {DIAS_ALEM}])",
+        f" {DIAS_ALEM}\n - 30",
+    ],
+)
+def test_guarda_recusa_expressao_que_cita_a_entrada(expressao: str) -> None:
+    achados = mf.tolerancia_prazo_conta_no_dmn(_dmn_variante(*_SEM_TOLERANCIA, expressao=expressao), "s.dmn")
+    assert any("sem ser o nome puro" in a for a in achados), achados
+
+
+def test_guarda_nao_confunde_nome_maior() -> None:
+    raw = _dmn_variante(*_SEM_TOLERANCIA, expressao=f"{DIAS_ALEM}Outro", politica="FIRST")
+    assert mf.tolerancia_prazo_conta_no_dmn(raw, "s.dmn") == []  # outra entrada: a guarda nao se aplica
+
+
+def test_guarda_recusa_celula_de_outra_coluna_que_cita_a_entrada() -> None:
+    linha = ("&lt;= 0", f"if {DIAS_ALEM} &lt; 31 then true else false", '"glosar"')
+    achados = mf.tolerancia_prazo_conta_no_dmn(_dmn_sintetico(*_SEM_TOLERANCIA, linha), "s.dmn")
+    assert any("outra coluna" in a for a in achados), achados
+
+
+def test_tabela_real_de_main_e_unique_e_passa() -> None:
+    raw = rco_recorte.PRAZOS_CONTA_DMN.read_bytes()
+    assert b'hitPolicy="UNIQUE"' in raw
+    assert mf.tolerancia_prazo_conta_no_dmn(raw, "geral_prazos_conta.dmn") == []
 
 
 def test_guarda_dmn_ilegivel_e_achado() -> None:
@@ -518,49 +628,105 @@ def test_ajuste_so_em_dias_alem_do_prazo_contratual() -> None:
 
 # --- sigilo: nada da tolerancia no que fala com prestador ou beneficiario ---------------------------
 
-#: Caminhos que falam com o beneficiario (Helena, seus textos e o manual K2) e com o prestador (avisos de
-#: glosa e demonstrativo de contas, recurso de glosa, a agente de contas e os textos de saida comuns).
+#: Caminhos que falam com o beneficiario e com o prestador:
+#: - beneficiario: Helena (textos, manual K2 em `habilidades/cobertura/manual.py`), Lucas (cobranca), Fernando
+#:   (avisos de inadimplencia), o canal WhatsApp (webhook e seam) e os textos de saida comuns;
+#: - prestador: o demonstrativo de analise da conta TISS (`gateway/tiss/`), os avisos de glosa e de
+#:   devolucao (`contas.py`), o recurso de glosa (`recurso.py`), a agente de contas (Marina), Rafael (canal
+#:   portal TISS), a notificacao do credenciamento e as pontes de notificacao.
 VARREDURA_SIGILO = (
     "src/maezo/agents/helena",
     "spec/agents/helena",
+    "src/maezo/agents/lucas",
+    "spec/agents/lucas",
+    "src/maezo/agents/fernando",
+    "spec/agents/fernando",
+    "src/maezo/platform/webhooks/whatsapp",
+    "src/maezo/gateway/seams/whatsapp.py",
     "src/maezo/domain/comunicacao",
+    "src/maezo/gateway/tiss",
     "src/maezo/agents/marina",
     "spec/agents/marina",
+    "src/maezo/agents/rafael",
+    "spec/agents/rafael",
     "src/maezo/tools/workers/contas.py",
     "src/maezo/tools/workers/recurso.py",
+    "src/maezo/tools/workers/credenciamento.py",
     "src/maezo/platform/notification_bridge.py",
+    "src/maezo/platform/integrations/notifications_bridge.py",
+    "src/maezo/platform/integrations/notifications_inbox.py",
     "config/integrations/rco/k2.lock.json",
 )
+#: O pacote K2 (Manual do Beneficiario) ainda nao tem bytes na arvore (`k2.lock.json` em `sem_pacote`):
+#: entra na varredura quando existir, sem reprovar enquanto nao existe. Os demais caminhos sao obrigatorios.
+VARREDURA_SIGILO_SE_EXISTIR = ("config/integrations/rco/k2",)
+_SUFIXOS_TEXTO = frozenset({".py", ".yaml", ".yml", ".json", ".md", ".txt", ".j2", ".jinja", ".html", ".xml"})
+
+#: O numero configurado e o total que ele da com o prazo do contrato OMNI (30 dias, regra publicada):
+#: lidos da configuracao de bordo, nunca escritos aqui.
+_TOL = mt.ler_tolerancia_conta(RAIZ / mt.TOLERANCIA_CONTA_RELATIVO) or 0
+_TOTAL = 30 + _TOL
+_EXTENSO = {30: "trinta", 45: "quarenta e cinco", 60: "sessenta", 90: "noventa"}
+_NUM_TOL = rf"(?:{_TOL}|{_EXTENSO.get(_TOL, str(_TOL))}(?:\s*\({_TOL}\))?)"
+_NUM_TOTAL = rf"(?:\b{_TOTAL}|{_EXTENSO.get(_TOTAL, str(_TOTAL))}(?:\s*\({_TOTAL}\))?)"
 _PROIBIDO = re.compile(
     r"tolerancia[-_ ]?apresenta|toleranciaAplicada|motivoTolerancia|"
-    r"toler[aâ]ncia\s+(interna|de\s+apresenta|do\s+prazo|da\s+conta)|\b60\s*dias\b|sessenta\s+dias",
+    r"toler[aâ]ncia\s+(interna|de\s+apresenta|do\s+prazo|da\s+conta)|"
+    rf"(toler[aâ]ncia|folga|car[eê]ncia\s+extra)\s+(de\s+|até\s+|ate\s+)?{_NUM_TOL}\s*dias|"
+    rf"{_NUM_TOL}\s*dias\s+(de\s+)?(toler[aâ]ncia|folga|al[eé]m\s+do\s+prazo)|"
+    rf"{_NUM_TOTAL}\s*dias",
     re.IGNORECASE,
 )
 
 
 def _arquivos_varridos() -> list[Path]:
     arquivos: list[Path] = []
-    for rel in VARREDURA_SIGILO:
+    caminhos = [*VARREDURA_SIGILO, *(c for c in VARREDURA_SIGILO_SE_EXISTIR if (RAIZ / c).exists())]
+    for rel in caminhos:
         caminho = RAIZ / rel
         assert caminho.exists(), rel  # a varredura nao pode ficar vazia por caminho renomeado
+        candidatos = [caminho] if caminho.is_file() else sorted(caminho.rglob("*"))
         arquivos.extend(
-            [caminho] if caminho.is_file() else sorted(p for p in caminho.rglob("*") if p.is_file())
+            p
+            for p in candidatos
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix in _SUFIXOS_TEXTO
         )
     return arquivos
 
 
 def test_padrao_de_sigilo_pega_a_chave_e_o_numero() -> None:
-    assert _PROIBIDO.search(mt.CHAVE_TOLERANCIA_CONTA)
-    assert _PROIBIDO.search(mt.TOLERANCIA_CONTA_RELATIVO)
-    assert _PROIBIDO.search("aceitamos a conta em ate 60 dias")
-    assert _PROIBIDO.search("tolerância interna")
+    assert _TOL == 30  # o numero vem da configuracao de bordo (PROG-COORD-22)
+    for frase in (
+        mt.CHAVE_TOLERANCIA_CONTA,
+        mt.TOLERANCIA_CONTA_RELATIVO,
+        "tolerância interna",
+        "aceitamos a conta em ate 60 dias",
+        "a conta tem tolerância de 30 dias",
+        "uma folga de 30 dias",
+        "30 dias de tolerância",
+        "mais 30 dias além do prazo",
+        "até sessenta (60) dias",
+        "sessenta dias corridos",
+    ):
+        assert _PROIBIDO.search(frase), frase
+    for neutra in (
+        "o prazo do contrato e de 30 dias",
+        "sessenta",
+        "160 dias",
+        "prazo de 30 dias para recurso",
+    ):
+        assert not _PROIBIDO.search(neutra), neutra
+
+
+def test_varredura_cobre_os_caminhos() -> None:
+    arquivos = _arquivos_varridos()
+    for rel in VARREDURA_SIGILO:
+        assert any(a == RAIZ / rel or (RAIZ / rel) in a.parents for a in arquivos), rel
 
 
 def test_sigilo_nos_caminhos_de_prestador_e_beneficiario() -> None:
     achados: list[str] = []
     for arquivo in _arquivos_varridos():
-        if arquivo.suffix in {".pyc"}:
-            continue
         texto = arquivo.read_text(encoding="utf-8", errors="replace")
         achados.extend(f"{arquivo.relative_to(RAIZ)}: {m.group(0)!r}" for m in _PROIBIDO.finditer(texto))
     assert achados == []

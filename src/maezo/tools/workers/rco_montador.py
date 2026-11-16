@@ -231,8 +231,9 @@ class _FormulaImplementada:
     termos: tuple[tuple[str, str], ...]  # (nome, origem) de cada termo, na ordem do dicionario
     calcular: Callable[[Mapping[str, object]], tuple[int | None, MotivoNulo | None]]
     #: Ajuste de CONFIGURACAO do Maezo sobre o valor ja validado (nunca regra de negocio nova): recebe o
-    #: valor e devolve (valor entregue, registro de auditoria). So `diasAlemDoPrazoContratual` tem um.
-    ajuste: Callable[[object], tuple[object, Mapping[str, object]]] | None = None
+    #: calculo bruto da formula e o valor validado contra o dicionario e devolve (valor entregue, registro
+    #: de auditoria). So `diasAlemDoPrazoContratual` tem um.
+    ajuste: Callable[[object, object], tuple[object, Mapping[str, object]]] | None = None
 
 
 # --- tolerancia do prazo de apresentacao da conta (MZO-TOL, decisao do dono PROG-COORD-22) ----------
@@ -245,7 +246,9 @@ class _FormulaImplementada:
 # Nao se aplica a `prazoComprovacaoUsoVencido` (OPME de urgencia), que segue o prazo do contrato.
 TOLERANCIA_CONTA_RELATIVO: Final[str] = "config/integrations/rco/tolerancia-apresentacao-conta.json"
 CHAVE_TOLERANCIA_CONTA: Final[str] = "tolerancia_apresentacao_conta_dias"
-TOLERANCIA_CONTA_MAXIMA_DIAS: Final[int] = 365
+#: Teto = a decisao do dono PROG-COORD-22 (30 dias alem dos 30 do contrato: 60 no total). Acima dele o
+#: arquivo e invalido e a tolerancia cai a 0: ampliar exige nova decisao e mudanca deste teto por PR.
+TOLERANCIA_CONTA_MAXIMA_DIAS: Final[int] = 30
 _CAMPOS_TOLERANCIA: Final[frozenset[str]] = frozenset(
     {"_comentario", CHAVE_TOLERANCIA_CONTA, "decidido_por", "decidido_em"}
 )
@@ -257,6 +260,7 @@ class MotivoTolerancia(StrEnum):
     APLICADA = "aplicada"
     DENTRO_DO_PRAZO = "dentro_do_prazo_contratual"
     TERMO_NULO = "termo_nulo"
+    FORA_DO_DOMINIO = "fora_do_dominio"  # calculo fora do tipo ou do dominio do dicionario: entra nulo
     CONFIGURACAO_INVALIDA = "configuracao_invalida"  # ausente ou malformada: tolerancia 0
     DMN_JA_TOLERA = "dmn_ja_tolera"  # a tabela pinada libera faixa positiva limitada: tolerancia 0
     DMN_NAO_VERIFICADO = "dmn_nao_verificado"  # pin ilegivel ou tabela fora do pin: tolerancia 0
@@ -264,9 +268,10 @@ class MotivoTolerancia(StrEnum):
 
 def ler_tolerancia_conta(caminho: Path) -> int | None:
     """A tolerancia do arquivo, SO com: objeto JSON estrito com exatamente as chaves conhecidas, valor
-    inteiro (nao booleano) em 0..365 e `decidido_por`/`decidido_em` texto nao vazio. Qualquer outra
-    coisa (arquivo ausente, JSON invalido, chave a mais como um valor por prestador, tipo ou faixa
-    errados, sem procedencia) = `None`, que o montador le como tolerancia 0 (o prazo do contrato)."""
+    inteiro (nao booleano) em 0..`TOLERANCIA_CONTA_MAXIMA_DIAS` e `decidido_por`/`decidido_em` texto
+    nao vazio. Qualquer outra coisa (arquivo ausente, JSON invalido, chave a mais como um valor por
+    prestador, tipo ou faixa errados, sem procedencia) = `None`, que o montador le como tolerancia 0
+    (o prazo do contrato)."""
     try:
         dados = json_estrito(caminho.read_bytes())
         if not isinstance(dados, dict) or set(dados) != _CAMPOS_TOLERANCIA:
@@ -282,13 +287,22 @@ def ler_tolerancia_conta(caminho: Path) -> int | None:
     return valor if 0 <= valor <= TOLERANCIA_CONTA_MAXIMA_DIAS else None
 
 
-@lru_cache(maxsize=1)
+_tolerancia_lida: list[int] = []  # cache so do SUCESSO (como `rco_pin.rco_rules_pin`)
+
+
 def tolerancia_conta_configurada() -> int | None:
-    """A configuracao de bordo (checkout, depois a copia ao lado do pacote); sem arquivo = `None`."""
+    """A configuracao de bordo (checkout, depois a copia ao lado do pacote); sem arquivo = `None`.
+
+    So a leitura valida fica em cache: falha (ausente ou invalida) e lida de novo na proxima chamada."""
+    if _tolerancia_lida:
+        return _tolerancia_lida[0]
     parents = Path(__file__).resolve().parents
     for candidato in (parents[4] / TOLERANCIA_CONTA_RELATIVO, parents[2] / TOLERANCIA_CONTA_RELATIVO):
         if candidato.is_file():
-            return ler_tolerancia_conta(candidato)
+            valor = ler_tolerancia_conta(candidato)
+            if valor is not None:
+                _tolerancia_lida.append(valor)
+            return valor
     return None
 
 
@@ -328,11 +342,14 @@ def _registro_tolerancia(
     )
 
 
-def _ajustar_dias_alem_do_prazo(valor: object) -> tuple[object, Mapping[str, object]]:
+def _ajustar_dias_alem_do_prazo(bruto: object, valor: object) -> tuple[object, Mapping[str, object]]:
     """O ajuste de `diasAlemDoPrazoContratual`. Nulo segue nulo (nunca zero, nunca glosa); `<= 0` segue
     intacto; positivo perde a tolerancia configurada, que vale 0 com configuracao invalida ou com o DMN
-    pinado ja tolerando (ou nao verificavel). So le configuracao e pin quando ha dias positivos."""
+    pinado ja tolerando (ou nao verificavel). So le configuracao e pin quando ha dias positivos.
+    Calculo fora do dominio do dicionario entra nulo, mas a auditoria guarda o bruto."""
     if not isinstance(valor, int) or isinstance(valor, bool):
+        if isinstance(bruto, int) and not isinstance(bruto, bool):
+            return None, _registro_tolerancia(bruto, None, None, MotivoTolerancia.FORA_DO_DOMINIO)
         return None, _registro_tolerancia(None, None, None, MotivoTolerancia.TERMO_NULO)
     if valor <= 0:
         return valor, _registro_tolerancia(valor, 0, valor, MotivoTolerancia.DENTRO_DO_PRAZO)
@@ -576,7 +593,11 @@ def _montar_uma(
         valor, motivo = (None, motivo) if motivo is not None else _validar(entrada, calculado)
         if impl.ajuste is None:
             return valor, motivo
-        entregue, registro = impl.ajuste(valor)
+        # MZO-TOL: o valor AJUSTADO e o que sai daqui. Uma formula futura que tenha
+        # `diasAlemDoPrazoContratual` como termo derivado (recursao acima) receberia o valor tolerado, nao
+        # o bruto: reveja entao se a tolerancia lhe cabe e o teste que guarda `prazoComprovacaoUsoVencido`
+        # (`test_ajuste_so_em_dias_alem_do_prazo_contratual`), que segue o prazo do contrato.
+        entregue, registro = impl.ajuste(calculado, valor)
         if derivacoes is not None:
             derivacoes[nome] = registro
         if entregue is None:

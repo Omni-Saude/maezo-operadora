@@ -1071,13 +1071,27 @@ def _faixa_positiva_limitada(texto: str) -> bool | None:
     return achou
 
 
+#: A entrada como token FEEL (nao parte de outro nome).
+_TOKEN_DIAS_ALEM: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![A-Za-z0-9_]){ENTRADA_DIAS_ALEM_PRAZO}(?![A-Za-z0-9_])"
+)
+#: Hit policies em que a ordem das linhas nao muda o resultado (o DMN sem `hitPolicy` e UNIQUE).
+_HIT_POLICIES_SEM_ORDEM: Final[frozenset[str]] = frozenset({"UNIQUE", "ANY"})
+
+
 def tolerancia_prazo_conta_no_dmn(raw: bytes, rotulo: str) -> list[str]:
     """Achados de tolerancia embutida: linhas que LIBERAM uma faixa positiva limitada de
     `diasAlemDoPrazoContratual`. Lista vazia = a tabela nao tolera (ou nao usa a entrada).
 
-    Fail-closed: DMN ilegivel, celula que nao se le como teste unario numerico, linha sem as celulas da
-    tabela ou saida `decisao` que nao e literal numa linha de faixa positiva limitada tambem sao achados
-    (o gate do pin recusa; o montador zera a tolerancia do Maezo). So biblioteca padrao (o gate o le).
+    Fail-closed (o gate do pin recusa; o montador zera a tolerancia do Maezo). Tambem sao achados:
+    - tabela que usa a entrada com `hitPolicy` diferente de UNIQUE/ANY: com FIRST, PRIORITY, RULE ORDER
+      ou COLLECT a ordem ou a agregacao das linhas pode liberar uma faixa que a celula sozinha nao mostra
+      (ex.: FIRST com `> 30` -> glosar antes de `> 0` -> liberar);
+    - expressao de entrada que cita a entrada sem ser o nome puro (`(diasAlemDoPrazoContratual)`,
+      `diasAlemDoPrazoContratual - 0`), e celula de outra coluna que a cita;
+    - DMN ilegivel, celula que nao se le como teste unario numerico, linha sem as celulas da tabela ou
+      saida `decisao` nao literal numa linha de faixa positiva limitada.
+    So biblioteca padrao (o gate o le).
     """
     try:
         root = _parse_xml_sem_dtd(raw)
@@ -1089,31 +1103,55 @@ def tolerancia_prazo_conta_no_dmn(raw: bytes, rotulo: str) -> list[str]:
         for coluna_in in tabela.findall(f"{_DMN_NS}input"):
             expressao = coluna_in.find(f"{_DMN_NS}inputExpression")
             expressoes.append(_texto_celula(expressao) if expressao is not None else "")
-        if ENTRADA_DIAS_ALEM_PRAZO not in expressoes:
+        exatas = [i for i, e in enumerate(expressoes) if e == ENTRADA_DIAS_ALEM_PRAZO]
+        indiretas = [i for i, e in enumerate(expressoes) if i not in exatas and _TOKEN_DIAS_ALEM.search(e)]
+        regras = tabela.findall(f"{_DMN_NS}rule")
+        celulas_citam = any(
+            _TOKEN_DIAS_ALEM.search(_texto_celula(e))
+            for regra in regras
+            for e in regra.findall(f"{_DMN_NS}inputEntry")
+        )
+        if not exatas and not indiretas and not celulas_citam:
             continue
-        coluna = expressoes.index(ENTRADA_DIAS_ALEM_PRAZO)
+        onde_tabela = f"{rotulo}: tabela {tabela.get('id') or 'sem id'}"
+        achados.extend(
+            f"{onde_tabela}: entrada {i} cita {ENTRADA_DIAS_ALEM_PRAZO} sem ser o nome puro "
+            f"({expressoes[i]!r})"
+            for i in indiretas
+        )
+        politica = str(tabela.get("hitPolicy") or "UNIQUE").strip().upper()
+        if politica not in _HIT_POLICIES_SEM_ORDEM:
+            achados.append(
+                f"{onde_tabela}: hitPolicy {politica} com {ENTRADA_DIAS_ALEM_PRAZO}; so UNIQUE ou ANY "
+                "(a ordem das linhas poderia liberar uma faixa)"
+            )
         saidas = [str(o.get("name") or "") for o in tabela.findall(f"{_DMN_NS}output")]
         coluna_decisao = saidas.index("decisao") if "decisao" in saidas else None
-        for i, regra in enumerate(tabela.findall(f"{_DMN_NS}rule")):
+        for i, regra in enumerate(regras):
             onde = f"{rotulo}: linha {i} ({regra.get('id') or 'sem id'})"
             entradas = regra.findall(f"{_DMN_NS}inputEntry")
             saidas_linha = regra.findall(f"{_DMN_NS}outputEntry")
             if len(entradas) != len(expressoes) or len(saidas_linha) != len(saidas):
                 achados.append(f"{onde}: celulas diferentes das colunas da tabela")
                 continue
+            if any(
+                j not in exatas and _TOKEN_DIAS_ALEM.search(_texto_celula(e)) for j, e in enumerate(entradas)
+            ):
+                achados.append(f"{onde}: celula de outra coluna cita {ENTRADA_DIAS_ALEM_PRAZO}")
             decisao = (
                 _literal(_texto_celula(saidas_linha[coluna_decisao])) if coluna_decisao is not None else None
             )
             if decisao is not None and decisao != _DECISAO_QUE_LIBERA:
                 continue
-            faixa = _faixa_positiva_limitada(_texto_celula(entradas[coluna]))
-            if faixa is None:
-                achados.append(f"{onde}: {ENTRADA_DIAS_ALEM_PRAZO} nao e teste unario numerico legivel")
-            elif faixa:
-                achados.append(
-                    f"{onde}: libera faixa positiva limitada de {ENTRADA_DIAS_ALEM_PRAZO} "
-                    "(tolerancia embutida no DMN; a do Maezo se somaria a ela)"
-                )
+            for coluna in exatas:
+                faixa = _faixa_positiva_limitada(_texto_celula(entradas[coluna]))
+                if faixa is None:
+                    achados.append(f"{onde}: {ENTRADA_DIAS_ALEM_PRAZO} nao e teste unario numerico legivel")
+                elif faixa:
+                    achados.append(
+                        f"{onde}: libera faixa positiva limitada de {ENTRADA_DIAS_ALEM_PRAZO} "
+                        "(tolerancia embutida no DMN; a do Maezo se somaria a ela)"
+                    )
     return achados
 
 

@@ -468,7 +468,7 @@ def test_arvore_21_arquivo_de_prova_em_artifacts_reprova(pinned_tree_21: tuple[P
 # --- MZO-TOL (PROG-COORD-22): tolerancia do prazo de conta nunca dentro do DMN ----------------------
 
 
-def _repinar_sint_a_com_dias_alem(root: Path, celula: str) -> dict[str, Any]:
+def _repinar_sint_a_com_dias_alem(root: Path, celula: str, politica: str = "UNIQUE") -> dict[str, Any]:
     """Troca a entrada de `rco_sint_a` por `diasAlemDoPrazoContratual`, com `celula` na linha `liberar`, e
     repina tudo (manifesto e lock) como uma publicacao coerente do rco faria."""
     target = root / RULES_DIR / "sint_a.dmn"
@@ -476,6 +476,7 @@ def _repinar_sint_a_com_dias_alem(root: Path, celula: str) -> dict[str, Any]:
         target.read_bytes()
         .replace(b"<text>tipoSintetico</text>", b"<text>diasAlemDoPrazoContratual</text>")
         .replace(b'<inputEntry><text>"A"</text>', f"<inputEntry><text>{celula}</text>".encode())
+        .replace(b'hitPolicy="UNIQUE"', f'hitPolicy="{politica}"'.encode())
     )
     target.write_bytes(raw)
     manifesto = json.loads((root / K1_MANIFEST_PATH).read_bytes())
@@ -513,3 +514,14 @@ def test_sem_pacote_nao_checa_tolerancia(tmp_path: Path) -> None:
     """Em `sem_pacote` nao ha `artifacts`: a guarda nao olha nada (nem exemplo sintetico do Maezo)."""
     lock = _base_lock("sem_pacote")
     assert "tolerancia-prazo-conta-no-dmn" not in _codes(lock, tmp_path)
+
+
+def test_dmn_first_com_dias_alem_reprova_mesmo_sem_faixa_limitada(
+    pinned_tree: tuple[Path, dict[str, Any]],
+) -> None:
+    """Com FIRST a ordem das linhas pode tolerar uma faixa que nenhuma celula mostra: recusado."""
+    root, _ = pinned_tree
+    lock = _repinar_sint_a_com_dias_alem(root, "&gt; 0", politica="FIRST")
+    codes = _codes(lock, root)
+    assert "tolerancia-prazo-conta-no-dmn" in codes
+    assert _run_cli(root, lock) == 1

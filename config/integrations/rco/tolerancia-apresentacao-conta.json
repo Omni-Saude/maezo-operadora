@@ -5,8 +5,8 @@
     "seguem com o prazo do contrato; o montador (src/maezo/tools/workers/rco_montador.py) entrega a tabela",
     "rco_geral_prazos_conta max(0, diasAlemDoPrazoContratual - valor) quando os dias sao positivos.",
     "Valor UNICO para todos os prestadores: nao ha sobreposicao por prestador, caso ou tenant (chave a mais",
-    "torna o arquivo invalido). Lido fail-closed: ausente, malformado, fora de 0..365 ou sem decidido_por e",
-    "decidido_em = tolerancia 0 (o prazo do contrato). Nao vale para a comprovacao de uso da OPME de urgencia.",
+    "torna o arquivo invalido). Lido fail-closed: ausente, malformado, fora de 0..30 (o teto e esta decisao) ou sem",
+    "decidido_por e decidido_em = tolerancia 0 (o prazo do contrato). Nao vale para a comprovacao de uso da OPME de urgencia.",
     "Nunca publicado a prestador nem a beneficiario. Muda so por PR, com a decisao do dono citada."
   ],
   "tolerancia_apresentacao_conta_dias": 30,
