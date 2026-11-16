@@ -45,8 +45,15 @@ Este ADR detalha o §(e) para as três ativações. Não decide nada do que o AD
 
 ### 1. Escopo e limite
 - Este ADR não altera `spec/policies/autonomy/` nem `_hard_frozen.yaml`, e não liga efeito adverso automático.
-- O que muda o efeito de um caso é o estado manual `ativa_l2` (§2). Ele só passa a valer com a Onda 3 (worker guardado, emenda ao ADR-0018 parte 2) e com a decisão P7. Até lá, a função de estado efetivo recebe o indicador `efeito_k1_habilitado`, falso, e com ele falso todo estado manual se comporta como `sombra`: só registro, nenhuma User Task nova, nenhum efeito. Um `ativa_l2` ou `desligada` lido no arquivo gera alerta. Só a unidade da Onda 3 liga o indicador.
-- **Fora deste ADR:** a decisão do dono de 16/11/2026 (PROG-COORD-16) de rodar as regras do rco em enforcing em dev e homologação, e de redefinir os aprovadores (dono + auditor neutro, ratificação em lote por versão do pacote) depende de mudança em caminho protegido. Fica para quem tiver autorização para alterá-lo.
+- O que muda o efeito de um caso é o estado manual `ativa_l2` (§2). Ele só passa a valer com a Onda 3 (worker guardado, emenda ao ADR-0018 parte 2) e com a decisão P7.
+- Até lá, a função de estado efetivo recebe o indicador `efeito_k1_habilitado`, falso. Com ele falso, todo estado manual se comporta como `sombra`: só registro, nenhuma User Task nova, nenhum efeito. Um `ativa_l2` ou `desligada` lido no arquivo gera alerta.
+- **O indicador é por ambiente.** Vem da configuração do ambiente, como a chave nomeada do K2 da Helena (`MAEZO_ENV` vivo e lista de permissão em `src/maezo/agents/helena/habilidades/cobertura/manual.py`):
+  - é falso por padrão em todos os ambientes;
+  - só pode valer verdadeiro em ambiente de uma lista de permissão no código, para dev e homologação. Hoje o deploy tem `dev` e `prod`; homologação entra na lista quando existir;
+  - produção, ambiente vazio e ambiente desconhecido ficam fora por construção. A configuração ligada ali é recusada com alerta;
+  - abrir produção é código, e é da unidade da Onda 3.
+- Assim, a decisão do dono de rodar dev e homologação com as regras ligadas (PROG-COORD-16) se aplica por configuração quando ele liberar, sem código novo. Nenhum ambiente é ligado por este ADR nem pelas unidades 5a–5e.
+- **Fora deste ADR:** a decisão do dono de 16/11/2026 (PROG-COORD-16) de rodar as regras do rco em enforcing em dev e homologação, e de redefinir os aprovadores (dono + auditor neutro, ratificação em lote por versão do pacote) depende de mudança em caminho protegido. O desenho dessa mudança está no §8, para quem tiver autorização para alterá-lo.
 
 ### 2. Estado efetivo por regra
 A unidade é o par (`idRegra`, `versaoRegra`). Três fontes entram no cálculo:
@@ -169,6 +176,30 @@ Um PR por unidade, um executor por vez, revisão independente em cada:
 4. **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
 5. **5e:** monitor de reversão, override e alertas. Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`;
 6. **5b:** provas, quando o formato for publicado.
+
+### 8. Mudança em caminho protegido: desenho, não aplicada
+A decisão do dono de 16/11/2026 (PROG-COORD-16) pede duas mudanças em `spec/policies/autonomy/`. Este ADR não as faz: a pasta está fora do escopo autorizado para agentes. O desenho fica aqui para quem tiver a liberação explícita do dono.
+
+**1. Enforcing por ambiente para as ações do rco.**
+- Hoje `spec/policies/autonomy/action-approvals.yaml` tem um `modo` global (`shadow`). A entrada `avaliacao_dmn` tem `enforcement: shadow` e `dominios_exigidos: [medica, ans, seguranca]`, todos `aprovado: false`. Não há chave por ambiente.
+- A mudança cria uma sobreposição por ambiente, só para as ações cujo efeito vem de decisão sob `spec/processes/dmn/rco/`:
+  - `enforcing` em dev e homologação;
+  - produção sem a chave, e o leitor recusa a chave para `prod`;
+  - o leitor da política e o gateway (`src/maezo/gateway/action_execution.py`, `src/maezo/gateway/effect_pep.py`) passam a resolver o modo por (ação, `MAEZO_ENV`).
+- Ela anda junto com o `efeito_k1_habilitado` do §1, que é a chave do lado do worker.
+
+**2. Aprovadores por versão do pacote (a antiga P7, ADR-0075 §(g)):**
+- Em `spec/aprovacoes-de-regras.yaml`, uma entrada por `sha256` do `config/integrations/rco/rules.lock.json`, com papéis `dono` e `auditor-neutro` e ratificação em lote por versão.
+- O checker `scripts/ci/check_aprovacao_de_regras.py` aceita essa entrada como cobertura de todo arquivo listado no pin.
+- Em `avaliacao_dmn`, os domínios exigidos para tabela sob `rco/` passam a ser os mesmos dois papéis.
+- Médico, jurídico e DPO viram revisão assíncrona registrada, sem bloquear.
+- Nenhum agente grava `ratificado: true` ou `aprovado: true`.
+
+**3. Teste que nasce junto com a mudança, não antes:**
+- com `MAEZO_ENV=prod`, a política resolvida, o modo de cada ação e o resultado do gateway são idênticos byte a byte aos de antes da mudança, comparados contra um instantâneo gerado da `main` anterior;
+- com `MAEZO_ENV=dev`, só as ações do rco mudam de modo;
+- a chave de enforcing para `prod` é recusada;
+- `_hard_frozen.yaml` e os 5 itens hard ficam intactos, e `authorization_denial` continua L0.
 
 ## Consequências
 
