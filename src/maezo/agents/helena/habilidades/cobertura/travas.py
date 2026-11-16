@@ -13,7 +13,8 @@ camada (fatos x fontes) e' outra coisa e nao substitui estas travas.
    "informacao nao e' decisao" (`FORMULA_FIXA`); o `esclarecer` nao afirma cobertura nenhuma
    (`_AFIRMA_COBERTURA`);
 4. as travas do `respond` (`travas_saida.na_saida`: link, contagem, prazo da ANS, reembolso, midia): texto que
-   elas mudariam e' recusado aqui, para nunca sair cortado nem vazio.
+   elas mudariam e' recusado aqui, para nunca sair cortado nem vazio. O PRAZO so' passa com
+   `prazo_ratificado` (HEL-5b): resposta da camada com fonte K2 por hash e veredito ok do verificador.
 """
 
 from __future__ import annotations
@@ -56,7 +57,9 @@ Motivo = Literal[
 ]
 
 
-def motivo_de_recusa(grafo: HelenaGraph, texto: str, *, esclarecer: bool) -> Motivo | None:
+def motivo_de_recusa(
+    grafo: HelenaGraph, texto: str, *, esclarecer: bool, prazo_ratificado: bool = False
+) -> Motivo | None:
     """`None` = o texto pode sair; senao, o motivo (codigo curto, nunca o texto)."""
     from maezo.agents.helena import travas_saida as _travas_saida
     from maezo.agents.helena.graph import (
@@ -86,7 +89,7 @@ def motivo_de_recusa(grafo: HelenaGraph, texto: str, *, esclarecer: bool) -> Mot
         return "afirma_cobertura"
     if not esclarecer and not texto.endswith(FORMULA_FIXA):
         return "sem_formula_fixa"
-    if _travas_saida.na_saida(texto) != texto:
+    if _travas_saida.na_saida(texto, prazo_ratificado=prazo_ratificado) != texto:
         return "trava_de_saida"
     return None
 

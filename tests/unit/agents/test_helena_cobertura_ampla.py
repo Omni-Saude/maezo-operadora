@@ -85,8 +85,10 @@ def _grafo(modelo: _Modelo, cobertura: cob.ConfiguracaoDaCobertura | None) -> tu
     return grafo.compile_graph().compile(), whatsapp, cib
 
 
-def _ligada(*camadas: Any) -> cob.ConfiguracaoDaCobertura:
-    config = cob.da_configuracao({cob.CHAVE_DO_GRAFO: True, cob.CHAVE_DAS_CAMADAS: list(camadas)})
+def _ligada(*camadas: Any, hash_do_k2: str | None = None) -> cob.ConfiguracaoDaCobertura:
+    config = cob.da_configuracao(
+        {cob.CHAVE_DO_GRAFO: True, cob.CHAVE_DAS_CAMADAS: list(camadas), cob.CHAVE_DO_HASH_K2: hash_do_k2}
+    )
     assert config is not None
     return config
 

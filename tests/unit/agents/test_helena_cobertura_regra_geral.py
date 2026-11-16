@@ -6,6 +6,7 @@ envio, e as travas do esqueleto por cima. Beneficiario sintetico; conteudo do K2
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
@@ -37,7 +38,8 @@ def _pergunta(texto: str, *antes: str) -> cob.PerguntaDeCobertura:
 async def test_recupera_a_regra_pelo_sinonimo_e_cita_o_id(manual: ManualK2) -> None:
     r = await CamadaRegraGeral(manual).responder(_pergunta("precisa de autorização pra fazer ressonância?"))
     assert r is not None and r.desfecho == "resposta"
-    assert r.fontes == (cob.Fonte("regra_k2", "AMOSTRA-AUT-001", "amostra-0.1.0"),)
+    assert r.fontes == (cob.Fonte("regra_k2", "AMOSTRA-AUT-001", "amostra-0.1.0", _PIN.sha256_manifesto),)
+    assert r.veredito_ok and r.trechos
     assert r.texto == texto_deterministico(manual.regra("AMOSTRA-AUT-001"))  # type: ignore[arg-type]
     assert "AMOSTRA" not in r.texto and "http" not in r.texto and r.texto.endswith(cob.FORMULA_FIXA)
 
@@ -137,12 +139,95 @@ async def test_pelo_grafo_a_regra_geral_sai_literal_e_o_id_vai_ao_log(manual: Ma
     assert log["fontes"] == ["regra_k2:AMOSTRA-AUT-001@amostra-0.1.0"]
 
 
-async def test_pelo_grafo_prazo_em_dias_uteis_ainda_cai_no_aviso(manual: ManualK2) -> None:
-    """PENDENCIA DO DONO (DL-0167): a trava de saida `sem_prazo_da_ans` corta frase com "dias uteis"; o
-    esqueleto recusa o texto que ela mudaria. Ate' o dono decidir, prazo do K2 nao sai (falha fechada)."""
-    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(CamadaRegraGeral(manual)))
+async def test_pelo_grafo_prazo_ratificado_do_k2_sai_inteiro(manual: ManualK2) -> None:
+    """HEL-5b (ROOT, 16/11/2026): o prazo em "dias uteis" da regra do K2, com o hash do pacote e o veredito ok
+    do verificador, passa pela trava `sem_prazo_da_ans`; antes caia no aviso de canais."""
+    grafo, whatsapp, _cib = _grafo(
+        _Modelo(), _ligada(CamadaRegraGeral(manual), hash_do_k2=_PIN.sha256_manifesto)
+    )
+    await grafo.ainvoke(_entrada("como faço pra recorrer?"))
+    assert whatsapp.enviados[-1] == texto_deterministico(manual.regra("AMOSTRA-REC-005"))  # type: ignore[arg-type]
+    assert "10 dias úteis" in whatsapp.enviados[-1]
+
+
+class _CamadaComPrazo:
+    """Camada que devolve um texto com prazo da ANS, com e sem as condicoes da isencao (testes negativos)."""
+
+    def __init__(self, resposta: cob.RespostaDaCobertura) -> None:
+        self._resposta = resposta
+
+    @property
+    def camada(self) -> cob.Camada:
+        return "regra_geral"
+
+    async def responder(self, pergunta: cob.PerguntaDeCobertura) -> cob.RespostaDaCobertura:
+        return self._resposta
+
+
+_COM_PRAZO = f"Pela regra geral: a nova análise pode ser pedida em até 10 dias úteis. {cob.FORMULA_FIXA}"
+_TRECHO = "Texto fictício: a nova análise pode ser pedida em até 10 dias úteis."
+_K2 = cob.Fonte("regra_k2", "R-1", "v", _PIN.sha256_manifesto)
+
+
+def _resp(**kw: Any) -> cob.RespostaDaCobertura:
+    base: dict[str, Any] = {"fontes": (_K2,), "veredito_ok": True, "trechos": (_TRECHO,)}
+    desfecho = kw.pop("desfecho", "resposta")
+    return cob.RespostaDaCobertura(desfecho, _COM_PRAZO, **{**base, **kw})
+
+
+async def test_prazo_com_todas_as_condicoes_da_isencao_sai() -> None:
+    """Controle positivo dos negativos abaixo: veredito ok, fonte K2 com o hash PINADO e trechos que batem."""
+    config = _ligada(_CamadaComPrazo(_resp()), hash_do_k2=_PIN.sha256_manifesto)
+    grafo, whatsapp, _cib = _grafo(_Modelo(), config)
+    await grafo.ainvoke(_entrada("como faço pra recorrer?"))
+    assert whatsapp.enviados[-1] == _COM_PRAZO
+
+
+_PINADO = _PIN.sha256_manifesto
+_LAGO = cob.Fonte("lago", "/cobertura", "v1.9")
+
+
+@pytest.mark.parametrize(
+    ("resposta", "hash_pinado"),
+    [
+        (_resp(veredito_ok=False), _PINADO),  # sem veredito do verificador
+        (_resp(fontes=(cob.Fonte("regra_k2", "R-1", "v"),)), _PINADO),  # fonte K2 sem hash
+        (_resp(fontes=(cob.Fonte("regra_k2", "R-1", "v", "f" * 64),)), _PINADO),  # hash diferente do pin
+        (_resp(), None),  # composicao sem o hash do K2 pinado
+        (_resp(fontes=(_LAGO,)), _PINADO),  # fonte do lago
+        (_resp(fontes=(_K2, _LAGO)), _PINADO),  # fontes mistas
+        (_resp(trechos=()), _PINADO),  # sem trechos para reconferir
+        (_resp(trechos=("Texto fictício: em até 30 dias úteis.",)), _PINADO),  # trecho que nao confere
+        (_resp(desfecho="esclarecer"), _PINADO),  # esclarecimento com prazo
+    ],
+)
+async def test_prazo_sem_as_condicoes_da_isencao_continua_barrado(
+    resposta: cob.RespostaDaCobertura, hash_pinado: str | None
+) -> None:
+    grafo, whatsapp, _cib = _grafo(_Modelo(), _ligada(_CamadaComPrazo(resposta), hash_do_k2=hash_pinado))
     await grafo.ainvoke(_entrada("como faço pra recorrer?"))
     assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+
+
+def test_prazo_vindo_do_modelo_continua_cortado_na_saida() -> None:
+    """A trava do `respond` corta o prazo de qualquer texto sem a marca (o do modelo, inclusive)."""
+    from maezo.agents.helena import travas_saida
+
+    assert "dias úteis" not in travas_saida.na_saida(_COM_PRAZO)
+    assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is False  # sem marca: nada e' isento
+    assert travas_saida.na_saida(_COM_PRAZO, prazo_ratificado=True) == _COM_PRAZO
+
+
+def test_a_marca_e_por_conversa_de_uso_unico_e_nunca_fica_pendurada() -> None:
+    """Revisao independente da HEL-5b: a marca vale so' na conversa e no turno em que foi dada."""
+    assert cob.prazo_ratificado({"conversation_id": ""}, _COM_PRAZO) is False  # sem id: nunca isenta
+    cob._guardar(_COM_PRAZO, prazo_da_conversa=":c-1")
+    assert cob.prazo_ratificado({"conversation_id": "c-2"}, _COM_PRAZO) is False  # outra conversa
+    assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is True
+    assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is False  # uso unico
+    cob._guardar(_COM_PRAZO, prazo_da_conversa=":c-1")
+    assert cob.prazo_ratificado({"conversation_id": "c-1"}, "Entendi. " + _COM_PRAZO) is False  # transformado
+    assert cob.prazo_ratificado({"conversation_id": "c-1"}, _COM_PRAZO) is False  # e a marca nao ficou
 
 
 @pytest.mark.parametrize(
