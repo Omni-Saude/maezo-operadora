@@ -38,3 +38,7 @@ Recomendação: registrar como demanda à W-AMH (proposta de sucessor), sem bloq
 - ACHADO `spec/policies/autonomy/action-approvals.yaml:308,311` e `docs/reviews/mzo-040-approval-packet.md:54` — âncora obsoleta `cancel.py:731/737`; no head, `cancel.py:823-832`.
 - ACHADO `tests/unit/gateway/test_audit_anchor.py:809` — falha em contêiner que roda como root (pin exige processo sem privilégio); preexistente no `main`.
 - ACHADO autoria git — os commits saem com a identidade do ambiente (endereço noreply genérico); não há identidade alternativa configurada aqui.
+
+## Estado dos PRs
+
+PRONTO maezo-operadora #1271 head c267f6338cb34567e2ca868b300a2e4d631095a1 checks verdes (integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skip) — E-SF-08; revisão independente PASS. Próximo da janela, depois do merge: E-SF-12 (empilhado), depois E-SF-09 e E-SF-RT-01 (prontos localmente, revisão PASS).
