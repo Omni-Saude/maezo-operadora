@@ -192,7 +192,7 @@ def _manifesto_fixado(
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
     Devolve as decisoes por caminho do pin, os parametros de ativacao de `vocabulario.json` e os
-    nomes de arquivo aceitos em `k1/` (manifesto + anexos).
+    nomes aceitos em `k1/` (manifesto, anexos e arquivos de provas, como o gate).
     """
     pin = lock.get("manifest_pin")
     if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
@@ -235,7 +235,8 @@ def _manifesto_fixado(
         vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)
     except rco_manifesto.ManifestoK1InvalidoError as exc:
         raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
-    nomes_k1 = {rco_manifesto.K1_MANIFESTO_NOME} | {a.nome for a in manifesto.anexos.values()}
+    # A MESMA fonte do gate (`verify_rco_rules_pin`): manifesto, anexos e arquivos de `provas[]`.
+    nomes_k1 = rco_manifesto.nomes_k1_declarados(raw)
     return manifesto.decisao_por_caminho(), vocab.parametros_ativacao, nomes_k1
 
 

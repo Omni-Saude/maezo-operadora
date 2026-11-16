@@ -90,7 +90,7 @@ _HEX_CRU = "a" * 64
         (_mutacao(["origem", "sujo"], True), "origem.sujo"),
         (_mutacao(["origem", "sujo"], False), "origem.sujo"),  # a chave, presente, ja recusa
         (_mutacao(["formato_manifesto"], "3.0.0"), "formato_manifesto 3.0.0"),
-        (_mutacao(["formato_manifesto"], "2.1.0"), "formato_manifesto 2.1.0"),
+        (_mutacao(["formato_manifesto"], "2.2.0"), "formato_manifesto 2.2.0"),
         (_mutacao(["formato_manifesto"], "1.1.0"), "formato_manifesto 1.1.0"),
         (_mutacao(["formato_manifesto"], "1"), "formato_manifesto"),
         (_mutacao(["campo_novo"], 1), "desconhecidos ['campo_novo']"),
@@ -543,3 +543,154 @@ def test_decisao_nao_literal_reprova(pacote: tuple[Path, dict[str, Any]]) -> Non
 def test_manifesto_aninhado_demais_e_recusado_sem_recursion_error() -> None:
     with pytest.raises(k1.ManifestoK1InvalidoError):
         k1.ler_manifesto(b"[" * 100_000)
+
+
+# --- provas[] (formato 2.1.0, contrato-k1.md §3, §4 item 7) -------------------------------------
+
+
+def _com_provas(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
+    return sint.com_provas(raiz, manifesto)
+
+
+def test_formato_21_le_provas(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    lido = _ler(raiz)
+    assert lido.formato_manifesto == "2.1.0"
+    (prova,) = lido.provas
+    assert prova.id == sint.PROVA_ID
+    assert prova.esperado == f"provas/{sint.PROVA_ID}/validacao/casos"
+    assert [a.caminho for a in prova.arquivos] == [
+        f"provas/{sint.PROVA_ID}/dmn/prova-sint.dmn",
+        f"provas/{sint.PROVA_ID}/validacao/casos/c1.json",
+    ]
+    assert _verificar(raiz) == []
+
+
+def test_formato_20_sem_provas_continua_valido(pacote: tuple[Path, dict[str, Any]]) -> None:
+    assert _ler(pacote[0]).provas == ()
+
+
+def test_formato_21_sem_provas_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    manifesto["formato_manifesto"] = "2.1.0"
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="provas"):
+        _ler(raiz)
+
+
+@pytest.mark.parametrize("formato", ["2.0.0", "1.0.0"])
+def test_provas_em_formato_anterior_e_campo_desconhecido(
+    pacote: tuple[Path, dict[str, Any]], formato: str
+) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    manifesto["formato_manifesto"] = formato
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="desconhecidos"):
+        _ler(raiz)
+
+
+def test_minor_acima_do_conhecido_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    manifesto["formato_manifesto"] = "2.2.0"
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="nao suportado"):
+        _ler(raiz)
+
+
+def _mutar_prova(mutar: Callable[[dict[str, Any]], None]) -> Callable[[dict[str, Any]], None]:
+    return lambda m: mutar(m["provas"][0])
+
+
+_PREFIXO = f"provas/{sint.PROVA_ID}"
+_DIGEST_OK = "sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize(
+    ("mutar", "trecho"),
+    [
+        (lambda p: p.update(extra=1), "desconhecidos"),
+        (lambda p: p.pop("descricao"), "faltam"),
+        (lambda p: p["arquivos"][0].update(extra=1), "desconhecidos"),
+        (lambda p: p["arquivos"][0].update(sha256="a" * 64), "digest"),
+        (lambda p: p["arquivos"][0].update(sha256="sha256:" + "A" * 64), "digest"),
+        (lambda p: p["arquivos"][0].update(caminho=f"{_PREFIXO}/../x.dmn"), "inseguro"),
+        (lambda p: p["arquivos"][0].update(caminho=f"/{_PREFIXO}/dmn/x.dmn"), "inseguro"),
+        (lambda p: p["arquivos"][0].update(caminho=f"{_PREFIXO}//dmn/x.dmn"), "inseguro"),
+        (lambda p: p["arquivos"][0].update(caminho="dmn/x.dmn"), "tem de ficar sob"),
+        (lambda p: p["arquivos"][0].update(caminho="provas/outra/dmn/x.dmn"), "tem de ficar sob"),
+        (lambda p: p["arquivos"][0].update(caminho=f"{_PREFIXO}"), "tem de ficar sob"),
+        (lambda p: p["arquivos"][1].update(caminho=p["arquivos"][0]["caminho"]), "repetido"),
+        (lambda p: p.update(esperado=f"{_PREFIXO}/validacao"), "esperado"),
+        (lambda p: p.update(esperado="provas/outra/validacao/casos"), "esperado"),
+        (lambda p: p.update(arquivos=[]), "lista nao vazia"),
+        (lambda p: p.update(id="a/b"), "padrao"),
+        (lambda p: p.update(id=".."), "invalido"),
+    ],
+)
+def test_prova_malformada_reprova(
+    pacote: tuple[Path, dict[str, Any]], mutar: Callable[[dict[str, Any]], None], trecho: str
+) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    mutar(manifesto["provas"][0])
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match=trecho):
+        _ler(raiz)
+
+
+def test_id_de_prova_repetido_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    segunda = copy.deepcopy(manifesto["provas"][0])
+    for arq in segunda["arquivos"]:
+        arq["caminho"] += ".bis"
+    manifesto["provas"].append(segunda)
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="repetido"):
+        _ler(raiz)
+
+
+def test_provas_vazio_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    manifesto["provas"] = []
+    sint.regravar(raiz, manifesto)
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="provas"):
+        _ler(raiz)
+
+
+def test_arquivo_de_prova_adulterado_ou_ausente_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    base = raiz / sint.K1_DIR / _PREFIXO
+    (base / "dmn" / "prova-sint.dmn").write_bytes(b"<definitions>x</definitions>")
+    (base / "validacao" / "casos" / "c1.json").unlink()
+    problemas = _verificar(raiz)
+    assert any("sha256 diverge" in p and "prova-sint.dmn" in p for p in problemas), problemas
+    assert any("ausente" in p and "c1.json" in p for p in problemas), problemas
+
+
+def test_pastas_aceitam_prova_declarada_e_recusam_arquivo_orfao(
+    pacote: tuple[Path, dict[str, Any]],
+) -> None:
+    raiz, manifesto = pacote
+    _com_provas(raiz, manifesto)
+    raw = (raiz / sint.K1_DIR / "manifesto.json").read_bytes()
+    nomes = k1.nomes_k1_declarados(raw)
+
+    def achados() -> list[tuple[str, str]]:
+        return k1.verificar_pastas(
+            rules_dir=raiz / sint.RULES_DIR,
+            k1_dir=raiz / sint.K1_DIR,
+            listados_rco={"sint_a.dmn", "sint_b.dmn"},
+            nomes_k1=nomes,
+        )
+
+    assert achados() == []
+    (raiz / sint.K1_DIR / _PREFIXO / "validacao" / "casos" / "orfao.json").write_text("{}")
+    (raiz / sint.K1_DIR / "fora.json").write_text("{}")
+    codigos = {c for c, _ in achados()}
+    assert codigos == {"prova-fora-do-manifesto", "arquivo-nao-listado"}

@@ -250,3 +250,31 @@ def trocar_vocabulario(raiz: Path, manifesto: dict[str, Any], raw: bytes) -> Non
     (raiz / K1_DIR / "vocabulario.json").write_bytes(raw)
     manifesto["vocabulario"]["sha256"] = sha(raw)
     regravar(raiz, manifesto)
+
+
+PROVA_ID = "prova-sint"
+_PROVA_ARQUIVOS: dict[str, bytes] = {
+    "dmn/prova-sint.dmn": b"<definitions/>",
+    "validacao/casos/c1.json": b'{"casos":[],"decisao":"c1","dmn":"dmn/prova-sint.dmn"}',
+}
+
+
+def com_provas(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
+    """Promove o pacote a `formato_manifesto` 2.1.0 com uma prova sintetica e grava os arquivos dela."""
+    manifesto["formato_manifesto"] = "2.1.0"
+    arquivos = []
+    for rel, raw in _PROVA_ARQUIVOS.items():
+        destino = raiz / K1_DIR / "provas" / PROVA_ID / rel
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(raw)
+        arquivos.append({"caminho": f"provas/{PROVA_ID}/{rel}", "sha256": sha(raw)})
+    manifesto["provas"] = [
+        {
+            "arquivos": arquivos,
+            "descricao": "prova sintetica",
+            "esperado": f"provas/{PROVA_ID}/validacao/casos",
+            "id": PROVA_ID,
+        }
+    ]
+    regravar(raiz, manifesto)
+    return manifesto
