@@ -279,6 +279,7 @@ análise de minimização.
 | `data_solicitacao_iso` | string (ISO 8601 com fuso, ou data `YYYY-MM-DD`) | nao | R-005: ancora do prazo de resposta da RN 623/2024 art. 12 ("a partir da data da solicitacao"). Lida SO por `operadora.auth.compute_response_deadline` com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada. Ausente = relogio do worker (a mesma ancora do timer ISO de hoje); instante sem fuso ou invalido = nao adivinhado (nulos, timer ISO); ancora no futuro e limitada a agora |
 | `uf_beneficiario` | string (UF) | nao | R-005: UF do beneficiario para os feriados estaduais do calendario versionado (`maezo.platform.calendario`). Ausente, invalida ou UF ainda sem fonte estadual conferida = so feriados nacionais (vencimento igual ou anterior ao legal, nunca posterior) |
 | `cpt_declarada` | boolean | nao | Input de `carencia_check` (Cobertura Parcial Temporaria). **Sem fonte hoje** (DPS — mesma fronteira). Ausente/nao-booleano => `REGULATORIO_ENTRADA_AUSENTE` |
+| `data_atendimento` | string (`AAAA-MM-DD`) | nao | MZO-2b: data do atendimento lida da guia TISS, elemento `dataSolicitacao` da solicitacao (`ctm_sp-sadtSolicitacaoGuia` / `ctm_internacaoSolicitacaoGuia`, TISS 4.03.00), copiada sem fuso e sem conversao. E a entrada `dataAtendimento` do dicionario de entradas do K1 1.1.0 do rco (origem `tiss`, padrao `^[0-9]{4}-(0[1-9]\|1[0-2])-(0[1-9]\|[12][0-9]\|3[01])$`). **NAO e `data_solicitacao_iso`** (instante em que o Maezo recebeu o pedido, ancora do prazo R-005) e nunca e derivada dela. Lida so pelo montador de entradas do K1 (`src/maezo/tools/workers/rco_montador.py`). Ausente ou fora do padrao = entrada nula; sem ela, os fatos do K3 (carencia, CPT e situacao cadastral na data) tambem entram nulos. Nenhuma tabela do AUTH a avalia hoje: as decisoes `rco_` sao ligadas ao processo numa unidade posterior (MZO-3, composicao das saidas do rco nos `criterio_*_ok`) |
 
 > **GAP-AUTH-4 — PORTAO DE CRITERIOS (fechamento ESTRUTURAL, 2026-08-06).** Os quatro fatos que a
 > rota automatica consome deixaram de ser semeados: `ST_ValidateAutoApprovalCriteria`
@@ -341,6 +342,52 @@ análise de minimização.
 > tenant/valor/resolver. **O canal humano NAO e afetado:** `decisao_auditor == 'APROVAR'` (e a rota da
 > junta) emite independentemente do teto — exceder o teto AUTOMATICO e' exatamente para o que a
 > analise humana existe.
+
+### Montador de entradas do K1 do rco (MZO-2b) — de onde vem cada entrada
+
+O montador (`src/maezo/tools/workers/rco_montador.py`) monta as entradas das decisoes `rco_` do pacote K1
+(ADR-0075) a partir do dicionario de entradas do K1 (`entradas.json`, versao 1.1.0, lido por
+`src/maezo/platform/rco_entradas.py`). Ele so mapeia e calcula pela formula publicada; nao decide nada e
+ainda nao esta ligado a nenhum worker deste processo. Regras:
+
+- **Dado ausente entra nulo** (`None`): nunca inventado, presumido, com valor padrao ou inferido. Valor fora
+  do tipo ou do dominio do dicionario tambem entra nulo, com o motivo registrado. Toda entrada do K1 tem
+  `fallback_nulo = nunca_negar`, e o leitor recusa um dicionario que diga outra coisa.
+- **Guia (origem `tiss`):** `data_atendimento` (acima) e `codigo_procedimento_tuss` vem das variaveis deste
+  contrato, pelo nome Maezo que o dicionario declara; o valor ainda passa pelo tipo e pelo dominio do dicionario
+  (fora deles, nulo). Nao e garantia de que a variavel foi copiada da guia sem alteracao: isso e dever de quem
+  inicia o processo.
+- **O carater do atendimento NUNCA vem da variavel `carater_atendimento` deste contrato.** O caminho de start de
+  hoje a preenche com `"eletivo"` quando falta (`src/maezo/agents/rafael/delegation.py`, `graph.py`), e
+  `eletivo` = `1` e justamente o valor que deixa casar as linhas `negar` de `rco_geral_carencia` e
+  `rco_geral_elegibilidade`. O montador so le o carater de um campo explicito (`carater_atendimento_guia`: o
+  valor do elemento `caraterAtendimento` da guia TISS, sem padrao); sem ele, a entrada e nula. O de-para para a
+  TUSS tabela 23 e o que o rco declara (`config/integrations/rco/carater-tuss23.json`, com a origem): `eletivo`
+  = `1`; `urgencia` e `emergencia` = `2`; `1` e `2` como estao; casamento exato; qualquer outro valor entra nulo.
+  **Ligar o montador (MZO-3) exige que o start carregue o carater da guia ou nulo:** os padroes `"eletivo"` do
+  Rafael saem antes da ligacao.
+- **Cadastro e solicitacao fora da TISS nunca vem das variaveis de processo** (sementes do start, nao
+  verificadas): so dos fatos que o worker que os resolveu entregar ao montador. Hoje nenhum worker do AUTH os
+  resolve, entao entram nulos.
+- **Carencia com grupo e saldo, situacao cadastral e CPT na data** vem do K3 (manifest AMH v1.16, ainda nao
+  publicado). Enquanto o contrato AMH pinado (`config/integrations/amh/contracts.lock.json`, hoje v1.15) for
+  anterior a 1.16, essas entradas entram nulas, mesmo que alguem passe fatos do K3. Ligar o montador exige que a
+  versao pinada venha so de `AmhContractPin.versao_manifesto_pinada` do pin verificado. Fato do K3 avaliado em
+  data diferente de `data_atendimento` tambem entra nulo. Grupo, prazo e saldo da carencia ficam nulos mesmo com
+  o pin em 1.16 enquanto a lacuna `saldo_isencoes_portabilidade` estiver aberta em
+  `config/integrations/rco/k3-lacunas.json` (padrao: aberta). O K3 declara que nao se sabe se o saldo ja
+  considera isencoes e portabilidade; so o negocio fecha essa lacuna, por PR que muda essa configuracao com
+  `fechada: true`, `decidido_por` e `decidido_em`. Nunca e efeito do pin. Arquivo ausente ou malformado, ou
+  `fechada: true` sem quem e quando decidiu, conta como aberta. A tabela `rco_geral_carencia` com essas entradas nulas cai
+  em `revisao_humana` (fila `cadastro`), nunca em `negar` (motor real:
+  `tests/integration/dmn/test_rco_carencia_nulos_engine.py`).
+- **Entrada derivada sem formula estruturada** no dicionario entra nula. A unica derivada com formula nos
+  dominios cobertos e `diasAlemDoPrazoContratual` (`diasAteApresentacao - prazoApresentacaoContratualDias`,
+  nula se faltar um termo ou se o prazo do contrato for negativo); ela e de conta (SP-OP-CONTAS-001), nao deste
+  processo, e hoje sai nula porque `diasAteApresentacao` nao tem formula publicada.
+- **Dominios cobertos nesta entrega:** `regras-gerais` (elegibilidade, carencia, CPT e materiais valem para toda
+  guia) e `diarias-taxas` (38,9% das autorizacoes solicitadas no agregado do backtest 2026-10 do rco). Decisao de
+  outro dominio levanta `DominioNaoSuportadoError`: o caso vai para pessoa.
 
 ## Variaveis de saida
 

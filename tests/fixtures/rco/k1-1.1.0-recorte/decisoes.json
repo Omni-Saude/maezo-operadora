@@ -1,0 +1,263 @@
+{
+ "_proveniencia": "Recorte do manifesto K1 gerado de Omni-Saude/regras-contratos-operadora commit fe1dc8975c0a486da0699f0fd6a0279e4b70f9af (versao_pacote 3.0.0, formato 1.0.0, dicionario de entradas 1.1.0) em modo nao publicacao; so id, dominio, entradas e saidas das decisoes dos dominios do montador. entradas.json ao lado e recorte do dicionario: seu sha256_conteudo e o do dicionario COMPLETO.",
+ "decisoes": [
+  {
+   "id": "rco_diaria_autorizacao",
+   "id_original": "diaria_autorizacao",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "criterioRevisaoAtendido",
+    "caraterAtendimento",
+    "avisoItensNaoIncluidos"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_cobertura",
+   "id_original": "diaria_cobertura",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "idadeBeneficiario",
+    "deficienciaCadastro",
+    "internacaoObstetricaComAcompanhante",
+    "criterioRevisaoAtendido"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_compatibilidade",
+   "id_original": "diaria_compatibilidade",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "criterioRevisaoAtendido"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_excludentes",
+   "id_original": "diaria_excludentes",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "criterioRevisaoAtendido"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_limite_quantidade",
+   "id_original": "diaria_limite_quantidade",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "criterioRevisaoAtendido",
+    "reinternacaoMesmaCausa",
+    "internacaoProgramadaOuComplicacao"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_opme",
+   "id_original": "diaria_opme",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "registroAnvisaItem",
+    "registroAnvisaVigente"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_diaria_pacote",
+   "id_original": "diaria_pacote",
+   "dominio": "diarias-taxas",
+   "entradas": [
+    "dataAtendimento",
+    "familiaDiariaTaxa",
+    "criterioRevisaoAtendido"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_apresentacao_extemporanea",
+   "id_original": "geral_apresentacao_extemporanea",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "motivoExtemporaneidade",
+    "evidenciaOperadora",
+    "diasDesdeFimImpedimento",
+    "pedidosExtemporaneos12mPrestador"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso",
+    "motivoAae",
+    "causaEncaminhamento"
+   ]
+  },
+  {
+   "id": "rco_geral_autorizacao_materiais",
+   "id_original": "geral_autorizacao_materiais",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "classeMaterial",
+    "caraterAtendimento"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_carencia",
+   "id_original": "geral_carencia",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "caraterAtendimento",
+    "grupoCarencia",
+    "carenciaContratualDias",
+    "saldoCarenciaDias"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_cpt",
+   "id_original": "geral_cpt",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "caraterAtendimento",
+    "cptVigente",
+    "procedimentoAlcancadoCpt",
+    "cidNaDlpDeclarada"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_elegibilidade",
+   "id_original": "geral_elegibilidade",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "situacaoCadastral",
+    "caraterAtendimento"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_itens_inclusos",
+   "id_original": "geral_itens_inclusos",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "codigoProcedimento",
+    "mesmoProfissionalCirurgia",
+    "diasAposCirurgia",
+    "visitaNaDataDaAlta"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  },
+  {
+   "id": "rco_geral_prazos_conta",
+   "id_original": "geral_prazos_conta",
+   "dominio": "regras-gerais",
+   "entradas": [
+    "dataAtendimento",
+    "tipoTransacao",
+    "diasAteApresentacao",
+    "diasAteRecurso",
+    "diasAlemDoPrazoContratual",
+    "autorizacaoExtemporanea"
+   ],
+   "saidas": [
+    "decisao",
+    "motivoTab38",
+    "idRegra",
+    "fila",
+    "classeAdverso"
+   ]
+  }
+ ]
+}

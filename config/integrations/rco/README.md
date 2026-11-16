@@ -105,6 +105,23 @@ anexos para `config/integrations/rco/k1/` (nunca `exemplos/`), preencher `proven
 `estado` para `fixado`; ou (2) entra ou sai um exemplo sintético declarado. O sha256 de cada entrada é
 `sha256:` seguido do hex de `sha256sum <arquivo>` na árvore.
 
+## `entradas.json` — dicionário de entradas e o montador (MZO-2b)
+
+`entradas.json` (o anexo `dicionario_entradas` do manifesto) é lido por
+`src/maezo/platform/rco_entradas.py`, depois de `rco_manifesto.anexo_pinado` conferir o sha256. O
+leitor só aceita as versões do dicionário que o montador conhece (`VERSOES_SUPORTADAS`, hoje `1.1.0`)
+e só a política de nulo `nunca_negar`. Pinar um K1 com dicionário de versão nova exige rever antes o
+montador (`src/maezo/tools/workers/rco_montador.py`): entrada nova sem mapeamento, origem diferente ou
+fórmula publicada diferente da implementada fazem o montador recusar a decisão.
+`rco_entradas.carregar_dicionario_entradas` ainda cruza o arquivo com o manifesto: versão e
+`sha256_conteudo` iguais a `dicionario_entradas.versao`/`.sha256`, e `origem`/`nome_maezo` de cada
+entrada das decisões iguais aos do dicionário.
+
+`carater-tuss23.json` guarda o de-para do caráter do atendimento para a TUSS tabela 23 que o rco
+declara (`valores_maezo` de `caraterAtendimento` no dicionário de dados dele), com repo, commit e
+linhas da origem; um teste pina o conteúdo. **Pedido ao rco:** publicar `valores_maezo` no K1
+(`entradas.json`), para que este arquivo deixe de existir.
+
 ## `vocabulario-saida.yaml` — vocabulário de saída das tabelas DMN (MZO-1b)
 
 Dado versionado (`schema: maezo.dmn.vocabulario-saida`, `versao`, `estado`) lido por

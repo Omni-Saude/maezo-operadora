@@ -1,0 +1,15 @@
+{
+  "_comentario": [
+    "Lacunas do K3 (contrato AMH v1.16) que seguram entradas do montador do K1 MESMO com o pin >= 1.16.",
+    "Configuracao explicita, desligada por padrao; nunca efeito colateral do pin. Lida por",
+    "src/maezo/tools/workers/rco_montador.py, fail-closed: arquivo ausente ou malformado = lacuna aberta;",
+    "`fechada: true` so vale com `decidido_por` e `decidido_em` preenchidos (senao, tratada como aberta).",
+    "Fechar e mudanca de dado por PR, com a confirmacao do negocio citada em `fonte`/`decidido_por`."
+  ],
+  "saldo_isencoes_portabilidade": {
+    "fechada": false,
+    "fonte": "regras-contratos-operadora docs/programa/k1-entradas-origem.yaml:237-240 (saldoCarenciaDias, ressalva) e amh-data-platform schemas/openapi/maezo/v1/tina-carencia-grupo.openapi.yaml (saldo_dias, LACUNA K1 item 4): nao se sabe se termina_em/saldo_dias ja consideram isencoes e portabilidade de carencia",
+    "decidido_por": null,
+    "decidido_em": null
+  }
+}

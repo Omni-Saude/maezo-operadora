@@ -529,6 +529,35 @@ class AmhContractPin:
     manifest_v1_15_digest: str | None = None
 
     @property
+    def versao_manifesto_pinada(self) -> tuple[int, int]:
+        """Maior manifest ADITIVO pinado, como `(1, N)`; `(1, 0)` so com o v1.
+
+        Le os campos `manifest_v1_<N>_digest` deste pin verificado (nunca o arquivo cru), numa lista
+        explicita: um bloco novo que nao entre aqui conta como NAO pinado (fail-closed), e o teste do
+        montador compara com as chaves `manifest_v1_<N>` do lock. O montador de entradas do K1
+        (`maezo.tools.workers.rco_montador`) so usa os fatos do K3 (v1.16) quando o pin chega a essa
+        versao.
+        """
+        aditivos = (
+            (1, self.manifest_v1_1_digest),
+            (2, self.manifest_v1_2_digest),
+            (3, self.manifest_v1_3_digest),
+            (4, self.manifest_v1_4_digest),
+            (5, self.manifest_v1_5_digest),
+            (6, self.manifest_v1_6_digest),
+            (7, self.manifest_v1_7_digest),
+            (8, self.manifest_v1_8_digest),
+            (9, self.manifest_v1_9_digest),
+            (10, self.manifest_v1_10_digest),
+            (11, self.manifest_v1_11_digest),
+            (12, self.manifest_v1_12_digest),
+            (13, self.manifest_v1_13_digest),
+            (14, self.manifest_v1_14_digest),
+            (15, self.manifest_v1_15_digest),
+        )
+        return (1, max((n for n, digest in aditivos if digest is not None), default=0))
+
+    @property
     def canonical_schema_major(self) -> int:
         """MAJOR component of the pinned canonical schema version.
 
