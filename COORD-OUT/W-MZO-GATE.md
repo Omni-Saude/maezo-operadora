@@ -58,3 +58,13 @@ E-SF-06 pronto localmente. O ramo `sf-w1/gate/E-SF-06` (25c2e02) foi publicado s
 - GAP-06-6. EP-REG-02b: formato de `review_route` indefinido.
 - Limite declarado: `sla_claim_marker` é heurística de marcador; a garantia é o estado fechado até Q1/DEC-18.
 - TB-E-16-b fora do épico: ver Q-W-MZO-GATE-02.
+
+## 2026-11-16 ~23:40Z
+
+- #1270 (E-SF-03) mesclado. CD-23 recebida e aplicada; ACHADO do SUPP-001 anotado para quando o E-SF-08 estiver na main.
+- PR #1273 (E-SF-04) aberto. A base é a main 0e6c515, trazida por merge porque o ramo já tinha sido publicado e force-push é recusado; o diff só tem os 5 arquivos do épico. A revisão independente deu PASS. PRONTO só depois do CI e da integração lida.
+- E-SF-10 pronto localmente. O ramo `sf-w1/gate/E-SF-10` (00cf46f) foi publicado sem PR, empilhado sobre o E-SF-06. A revisão independente deu PASS com 3 minor; os 2 reparos de texto (F1/F2) entram como commit adicional quando for a vez do PR. GAPs:
+  - GAP-10-1. EP-REG-04c: literal TTL 1825 em SUPP-001/LGPD-DSR-001, inventariado como dívida, sem valor ratificado do qual derivar.
+  - GAP-10-2. C6-4 sem campo `retention_class`: o intake real segue recusado mesmo com matriz válida (sucessor).
+  - GAP-10-3. RN 623 art. 10 §6º ausente de NORMATIVE-BASELINE-v2.
+- Nota do E-SF-10: `prospect.save`, `contact.request` e `journey.save` passam a recusar `unavailable/lifecycle_unqualified` em toda composição enquanto não houver matriz ratificada. O texto do TB-25 (i) exige isso. A vitrine pública e o preço por catálogo seguem servidos.
