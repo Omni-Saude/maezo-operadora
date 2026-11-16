@@ -54,6 +54,7 @@ from maezo.gateway.commercial_admission import (
     AcceptanceSupportUnadmittedSalesAdmission,
     AcceptanceUnadmittedSalesAdmission,
     AuthenticatedSalesAdmission,
+    CatalogUnadmittedSalesAdmission,
     SupportGatedCodec,
     SupportUnadmittedSalesAdmission,
     compose_commercial_gateway,
@@ -79,6 +80,7 @@ from maezo.gateway.commercial_support_admission import (
 )
 from maezo.portal.api.commercial import COMMERCIAL_PATH, commercial_router
 from maezo.ports.commercial import CommercialRefusalError
+from tests.unit.test_commercial_admission_a1 import a1_admission
 from tests.unit.test_commercial_admission_a2 import (
     ADMISSION_REQUIRED_BODY,
     SOURCE_UNAVAILABLE_BODY,
@@ -481,12 +483,22 @@ def test_gate_class_follows_exactly_the_admitted_dimensions(schema_bytes):
         return type(gateway.admission)
 
     assert (
-        admission_class(acceptance_admission=a3_admission(), support_admission=a5_admission())
+        admission_class(
+            catalog_admission=a1_admission(),
+            acceptance_admission=a3_admission(),
+            support_admission=a5_admission(),
+        )
         is AuthenticatedSalesAdmission
     )
     assert admission_class(acceptance_admission=a3_admission()) is SupportUnadmittedSalesAdmission
     assert admission_class(support_admission=a5_admission()) is AcceptanceUnadmittedSalesAdmission
     assert admission_class() is AcceptanceSupportUnadmittedSalesAdmission
+    # E-SF-03 (EP-CORE-00a): the A1 record is a dimension of its own — with A3 and A5
+    # admitted but no A1, only the catalog gate remains.
+    assert (
+        admission_class(acceptance_admission=a3_admission(), support_admission=a5_admission())
+        is CatalogUnadmittedSalesAdmission
+    )
 
 
 @pytest.mark.asyncio
