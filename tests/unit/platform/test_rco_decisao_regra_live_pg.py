@@ -124,7 +124,6 @@ def _ctx(tenant: str, tarefa: str, **campos: Any) -> ContextoDecisao:
     base: dict[str, Any] = {
         "tenant": tenant,
         "chave_idempotencia": chave_idempotencia(tenant, tarefa, "rco_x"),
-        "chave_negocio_pseudonimizada": "AUTH-hk1_" + "d" * 64,
         "chave_negocio": f"AUTH-{tenant}-{tarefa}",
         "chave_amostra": b"segredo",
         "id_chave_amostra": "k1",
@@ -236,7 +235,7 @@ async def test_ordinal_idempotencia_append_only_e_downgrade_ao_vivo() -> None:
                 await raw.execute("TRUNCATE rco_decisao_regra")
             assert await raw.fetchval("SELECT count(*) FROM rco_decisao_regra") == total
 
-            # CHECKs: vocabulario fechado, chave de negocio so' pseudonimizada, ordinal unico.
+            # CHECKs: vocabulario fechado, texto livre recusado, ordinal unico.
             base = (
                 "INSERT INTO rco_decisao_regra (tenant, chave_idempotencia, id_regra, versao_regra, sha_dmn, "
                 "decision_key, estado_manual, ativacao_pacote, ativacao_efetiva, modo, acao, amostrada, "
@@ -244,8 +243,16 @@ async def test_ordinal_idempotencia_append_only_e_downgrade_ao_vivo() -> None:
                 "'registrar_apenas', false, {val})"
             )
             sha = "sha256:" + "a" * 64
+            colunas = {
+                r["column_name"]
+                for r in await raw.fetch(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = $1 AND table_name LIKE 'rco_decisao_regra%'",
+                    tenant,
+                )
+            }
+            assert not any("negocio" in c or "pseudo" in c for c in colunas)  # chave de negocio nao e gravada
             for col, val in (
-                ("chave_negocio_pseudonimizada", "'AUTH-amh-guia-1'"),  # chave bruta
                 ("decisao", "'Maria da Silva'"),  # texto livre
                 ("motivo_amostra", "'inicial'"),  # amostrada=false com motivo
                 ("ordinal", "0"),

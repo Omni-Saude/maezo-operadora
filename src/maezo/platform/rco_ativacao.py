@@ -323,7 +323,7 @@ DECISOES_NAO_ADVERSAS: Final[frozenset[str]] = frozenset(
 #: Classe de adverso que pode levar cada decisao adversa automatica a efeito (contrato K1 §6):
 #: `contas` so com `glosar`; `administrativo` com `negar` ou `glosar`. Qualquer outra combinacao
 #: (inclusive `clinico` com `negar`) vai ao humano.
-_CLASSES_COM_EFEITO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+CLASSES_COM_EFEITO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {"glosar": frozenset({"contas", "administrativo"}), "negar": frozenset({"administrativo"})}
 )
 #: Decisoes adversas com amostragem e contagem de ordinal por regra (§3): `recomendar_negativa` e do medico.
@@ -380,7 +380,7 @@ def filtrar_saida(
         return AcaoDeSaida("revisao_humana", fila, MARCA_SEM_ADITIVO)
     if decisao == "recomendar_negativa":
         return AcaoDeSaida("revisao_humana", fila, MARCA_RECOMENDACAO)
-    if classe_adverso not in _CLASSES_COM_EFEITO.get(decisao or "", frozenset()):
+    if classe_adverso not in CLASSES_COM_EFEITO.get(decisao or "", frozenset()):
         return AcaoDeSaida("revisao_humana", fila, MARCA_CLASSE_INCOERENTE)
     if ativacao == "conferencia_integral":
         return AcaoDeSaida("conferencia", fila)
@@ -470,6 +470,7 @@ __all__ = [
     "AcaoDeSaida",
     "CHAVE_EFEITO_K1",
     "DECISOES_ADVERSAS",
+    "CLASSES_COM_EFEITO",
     "DECISOES_COM_AMOSTRAGEM",
     "ESTADOS_MANUAIS",
     "EstadoEfetivo",

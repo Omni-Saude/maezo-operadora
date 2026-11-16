@@ -6,15 +6,14 @@ Sem banco nem engine: a logica pura e o contrato do SQL (lock antes do ordinal, 
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
 import pytest
 
-from maezo.gateway.pseudonymizer import PseudonymizerKeyMissingError
 from maezo.platform import rco_ativacao as at
 from maezo.platform import rco_registro as reg
-from maezo.platform.privacy.key_scrubber import reset_egress_pseudonymizer_cache
 from maezo.platform.rco_manifesto import ParametrosAtivacao, RegraK1
 
 PARAMETROS = ParametrosAtivacao(
@@ -74,7 +73,6 @@ def _ctx(**campos: Any) -> reg.ContextoDecisao:
     base: dict[str, Any] = {
         "tenant": "amh",
         "chave_idempotencia": "c" * 64,
-        "chave_negocio_pseudonimizada": "AUTH-hk1_" + "d" * 64,
         "chave_negocio": "AUTH-amh-123",
         "chave_amostra": b"segredo",
         "id_chave_amostra": "k1",
@@ -154,11 +152,26 @@ def test_saida_da_dmn_fora_da_forma_de_token_vira_nulo(valor: object) -> None:
 # --- montar_linha: amostragem, ordinal e acao -------------------------------------------------------
 
 
-def test_so_negar_e_glosar_tem_ordinal() -> None:
-    assert _avaliar(_row(decisao="glosar")).tem_ordinal
-    assert _avaliar(_row(decisao="negar")).tem_ordinal
-    for decisao in ("liberar", "recomendar_negativa", "revisao_humana", None):
-        assert not _avaliar(_row(decisao=decisao)).tem_ordinal
+@pytest.mark.parametrize(
+    ("decisao", "classe", "tem"),
+    [
+        ("glosar", "contas", True),
+        ("glosar", "administrativo", True),
+        ("negar", "administrativo", True),
+        ("negar", "clinico", False),  # incoerente: vai ao humano, nao consome a janela inicial
+        ("negar", "contas", False),
+        ("glosar", "clinico", False),
+        ("glosar", None, False),
+        ("recomendar_negativa", "clinico", False),
+        ("liberar", "contas", False),
+        ("revisao_humana", "administrativo", False),
+        (None, "contas", False),
+    ],
+)
+def test_ordinal_so_para_adversa_coerente_com_a_classe(
+    decisao: str | None, classe: str | None, tem: bool
+) -> None:
+    assert _avaliar(_row(decisao=decisao, classeAdverso=classe)).tem_ordinal is tem
 
 
 def test_decisao_sem_amostragem_nunca_e_amostrada_e_recusa_ordinal() -> None:
@@ -210,7 +223,7 @@ def test_sem_chave_toda_adversa_apos_a_inicial_e_amostrada_chave_ausente() -> No
 def test_a_chave_bruta_de_negocio_nunca_vai_para_a_linha() -> None:
     linha = reg.montar_linha(_avaliar(), _ctx(), 4)
     assert "AUTH-amh-123" not in repr(linha) and "AUTH-amh-123" not in repr(linha.params())
-    assert linha.chave_negocio_pseudonimizada == "AUTH-hk1_" + "d" * 64
+    assert not any("pseudon" in c for c in reg.COLUNAS)  # a chave nem em hash e gravada
     assert "AUTH-amh-123" not in repr(_ctx())  # nem no repr do contexto
 
 
@@ -274,10 +287,7 @@ def test_chave_da_amostra_so_com_segredo_e_id_validos() -> None:
     assert reg.chave_amostra_do_ambiente({k: "s3", i: "id com espaco"}) == (None, None)
 
 
-def test_contexto_da_tarefa_pseudonimiza_a_chave_de_negocio(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RUNTIME_MODE", "local")
-    monkeypatch.setenv("PHI_HMAC_KEY", "chave-de-teste")
-    reset_egress_pseudonymizer_cache()
+def test_contexto_da_tarefa_guarda_a_chave_de_negocio_so_em_memoria() -> None:
     ctx = reg.contexto_da_tarefa(
         tenant="amh",
         task_id="t-1",
@@ -285,29 +295,23 @@ def test_contexto_da_tarefa_pseudonimiza_a_chave_de_negocio(monkeypatch: pytest.
         business_key="AUTH-amh-guia-999",
         ambiente={reg.VARIAVEL_CHAVE_AMOSTRA: "s", reg.VARIAVEL_ID_CHAVE_AMOSTRA: "k1"},
     )
-    assert ctx.chave_negocio_pseudonimizada is not None
-    assert ctx.chave_negocio_pseudonimizada.startswith("AUTH-hk1_")
-    assert "guia-999" not in ctx.chave_negocio_pseudonimizada
     assert (ctx.chave_negocio, ctx.chave_amostra, ctx.id_chave_amostra) == ("AUTH-amh-guia-999", b"s", "k1")
+    assert "guia-999" not in repr(ctx) and "guia-999" not in ctx.chave_idempotencia
+    assert not hasattr(ctx, "chave_negocio_pseudonimizada")
     vazio = reg.contexto_da_tarefa(
         tenant="amh", task_id="t-1", decision_key="rco_x", business_key="", ambiente={}
     )
-    assert vazio.chave_negocio_pseudonimizada is None and vazio.chave_negocio is None
-    reset_egress_pseudonymizer_cache()
+    assert vazio.chave_negocio is None
 
 
-def test_producao_sem_chave_phi_levanta_e_nenhuma_linha_nasce(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail-closed do ADR-0035 herdado: sem `PHI_HMAC_KEY` em producao a chave NAO e gravada em claro
-    (o harness trata a excecao como fail-open do REGISTRO, nunca da tarefa)."""
+def test_contexto_nao_depende_da_chave_phi(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem pseudonimo nao ha dependencia de PHI_HMAC_KEY: producao sem a chave tambem monta o contexto."""
     monkeypatch.delenv("RUNTIME_MODE", raising=False)
-    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
     monkeypatch.delenv("PHI_HMAC_KEY", raising=False)
-    reset_egress_pseudonymizer_cache()
-    with pytest.raises(PseudonymizerKeyMissingError):
-        reg.contexto_da_tarefa(
-            tenant="amh", task_id="t-1", decision_key="rco_x", business_key="AUTH-amh-1", ambiente={}
-        )
-    reset_egress_pseudonymizer_cache()
+    ctx = reg.contexto_da_tarefa(
+        tenant="amh", task_id="t-1", decision_key="rco_x", business_key="AUTH-amh-1", ambiente={}
+    )
+    assert ctx.tenant == "amh"
 
 
 # --- store (conexao falsa) --------------------------------------------------------------------------
@@ -328,12 +332,18 @@ class _Conn:
     def __init__(self, *, inserido: bool = True, falha_em: str | None = None) -> None:
         self.log: list[str] = []
         self.args: list[tuple[Any, ...]] = []
+        self.sqls: list[str] = []
+        self.terminada = False
+        self.close_trava = False
         self._inserido = inserido
         self._falha_em = falha_em
         self.fechada = False
 
     async def execute(self, sql: str, *args: Any) -> None:
-        self.log.append("lock" if "pg_advisory_xact_lock" in sql else "set_path")
+        self.log.append(
+            "lock" if "pg_advisory_xact_lock" in sql else "set_local" if "SET LOCAL" in sql else "set_path"
+        )
+        self.sqls.append(sql)
         self.args.append(args)
         if self._falha_em == "execute":
             raise ConnectionError("fora")
@@ -350,7 +360,12 @@ class _Conn:
         return 99 if self._inserido else None
 
     async def close(self) -> None:
+        if self.close_trava:
+            await asyncio.sleep(3600)
         self.fechada = True
+
+    def terminate(self) -> None:
+        self.terminada = True
 
 
 def _store(conn: _Conn) -> reg.PostgresRegistroDecisoesRco:
@@ -364,8 +379,9 @@ async def test_store_toma_o_lock_antes_de_ler_o_ordinal_e_grava_na_mesma_transac
     conn = _Conn()
     gravou = await _store(conn).registrar(_avaliar(), _ctx())
     assert gravou is True
-    assert conn.log == ["set_path", "begin", "lock", "ordinal", "insert", "commit"]
-    assert conn.args[1] == ("rco-ordinal|amh|REGRA-1|1.2.3",)
+    assert conn.log == ["set_path", "begin", "set_local", "set_local", "lock", "ordinal", "insert", "commit"]
+    assert conn.sqls[1:3] == ["SET LOCAL lock_timeout = '2s'", "SET LOCAL statement_timeout = '3s'"]
+    assert conn.args[3] == ("rco-ordinal|amh|REGRA-1|1.2.3",)
     insert = conn.args[-1]
     assert insert[reg.COLUNAS.index("ordinal")] == 5  # o ordinal lido sob o lock entra na linha
     assert conn.fechada
@@ -374,7 +390,7 @@ async def test_store_toma_o_lock_antes_de_ler_o_ordinal_e_grava_na_mesma_transac
 async def test_store_sem_ordinal_nao_toma_lock() -> None:
     conn = _Conn()
     await _store(conn).registrar(_avaliar(_row(decisao="liberar")), _ctx())
-    assert conn.log == ["set_path", "begin", "insert", "commit"]
+    assert conn.log == ["set_path", "begin", "set_local", "set_local", "insert", "commit"]
 
 
 async def test_store_reentrega_nao_grava_de_novo() -> None:
@@ -433,3 +449,25 @@ def test_cache_do_estado_guarda_arquivo_ilegivel_como_ilegivel(monkeypatch: pyte
     ruim = at.EstadosManuais({}, ilegivel=True, motivo="x")
     monkeypatch.setattr(at, "carregar_estados", lambda: ruim)
     assert at.estados_em_cache(relogio=lambda: 1.0).estado_de("R", "1.0.0") == "desligada"
+
+
+async def test_store_close_pendurado_e_derrubado_por_terminate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reg, "_FECHAR_TIMEOUT_S", 0.05)
+    conn = _Conn()
+    conn.close_trava = True
+    assert await _store(conn).registrar(_avaliacao_sombra(), _ctx()) is True  # o resultado ja era conhecido
+    assert conn.terminada and not conn.fechada
+
+
+async def test_store_falha_de_banco_nao_vaza_a_mensagem_do_driver() -> None:
+    class _Falha(_Conn):
+        async def fetchval(self, sql: str, *args: Any) -> Any:
+            raise RuntimeError("Failing row contains (AUTH-amh-guia-1)")
+
+    with pytest.raises(reg.RegistroRcoIndisponivelError) as exc:
+        await _store(_Falha()).registrar(_avaliacao_sombra(), _ctx())
+    assert "guia-1" not in str(exc.value) and exc.value.__cause__ is None
+
+
+def _avaliacao_sombra() -> reg.AvaliacaoRegra:
+    return _avaliar()

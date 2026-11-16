@@ -64,7 +64,6 @@ def test_colunas_do_adr_0077_secao_4_estao_no_ddl() -> None:
         "ativacao_efetiva",
         "modo",
         "acao",
-        "chave_negocio_pseudonimizada",
         "amostrada",
         "motivo_amostra",
         "id_chave_amostra",

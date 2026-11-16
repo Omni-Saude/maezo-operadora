@@ -1003,14 +1003,14 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         tabela="rco_decisao_regra",
         migracao="0035_rco_decisao_regra.py::upgrade (rco_decisao_regra; append-only triggers)",
         identificacao=(
-            "tenant + chave_idempotencia (sha256 of `tenant:task_id:decision_key`) + id_regra + "
-            "versao_regra; the row holds only the rule id/version, the pinned DMN sha, closed-token DMN "
-            "outputs (decisao, classe_adverso, motivo_tab38, fila), the closed activation enums, the "
-            "sampling outcome and a KEYED pseudonym (`hk1_`) of the business key - never the raw key. "
-            "No CPF, name, "
-            "health data or free text; a beneficiary is not a subject here, and the keyed pseudonym is not "
-            "a bridge to one. The table is DARK (every rule in sombra, effect indicator off) and the "
-            "single writer is fail-open"
+            "No titular column: the row holds only tenant, rule id/version, the pinned DMN sha, "
+            "closed-token DMN outputs (decisao, classe_adverso, motivo_tab38, fila), the closed activation "
+            "enums, the sampling outcome, the ordinal and `chave_idempotencia` = sha256(tenant:task_id:"
+            "decision_key). The business key is NOT stored (in memory only, for HMAC sampling). The row is "
+            "linkable to a case only indirectly, via `task_id` (hashed inside `chave_idempotencia`) to the "
+            "audit table; elimination/anonymization follows the audit regime: once the audit row of that "
+            "task_id is eliminated this row has no link left. The table is DARK (every rule in sombra, "
+            "effect indicator off) and the single writer is fail-open"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=47,

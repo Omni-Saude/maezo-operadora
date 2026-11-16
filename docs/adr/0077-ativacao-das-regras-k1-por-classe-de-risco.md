@@ -119,7 +119,7 @@ Uma tabela append-only nova, `rco_decisao_regra`, criada por migration nova sem 
 - `idRegra`, `versaoRegra`, `shaDmn`;
 - `decisao`, `classeAdverso`, `motivoTab38`, `fila`;
 - `estado_manual`, `ativacao_pacote`, `ativacao_efetiva`;
-- chave de negócio pseudonimizada (Zona Geral, sem dado pessoal);
+- **a chave de negócio NÃO é gravada**: só existe em memória, para o HMAC da amostragem. Decisão da orquestradora ROOT de 16/11/2026, por minimização (LGPD, necessidade). O vínculo com o caso é só indireto, por `task_id` (em hash dentro de `chave_idempotencia`) até a auditoria; o DPO é informado de forma assíncrona e isso não bloqueia;
 - `amostrada`, `motivo_amostra` ∈ {`inicial`, `aleatoria`, `chave_ausente`} e `id_chave_amostra`;
 - o desfecho humano, ligado depois;
 - `concordou` ∈ {`sim`, `nao`, `sem_desfecho`}.

@@ -15,17 +15,21 @@ em `sombra` e o indicador `efeito_k1_habilitado` e falso: nenhum caso muda por c
 desfecho humano NAO e coluna da linha da decisao: e a tabela filha `rco_decisao_regra_desfecho`,
 tambem append-only, com uma linha por desfecho registrado (a 5d/5e liga; vale o ultimo por `id`).
 
-**Ordinal.** `ordinal` e o 1-based por (tenant, id_regra, versao_regra) das decisoes adversas com
-amostragem (`negar`, `glosar`); nulo nas demais. Calculado por quem grava sob
+**Ordinal.** `ordinal` e o 1-based por (tenant, id_regra, versao_regra) das decisoes adversas coerentes
+com a classe que a revisao inicial mira (ADR-0077 §3: `glosar` contas/administrativo, `negar`
+administrativo); nulo nas demais. Linha perdida no caminho fail-open desloca os ordinais (5d/5e revisam).
+Calculado por quem grava sob
 `pg_advisory_xact_lock`; o indice unico parcial e a segunda barreira (um escritor que furasse o lock
 levaria erro, nunca dois ordinais iguais).
 
 **Idempotencia.** `UNIQUE (tenant, chave_idempotencia)`, onde `chave_idempotencia` e o sha256 de
 `tenant:task_id:decision_key`: a re-entrega da tarefa externa nao duplica nem consome ordinal.
 
-**PHI.** Nenhuma coluna de beneficiario nem texto livre. `chave_negocio_pseudonimizada` e o HMAC
-(`hk1_`) da chave de negocio (`maezo.platform.privacy.key_scrubber`), nunca a chave bruta; as saidas da
-DMN so entram com forma de token curto.
+**PHI.** Nenhuma coluna de beneficiario, guia, CPF, carteirinha nem texto livre. A chave de negocio NAO
+e gravada (minimizacao, LGPD; so vive em memoria para o HMAC da amostragem). O vinculo com o caso e
+indireto: `task_id` entra so em hash em `chave_idempotencia` (sha256 de tenant:task_id:decision_key) e
+aponta para a linha de auditoria; eliminada a auditoria daquele `task_id`, esta linha nao tem vinculo.
+As saidas da DMN so entram com forma de token curto.
 
 **Tenant.** Coluna `tenant` com o CHECK de OpaqueRef da casa (molde 0030/0032/0034) dentro do schema do
 tenant (DL-0017, `search_path`).
@@ -78,10 +82,6 @@ CREATE TABLE rco_decisao_regra (
     -- Vocabulario de `rco_ativacao.ACOES` (saida de `filtrar_saida`).
     acao text NOT NULL CHECK (
         acao IN ('registrar_apenas', 'revisao_humana', 'conferencia', 'efeito_com_amostragem', 'efeito')
-    ),
-    -- `{{FAMILIA}}-hk1_<hmac>` ou `hk1_<hmac>`; nulo sem chave de negocio.
-    chave_negocio_pseudonimizada text CHECK (
-        chave_negocio_pseudonimizada ~ '^([A-Z]{{2,12}}-)?hk1_[0-9a-f]{{64}}$'
     ),
     amostrada boolean NOT NULL,
     motivo_amostra text CHECK (motivo_amostra IN ('inicial', 'aleatoria', 'chave_ausente')),
@@ -139,8 +139,8 @@ def upgrade() -> None:
     op.execute(
         "COMMENT ON TABLE rco_decisao_regra IS 'Registro append-only das decisoes das regras K1 do rco "
         "(ADR-0077 §4, 5c-2): uma linha por avaliacao que casou regra, em qualquer estado manual. "
-        "Idempotente por (tenant, chave_idempotencia). Sem dado de beneficiario; chave de negocio so "
-        "pseudonimizada. Escuro: toda regra em sombra, efeito_k1_habilitado falso'"
+        "Idempotente por (tenant, chave_idempotencia). Sem dado de beneficiario; chave de negocio nao "
+        "gravada. Escuro: toda regra em sombra, efeito_k1_habilitado falso'"
     )
 
     op.execute(_CREATE_DESFECHO)

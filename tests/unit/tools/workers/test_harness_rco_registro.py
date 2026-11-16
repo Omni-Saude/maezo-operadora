@@ -16,7 +16,6 @@ import structlog
 
 from maezo.gateway.audit import AuditRecord
 from maezo.platform import rco_ativacao as at
-from maezo.platform.privacy.key_scrubber import reset_egress_pseudonymizer_cache
 from maezo.platform.rco_registro import AvaliacaoRegra, ContextoDecisao
 from maezo.tools.workers import rco_pin
 from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes, record_dmn_version
@@ -40,10 +39,7 @@ def _pin_e_ambiente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sint.montar(tmp_path)
     pin = rco_pin.load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
     monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: pin)
-    monkeypatch.setenv("RUNTIME_MODE", "local")
-    monkeypatch.setenv("PHI_HMAC_KEY", "chave-de-teste")
     monkeypatch.delenv(at.CHAVE_EFEITO_K1, raising=False)
-    reset_egress_pseudonymizer_cache()
     at.limpar_cache_estados()
 
 
@@ -140,7 +136,7 @@ def test_arquivo_de_estado_ilegivel_aparece_na_auditoria(monkeypatch: pytest.Mon
 # --- o seam: registro depois da auditoria, fail-open ---------------------------------------------------
 
 
-async def test_registra_uma_vez_depois_da_auditoria_com_a_chave_pseudonimizada() -> None:
+async def test_registra_uma_vez_depois_da_auditoria_sem_gravar_a_chave_de_negocio() -> None:
     sink = FakeAuditSink()
     registro = _Registro(sink)
     harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
@@ -157,9 +153,8 @@ async def test_registra_uma_vez_depois_da_auditoria_com_a_chave_pseudonimizada()
     )
     assert (avaliacao.estado_manual, avaliacao.modo) == ("sombra", "sombra")
     assert contexto.tenant == "amh"
-    assert contexto.chave_negocio_pseudonimizada is not None
-    assert contexto.chave_negocio_pseudonimizada.startswith("AUTH-hk1_")
-    assert "guia-1" not in contexto.chave_negocio_pseudonimizada
+    assert contexto.chave_negocio == "AUTH-amh-guia-1"  # so em memoria, para a amostragem
+    assert "guia-1" not in repr(contexto)
     # a auditoria e o registro dizem a mesma coisa
     entry = sink.emitted[0][0].dmn_versions[SINT]
     assert entry["estadoManual"] == avaliacao.estado_manual and entry["modo"] == avaliacao.modo
@@ -192,6 +187,7 @@ async def test_falha_do_registro_nunca_muda_o_desfecho_da_tarefa(falha: BaseExce
     assert len(erros) == 1
     assert erros[0]["log_level"] == "error" and erros[0]["id_regra"] == "SINT-A-0002"
     assert "business_key" not in erros[0] and "AUTH-amh-guia-1" not in str(erros[0])
+    assert "exc_info" not in erros[0]  # so o tipo: a mensagem do driver pode trazer a linha
 
 
 async def test_registro_lento_nao_segura_a_tarefa(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,18 +199,6 @@ async def test_registro_lento_nao_segura_a_tarefa(monkeypatch: pytest.MonkeyPatc
     harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
     await harness._handle(_task())
     assert len(transport.completed) == 1
-
-
-async def test_producao_sem_chave_phi_nao_grava_e_a_tarefa_completa(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("RUNTIME_MODE", raising=False)
-    monkeypatch.delenv("PHI_HMAC_KEY", raising=False)
-    reset_egress_pseudonymizer_cache()
-    sink = FakeAuditSink()
-    registro = _Registro(sink)
-    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
-    await harness._handle(_task())
-    assert registro.chamadas == [] and len(transport.completed) == 1
-    reset_egress_pseudonymizer_cache()
 
 
 async def test_sem_registro_configurado_nada_muda() -> None:
@@ -291,3 +275,83 @@ def test_manifesto_major1_nao_tem_as_chaves_nem_avaliacao(
     assert avaliacao is None
     assert {"estadoManual", "ativacaoEfetiva", "modo", "ativacaoPacote"}.isdisjoint(entry)
     assert entry["versaoRegra"] == "1.0.1"
+
+
+async def test_falha_de_driver_loga_so_o_tipo_sem_a_mensagem() -> None:
+    sink = FakeAuditSink()
+    segredo = "Failing row contains (AUTH-amh-guia-1, 123.456.789-00)"
+    registro = _Registro(sink, falha=RuntimeError(segredo))
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    erros = [e for e in logs if e["event"] == "rco_decisao_registro_falhou_fail_open"]
+    assert erros[0]["erro"] == "RuntimeError" and "exc_info" not in erros[0]
+    assert segredo not in str(logs) and len(transport.completed) == 1
+
+
+async def test_erro_de_programacao_loga_com_pilha_e_a_tarefa_completa() -> None:
+    sink = FakeAuditSink()
+    registro = _Registro(sink, falha=TypeError("bug"))
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    erro = next(e for e in logs if e["event"] == "rco_decisao_registro_falhou_fail_open")
+    assert erro["erro"] == "erro_de_programacao" and erro["exc_info"] is True
+    assert len(transport.completed) == 1
+
+
+class _RegistroQueIgnoraCancelamento:
+    """Pior caso: dorme para sempre e engole o primeiro cancelamento."""
+
+    tenant = "amh"
+
+    def __init__(self) -> None:
+        self.cancelamentos = 0
+
+    async def registrar(self, avaliacao: AvaliacaoRegra, contexto: ContextoDecisao) -> bool:
+        while True:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                self.cancelamentos += 1
+                if self.cancelamentos > 1:
+                    raise
+
+
+async def test_store_pendurado_nao_atrasa_a_tarefa_alem_do_teto_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from maezo.tools.workers import harness as h
+
+    monkeypatch.setattr(h, "_RCO_REGISTRO_TIMEOUT_S", 0.2)
+    registro = _RegistroQueIgnoraCancelamento()
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro)
+    inicio = asyncio.get_running_loop().time()
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert asyncio.get_running_loop().time() - inicio < 2.0
+    assert len(transport.completed) == 1
+    assert any(e.get("erro") == "timeout_total" for e in logs)
+    await asyncio.sleep(0)  # deixa a coroutine orfa receber o cancelamento
+
+
+async def test_o_teto_e_unico_para_todas_as_decisoes_da_tarefa(monkeypatch: pytest.MonkeyPatch) -> None:
+    from maezo.tools.workers import harness as h
+
+    monkeypatch.setattr(h, "_RCO_REGISTRO_TIMEOUT_S", 0.3)
+    sink = FakeAuditSink()
+    registro = _Registro(sink, demora=0.2)  # cada decisao cabe no teto; duas juntas nao
+    harness = WorkerHarness(
+        FakeWorkerTransport(), worker_id="w", tenant="amh", audit_sink=sink, rco_decisoes=registro
+    )
+    av = _avaliacao_sintetica()
+    inicio = asyncio.get_running_loop().time()
+    await harness._registrar_decisoes_rco(_task(), {"rco_sint_a": av, "rco_sint_b": av})
+    assert asyncio.get_running_loop().time() - inicio < 0.45
+    assert len(registro.chamadas) == 2  # a segunda foi iniciada; o teto total a corta
+
+
+def _avaliacao_sintetica() -> AvaliacaoRegra:
+    with collect_dmn_versions(), collect_rco_avaliacoes() as avs:
+        record_dmn_version(_version(), row=ROW_NEGAR)
+    return avs[SINT]

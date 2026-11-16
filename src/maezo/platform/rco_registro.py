@@ -17,23 +17,29 @@ Tres pecas, da mais pura para a menos:
    sob `pg_advisory_xact_lock` por (tenant, idRegra, versaoRegra): duas avaliacoes concorrentes da mesma
    regra se serializam e nunca recebem o mesmo ordinal (um indice unico parcial e a segunda barreira).
 
-Ordinal. Conta so as decisoes que a revisao inicial e a conferencia inicial miram: as adversas com
-amostragem (`negar`, `glosar`; contrato K1 §7 fala nas "primeiras glosas" e "primeiras negativas"). Contar
-tambem `liberar` consumiria a janela de 30 antes de qualquer glosa e a revisao inicial nunca veria nada.
-Decisao nao adversa ou `recomendar_negativa`: ordinal nulo, nunca amostrada.
+Ordinal. Conta so as decisoes que a revisao inicial e a conferencia inicial miram (ADR-0077 §3): as
+adversas COERENTES COM A CLASSE (`glosar` com `contas`/`administrativo`; `negar` com `administrativo`;
+`rco_ativacao.CLASSES_COM_EFEITO`). Contar tambem `liberar` consumiria a janela de 30 antes de qualquer
+glosa; contar uma combinacao incoerente (ex.: `negar` clinico, que vai ao humano) consumiria a janela
+com caso que nunca chega a efeito. Qualquer outra decisao: ordinal nulo, nunca amostrada.
+ATENCAO (5d/5e): a linha perdida no caminho FAIL-OPEN do harness desloca os ordinais seguintes (o MAX+1
+nao ve a linha que nao entrou); antes de ligar qualquer efeito a janela inicial precisa de outra fonte.
 
 Idempotencia. `chave_idempotencia` = sha256 de `tenant:task_id:decision_key`: a re-entrega da mesma
 tarefa externa nao grava de novo nem consome ordinal (o INSERT cai em `ON CONFLICT DO NOTHING`).
 
-Zona Geral: nenhuma coluna de beneficiario. A chave de negocio entra pseudonimizada (HMAC com
-`PHI_HMAC_KEY` via `maezo.platform.privacy.key_scrubber`); a chave bruta so vive em memoria, para a
-amostragem. As saidas da DMN (`decisao`, `classeAdverso`, `motivoTab38`, `fila`) so sao gravadas se
+Zona Geral: nenhuma coluna de beneficiario. A chave de negocio NAO e gravada (minimizacao, LGPD):
+so vive em memoria, para o HMAC da amostragem. O vinculo com o caso e indireto: `task_id`, que entra
+so em hash na `chave_idempotencia`, aponta para a linha de auditoria da tarefa; eliminado o registro de
+auditoria daquele `task_id`, esta linha nao tem mais vinculo.
+As saidas da DMN (`decisao`, `classeAdverso`, `motivoTab38`, `fila`) so sao gravadas se
 tiverem forma de token curto: uma saida FEEL pode ecoar variavel de caso, e o que nao tem a forma
 vira nulo, nunca texto livre.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -95,7 +101,11 @@ class AvaliacaoRegra:
 
     @property
     def tem_ordinal(self) -> bool:
-        return self.decisao in ativ.DECISOES_COM_AMOSTRAGEM
+        """So a adversa coerente com a classe que a revisao inicial mira (ADR-0077 §3)."""
+        return (
+            self.decisao in ativ.DECISOES_COM_AMOSTRAGEM
+            and self.classe_adverso in ativ.CLASSES_COM_EFEITO.get(self.decisao or "", frozenset())
+        )
 
     def campos_de_auditoria(self) -> dict[str, str]:
         """As chaves camelCase de `dmn_versions` (ADR-0077 §4), todas em texto."""
@@ -159,11 +169,11 @@ def avaliar_regra(
 
 @dataclass(frozen=True, slots=True)
 class ContextoDecisao:
-    """O que vem da tarefa, nao da regra. `chave_negocio` (bruta) so serve a amostragem e nunca e gravada."""
+    """O que vem da tarefa, nao da regra. `chave_negocio` (bruta) so serve a amostragem; nunca e gravada
+    nem aparece no `repr`."""
 
     tenant: str
     chave_idempotencia: str
-    chave_negocio_pseudonimizada: str | None
     chave_negocio: str | None = field(default=None, repr=False)
     chave_amostra: bytes | None = field(default=None, repr=False)
     id_chave_amostra: str | None = None
@@ -194,20 +204,11 @@ def contexto_da_tarefa(
     business_key: str | None,
     ambiente: Mapping[str, str] | None = None,
 ) -> ContextoDecisao:
-    """Monta o contexto de UMA decisao. Pseudonimiza a chave de negocio com o helper do repo
-    (`scrub_key_value` + `egress_pseudonymizer`: HMAC com `PHI_HMAC_KEY`, fail-closed em producao sem
-    chave: levanta `PseudonymizerKeyMissingError`, e nesse caso nenhuma linha e gravada)."""
-    from maezo.platform.privacy.key_scrubber import egress_pseudonymizer, scrub_key_value
-
+    """Monta o contexto de UMA decisao. A chave de negocio fica so em memoria (amostragem)."""
     chave, id_chave = chave_amostra_do_ambiente(ambiente)
-    pseudo: str | None = None
-    if business_key:
-        valor = scrub_key_value(business_key, egress_pseudonymizer())
-        pseudo = valor if isinstance(valor, str) else None
     return ContextoDecisao(
         tenant=tenant,
         chave_idempotencia=chave_idempotencia(tenant, task_id, decision_key),
-        chave_negocio_pseudonimizada=pseudo,
         chave_negocio=business_key or None,
         chave_amostra=chave,
         id_chave_amostra=id_chave,
@@ -230,7 +231,6 @@ COLUNAS: Final[tuple[str, ...]] = (
     "ativacao_efetiva",
     "modo",
     "acao",
-    "chave_negocio_pseudonimizada",
     "amostrada",
     "motivo_amostra",
     "id_chave_amostra",
@@ -257,7 +257,6 @@ class LinhaDecisao:
     ativacao_efetiva: str
     modo: str
     acao: str
-    chave_negocio_pseudonimizada: str | None
     amostrada: bool
     motivo_amostra: str | None
     id_chave_amostra: str | None
@@ -321,7 +320,6 @@ def montar_linha(av: AvaliacaoRegra, ctx: ContextoDecisao, ordinal: int | None) 
         ativacao_efetiva=av.ativacao_efetiva,
         modo=av.modo,
         acao=acao.acao,
-        chave_negocio_pseudonimizada=ctx.chave_negocio_pseudonimizada,
         amostrada=amostrada,
         motivo_amostra=motivo or None,
         # A auditoria reproduz a amostra com a chave que decidiu; `inicial` e `chave_ausente` nao a usaram.
@@ -357,6 +355,23 @@ _INSERT_SQL: Final = (
 )
 
 Conectar = Callable[[], Awaitable[Any]]
+
+
+#: Limites da transacao do registro (SET LOCAL): espera de lock e duracao de cada comando.
+LOCK_TIMEOUT: Final[str] = "2s"
+STATEMENT_TIMEOUT: Final[str] = "3s"
+_FECHAR_TIMEOUT_S: Final[float] = 1.0
+
+
+async def _fechar(conn: Any) -> None:
+    """Fecha a conexao com limite; se travar (ou o chamador cancelou), `terminate()` derruba o socket."""
+    try:
+        await asyncio.wait_for(conn.close(), _FECHAR_TIMEOUT_S)
+    except asyncio.CancelledError:
+        conn.terminate()
+        raise
+    except Exception:
+        conn.terminate()  # fechar e' higiene: a falha de fechar nunca vira falha do registro
 
 
 def _chave_lock(tenant: str, id_regra: str, versao_regra: str) -> str:
@@ -398,6 +413,9 @@ class PostgresRegistroDecisoesRco:
             try:
                 await conn.execute(f'SET search_path TO "{self._schema}", public')
                 async with conn.transaction(isolation="read_committed"):
+                    # Teto duro: o registro e observacional; nunca espera lock nem consulta sem limite.
+                    await conn.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
+                    await conn.execute(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'")
                     ordinal: int | None = None
                     if avaliacao.tem_ordinal:
                         # O lock vale ate o commit: a segunda transacao da mesma regra espera aqui e,
@@ -414,13 +432,14 @@ class PostgresRegistroDecisoesRco:
                     linha = montar_linha(avaliacao, contexto, ordinal)
                     gravado = await conn.fetchval(_INSERT_SQL, *linha.params())
             finally:
-                await conn.close()
+                await _fechar(conn)
         except PROGRAMMING_ERRORS:
             raise  # bug do proprio codigo: sobe com a pilha (o chamador registra e segue)
         except Exception as exc:
+            # So o TIPO: a mensagem do asyncpg pode trazer "Failing row contains ..." com a linha.
             raise RegistroRcoIndisponivelError(
                 f"rco_decisao_regra indisponivel: {type(exc).__name__}"
-            ) from exc
+            ) from None
         return gravado is not None
 
 

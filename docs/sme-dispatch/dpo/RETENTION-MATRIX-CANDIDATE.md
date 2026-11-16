@@ -370,11 +370,13 @@ escopo_b:
       tabelas: [rco_decisao_regra, rco_decisao_regra_desfecho]
       motivo: >-
         fora do escopo B; 0035 (registro append-only das decisoes das regras K1 do rco, ADR-0077 §4,
-        unidade 5c-2) guarda so' id e versao da regra, sha da DMN, saidas da DMN em token fechado, enums
-        fechados de ativacao, o resultado da amostragem e um pseudonimo keyed (hk1_) da chave de negocio,
-        nunca a chave bruta; o desfecho humano e' tabela propria (append-only) ligada depois. Sem CPF,
-        nome, dado de saude ou texto livre; sem coluna de titular de beneficiario e sem ponte DSR. Sem
-        sonda (count_statement: None). Retencao e base legal a ratificar pelo DPO, sem prazo escolhido aqui
+        unidade 5c-2) guarda so' tenant, id e versao da regra, sha da DMN, saidas da DMN em token fechado,
+        enums fechados de ativacao, o resultado da amostragem, o ordinal e a chave de idempotencia
+        (sha256 de tenant:task_id:decision_key). A chave de negocio NAO e gravada. Sem coluna de titular
+        e sem ponte DSR; o vinculo com o caso e' so indireto, por task_id (em hash) ate' a auditoria, e a
+        eliminacao/anonimizacao segue o regime da auditoria. O desfecho humano e' tabela propria
+        (append-only) ligada depois. Sem sonda (count_statement: None). Retencao e base legal a ratificar
+        pelo DPO, sem prazo escolhido aqui
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

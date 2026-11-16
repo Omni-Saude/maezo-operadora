@@ -80,6 +80,7 @@ from maezo.gateway.action_execution import Decision as ActionDecision
 from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.platform.rco_registro import AvaliacaoRegra, RegistroDecisoesRco, contexto_da_tarefa
+from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 from maezo.tools.workers.dmn_transport import (
@@ -162,8 +163,15 @@ _GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
 #: path (retries=0), the always-human-visible outcome ADR-0008/ADR-0030 §4 prescribe for a guard —
 #: never a modeled boundary, never a silent clean end, never a retry.
 _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
-#: Teto do registro de decisoes K1 (5c-2): o registro e observacional (fail-open), nao pode segurar a tarefa.
+#: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): observacional (fail-open), nao segura a tarefa.
 _RCO_REGISTRO_TIMEOUT_S: float = 5.0
+
+
+def _descartar_resultado(trabalho: asyncio.Future[None]) -> None:
+    """Colhe (e descarta) o resultado de um registro que estourou o teto, para nao vazar excecao orfa."""
+    if not trabalho.cancelled():
+        trabalho.exception()
+
 
 #: MZO-1c (ADR-0075 §(c)): PERMANENT failures that are not guard refusals but must still leave an
 #: ADR-0007 row before their incident: a DMN evaluation the engine rejected for these inputs
@@ -1729,14 +1737,39 @@ class WorkerHarness:
 
         Por que FAIL-OPEN (ao contrario da auditoria, que e fail-closed): em 5c-2 toda regra esta em
         `sombra` e o registro e so observacao, o caso segue o processo humano de sempre. A fonte da
-        verdade e `dmn_versions`, ja gravada; perder uma linha de registro (banco fora, timeout, chave
-        PHI ausente) nao pode parar nem desviar o caso. Qualquer excecao vira log estruturado e a tarefa
-        completa. REVISAR em 5d/5e antes de ligar qualquer efeito: com `ativa_l2` ou `conferencia`, o
-        ordinal e a amostra decidem quem revisa, e uma linha perdida passaria a ser um caso sem revisao.
+        verdade e `dmn_versions`, ja gravada; perder uma linha de registro (banco fora, timeout) nao pode
+        parar nem desviar o caso. Falha vira log estruturado (tipo e codigo, sem a mensagem do driver) e
+        a tarefa completa. REVISAR em 5d/5e antes de ligar qualquer efeito: uma linha perdida DESLOCA os
+        ordinais seguintes (e a janela da revisao inicial), e com `ativa_l2`/`conferencia` isso passaria a
+        ser um caso sem revisao.
+
+        Limite de tempo: UM teto total (`_RCO_REGISTRO_TIMEOUT_S`) para todas as decisoes da tarefa. Usa
+        `asyncio.wait` e nao `wait_for`: um store que engole o cancelamento nao segura a tarefa (a
+        coroutine orfa e cancelada e seu resultado descartado).
         """
         store = self._rco_decisoes
         if store is None or not avaliacoes:
             return
+        trabalho = asyncio.ensure_future(self._gravar_decisoes_rco(store, task, avaliacoes))
+        try:
+            done, _ = await asyncio.wait({trabalho}, timeout=_RCO_REGISTRO_TIMEOUT_S)
+        except BaseException:
+            trabalho.cancel()
+            raise
+        if not done:
+            trabalho.cancel()
+            trabalho.add_done_callback(_descartar_resultado)
+            logger.error(
+                "rco_decisao_registro_falhou_fail_open",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="timeout_total",
+                decisoes=len(avaliacoes),
+            )
+
+    async def _gravar_decisoes_rco(
+        self, store: RegistroDecisoesRco, task: ExternalTask, avaliacoes: Mapping[str, AvaliacaoRegra]
+    ) -> None:
         for decision_key, avaliacao in avaliacoes.items():
             try:
                 if avaliacao.alertas:
@@ -1753,15 +1786,27 @@ class WorkerHarness:
                     decision_key=decision_key,
                     business_key=task.business_key,
                 )
-                await asyncio.wait_for(store.registrar(avaliacao, contexto), timeout=_RCO_REGISTRO_TIMEOUT_S)
-            except Exception:
+                await store.registrar(avaliacao, contexto)
+            except PROGRAMMING_ERRORS:
+                # Bug do proprio codigo: pilha completa (nao ha mensagem de driver com linha aqui).
                 logger.error(
                     "rco_decisao_registro_falhou_fail_open",
                     task_id=task.task_id,
                     topic=task.topic,
                     decision_key=decision_key,
                     id_regra=avaliacao.id_regra,
+                    erro="erro_de_programacao",
                     exc_info=True,
+                )
+            except Exception as exc:
+                # So o TIPO: a mensagem do asyncpg pode trazer "Failing row contains ..." com a linha.
+                logger.error(
+                    "rco_decisao_registro_falhou_fail_open",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    decision_key=decision_key,
+                    id_regra=avaliacao.id_regra,
+                    erro=type(exc).__name__,
                 )
 
     async def _emit_audit(self, record: AuditRecord, task: ExternalTask) -> str:
