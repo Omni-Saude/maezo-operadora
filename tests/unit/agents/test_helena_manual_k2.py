@@ -1263,21 +1263,27 @@ def test_flags_de_abertura() -> None:
     ("ambiente", "valor", "aceita"),
     [
         ("dev", True, True),
+        (" DEV ", True, True),  # o mesmo `dev` do `testchannel` (strip/lower)
         ("dev", "true", False),  # so' `True` exato
+        ("dev", 1, False),  # 1 == True, mas nao e' True
         ("dev", None, False),
         ("prod", True, False),  # producao nunca, nem com a chave ligada
         ("", True, False),
+        (None, True, False),  # MAEZO_ENV ausente
     ],
 )
 def test_aceite_da_configuracao(
-    monkeypatch: pytest.MonkeyPatch, ambiente: str, valor: object, aceita: bool
+    monkeypatch: pytest.MonkeyPatch, ambiente: str | None, valor: object, aceita: bool
 ) -> None:
     from maezo.agents.helena.habilidades.cobertura.manual import (
         CHAVE_ACEITAR_NAO_RATIFICADO,
         aceite_da_configuracao,
     )
 
-    monkeypatch.setenv(k2.VARIAVEL_DO_AMBIENTE, ambiente)
+    if ambiente is None:
+        monkeypatch.delenv(k2.VARIAVEL_DO_AMBIENTE, raising=False)
+    else:
+        monkeypatch.setenv(k2.VARIAVEL_DO_AMBIENTE, ambiente)
     cfg = {} if valor is None else {CHAVE_ACEITAR_NAO_RATIFICADO: valor}
     assert (aceite_da_configuracao(cfg) is not None) is aceita
 
@@ -1307,7 +1313,8 @@ def test_o_pacote_de_comportamento_leva_a_chave_ao_grafo_com_o_nome_do_leitor() 
         def atual(self) -> PacoteDoAgente:
             return self._pacote
 
-    ligado = _pacote.PacoteDaHelena(_Carregador(_pacote_com(cobertura_k2_aceitar_nao_ratificado=True)))  # type: ignore[arg-type]
+    carregador = _Carregador(_pacote_com(cobertura_k2_aceitar_nao_ratificado=True))
+    ligado = _pacote.PacoteDaHelena(carregador)  # type: ignore[arg-type]
     assert ligado.aplicar_no_grafo({})[CHAVE_ACEITAR_NAO_RATIFICADO] is True
     ausente = _pacote.PacoteDaHelena(_Carregador(_pacote_com()))  # type: ignore[arg-type]
     assert CHAVE_ACEITAR_NAO_RATIFICADO not in ausente.aplicar_no_grafo({})

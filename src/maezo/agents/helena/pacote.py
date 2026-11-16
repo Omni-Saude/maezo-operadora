@@ -41,6 +41,7 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "cobertura_ampla": ("helena_cobertura_ampla_enabled",),
     # PACOTE K2 NAO RATIFICADO (ROOT, 16/11/2026): ausente = recusado. Mesmo ligada, so' vale em `dev`: o
     # portao (`cobertura.manual.aceite_de_nao_ratificado`) le' o `MAEZO_ENV` vivo e producao nunca aceita.
+    # Atencao: o YAML le' `yes`/`on` sem aspas como `true`; escreva `true` (so' vale em dev, de todo modo).
     "cobertura_k2_aceitar_nao_ratificado": ("cobertura_k2_aceitar_nao_ratificado",),
 }
 #: LIMPEZA DA SAUDE, ETAPA 3 (dono, 02/11/2026): as chaves booleanas das camadas que sairam do codigo (triagem
