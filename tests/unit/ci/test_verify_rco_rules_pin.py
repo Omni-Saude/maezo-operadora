@@ -423,3 +423,14 @@ def test_gate_continua_so_biblioteca_padrao(pinned_tree: tuple[Path, dict[str, A
         [sys.executable, "-I", "-c", codigo], capture_output=True, text=True, check=True, timeout=120
     )
     assert out.stdout.strip().splitlines()[-1] == "0 []", out.stdout + out.stderr
+
+
+@pytest.mark.parametrize("ativacao", [[], {}])
+def test_ativacao_nao_texto_e_violacao_codificada(tmp_path: Path, ativacao: object) -> None:
+    """Re-revisao de e70d9b79: lista/objeto em `ativacao` vira violacao, nao traceback."""
+    sint.montar(tmp_path)
+    manifesto = json.loads((tmp_path / K1_MANIFEST_PATH).read_bytes())
+    manifesto["decisoes"][0]["regras"][0]["ativacao"] = ativacao
+    sint.regravar(tmp_path, manifesto)
+    assert _codes(sint.lock(tmp_path), tmp_path) == {"manifesto-invalido"}
+    assert main(["--repo-root", str(tmp_path)]) == 1

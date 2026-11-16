@@ -505,3 +505,15 @@ def test_sem_pacote_runtime_refuses_stray_dmn(tmp_path: Path) -> None:
     (rules_dir / "rco_solto.dmn").write_bytes((rules_dir / "rco_exemplo_sintetico.dmn").read_bytes())
     with pytest.raises(RcoRulesPinError, match="rco_solto.dmn"):
         load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+
+
+@pytest.mark.parametrize("ativacao", [[], {}])
+def test_fixado_unhashable_activation_is_coded_error(tmp_path: Path, ativacao: object) -> None:
+    """Re-revisao de e70d9b79: `ativacao` lista/objeto -> ERR_DMN_RCO_PIN, nunca TypeError."""
+    lock_path, rules_dir = _fixado(tmp_path)
+    manifesto = _manifesto(tmp_path)
+    manifesto["decisoes"][0]["regras"][0]["ativacao"] = ativacao
+    sint.regravar(tmp_path, manifesto)
+    with pytest.raises(RcoRulesPinError) as excinfo:
+        load_rco_rules_pin(lock_path, rules_dir=rules_dir)
+    assert excinfo.value.code == "ERR_DMN_RCO_PIN"

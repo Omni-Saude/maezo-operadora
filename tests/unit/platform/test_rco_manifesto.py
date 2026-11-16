@@ -428,3 +428,28 @@ def test_leitor_nao_importa_o_pacote_maezo() -> None:
     """O gate carrega este arquivo pelo caminho: nenhum import de `maezo` (so biblioteca padrao)."""
     fonte = Path(k1.__file__).read_text(encoding="utf-8")
     assert "import maezo" not in fonte and "from maezo" not in fonte
+
+
+# ---------------------------------------------------------------------------------------------
+# Re-revisao de e70d9b79: ativacao nao hasheavel e `decisao` nao literal
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ativacao", [[], {}, ["plena"], {"plena": True}])
+def test_ativacao_nao_texto_reprova_sem_type_error(
+    pacote: tuple[Path, dict[str, Any]], ativacao: object
+) -> None:
+    _, manifesto = pacote
+    manifesto["decisoes"][0]["regras"][0]["ativacao"] = ativacao
+    with pytest.raises(k1.ManifestoK1InvalidoError, match="ativacao"):
+        k1.ler_manifesto(sint.canonico(manifesto))
+
+
+def test_decisao_nao_literal_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote
+    linhas = [
+        ['"liberar"', '""', '"SINT-A-0001"', '""', '""'],
+        ['if x then "negar" else "liberar"', '"3171"', '"SINT-A-0002"', '"cadastro"', '"administrativo"'],
+    ]
+    _trocar_dmn(raiz, manifesto, 0, sint.dmn_bytes("rco_sint_a", sint.SAIDAS_OBRIGATORIAS, linhas))
+    assert any("decisao nao e literal string" in p for p in _verificar(raiz))

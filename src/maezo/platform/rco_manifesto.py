@@ -442,7 +442,7 @@ def _ler_regras(no: object, rotulo: str, major: int, problemas: list[str]) -> di
         if major == 1 and not isinstance(regra["ratificavel_automatico"], bool):
             problemas.append(f"{onde}.ratificavel_automatico: tem de ser booleano")
         if major == 2:
-            if regra["ativacao"] not in ATIVACOES:
+            if not isinstance(regra["ativacao"], str) or regra["ativacao"] not in ATIVACOES:
                 problemas.append(f"{onde}.ativacao: tem de ser um de {sorted(ATIVACOES)}")
                 return None
             if not isinstance(regra["exige_aditivo"], bool):
@@ -745,7 +745,13 @@ def _conferir_linhas(
                 problemas.append(f"{onde}: linha {i}: {SAIDA_ID_REGRA} nao e literal string")
             elif valor:
                 emitidos.add(valor)
-        if vocab is None or "decisao" not in linha or _literal(linha["decisao"]) not in vocab.adversas:
+        decisao_linha = _literal(linha["decisao"]) if "decisao" in linha else ""
+        if decisao_linha is None:
+            # Expressao em `decisao`: nao da para saber se a linha e adversa, entao nao se confere o
+            # que ela exige. Fail-closed: o K1 so emite decisao como literal.
+            problemas.append(f"{onde}: linha {i}: decisao nao e literal string")
+            continue
+        if vocab is None or decisao_linha not in vocab.adversas:
             continue
         vazios = [c for c in vocab.adversa_exige_preenchidos if c in linha and not _literal(linha[c])]
         if vazios:
