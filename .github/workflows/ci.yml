@@ -1317,7 +1317,7 @@ jobs:
             # `validate` nao executa `run` blocks: sem `terraform test` o servico do portal
             # (composicao dark, desired_count=0) passaria verde sem nenhuma assercao sobre ele.
             if [ "$dir" = "deploy/aws-ecs/envs/dev-sa-east-1/" ]; then
-              terraform test -filter=tests/portal.tftest.hcl
+              terraform test -filter=tests/portal.tftest.hcl -filter=tests/cluster.tftest.hcl
             fi
             cd - > /dev/null
           done

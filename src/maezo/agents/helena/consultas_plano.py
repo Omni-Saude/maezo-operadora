@@ -110,6 +110,9 @@ from maezo.contratos.fatos_do_plano import FonteDeFatosDoPlano as FonteDeFatosDo
 from maezo.contratos.fatos_do_plano import (  # noqa: E402
     FonteDeNomesDosDependentes as FonteDeNomesDosDependentes,
 )
+from maezo.contratos.fatos_do_plano import (  # noqa: E402
+    FonteDoCatalogoDeProcedimentos as FonteDoCatalogoDeProcedimentos,
+)
 from maezo.contratos.fatos_do_plano import FonteIndisponivel as FonteIndisponivel  # noqa: E402
 
 # --------------------------------------------------------------------------------------------
@@ -1117,6 +1120,7 @@ __all__ = [
     "FonteDeCarteirinhaCompleta",
     "FonteDeCobertura",
     "FonteDeCpt",
+    "FonteDoCatalogoDeProcedimentos",
     "FonteDeFatosDoPlano",
     "FonteDeNomesDosDependentes",
     "FonteIndisponivel",
