@@ -128,7 +128,7 @@ O desfecho humano vem de onde o caso de fato se encerra:
 - em `sombra`, do processo atual do Maezo;
 - sob `ativa_l2`, da User Task de conferência ou de revisão.
 
-O registro alimenta o K5 (desfechos mzo → adp → rco) e o painel de concordância por regra. A auditoria do ADR-0075 §(f) passa a gravar também `estado_manual`, `ativacao_pacote` e `ativacao_efetiva` em cada decisão do K1.
+O registro alimenta o K5 (desfechos mzo → adp → rco) e o painel de concordância por regra. A auditoria do ADR-0075 §(f) passa a gravar também, em cada decisão do K1, as chaves `estadoManual`, `ativacaoPacote`, `ativacaoEfetiva` e `exigeAditivo`. Elas seguem o camelCase das chaves que já existem (`shaDmn`, `versaoRegra`, `idRegra`), com valores em texto; as colunas do registro ficam em snake_case.
 
 **Amostragem determinística e não previsível pelo prestador:**
 - Entrada: `HMAC-SHA256(chave, campos)`. Cada campo (`chave_negocio`, `idRegra`, `versaoRegra`) é codificado em UTF-8 e prefixado pelo seu tamanho em 4 bytes big-endian, para que a concatenação não seja ambígua.
@@ -171,8 +171,8 @@ O registro alimenta o K5 (desfechos mzo → adp → rco) e o painel de concordâ
 ### 7. Ordem de implementação
 Um PR por unidade, um executor por vez, revisão independente em cada:
 1. este ADR;
-2. **5a:** leitura e checagem de faixa dos parâmetros. A checagem é escolha do Maezo: inteiros > 0, percentuais em (0, 100] com no máximo 4 casas decimais, `limiar_reversao_min_decisoes` ≥ 1. A auditoria grava `ativacao_pacote` e `exige_aditivo`. A recusa `ativacao_nao_suportada` continua;
-3. **5c:** arquivo de estado manual com leitor fail-closed, migration do registro, função de estado efetivo, o indicador `efeito_k1_habilitado` fixo em falso (toda regra em `sombra`), o registro em todos os estados, a amostragem do §4 e, na auditoria, `estado_manual` e `ativacao_efetiva`. Não cria User Task: as rotas de `desligada` e do §3 ficam escritas e testadas com o indicador ligado só nos testes. A recusa continua;
+2. **5a:** leitura e checagem de faixa dos parâmetros. A checagem é escolha do Maezo: inteiros > 0, percentuais em (0, 100] com no máximo 4 casas decimais, `limiar_reversao_min_decisoes` ≥ 1. A auditoria grava `ativacaoPacote` e `exigeAditivo`. A recusa `ativacao_nao_suportada` continua;
+3. **5c:** arquivo de estado manual com leitor fail-closed, migration do registro, função de estado efetivo, o indicador `efeito_k1_habilitado` fixo em falso (toda regra em `sombra`), o registro em todos os estados, a amostragem do §4 e, na auditoria, `estadoManual` e `ativacaoEfetiva`. Não cria User Task: as rotas de `desligada` e do §3 ficam escritas e testadas com o indicador ligado só nos testes. A recusa continua;
 4. **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
 5. **5e:** monitor de reversão, override e alertas. Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`;
 6. **5b:** provas, quando o formato for publicado.
