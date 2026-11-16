@@ -37,6 +37,8 @@ FAIL-CLOSED (contrato §4 e §5):
 - o conjunto de `idRegra` literais nao vazios que a tabela emite e exatamente o de `regras[]` (§3: uma
   entrada por `idRegra` emitido); linha adversa (`combinacao.adversas` de `vocabulario.json`) tem
   preenchidos os campos de `combinacao.adversa_exige_preenchidos` (§6), `idRegra` incluido;
+- `provas_ausentes_no_pin`: pacote abaixo de 2.1.0 (sem `provas[]`) ou com `provas[]` vazia e recusado NO
+  PIN (o leitor ainda o le para diagnostico; decisao da ROOT, 16/11/2026);
 - `ativacao_nao_suportada`: pacote MAJOR 2 com regra fora de `ativacao: plena` sem aditivo e
   recusado ate a Onda 2 item 5 (ativacao por classe de risco) ligar o significado;
 - `verificar_pastas`: `spec/processes/dmn/rco/` e `config/integrations/rco/k1/` so com o que o pin e
@@ -1019,6 +1021,31 @@ def ativacao_nao_suportada(manifesto: ManifestoK1) -> list[str]:
     return problemas
 
 
+def provas_ausentes_no_pin(manifesto: ManifestoK1) -> list[str]:
+    """Motivos para recusar PINAR o pacote por falta de provas do motor. Lista vazia = ok.
+
+    Decisao da ROOT (16/11/2026, contrato-k1.md §11 item 12): pin real so com `provas[]` executadas com
+    sucesso no CIB Seven. Formato abaixo de 2.1.0 (1.x e 2.0) nao tem provas e e recusado no pin; 2.1+
+    com `provas[]` vazia tambem (o leitor ja recusa a lista vazia; aqui fica a mesma recusa no pin,
+    sem depender disso). O leitor continua LENDO 1.x/2.0 para diagnostico: a recusa e so na hora de
+    pinar (gate `verify_rco_rules_pin` e runtime `rco_pin.load_rco_rules_pin`). A execucao das provas
+    no motor e de `rco_provas.executar_provas_do_pin`, no shard de integracao.
+    """
+    major, minor, _ = (int(p) for p in manifesto.formato_manifesto.split("."))
+    if (major, minor) < FORMATO_COM_PROVAS:
+        minimo = ".".join(str(n) for n in FORMATO_COM_PROVAS)
+        return [
+            f"formato_manifesto {manifesto.formato_manifesto} nao tem provas[]: o pin exige {minimo}.0 ou "
+            "maior, com provas do motor executadas com sucesso no CIB Seven (contrato-k1.md §11 item 12)"
+        ]
+    if not manifesto.provas:
+        return [
+            "provas[] vazia: o pin exige provas do motor executadas com sucesso no CIB Seven "
+            "(contrato-k1.md §11 item 12)"
+        ]
+    return []
+
+
 def nomes_k1_declarados(raw_manifesto: bytes | None) -> set[str]:
     """Nomes aceitos em `k1/`: o manifesto e os anexos que ele NOMEIA (leitura leniente, so nomes).
 
@@ -1222,6 +1249,7 @@ __all__ = [
     "verificar_pacote",
     "SAIDA_ID_REGRA",
     "ativacao_nao_suportada",
+    "provas_ausentes_no_pin",
     "ids_de_decisao",
     "json_estrito",
     "nomes_k1_declarados",

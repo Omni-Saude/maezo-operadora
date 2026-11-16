@@ -4,7 +4,9 @@ O rco publica, no `formato_manifesto` 2.1.0, provas: um DMN de teste e casos (`e
 sob `k1/provas/<id>/`. Antes de pinar o pacote o consumidor roda cada caso no PROPRIO motor (CIB Seven)
 e recusa o pin se algum caso divergir do `esperado`. Este modulo faz so isso: carrega os casos pelos
 arquivos que o manifesto lista, avalia cada um num `Avaliador` e devolve as divergencias. Nao ha
-efeito em runtime: ninguem o chama no caminho de decisao.
+efeito em runtime: ninguem o chama no caminho de decisao. `executar_provas_do_pin` le o pin e roda todas as
+provas do pacote pinado; o teste de integracao que o chama roda no shard de integracao do PR que muda o
+pin (decisao da ROOT, 16/11/2026: pin real so com provas executadas com sucesso no CIB Seven).
 
 O QUE "casa" SIGNIFICA (fixture `teste-unario-booleano`, README do rco): cada decisao de teste tem
 hit policy FIRST com duas linhas. A linha 1 e a celula testada e emite `resultado = "casa"`; a linha 2
@@ -27,6 +29,7 @@ from typing import Any, Final, Protocol
 import httpx
 
 from maezo.platform import rco_manifesto as k1
+from maezo.tools.workers import rco_pin
 from maezo.tools.workers.dmn_transport import _from_camunda_var, _to_camunda_vars
 
 RESULTADOS: Final[frozenset[str]] = frozenset({"casa", "nao_casa"})
@@ -94,7 +97,9 @@ def preparar_prova(prova: k1.ProvaK1, *, k1_dir: Path) -> ProvaPreparada:
     """Le (uma vez, com sha256 e sem link), valida e devolve a prova. Levanta `ManifestoK1InvalidoError`.
 
     Confere: `dmn` de cada arquivo de casos = caminho de um DMN da prova; `decisao` existe nesse DMN;
-    nenhum id de decisao com o prefixo `rco_`; `casos[]` nao vazio; id de caso unico na prova.
+    nenhum id de decisao com o prefixo `rco_`; `casos[]` nao vazio; id de caso unico na prova; nome de
+    arquivo DMN unico (a implantacao usa o nome) e id de decisao unico entre os DMN (o avaliador
+    roteia so pelo id).
     """
     problemas: list[str] = []
     base = f"{BASE_PROVAS}/{prova.id}/"
@@ -109,11 +114,23 @@ def preparar_prova(prova: k1.ProvaK1, *, k1_dir: Path) -> ProvaPreparada:
             continue
         if arq.caminho.endswith(".dmn"):
             rel = arq.caminho.removeprefix(base)
+            nome = rel.rsplit("/", 1)[-1]
+            # `implantar_prova` envia os DMN por nome de arquivo: nome repetido sobrescreveria um deles.
+            outro = next((r for r in dmns if r.rsplit("/", 1)[-1] == nome), None)
+            if outro is not None:
+                problemas.append(f"{arq.caminho}: nome de DMN {nome!r} repetido na prova (tambem {outro!r})")
+                continue
             dmns[rel] = raw
             try:
                 ids = k1.ids_de_decisao(raw, arq.caminho, exigir_prefixo=False)
             except k1.ManifestoK1InvalidoError as exc:
                 problemas.extend(exc.problemas)
+                continue
+            # O avaliador roteia so pelo id da decisao: o mesmo id em dois DMN da prova e ambiguo.
+            ja_vistos: frozenset[str] = frozenset().union(*ids_por_dmn.values())
+            repetidos = sorted({i for i in ids if ids.count(i) > 1 or i in ja_vistos})
+            if repetidos:
+                problemas.append(f"{arq.caminho}: decisao {repetidos} repetida nos DMN da prova")
                 continue
             ids_por_dmn[rel] = frozenset(ids)
             problemas.extend(
@@ -273,6 +290,103 @@ async def implantar_prova(
     return definicoes
 
 
+class Motor(Protocol):
+    """Implanta os DMN de uma prova e devolve o `Avaliador` preso a ESSA implantacao."""
+
+    async def implantar(
+        self, prova: k1.ProvaK1, *, k1_dir: Path, chaves_do_repo: frozenset[str]
+    ) -> Avaliador: ...
+
+
+class MotorCibSeven:
+    """`Motor` sobre o CIB Seven: `implantar_prova` + `AvaliadorCibSeven` (definicoes desta implantacao)."""
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def implantar(
+        self, prova: k1.ProvaK1, *, k1_dir: Path, chaves_do_repo: frozenset[str]
+    ) -> AvaliadorCibSeven:
+        definicoes = await implantar_prova(self._client, prova, k1_dir=k1_dir, chaves_do_repo=chaves_do_repo)
+        return AvaliadorCibSeven(self._client, definicoes)
+
+
+ESTADO_SEM_PACOTE: Final[str] = rco_pin.ESTADO_SEM_PACOTE
+ESTADO_FIXADO: Final[str] = rco_pin.ESTADO_FIXADO
+
+
+@dataclass(frozen=True, slots=True)
+class ProvasDoPin:
+    """Resultado de `executar_provas_do_pin`: o estado do pin, as provas rodadas e as divergencias."""
+
+    estado: str  # `sem_pacote` | `fixado`
+    provas: tuple[str, ...]  # ids das provas executadas (vazio so em `sem_pacote`)
+    casos: int  # casos avaliados no motor (soma de todas as provas)
+    divergencias: tuple[Divergencia, ...]
+
+
+def manifesto_do_pin(lock_path: Path, *, k1_dir: Path) -> tuple[str, k1.ManifestoK1 | None]:
+    """`(estado, manifesto)` do pin. `sem_pacote` -> `None`; `fixado` -> o manifesto com o sha256 de
+    `manifest_pin` e com provas (`provas_ausentes_no_pin`). Qualquer outro caso levanta
+    `ManifestoK1InvalidoError` (fail-closed: nunca devolve `fixado` sem provas)."""
+    try:
+        lock = k1.json_estrito(lock_path.read_bytes())
+    except (OSError, ValueError) as exc:
+        raise k1.ManifestoK1InvalidoError([f"pin ilegivel em {lock_path} ({type(exc).__name__})"]) from exc
+    if not isinstance(lock, dict):
+        raise k1.ManifestoK1InvalidoError(["pin: raiz nao e objeto"])
+    try:
+        # As MESMAS checagens do runtime (`rco_pin.load_rco_rules_pin`): lock_format e manifest_pin.
+        rco_pin.checar_lock_format(lock)
+        estado = lock.get("estado")
+        if estado == ESTADO_SEM_PACOTE:
+            if lock.get("manifest_pin") is not None:
+                raise k1.ManifestoK1InvalidoError(["pin: estado 'sem_pacote' exige manifest_pin = null"])
+            return estado, None
+        if estado != ESTADO_FIXADO:
+            raise k1.ManifestoK1InvalidoError([f"pin: estado desconhecido {estado!r}"])
+        digest = rco_pin.checar_manifest_pin(lock)
+    except rco_pin.RcoRulesPinError as exc:
+        raise k1.ManifestoK1InvalidoError([exc.message]) from exc
+    try:
+        raw = (k1_dir / k1.K1_MANIFESTO_NOME).read_bytes()
+    except OSError as exc:
+        raise k1.ManifestoK1InvalidoError([f"pin: manifesto K1 ausente ou ilegivel em {k1_dir}"]) from exc
+    if k1.sha256_prefixado(raw) != digest:
+        raise k1.ManifestoK1InvalidoError(["pin: sha256 do manifesto K1 diverge de manifest_pin"])
+    manifesto = k1.ler_manifesto(raw)
+    sem_provas = k1.provas_ausentes_no_pin(manifesto)
+    if sem_provas:
+        raise k1.ManifestoK1InvalidoError(sem_provas)
+    return estado, manifesto
+
+
+async def executar_provas_do_pin(
+    lock_path: Path, *, k1_dir: Path, motor: Motor, chaves_do_repo: frozenset[str]
+) -> ProvasDoPin:
+    """Roda TODAS as `provas[]` do pacote pinado no `motor` (contrato-k1.md §11 item 12).
+
+    Ponto de entrada do teste de integracao que le o pin (`tests/integration/dmn/
+    test_rco_provas_engine.py`): o pin real so vale com `divergencias` vazia. `sem_pacote` devolve
+    `estado='sem_pacote'` e nada roda (quem chama afirma esse estado). Decisao de prova que colide com
+    uma decisao do repo (`chaves_do_repo`) e recusada ANTES do motor; erro de implantacao propaga.
+    """
+    estado, manifesto = manifesto_do_pin(lock_path, k1_dir=k1_dir)
+    if manifesto is None:
+        return ProvasDoPin(estado, (), 0, ())
+    divergencias: list[Divergencia] = []
+    casos = 0
+    for prova in manifesto.provas:
+        preparada = preparar_prova(prova, k1_dir=k1_dir)
+        colisao = sorted(preparada.decisoes & chaves_do_repo)
+        if colisao:
+            raise k1.ManifestoK1InvalidoError([f"prova {prova.id}: decisao {colisao} colide com o repo"])
+        avaliador = await motor.implantar(prova, k1_dir=k1_dir, chaves_do_repo=chaves_do_repo)
+        divergencias.extend(await executar_prova(prova, k1_dir=k1_dir, avaliador=avaliador))
+        casos += len(preparada.casos)
+    return ProvasDoPin(estado, tuple(p.id for p in manifesto.provas), casos, tuple(divergencias))
+
+
 __all__ = [
     "RESULTADOS",
     "Avaliador",
@@ -288,4 +402,9 @@ __all__ = [
     "executar_provas",
     "implantar_prova",
     "resultado_da_avaliacao",
+    "Motor",
+    "MotorCibSeven",
+    "ProvasDoPin",
+    "executar_provas_do_pin",
+    "manifesto_do_pin",
 ]

@@ -431,14 +431,11 @@ def _mutado(root: Path, mutar: Any) -> dict[str, Any]:
     return m
 
 
-def test_fixado_major1_has_no_activation_parameters(tmp_path: Path) -> None:
+def test_fixado_major1_is_refused_without_provas(tmp_path: Path) -> None:
+    # Decisao da ROOT (16/11/2026): pin real so com `provas[]` (formato >= 2.1.0); MAJOR 1 nao as tem.
     sint.montar(tmp_path, major=1)
-    pin = load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
-    assert pin.parametros_ativacao is None
-    # MAJOR 1: a regra nao tem ativacao/exige_aditivo, logo a auditoria nao os grava (ausentes, nunca null).
-    campos = pin.tables["rco_sint_a"].audit_fields("SINT-A-0001")
-    assert set(campos) == {"shaDmn", "versaoRegra"}
-    assert pin.tables["rco_sint_a"].regras is not None
+    with pytest.raises(RcoRulesPinError, match="sem provas do motor"):
+        load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
 
 
 # ---------------------------------------------------------------------------------------------

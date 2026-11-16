@@ -63,6 +63,12 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
   dessas ativações só entra na Onda 2 item 5 (ativação por classe de risco). Até lá o pacote inteiro é
   recusado (`ERR_DMN_RCO_PIN` no runtime, violação `ativacao-nao-suportada` no gate), para que nenhum
   efeito adverso rode sem a regra de ativação que o contrato manda aplicar;
+- `formato_manifesto` abaixo de 2.1.0 (1.x e 2.0 não têm `provas[]`) ou `provas[]` vazia: o pin real exige
+  as provas do motor executadas com sucesso no CIB Seven (contrato §11 item 12; decisão da ROOT de
+  16/11/2026). O leitor ainda lê 1.x/2.0 para diagnóstico; a recusa é no pin (`ERR_DMN_RCO_PIN` no
+  runtime, violação `pin-sem-provas` no gate; a lista vazia já é `manifesto-invalido` no leitor). As
+  provas rodam em `tests/integration/dmn/test_rco_provas_engine.py`
+  (`rco_provas.executar_provas_do_pin`), no shard de integração do PR que muda o pin;
 - existe `origem.sujo` (pacote de workspace sujo);
 - falta ou sobra campo no topo, em `origem`, nos anexos, em cada decisão, entrada, saída, regra ou
   exemplo (contrato §4 item 7);

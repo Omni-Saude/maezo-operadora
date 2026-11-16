@@ -264,17 +264,12 @@ def test_audit_record_traz_as_chaves_como_texto() -> None:
     assert record.dmn_versions[SINT]["modo"] == "sombra"
 
 
-def test_manifesto_major1_nao_tem_as_chaves_nem_avaliacao(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_manifesto_major1_nao_e_pinado(tmp_path: Path) -> None:
+    # Decisao da ROOT (16/11/2026): sem `provas[]` (MAJOR 1) o pin e recusado; nenhuma auditoria K1 roda.
     raiz = tmp_path / "m1"
     sint.montar(raiz, major=1)
-    pin = rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
-    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: pin)
-    entry, avaliacao = _version().audit_pair(ROW_NEGAR)
-    assert avaliacao is None
-    assert {"estadoManual", "ativacaoEfetiva", "modo", "ativacaoPacote"}.isdisjoint(entry)
-    assert entry["versaoRegra"] == "1.0.1"
+    with pytest.raises(rco_pin.RcoRulesPinError, match="sem provas do motor"):
+        rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
 
 
 async def test_falha_de_driver_loga_so_o_tipo_sem_a_mensagem() -> None:
