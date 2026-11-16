@@ -634,6 +634,10 @@ def _inteiro_positivo(valor: object) -> bool:
 def _percentual(valor: object) -> bool:
     if isinstance(valor, bool) or not isinstance(valor, int | float):
         return False
+    if isinstance(valor, int):
+        # Int do JSON pode ser enorme (`10**400`): `math.isfinite` estouraria com OverflowError e o
+        # leitor sairia por traceback, nao por problema. Comparacao int com int nao converte para float.
+        return 0 < valor <= 100
     if not math.isfinite(valor) or not 0 < valor <= 100:
         return False
     # Casas decimais pelo `repr` (menor texto que reconstroi o float, o mesmo que o JSON escreve):

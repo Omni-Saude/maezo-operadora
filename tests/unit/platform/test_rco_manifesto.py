@@ -359,7 +359,26 @@ def test_major2_parametro_inteiro_fora_da_faixa_reprova(
 
 @pytest.mark.parametrize("chave", _PERCENTUAIS)
 @pytest.mark.parametrize(
-    "valor", [0, 0.0, -1, -0.5, 100.01, 101, 1000, 5.00001, 0.00001, 1e-05, True, False, "5", None]
+    "valor",
+    [
+        0,
+        0.0,
+        -1,
+        -0.5,
+        100.01,
+        101,
+        1000,
+        10**400,
+        -(10**400),
+        5.00001,
+        99.99999,
+        0.00001,
+        1e-05,
+        True,
+        False,
+        "5",
+        None,
+    ],
 )
 def test_major2_parametro_percentual_fora_da_faixa_reprova(
     pacote: tuple[Path, dict[str, Any]], chave: str, valor: object
