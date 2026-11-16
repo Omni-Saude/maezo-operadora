@@ -623,7 +623,8 @@ async def test_intake_refused_without_ratified_retention_matrix(
 ):
     """TB-E-25-a (3): `MAEZO_RETENTION_MATRIX_PATH` -> the template (`unratified: true`) with the
     intake on: `RetentionMatrixUnavailableError(reason="unratified_template")` and the command
-    refused before any source step (C6-4 :445)."""
+    refused before any source step; WEAKER than the plan's 'antes de ler o body' (C6-4 :445):
+    the command name rides in the body, so the refusal happens right after the structural parse."""
     assert frozenset(INTAKE_PAYLOADS) == LEAD_INTAKE_COMMANDS
     monkeypatch.setenv(MATRIX_PATH_ENV, str(TEMPLATE))
     await assert_intake_closed(

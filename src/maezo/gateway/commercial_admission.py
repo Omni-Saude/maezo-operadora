@@ -73,7 +73,8 @@ A1_CATALOG_DERIVED_COMMANDS: Final = frozenset({"offer.quote"})
 # (C6-4 refusal vocabulary) at the first phase that knows the command, before any source
 # step — on every composition, with or without A1/A3/A5. The command name rides inside the
 # C6-4 body, so the gate cannot key it before the structural parse; no intake value leaves
-# the codec before it.
+# the codec before it. EP-REG-04b suggested purpose_denied/SOURCE_UNAVAILABLE;
+# lifecycle_unqualified is used because TB-25 (i) anchors the gate on C6-4 :445 lifecycle.
 LEAD_INTAKE_COMMANDS: Final = frozenset({"prospect.save", "contact.request", "journey.save"})
 
 
