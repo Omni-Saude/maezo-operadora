@@ -178,6 +178,17 @@ async def test_sinonimo_citado_de_passagem_nao_escolhe_a_regra(manual: ManualK2,
         "quanto tempo pra marcar consulta com cardiologista?",
         "em quanto tempo consigo consulta com ortopedista?",
         "consulta de urgência demora quanto?",
+        # quinta revisao: o qualificador ou o assunto em OUTRA oracao; a pontuacao nao decide nada
+        "quanto tempo pra marcar consulta? é com cardiologista",
+        "cardiologista: quanto tempo pra consulta?",
+        "é urgência. consulta demora quanto?",
+        "qual a carência? é pra ressonância",
+        "ressonância. quanto custa?",
+        "ressonância? meu plano cobre?",
+        "consulta. qual o valor da coparticipação?",
+        "fisio: quanto custa a sessão?",
+        # a pergunta de PRAZO contra regra que nao diz numero nenhum
+        "quanto tempo demora a autorização da ressonância?",
     ],
 )
 async def test_qualificador_que_a_regra_nao_diz_nao_escolhe_a_regra(manual: ManualK2, pergunta: str) -> None:
@@ -198,3 +209,11 @@ async def test_o_procedimento_da_propria_regra_continua_respondendo(
 ) -> None:
     r = await CamadaRegraGeral(manual).responder(_pergunta(pergunta))
     assert r is not None and r.desfecho == "resposta" and r.fontes[0].id == regra
+
+
+async def test_a_fala_anterior_retomada_tambem_e_conferida(manual: ManualK2) -> None:
+    """HEL-5a (quinta revisao): "quero marcar com cardiologista" -> "e quanto tempo demora a consulta?" nao
+    escolhe a regra da consulta BASICA."""
+    pergunta = _pergunta("e quanto tempo demora a consulta?", "quero marcar com cardiologista")
+    r = await CamadaRegraGeral(manual).responder(pergunta)
+    assert r == cob.RespostaDaCobertura("transferir", lacuna="outro_procedimento")

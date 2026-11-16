@@ -17,7 +17,6 @@ conteudo K2 do rco (`manual.ManualK2`), e com nada mais:
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from typing import Final, Protocol, runtime_checkable
 
@@ -34,7 +33,6 @@ from maezo.agents.helena.habilidades.cobertura.manual import ManualK2, RegraDoMa
 from maezo.agents.helena.habilidades.cobertura.verificador import (
     FORMULA_FIXA,
     PREFIXO_DA_REGRA_GERAL,
-    oracoes_sobre_autorizacao,
     palavras_de_conteudo,
     procedimentos_citados,
     singular,
@@ -105,8 +103,7 @@ class CamadaRegraGeral:
                 termos += [t for t in (item.descricao, item.tuss) if t]
         regras = self._regras(termos, pergunta)
         if len(regras) == 1 and (
-            self._outro_procedimento(pergunta.texto, regras[0])
-            or _sujeito_fora_da_regra(pergunta.texto, regras[0])
+            self._outro_procedimento(pergunta.texto, regras[0]) or _sujeito_fora_da_regra(pergunta, regras[0])
         ):
             # HEL-5a (revisao independente): a mensagem cita OUTRO procedimento alem do da regra ("a
             # tomografia ... fiz ressonancia ano passado"): o sinonimo citado de passagem nao escolhe a regra.
@@ -185,36 +182,43 @@ class CamadaRegraGeral:
 _PALAVRAS_DA_PERGUNTA: Final[frozenset[str]] = frozenset(
     {
         "precisa", "preciso", "precisam", "precisar", "necessario", "necessaria", "tem", "ter", "tenho",
-        "fazer", "faco", "fizer", "vou", "quero", "queria", "posso", "pode", "meu", "minha", "eu", "quanto",
-        "quanta", "tempo", "demora", "demorar", "prazo", "como", "funciona", "pedir", "solicitar", "oi",
-        "ola", "bom", "boa", "dia", "tarde", "noite", "favor", "obrigado", "obrigada", "nao", "sei", "saber",
-        "qual", "previa", "previo", "pre", "autorizacao", "autorizar", "liberacao", "liberar", "guia",
-        "senha", "exame", "procedimento", "ai", "agora", "mesmo", "ainda", "sim", "ne", "vale", "valer",
-        "limite", "limitado", "limitada", "ilimitado", "ilimitada", "maximo", "pediu",
-        "medico", "medica", "consigo", "conseguir", "marcar", "agendar", "fiz", "feito", "cada",
+        "fazer", "faco", "fizer", "vou", "quero", "queria", "posso", "pode", "meu", "minha", "eu", "como",
+        "funciona", "pedir", "solicitar", "oi", "ola", "bom", "boa", "dia", "tarde", "noite", "favor",
+        "obrigado", "obrigada", "nao", "sei", "saber", "qual", "previa", "previo", "pre", "autorizacao",
+        "autorizar", "liberacao", "liberar", "guia", "senha", "exame", "procedimento", "ai", "agora", "mesmo",
+        "ainda", "sim", "ne", "pediu", "medico", "medica", "fiz", "feito",
+    }
+)  # fmt: skip
+#: As palavras de PRAZO e QUANTIDADE da pergunta: so' contra regra que diz algum numero (HEL-5a).
+_PALAVRAS_DE_QUANTIDADE: Final[frozenset[str]] = frozenset(
+    {
+        "quanto", "quanta", "tempo", "demora", "demorar", "prazo", "limite", "limitado", "limitada",
+        "ilimitado", "ilimitada", "maximo", "vale", "valer", "cada", "consigo", "conseguir", "marcar",
+        "agendar",
     }
 )  # fmt: skip
 
 
-def _sujeito_fora_da_regra(texto: str, regra: RegraDoManual) -> bool:
-    """HEL-5a (terceira revisao): na oracao da pergunta que fala de autorizacao, toda palavra de conteudo tem
-    de estar na regra (sinonimos, titulo, resumo, texto) ou ser do proprio ato de perguntar; "o transplante
-    precisa de autorizacao? fiz ressonancia" nao escolhe a regra da ressonancia, cite o procedimento que
-    citar (lista nenhuma fica completa)."""
+def _sujeito_fora_da_regra(pergunta: PerguntaDeCobertura, regra: RegraDoManual) -> bool:
+    """HEL-5a (revisao independente): VOCABULARIO FECHADO na pergunta. Toda palavra de conteudo da
+    mensagem INTEIRA (todas as oracoes: a pontuacao nao decide nada) e da ultima fala anterior da pessoa tem
+    de estar na regra (sinonimos, titulo, resumo, texto) ou ser do ato de perguntar; senao a regra nao e'
+    escolhida (transfere). "o transplante precisa de autorizacao? fiz ressonancia", "consulta? e' com
+    cardiologista", "ressonancia. quanto custa?" e "quero marcar com cardiologista" -> "e quanto tempo demora
+    a consulta?" nao escolhem nada: lista nenhuma de procedimento ou de assunto fica completa; o vocabulario
+    da regra sim. As palavras de PRAZO e QUANTIDADE ("quanto tempo", "limite") so' valem contra regra que diz
+    numero."""
     da_regra = palavras_de_conteudo(" ".join([*regra.sinonimos, regra.titulo, regra.resumo, regra.texto]))
+    permitidas = _PALAVRAS_DA_PERGUNTA
+    if any(c.isdigit() for c in f"{regra.resumo} {regra.texto}"):
+        permitidas = permitidas | _PALAVRAS_DE_QUANTIDADE
+    falas = [pergunta.texto]
+    anteriores = [f for f in pergunta.falas_anteriores if f != pergunta.texto]
+    if anteriores:
+        falas.append(anteriores[-1])
     return any(
-        p not in da_regra and p not in _PALAVRAS_DA_PERGUNTA
-        for oracao in [*oracoes_sobre_autorizacao(texto), *_oracoes_do_sinonimo(texto, regra)]
-        for p in palavras_de_conteudo(oracao)
+        p not in da_regra and p not in permitidas for fala in falas for p in palavras_de_conteudo(fala)
     )
-
-
-def _oracoes_do_sinonimo(texto: str, regra: RegraDoManual) -> list[str]:
-    """HEL-5a (quarta revisao): as oracoes que citam o sinonimo que ESCOLHEU a regra; o qualificador dito ali
-    ("consulta com cardiologista", "consulta de urgencia") tem de estar na regra, senao nada se escolhe."""
-    termos = [normalizar(s) for s in (*regra.sinonimos, regra.titulo) if normalizar(s)]
-    oracoes = [normalizar(o) for o in re.split(r"[?.!;,:]+", texto)]
-    return [o for o in oracoes if any(f" {t} " in f" {o} " for t in termos)]
 
 
 #: Procedimentos genericos que, citados junto com o sinonimo de OUTRA regra, tornam a pergunta ambigua.

@@ -332,13 +332,6 @@ def palavras_de_conteudo(texto: str) -> set[str]:
     }
 
 
-def oracoes_sobre_autorizacao(texto: str) -> list[str]:
-    """As oracoes (entre `?.!;,:`) que falam de autorizacao, ja' normalizadas."""
-    return [
-        o for o in (o.strip() for o in re.split(r"[?.!;,:]+", _plano(texto))) if o and _AUTORIZACAO.search(o)
-    ]
-
-
 def _palavras_sem_fonte(corpo: str, fontes: Sequence[str]) -> set[str]:
     """VOCABULARIO FECHADO (HEL-5a, terceira revisao): toda palavra de conteudo do rascunho tem de estar em
     alguma fonte (no singular). Listas de procedimentos, frequencias e negacoes nunca ficam completas; o
@@ -486,7 +479,6 @@ __all__ = [
     "PREFIXO_DA_REGRA_GERAL",
     "PROCEDIMENTOS_GENERICOS",
     "Veredito",
-    "oracoes_sobre_autorizacao",
     "palavras_de_conteudo",
     "procedimentos_citados",
     "singular",
