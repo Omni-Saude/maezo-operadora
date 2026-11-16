@@ -32,3 +32,14 @@ Recomendação: (A). PROVISÓRIO-aguarda-coordenador: o E-SF-17 fica pronto em r
 - E-SF-13: em implementação.
 
 PRONTO maezo-operadora #1269 head aeb4c5b02cc133a873695c907f680919ba3ce1c3 checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0) — exceto `flip-path-review-gate`, que aguarda APPROVED de code owner de `/deploy/` (ato humano; nenhum push resolve). Revisão independente PASS no mesmo head.
+
+## Q-W-MZO-CHAN-02 — 2026-11-16 — E-SF-13: migração 0036 e um teste fora da posse
+
+1. A migração 0036 (custódia cifrada do telefone de lead, G-43) cria tabela nova. O gate `tests/unit/platform/.../test_erasure_plan.py::test_the_enumeration_covers_every_table_the_migration_chain_creates` exige registrá-la em `src/maezo/platform/lifecycle/erasure_plan.py` e `spec/policies/retention/erasure-plan.template.yaml` (posse GATE; decisão DPO pendente). Também mudam os pinos de head (`src/maezo/platform/validators/vendor_plane.py` EXPECTED_HEAD 0035→0036 e testes que fixam head).
+   - (A) E-SF-13 sai SEM a migração: a custódia de lead fica só como módulo + testes unitários (sem tabela); a migração 0036 e o registro no plano de eliminação viram linha entregue à GATE/coordenação (camada ≥ 49, `decisao_dpo: PENDENTE`).
+   - (B) Autorizar CHAN a tocar os dois arquivos do plano de eliminação e os pinos de head no PR de E-SF-13.
+   - Recomendação: (A). PROVISÓRIO-aguarda-coordenador: o commit local já está assim; migração preparada fora do repo.
+2. `tests/unit/docs/test_contract_bpmn_dmn_citations.py` (fora da linha CHAN): a contagem de `.md` em `docs/processes/contracts/` passa de 17 para 18 por causa do `MESSAGE-CATALOG.md` novo, cujo caminho o plano impõe. Edição mínima (um número; a asserção dos 17 contratos `SP-OP-*` fica).
+   - (A) Autorizar no PR de E-SF-13. (B) Entregar a linha a W-MZO-DOC. Recomendação: (A). PROVISÓRIO-aguarda-coordenador.
+
+Nota de fila: CD-21 item 2 dá prioridade ao E-SF-13 na fila do maezo. Ele só abre depois do merge do #1269 (um PR aberto por janela), salvo instrução em contrário.
