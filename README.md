@@ -201,7 +201,7 @@ src/maezo/
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
 | [docs/adr/](docs/adr/) | 78 ADRs numerados (0001–0078; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
-| [docs/processes/contracts/](docs/processes/contracts/) | 17 contratos SP-OP — ~1.000 regras de negócio |
+| [docs/processes/contracts/](docs/processes/contracts/) | 18 contratos SP-OP — ~1.000 regras de negócio |
 | [docs/decisions-log.md](docs/decisions-log.md) | 169 decisões operacionais (DL-0001–DL-0169) |
 | [docs/runbooks/](docs/runbooks/) | 32 runbooks operacionais (22 gerais + 8 de alerta + 2 drills) |
 | [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway |

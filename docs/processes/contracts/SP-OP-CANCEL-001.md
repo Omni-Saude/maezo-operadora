@@ -373,6 +373,17 @@ cliente, flag, worker ou tela do Maezo chama a rota, e a instancia continua sem 
 portal consulta-la. Ligar o consumo depende de decisao do dono e da ratificacao do DPO da base legal (o proprio
 OpenAPI registra "Ratificação do DPO pendente"). Enquanto isso, so' teste em dev com beneficiario de teste conhecido.
 
+## Pedido pela pagina e fluxo distinto do arrependimento (E-SF-09 — proposta, sem efeito no motor)
+
+Proposta declarativa: nao altera BPMN, DMN nem worker. O modelo de dominio fica em `src/maezo/platform/saida_a_pedido/cancelamento.py` e a politica em `spec/policies/saida-a-pedido/pedido-cancelamento.yaml`.
+
+- (a) O pedido pela pagina entra como `tipo_solicitacao=pedido_beneficiario` e `origem_solicitacao=beneficiario`, **sem fatos fabricados**: `titularidade_confirmada`, `vinculo_ativo` e `dentro_prazo` ficam ausentes e o `cancel_admissibility` roteia `ANALISE_HUMANA`.
+- (b) O bloco do art. 15 da RN 561 viaja por referencia em `documentos_refs` (`cancel_request_rn561/v{versao}#I-VI`); o texto do bloco segue fechado ate RL-REG-27/RT-J2.
+- (c) Nenhum prazo regulatorio e exibido ate REG-27; o `P5D` de `cancel_sla.dmn` e operacional e nao e promessa ao beneficiario.
+- (d) O arrependimento e outro processo, `SP-OP-ARREPENDIMENTO-001`. A confirmacao "Responda Sim para confirmar." do cancelamento ordinario nao e declaracao do art. 8º §1º da RN 413, e o pedido de cancelamento nunca carrega declaracao. O aviso de arrependimento no cancelamento e so um link para o fluxo distinto.
+- (e) A linha unica de alternativa da OS-08 nao aparece ate RT-J3 (a). No WhatsApp nada muda (§7 (l) do adendo; DL-0098: o Lucas nunca oferece retencao).
+- (f) Protocolo e resposta automatica (RN 561 art. 6º §3º; RT-05 item 4): o protocolo do pedido pela pagina e' o `CAN-XXXX-XXXX` derivado do id da instancia do SP-OP-CANCEL-001 (REUSE de `protocolo_do_cancelamento`, `src/maezo/agents/lucas/cancelamento_pf.py`); `saida_a_pedido` nao fabrica protocolo proprio. Sem intake vivo da pagina nesta onda, a emissao da resposta automatica e do protocolo pela pagina fica PARADA (GAP-09-9).
+
 ## Pendencias para promocao a FINAL
 
 - DI (diagrama BPMN);

@@ -55,7 +55,7 @@ Para cada milestone:
 ### Anti-padrões de contexto
 
 - ❌ Carregar todos os 78 ADRs de uma vez
-- ❌ Carregar todos os 17 contratos SP-OP de uma vez  
+- ❌ Carregar todos os 18 contratos SP-OP de uma vez  
 - ❌ Ler arquivos sem search primeiro (`search_files` antes de `read_file`)
 - ❌ Repetir contexto que já está no PLANS.md ou RUNBOOK.md
 - ❌ Começar a codar sem verificar o contrato SP-OP correspondente
