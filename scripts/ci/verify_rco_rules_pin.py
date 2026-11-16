@@ -40,7 +40,10 @@ Estados do pin (`estado`)
   colunas de saida dentro do `saidas[]` de cada decisao, `idRegra` emitidos = `regras[]` e linha
   adversa com `idRegra`/`fila`/`classeAdverso`/`motivoTab38` preenchidos.
   Em `config/integrations/rco/k1/` so entram o manifesto e esses anexos (os exemplos do pacote ficam
-  fora do lock e fora da arvore: contrato §3). Cada `rco/*.dmn` tem de estar listado com sha256
+  fora do lock e fora da arvore: contrato §3). No formato 2.1 o manifesto lista tambem `provas[]`:
+  cada arquivo de prova fica em `k1/provas/<id>/...` com o sha256 do manifesto, e arquivo em `provas/`
+  fora do manifesto reprova (contrato §4 item 7); as provas NAO entram em `artifacts` (fora do lock).
+  Cada `rco/*.dmn` tem de estar listado com sha256
   igual; nada fora da lista e aceito.
 
 Em ambos os estados: subpasta em `rco/` ou em `k1/`, link simbolico, caminho absoluto ou com `..`,

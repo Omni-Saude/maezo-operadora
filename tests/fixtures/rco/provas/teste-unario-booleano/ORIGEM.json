@@ -1,0 +1,18 @@
+{
+  "origem_repo": "Omni-Saude/regras-contratos-operadora",
+  "origem_commit": "323fec5c2d241988f05d30da14c559adef8ba07f",
+  "origem_caminho": "validacao/fixtures/teste-unario-booleano/",
+  "arquivos": {
+    "dmn/teste-unario-booleano.dmn": "sha256:1a3d2d298d5bdac067bc31ac6c3d2f26484569b56d277f720974f1fd43130521",
+    "validacao/casos/cel01.json": "sha256:66372f14a7d044912567ce7e0b0316ef7c0343f89cddc46753a96952a72f413b",
+    "validacao/casos/cel02.json": "sha256:d38842f66f491db43aed9cc0d743fbbb7c5f0f9679fb55722489c79fa643e87b",
+    "validacao/casos/cel03.json": "sha256:acc1226488d8b491c13b86b8c080fb460878e7cffa8fcf3861d754bb17db6d3c",
+    "validacao/casos/cel04.json": "sha256:8a79373d35ee1d8d942ab4e143aa0530c519f89a2643727265f95db88d498541",
+    "validacao/casos/cel05.json": "sha256:3ff5cdb44754f4a73f809b4afbe3257850e87306f27566cffc1a35c46fedb969",
+    "validacao/casos/cel06.json": "sha256:c44fe559e7a1c9dd6f9f144bfcddd838191808eba952a2d9d0803c125b6202ed",
+    "validacao/casos/cel07.json": "sha256:6d6d240da27f678ead490a8e71b9553331fd994ee88d2946d54046bb2e9c6b4e",
+    "validacao/casos/cel08.json": "sha256:7e5af9e73486aac262b61b10412bcb9b17c139aeba1871f0411153f74534ed4c",
+    "validacao/casos/cel09.json": "sha256:d80b5a5cba4b884cca768dc9ad483b0b382c33e9be2470b5b781cab1ac797185",
+    "validacao/casos/cel10.json": "sha256:2270785fe6f5bcb54c206b7e07bf55520987c973462a7f5dd249a0ea81f338b0"
+  }
+}

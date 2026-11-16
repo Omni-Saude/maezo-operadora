@@ -17,7 +17,8 @@ sem rede.
 FAIL-CLOSED (contrato §4 e §5):
 - digest em toda parte no formato `sha256:<64 hex minusculos>`; hex cru e recusado (§1 — o hex cru
   dispara o detector de segredos; mesma notacao do K2, HEL-3a);
-- `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece; outro e recusado.
+- `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece (2.1: `provas[]`, obrigatorio
+  a partir de 2.1.0 e campo desconhecido, logo recusado, antes); outro e recusado.
   MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, estavel na branch `prog/rco/ativacao-k1` do rco no
   commit 75015304, ainda NAO em `main` do rco): cada regra tem exatamente `idRegra`,
   `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`, `ativacao`, `exige_aditivo` e
@@ -72,7 +73,11 @@ PREFIXO_DECISAO: Final[str] = "rco_"
 #: MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8): por regra, sai `ratificavel_automatico` e entram
 #: `ativacao` (conjunto fechado) e `exige_aditivo` (booleano); `vocabulario.json` ganha o bloco
 #: `ativacao` (`valores` + `parametros`). Campo a mais ou a menos continua recusado.
-FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 0})
+FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 1})
+#: Primeiro `(MAJOR, MINOR)` com o campo obrigatorio `provas[]` (contrato-k1.md §3, PROG-RCO-8, 2.1.0).
+#: Abaixo disso o campo e desconhecido e recusado (leitor estrito).
+FORMATO_COM_PROVAS: Final[tuple[int, int]] = (2, 1)
+PROVAS_DIR: Final[str] = "provas"
 #: Valores de `regras[].ativacao` (MAJOR 2, contrato §7). Valor fora do conjunto reprova (fail-closed).
 ATIVACOES: Final[frozenset[str]] = frozenset({"plena", "conferida", "em_correcao"})
 #: Chaves EXATAS de `vocabulario.json` `ativacao.parametros` (MAJOR 2). Os numeros vem do pacote,
@@ -109,6 +114,10 @@ CAMPOS_TOPO: Final[frozenset[str]] = frozenset(
         "exemplos_sinteticos",
     }
 )
+#: Campo acrescentado no topo a partir do `formato_manifesto` 2.1.0.
+CAMPO_TOPO_PROVAS: Final[str] = "provas"
+CAMPOS_PROVA: Final[frozenset[str]] = frozenset({"id", "descricao", "arquivos", "esperado"})
+CAMPOS_ARQUIVO_PROVA: Final[frozenset[str]] = frozenset({"caminho", "sha256"})
 CAMPOS_ORIGEM: Final[frozenset[str]] = frozenset({"repo", "commit_sha"})
 CAMPOS_DICIONARIO: Final[frozenset[str]] = frozenset({"path", "sha256", "sha256_arquivo", "versao"})
 CAMPOS_VOCABULARIO: Final[frozenset[str]] = frozenset({"path", "sha256"})
@@ -218,6 +227,24 @@ class AnexoK1:
 
 
 @dataclass(frozen=True, slots=True)
+class ArquivoProvaK1:
+    """Um arquivo de uma prova: caminho relativo a `k1/` (sob `provas/<id>/`) e o digest do manifesto."""
+
+    caminho: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProvaK1:
+    """Uma prova de comportamento do motor (contrato §3, `formato_manifesto` >= 2.1.0). Fora do lock."""
+
+    id: str
+    descricao: str
+    arquivos: tuple[ArquivoProvaK1, ...]
+    esperado: str  # `provas/<id>/validacao/casos`
+
+
+@dataclass(frozen=True, slots=True)
 class ManifestoK1:
     """O manifesto K1 ja validado na forma."""
 
@@ -231,6 +258,8 @@ class ManifestoK1:
     #: `dicionario_entradas.versao` e `.sha256` (hash do CONTEUDO = `sha256_conteudo` do arquivo).
     dicionario_entradas_versao: str = ""
     dicionario_entradas_sha256: str = ""
+    #: `provas[]` (so `formato_manifesto` >= 2.1.0; vazio antes). Nunca entram no lock.
+    provas: tuple[ProvaK1, ...] = ()
 
     @property
     def major(self) -> int:
@@ -553,7 +582,16 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
     if isinstance(dados, dict) and isinstance(dados.get("origem"), dict) and "sujo" in dados["origem"]:
         _ler_origem(dados["origem"], problemas)  # registra a recusa antes da checagem de forma
         raise ManifestoK1InvalidoError(problemas)
-    topo = _objeto(dados, CAMPOS_TOPO, "manifesto", problemas)
+    # Sem MAJOR/MINOR conhecido nao ha forma de topo para conferir: so a recusa do formato.
+    if (
+        isinstance(dados, dict)
+        and "formato_manifesto" in dados
+        and _ler_formato(dados["formato_manifesto"], problemas) is None
+    ):
+        raise ManifestoK1InvalidoError(problemas)
+    com_provas = _formato_tem_provas(dados)
+    campos_topo = CAMPOS_TOPO | {CAMPO_TOPO_PROVAS} if com_provas else CAMPOS_TOPO
+    topo = _objeto(dados, campos_topo, "manifesto", problemas)
     if topo is None:
         raise ManifestoK1InvalidoError(problemas)
 
@@ -597,6 +635,8 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
                 if caminho is not None:
                     exemplos.append(caminho)
 
+    provas = _ler_provas(topo[CAMPO_TOPO_PROVAS], problemas) if com_provas else ()
+
     if problemas or versao_pacote is None or origem is None:
         raise ManifestoK1InvalidoError(problemas or ["manifesto invalido"])
     return ManifestoK1(
@@ -609,7 +649,96 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
         exemplos=tuple(exemplos),
         dicionario_entradas_versao=str(topo["dicionario_entradas"].get("versao", "")),
         dicionario_entradas_sha256=str(topo["dicionario_entradas"].get("sha256", "")),
+        provas=provas,
     )
+
+
+def _formato_tem_provas(dados: object) -> bool:
+    """`True` se `formato_manifesto` e do MAJOR de `FORMATO_COM_PROVAS` com MINOR >= o dele.
+
+    A forma do topo depende disso (`provas` obrigatorio daqui em diante, desconhecido antes).
+
+    Formato ilegivel devolve `False`: `_ler_formato` registra a recusa depois.
+    """
+    if not isinstance(dados, dict):
+        return False
+    formato = dados.get("formato_manifesto")
+    if not isinstance(formato, str) or _SEMVER.fullmatch(formato) is None:
+        return False
+    major, minor, _ = (int(p) for p in formato.split("."))
+    return major == FORMATO_COM_PROVAS[0] and minor >= FORMATO_COM_PROVAS[1]
+
+
+def _caminho_de_prova(no: object, rotulo: str, id_prova: str | None, problemas: list[str]) -> str | None:
+    """Caminho relativo a `k1/`, POSIX, sem `..`, absoluto ou barra dupla, sob `provas/<id>/`."""
+    caminho = _texto(no, rotulo, problemas)
+    if caminho is None:
+        return None
+    partes = caminho.split("/")
+    if (
+        caminho.startswith("/")
+        or "\\" in caminho
+        or "\x00" in caminho
+        or any(p in ("", ".", "..") for p in partes)
+    ):
+        problemas.append(f"{rotulo}: caminho inseguro {caminho!r} (absoluto, '..', '.', '\\' ou vazio)")
+        return None
+    if id_prova is not None and (len(partes) < 3 or partes[:2] != [PROVAS_DIR, id_prova]):
+        problemas.append(f"{rotulo}: {caminho!r} tem de ficar sob {PROVAS_DIR}/{id_prova}/")
+        return None
+    return caminho
+
+
+def _ler_provas(no: object, problemas: list[str]) -> tuple[ProvaK1, ...]:
+    if not isinstance(no, list) or not no:
+        problemas.append("provas: tem de ser lista nao vazia")
+        return ()
+    provas: list[ProvaK1] = []
+    ids: set[str] = set()
+    caminhos: set[str] = set()
+    for i, item in enumerate(no):
+        rotulo = f"provas[{i}]"
+        obj = _objeto(item, CAMPOS_PROVA, rotulo, problemas)
+        if obj is None:
+            continue
+        id_prova = _texto(obj["id"], f"{rotulo}.id", problemas, _NOME_PLANO)
+        if id_prova in (".", ".."):
+            problemas.append(f"{rotulo}.id: {id_prova!r} invalido")
+            id_prova = None
+        descricao = _texto(obj["descricao"], f"{rotulo}.descricao", problemas)
+        if id_prova is not None:
+            if id_prova in ids:
+                problemas.append(f"{rotulo}: id {id_prova!r} repetido")
+            ids.add(id_prova)
+        arquivos: list[ArquivoProvaK1] = []
+        if not isinstance(obj["arquivos"], list) or not obj["arquivos"]:
+            problemas.append(f"{rotulo}.arquivos: tem de ser lista nao vazia")
+        else:
+            for j, arq in enumerate(obj["arquivos"]):
+                rot_arq = f"{rotulo}.arquivos[{j}]"
+                a = _objeto(arq, CAMPOS_ARQUIVO_PROVA, rot_arq, problemas)
+                if a is None:
+                    continue
+                caminho = _caminho_de_prova(a["caminho"], f"{rot_arq}.caminho", id_prova, problemas)
+                sha = _digest(a["sha256"], f"{rot_arq}.sha256", problemas)
+                if caminho is None or sha is None:
+                    continue
+                if caminho in caminhos:
+                    problemas.append(f"{rot_arq}.caminho: {caminho!r} repetido")
+                    continue
+                caminhos.add(caminho)
+                arquivos.append(ArquivoProvaK1(caminho, sha))
+        esperado = _texto(obj["esperado"], f"{rotulo}.esperado", problemas)
+        if (
+            id_prova is not None
+            and esperado is not None
+            and esperado != f"{PROVAS_DIR}/{id_prova}/validacao/casos"
+        ):
+            problemas.append(f"{rotulo}.esperado: tem de ser {PROVAS_DIR}/{id_prova}/validacao/casos")
+            esperado = None
+        if id_prova is not None and descricao is not None and esperado is not None:
+            provas.append(ProvaK1(id_prova, descricao, tuple(arquivos), esperado))
+    return tuple(provas)
 
 
 #: Parametros de contagem/prazo: inteiros > 0. Faixa escolhida pelo Maezo (ADR-0077 §7 item 2).
@@ -897,6 +1026,17 @@ def nomes_k1_declarados(raw_manifesto: bytes | None) -> set[str]:
             nome = bloco.get("path") if isinstance(bloco, dict) else None
             if isinstance(nome, str) and _NOME_PLANO.fullmatch(nome) and nome not in (".", ".."):
                 nomes.add(nome)
+        provas = dados.get(CAMPO_TOPO_PROVAS) if _formato_tem_provas(dados) else None
+        for prova in provas if isinstance(provas, list) else []:
+            arquivos = prova.get("arquivos") if isinstance(prova, dict) else None
+            for arq in arquivos if isinstance(arquivos, list) else []:
+                caminho = arq.get("caminho") if isinstance(arq, dict) else None
+                if (
+                    isinstance(caminho, str)
+                    and caminho.startswith(f"{PROVAS_DIR}/")
+                    and not any(p in ("", ".", "..") for p in caminho.split("/"))
+                ):
+                    nomes.add(caminho)  # relativo a k1/, com barras: so o que o manifesto nomeia
     return nomes
 
 
@@ -922,10 +1062,22 @@ def verificar_pastas(
         if not pasta.is_dir():
             achados.append(("pasta-invalida", f"{rotulo} existe mas nao e pasta"))
             continue
+        provas_aceitas = {n for n in aceitos if "/" in n} if pasta == k1_dir else set()
+        pastas_de_provas = {a.rsplit("/", i)[0] for a in provas_aceitas for i in range(1, a.count("/") + 1)}
         for caminho in sorted(pasta.rglob("*")):
-            rel = f"{rotulo}/{caminho.relative_to(pasta).as_posix()}"
+            rel_k1 = caminho.relative_to(pasta).as_posix()
+            rel = f"{rotulo}/{rel_k1}"
             if caminho.is_symlink():
                 achados.append(("link-simbolico", f"{rel} e link simbolico; recusado"))
+            elif rel_k1 in pastas_de_provas or rel_k1 in provas_aceitas:
+                continue  # pasta ancestral de prova declarada, ou arquivo de prova declarado
+            elif pasta == k1_dir and rel_k1.startswith(f"{PROVAS_DIR}/") and caminho.is_file():
+                achados.append(
+                    (
+                        "prova-fora-do-manifesto",
+                        f"{rel} esta em {PROVAS_DIR}/ e nao em provas[] (contrato §4 item 7)",
+                    )
+                )
             elif caminho.is_dir():
                 achados.append(("subpasta-nao-permitida", f"{rel}: {rotulo}/ e plana (ADR-0075 b)"))
             elif caminho.parent == pasta and caminho.name in aceitos:
@@ -946,6 +1098,20 @@ def verificar_pastas(
                     )
                 )
     return achados
+
+
+def verificar_provas(manifesto: ManifestoK1, *, k1_dir: Path) -> list[str]:
+    """Contrato §4 item 7: cada arquivo de `provas[]` existe (sem link), sob `provas/<id>/`, com o sha256 do
+    manifesto. Arquivo a mais em `provas/` e achado de `verificar_pastas`. Devolve os problemas."""
+    problemas: list[str] = []
+    for prova in manifesto.provas:
+        for arq in prova.arquivos:
+            caminho = k1_dir.joinpath(*arq.caminho.split("/"))
+            if caminho.is_symlink() or not caminho.is_file():
+                problemas.append(f"{K1_DIR}/{arq.caminho}: arquivo de prova ausente (ou link simbolico)")
+            elif sha256_prefixado(caminho.read_bytes()) != arq.sha256:
+                problemas.append(f"{K1_DIR}/{arq.caminho}: sha256 diverge do manifesto")
+    return problemas
 
 
 def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -> list[str]:
@@ -1008,6 +1174,7 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
             faltam = [s for s in obrigatorias if s not in colunas]
             if faltam:
                 problemas.append(f"{onde}: faltam as saidas obrigatorias {faltam} (vocabulario.json)")
+    problemas.extend(verificar_provas(manifesto, k1_dir=k1_dir))
     return problemas
 
 
@@ -1026,6 +1193,12 @@ __all__ = [
     "PREFIXO_DECISAO",
     "RULES_DIR",
     "AnexoK1",
+    "ArquivoProvaK1",
+    "CAMPO_TOPO_PROVAS",
+    "FORMATO_COM_PROVAS",
+    "PROVAS_DIR",
+    "ProvaK1",
+    "verificar_provas",
     "DecisaoK1",
     "ManifestoK1",
     "ManifestoK1InvalidoError",
