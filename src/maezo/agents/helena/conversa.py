@@ -13,13 +13,27 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable, Mapping
+from pathlib import Path
 from typing import Any, Final, cast
 
 from maezo.contratos.conversa import RespostaDeCadastro
 
 from . import cadastro, graph
 from . import juntar as _juntar
+from .habilidades.cobertura.composicao import LOCK_DO_K2, compor_cobertura
 from .pacote import PacoteDaHelena, do_ambiente
+
+
+def _raiz_do_k2() -> Path:
+    """Onde o lock do K2 mora: o checkout do repo e, instalado, a copia ao lado do pacote (force-include de
+    `config/integrations/rco` no pyproject). Sem lock em nenhum dos dois, a raiz do checkout: a composicao
+    da cobertura e' no-op sem lock."""
+    parents = Path(__file__).resolve().parents
+    candidatas = (parents[4], parents[2])
+    for raiz in candidatas:
+        if (raiz / LOCK_DO_K2).is_file():
+            return raiz
+    return candidatas[0]
 
 
 def _todas_as_conversas() -> bool:
@@ -44,11 +58,16 @@ class HelenaDeEntrada:
 
     def construir_grafo(self, config: Mapping[str, Any]) -> Any:
         juntar = self._pacote().juntar_mensagens()
-        if juntar is None:
-            return graph.build(self._pacote().aplicar_no_grafo(config))
-        # Etapa 9 (esperar e juntar): o remetente barra a resposta superada por mensagem nova.
-        com_trava = {**config, "whatsapp": _juntar.remetente_que_junta(config.get("whatsapp"))}
-        return graph.build(self._pacote().aplicar_no_grafo(com_trava))
+        if juntar is not None:
+            # Etapa 9 (esperar e juntar): o remetente barra a resposta superada por mensagem nova.
+            config = {**config, "whatsapp": _juntar.remetente_que_junta(config.get("whatsapp"))}
+        cfg = self._pacote().aplicar_no_grafo(config)
+        # K2 (DL-0167; combinado T-MZO-A/T-MZO-B): DEPOIS do pacote de comportamento, porque o aceite de
+        # pacote nao ratificado sai dele. A Helena e' a unica autoridade sobre o hash do K2 e a camada
+        # `regra_geral`; sem pin (`sem_pacote`) e' no-op. Catalogo vazio: a leitura assincrona por pergunta
+        # e' unidade propria da T-MZO-B.
+        compor_cobertura(_raiz_do_k2(), cfg, catalogo=())
+        return graph.build(cfg)
 
     def turno_juntado(self, estado: Mapping[str, Any], config: Any, compilado: Any) -> Any:
         """Etapa 9 (esperar e juntar): o contexto do turno para a costura que roda o grafo (espera, junta as
