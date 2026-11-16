@@ -325,8 +325,12 @@ def test_rede_credenciada_declarada_como_criterio_sem_cobertura() -> None:
         "a entrada precisa dizer QUAL ratificacao ela bloqueia, senao o SME nao a ve no momento certo"
     )
     assert str(entry.get("revisor_necessario", "")).strip(), "sem revisor nomeado a entrada e inerte"
+    # `carencia_check` tambem aparece bloqueado: e' a entrada restritiva do INTERLOCK T1 (PROC-01,
+    # EP-PROC-01a), pinada por `tests/unit/spec/test_carencia_check_t1_interlock.py`. Ela sai do
+    # manifesto — e desta igualdade — so pela condicao (i) ou (ii) do PROC-01.
     assert dict(load_criteria_sources(_RATIFICATION).blocked_by_uncovered) == {
-        "auth_criteria_contratual": ("rede_credenciada",)
+        "auth_criteria_contratual": ("rede_credenciada",),
+        "carencia_check": ("t1_mascaramento_cpt_urgencia",),
     }, "a declaracao acima tem de chegar ao runtime — senao volta a ser texto inerte (M-3)"
 
 
@@ -380,6 +384,11 @@ def test_um_criterio_sem_cobertura_impede_o_pass_mesmo_com_a_fonte_ratificada(
     forjado = copy.deepcopy(yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8")))
     for fonte in forjado["fontes"].values():
         fonte.update({"ratificado": True, "revisor": "SME", "ratificado_em": "2026-08-09"})
+    # ISOLAMENTO: o manifesto real tambem bloqueia `carencia_check` (INTERLOCK T1, PROC-01 —
+    # provado em `tests/unit/spec/test_carencia_check_t1_interlock.py`). Este teste prova SO' o
+    # bloqueio `rede_credenciada`, entao a entrada T1 sai da copia forjada — de forma explicita,
+    # nunca em silencio: se ela deixar de existir no arquivo real, o `pop` abaixo falha.
+    forjado["criterios_nao_cobertos"].pop("t1_mascaramento_cpt_urgencia")
     path = tmp_path / "auth-criteria-ratification.yaml"
     path.write_text(yaml.safe_dump(forjado, allow_unicode=True), encoding="utf-8")
 

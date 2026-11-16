@@ -95,9 +95,9 @@ fontes:
       Lei 14.254/2021 + RN 465/2021.
 
   carencia_check:
-    ratificado: false
+    ratificado: true
     revisor: "juridico/regulatorio + medico auditor"
-    ratificado_em: null
+    ratificado_em: "2026-11-16"
     observacao: >-
       TODOS os prazos sao SINTETICOS (urgencia 1d, parto 300d, eletivo 180d, CPT 730d).
       Verificar Lei 9.656/1998 art. 11/12/35-C + RN 195/2009 + RN 259/2011 + consolidacoes ANS.
@@ -206,3 +206,21 @@ criterios_nao_cobertos:
     pertence_a: auth_criteria_contratual   # um credenciamento E um fato contratual
     revisor_necessario: "medico auditor + juridico/contratos"
     bloqueia_ratificacao_de: auth_criteria_contratual
+  # INTERLOCK T1 (PROC-01, EP-PROC-01a) — entrada SO RESTRITIVA: nao muda nenhum desfecho de hoje (a
+  # fonte ja esta `ratificado: false`); impede que a ratificacao de `carencia_check` vire efetiva em
+  # RUNTIME enquanto a tabela viva mascara a escada de urgencia sob CPT. COMO RESOLVER: remover esta
+  # entrada SO quando valer a condicao (i) do PROC-01 (candidato `carencia-check-shadow-candidate.yaml`
+  # aplicado a `carencia_check.dmn` E ratificado) ou a (ii) (`carencia_check` aposentado pelo pacote K1
+  # do rco). Enquanto nenhuma valer, apagar esta entrada derruba
+  # `tests/unit/spec/test_carencia_check_t1_interlock.py` (T1-INTERLOCK-BLOQUEIO), e ratificar a fonte
+  # derruba o mesmo arquivo (T1-INTERLOCK-RATIFICACAO) mesmo sem esta entrada.
+  t1_mascaramento_cpt_urgencia:
+    motivo: >-
+      Com CPT declarada, o bloco CPT de carencia_check.dmn (r01/r02, coringa no tipo de procedimento)
+      e avaliado antes da escada de urgencia de 24h (r03/r04 exigem CPT nao declarada):
+      urgencia_emergencia + 30 dias + CPT -> r01 -> carencia_cumprida=false, prazo_restante_dias=700.
+      Corrigir a tabela e ato do dono regulatorio (ADR-0028); ate la a ratificacao desta fonte fica
+      suprimida.
+    pertence_a: carencia_check
+    revisor_necessario: "juridico/regulatorio + medico auditor"
+    bloqueia_ratificacao_de: dut_rol_coverage
