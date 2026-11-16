@@ -29,6 +29,7 @@ must still run this file, because an agent graph is the natural place for a prod
 from __future__ import annotations
 
 import copy
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -71,6 +72,7 @@ from tests.support.carencia_t1_interlock import (
     acusar_produtores_de_entradas,
     condicao_i_satisfeita,
     condicao_ii_satisfeita,
+    dias_da_grade,
     fontes_consultadas_pelo_criterio_regulatorio,
     interlock_t1_vigente,
     marcadores_de_trilha_ausentes,
@@ -142,6 +144,72 @@ def _aplicar_diff_do_candidato(raiz: ET.Element) -> None:
 def _diff_do_candidato_mais_edicao_nao_ratificada(raiz: ET.Element) -> None:
     _aplicar_diff_do_candidato(raiz)
     _texto(_por_id(raiz, "r08i2")).text = ">= 181"
+
+
+def _celula_de_saida(valor: Any) -> str:
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, int):
+        return str(valor)
+    if re.fullmatch(r"-?\d+\s*-\s*[A-Za-z_][A-Za-z0-9_]*", valor):
+        return valor
+    return f'"{valor}"'
+
+
+def _tabela_do_candidato(
+    destino: Path,
+    *,
+    regras_no_topo: tuple[tuple[tuple[str, ...], tuple[Any, ...]], ...] = (),
+    mutar: Callable[[list[dict[str, Any]]], None] | None = None,
+) -> Path:
+    """A COPY of the live table whose rules are EXACTLY `regras_candidatas` (every input AND output
+    cell, `fonte` included) — the owner's act of applying the ratified candidate. `regras_no_topo`
+    prepends extra (inputs, outputs) rules; `mutar` edits the candidate rules before writing."""
+    regras: list[dict[str, Any]] = copy.deepcopy(
+        yaml.safe_load(_CANDIDATO.read_text(encoding="utf-8"))["regras_candidatas"]
+    )
+    if mutar is not None:
+        mutar(regras)
+    entradas_ordem = read_live_table(_VIVA).input_names
+    linhas = [
+        (f"x{i}", tuple(str(e) for e in entradas), saidas)
+        for i, (entradas, saidas) in enumerate(regras_no_topo)
+    ] + [
+        (str(r["id"]), tuple(str(r["entradas"][n]) for n in entradas_ordem), tuple(r["saidas"].values()))
+        for r in regras
+    ]
+
+    def aplicar(raiz: ET.Element) -> None:
+        tabela = next(el for el in raiz.iter() if _local(el.tag) == "decisionTable")
+        antigas = [el for el in tabela if _local(el.tag) == "rule"]
+        modelo = antigas[0]
+        for antiga in antigas:
+            tabela.remove(antiga)
+        for ident, entradas, saidas in linhas:
+            nova = copy.deepcopy(modelo)
+            nova.set("id", ident)
+            celulas_e = [el for el in nova if _local(el.tag) == "inputEntry"]
+            celulas_s = [el for el in nova if _local(el.tag) == "outputEntry"]
+            for k, (celula, texto) in enumerate(zip(celulas_e, entradas, strict=True)):
+                celula.set("id", f"{ident}i{k}")
+                _texto(celula).text = texto
+            for k, (celula, valor) in enumerate(zip(celulas_s, saidas, strict=True)):
+                celula.set("id", f"{ident}o{k}")
+                _texto(celula).text = _celula_de_saida(valor)
+            tabela.append(nova)
+
+    return _copia_mutada(_VIVA, destino, aplicar)
+
+
+#: The reviewer's G-03 bypass: the candidate applied PLUS two leading `eletivo` rules that change the
+#: verdict only on days 401..728 — non-masking, and off the frozen day grid.
+_REGRAS_ELETIVO_FORA_DA_GRADE = (
+    (('"eletivo"', ">= 729", "false"), (True, 0, "eletivo antecipado (edicao nao ratificada)")),
+    (
+        ('"eletivo"', "> 400", "false"),
+        (False, 999, "eletivo (edicao nao ratificada). Nunca negativa automatica."),
+    ),
+)
 
 
 def _tabela_corrigida(destino: Path) -> Path:
@@ -253,6 +321,8 @@ def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> Non
             _copiar(r, TABELA_REL)
         elif tabela == "corrigida":
             _tabela_corrigida(r / TABELA_REL)
+        elif tabela == "candidato":
+            _tabela_do_candidato(r / TABELA_REL)
         return r
 
     arquivo = "docs/decisions/carencia/" + CANDIDATO_NOME
@@ -265,13 +335,13 @@ def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> Non
     r = raiz("i_candidato_ratificado_tabela_ainda_mascara")
     _arquivar_candidato(r, arquivo)
     assert interlock_t1_vigente(r) is True
-    r = raiz("i_placeholder", tabela="corrigida")
+    r = raiz("i_placeholder", tabela="candidato")
     _arquivar_candidato(r, arquivo, revisor="PLACEHOLDER_DONO_REGULATORIO")
     assert interlock_t1_vigente(r) is True
-    r = raiz("i_nao_arquivado", tabela="corrigida")
+    r = raiz("i_nao_arquivado", tabela="candidato")
     _arquivar_candidato(r, CANDIDATO_REL)
     assert interlock_t1_vigente(r) is True, "a candidate still in spec/processes/dmn/ is not archived"
-    r = raiz("i_digest_de_outra_tabela", tabela="corrigida")
+    r = raiz("i_digest_de_outra_tabela", tabela="candidato")
     _arquivar_candidato(r, arquivo, sha256="0" * 64)
     assert interlock_t1_vigente(r) is True
     # A NON-masking table that is NOT the candidate (here: the candidate's diff plus an unratified
@@ -285,13 +355,31 @@ def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> Non
     assert condicao_i_satisfeita(r) is False
     assert interlock_t1_vigente(r) is True, "a table that differs from the ratified candidate must not lift"
     # A ratified, bound archive whose rules cannot even be read against the table proves nothing.
-    r = raiz("i_candidato_ilegivel", tabela="corrigida")
+    r = raiz("i_candidato_ilegivel", tabela="candidato")
     ilegivel = _arquivar_candidato(r, arquivo)
     data = yaml.safe_load(ilegivel.read_text(encoding="utf-8"))
     data["regras_candidatas"][0]["entradas"]["coluna_inventada"] = "-"
     ilegivel.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     assert interlock_t1_vigente(r) is True
-    r = raiz("i_completa", tabela="corrigida")
+    # G-03 — the reviewer's bypass: candidate applied + two `eletivo` rules that differ only on days
+    # 401..728 (off `GRADE_DIAS`). Non-masking, ratified archive present: still shut.
+    r = raiz("i_regras_extra_fora_da_grade", tabela=None)
+    _tabela_do_candidato(r / TABELA_REL, regras_no_topo=_REGRAS_ELETIVO_FORA_DA_GRADE)
+    assert mascaramento_t1_ativo(read_live_table(r / TABELA_REL)) is False, (
+        "premise: the bypass does not mask"
+    )
+    _arquivar_candidato(r, arquivo)
+    assert interlock_t1_vigente(r) is True
+    # G-03 — an edit that changes NO verdict (one `fonte` re-worded) is still not the ratified table.
+    r = raiz("i_fonte_reescrita", tabela=None)
+
+    def reescrever_fonte(regras: list[dict[str, Any]]) -> None:
+        regras[2]["saidas"]["fonte"] = "fonte reescrita sem ratificacao. Nunca negativa automatica."
+
+    _tabela_do_candidato(r / TABELA_REL, mutar=reescrever_fonte)
+    _arquivar_candidato(r, arquivo)
+    assert interlock_t1_vigente(r) is True
+    r = raiz("i_completa", tabela="candidato")
     _arquivar_candidato(r, arquivo)
     assert condicao_i_satisfeita(r) is True
     assert interlock_t1_vigente(r) is False
@@ -393,6 +481,57 @@ def test_ratificar_uma_fonte_nova_consultada_pelo_criterio_regulatorio_tambem_e_
     assert fontes_consultadas_pelo_criterio_regulatorio(raiz) is None
     with pytest.raises(InterlockT1ViolationError, match=TOKEN_RATIFICACAO):
         verificar_interlock_de_ratificacao(_MANIFESTO, raiz=raiz)
+
+
+_ASSINATURA_REGULATORIO = (
+    "    def _criterio_regulatorio(\n"  # the consumer's signature, verbatim
+    "        self, process_vars: dict[str, Any], sources: CriteriaSources\n"
+    "    )"
+)
+
+
+def test_um_nome_sombreado_no_consumidor_nao_esconde_a_fonte_consultada(tmp_path: Path) -> None:
+    """G-04: the resolver must not read `_DMN_CARENCIA_CHECK` at module scope when the function (or a
+    second module-level binding) can rebind it — each case resolves to None and is refused."""
+    raiz = _raiz_vigente(tmp_path)
+    worker = raiz / AUTH_WORKER_REL
+    original = worker.read_text(encoding="utf-8")
+    ancora = '        tipo = _nonblank_str(process_vars.get("tipo_procedimento"))\n'
+    assert original.count(ancora) == 1, "the consumer's first statement moved — update this forgery"
+
+    def ratificar_fonte_nova(data: dict[str, Any]) -> None:
+        data["fontes"]["carencia_nova"] = dict(_RATIFICACAO_COMPLETA)
+
+    forjado = _manifesto_forjado(tmp_path, "fonte_nova.yaml", ratificar_fonte_nova)
+    verificar_interlock_de_ratificacao(forjado, raiz=raiz)  # control: unshadowed consumer
+
+    sombras = {
+        "local": original.replace(ancora, '        _DMN_CARENCIA_CHECK = "carencia_nova"\n' + ancora),
+        "walrus": original.replace(
+            ancora, '        if (_DMN_CARENCIA_CHECK := "carencia_nova"):\n            pass\n' + ancora
+        ),
+        "for": original.replace(
+            ancora, '        for _DMN_CARENCIA_CHECK in ("carencia_nova",):\n            pass\n' + ancora
+        ),
+        "parametro": original.replace(
+            _ASSINATURA_REGULATORIO,
+            _ASSINATURA_REGULATORIO.replace(
+                "sources: CriteriaSources",
+                'sources: CriteriaSources, *, _DMN_CARENCIA_CHECK: str = "carencia_nova"',
+            ),
+        ),
+        "modulo_duas_vezes": original + '\n_DMN_CARENCIA_CHECK = "carencia_nova"\n',
+    }
+    assert original.count(_ASSINATURA_REGULATORIO) == 1, (
+        "the consumer's signature moved — update this forgery"
+    )
+    for caso, texto in sombras.items():
+        assert texto != original, f"{caso}: forgery did not apply"
+        worker.write_text(texto, encoding="utf-8")
+        assert fontes_consultadas_pelo_criterio_regulatorio(raiz) is None, caso
+        assert tabela_do_criterio_regulatorio(raiz) is None, caso
+        with pytest.raises(InterlockT1ViolationError, match=TOKEN_RATIFICACAO):
+            verificar_interlock_de_ratificacao(forjado, raiz=raiz)
 
 
 # =================================================================================================
@@ -536,7 +675,9 @@ def test_nenhum_deploy_aponta_o_manifesto_de_ratificacao_para_outro_arquivo(tmp_
     valores = raiz / "deploy/helm/maezo/values-plantado.yaml"
     valores.parent.mkdir(parents=True)
     valores.write_text("env:\n  MAEZO_AUTH_CRITERIA_MANIFEST_PATH: /etc/maezo/outro.yaml\n", encoding="utf-8")
-    assert acusar_override_de_manifesto_em_deploy(raiz) == ("deploy/helm/maezo/values-plantado.yaml",)
+    assert acusar_override_de_manifesto_em_deploy(raiz) == (
+        "deploy/helm/maezo/values-plantado.yaml: names MAEZO_AUTH_CRITERIA_MANIFEST_PATH",
+    )
 
     for base in ("deploy", "config", "tools"):
         plantado = raiz / base / "produtor_plantado.yaml"
@@ -547,6 +688,45 @@ def test_nenhum_deploy_aponta_o_manifesto_de_ratificacao_para_outro_arquivo(tmp_
         "config/produtor_plantado.yaml",
         "tools/produtor_plantado.yaml",
     }
+
+
+def test_o_override_do_manifesto_e_acusado_em_compose_env_e_arquivo_nao_utf8(tmp_path: Path) -> None:
+    """G-05: root compose/`.env*` files and `scripts/dev/*compose*` are scanned too, and a file under
+    `deploy/` that is not UTF-8 is never skipped as 'binary' unless it is one (NUL in the first 8 KiB,
+    no BOM, and no UTF-16/32 encoding of the variable name in its bytes)."""
+    linha = "MAEZO_AUTH_CRITERIA_MANIFEST_PATH=/etc/maezo/outro.yaml\n"
+    raiz = tmp_path / "arvore_override"
+    (raiz / "deploy").mkdir(parents=True)
+    (raiz / "scripts/dev").mkdir(parents=True)
+    (raiz / "deploy/imagem.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + bytes(range(256)))
+    (raiz / "deploy/ok.yaml").write_text("env: {}\n", encoding="utf-8")
+    assert acusar_override_de_manifesto_em_deploy(raiz) == (), "control: a genuine binary and a clean file"
+
+    (raiz / "docker-compose.yml").write_text(
+        f"services:\n  w:\n    environment:\n      - {linha}", encoding="utf-8"
+    )
+    (raiz / ".env.example").write_text(linha, encoding="utf-8")
+    (raiz / "scripts/dev/engine-compose.yml").write_text(linha, encoding="utf-8")
+    (raiz / "deploy/utf16-bom.env").write_text(linha, encoding="utf-16")
+    (raiz / "deploy/utf16-sem-bom.env").write_bytes(linha.encode("utf-16-le"))
+    (raiz / "deploy/latin1.env").write_bytes("# configuração\nOUTRA=1\n".encode("latin-1"))
+    # A UTF-16 BOM over bytes that are NOT valid UTF-16 (a lone surrogate): it has NULs, so without
+    # BOM handling it would pass as a "binary"; unreadable text is never proven clean.
+    (raiz / "deploy/utf16-quebrado.env").write_bytes(
+        b"\xff\xfe" + "OUTRA=1\n".encode("utf-16-le") + b"\x00\xd8"
+    )
+    acusados = dict(a.split(": ", 1) for a in acusar_override_de_manifesto_em_deploy(raiz))
+    assert set(acusados) == {
+        "docker-compose.yml",
+        ".env.example",
+        "scripts/dev/engine-compose.yml",
+        "deploy/utf16-bom.env",
+        "deploy/utf16-sem-bom.env",
+        "deploy/latin1.env",
+        "deploy/utf16-quebrado.env",
+    }, acusados
+    assert acusados["deploy/utf16-quebrado.env"].startswith("undecodable utf-16"), acusados
+    assert acusados["deploy/latin1.env"].startswith("not decodable"), acusados
 
 
 # =================================================================================================
@@ -656,6 +836,22 @@ def test_veredito_de_carencia_composto_com_admissibilidade_nunca_e_adverso(tmp_p
     adversa_r1 = read_live_table(_copia_mutada(_ADMISSIBILIDADE, tmp_path / "admissibility_r1.dmn", r1_nega))
     violacoes = violacoes_composicao_admissibilidade([viva], adversa_r1)
     assert violacoes and all("-> r1 " in v and "adverse" in v for v in violacoes), violacoes
+
+
+def test_a_grade_de_dias_cresce_com_toda_fronteira_de_qualquer_tabela_comparada(tmp_path: Path) -> None:
+    """G-03: `dias_da_grade` adds n-1, n, n+1 for every day literal of every table compared, so the
+    reviewer's off-grid rules (400, 729) are probed on both sides even though GRADE_DIAS lacks them."""
+    contrabando = read_live_table(
+        _tabela_do_candidato(tmp_path / "carencia_check.dmn", regras_no_topo=_REGRAS_ELETIVO_FORA_DA_GRADE)
+    )
+    grade = set(dias_da_grade(contrabando))
+    assert {399, 400, 401, 728, 729, 730} <= grade
+    assert set(GRADE_DIAS) <= grade
+    assert not {399, 400, 401, 728} <= set(GRADE_DIAS), "premise: these days are NOT in the frozen grid"
+    # The applied candidate itself is exactly the candidate (rule identity holds for the fixture).
+    aplicado = read_live_table(_tabela_do_candidato(tmp_path / "aplicado.dmn"))
+    candidato = read_candidate_table(_CANDIDATO, read_live_table(_VIVA))
+    assert [(r.inputs, r.outputs) for r in aplicado.rules] == [(r.inputs, r.outputs) for r in candidato.rules]
 
 
 def test_a_grade_de_dias_cobre_toda_fronteira_declarada_pela_tabela() -> None:

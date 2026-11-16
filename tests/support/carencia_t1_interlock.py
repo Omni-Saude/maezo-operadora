@@ -209,14 +209,39 @@ def _candidato_ratificado_contra_a_tabela_pre_fix(path: Path) -> bool:
     return isinstance(bloco, dict) and bloco.get("sha256") == SHA256_TABELA_PRE_FIX
 
 
-def _viva_decide_como_o_candidato(viva: DecisionTable, candidato: Path) -> bool:
-    """The live table decides EXACTLY like the ratified candidate — `carencia_cumprida` and
-    `prazo_restante_dias` — on every cell of the grid. Without this, any non-masking table (an edit
-    nobody ratified) plus an archived ratified candidate would satisfy (i). Fails closed."""
+def dias_da_grade(*tabelas: DecisionTable) -> tuple[int, ...]:
+    """`GRADE_DIAS` plus `n-1, n, n+1` for EVERY numeric literal in the `dias_desde_adesao` input
+    entries of every table given — so a rule edited at a day nobody froze into `GRADE_DIAS` is
+    still probed on both sides of its boundary."""
+    dias = set(GRADE_DIAS)
+    for tabela in tabelas:
+        coluna = tabela.input_names.index("dias_desde_adesao")
+        for regra in tabela.rules:
+            for literal in re.findall(r"-?\d+", regra.inputs[coluna]):
+                n = int(literal)
+                dias.update((n - 1, n, n + 1))
+    return tuple(sorted(dias))
+
+
+def _viva_e_o_candidato_aplicado(viva: DecisionTable, candidato: Path) -> bool:
+    """The live table IS the ratified candidate applied — not merely a table that happens to stop
+    masking. Two checks, both required (fail closed on any read error):
+
+      1. RULE IDENTITY: the live rules, in order, carry exactly the candidate's input entries and
+         output entries as `read_candidate_table` materialises them (rule ids are free; every cell,
+         including `fonte`, is not). An unratified edit anywhere — even one that changes no verdict —
+         is a different table.
+      2. DECISION IDENTITY: `carencia_cumprida` and `prazo_restante_dias` agree on every cell of
+         `_tipos_da_grade(viva)` x `dias_da_grade(viva, candidato)` x {True, False}.
+    """
     try:
         regras_candidatas = read_candidate_table(candidato, viva)
+        if [(r.inputs, r.outputs) for r in viva.rules] != [
+            (r.inputs, r.outputs) for r in regras_candidatas.rules
+        ]:
+            return False
         for tipo in _tipos_da_grade(viva):
-            for dias in GRADE_DIAS:
+            for dias in dias_da_grade(viva, regras_candidatas):
                 for cpt in (True, False):
                     if _decisao(viva, tipo, dias, cpt) != _decisao(regras_candidatas, tipo, dias, cpt):
                         return False
@@ -227,7 +252,7 @@ def _viva_decide_como_o_candidato(viva: DecisionTable, candidato: Path) -> bool:
 
 def condicao_i_satisfeita(raiz: Path = REPO_ROOT) -> bool:
     """(i) live table no longer masks BECAUSE the ratified candidate was applied: the candidate is
-    archived, ratified, bound to the pre-fix bytes, AND the live table decides exactly like it."""
+    archived, ratified, bound to the pre-fix bytes, AND the live table IS that candidate applied."""
     tabela = raiz / TABELA_REL
     if not tabela.is_file():
         return False
@@ -235,12 +260,47 @@ def condicao_i_satisfeita(raiz: Path = REPO_ROOT) -> bool:
     if mascaramento_t1_ativo(viva):
         return False
     return any(
-        _candidato_ratificado_contra_a_tabela_pre_fix(p) and _viva_decide_como_o_candidato(viva, p)
+        _candidato_ratificado_contra_a_tabela_pre_fix(p) and _viva_e_o_candidato_aplicado(viva, p)
         for p in _candidatos_arquivados(raiz)
     )
 
 
+def _nomes_ligados(escopo: ast.AST, *, descer_em_funcoes: bool) -> list[str]:
+    """Every binding of a name in `escopo`, with repetitions: assignment/aug-assignment/annotated and
+    walrus targets, `for`/`with`/comprehension targets, `del`, `except ... as`, imports, parameters,
+    nested `def`/`class` names and `global`/`nonlocal` declarations. With `descer_em_funcoes=False`
+    the bodies of nested functions, lambdas and classes are not entered (module scope)."""
+    nomes: list[str] = []
+    pendentes: list[ast.AST] = list(ast.iter_child_nodes(escopo))
+    while pendentes:
+        no = pendentes.pop()
+        if isinstance(no, ast.Name) and isinstance(no.ctx, ast.Store | ast.Del):
+            nomes.append(no.id)
+        elif isinstance(no, ast.arg):
+            nomes.append(no.arg)
+        elif isinstance(no, ast.ExceptHandler) and no.name:
+            nomes.append(no.name)
+        elif isinstance(no, ast.alias):
+            nomes.append(no.asname or no.name.split(".")[0])
+        elif isinstance(no, ast.Global | ast.Nonlocal):
+            nomes.extend(no.names)
+        elif isinstance(no, ast.MatchAs | ast.MatchStar) and no.name:
+            nomes.append(no.name)
+        if isinstance(no, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            nomes.append(no.name)
+            if not descer_em_funcoes:
+                continue
+        if isinstance(no, ast.Lambda) and not descer_em_funcoes:
+            continue
+        pendentes.extend(ast.iter_child_nodes(no))
+    return nomes
+
+
 def _string_de_modulo(arvore: ast.Module, nome: str) -> str | None:
+    """The module-level string constant `nome` is bound to — None (not proven) unless it is bound
+    EXACTLY ONCE at module scope, by a plain assignment of a string literal."""
+    if _nomes_ligados(arvore, descer_em_funcoes=False).count(nome) != 1:
+        return None
     for no in arvore.body:
         if isinstance(no, ast.Assign):
             alvos = [alvo.id for alvo in no.targets if isinstance(alvo, ast.Name)]
@@ -251,6 +311,19 @@ def _string_de_modulo(arvore: ast.Module, nome: str) -> str | None:
         valor = no.value
         if nome in alvos and isinstance(valor, ast.Constant) and isinstance(valor.value, str):
             return valor.value
+    return None
+
+
+def _chave_no_escopo(arvore: ast.Module, funcao: ast.AST, no: ast.expr) -> str | None:
+    """A string literal, or a NAME that resolves to a module constant AND is not rebound anywhere
+    inside `funcao` (a local, a parameter, a loop/with/except/walrus target, an import...) — any
+    shadowing makes the key unknowable statically, so it resolves to None (fail closed)."""
+    if isinstance(no, ast.Constant) and isinstance(no.value, str):
+        return no.value
+    if isinstance(no, ast.Name):
+        if no.id in _nomes_ligados(funcao, descer_em_funcoes=True):
+            return None
+        return _string_de_modulo(arvore, no.id)
     return None
 
 
@@ -281,25 +354,11 @@ def tabela_do_criterio_regulatorio(raiz: Path = REPO_ROOT) -> str | None:
             and no.args
         ):
             continue
-        primeiro = no.args[0]
-        if isinstance(primeiro, ast.Constant) and isinstance(primeiro.value, str):
-            chaves.add(primeiro.value)
-        elif isinstance(primeiro, ast.Name):
-            valor = _string_de_modulo(arvore, primeiro.id)
-            if valor is None:
-                return None
-            chaves.add(valor)
-        else:
+        valor = _chave_no_escopo(arvore, funcoes[0], no.args[0])
+        if valor is None:
             return None
+        chaves.add(valor)
     return next(iter(chaves)) if len(chaves) == 1 else None
-
-
-def _chave_de_string(arvore: ast.Module, no: ast.expr) -> str | None:
-    if isinstance(no, ast.Constant) and isinstance(no.value, str):
-        return no.value
-    if isinstance(no, ast.Name):
-        return _string_de_modulo(arvore, no.id)
-    return None
 
 
 def fontes_consultadas_pelo_criterio_regulatorio(raiz: Path = REPO_ROOT) -> frozenset[str] | None:
@@ -333,7 +392,7 @@ def fontes_consultadas_pelo_criterio_regulatorio(raiz: Path = REPO_ROOT) -> froz
         if not isinstance(consulted, ast.List | ast.Tuple) or not consulted.elts:
             return None
         for elemento in consulted.elts:
-            chave = _chave_de_string(arvore, elemento)
+            chave = _chave_no_escopo(arvore, funcoes[0], elemento)
             if chave is None:
                 return None
             chaves.add(chave)
@@ -590,12 +649,80 @@ def acusar_produtores_de_entradas(raiz: Path = REPO_ROOT) -> tuple[Acusacao, ...
     )
 
 
+#: Byte encodings of the override name a text file could carry without being valid UTF-8.
+_OVERRIDE_EM_BYTES: tuple[bytes, ...] = tuple(
+    MANIFEST_OVERRIDE_ENV.encode(codec) for codec in ("utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be")
+)
+_BOMS: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xff\xfe", "utf-16"),
+    (b"\xfe\xff", "utf-16"),
+)
+
+
+def _acusar_override_no_arquivo(path: Path) -> str | None:
+    """Why `path` must be accused, or None. FAILS CLOSED on what it cannot read:
+
+    - valid UTF-8 (BOM or not): accused iff it names the override;
+    - a UTF-16/32 BOM: decoded with that codec — accused if it names the override, or if it does
+      not decode (unreadable is never "clean");
+    - FIRST, on every file: its raw bytes must not contain the override name in a UTF-16/32
+      encoding (BOM-less UTF-16LE ASCII is VALID UTF-8 and has NULs, so neither the UTF-8 decode
+      nor the NUL check below would see it);
+    - a NUL byte in the first 8 KiB and no BOM: a genuine binary — skipped;
+    - anything else that is not UTF-8: accused as undecodable.
+    """
+    bruto = path.read_bytes()
+    # Checked FIRST, on every file: BOM-less UTF-16LE ASCII is VALID UTF-8 (NUL is a legal UTF-8
+    # byte), so it would otherwise "decode" cleanly and hide the name between its NULs.
+    if any(codificado in bruto for codificado in _OVERRIDE_EM_BYTES):
+        return f"names {MANIFEST_OVERRIDE_ENV} (UTF-16/32 bytes)"
+    try:
+        texto = bruto.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        for bom, codec in _BOMS:
+            if bruto.startswith(bom):
+                try:
+                    texto = bruto.decode(codec)
+                except UnicodeDecodeError:
+                    return f"undecodable {codec} text"
+                return f"names {MANIFEST_OVERRIDE_ENV} ({codec})" if MANIFEST_OVERRIDE_ENV in texto else None
+        if b"\x00" in bruto[:8192]:
+            return None  # genuine binary: no BOM, and no UTF-16/32 encoding of the name (checked above)
+        return "not decodable as UTF-8 and not a binary — cannot be proven clean"
+    return f"names {MANIFEST_OVERRIDE_ENV}" if MANIFEST_OVERRIDE_ENV in texto else None
+
+
+def _arquivos_de_deploy_e_compose(raiz: Path) -> list[Path]:
+    """Everything that can set a deploy's environment: all of `deploy/`, the compose and `.env*`
+    files at the repository root, and `scripts/dev/*compose*`."""
+    arquivos: list[Path] = []
+    deploy = raiz / "deploy"
+    if deploy.is_dir():
+        arquivos += [
+            p
+            for p in sorted(deploy.rglob("*"))
+            if p.is_file() and not _DIRETORIOS_IGNORADOS & set(p.relative_to(raiz).parts)
+        ]
+    for padrao in ("docker-compose*.yml", "docker-compose*.yaml", "compose*.yml", "compose*.yaml", ".env*"):
+        arquivos += [p for p in sorted(raiz.glob(padrao)) if p.is_file()]
+    dev = raiz / "scripts" / "dev"
+    if dev.is_dir():
+        arquivos += [p for p in sorted(dev.glob("*compose*")) if p.is_file()]
+    return sorted(set(arquivos))
+
+
 def acusar_override_de_manifesto_em_deploy(raiz: Path = REPO_ROOT) -> tuple[str, ...]:
-    """Files under `deploy/` naming `MANIFEST_OVERRIDE_ENV` — each would point the runtime ratification
-    gate at a manifest A1a/A1b never read."""
-    return tuple(
-        rel for rel, texto in _arquivos_de_texto(raiz, ("deploy",)) if MANIFEST_OVERRIDE_ENV in texto
-    )
+    """Deploy/compose/env files that set (or may set, being unreadable) `MANIFEST_OVERRIDE_ENV` — each
+    would point the runtime ratification gate at a manifest A1a/A1b never read. Returns
+    `"<path>: <reason>"` entries; empty == clean."""
+    acusacoes: list[str] = []
+    for path in _arquivos_de_deploy_e_compose(raiz):
+        motivo = _acusar_override_no_arquivo(path)
+        if motivo is not None:
+            acusacoes.append(f"{path.relative_to(raiz).as_posix()}: {motivo}")
+    return tuple(acusacoes)
 
 
 def verificar_interlock_de_entradas(raiz: Path = REPO_ROOT) -> None:
