@@ -202,14 +202,29 @@ webhookReceiver:
 # `src/maezo/tools/mcp_whatsapp/server.py::WhatsAppSettings.phone_number_id`'s own comment), so
 # it lives here as a plain per-tenant value instead of a key in `maezo-whatsapp-config` (the
 # ExternalSecret that carries the three real credentials: token/app-secret/verify-token).
-# `send_message` (`server.py`, achado 9.4) fails closed with a `ValueError` when this is empty —
-# `scripts/ci/check_chart_env_reconciliation.py`'s `chart_required` marker on the field makes an
-# unset value here a CI-time RED, not a production surprise. Leave empty per-tenant until the
-# WABA number is provisioned for that tenant; the credentials in `maezo-whatsapp-config`
-# (`D6-04`) remain BLOCKED independently of this value.
+# `send_message` (`server.py`, achado 9.4) fails closed with a `ValueError` when this is empty.
+# O `chart_required` marker do campo (`scripts/ci/check_chart_env_reconciliation.py`) so' prova
+# que o chart DECLARA o env var (a chave existe, mesmo vazia) — NAO que o valor esta preenchido:
+# o default `""` passa la. Quem barra o valor vazio e' a cerca de pre-voo
+# (`maezo-tenant.whatsapp.requirePhoneNumberId`, `templates/guard-whatsapp-outbound.yaml`): com
+# `whatsapp.outbound.enabled` ou `whatsapp.lembrete.enabled` ligado e este id vazio o render FALHA
+# nomeando `whatsapp.phoneNumberId`. Com as flags desligadas (default) vazio e' o estado normal.
+# Leave empty per-tenant until the WABA number is provisioned for that tenant
+# (docs/runbooks/whatsapp-outbound-provisionamento.md); the credentials in
+# `maezo-whatsapp-config` (`D6-04`) remain BLOCKED independently of this value.
+# Escreva o id como string entre aspas (YAML sem aspas converte numero longo em notacao cientifica).
+#
+# `outbound.enabled` / `lembrete.enabled` sao DECLARACAO DE INTENCAO para a cerca: por si so' NAO
+# ligam nenhum envio (nenhum template do chart as le alem da cerca). Ligar envio real e' ato do
+# dono (GTM-04/O1, OWNER-DEPLOY) e segue proibido para beneficiario (sem texto de consentimento de
+# admissao). Default: tudo desligado.
 # ---------------------------------------------------------------------------
 whatsapp:
   phoneNumberId: ""
+  outbound:
+    enabled: false
+  lembrete:
+    enabled: false
 
 # ---------------------------------------------------------------------------
 # FHIR Sync (HAPI FHIR R4 ↔ Tasy integration)
