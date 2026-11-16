@@ -4,7 +4,8 @@ ADR-0037: o Maezo NAO le o lago nem tabela crua; consome so' projecao canonica d
 lado do Maezo do contrato `tina` (`schemas/openapi/maezo/v1/tina.openapi.yaml` em
 `Omni-Saude/amh-data-platform`, manifest aditivo v1.2, publicado em 13/10/2026) e da rota de dependentes
 (`tina-dependentes.openapi.yaml`, manifest aditivo v1.5, publicado em 13/10/2026), da carteirinha completa
-(`tina-carteirinha`, v1.12) e da cobertura por procedimento (`tina-cobertura`, v1.9). Os campos abaixo
+(`tina-carteirinha`, v1.12), da cobertura por procedimento (`tina-cobertura`, v1.9) e da rede credenciada
+(`tina-rede-credenciada`, v1.8). Os campos abaixo
 espelham o TIPO do contrato, nao o schema: o schema e' da AMH (proibicao imutavel #4) e o adaptador so'
 o usa depois de conferir o digest contra o pin.
 
@@ -359,6 +360,80 @@ class TinaCptPort(Protocol):
     ) -> PortResult[CptVigenteView]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class EstabelecimentoRede:
+    """Um ESTABELECIMENTO (pessoa juridica: clinica, hospital, laboratorio) da rede credenciada do plano do
+    beneficiario (contrato `tina-rede-credenciada`, manifest v1.8). Espelha o `Estabelecimento` do contrato:
+    sem CNPJ, sem CPF, sem identificador do prestador; profissional pessoa fisica NUNCA aparece aqui (o
+    contrato so' devolve a contagem deles). Campo ausente = `None`, e o consumidor nunca o completa.
+
+    `nome`, `endereco` e `telefone` sao do ESTABELECIMENTO, o que a operadora ja' publica como rede
+    credenciada. Ficam fora do `repr` e entram na cerca de pureza dos ports como EXCECAO NOMINAL PENDENTE da
+    confirmacao do dono (ver `tests/unit/ports/test_ports_purity.py`)."""
+
+    nome: str | None = field(repr=False)
+    endereco: str | None = field(repr=False)
+    bairro: str | None
+    municipio: str | None
+    uf: str | None
+    telefone: str | None = field(repr=False)
+    especialidades: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RedeCredenciadaView:
+    """Uma PAGINA da rede credenciada do plano do proprio sujeito, por especialidade (e municipio). FATO do
+    cadastro na data da fonte: nao e' agendamento, nao garante vaga nem atendimento.
+
+    `tem_mais` = ha' estabelecimentos alem desta pagina (o consumidor oferece refinar antes de paginar);
+    nunca na pagina `MAX_REDE_PAGINAS`, e pode vir com menos que `limite` itens (o contrato nao o proibe).
+    `profissionais_sem_identificacao` = contagem APROXIMADA de profissionais pessoa fisica nao identificados
+    neste canal: so' na pagina 1, e mesmo nela pode ser `None` (o schema a declara anulavel); `None` nas
+    demais. `campos_ausentes` sao os codigos fechados de `qualidade.campos_ausentes`, sem repeticao: e' um
+    AVISO ("campos de algum estabelecimento que a fonte nao tem", no texto do contrato) e pode nao bater
+    com os `None` dos itens; o consumidor confia nos itens e nunca completa um campo.
+
+    A ref do sujeito e os estabelecimentos ficam fora do `repr`: juntos, ligariam a pessoa a especialidade
+    procurada."""
+
+    portable_subject_ref: str = field(repr=False)
+    pagina: int
+    limite: int
+    tem_mais: bool
+    estabelecimentos: tuple[EstabelecimentoRede, ...] = field(repr=False)
+    profissionais_sem_identificacao: int | None
+    fonte_atualizada_em: str
+    campos_ausentes: tuple[str, ...]
+
+
+#: Tetos do contrato `tina-rede-credenciada`: `limite` (e `maxItems` da pagina) e `pagina`.
+MAX_REDE_POR_PAGINA: int = 10
+MAX_REDE_PAGINAS: int = 20
+
+
+@runtime_checkable
+class TinaRedeCredenciadaPort(Protocol):
+    """Leitura read-only da rede credenciada do plano do proprio sujeito (contrato `tina-rede-credenciada`,
+    manifest v1.8). Sucesso ou recusa, nunca excecao. Port separado: quem so' implementa os fatos do plano nao
+    muda.
+
+    `especialidade` e' OBRIGATORIA (o contrato nao lista a rede inteira); `municipio` filtra; `limite` vai de
+    1 a `MAX_REDE_POR_PAGINA` e `pagina` de 1 a `MAX_REDE_PAGINAS`. Na AMH a rota nasce DESLIGADA (404)."""
+
+    async def get_rede_credenciada(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        especialidade: str,
+        municipio: str | None = None,
+        limite: int = 5,
+        pagina: int = 1,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[RedeCredenciadaView]: ...
+
+
 @runtime_checkable
 class TinaDependentesPort(Protocol):
     """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
@@ -521,6 +596,11 @@ __all__ = [
     "CoberturaView",
     "CptVigenteView",
     "TinaCptPort",
+    "MAX_REDE_PAGINAS",
+    "MAX_REDE_POR_PAGINA",
+    "EstabelecimentoRede",
+    "RedeCredenciadaView",
+    "TinaRedeCredenciadaPort",
     "DependenteAnonimo",
     "DependenteNominal",
     "DependentesNominaisView",
