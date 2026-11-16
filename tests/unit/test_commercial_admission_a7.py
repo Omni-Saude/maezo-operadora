@@ -482,6 +482,11 @@ def test_src_tree_keeps_exactly_the_lgpd_dsr_collision_plus_this_loader() -> Non
         (root / "tools" / "workers" / "lgpd.py").resolve(),
         (root / "portal" / "contracts" / "dsr.py").resolve(),
         (root / "gateway" / "commercial_portability_admission.py").resolve(),
+        # MZO-2b (16/11/2026), entrada consciente: o montador do K1 so NOMEIA a LACUNA declarada pelo K3
+        # ("saldo_dias considera isencoes e portabilidade?") para manter grupo/prazo/saldo de carencia NULOS
+        # enquanto o negocio nao a fechar (config/integrations/rco/k3-lacunas.json). Nao le nem recebe dado de
+        # portabilidade comercial; nao e superficie de intake.
+        (root / "tools" / "workers" / "rco_montador.py").resolve(),
     }
     found: dict[Path, list[int]] = {}
     for path in root.rglob("*.py"):
@@ -494,7 +499,8 @@ def test_src_tree_keeps_exactly_the_lgpd_dsr_collision_plus_this_loader() -> Non
             found[path.resolve()] = lines
     assert set(found) == allowed, found
     # …and none of the collision occurrences lives in any other gateway file.
-    assert all(path.name in {"lgpd.py", "dsr.py", "commercial_portability_admission.py"} for path in found)
+    nomes = {"lgpd.py", "dsr.py", "commercial_portability_admission.py", "rco_montador.py"}
+    assert all(path.name in nomes for path in found)
 
 
 def test_the_lgpd_dsr_collision_is_untouched_and_never_consumed_as_substrate() -> None:
