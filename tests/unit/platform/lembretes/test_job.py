@@ -1,4 +1,12 @@
-"""O job do lembrete: selecao ponta a ponta com dubles (dry-run, desligado, allowlist, janela, simulador)."""
+"""O job do lembrete: selecao ponta a ponta com dubles (dry-run, desligado, allowlist, janela, simulador).
+
+E-SF-13: o lembrete passa pelo `OutboundGate`. O gate de PRODUCAO recusa tudo (nada ratificado; o
+consentimento `wa-consent-v2` nunca vale para contato proativo) — isso e' provado em
+`test_esf13_lembrete_fechado.py`. Os testes DESTE arquivo exercitam o MECANISMO (reuso decidido, RT-06) do
+outro lado do gate: `_cenario` injeta um registro SINTETICO ratificado e um aceite SINTETICO
+(`tests/unit/esf13_apoio.py`), e uma porta de oposicao do beneficiario SINTETICA (CD-25), que nao existem em
+producao.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +38,7 @@ from tests.support.lembrete_fakes import (
     contato,
     fatos,
 )
+from tests.unit.esf13_apoio import OposicaoBeneficiarioSintetica, aceite_os05_sintetico, gate_ratificado
 
 TEXTO_A = (
     "Sua mensalidade de outubro de 2026 (R$ 320,25) vence em 16/10. "
@@ -48,8 +57,32 @@ def _cenario(cfg: ConfigJob = REAL, **kw: object) -> Cenario:
         "fatos_por_conversa": {CONV_A: fatos()},
         "contatos": {CONV_A: contato(TELEFONE_A)},
     }
+    base.setdefault("outbound", gate_ratificado())
+    base.setdefault("permissao_de", lambda _b: aceite_os05_sintetico())
     base.update(kw)
-    return Cenario(cfg=cfg, **base)  # type: ignore[arg-type]
+    c = Cenario(cfg=cfg, **base)  # type: ignore[arg-type]
+    c.deps.oposicao_beneficiario = OposicaoBeneficiarioSintetica()  # CD-25: so' para o mecanismo
+    return c
+
+
+async def _autorizacao(c: Cenario, m: object) -> object:
+    """Uma autorizacao do gate sintetico para as variaveis de `m` (para chamar o `Enviador` direto)."""
+    from maezo.gateway.communications.outbound_gate import PedidoDeEnvio
+
+    decisao = await c.deps.gate.avaliar(
+        PedidoDeEnvio(
+            template_id="lembrete_mensalidade_v1",
+            finalidade="cobranca_lembrete_pre_vencimento",
+            tipo_titular="beneficiario",
+            titular_ref="ref-x",
+            canal_ref="canal-x",
+            variaveis=m.parametros_template,  # type: ignore[attr-defined]
+            permissao=aceite_os05_sintetico(),
+            chave_idempotencia="k",
+        )
+    )
+    assert decisao.autorizacao is not None
+    return decisao.autorizacao
 
 
 # ----------------------------------------------------------------------------- desligado / dry-run
@@ -238,7 +271,12 @@ async def test_o_enviador_recusa_conversa_fora_da_allowlist_mesmo_chamado_direto
     m = compor_lembrete(competencia="2026-10", valor_total="1.00", vencimento=AGORA.date())
     with pytest.raises(DestinoForaDaAllowlistError):
         await c.deps.enviador.enviar(
-            conversation_id=CONV_B, raw_to=TELEFONE_B, mensagem=m, via_template=False, chave="k"
+            conversation_id=CONV_B,
+            raw_to=TELEFONE_B,
+            mensagem=m,
+            via_template=False,
+            chave="k",
+            autorizacao=await _autorizacao(c, m),  # type: ignore[arg-type]
         )
     assert c.cliente.total == 0 and c.gate.embrulhados == 0
 
@@ -253,8 +291,35 @@ async def test_o_enviador_recusa_conversa_de_outro_tenant() -> None:
             mensagem=m,
             via_template=False,
             chave="k",
+            autorizacao=await _autorizacao(c, m),  # type: ignore[arg-type]
         )
     assert c.cliente.total == 0
+
+
+@pytest.mark.parametrize("modo", ["sem_autorizacao", "parametros_trocados"])
+async def test_o_enviador_recusa_sem_autorizacao_valida_para_estas_variaveis(modo: str) -> None:
+    """F2: a trava do `Enviador` (`exigir_autorizacao`): sem autorizacao, ou com variaveis diferentes das
+    seladas, recusa antes do gate do principal e antes do cliente."""
+    from maezo.gateway.communications.outbound_gate import EnvioProativoRecusadoError
+
+    c = _cenario()
+    m = compor_lembrete(competencia="2026-10", valor_total="1.00", vencimento=AGORA.date())
+    aut = await _autorizacao(c, m)
+    if modo == "sem_autorizacao":
+        alvo: object = None
+    else:
+        alvo = replace(aut, parametros=("x", "y", "z"))  # type: ignore[type-var]
+    for via_template in (False, True):
+        with pytest.raises(EnvioProativoRecusadoError):
+            await c.deps.enviador.enviar(
+                conversation_id=CONV_A,
+                raw_to=TELEFONE_A,
+                mensagem=m,
+                via_template=via_template,
+                chave="k",
+                autorizacao=alvo,  # type: ignore[arg-type]
+            )
+    assert c.cliente.total == 0 and c.gate.embrulhados == 0
 
 
 # ----------------------------------------------------------------------------- janela de 24 h / template
@@ -355,6 +420,9 @@ async def test_simulador_respeita_optout_e_horario_e_janela() -> None:
         "fora_do_horario"
     ] == 1
     assert c2.cliente.total == 0
-    c3 = _cenario(replace(REAL, template_nome="t"), contatos={CONV_A: contato(TELEFONE_A, horas=48)})
+    c3 = _cenario(
+        replace(REAL, template_nome="lembrete_mensalidade_v1"),
+        contatos={CONV_A: contato(TELEFONE_A, horas=48)},
+    )
     await simular(c3.deps, c3.cfg, conversation_id=CONV_A, agora=noite, ignorar_horario=True)
     assert c3.cliente.template[0][2][0] == "[TESTE] outubro de 2026"

@@ -5,6 +5,20 @@ sistema manda **sem ser chamado**: poucos dias antes do vencimento, "Sua mensali
 (R$ 320,25) vence em 16/10." É um job agendado, `python -m maezo.platform.lembretes`
 (`src/maezo/platform/lembretes/`), que **nasce desligado, em dry-run e preso a uma lista de conversas**.
 
+> **Estado atual: FECHADO por construção (E-SF-13, 16/11/2026).** O lembrete é mensagem **proativa** a
+> beneficiário e passa pelo `OutboundGate` (`src/maezo/gateway/communications/outbound_gate.py`). A finalidade
+> `cobranca_lembrete_pre_vencimento` **não está ratificada** no registro
+> `spec/communications/whatsapp-templates.yaml`: a base do envio proativo é pergunta ao DPO (**RT-D4**,
+> RATIFY-LATER-DPO; ADDENDUM-01 §7 (q)). O consentimento do acesso (`atendimento_whatsapp` / `wa-consent-v2`,
+> "nesta conversa"), que a seleção abaixo exige, **não vale** como permissão de contato proativo: o gate o
+> recusa (`recontact_permission_unqualified`). Resultado: com o interruptor ligado ou não, em dry-run, real ou
+> `--simular`, **nenhum lembrete sai**; o resumo conta `recusado_outbound_PURPOSE_NOT_RATIFIED` e o job para
+> antes de ler o acesso, a cobrança ou a supressão. 2ª via e vencimento ficam só em resposta a conversa
+> iniciada pelo beneficiário. **Trava adicional (CD-25):** antes de qualquer leitura, a rodada inteira (e o
+> `--simular`) é recusada com `recusado_BENEFICIARY_OPPOSITION_NOT_EXECUTABLE` enquanto não existir oposição
+> executável para `beneficiario` (SP-OP-SUPP-001 não a registra hoje; o canal é ponto do DPO). Os passos de "Como ligar" abaixo descrevem o mecanismo (reuso decidido) e só
+> passam a valer depois de RT-D4 e do registro ratificado.
+
 ## O texto (fixo, guia de tom)
 
 ```
@@ -64,21 +78,21 @@ lista só **reduz** quem recebe (item inválido é descartado; lista definida e 
   sai o template, com o **mesmo texto**. Sem o nome, a pessoa é **pulada** (`fora_da_janela_sem_template`) e
   nada é reservado.
 
-### Template a submeter no Meta Business Manager (WhatsApp Manager > Modelos de mensagem)
+### Template da Meta: agora no registro de templates
 
-- **Nome:** `lembrete_mensalidade_v1` (o nome que for aprovado vai em `MAEZO_LEMBRETE_TEMPLATE_NAME`)
-- **Categoria:** `Utility` (utilidade)  **Idioma:** Português (BR), `pt_BR`
-- **Cabeçalho, rodapé e botões:** nenhum
-- **Corpo (exato):**
+O template do lembrete foi **migrado** para o registro fechado `spec/communications/whatsapp-templates.yaml`
+(entrada `lembrete_mensalidade_v1`; E-SF-13 / GTM-E-42). Lá estão nome, idioma (`pt_BR`), categoria
+(`utility`), corpo exato (igual a `texto.py::CORPO_TEMPLATE_META`, teste de paridade), as três variáveis com
+classe de vocabulário fechado (`competencia_mes_ano`, `valor_cobranca_reais`, `data_vencimento_dia_mes`),
+`purpose_ref`, `meta_status` e as referências de aprovação na Meta e de revisão de conteúdo. O validador de
+CI é `scripts/ci/check_whatsapp_templates.py`.
 
-```
-Sua mensalidade de {{1}} (R$ {{2}}) vence em {{3}}. Para a 2ª via, acesse o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento. Para não receber lembretes, responda PARAR.
-```
-
-- **Variáveis e exemplos para a aprovação:**
-  - `{{1}}` mês e ano da competência: `outubro de 2026`
-  - `{{2}}` valor, vírgula decimal, sem "R$": `320,25`
-  - `{{3}}` vencimento, `dd/mm`: `16/10`
+- `meta_status` está `unverified`: a submissão à Meta não está comprovada neste repositório (GAP). O gate
+  só aceita `approved` com `meta_template_ref` e `content_review_ref`.
+- Exemplos para a aprovação na Meta (inalterados): `{{1}}` `outubro de 2026`; `{{2}}` `320,25` (vírgula
+  decimal, sem "R$"); `{{3}}` `16/10`.
+- O nome em `MAEZO_LEMBRETE_TEMPLATE_NAME` tem de ser o `name` do registro; o `Enviador` recusa nome
+  diferente.
 
 No modo de teste, a variável 1 vai como `[TESTE] outubro de 2026` (o corpo aprovado não muda).
 

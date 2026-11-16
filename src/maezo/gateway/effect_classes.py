@@ -55,6 +55,14 @@ SECOND DEVIATION, DISCLOSED. Design §6.1's C1 row names both `send_beneficiary_
 `whatsapp.send_template` operation would be a catalogue entry with no runtime surface, which is
 precisely what `action-approvals.yaml:175-177` forbids ("no class was invented to round out a
 taxonomy"). It is omitted; it becomes catalogueable the day the surface exists.
+
+UPDATE (E-SF-13 / GTM-E-41, 16/11/2026), recorded rather than silently left stale: a
+`WhatsAppServer.send_template` method now exists (the proactive-reminder job, `platform/lembretes/`), but
+it is still NOT an agent seam — no `agent.yaml` declares a template id, so the omission above stands.
+Its governance is the `OutboundGate` (`gateway/communications/outbound_gate.py`), the single source of
+every proactive-send check: `send_template` refuses without an `AutorizacaoDeEnvio` emitted by that gate,
+and the published template registry ratifies nothing. Cataloguing `whatsapp.send_template` here stays a
+human decision (an `agent.yaml` id + the `send_beneficiary_template` L2 mapping), NOT DONE HERE.
 """
 
 from __future__ import annotations
