@@ -14,9 +14,9 @@ camada `regra_geral` entra fica aqui, com a dona da Helena:
 NUNCA liga a habilidade (`CHAVE_DO_GRAFO`): isso e' do pacote de comportamento. Sem pacote valido, nada e'
 registrado e a habilidade (se ligada) cai no aviso de canais (falha fechada).
 
-`catalogo`: os itens do catalogo de procedimentos da Tina ja' lidos (estatico). Vazio = a camada segue so'
-pelos sinonimos do proprio K2 (`regra_geral`, item 1). A leitura ASSINCRONA por pergunta
-(`FonteDoCatalogoDeProcedimentos`) e' outra unidade.
+`catalogo`: os itens do catalogo de procedimentos da Tina ja' lidos (estatico), usados com os sinonimos do
+`sinonimos.yaml` para resolver o procedimento (HEL-2). Vazio = a camada segue so' pelos sinonimos do K2.
+A leitura ASSINCRONA por pergunta (`FonteDoCatalogoDeProcedimentos`) e' outra unidade.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ import structlog
 
 from maezo.agents.helena.habilidades import cobertura as _cobertura
 from maezo.agents.helena.habilidades.cobertura import manual as _manual
+from maezo.agents.helena.habilidades.cobertura import procedimento as _procedimento
 from maezo.agents.helena.habilidades.cobertura.regra_geral import CamadaRegraGeral
 from maezo.ports.tina import ProcedimentoCatalogo
 
@@ -44,7 +45,15 @@ def compor_cobertura(
 ) -> None:
     """Registra em `cfg` o hash do K2 e a camada `regra_geral`, so' com pin E pacote validos (ver o modulo).
 
-    Lock invalido sobe como `PacoteK2InvalidoError` (erro de configuracao do repositorio, nao do pacote)."""
+    E' a UNICA autoridade dessas duas chaves: antes de tudo, tira de `cfg` o hash e qualquer camada
+    `regra_geral` anteriores (sem pacote valido, nada sobra de uma composicao antiga). Lock MALFORMADO sobe
+    como `PacoteK2InvalidoError` (combinado com a T-MZO-A: erro de configuracao do repositorio, que o gate de
+    pin ja' recusa no CI; falha alta na subida)."""
+    cfg.pop(_cobertura.CHAVE_DO_HASH_K2, None)
+    existentes = cfg.get(_cobertura.CHAVE_DAS_CAMADAS) or ()
+    outras = [c for c in existentes if getattr(c, "camada", None) != "regra_geral"]
+    if _cobertura.CHAVE_DAS_CAMADAS in cfg:
+        cfg[_cobertura.CHAVE_DAS_CAMADAS] = outras
     pin = _manual.pin_do_lock(raiz / LOCK_DO_K2)
     if pin is None:
         return
@@ -54,10 +63,22 @@ def compor_cobertura(
     if manual is None:
         return
     cfg[_cobertura.CHAVE_DO_HASH_K2] = pin.sha256_manifesto
-    existentes = cfg.get(_cobertura.CHAVE_DAS_CAMADAS) or ()
-    camadas = [c for c in existentes if getattr(c, "camada", None) != "regra_geral"]
-    cfg[_cobertura.CHAVE_DAS_CAMADAS] = [CamadaRegraGeral(manual, catalogo=catalogo), *camadas]
+    camada = CamadaRegraGeral(manual, **_resolucao(catalogo))
+    cfg[_cobertura.CHAVE_DAS_CAMADAS] = [camada, *outras]
     logger.info("helena_k2_composto", versao=manual.versao, regras=len(manual.regras))
+
+
+def _resolucao(catalogo: Sequence[ProcedimentoCatalogo]) -> dict[str, Any]:
+    """O catalogo SO' com os sinonimos (`sinonimos.yaml`): sem eles a resolucao do procedimento nao roda.
+    Sinonimos invalidos = sem catalogo (a camada segue pelos sinonimos do K2; falha fechada, com log)."""
+    if not catalogo:
+        return {}
+    try:
+        sinonimos = _procedimento.carregar_sinonimos()
+    except _procedimento.SinonimosInvalidosError:
+        logger.error("helena_k2_sinonimos_indisponiveis")
+        return {}
+    return {"catalogo": tuple(catalogo), "sinonimos": sinonimos}
 
 
 __all__ = ["DIRETORIO_DO_K2", "LOCK_DO_K2", "compor_cobertura"]
