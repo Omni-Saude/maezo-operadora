@@ -1,6 +1,6 @@
 # ADR-0077: Ativação das regras do pacote K1 por classe de risco — estado efetivo por regra, registro de decisões, amostragem e desligamento por reversão (emenda ao ADR-0075 §(e))
 
-**Status:** Proposed. Redigido por AGENTE (T-MZO-A, Onda 2 item 5); o desenho foi aprovado pela orquestradora ROOT em 16/11/2026. Um agente não aceita ADR e nenhum campo de assinatura foi preenchido (ADR-0007). `/docs/adr/` é CODEOWNERS.
+**Status:** Proposed — redigido por AGENTE (T-MZO-A, Onda 2 item 5); o desenho foi aprovado pela orquestradora ROOT em 16/11/2026. Um agente não aceita ADR e nenhum campo de assinatura foi preenchido (ADR-0007). `/docs/adr/` é CODEOWNERS.
 **Data:** 2026-11-16
 **Área:** Integração / Regras de negócio / Motor de processos / Auditoria
 
@@ -45,7 +45,7 @@ Este ADR detalha o §(e) para as três ativações. Não decide nada do que o AD
 
 ### 1. Escopo e limite
 - Este ADR não altera `spec/policies/autonomy/` nem `_hard_frozen.yaml`, e não liga efeito adverso automático.
-- O que muda o efeito de um caso é o estado manual `ativa_l2` (§2). Ele só passa a valer com a Onda 3 (worker guardado, emenda ao ADR-0018 parte 2) e com a decisão P7. Até lá, um `ativa_l2` lido no arquivo é tratado como `sombra` e gera alerta.
+- O que muda o efeito de um caso é o estado manual `ativa_l2` (§2). Ele só passa a valer com a Onda 3 (worker guardado, emenda ao ADR-0018 parte 2) e com a decisão P7. Até lá, a função de estado efetivo recebe o indicador `efeito_k1_habilitado`, falso, e com ele falso todo estado manual se comporta como `sombra`: só registro, nenhuma User Task nova, nenhum efeito. Um `ativa_l2` ou `desligada` lido no arquivo gera alerta. Só a unidade da Onda 3 liga o indicador.
 - **Fora deste ADR:** a decisão do dono de 16/11/2026 (PROG-COORD-16) de rodar as regras do rco em enforcing em dev e homologação, e de redefinir os aprovadores (dono + auditor neutro, ratificação em lote por versão do pacote) depende de mudança em caminho protegido. Fica para quem tiver autorização para alterá-lo.
 
 ### 2. Estado efetivo por regra
@@ -53,7 +53,7 @@ A unidade é o par (`idRegra`, `versaoRegra`). Três fontes entram no cálculo:
 
 1. **Estado manual:** um arquivo irmão de `auth-criteria-ratification.yaml`, com chave (`idRegra`, `versaoRegra`) e estados `sombra | ativa_l2 | desligada`.
    - Chave ausente = `sombra`.
-   - Arquivo ilegível = `desligada` para todas as regras.
+   - Arquivo ilegível = `desligada` para todas as regras, com alerta à coordenação de cada classe. Depois da Onda 3, isso põe toda saída adversa do K1 nas filas humanas de uma vez; é intencional, porque é o lado seguro, e o alerta existe para que a correção do arquivo seja imediata.
    - O estado manual diz se o K1 age sobre o caso.
 2. **`ativacao` do pacote pinado:** diz como o K1 age quando age.
 3. **Override automático:** gravado só pelo monitor de reversão (§5). Seu único valor é `conferencia_integral`. Nunca promove.
@@ -63,8 +63,8 @@ Combinação (uma função pura e determinística):
 | Estado manual | Efeito no caso | Registro (§4) |
 |---|---|---|
 | `sombra` (padrão) | Nenhum. O caso segue o processo atual do Maezo, decidido por humano. A concordância vem do desfecho humano desse processo. Nenhuma User Task nova. | sim |
-| `desligada` ou ilegível | Toda saída adversa vira `revisao_humana` na `fila` da linha. Nunca "sem efeito", que pagaria a glosa de contas automaticamente. | sim |
-| `ativa_l2` (só depois da Onda 3) | Aplica a ativação efetiva, a mais restritiva entre a `ativacao` do pacote e o override, na ordem `em_correcao` > `conferencia_integral` > `conferida` > `plena`. O efeito de cada uma está no §3. | sim |
+| `desligada` ou ilegível (com `efeito_k1_habilitado`) | Toda saída adversa vira `revisao_humana` na `fila` da linha. Nunca "sem efeito", que pagaria a glosa de contas automaticamente. | sim |
+| `ativa_l2` (com `efeito_k1_habilitado`) | Aplica a ativação efetiva, a mais restritiva entre a `ativacao` do pacote e o override, na ordem `em_correcao` > `conferencia_integral` > `conferida` > `plena`. O efeito de cada uma está no §3. | sim |
 
 Regras de mudança de estado:
 - Retirar um override exige mudança humana no arquivo de estado, por PR. O sistema nunca promove uma regra sozinho.
@@ -165,7 +165,7 @@ O registro alimenta o K5 (desfechos mzo → adp → rco) e o painel de concordâ
 Um PR por unidade, um executor por vez, revisão independente em cada:
 1. este ADR;
 2. **5a:** leitura e checagem de faixa dos parâmetros. A checagem é escolha do Maezo: inteiros > 0, percentuais em (0, 100] com no máximo 4 casas decimais, `limiar_reversao_min_decisoes` ≥ 1. A auditoria grava `estado_manual`, `ativacao_pacote` e `ativacao_efetiva`. A recusa `ativacao_nao_suportada` continua;
-3. **5c:** arquivo de estado manual com leitor fail-closed, migration do registro, função de estado efetivo, filtro do §3 para os estados `sombra` e `desligada`, e amostragem do §4. A recusa continua;
+3. **5c:** arquivo de estado manual com leitor fail-closed, migration do registro, função de estado efetivo, o indicador `efeito_k1_habilitado` fixo em falso (toda regra em `sombra`), o registro em todos os estados e a amostragem do §4. Não cria User Task: as rotas de `desligada` e do §3 ficam escritas e testadas com o indicador ligado só nos testes. A recusa continua;
 4. **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
 5. **5e:** monitor de reversão, override e alertas. Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`;
 6. **5b:** provas, quando o formato for publicado.
