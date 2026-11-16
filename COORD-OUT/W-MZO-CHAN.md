@@ -30,3 +30,5 @@ Recomendação: (A). PROVISÓRIO-aguarda-coordenador: o E-SF-17 fica pronto em r
 - E-SF-18: revisão independente PASS (ramo local); aguarda a vez (um PR aberto por janela).
 - E-SF-17: implementado; revisão independente em curso; depende de Q-W-MZO-CHAN-01.
 - E-SF-13: em implementação.
+
+PRONTO maezo-operadora #1269 head aeb4c5b02cc133a873695c907f680919ba3ce1c3 checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0) — exceto `flip-path-review-gate`, que aguarda APPROVED de code owner de `/deploy/` (ato humano; nenhum push resolve). Revisão independente PASS no mesmo head.
