@@ -95,6 +95,10 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # MZO-5a (ADR-0075 (f)): stdlib reader of the rco K1 pin (rules.lock.json) that stamps
         # shaDmn/versaoRegra/idRegra on rco_ audit entries; no engine client, no worker registration.
         "rco_pin",
+        # MZO-2b: the K1 input builder (montador de entradas) — a pure, deterministic mapping from
+        # case facts to the inputs of an rco_ decision per the K1 entradas dictionary; no engine
+        # client, no PHI egress, no worker registration (a later unit wires it into a worker).
+        "rco_montador",
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
         # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
         # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.
