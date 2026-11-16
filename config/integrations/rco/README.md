@@ -121,3 +121,33 @@ A seção `k1` será congelada pela trilha rco (PR da unidade PROG-RCO-1 em
 `regras-contratos-operadora`). Mudar o vocabulário é mudar este arquivo, não o código. Fica aqui, e
 não em `spec/processes/dmn/`, porque `rco/` só aceita o que o pin lista e porque os `.yaml` do
 primeiro nível são lidos pela cerca de perspectiva (ADR-0040 D7), que reprovaria a lista de tokens.
+
+## Pin do pacote K2 (Manual do Beneficiário)
+
+O K2 (contrato `docs/programa/contrato-k2.md` do rco) é o conteúdo do Manual do Beneficiário, do mesmo
+commit do K1. O pin é `k2.lock.json` (`lock_format` = `rco-k2-lock` `1.0.0`) e os bytes ficam em
+`config/integrations/rco/k2/`, pasta plana. O gate é `scripts/ci/verify_rco_k2_pin.py`, chamado por
+`make verify-rco-rules-pin` junto do gate K1: só biblioteca padrão, sem rede, fail-closed, com os
+auxiliares do leitor K1 carregados pelo caminho do arquivo.
+
+| Campo do lock | Conteúdo |
+|---|---|
+| `estado` | `sem_pacote` (comitado hoje) ou `fixado`. |
+| `provenance` | `rco_repo` = `Omni-Saude/regras-contratos-operadora` e `rco_commit_sha` (40 hex; `null` sem pacote). |
+| `manifest_pin` | `path` = `config/integrations/rco/k2/manifesto.json` e `sha256` (`sha256:<hex>`); `null` sem pacote. |
+| `versao` | igual a `versao` do manifesto; `null` sem pacote. O leitor da Helena lê `versao` e `manifest_pin.sha256`. |
+
+- `sem_pacote`: `k2/` ausente ou só com `README.md`.
+- `fixado`: `k2/` tem exatamente 7 arquivos: `manifesto.json`, `manifesto.sha256` (`sha256:<hex>` e LF,
+  igual ao hash recomputado do manifesto) e os 5 de dados (`search-index.json`, `capitulo-geral.yaml`,
+  `sinonimos.json`, `sinonimos-por-termo.json`, `avaliacoes.yaml`). O manifesto tem bytes canônicos e
+  exatamente `formato` (`rco-k2-v1`), `versao`, `commit_rco`, `gerado_em` (UTC `AAAA-MM-DDTHH:MM:SSZ`),
+  `ratificado` e `arquivos` (os 5 de dados, cada um com o digest). Lock e manifesto concordam em hash,
+  `versao` e commit.
+- Com K1 e K2 `fixado`: `versao` do K2 = `versao_pacote` do K1 e `commit_rco` = `origem.commit_sha` do K1.
+- `ratificado: false` passa no gate: recusá-lo em produção é do leitor, não da integridade dos bytes.
+- Recusados: arquivo fora do manifesto, subpasta, link simbólico, chave JSON repetida, `NaN`/`Infinity`,
+  hex cru sem `sha256:`.
+
+O pin muda só quando o rco publica um K2 novo: copiar os 7 arquivos byte a byte para `k2/` e preencher o
+lock a partir do manifesto.
