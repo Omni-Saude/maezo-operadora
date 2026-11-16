@@ -151,7 +151,9 @@ def ler_estados(texto: str) -> EstadosManuais:
 
 def _interpretar(texto: str, caminho: Path | None) -> EstadosManuais:
     try:
-        dados = yaml.load(texto, Loader=_CarregadorSemChaveRepetida)  # noqa: S506 - SafeLoader subclasse
+        dados = yaml.load(
+            texto, Loader=_CarregadorSemChaveRepetida
+        )  # Loader = subclasse de yaml.SafeLoader (so tipos YAML basicos, nunca objeto Python arbitrario)
     except (yaml.YAMLError, TypeError, ValueError, RecursionError) as exc:
         # RecursionError: aninhamento profundo; TypeError/ValueError: construtores do PyYAML.
         return _recusar(f"yaml_invalido: {type(exc).__name__}", caminho)
@@ -191,7 +193,7 @@ def carregar_estados(caminho: Path | None = None) -> EstadosManuais:
             caminho = caminho_padrao_do_estado()
         texto = caminho.read_text(encoding="utf-8")
         return _interpretar(texto, caminho)
-    except Exception as exc:  # noqa: BLE001 - qualquer falha fecha (inclui SpecDirOverrideRefusedError)
+    except Exception as exc:  # qualquer falha fecha (inclui SpecDirOverrideRefusedError)
         return _recusar(f"leitura_falhou: {type(exc).__name__}", caminho)
 
 
