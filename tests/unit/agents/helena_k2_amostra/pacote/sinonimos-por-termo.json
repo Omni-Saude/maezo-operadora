@@ -1,0 +1,49 @@
+{
+  "carencia": [],
+  "clinico geral": [
+    "AMOSTRA-PRZ-002"
+  ],
+  "consulta": [
+    "AMOSTRA-PRZ-002"
+  ],
+  "devolucao do dinheiro": [
+    "AMOSTRA-REE-004"
+  ],
+  "exame de imagem": [
+    "AMOSTRA-AUT-001",
+    "AMOSTRA-REC-005"
+  ],
+  "fisio": [
+    "AMOSTRA-QTD-003"
+  ],
+  "fisioterapia": [
+    "AMOSTRA-QTD-003"
+  ],
+  "marcar consulta": [
+    "AMOSTRA-PRZ-002"
+  ],
+  "nota fiscal": [
+    "AMOSTRA-REE-004"
+  ],
+  "recorrer": [
+    "AMOSTRA-REC-005"
+  ],
+  "recurso": [
+    "AMOSTRA-REC-005"
+  ],
+  "reembolso": [
+    "AMOSTRA-REE-004"
+  ],
+  "ressonancia": [
+    "AMOSTRA-AUT-001"
+  ],
+  "rm": [
+    "AMOSTRA-AUT-001"
+  ],
+  "segunda analise": [
+    "AMOSTRA-REC-005"
+  ],
+  "sessao de fisioterapia": [
+    "AMOSTRA-QTD-003"
+  ]
+}

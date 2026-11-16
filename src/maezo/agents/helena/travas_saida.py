@@ -208,10 +208,16 @@ def sem_confirmar_reembolso(texto: str) -> str:
     return TEXTO_REEMBOLSO_FORA
 
 
-def na_saida(texto: str) -> str:
+def na_saida(texto: str, *, prazo_ratificado: bool = False) -> str:
     """Todas as travas de saida, na ordem: reembolso, link, contagem, prazo da ANS, oferta de midia. Nada a
-    tirar: o MESMO texto."""
-    return sem_oferta_de_midia(sem_prazo_da_ans(sem_contagem(sem_links(sem_confirmar_reembolso(texto)))))
+    tirar: o MESMO texto.
+
+    `prazo_ratificado` (DL-0167, HEL-5b; decisao da ROOT de 16/11/2026): SO' o texto que a habilidade
+    `cobertura` deixou pronto com fonte do pacote K2 identificada por hash e veredito ok do verificador de
+    fatos (`habilidades.cobertura.prazo_ratificado`) pula `sem_prazo_da_ans`; as outras travas continuam.
+    Qualquer outro texto (o do modelo inclusive) segue com o prazo cortado."""
+    sem_prazo = sem_contagem(sem_links(sem_confirmar_reembolso(texto)))
+    return sem_oferta_de_midia(sem_prazo if prazo_ratificado else sem_prazo_da_ans(sem_prazo))
 
 
 __all__ = [

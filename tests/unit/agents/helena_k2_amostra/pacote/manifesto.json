@@ -1,12 +1,1 @@
-{
-  "_amostra": "SINTETICA e ficticia; formato rco-k2-v1 esperado, ainda nao confirmado pelo rco; ver ../LEIAME.md",
-  "formato": "rco-k2-v1",
-  "versao": "amostra-0.1.0",
-  "commit_rco": "0000000000000000000000000000000000000000",
-  "gerado_em": "2026-11-15T00:00:00Z",
-  "ratificado": true,
-  "arquivos": {
-    "search-index.json": "sha256:0282e288ebb8bc22088777eb4fc847573db5ba6f527876176dbb2eb07e186723",
-    "capitulo-geral.yaml": "sha256:680f549371f64d0f658b0f8cc585319e18f5fa5abf2f408b6330d2b2dac4c961"
-  }
-}
+{"arquivos":{"avaliacoes.yaml":"sha256:d6cbbee5a32ed96e82eca085465a18c543deff2dd9a5d3c6dcc955f179692f9c","capitulo-geral.yaml":"sha256:680f549371f64d0f658b0f8cc585319e18f5fa5abf2f408b6330d2b2dac4c961","search-index.json":"sha256:ee69ff25b1726e6f846ed00507116df4ebaec77abf0abf497f1f75983ad02462","sinonimos-por-termo.json":"sha256:2ab78cf6bf59cbda417f421ce2414adc14fa76376fc337e8497e935c4fc65968","sinonimos.json":"sha256:c30fad98c38fac17fcb083afbf7ce51374a696e6401469616e2f6bab093721bc"},"commit_rco":"0000000000000000000000000000000000000000","formato":"rco-k2-v1","gerado_em":"2026-11-16T00:00:00Z","ratificado":false,"versao":"amostra-0.1.0"}

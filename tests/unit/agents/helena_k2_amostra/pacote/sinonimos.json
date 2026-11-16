@@ -1,0 +1,50 @@
+{
+  "carencia": [
+    "periodo de carencia"
+  ],
+  "clinico geral": [
+    "clinica medica"
+  ],
+  "consulta": [
+    "consulta medica"
+  ],
+  "devolucao do dinheiro": [
+    "reembolso de despesas"
+  ],
+  "exame de imagem": [
+    "diagnostico por imagem"
+  ],
+  "fisio": [
+    "fisioterapia"
+  ],
+  "fisioterapia": [
+    "sessao de fisioterapia"
+  ],
+  "marcar consulta": [
+    "agendamento de consulta"
+  ],
+  "nota fiscal": [
+    "comprovante de pagamento"
+  ],
+  "recorrer": [
+    "recurso administrativo"
+  ],
+  "recurso": [
+    "recurso administrativo"
+  ],
+  "reembolso": [
+    "reembolso de despesas"
+  ],
+  "ressonancia": [
+    "ressonancia magnetica"
+  ],
+  "rm": [
+    "ressonancia magnetica"
+  ],
+  "segunda analise": [
+    "reanalise"
+  ],
+  "sessao de fisioterapia": [
+    "fisioterapia"
+  ]
+}
