@@ -1,7 +1,8 @@
 # Registros de sala limpa (EP-CORE-09b)
 
 Um arquivo `CLEANROOM-OMNI-V-<nn>.json` por EXTRACT re-derivado pelo caminho B de CORE-09, no formato de
-`cleanroom-record.schema.json`. Hoje **não há registro**: nenhum módulo do Maezo traz o marcador `derived-from: OMNI-V-<nn>`.
+`cleanroom-record.schema.json`. Registros commitados: `CLEANROOM-OMNI-V-02.json` (binding TS do C6-4) e `CLEANROOM-OMNI-V-10.json` (guardas anti-PII
+do binding).
 
 Regras verificadas por `scripts/docs/cleanroom_records.py` (guarda: `tests/governance/test_cleanroom_records.py`):
 

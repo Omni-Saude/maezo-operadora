@@ -1,3 +1,4 @@
+# derived-from: OMNI-V-10
 """EP-CORE-09c (E-SF-33, caminho B): binding TS gerado do contrato C6-4 + guardas anti-PII nativas.
 
 Spec-fonte: `tests/candidate_artifacts/commercial/contract-c6-4.json` (só leitura) e código Maezo.

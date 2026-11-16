@@ -48,7 +48,7 @@ _SINTETICO = (
 
 def _cabecalho(ato: str | None) -> bytes:
     # Montado por concatenacao para que ESTE arquivo nao contenha um cabecalho real em inicio de linha.
-    linhas = ["// " + "Provenance" + ": Omni-Saude/omni_sales_platform@" + OMNI_COMMIT[:7] + ":" + _OMNI_PATH]
+    linhas = ["// " + "Provenance" + ": Omni-Saude/omni_sales_platform@" + OMNI_COMMIT + ":" + _OMNI_PATH]
     if ato is not None:
         linhas.append("// " + "License-Act" + ": " + ato)
     return ("\n".join(linhas) + "\n").encode()
@@ -158,14 +158,17 @@ def test_real_tree_refusals_are_exactly_the_declared_pending_set() -> None:
     no_manifesto = {
         b["sha256_raw"] for b in json.loads((_REPO / MANIFESTO_REL).read_text(encoding="utf-8"))["blobs"]
     }
-    pendentes = set()
+    pendentes = {
+        (e["maezo_path"], e["sha256_raw"])
+        for e in compartilhados["entries"]
+        if e["class"] == "omni_first_pending_adjudication"
+    }
     for e in compartilhados["entries"]:
         assert e["sha256_raw"] in no_manifesto
         assert e["class"] in {"maezo_origin", "omni_first_pending_adjudication"}
-        if e["class"] == "omni_first_pending_adjudication":
-            pendentes.add(e["maezo_path"])
     manifesto = carregar_manifesto(_REPO / MANIFESTO_REL, origem_maezo(_REPO / COMPARTILHADOS_REL))
     recusas = verificar_arvore(_REPO, arquivos_rastreados(_REPO), manifesto, _REPO / LICENSING_REL)
     assert {r.motivo for r in recusas} <= {ProvenanceRefusal.UNLICENSED_OMNI_ORIGIN}
-    assert {r.caminho for r in recusas} == pendentes
+    achados = {(r.caminho, sha256((_REPO / r.caminho).read_bytes())) for r in recusas}
+    assert achados == pendentes
     assert len(pendentes) == 9

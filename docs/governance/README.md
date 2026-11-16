@@ -14,8 +14,12 @@
   ato (`<id>.json` com `act_id == <id>`). O ato de titularidade/licença do omni é EP-CORE-09d: ato do dono, forma do
   instrumento RATIFY-LATER-jurídico (CORE-09; CA-03). Agente não redige nem commita licença. Enquanto o diretório estiver
   vazio, todo cabeçalho de proveniência é recusado com `LICENSE_ACT_NOT_FOUND`.
-- Nenhum registro de sala limpa existe: nenhum módulo do Maezo traz o marcador `derived-from: OMNI-V-<nn>` hoje.
+- Registros de sala limpa commitados (`docs/governance/cleanroom/`): `CLEANROOM-OMNI-V-02.json` (binding TS do C6-4:
+  `src/maezo/portal/web/codegen/c6-4/generate_c64_binding.py` e `commercial-c6-4.generated.ts`) e `CLEANROOM-OMNI-V-10.json`
+  (guardas anti-PII: `tests/governance/test_c64_ts_binding.py`). #3/#8/#12 não têm registro (GAP: a atestação exige o
+  implementador do código pré-existente).
 - Nenhum recibo de confiança foi produzido: o workflow depende do segredo `OMNI_SALES_READ_TOKEN`, ainda não provisionado.
+- Lacuna de CI (declarada): as guardas rodam no shard `restante` do job `unit`, que só roda na trilha plataforma (`scripts/ci/trilha.py`). PR só de lógica/pacote de agente, e o push do seu merge, não as rodam; a cópia é pega no run noturno (`schedule`). Fechar exige job próprio ligado ao `portao` em `ci.yml` (editor único W-MZO-DOC, CD-11 item 8).
 
 ## Passivo existente (não é licença)
 
@@ -29,7 +33,7 @@ nova falha e a adjudicação (dono/jurídico; para os contratos, editor canônic
 
 Nas primeiras 40 linhas do arquivo, em linha própria (prefixo de comentário opcional):
 
-    Provenance: Omni-Saude/omni_sales_platform@<sha hex 7..40>:<caminho no omni>
+    Provenance: Omni-Saude/omni_sales_platform@<sha completo, 40 hex>:<caminho no omni>
     License-Act: <id do ato em docs/governance/licensing/>
 
 Arquivo com cabeçalho também exige recibo T2 válido do mesmo sha (EP-CORE-10a).

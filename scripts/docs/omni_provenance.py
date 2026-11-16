@@ -27,7 +27,8 @@ por `python -m scripts.docs.omni_provenance`. Os testes de guarda ficam em `test
 
 Uso:
     python -m scripts.docs.omni_provenance verificar
-        # varre `git ls-files` do Maezo; exit 1 se houver recusa
+        # varre `git ls-files` do Maezo; exit 1 se houver recusa, INCLUSIVE os 9 pendentes de shared-blobs
+        # (o gate de CI é tests/governance/test_omni_provenance_guard.py, que aplica a catraca)
     python -m scripts.docs.omni_provenance gerar --omni-git-dir <clone> --commit <sha40>
         # (re)gera o manifesto lendo SO objetos git (ls-tree + cat-file), sem checkout no clone do omni
 """
@@ -64,7 +65,7 @@ LINHAS_CABECALHO = 40
 # Linha de cabecalho: prefixo de comentario opcional (#, //, /*, *, <!--, --, ;) e nada antes dele.
 _PREFIXO = r"^[ \t]*(?:#|//|/\*+|\*|<!--|--|;)?[ \t]*"
 _PROVENANCE_RE = re.compile(
-    _PREFIXO + r"Provenance:[ \t]*Omni-Saude/omni_sales_platform@([0-9a-f]{7,40}):(\S+)",
+    _PREFIXO + r"Provenance:[ \t]*Omni-Saude/omni_sales_platform@([0-9a-f]{40}):(\S+)",
     re.MULTILINE,
 )
 _LICENSE_ACT_RE = re.compile(_PREFIXO + r"License-Act:[ \t]*([A-Za-z0-9][A-Za-z0-9._-]*)", re.MULTILINE)

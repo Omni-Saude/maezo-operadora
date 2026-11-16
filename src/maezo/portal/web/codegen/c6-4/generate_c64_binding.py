@@ -1,3 +1,4 @@
+# derived-from: OMNI-V-02
 """Gera o binding TS mecânico do contrato comercial C6-4 (EP-CORE-09c, EXTRACT #2, caminho B).
 
 Spec-fonte única: `tests/candidate_artifacts/commercial/contract-c6-4.json` (bytes custodiados,

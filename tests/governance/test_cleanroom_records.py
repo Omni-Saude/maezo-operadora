@@ -1,8 +1,8 @@
 """EP-CORE-09b (E-SF-33; CORE-09 caminho B) — registro de sala limpa por EXTRACT.
 
 Casos negativos montam, em `tmp_path`, um modulo marcado e um registro; cada caso quebra UMA propriedade.
-Caso real: o head nao tem modulo marcado nem registro (nenhuma re-derivacao B entrou ainda) e o
-verificador nao acusa nada; o esquema versionado aceita o registro valido de fixture.
+Caso real: o head traz os registros CLEANROOM-OMNI-V-02 e -V-10 (EP-CORE-09c), todo modulo marcado
+tem registro e o verificador nao acusa nada; o esquema versionado aceita o registro valido de fixture.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from scripts.docs.cleanroom_records import (
     REGISTRO_GLOB,
     SCHEMA_REL,
     CleanroomRefusal,
-    modulos_marcados,
     verificar,
 )
 from scripts.docs.omni_provenance import arquivos_rastreados
@@ -130,8 +129,8 @@ def test_versioned_schema_accepts_valid_fixture_and_rejects_omni_source() -> Non
         jsonschema.validate(ruim, schema)
 
 
-def test_real_head_has_no_marked_module_and_no_record() -> None:
+def test_real_head_records_cover_every_marked_module() -> None:
     rastreados = arquivos_rastreados(_REPO)
-    assert modulos_marcados(_REPO, rastreados) == {}
-    assert sorted((_REPO / CLEANROOM_REL).glob(REGISTRO_GLOB)) == []
+    nomes = sorted(p.name for p in (_REPO / CLEANROOM_REL).glob(REGISTRO_GLOB))
+    assert {"CLEANROOM-OMNI-V-02.json", "CLEANROOM-OMNI-V-10.json"} <= set(nomes)
     assert verificar(_REPO, rastreados, _REPO / CLEANROOM_REL) == []
