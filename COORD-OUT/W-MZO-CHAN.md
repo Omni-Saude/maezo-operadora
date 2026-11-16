@@ -50,3 +50,10 @@ Nota de fila: CD-21 item 2 dá prioridade ao E-SF-13 na fila do maezo. Ele só a
 - E-SF-18: revisão independente PASS (be10fd82, ramo local); aguarda a vez.
 - E-SF-17: revisão independente PASS (c572eddf, ramo local); aguarda Q-W-MZO-CHAN-01 e a vez.
 - E-SF-13: revisão independente PASS (dbe3eb0d); CD-25 recebido e em implementação (trava explícita de oposição de beneficiário no job de lembretes); nova revisão depois. Aguarda Q-W-MZO-CHAN-02 e a vez.
+
+## Estado (2026-11-16 ~23:30Z)
+
+- E-SF-14: #1269 mesclado.
+- E-SF-13: PR #1274 aberto (head 3ebad170, rebaseado sobre b3512b7), revisão independente PASS; sem a migração 0036 (CD-31); aguarda CI.
+- E-SF-18: pronto em ramo local (rebaseado), abre depois do #1274 conforme CD-29/CD-31.
+- E-SF-17: pronto em ramo local; entra com as 8 linhas autorizadas (CD-31).
