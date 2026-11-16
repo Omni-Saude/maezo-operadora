@@ -23,13 +23,14 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 34 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 35 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
 #      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
 #      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
 #      autoprotecao; 32 desde 2026-09-06, quando entrou `/spec/policies/phi/` pela decisao do
 #      dono R-199; 34 desde 2026-11-15, quando entraram `/spec/processes/dmn/rco/` e
-#      `/config/integrations/rco/` pelo ADR-0075). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      `/config/integrations/rco/` pelo ADR-0075; 35 desde 2026-11-16, quando entrou
+#      `/spec/processes/dmn/rco-regras-estado.yaml` pelo ADR-0077). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
 #      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
 #      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
 #      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
@@ -83,6 +84,8 @@
 # redeploy — which is exactly why the data needs the reviewer the code path would otherwise have
 # had. The fence test is a tripwire, not a required reviewer (one PR can edit both).
 /spec/processes/dmn/auth-criteria-ratification.yaml  @rodaquino-OMNI @Omni-Saude/security-team
+# ADR-0077 §2: estado manual das regras K1 (sombra|ativa_l2|desligada); decide se uma regra do rco age.
+/spec/processes/dmn/rco-regras-estado.yaml           @rodaquino-OMNI @Omni-Saude/security-team
 # Teto financeiro (D-07) + matriz de autonomia: valores de governanca que tornam a aprovacao
 # automatica possivel. Antes desta linha o proprio manifesto os descrevia como "CODEOWNERS-gated",
 # o que era FALSO (GK-criteria finding 1).
