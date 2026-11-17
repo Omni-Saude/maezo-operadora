@@ -108,7 +108,13 @@ class _Runtime:
         self.monkeypatch.setattr(rco_pin, "estados_em_cache", lambda: estados)
 
     def decidir(
-        self, decisao_id: str, id_regra: str, decisao: str, classe: str, ordinal: int = 1
+        self,
+        decisao_id: str,
+        id_regra: str,
+        decisao: str,
+        classe: str,
+        ordinal: int = 1,
+        confirmadas: int | None = None,
     ) -> tuple[reg.LinhaDecisao, at.AcaoDeSaida]:
         row = {
             "idRegra": id_regra,
@@ -123,7 +129,9 @@ class _Runtime:
         ctx = reg.contexto_da_tarefa(
             tenant="amh", task_id="t-1", decision_key=decisao_id, business_key=None, ambiente={}
         )
-        linha = reg.montar_linha(av, ctx, ordinal if av.tem_ordinal else None)
+        linha = reg.montar_linha(
+            av, ctx, ordinal if av.tem_ordinal else None, conferencias_confirmadas=confirmadas
+        )
         return linha, self.acoes[-1]
 
 
@@ -203,7 +211,7 @@ def test_efeito_desligado_toda_saida_adversa_das_46_e_registrar_apenas(
 @pytest.mark.usefixtures("efeito_ligado")
 @pytest.mark.parametrize(("decisao_id", "id_regra"), CONFERIDAS)
 @pytest.mark.parametrize("decisao", ["negar", "glosar"])
-def test_conferida_real_confere_ate_o_ordinal_30(
+def test_conferida_real_confere_ate_30_conferencias_confirmadas(
     runtime: _Runtime, decisao_id: str, id_regra: str, decisao: str
 ) -> None:
     manifesto = rec.manifesto()
@@ -212,8 +220,10 @@ def test_conferida_real_confere_ate_o_ordinal_30(
     assert _classes()[(decisao_id, id_regra)] == "administrativo"
     runtime.pinar(manifesto)
     runtime.estados([(id_regra, regra.versao_regra)])
-    for ordinal in (1, 30):
-        linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", ordinal)
+    # DL-0182: a janela e de 30 conferencias CONFIRMADAS por humano, nao de 30 ordinais. Ate 29
+    # confirmadas (ou contagem desconhecida), qualquer ordinal confere.
+    for ordinal, confirmadas in ((1, None), (1, 0), (30, 29), (31, 29), (1000, 0)):
+        linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", ordinal, confirmadas)
         assert (linha.modo, linha.ativacao_efetiva, linha.acao, linha.fila) == (
             "ativa",
             "conferida",
@@ -221,13 +231,14 @@ def test_conferida_real_confere_ate_o_ordinal_30(
             FILA,
         )
         assert acao == at.AcaoDeSaida("conferencia", FILA)
-    # Depois do ordinal 30: `negar` em `conferida` continua em conferencia (nunca automatico, DL-0181);
-    # `glosar` segue o roteamento do ADR-0077 §3 e a contagem de conferencias e da unidade 5d-1.
-    linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", 31)
-    if decisao == "negar":
-        assert (linha.acao, acao) == ("conferencia", at.AcaoDeSaida("conferencia", FILA))
-    else:
-        assert linha.acao != "efeito"
+    # Com 30 confirmadas: `negar` em `conferida` continua em conferencia (nunca automatico, DL-0181);
+    # `glosar` segue o ADR-0077 §3 (efeito com amostragem, revista depois).
+    for confirmadas in (30, 31, 500):
+        linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", 31, confirmadas)
+        if decisao == "negar":
+            assert (linha.acao, acao) == ("conferencia", at.AcaoDeSaida("conferencia", FILA))
+        else:
+            assert linha.acao == "efeito_com_amostragem" and acao.acao == "efeito_com_amostragem"
 
 
 @pytest.mark.usefixtures("efeito_ligado")
