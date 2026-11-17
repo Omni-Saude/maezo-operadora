@@ -66,3 +66,11 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 - Linha 3 (GTM-E-63): revisão independente FAIL (citação de artigo) → reparo literal → PASS; em ramo.
 - Linha de classes fechadas: implementada em ramo; aplico o CAMINHO aceito (CD-91 item 2) e o teste de valores reais (CD-91 item 3) antes da revisão.
 - Disco do container encheu com temporários do pytest (28 GB em `/tmp/pytest-of-root`); limpo.
+
+## 2026-11-17 ~22:00Z — linha de classes fechadas pronta em ramo
+
+- Ramo `sf-w2/mzo-ca/classes-fechadas`: revisão independente FAIL (CID com separador não-ASCII deixava de casar; `protocolo_ref` e `link_opaco_jornada` aceitavam palavra livre; teste comparando o arquivo consigo mesmo) → reparo literal → PASS na reconferência (sondas refeitas sem patch; 300 mil textos aleatórios sem regressão do padrão de CID da main).
+- CAMINHO de CD-91 aplicado (uma linha em `tests/unit/platform/lembretes/test_optout_config_envio.py`); teste de valores reais do lembrete (CD-91 item 3) incluído.
+- Local: `tests/unit/gateway` + `tests/unit/ci` + `tests/unit/platform/lembretes` + `tests/unit/tools`: 15636 passed; as 170 falhas/erros locais estão todas na lista da main limpa.
+- Resíduo registrado: `primeiro_nome` aceita uma palavra latina qualquer (validador de nome não distingue nome de remédio); o detector continua como defesa em profundidade.
+- PR abre depois do merge do #1303.
