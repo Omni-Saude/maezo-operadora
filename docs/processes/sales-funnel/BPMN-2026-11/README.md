@@ -13,8 +13,8 @@
 |---|---|
 | E01-entrada-com-preco | `93fd477961f4370f` |
 | E02-qualificacao | `93136fc59c59553b` |
-| E03-cotacao-e-comparador | `b060b69cbc2446c5` |
-| E04-proposta-e-termos | `b7f6928e1c154bdb` |
+| E03-cotacao-e-comparador | `c17788b7e86bb519` |
+| E04-proposta-e-termos | `59750d6e0933c094` |
 | E05-aceite | `378a4b269ba0bb1c` |
 | E06-contrato-e-pagamento | `3ea9448fe75a93c4` |
 | E07-declaracao-de-saude | `eb19a831a844cf69` |

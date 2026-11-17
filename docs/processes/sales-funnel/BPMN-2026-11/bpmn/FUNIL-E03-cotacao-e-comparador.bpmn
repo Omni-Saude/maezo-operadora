@@ -204,7 +204,7 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_GateComparacao_di" bpmnElement="Gateway_GateComparacao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
         <dc:Bounds x="1050" y="350" width="50" height="50" />
-        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="440" width="110" height="28" /></bpmndi:BPMNLabel>
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="545" width="110" height="28" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_ComparaOpcoes_di" bpmnElement="Task_ComparaOpcoes">
         <dc:Bounds x="1150" y="340" width="100" height="80" />
