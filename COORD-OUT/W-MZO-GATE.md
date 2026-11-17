@@ -84,3 +84,17 @@ E-SF-06 pronto localmente. O ramo `sf-w1/gate/E-SF-06` (25c2e02) foi publicado s
 ## 2026-11-17 ~00:55Z
 
 pronto: maezo-operadora #1273, head 019b5046f444f74d080aae83a466e52805ee5780, checks verdes (41 success e 2 skipped; integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skips). Enviado direto à mescladora (CD-42). A descrição do PR foi atualizada para o caminho `adapters/amh/commercial_fences.py`, sem push.
+
+## Q-W-MZO-GATE-03 — E-SF-20 / EP-REG-08a: catálogo público misto (PF + coletivo)
+
+A trava do coletivo fica na leitura do catálogo público, porque o C6-4 só traz o tipo de contrato ali. A revisão independente pediu que eu tirasse da resposta só os produtos coletivos `usable` e servisse o PF. Isso não é possível sem violar a custódia, por dois motivos:
+- a rota só divulga depois que `PublicCatalogProof.result_digest` bate com o sha256 do corpo exato da fonte;
+- o C6-4 manda "Maezo validates admitted source projection and returns the same source wire to Sales".
+
+Opções:
+- (A) **Recomendada para a onda 1, junto com (C).** O catálogo que traz coletivo `usable` é recusado inteiro, PF incluído (fail-closed). Hoje o efeito é latente: sem registro A1, o catálogo público já está fechado em toda composição.
+- (B) O catálogo passa inteiro e a retenção do coletivo fica a jusante (omni/AMH com `offerState` rebaixado).
+- (C) Demanda de sucessor C6-4 ao AMH: catálogo público só-PF, ou campo de retenção que permita avisar o comprador.
+- (D) O maezo divulga uma projeção re-autorizada (exige sucessor C6-4).
+
+Sigo por (A) e registro (C) como demanda: PROVISÓRIO-aguarda-coordenador. Também declarado: GAP-ESF20-TERMS. A admissão não impede `offer.quote`/`offer.terms` com `product_ref` coletivo; o critério depende do sucessor C6-4 (E-04) e do AMH honrar `offerState`.
