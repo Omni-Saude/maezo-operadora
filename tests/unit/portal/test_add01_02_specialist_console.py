@@ -237,6 +237,7 @@ def test_repr_do_registro_nao_mostra_n() -> None:
         ("journey_ref", "gestante_hipertensa"),  # termo clinico fora da lista, em referencia
         ("prospect_ref", "losartana"),  # medicamento
         ("party_ref", "pro_gravidez0001"),  # letras fora do alfabeto hex
+        ("journey_ref", "gravidez_0123456789abcdef"),  # prefixo fora do conjunto fechado
         ("journey_ref", "j1"),  # curto demais
         ("account_ref", "0123456789abcdef 1"),  # espaco
         ("journey_ref", 1234567890123456),  # nao e' texto
