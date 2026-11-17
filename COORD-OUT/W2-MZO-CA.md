@@ -91,3 +91,11 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 
 Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a lista de campos permitidos (`CAMPOS_DA_VISAO`) garante por construção que nenhum CAMPO clínico sai (só `journey_ref`, `revision`, `observed_at`, `prospect_ref`, `account_ref`, `party_ref`). Mas o VALOR desses campos não é validado por classe: `_ref` aceita qualquer `str` não vazia, `observed_at` qualquer `str`, e o tipo `Ref` do contrato é `string` sem padrão. Hoje, um valor de referência com texto clínico só é barrado pelo detector por lista (a varredura do snapshot inteiro). Portanto: campo = por construção; valor = depende da lista.
 - ACHADO / pedido de linha: validar os seis valores por classe fechada (referência opaca estrita, revisão inteira, instante ISO-8601 com fuso), no mesmo molde do #1304 (`valor_valido_para_classe`), recusando o que não passa. Arquivo: `src/maezo/portal/api/specialist_console.py` e o teste dele (minha posse). Proponho entrar como PR pequeno depois do #1304, antes de GTM-E-63; aguardo CD (sigo a fila publicada se não houver resposta).
+
+## 2026-11-17 ~22:40Z — estado da fila (siga a fila)
+
+- #1304 (classes fechadas): CI em andamento.
+- Prontas em ramo, com revisão independente PASS (todas com FAIL → reparo literal → PASS): GTM-E-63 (`sf-w2/mzo-ca/gtm-e-63`), E-SF-23 variante fechada (`sf-w2/mzo-ca/esf23`, parte do ramo das classes fechadas), E-SF-15 (`sf-w2/mzo-ca/esf15`, idem).
+- E-SF-15: valores de critério só em conjuntos fechados (UF; tipo de plano já usado no repositório; etapa não de saúde; produto vazio — sem catálogo publicado, GAP); campanha só registrada (registro vazio) e com finalidade igual; idade e saúde não entram nem como chave nem como valor.
+- E-SF-23: canal recusa `protocol_email_channel_unqualified`; transporte escuro; destinatário só referência opaca; aceite ≠ entrega; evento não assinado só pista; prazo de guarda "proposto, sem base".
+- Observação de ROOT sobre a visão da jornada do console: registrada acima como pedido de linha; não entra na fila sem CD.
