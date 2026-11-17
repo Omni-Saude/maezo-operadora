@@ -74,3 +74,10 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 - Local: `tests/unit/gateway` + `tests/unit/ci` + `tests/unit/platform/lembretes` + `tests/unit/tools`: 15636 passed; as 170 falhas/erros locais estão todas na lista da main limpa.
 - Resíduo registrado: `primeiro_nome` aceita uma palavra latina qualquer (validador de nome não distingue nome de remédio); o detector continua como defesa em profundidade.
 - PR abre depois do merge do #1303.
+
+## 2026-11-17 ~21:45Z — PRONTO maezo-operadora #1303 head e01db68e9018638853593200e7a4b11407695175 checks verdes (integração lida do junit)
+
+- Integração: 5 shards, 958 + 138 + 130 + 129 + 56 = 1411 testes, 0 falha, 0 erro. `flip-path-review-gate` verde.
+- Arquivos tocados (2, novos): `src/maezo/portal/api/specialist_console.py`; `tests/unit/portal/test_add01_02_specialist_console.py`.
+- Simulação de merge sobre a main `4d44a8ec` (clone isolado, abortada): limpa, só os 2 arquivos. Ramo contém `972130a0`; um merge atrás (#1302, disjunto — CD-80).
+- Pronto enviado à coordenação do programa por `send_message`.
