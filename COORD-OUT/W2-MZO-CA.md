@@ -99,3 +99,9 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - E-SF-15: valores de critério só em conjuntos fechados (UF; tipo de plano já usado no repositório; etapa não de saúde; produto vazio — sem catálogo publicado, GAP); campanha só registrada (registro vazio) e com finalidade igual; idade e saúde não entram nem como chave nem como valor.
 - E-SF-23: canal recusa `protocol_email_channel_unqualified`; transporte escuro; destinatário só referência opaca; aceite ≠ entrega; evento não assinado só pista; prazo de guarda "proposto, sem base".
 - Observação de ROOT sobre a visão da jornada do console: registrada acima como pedido de linha; não entra na fila sem CD.
+
+## 2026-11-17 ~23:05Z — E-SF-22r pronta em ramo; E-SF-16 aguardando E-SF-07
+
+- E-SF-22r (`sf-w2/mzo-ca/esf22r`, parte do ramo das classes fechadas): gatilho só por cobertura ativa da fonte (tipado; caixa/espaço não passam); uma intenção por beneficiário e contrato, selada (forjada é recusada no convite, no registro e no pedido de envio); documentos "entregue" só de "disponível" com recibo; convite com texto único, sem pergunta nem saúde, público = todos; aceite sem consentimento específico não processa nada; envio só pelo despachante (registro publicado recusa `PURPOSE_NOT_RATIFIED`). Revisão independente FAIL (4 achados) → reparo literal → PASS.
+- Ponte para o processo de programas de cuidado (SP-OP-PROGRAMA-001, BPMN e contrato): caminho da W2-MZO-GP, não tocado; GAP. `canal_ref` do pedido de boas-vindas fixo como "não resolvido": quem ligar o envio resolve o canal real.
+- E-SF-16/16r: E-SF-07 ainda não mesclado (nenhum PR dele na main); linha não iniciada, motivo: dependência.
