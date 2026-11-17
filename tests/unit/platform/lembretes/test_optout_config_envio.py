@@ -14,6 +14,7 @@ from maezo.platform.lembretes.composicao import ComposicaoDoLembreteError, confi
 from maezo.platform.lembretes.config import LembreteSettings, conversas_da_lista, telefones_da_lista
 from maezo.platform.lembretes.optout import e_pedido_de_parar, tratar_parar
 from tests.support.lembrete_fakes import AGORA, CONV_A, CONV_B, FakeStore
+from tests.unit.esf13_apoio import aceite_os05_sintetico, gate_ratificado
 
 
 # ----------------------------------------------------------------------------- PARAR
@@ -126,16 +127,38 @@ def _httpx_mock() -> Any:
     return client
 
 
+async def _autorizacao(parametros: tuple[str, ...]) -> Any:
+    """Autorizacao de um gate SINTETICO ratificado (E-SF-13): sem ela `send_template` recusa."""
+    from maezo.gateway.communications.outbound_gate import PedidoDeEnvio
+
+    decisao = await gate_ratificado().avaliar(
+        PedidoDeEnvio(
+            template_id="lembrete_mensalidade_v1",
+            finalidade="cobranca_lembrete_pre_vencimento",
+            tipo_titular="beneficiario",
+            titular_ref="ref-x",
+            canal_ref="canal-x",
+            variaveis=parametros,
+            permissao=aceite_os05_sintetico(),
+            chave_idempotencia="k",
+        )
+    )
+    assert decisao.autorizacao is not None
+    return decisao.autorizacao
+
+
 async def test_send_template_monta_o_payload_da_meta() -> None:
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
+    from tests.support.dedup_fakes import FakeDedupRegistry
 
     server = WhatsAppServer(
-        settings=WhatsAppSettings(whatsapp_token="t", whatsapp_verify_token="v", phone_number_id="123")
+        settings=WhatsAppSettings(whatsapp_token="t", whatsapp_verify_token="v", phone_number_id="123"),
+        dedup=FakeDedupRegistry(),  # E-SF-13 F4: send_template sempre usa a chave da autorizacao
     )
     client = _httpx_mock()
     with patch("httpx.AsyncClient", return_value=client):
         await server.send_template(
-            "5511999999999", "lembrete_mensalidade_v1", ["outubro de 2026", "320,25", "16/10"]
+            "5511999999999", await _autorizacao(("outubro de 2026", "320,25", "16/10"))
         )
     payload = client.post.call_args[1]["json"]
     assert payload == {
@@ -159,17 +182,25 @@ async def test_send_template_monta_o_payload_da_meta() -> None:
     }
 
 
-async def test_send_template_recusa_nome_vazio_e_faixa_sintetica() -> None:
+async def test_send_template_recusa_autorizacao_alterada_e_faixa_sintetica() -> None:
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer, WhatsAppSettings
 
     server = WhatsAppServer(
         settings=WhatsAppSettings(whatsapp_token="t", whatsapp_verify_token="v", phone_number_id="123")
     )
-    with pytest.raises(ValueError, match="template name"):
-        await server.send_template("5511999999999", " ", ["a"])
+    from dataclasses import replace
+
+    from maezo.gateway.communications.outbound_gate import EnvioProativoRecusadoError
+
+    aut = await _autorizacao(("a", "b", "c"))
+    client = _httpx_mock()
+    with patch("httpx.AsyncClient", return_value=client), pytest.raises(EnvioProativoRecusadoError):
+        # autorizacao valida ALTERADA (outro nome) perde o selo: recusa antes de qualquer POST
+        await server.send_template("5511999999999", replace(aut, template_name=" "))
+    client.post.assert_not_awaited()
     client = _httpx_mock()
     with patch("httpx.AsyncClient", return_value=client):
-        ack = await server.send_template("5511900000123", "t", ["a"])
+        ack = await server.send_template("5511900000123", aut)
     assert ack == {"suppressed_synthetic": True}
     client.post.assert_not_awaited()
 
