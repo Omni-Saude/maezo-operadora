@@ -18,8 +18,11 @@ Erros: `BoasVindasRecusada.code` fixo; a mensagem nunca ecoa o valor recebido.
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
+import secrets
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import date
 from typing import Any, Final, Literal
 
@@ -60,16 +63,47 @@ class IntencaoDeBoasVindas:
     contrato_ref: str
     vigencia_inicio: date
     chave_idempotencia: str
+    _selo: str = field(repr=False, compare=False)
+
+
+#: Chave do selo, so' deste processo: so' `avaliar_gatilho` produz intencao com selo valido.
+_CHAVE_DO_SELO: Final[bytes] = secrets.token_bytes(32)
+
+
+def _selar(b: str, c: str, v: date) -> str:
+    return hmac.new(_CHAVE_DO_SELO, json.dumps([b, c, v.isoformat()]).encode(), hashlib.sha256).hexdigest()
+
+
+def _selo_valido(intencao: object) -> bool:
+    return (
+        type(intencao) is IntencaoDeBoasVindas
+        and type(intencao._selo) is str
+        and type(intencao.vigencia_inicio) is date
+        and hmac.compare_digest(
+            intencao._selo, _selar(intencao.beneficiario_ref, intencao.contrato_ref, intencao.vigencia_inicio)
+        )
+    )
+
+
+def _exigir_selo(intencao: object) -> None:
+    if not _selo_valido(intencao):
+        raise BoasVindasRecusada("sem_cobertura_ativa")
 
 
 def chave_de(beneficiario_ref: str, contrato_ref: str) -> str:
-    return hashlib.sha256(f"{beneficiario_ref}|{contrato_ref}".encode()).hexdigest()
+    return hashlib.sha256(json.dumps([beneficiario_ref, contrato_ref]).encode()).hexdigest()
 
 
 def avaliar_gatilho(fato: FatoDeCobertura) -> IntencaoDeBoasVindas | None:
     """So' a cobertura ativa da fonte gera intencao; `unknown`/`revoked`/ausente nao geram nada."""
-    if fato.origem != ORIGEM_FONTE_COBERTURA:
+    if type(fato) is not FatoDeCobertura:
+        raise BoasVindasRecusada("tipo_invalido")
+    if type(fato.origem) is not str or fato.origem != ORIGEM_FONTE_COBERTURA:
         raise BoasVindasRecusada("gatilho_fora_da_fonte_de_cobertura")
+    if (fato.coverage_state is not None and type(fato.coverage_state) is not str) or (
+        fato.vigencia_inicio is not None and type(fato.vigencia_inicio) is not date
+    ):
+        raise BoasVindasRecusada("tipo_invalido")
     if not _ref_valida(fato.beneficiario_ref) or not _ref_valida(fato.contrato_ref):
         raise BoasVindasRecusada("ref_invalida")
     if fato.coverage_state != "active" or fato.vigencia_inicio is None:
@@ -79,6 +113,7 @@ def avaliar_gatilho(fato: FatoDeCobertura) -> IntencaoDeBoasVindas | None:
         contrato_ref=fato.contrato_ref,
         vigencia_inicio=fato.vigencia_inicio,
         chave_idempotencia=chave_de(fato.beneficiario_ref, fato.contrato_ref),
+        _selo=_selar(fato.beneficiario_ref, fato.contrato_ref, fato.vigencia_inicio),
     )
 
 
@@ -89,6 +124,7 @@ class RegistroDeIntencoes:
         self._por_chave: dict[str, IntencaoDeBoasVindas] = {}
 
     def registrar(self, intencao: IntencaoDeBoasVindas) -> IntencaoDeBoasVindas:
+        _exigir_selo(intencao)
         return self._por_chave.setdefault(intencao.chave_idempotencia, intencao)
 
     def __len__(self) -> int:
@@ -125,6 +161,7 @@ def fato_de_mapeamento(dados: Mapping[str, Any]) -> FatoDeCobertura:
 # --------------------------------------------------------------------------- 2. envio fechado
 def pedido_de_boas_vindas(intencao: IntencaoDeBoasVindas) -> PedidoDeEnvio:
     """Pedido do despachante unico; sem variaveis (o modelo nao tem corpo); sem permissao resolvida."""
+    _exigir_selo(intencao)
     return PedidoDeEnvio(
         template_id=TEMPLATE_BOAS_VINDAS,
         finalidade=FINALIDADE_BOAS_VINDAS,
@@ -151,6 +188,8 @@ DOCUMENTOS_DO_INDIVIDUAL: Final[tuple[str, ...]] = ("contrato", "condicoes_gerai
 
 def marcar_entregue(doc: EstadoDoDocumento, *, recibo_ref: str | None) -> EstadoDoDocumento:
     """`entregue` so' com recibo valido; sem recibo nunca se declara entregue."""
+    if doc != "disponivel":
+        raise BoasVindasRecusada("documento_nao_disponivel")
     if not _ref_valida(recibo_ref):
         raise BoasVindasRecusada("entrega_sem_recibo")
     return "entregue"
@@ -159,8 +198,10 @@ def marcar_entregue(doc: EstadoDoDocumento, *, recibo_ref: str | None) -> Estado
 def documentos_exigidos(tipo_plano: TipoDePlano) -> tuple[str, ...]:
     if tipo_plano in ("individual", "familiar"):
         return DOCUMENTOS_DO_INDIVIDUAL
-    # GAP: os documentos exigidos dos planos coletivos nao estao decididos; so' o material explicativo.
-    return ("material_explicativo",)
+    if tipo_plano in ("coletivo_empresarial", "coletivo_adesao"):
+        # GAP: os documentos exigidos dos planos coletivos nao estao decididos; so' o material explicativo.
+        return ("material_explicativo",)
+    raise BoasVindasRecusada("tipo_plano_invalido")
 
 
 # --------------------------------------------------------------------------- 4. convite
@@ -173,8 +214,7 @@ TEXTO_CONVITE: Final[str] = (
 
 def convite_ao_programa(intencao: IntencaoDeBoasVindas) -> str:
     """Existe so' a partir de uma intencao (cobertura ativa); sem parametro de selecao; texto unico."""
-    if not isinstance(intencao, IntencaoDeBoasVindas):
-        raise BoasVindasRecusada("sem_cobertura_ativa")
+    _exigir_selo(intencao)
     return TEXTO_CONVITE
 
 

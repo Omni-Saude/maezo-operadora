@@ -5,8 +5,9 @@ from __future__ import annotations
 import ast
 import asyncio
 import inspect
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ from maezo.gateway.capabilities.journeys.boas_vindas import (
     TEXTO_CONVITE,
     BoasVindasRecusada,
     FatoDeCobertura,
+    IntencaoDeBoasVindas,
     RegistroDeIntencoes,
     avaliar_gatilho,
     convite_ao_programa,
@@ -180,3 +182,59 @@ def test_cerca_do_dado_do_programa_sem_importar_reajuste_rescisao_retencao() -> 
     for m in mods:
         for vedado in ("reajuste", "rescisao", "legitimidade", "retencao"):
             assert vedado not in m
+
+
+def test_active_exige_caixa_exata() -> None:
+    for estado in ("Active", " active", "ACTIVE", "active "):
+        assert avaliar_gatilho(_fato(coverage_state=estado)) is None
+
+
+def test_tipos_invalidos_recusam() -> None:
+    for vig in ("2026-03-01", datetime(2026, 3, 1)):
+        with pytest.raises(BoasVindasRecusada) as e:
+            avaliar_gatilho(_fato(vigencia_inicio=vig))
+        assert e.value.code == "tipo_invalido"
+    falso = SimpleNamespace(
+        beneficiario_ref="b1",
+        contrato_ref="c1",
+        coverage_state="active",
+        vigencia_inicio=VIG,
+        origem="fonte_cobertura",
+    )
+    with pytest.raises(BoasVindasRecusada) as e:
+        avaliar_gatilho(falso)  # type: ignore[arg-type]
+    assert e.value.code == "tipo_invalido"
+
+
+def test_chave_sem_colisao_de_separador() -> None:
+    reg = RegistroDeIntencoes()
+    reg.registrar(avaliar_gatilho(_fato(beneficiario_ref="a|b", contrato_ref="c")))  # type: ignore[arg-type]
+    reg.registrar(avaliar_gatilho(_fato(beneficiario_ref="a", contrato_ref="b|c")))  # type: ignore[arg-type]
+    assert len(reg) == 2
+
+
+def test_tipo_de_plano_invalido() -> None:
+    for t in ("Individual", "xyz"):
+        with pytest.raises(BoasVindasRecusada) as e:
+            documentos_exigidos(t)  # type: ignore[arg-type]
+        assert e.value.code == "tipo_plano_invalido"
+
+
+def test_intencao_forjada_recusada() -> None:
+    forjada = IntencaoDeBoasVindas("b1", "c1", VIG, bv.chave_de("b1", "c1"), "selo-qualquer")
+    with pytest.raises(BoasVindasRecusada) as e:
+        convite_ao_programa(forjada)
+    assert e.value.code == "sem_cobertura_ativa"
+    with pytest.raises(BoasVindasRecusada) as e:
+        RegistroDeIntencoes().registrar(forjada)
+    assert e.value.code == "sem_cobertura_ativa"
+    gate = OutboundGate(registro_de_producao(), supressao=SupressaoFixa(frozenset()))
+    with pytest.raises(BoasVindasRecusada) as e:
+        asyncio.run(enviar_boas_vindas(forjada, gate=gate))
+    assert e.value.code == "sem_cobertura_ativa"
+
+
+def test_pendente_com_recibo_nao_vira_entregue() -> None:
+    with pytest.raises(BoasVindasRecusada) as e:
+        marcar_entregue("pendente", recibo_ref="rec-1")
+    assert e.value.code == "documento_nao_disponivel"
