@@ -41,6 +41,7 @@ from maezo.gateway.commercial_support_admission import (
     A5_ADMITTED_COMMANDS,
     SupportHandoffAdmission,
 )
+from maezo.platform.lifecycle.legal_bases_matrix import RetentionMatrixUnavailableError, qualify_lead_intake
 from maezo.ports.commercial import (
     CommercialCodec,
     CommercialCommand,
@@ -68,6 +69,17 @@ from maezo.ports.commercial import (
 # - disclosure leg: source-qualified `plan_choices` (catalog/version/product selectors) in
 #   a `journey.get` result never cross the disclosure boundary (`CatalogGatedCodec`).
 A1_CATALOG_DERIVED_COMMANDS: Final = frozenset({"offer.quote"})
+
+# The REAL lead intake commands (E-SF-10; TB-25 (i): "`prospect.save`, `contact.request`,
+# `journey.save` com dado pessoal"). C6-4 :445 puts the lifecycle gate before any REAL form;
+# the lifecycle gate is `qualify_lead_intake` (ratified matrix + lead categories +
+# source-resolved `retention_class`). Unqualified, each refuses `unavailable/lifecycle_unqualified`
+# (C6-4 refusal vocabulary) at the first phase that knows the command, before any source
+# step — on every composition, with or without A1/A3/A5. The command name rides inside the
+# C6-4 body, so the gate cannot key it before the structural parse; no intake value leaves
+# the codec before it. EP-REG-04b suggested purpose_denied/SOURCE_UNAVAILABLE;
+# lifecycle_unqualified is used because TB-25 (i) anchors the gate on C6-4 :445 lifecycle.
+LEAD_INTAKE_COMMANDS: Final = frozenset({"prospect.save", "contact.request", "journey.save"})
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -146,6 +158,11 @@ class AuthenticatedSalesAdmission(SalesAdmission):
         phase: Literal["before_body", "before_source", "before_effect", "before_disclosure"],
         command: CommercialCommand | None = None,
     ) -> CommercialScope:
+        if command is not None and command.command in LEAD_INTAKE_COMMANDS:
+            try:
+                qualify_lead_intake()
+            except RetentionMatrixUnavailableError as exc:
+                raise CommercialRefusalError("unavailable", "lifecycle_unqualified") from exc
         return await self._authority.current(scope, phase=phase, command=command)
 
 
@@ -584,9 +601,13 @@ def compose_commercial_gateway(
     a bound session refuses those commands before any source step and the codec keeps the
     case-projection arms gated — `refused` renderings and every other dimension are
     unchanged. Each closed dimension is independent: no admission re-grids another's
-    surface. Schema bytes are exact source-owned candidate bytes; a hash never
-    establishes live publication. No process-global mutation or environment activation
-    exists.
+    surface. The REAL lead intake (`LEAD_INTAKE_COMMANDS`) is gated by lifecycle, not by an
+    admission record: every session refuses it `unavailable/lifecycle_unqualified` before any
+    source step until `qualify_lead_intake` qualifies (E-SF-10; never true on the C6-4 wire,
+    which carries no source-resolved `retention_class`). Schema bytes are exact source-owned
+    candidate bytes; a hash never establishes live publication. No process-global mutation
+    or environment activation exists: the lifecycle gate's matrix path is read to refuse,
+    and on this wire it can never open the intake.
     """
     wire = CommercialWire(
         schema_bytes,

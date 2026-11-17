@@ -14,20 +14,31 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from maezo.platform.lifecycle.legal_bases_matrix import (
+    CANDIDATE_ONLY_CATEGORIES,
+    LEAD_CATEGORIES,
     MATRIX_PATH_ENV,
+    REASON_CATEGORY_UNRATIFIED,
     REASON_EMPTY,
     REASON_FILE_NOT_FOUND,
     REASON_INVALID_ENCODING,
     REASON_INVALID_SCHEMA,
     REASON_INVALID_YAML,
+    REASON_LEAD_CATEGORIES_MISSING,
     REASON_PATH_NOT_SET,
+    REASON_RETENTION_CLASS_UNRESOLVED,
     REASON_UNRATIFIED_TEMPLATE,
+    REASON_USE_REFUSED,
+    REFUSED_CATEGORY_USES,
     RetentionMatrix,
     RetentionMatrixEntry,
     RetentionMatrixUnavailableError,
+    admit_category_use,
+    load_commercial_matrix,
     load_retention_matrix,
+    qualify_lead_intake,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/unit/platform -> repo root
@@ -323,3 +334,118 @@ def test_retention_matrix_entry_is_frozen() -> None:
     entry = RetentionMatrixEntry(categoria="a", base_legal="b", retencao="c", acao="d")
     with pytest.raises(AttributeError):
         entry.categoria = "changed"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# E-SF-10 — commercial profile (TB-E-25-a, EP-REG-04b, ADDENDUM-01 §6/§7 (e))
+# ---------------------------------------------------------------------------
+# Synthetic `SYN-*` values only: the tests prove the gate's SHAPE; no period, basis or action
+# is proposed by them, and no repo file is ever made loadable.
+
+
+def _commercial_yaml(categorias: tuple[str, ...]) -> str:
+    rows = "".join(
+        f'  - categoria: "{categoria}"\n'
+        '    base_legal: "SYN-BASE"\n'
+        '    retencao: "SYN-RETENCAO"\n'
+        '    acao: "SYN-ACAO"\n'
+        for categoria in categorias
+    )
+    return f"categorias:\n{rows}"
+
+
+def _write_matrix(tmp_path: Path, categorias: tuple[str, ...]) -> Path:
+    path = tmp_path / "commercial.yaml"
+    path.write_text(_commercial_yaml(categorias), encoding="utf-8")
+    return path
+
+
+def test_template_lists_the_six_lead_categories_as_placeholders() -> None:
+    """TB-E-25-a (1): the template carries (a)-(f) as placeholders and stays unratified."""
+    data = yaml.safe_load(_TEMPLATE_PATH.read_text(encoding="utf-8"))
+    assert data["unratified"] is True
+    rows = {row["categoria"]: row for row in data["categorias"]}
+    assert len(LEAD_CATEGORIES) == 6
+    for categoria in LEAD_CATEGORIES:
+        row = rows.get(f"PLACEHOLDER-CATEGORIA-{categoria}")
+        assert row is not None, f"template lacks the lead placeholder {categoria!r}"
+        assert all(row[field].startswith("PLACEHOLDER-") for field in ("base_legal", "retencao", "acao"))
+    # The addendum candidates are dossier rows, never template rows (nothing about them is ratifiable yet).
+    assert not any(categoria in key for key in rows for categoria in CANDIDATE_ONLY_CATEGORIES)
+
+
+def test_intake_refused_without_ratified_retention_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TB-E-25-a (3), lifecycle side: env pointed at the template -> `unratified_template`."""
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(_TEMPLATE_PATH))
+    with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+        qualify_lead_intake(source_retention_classes={c: c for c in LEAD_CATEGORIES})
+    assert excinfo.value.reason == REASON_UNRATIFIED_TEMPLATE
+    monkeypatch.delenv(MATRIX_PATH_ENV)
+    with pytest.raises(RetentionMatrixUnavailableError) as absent:
+        qualify_lead_intake(source_retention_classes={c: c for c in LEAD_CATEGORIES})
+    assert absent.value.reason == REASON_PATH_NOT_SET
+
+
+@pytest.mark.parametrize("dropped", LEAD_CATEGORIES)
+def test_matrix_without_lead_categories_refused_for_commercial_profile(tmp_path: Path, dropped: str) -> None:
+    """TB-E-25-a (2): a ratified-shaped matrix without a lead row is `lead_categories_missing`."""
+    platform_only = _write_matrix(tmp_path, ("cadastrais_contratuais",))
+    assert len(load_retention_matrix(platform_only)) == 1  # the platform profile still loads it
+    with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+        load_commercial_matrix(platform_only)
+    assert excinfo.value.reason == REASON_LEAD_CATEGORIES_MISSING
+
+    partial = _write_matrix(tmp_path, tuple(c for c in LEAD_CATEGORIES if c != dropped))
+    with pytest.raises(RetentionMatrixUnavailableError) as missing:
+        load_commercial_matrix(partial)
+    assert missing.value.reason == REASON_LEAD_CATEGORIES_MISSING
+    assert dropped in missing.value.detail
+
+
+def test_commercial_intake_without_retention_class_refused(tmp_path: Path) -> None:
+    """EP-REG-04b: no source-resolved `retention_class` for a lead category -> refusal, no default."""
+    path = _write_matrix(tmp_path, LEAD_CATEGORIES)
+    complete = {categoria: categoria for categoria in LEAD_CATEGORIES}
+    resolved = qualify_lead_intake(path, source_retention_classes=complete)  # control: the gate can qualify
+    assert set(resolved) == set(LEAD_CATEGORIES)
+    for violation in (
+        None,  # the C6-4 wire: the source declares no class at all
+        {},
+        {k: v for k, v in complete.items() if k != "lead_intake"},
+        complete | {"lead_intake": "SYN-CLASS-NOT-IN-MATRIX"},
+        complete | {"supressao_lead": ""},
+    ):
+        with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+            qualify_lead_intake(path, source_retention_classes=violation)
+        assert excinfo.value.reason == REASON_RETENTION_CLASS_UNRESOLVED
+
+
+@pytest.mark.parametrize(
+    ("categoria", "uso"),
+    sorted((categoria, uso) for categoria, usos in REFUSED_CATEGORY_USES.items() for uso in usos),
+)
+def test_ex_beneficiary_closed_uses_refused_even_with_a_ratified_row(
+    tmp_path: Path, categoria: str, uso: str
+) -> None:
+    """ADDENDUM-01 §7 (e) / RT-07 B / RT-D1: no proactive reactivation of an ex-beneficiary, the
+    admission consent is not a marketing basis after cancellation, and the cancellation reason is
+    never linked to the subject -- refused even when a ratified row for the category exists."""
+    matrix = load_retention_matrix(_write_matrix(tmp_path, (categoria,)))
+    with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+        admit_category_use(matrix, categoria, uso)
+    assert excinfo.value.reason == REASON_USE_REFUSED
+    assert {"reativacao_proativa", "marketing_consentimento_admissao"} <= REFUSED_CATEGORY_USES[
+        "ex_beneficiario"
+    ]
+    assert "vinculo_ao_titular" in REFUSED_CATEGORY_USES["motivo_cancelamento"]
+
+
+@pytest.mark.parametrize("categoria", CANDIDATE_ONLY_CATEGORIES + LEAD_CATEGORIES)
+def test_candidate_rows_are_not_usable_without_a_ratified_matrix(tmp_path: Path, categoria: str) -> None:
+    """The consumer refuses un-ratified rows: no matrix, or a matrix without the row."""
+    for matrix in (None, load_retention_matrix(_write_matrix(tmp_path, ("cadastrais_contratuais",)))):
+        with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+            admit_category_use(matrix, categoria, "SYN-USO")
+        assert excinfo.value.reason == REASON_CATEGORY_UNRATIFIED
+    ratified = load_retention_matrix(_write_matrix(tmp_path, (categoria,)))
+    assert admit_category_use(ratified, categoria, "SYN-USO").categoria == categoria
