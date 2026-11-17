@@ -125,10 +125,11 @@ CategoriaProcedimento = Literal[
 #: gerados pelo mesmo turno, discordando entre si.
 #:
 #: O valor escolhido e' VAZIO, e nao `"consulta"`. Assumir consulta e' afirmar uma categoria
-#: que ninguem informou, e a categoria decide o prazo legal; vazio cai na linha fail-safe da
-#: tabela de SLA ("prazo conservador na ausencia de classificacao"), que e' o que a ausencia
-#: merece. A rota de ingresso ja' RECUSA o campo vazio desde 25/08, entao este default so' e'
-#: alcancavel pela delegacao A2A — e la' tambem e' melhor cair no conservador.
+#: que ninguem informou, e a categoria decide o prazo legal. Na `auth_sla` (v0.2.0), categoria
+#: vazia com carater `eletivo` cai na r3 (prazo eletivo padrao) e com `urgencia` na r1; a r4
+#: (fail-safe, prazo da urgencia) e' so' para carater nulo ou desconhecido (DL-0171). A rota de
+#: ingresso ja' RECUSA o campo vazio desde 25/08, entao este default so' e' alcancavel pela
+#: delegacao A2A.
 CATEGORIA_PROCEDIMENTO_AUSENTE: Final[str] = ""
 
 #: `carater_atendimento` e' OBRIGATORIO para o Rafael — sem default, em nenhum caminho, e so'
