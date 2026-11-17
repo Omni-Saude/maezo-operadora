@@ -1,8 +1,9 @@
 """Portao de campanha (E-SF-15 / C9), variante FECHADA: nenhuma campanha ligada, lista manual, sem saude.
 
-O portao recusa por padrao. Ordem: `admitir` (parada, aprovacao humana, criterios de segmentacao) e SO'
-ENTAO o `OutboundGate.avaliar` existente (finalidade ratificada, modelo aprovado, permissao de contato por
-finalidade, supressao). Nao existe atalho para pular o gate: o portao so' acrescenta recusas, nunca autoriza.
+O portao recusa por padrao. Ordem: `admitir` (registrada, parada, aprovacao humana, criterios de
+segmentacao), depois finalidade do pedido igual a da campanha e SO' ENTAO o `OutboundGate.avaliar` existente
+(finalidade ratificada, modelo aprovado, permissao de contato por finalidade, supressao).
+Nao existe atalho para pular o gate: o portao so' acrescenta recusas, nunca autoriza.
 
 A cerca da segmentacao e' a lista POSITIVA `CRITERIOS_PERMITIDOS` (decisao E12); `CRITERIOS_PROIBIDOS`
 existe so' para teste e mensagem, nao e' a cerca.
@@ -14,11 +15,13 @@ nesta onda e `REGISTRO_DE_CAMPANHAS` e' vazio.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
+
+from maezo.platform.calendario.feriados_br import UFS
 
 from .outbound_gate import Decisao, OutboundGate, PedidoDeEnvio
 from .whatsapp_templates import contem_dado_de_saude
@@ -50,10 +53,24 @@ CRITERIOS_PROIBIDOS: Final[tuple[str, ...]] = (
     "interesse_inferido_saude",
 )
 
-_RE_VALOR_TEXTO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_\-]{1,32}", re.ASCII)
+#: Valores admitidos por criterio (conjuntos FECHADOS; idade e saude nao entram pelo valor).
+#: - regiao: UF (`platform.calendario.feriados_br.UFS`).
+#: - modalidade: vocabulario de tipo de plano ja usado no repositorio (`agents/lucas/cancelamento_pf.py`).
+#: - produto: VAZIO de proposito. Nao ha catalogo publicado de produtos: nenhum produto e' admitido (GAP).
+#: - etapa: `ETAPAS_PERMITIDAS`.
+VALORES_PERMITIDOS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {
+        "regiao": UFS,
+        "modalidade": frozenset({"individual", "familiar", "coletivo_empresarial", "coletivo_adesao"}),
+        "produto": frozenset(),
+        "etapa": ETAPAS_PERMITIDAS,
+    }
+)
 
 
 class MotivoCampanha(StrEnum):
+    CAMPAIGN_NOT_REGISTERED = "CAMPAIGN_NOT_REGISTERED"
+    CAMPAIGN_PURPOSE_MISMATCH = "CAMPAIGN_PURPOSE_MISMATCH"
     CAMPAIGN_STOPPED = "CAMPAIGN_STOPPED"
     CAMPAIGN_APPROVAL_MISSING = "CAMPAIGN_APPROVAL_MISSING"
     SEGMENT_CRITERION_NOT_ALLOWED = "SEGMENT_CRITERION_NOT_ALLOWED"
@@ -87,24 +104,23 @@ def _verificar_segmento(segmento: Mapping[str, object]) -> MotivoCampanha | None
         return MotivoCampanha.SEGMENT_CRITERION_NOT_ALLOWED
     if any(not isinstance(k, str) or k not in CRITERIOS_PERMITIDOS for k in segmento):
         return MotivoCampanha.SEGMENT_CRITERION_NOT_ALLOWED
-    if any(isinstance(v, str) and contem_dado_de_saude(v) for v in segmento.values()):
-        return MotivoCampanha.PHI_IN_COMMERCIAL_INPUT
     for criterio, valor in segmento.items():
         if criterio == "numero_de_pessoas":
             if isinstance(valor, bool) or not isinstance(valor, int) or valor < 1:
                 return MotivoCampanha.SEGMENT_CRITERION_NOT_ALLOWED
-        elif (
-            not isinstance(valor, str)
-            or _RE_VALOR_TEXTO.fullmatch(valor) is None
-            or (criterio == "etapa" and valor not in ETAPAS_PERMITIDAS)
-        ):
+        elif not isinstance(valor, str) or valor not in VALORES_PERMITIDOS[criterio]:
             return MotivoCampanha.SEGMENT_CRITERION_NOT_ALLOWED
+    # Defesa em profundidade (os conjuntos fechados ja' excluem saude); depois da cerca de valores.
+    if any(isinstance(v, str) and contem_dado_de_saude(v) for v in segmento.values()):
+        return MotivoCampanha.PHI_IN_COMMERCIAL_INPUT
     return None
 
 
 class PortaoDeCampanha:
     def admitir(self, campanha: Campanha) -> None:
-        """Levanta `CampanhaRecusadaError` (parada, aprovacao, criterios, nesta ordem) ou volta sem nada."""
+        """Levanta `CampanhaRecusadaError` (registro, parada, aprovacao, criterios, nesta ordem) ou volta."""
+        if campanha not in REGISTRO_DE_CAMPANHAS:
+            raise CampanhaRecusadaError(MotivoCampanha.CAMPAIGN_NOT_REGISTERED)
         if campanha.parada:
             raise CampanhaRecusadaError(MotivoCampanha.CAMPAIGN_STOPPED)
         if not campanha.aprovacao_humana_ref:
@@ -118,4 +134,6 @@ class PortaoDeCampanha:
     ) -> Decisao:
         """`admitir` PRIMEIRO; so' entao a decisao do gate (que continua mandando)."""
         self.admitir(campanha)
+        if pedido.finalidade != campanha.finalidade:
+            raise CampanhaRecusadaError(MotivoCampanha.CAMPAIGN_PURPOSE_MISMATCH)
         return await gate.avaliar(pedido)
