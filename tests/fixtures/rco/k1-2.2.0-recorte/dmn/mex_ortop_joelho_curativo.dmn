@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mex_ortop_joelho_curativo" name="Pares de procedimentos mutuamente exclusivos na artroplastia de joelho e no desbridamento (OMNI-ORTOP-MEX-0002 e 0007)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_mex_ortop_joelho_curativo" name="Pares de procedimentos mutuamente exclusivos na artroplastia de joelho e no desbridamento (OMNI-ORTOP-MEX-0002 e 0007)" camunda:historyTimeToLive="P180D">
+    <description>Avalia cada par (principal × secundário) da mesma guia para os principais de OMNI-ORTOP-MEX-0002 (artroplastia de joelho) e 0007 (desbridamento e curativo). A TISS não tem lateralidade: a via de acesso diferente (Tab. 61, valor 3) vai à auditoria médica. Par na mesma data de execução (codigoSecundario preenchido; o worker só forma o par entre linhas da mesma data): só o par por construção (descritor TUSS do principal inclui o secundário) é glosado, na mesma via; o par só interpretativo fica pendente na fila faturamento (PROG-COB-ORT-01 a 07). Par só em outra data (codigoSecundarioOutraData): até 2026-12-15 libera, como antes; a partir de 2026-12-16 (restrição, PROG-COB-ORT-07) vai à fila faturamento com o item pendente; data de execução ausente em linha de par (dataExecucaoInformada = false): a partir de 2026-12-16 pede o documento, nunca glosa. A antiga tabela única mex_ortop foi dividida em três, por principal, para caber no orçamento do motor (dmn/ortopedia-opme/mex_ortop.dmn, mex_ortop_joelho_curativo.dmn e mex_ortop_mesma_data.dmn). Combinação no worker (PROG-COB-ORT-08): o worker avalia as três decisões dos pares ORTOP (mex_ortop, mex_ortop_joelho_curativo e mex_ortop_mesma_data) para cada par, com as mesmas entradas (cada tabela lê só as colunas que declara). Vale o resultado de mex_ortop_joelho_curativo ou de mex_ortop_mesma_data que tiver idRegra preenchido (no máximo um tem, porque cada codigoPrincipal com par é decidido por uma só tabela); se nenhum dos dois tem idRegra, vale o resultado de mex_ortop. As linhas de idRegra vazio dessas duas tabelas (principal decidido em outra tabela ou sem par ORTOP, data anterior a 2026-11-03 e data ausente) não são resultado: mex_ortop decide esses casos (r085, r086 e r087). A divisão não muda nenhuma saída da tabela única anterior.</description>
+    <decisionTable id="dt_mex_ortop_joelho_curativo" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento de maior porte da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_viaAcessoSecundario" label="viaAcessoSecundario ← TISS viaAcesso da linha secundária (Tab. 61: 1 única, 2 mesma via, 3 diferentes vias)">
+        <inputExpression id="ie_3_viaAcessoSecundario" typeRef="string"><text>viaAcessoSecundario</text></inputExpression>
+      </input>
+      <input id="in_4_codigoSecundarioOutraData" label="codigoSecundarioOutraData ← TISS codigoProcedimento de outra linha da mesma guia com dataExecucao DIFERENTE da linha avaliada e que forma par com o codigoPrincipal (derivado); nulo se não houver">
+        <inputExpression id="ie_4_codigoSecundarioOutraData" typeRef="string"><text>codigoSecundarioOutraData</text></inputExpression>
+      </input>
+      <input id="in_5_dataExecucaoInformada" label="dataExecucaoInformada ← TISS dataExecucao das linhas da guia que formam par com o codigoPrincipal (derivado): false se alguma não tem data; nulo se a guia não foi extraída">
+        <inputExpression id="ie_5_dataExecucaoInformada" typeRef="boolean"><text>dataExecucaoInformada</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="x3_i1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: par só interpretativo: mesma data e via diferente (pode ser outro lado; a TISS não tem lateralidade), auditoria médica</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>"30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x3_i2">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: par só interpretativo: mesma data e sem via diferente declarada, secundário pendente na fila faturamento (sem glosa automática)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>"30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x3_l1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: secundário sem restrição de par (antes de 2026-12-16 o par em outra data é liberado, como antes)</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>not("30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x3_l2">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: secundário sem restrição de par, sem par em outra data e com a data de execução informada (a partir de 2026-12-16)</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>not("30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x3_o1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: par com outra data de execução na mesma guia, a partir de 2026-12-16 (restrição): a data é declarada pelo prestador e separar os atos não libera o par; secundário pendente na fila faturamento</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>not("30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x3_n1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726034: data de execução ausente em linha que forma par, a partir de 2026-12-16: pede o documento e nunca glosa</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726034"</text></inputEntry>
+        <inputEntry><text>not("30726042","30726220","30727162","30725151","30731062","30733014","30733022","30733030","30733057","30710065","30726204","30726280")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_i1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: par só interpretativo: mesma data e via diferente (pode ser outro lado; a TISS não tem lateralidade), auditoria médica</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>"30726034","30710065","30726042","30726220"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_i2">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: par só interpretativo: mesma data e sem via diferente declarada, secundário pendente na fila faturamento (sem glosa automática)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>"30726034","30710065","30726042","30726220"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_l1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: secundário sem restrição de par (antes de 2026-12-16 o par em outra data é liberado, como antes)</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>not("30726034","30710065","30726042","30726220")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_l2">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: secundário sem restrição de par, sem par em outra data e com a data de execução informada (a partir de 2026-12-16)</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>not("30726034","30710065","30726042","30726220")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30726034","30710065","30726042","30726220")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_o1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: par com outra data de execução na mesma guia, a partir de 2026-12-16 (restrição): a data é declarada pelo prestador e separar os atos não libera o par; secundário pendente na fila faturamento</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>not("30726034","30710065","30726042","30726220")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30726034","30710065","30726042","30726220"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x4_n1">
+        <description>OMNI-ORTOP-MEX-0002 — 30726255: data de execução ausente em linha que forma par, a partir de 2026-12-16: pede o documento e nunca glosa</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30726255"</text></inputEntry>
+        <inputEntry><text>not("30726034","30710065","30726042","30726220")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_i1">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: par só interpretativo: mesma data e via diferente (pode ser outro lado; a TISS não tem lateralidade), auditoria médica</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>"30101239"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_i2">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: par só interpretativo: mesma data e sem via diferente declarada, secundário pendente na fila faturamento (sem glosa automática)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>"30101239"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_l1">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: secundário sem restrição de par (antes de 2026-12-16 o par em outra data é liberado, como antes)</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>not("30101239")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_l2">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: secundário sem restrição de par, sem par em outra data e com a data de execução informada (a partir de 2026-12-16)</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>not("30101239")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30101239")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_o1">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: par com outra data de execução na mesma guia, a partir de 2026-12-16 (restrição): a data é declarada pelo prestador e separar os atos não libera o par; secundário pendente na fila faturamento</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>not("30101239")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101239"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x5_n1">
+        <description>OMNI-ORTOP-MEX-0007 — 30730031: data de execução ausente em linha que forma par, a partir de 2026-12-16: pede o documento e nunca glosa</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"30730031"</text></inputEntry>
+        <inputEntry><text>not("30101239")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="j085">
+        <description>principal sem par nesta tabela (sem par ORTOP ou decidido em mex_ortop ou mex_ortop_mesma_data): sem resultado aqui, idRegra vazio</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("30726034","30726255","30730031")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="j086">
+        <description>fora da vigência (antes de 03/11/2026): sem resultado aqui, idRegra vazio (mex_ortop decide)</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="j087">
+        <description>data de execução ausente na guia: sem resultado aqui, idRegra vazio (mex_ortop decide, regulação)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
