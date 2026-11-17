@@ -89,7 +89,8 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 - (2.3.0, DL-0183) `vocabulario.json` `ordem_restricao` que não é permutação exata de `decisao`
   (`ordem-restricao-invalida`); `sinalAuditoria` que não é lista de textos sem repetição com o vazio `""`
   (`sinal-auditoria-invalido`) ou que aparece em `saidas_obrigatorias` (`sinal-auditoria-obrigatorio`);
-  `k6-filas.json` sem `avisos` com exatamente um item por sinal não vazio, cada um com as chaves exatas
+  `k6-filas.json` sem `avisos` com exatamente um item por sinal não vazio (o bloco só pode faltar quando o
+  vocabulário não tem sinal não vazio), cada um com as chaves exatas
   `filas` (filas existentes no K6) e `prazo_parametro` (`avisos-k6-invalido`); célula de `sinalAuditoria`
   fora do vocabulário ou não literal (`sinal-auditoria-fora-do-vocabulario`); linha de decisão de grupo
   `mais_restritiva` com `decisao` fora da ordem (`composicao-decisao-fora-da-ordem`); `mais_restritiva` em
@@ -160,7 +161,8 @@ Dado versionado (`schema: maezo.dmn.vocabulario-saida`, `versao`, `estado`) lido
   `classeAdverso` (com `vazio` = `""`, o vazio canônico do pacote — contrato §6 —, ou `null`/célula
   vazia) e as regras de `classeAdverso`/`fila`; e `sinalAuditoria` (K1 2.3.0, DL-0183), o vocabulário
   fechado da saída opcional de mesmo nome (`""` = sem aviso): tabela com a coluna reprova se o valor estiver
-  fora dele ou se o arquivo de dados não o declarar.
+  fora dele ou se o arquivo de dados não o declarar. Com pacote pinado que declara `sinalAuditoria`
+  (`k1/vocabulario.json`), os dois vocabulários do sinal têm de ser o mesmo conjunto.
 
 A seção `k1` será congelada pela trilha rco (PR da unidade PROG-RCO-1 em
 `regras-contratos-operadora`). Mudar o vocabulário é mudar este arquivo, não o código. Fica aqui, e

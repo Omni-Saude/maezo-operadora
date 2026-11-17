@@ -169,12 +169,18 @@ class RcoRulesPin:
     manifesto: rco_manifesto.ManifestoK1 | None = None
     k1_dir: Path | None = None
     #: Formato 2.3.0 (DL-0183): `vocabulario.json` `ordem_restricao` (composicao `mais_restritiva`) e
-    #: `sinalAuditoria` (vocabulario fechado do sinal), e `avisos` do K6 por sinal. Vazios sem pacote ou
-    #: abaixo de 2.3.0. Quem compoe passa os dois primeiros a `rco_composicao.compor`; a notificacao as
+    #: `sinalAuditoria` (vocabulario fechado do sinal), e `avisos` do K6 por sinal. Sem pacote ou abaixo de
+    #: 2.3.0: ordem e avisos vazios e o sinal so com o vazio (`SINAIS_SO_VAZIO`). Quem compoe passa os dois
+    #: primeiros a `rco_composicao.compor`; a notificacao as
     #: filas de `avisos` e de unidade posterior.
     ordem_restricao: tuple[str, ...] = ()
-    sinais_auditoria: tuple[str, ...] = ()
+    sinais_auditoria: tuple[str, ...] = rco_manifesto.SINAIS_SO_VAZIO
     avisos: Mapping[str, rco_manifesto.AvisoK6] = field(default_factory=lambda: MappingProxyType({}))
+    #: `combinacao.adversas` e `combinacao.adversa_exige_preenchidos` de `vocabulario.json` (contrato §6):
+    #: quem compoe passa os dois a `rco_composicao.compor` (vencedora adversa incompleta -> revisao humana).
+    #: Vazios sem pacote: a composicao usa entao o piso dela.
+    adversas: frozenset[str] = frozenset()
+    adversa_exige_preenchidos: tuple[str, ...] = ()
 
     @property
     def composicoes(self) -> tuple[rco_manifesto.ComposicaoK1, ...]:
@@ -392,8 +398,10 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
         manifesto=manifesto,
         k1_dir=_k1_dir(lock_path) if manifesto is not None else None,
         ordem_restricao=vocab.ordem_restricao if vocab is not None else (),
-        sinais_auditoria=vocab.sinais_auditoria if vocab is not None else (),
+        sinais_auditoria=vocab.sinais_auditoria if vocab is not None else rco_manifesto.SINAIS_SO_VAZIO,
         avisos=avisos,
+        adversas=vocab.adversas if vocab is not None else frozenset(),
+        adversa_exige_preenchidos=vocab.adversa_exige_preenchidos if vocab is not None else (),
     )
 
 

@@ -21,6 +21,9 @@ Dois gates, um por pasta (`dmn.is_rco_dmn` separa as duas):
     e quem o executa e o worker guardado (ADR-0075 (d)). A saida OPCIONAL `sinalAuditoria` (K1 formato
     2.3.0, DL-0183), quando a tabela a declara, so aceita literal do vocabulario fechado
     `k1.sinalAuditoria` (vazio = sinal vazio); tabela com a coluna e arquivo de dados sem a lista reprova.
+    Com pacote K1 pinado (`k1/vocabulario.json` ao lado deste arquivo de dados) que declara `sinalAuditoria`,
+    os dois vocabularios do sinal tem de ser o MESMO conjunto: sinal do pacote que falta aqui, ou daqui que
+    falta no pacote, reprova (`conferir_sinais_do_pacote`).
 
 O VOCABULARIO NAO MORA AQUI. Ele e lido de `config/integrations/rco/vocabulario-saida.yaml`
 (versionado, com `schema` + `versao`), que a trilha rco congela (PROG-RCO-1). Este modulo so aplica
@@ -42,6 +45,7 @@ Leitura das celulas de saida (`<outputEntry><text>`):
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -598,6 +602,38 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
 # ---------------------------------------------------------------------------------------------
 
 
+#: `vocabulario.json` do pacote K1 pinado, relativo a pasta do arquivo de dados (`config/integrations/rco/`).
+VOCABULARIO_PACOTE_RELATIVO = Path("k1") / "vocabulario.json"
+
+
+def conferir_sinais_do_pacote(vocab: Vocabulario, vocabulario_path: Path) -> list[str]:
+    """Divergencias entre `k1.sinalAuditoria` deste arquivo de dados e `sinalAuditoria` do `vocabulario.json`
+    do pacote K1 pinado (K1 2.3.0, DL-0183). Sem pacote, ou pacote sem a chave (abaixo de 2.3.0): nada a
+    comparar. `vocabulario.json` ilegivel ou com a chave fora da forma: divergencia (fail-closed; o sha256
+    dele e conferido pelo gate do pin)."""
+    caminho = vocabulario_path.parent / VOCABULARIO_PACOTE_RELATIVO
+    if not caminho.is_file():
+        return []
+    try:
+        pacote = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return [f"{caminho.name} do pacote K1 pinado ilegivel"]
+    if not isinstance(pacote, dict) or "sinalAuditoria" not in pacote:
+        return []
+    bruto = pacote["sinalAuditoria"]
+    if not isinstance(bruto, list) or not all(isinstance(v, str) for v in bruto):
+        return [f"{caminho.name} do pacote K1 pinado: sinalAuditoria fora da forma"]
+    do_pacote = frozenset(bruto)
+    daqui = vocab.k1.sinais_auditoria if vocab.k1.sinais_auditoria is not None else frozenset({""})
+    if do_pacote == daqui:
+        return []
+    return [
+        "k1.sinalAuditoria diverge do vocabulario do sinal do pacote K1 pinado "
+        f"(so no pacote {sorted(do_pacote - daqui)}, so aqui {sorted(daqui - do_pacote)}); "
+        "atualize este arquivo de dados junto com o pin (K1 2.3.0, DL-0183)"
+    ]
+
+
 def check(dmn_files: Iterable[Path], vocabulario_path: Path, report: Report) -> None:
     """Aplica (a) as tabelas do Maezo e (b) as do K1, lendo o vocabulario de `vocabulario_path`.
 
@@ -609,6 +645,9 @@ def check(dmn_files: Iterable[Path], vocabulario_path: Path, report: Report) -> 
     except VocabularioInvalidoError as exc:
         report.error(vocabulario_path, f"vocabulario de saida invalido: {exc}")
         return
+
+    for divergencia in conferir_sinais_do_pacote(vocab, vocabulario_path):
+        report.error(vocabulario_path, f"vocabulario de saida: {divergencia}")
 
     usadas: set[Permissao] = set()
     for path in dmn_files:

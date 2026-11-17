@@ -83,10 +83,68 @@ def test_22_continua_aceito_sem_os_blocos_novos(tmp_path: Path) -> None:
     lido = _ler(tmp_path)
     assert lido.formato_manifesto == "2.2.0"
     vocab = k1.carregar_vocabulario(lido, k1_dir=tmp_path / sint.K1_DIR)
-    assert (vocab.ordem_restricao, vocab.sinais_auditoria) == ((), ())
+    # Abaixo de 2.3.0 o vocabulario do sinal e so o vazio (nunca `()`, que recusaria o vazio).
+    assert (vocab.ordem_restricao, vocab.sinais_auditoria) == ((), k1.SINAIS_SO_VAZIO)
     assert k1.carregar_avisos_k6(lido, vocab, k1_dir=tmp_path / sint.K1_DIR) == {}
     pin = _pin(tmp_path)
-    assert (pin.ordem_restricao, pin.sinais_auditoria, dict(pin.avisos)) == ((), (), {})
+    assert (pin.ordem_restricao, pin.sinais_auditoria, dict(pin.avisos)) == ((), ("",), {})
+
+
+def test_compor_com_o_vocabulario_de_um_pin_22_da_resultado_normal(tmp_path: Path) -> None:
+    # Revisao independente (MAJOR): com o pin 2.2 o vocabulario do sinal tem o vazio, entao `compor` com os
+    # dados do pin decide normalmente (antes: todo grupo ia a revisao_humana CMP12_SINAL).
+    sint.com_composicoes(tmp_path, sint.montar(tmp_path))
+    pin = _pin(tmp_path)
+    (grupo,) = pin.composicoes
+    linhas = {
+        "rco_sint_a": [
+            _l("negar", "SINT-A-0002", motivoTab38="3171", fila="cadastro", classeAdverso="administrativo")
+        ],
+        "rco_sint_b": [_l("informar", "SINT-B-0001", fila="cadastro")],
+    }
+    kw: dict[str, Any] = {
+        "ordem_restricao": pin.ordem_restricao,
+        "sinais_auditoria": pin.sinais_auditoria,
+        "adversas": pin.adversas,
+        "adversa_exige_preenchidos": pin.adversa_exige_preenchidos,
+    }
+    r = rco_composicao.compor(grupo, _Fake(linhas), {"tipoSintetico": "B"}, **kw)
+    assert (r.desfecho, r.decisao_vencedora, r.sinais) == ("escolhido", "rco_sint_a", ())
+    sem_sinal = {"rco_sint_a": [_l("liberar", "")], "rco_sint_b": [_l("informar", "SINT-B-0001")]}
+    r = rco_composicao.compor(grupo, _Fake(sem_sinal), {"tipoSintetico": "B"}, **kw)
+    assert (r.desfecho, r.decisao_vencedora, r.pelo_padrao) == ("escolhido", "rco_sint_b", True)
+    # `mais_restritiva` nao existe no 2.2 (o leitor recusa); com o vocabulario do pin 2.2 e a ordem do
+    # contrato, a regra tambem decide normalmente.
+    gm = ComposicaoK1("gm", ("rco_sint_a", "rco_sint_b"), k1.REGRA_MAIS_RESTRITIVA, "rco_sint_b")
+    r = rco_composicao.compor(gm, _Fake(linhas), {}, **{**kw, "ordem_restricao": tuple(_ORDEM)})
+    assert (r.desfecho, r.decisao_vencedora) == ("escolhido", "rco_sint_a")
+
+
+def test_vocabulario_real_22_tem_o_sinal_vazio() -> None:
+    from tests.unit.platform import rco_k1_2_2_recorte as rec22
+
+    vocab = k1.carregar_vocabulario(rec22.manifesto(), k1_dir=rec22.RECORTE)
+    assert vocab.sinais_auditoria == ("",)
+    linhas = {d: [_l("liberar", "")] for d in rec22.ORDEM}
+    r = rco_composicao.compor(rec22.composicao(), _Fake(linhas), {}, sinais_auditoria=vocab.sinais_auditoria)
+    assert (r.desfecho, r.decisao_vencedora) == ("escolhido", "rco_mex_ortop")
+
+
+def test_k6_sem_avisos_aceito_quando_nao_ha_sinal_nao_vazio(pacote_23: tuple[Path, dict[str, Any]]) -> None:
+    raiz, manifesto = pacote_23
+    linhas = copy.deepcopy(_D_OK)
+    linhas[0][5] = '""'
+    _trocar_tabela_d(raiz, manifesto, linhas)
+    sint.trocar_vocabulario(raiz, manifesto, sint.canonico(sint.vocabulario_2_3(sinalAuditoria=[""])))
+    sint.trocar_k6(raiz, manifesto, sint.canonico(sint.k6_2_3(avisos=None)))
+    assert _verificar(raiz) == []
+    pin = _pin(raiz)
+    assert (pin.sinais_auditoria, dict(pin.avisos)) == (("",), {})
+    # Com o bloco vazio tambem; e um aviso sem sinal no vocabulario continua recusado.
+    sint.trocar_k6(raiz, manifesto, sint.canonico(sint.k6_2_3(avisos={})))
+    assert _verificar(raiz) == []
+    sint.trocar_k6(raiz, manifesto, sint.canonico(sint.k6_2_3()))
+    assert any("avisos-k6-invalido" in p for p in _verificar(raiz))
 
 
 def test_23_campo_desconhecido_continua_recusado(pacote_23: tuple[Path, dict[str, Any]]) -> None:
@@ -644,3 +702,69 @@ def test_compor_com_o_pin_23(pacote_23: tuple[Path, dict[str, Any]]) -> None:
         (sint.SINAL,),
     )
     assert set(pin.avisos) == set(r.sinais)
+
+
+# --- revisao independente: vencedora adversa incompleta e sinal em linha a mais ---------------------
+
+_EXIGE = ("classeAdverso", "fila", "idRegra", "motivoTab38")
+_ADVERSAS = frozenset({"negar", "glosar", "recomendar_negativa"})
+_COMPLETA: dict[str, Any] = {"motivoTab38": "3171", "fila": "cadastro", "classeAdverso": "administrativo"}
+
+
+@pytest.mark.parametrize("faltando", ["idRegra", "motivoTab38", "fila", "classeAdverso"])
+@pytest.mark.parametrize("vazio", [None, "", "  ", '""'])
+def test_vencedora_adversa_incompleta_vai_a_revisao_nas_duas_regras(
+    contados: list[str], faltando: str, vazio: Any
+) -> None:
+    adversa = _l("negar", "R-1", **_COMPLETA)
+    adversa[faltando] = vazio
+    kw: dict[str, Any] = {"adversas": _ADVERSAS, "adversa_exige_preenchidos": _EXIGE}
+    with structlog.testing.capture_logs() as logs:
+        r = _compor(_GM2, {_M1: [adversa], _M2: [_l("liberar", "R-2")]}, **kw)
+    _revisao(r, "resultado_invalido")
+    assert [e["codigo"] for e in logs if "codigo" in e] == ["adversa_incompleta"]
+    # primeira_com_idRegra: o padrao adverso vence (nenhuma anterior com idRegra) e esta incompleto.
+    r = _compor(_GP, {_P1: [_l("liberar", "")], _PADRAO: [adversa]}, **kw)
+    _revisao(r, "resultado_invalido")
+
+
+def test_vencedora_adversa_completa_e_escolhida() -> None:
+    kw: dict[str, Any] = {"adversas": _ADVERSAS, "adversa_exige_preenchidos": _EXIGE}
+    r = _compor(_GM2, {_M1: [_l("glosar", "R-1", **_COMPLETA)], _M2: [_l("liberar", "")]}, **kw)
+    assert (r.desfecho, r.decisao_vencedora) == ("escolhido", _M1)
+    # Nao adversa sem idRegra segue valendo (o vazio canonico so e proibido em linha adversa).
+    r = _compor(_GM2, {_M1: [_l("liberar", "")], _M2: [_l("informar", "")]}, **kw)
+    assert (r.desfecho, r.decisao_vencedora) == ("escolhido", _M2)
+
+
+def test_piso_sem_o_combinacao_do_pin_exige_id_regra(contados: list[str]) -> None:
+    r = _compor(_GM2, {_M1: [_l("recomendar_negativa", "")], _M2: [_l("liberar", "R-2")]})
+    _revisao(r, "resultado_invalido")
+    r = _compor(_GM2, {_M1: [_l("recomendar_negativa", "R-1")], _M2: [_l("liberar", "R-2")]})
+    assert r.decisao_vencedora == _M1
+
+
+def test_sinal_em_linha_a_mais_nao_se_perde(contados: list[str]) -> None:
+    respostas = {_M1: [_l("liberar"), _l("revisao_humana", "R", sint.SINAL)], _M2: [_l("liberar")]}
+    with structlog.testing.capture_logs() as logs:
+        r = _compor(_GM2, respostas)
+    _revisao(r, "violacao_prova_rco")
+    assert [e["codigo"] for e in logs if "codigo" in e] == ["CMP08_UNIQUE"]
+    assert r.sinais == (sint.SINAL,)
+    # Sinal desconhecido em qualquer linha continua CMP12 (e nao entra na uniao).
+    respostas = {
+        _M1: [_l("liberar", sinal=sint.SINAL), _l("liberar", sinal="aviso_inventado")],
+        _M2: [_l("liberar")],
+    }
+    with structlog.testing.capture_logs() as logs:
+        r = _compor(_GM2, respostas)
+    _revisao(r, "violacao_prova_rco")
+    assert [e["codigo"] for e in logs if "codigo" in e] == ["CMP12_SINAL"]
+    assert r.sinais == (sint.SINAL,)
+
+
+def test_sinal_em_linha_a_mais_tambem_na_falha_do_motor(contados: list[str]) -> None:
+    fake = _Fake({_M1: [_l("liberar"), _l("liberar", sinal=sint.SINAL)]}, falha_em=_M2)
+    r = rco_composicao.compor(_GM2, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+    _revisao(r, "avaliador_falhou")
+    assert r.sinais == (sint.SINAL,)

@@ -49,7 +49,8 @@ FAIL-CLOSED (contrato §4 e §5):
 - formato 2.3.0 (DL-0183; contrato-k1.md §3, §4 item 8, §6 e §9): `vocabulario.json` traz
   `ordem_restricao`, PERMUTACAO EXATA de `decisao` (cada valor uma vez; senao `ordem-restricao-invalida`), e
   `sinalAuditoria` (vocabulario fechado da saida opcional, com o vazio `""`; `sinal-auditoria-invalido`),
-  fora de `saidas_obrigatorias`; `k6-filas.json` traz `avisos`, um item por sinal nao vazio, com as chaves
+  fora de `saidas_obrigatorias`; `k6-filas.json` traz `avisos` (pode faltar so sem sinal nao vazio), um
+  item por sinal nao vazio, com as chaves
   EXATAS `filas` e `prazo_parametro`, filas existentes no K6 (`avisos-k6-invalido`); celula de
   `sinalAuditoria` fora do vocabulario ou nao literal recusa o pin (`sinal-auditoria-fora-do-vocabulario`);
   linha de decisao de grupo `mais_restritiva` com `decisao` fora da ordem tambem
@@ -127,6 +128,8 @@ SAIDA_SINAL_AUDITORIA: Final[str] = "sinalAuditoria"
 #: Chaves EXATAS de cada item de `avisos` do K6 (K6 1.1.0, formato 2.3.0).
 CAMPOS_AVISO_K6: Final[frozenset[str]] = frozenset({"filas", "prazo_parametro"})
 _SINAL: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+#: Vocabulario do sinal abaixo de 2.3.0 (e sem pacote): so o vazio.
+SINAIS_SO_VAZIO: Final[tuple[str, ...]] = ("",)
 #: Valores de `regras[].ativacao` (MAJOR 2, contrato §7). Valor fora do conjunto reprova (fail-closed).
 ATIVACOES: Final[frozenset[str]] = frozenset({"plena", "conferida", "em_correcao"})
 #: Chaves EXATAS de `vocabulario.json` `ativacao.parametros` (MAJOR 2). Os numeros vem do pacote,
@@ -372,9 +375,11 @@ class VocabularioPacoteK1:
     adversas: frozenset[str] = frozenset()
     adversa_exige_preenchidos: tuple[str, ...] = ()
     #: Formato 2.3.0 (DL-0183): `ordem_restricao` (da mais restritiva para a menos; permutacao exata de
-    #: `decisao`) e `sinalAuditoria` (vocabulario fechado da saida opcional, com o vazio `""`). Vazios abaixo.
+    #: `decisao`; vazia abaixo de 2.3.0) e `sinalAuditoria` (vocabulario fechado da saida opcional, com o
+    #: vazio `""`). Abaixo de 2.3.0 o vocabulario do sinal e so o vazio (`SINAIS_SO_VAZIO`): tabela sem a
+    #: coluna = sinal vazio, e a composicao com esse vocabulario nao recusa o vazio.
     ordem_restricao: tuple[str, ...] = ()
-    sinais_auditoria: tuple[str, ...] = ()
+    sinais_auditoria: tuple[str, ...] = ("",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1121,7 +1126,7 @@ def _ler_vocabulario(
     if ativacao is None:
         return None
     ordem: tuple[str, ...] = ()
-    sinais: tuple[str, ...] = ()
+    sinais: tuple[str, ...] = SINAIS_SO_VAZIO
     if formato is not None and formato >= FORMATO_COM_MAIS_RESTRITIVA:
         lidos = _ler_ordem_e_sinais(vocab, saidas, problemas)
         if lidos is None:
@@ -1181,8 +1186,9 @@ def carregar_vocabulario(manifesto: ManifestoK1, *, k1_dir: Path) -> Vocabulario
 def _ler_avisos_k6(raw: bytes, sinais: tuple[str, ...], problemas: list[str]) -> dict[str, AvisoK6] | None:
     """Bloco `avisos` de `k6-filas.json` (K6 1.1.0, formato 2.3.0, DL-0183). Codigo `avisos-k6-invalido`.
 
-    Estrito: `filas` e objeto nao vazio (os nomes das filas do K6); `avisos` e objeto com EXATAMENTE um item
-    por sinal NAO vazio de `vocabulario.json` `sinalAuditoria` (sinal sem destino perderia o aviso; sinal
+    Estrito: `filas` e objeto nao vazio (os nomes das filas do K6); `avisos` pode faltar SO quando o
+    vocabulario nao tem sinal nao vazio; senao e objeto com EXATAMENTE um item por sinal NAO vazio de
+    `vocabulario.json` `sinalAuditoria` (sinal sem destino perderia o aviso; sinal
     fora do vocabulario nao tem de onde vir); cada item com as chaves EXATAS `filas` (lista nao vazia, sem
     repeticao, de filas existentes no K6) e `prazo_parametro` (texto nao vazio). Os destinos sao dado.
     """
@@ -1196,11 +1202,13 @@ def _ler_avisos_k6(raw: bytes, sinais: tuple[str, ...], problemas: list[str]) ->
     if not isinstance(filas, dict) or not filas:
         problemas.append(f"{onde}: 'filas' tem de ser objeto nao vazio (os nomes das filas do K6)")
         return None
+    esperados = {s for s in sinais if s}
+    if "avisos" not in k6 and not esperados:
+        return {}  # sem sinal nao vazio no vocabulario, o bloco pode faltar (o rco: ausente = sem avisos)
     avisos = k6.get("avisos")
     if not isinstance(avisos, dict):
         problemas.append(f"{onde}: 'avisos' tem de ser objeto sinal -> {{filas, prazo_parametro}}")
         return None
-    esperados = {s for s in sinais if s}
     if set(avisos) != esperados:
         problemas.append(
             f"{onde}: 'avisos' tem de ter exatamente um item por sinal nao vazio de sinalAuditoria "
@@ -1812,6 +1820,7 @@ __all__ = [
     "REGRAS_COMPOSICAO_2_2",
     "SAIDA_DECISAO",
     "SAIDA_SINAL_AUDITORIA",
+    "SINAIS_SO_VAZIO",
     "carregar_avisos_k6",
     "PARAMETROS_ATIVACAO",
     "ParametrosAtivacao",

@@ -12,6 +12,8 @@ publicada da unidade PROG-RCO-carencia-urgencia-aviso; `tests/fixtures/rco/k1-2.
 - o dicionario de entradas 1.4.0 passa o leitor, a formula de `urgenciaAposVinteQuatroHorasCobertura` e a
   implementada e o mapeamento do montador confere com toda decisao de `regras-gerais` e `diarias-taxas`;
 - os cenarios C047 a C051 do rco (`geral_carencia`) dao, pelo montador, a derivada que o rco declara no caso.
+  As ENTRADAS do montador (datas, horas, tipo de guia) sao TRANSCRITAS da descricao de cada caso, porque o
+  caso do rco so traz a derivada pronta; o valor ESPERADO vem do proprio caso do rco, nunca daqui.
 O `esperado` vem SEMPRE do rco; divergencia e escalada, nunca ajustada aqui. A avaliacao do grupo no motor
 real fica em `tests/integration/dmn/test_rco_k1_2_3_composicao_engine.py`.
 """
@@ -217,7 +219,8 @@ def _caso_carencia(id_caso: str) -> dict[str, Any]:
     return dict(caso.entradas)
 
 
-#: Os cenarios dos casos C047 a C051 do rco, como a descricao de cada um os da (datas, horas e tipo de guia);
+#: Os cenarios dos casos C047 a C051 do rco, TRANSCRITOS da descricao de cada um (datas, horas e tipo de guia:
+#: o caso do rco so traz a derivada pronta, nao os termos);
 #: a data do atendimento do caso e 2026-11-03. O valor ESPERADO da derivada e o do proprio caso do rco.
 _CENARIOS: dict[str, dict[str, Any]] = {
     "C047": {

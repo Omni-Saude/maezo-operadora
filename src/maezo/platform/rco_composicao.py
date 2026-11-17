@@ -28,7 +28,8 @@ de trazer EXATAMENTE uma linha com `decisao` dentro da ordem; senao o grupo inte
 
 SINAL (`sinalAuditoria`, formato 2.3.0): saida opcional; membro sem a coluna = sinal vazio. Valor ausente,
 `None`, `""` ou `'""'` = vazio. O resultado carrega a UNIAO dos sinais nao vazios do grupo (`sinais`, na
-ordem do grupo, sem repeticao), nas duas regras e tambem em `revisao_humana` (o aviso nunca se perde).
+ordem do grupo, sem repeticao, de TODAS as linhas de cada membro), nas duas regras e tambem em
+`revisao_humana` (o aviso nunca se perde).
 Sinal que nao e texto ou fora do vocabulario `sinais_auditoria` (do pin; o padrao so conhece o vazio)
 leva o grupo a `revisao_humana` (`violacao_prova_rco`, codigo `CMP12_SINAL`). Aqui NADA e enviado: a
 notificacao as filas de `avisos` do K6 e de unidade posterior.
@@ -50,7 +51,9 @@ FAIL-CLOSED: o desfecho nunca e glosa nem negativa, e sempre `revisao_humana`, q
 - `mais_restritiva`: membro sem linha (`violacao_prova_rco`, `CMP10_LACUNA`), com `decisao` que nao e
   texto ou fora da ordem (`violacao_prova_rco`, `CMP11_FORA_DA_ORDEM`), ou `ordem_restricao` vazia ou com
   repeticao (`resultado_invalido`, `ordem_restricao_invalida`); nunca negativa por ausencia;
-- sinal fora do vocabulario (`violacao_prova_rco`, `CMP12_SINAL`);
+- sinal fora do vocabulario em QUALQUER linha do membro (`violacao_prova_rco`, `CMP12_SINAL`);
+- vencedora adversa (`adversas`) sem algum campo de `adversa_exige_preenchidos` (`resultado_invalido`,
+  `adversa_incompleta`), nas duas regras; quem chama passa o `combinacao` do pin, senao vale o piso;
 - o avaliador falha em QUALQUER decisao do grupo (`avaliador_falhou`): nunca se usa resultado parcial.
 Cada caso grava um log estruturado so com os ids das decisoes e o codigo, e conta
 `maezo_rco_composicao_revisao_humana_total{motivo}`.
@@ -111,6 +114,12 @@ CODIGO_LACUNA: Final[str] = "CMP10_LACUNA"
 CODIGO_FORA_DA_ORDEM: Final[str] = "CMP11_FORA_DA_ORDEM"
 CODIGO_SINAL: Final[str] = "CMP12_SINAL"
 CODIGO_ORDEM_INVALIDA: Final[str] = "ordem_restricao_invalida"
+#: Vencedora adversa sem algum campo de `combinacao.adversa_exige_preenchidos` (contrato-k1.md §6).
+CODIGO_ADVERSA_INCOMPLETA: Final[str] = "adversa_incompleta"
+#: Piso usado quando quem chama nao passa o `combinacao` do `vocabulario.json` pinado (o pin passa o dele):
+#: decisao adversa (ADR-0075 (d)) e o campo sem o qual a linha nao e auditavel. Nunca afrouxa o do pin.
+ADVERSAS_PISO: Final[frozenset[str]] = frozenset({"negar", "glosar", "recomendar_negativa"})
+ADVERSA_EXIGE_PISO: Final[tuple[str, ...]] = ("idRegra",)
 #: Vocabulario de sinal que se assume quando quem chama nao passa o do pin: so o vazio.
 SINAIS_SO_VAZIO: Final[frozenset[str]] = frozenset({""})
 #: Valores de `idRegra` que contam como ausentes depois de `strip()` (o `vazio()` do rco).
@@ -232,12 +241,9 @@ def _separar(bruto: object) -> tuple[object, DmnVersion | None]:
     return bruto, None
 
 
-def _sinal(linhas: tuple[Mapping[str, Any], ...]) -> str:
-    """`sinalAuditoria` da unica linha (`""` se faltar a coluna ou for vazio). Levanta `TypeError` se
-    nao for texto."""
-    if not linhas:
-        return ""
-    valor = linhas[0].get(SAIDA_SINAL_AUDITORIA)
+def _sinal_da_linha(linha: Mapping[str, Any]) -> str:
+    """`sinalAuditoria` de uma linha (`""` se faltar a coluna ou for vazio). `TypeError` se nao for texto."""
+    valor = linha.get(SAIDA_SINAL_AUDITORIA)
     if valor is None:
         return ""
     if not isinstance(valor, str):
@@ -246,9 +252,28 @@ def _sinal(linhas: tuple[Mapping[str, Any], ...]) -> str:
     return "" if valor in _VAZIOS else valor
 
 
-def _uniao(sinais: Mapping[str, str], ordem: Sequence[str]) -> tuple[str, ...]:
-    """Sinais nao vazios, na ordem do grupo, sem repeticao."""
-    return tuple(dict.fromkeys(sinais[d] for d in ordem if d in sinais and sinais[d]))
+def _sinais_validos(linhas: Sequence[Mapping[str, Any]], vocabulario: Collection[str]) -> tuple[str, ...]:
+    """Sinais nao vazios do vocabulario em TODAS as linhas de um membro (uma linha a mais, violacao CMP08,
+    nao apaga o aviso). Sinal que nao e texto ou fora do vocabulario fica de fora (o membro ja vai a
+    revisao por isso)."""
+    achados: list[str] = []
+    for linha in linhas:
+        try:
+            valor = _sinal_da_linha(linha)
+        except TypeError:
+            continue
+        if valor and valor in vocabulario:
+            achados.append(valor)
+    return tuple(achados)
+
+
+def _uniao(sinais: Mapping[str, tuple[str, ...]], ordem: Sequence[str]) -> tuple[str, ...]:
+    """Sinais nao vazios, na ordem do grupo (e das linhas), sem repeticao."""
+    return tuple(dict.fromkeys(v for d in ordem for v in sinais.get(d, ())))
+
+
+def _preenchido(valor: object) -> bool:
+    return isinstance(valor, str) and valor.strip() not in _VAZIOS
 
 
 def _copias(linhas: Sequence[Mapping[str, Any]]) -> tuple[Mapping[str, Any], ...]:
@@ -270,6 +295,8 @@ def escolher(
     *,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
+    adversas: Collection[str] = ADVERSAS_PISO,
+    adversa_exige_preenchidos: Sequence[str] = ADVERSA_EXIGE_PISO,
 ) -> ResultadoComposicao:
     """Aplica a regra do grupo aos resultados JA avaliados de TODAS as decisoes. Pura (salvo log/metrica).
 
@@ -293,14 +320,7 @@ def escolher(
             and all(isinstance(r, Mapping) for r in bruto)
         ):
             veredictos[d] = _copias(bruto)
-    sinais: dict[str, str] = {}
-    for d, linhas_d in veredictos.items():
-        try:
-            valor = _sinal(linhas_d)
-        except TypeError:
-            continue
-        if valor in sinais_auditoria:
-            sinais[d] = valor
+    sinais = {d: _sinais_validos(linhas_d, sinais_auditoria) for d, linhas_d in veredictos.items()}
 
     def revisao(motivo: str, codigo: str, decisoes: Sequence[str]) -> ResultadoComposicao:
         return _revisao(
@@ -328,17 +348,20 @@ def escolher(
         if d not in veredictos:
             return revisao(MOTIVO_RESULTADO_INVALIDO, CODIGO_RESULTADO_INVALIDO, [d])
         linhas = veredictos[d]
+        try:
+            sinais_d = [_sinal_da_linha(linha) for linha in linhas]
+        except TypeError:
+            return revisao(MOTIVO_RESULTADO_INVALIDO, CODIGO_RESULTADO_INVALIDO, [d])
+        if any(v not in sinais_auditoria for v in sinais_d):
+            return revisao(MOTIVO_VIOLACAO_PROVA, CODIGO_SINAL, [d])
         if len(linhas) > 1:
             return revisao(MOTIVO_VIOLACAO_PROVA, CODIGO_UNIQUE, [d])
         if mais_restritiva and not linhas:
             return revisao(MOTIVO_VIOLACAO_PROVA, CODIGO_LACUNA, [d])
         try:
             lidos[d] = (linhas, _id_regra(linhas))
-            sinal = _sinal(linhas)
         except TypeError:
             return revisao(MOTIVO_RESULTADO_INVALIDO, CODIGO_RESULTADO_INVALIDO, [d])
-        if sinal not in sinais_auditoria:
-            return revisao(MOTIVO_VIOLACAO_PROVA, CODIGO_SINAL, [d])
         if mais_restritiva:
             decisao = linhas[0].get(SAIDA_DECISAO)
             if not isinstance(decisao, str) or decisao not in ordem_restricao:
@@ -354,6 +377,12 @@ def escolher(
             return revisao(MOTIVO_VIOLACAO_PROVA, CODIGO_EXCLUSIVIDADE, com_id)
         vencedora = com_id[0] if com_id else composicao.padrao
         pelo_padrao = not com_id
+    linhas_vencedora = lidos[vencedora][0]
+    if linhas_vencedora and linhas_vencedora[0].get(SAIDA_DECISAO) in adversas:
+        # Vencedora adversa sem os campos que o vocabulario exige (contrato-k1.md §6): nunca vira efeito.
+        faltam = [c for c in adversa_exige_preenchidos if not _preenchido(linhas_vencedora[0].get(c))]
+        if faltam:
+            return revisao(MOTIVO_RESULTADO_INVALIDO, CODIGO_ADVERSA_INCOMPLETA, [vencedora])
     return ResultadoComposicao(
         composicao=composicao.nome,
         desfecho=DESFECHO_ESCOLHIDO,
@@ -380,7 +409,7 @@ def _falhou(
     avaliadas = tuple(resultados)
     versoes = {d: v for d in avaliadas if (v := _separar(resultados[d])[1]) is not None}
     veredictos: dict[str, tuple[Mapping[str, Any], ...]] = {}
-    sinais: dict[str, str] = {}
+    sinais: dict[str, tuple[str, ...]] = {}
     for d in avaliadas:
         bruto = _separar(resultados[d])[0]
         if (
@@ -389,12 +418,7 @@ def _falhou(
             and all(isinstance(r, Mapping) for r in bruto)
         ):
             veredictos[d] = _copias(bruto)
-            try:
-                valor = _sinal(veredictos[d])
-            except TypeError:
-                continue
-            if valor in sinais_auditoria:
-                sinais[d] = valor
+            sinais[d] = _sinais_validos(veredictos[d], sinais_auditoria)
     versao_da_falha = getattr(exc, "version", None)  # `DmnDeterministicEvaluationError` traz a resolvida
     if isinstance(versao_da_falha, DmnVersion):
         versoes[decisao] = versao_da_falha
@@ -430,6 +454,8 @@ def compor(
     *,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
+    adversas: Collection[str] = ADVERSAS_PISO,
+    adversa_exige_preenchidos: Sequence[str] = ADVERSA_EXIGE_PISO,
 ) -> ResultadoComposicao:
     """Avalia TODAS as decisoes do grupo, na ordem, com as MESMAS entradas, e aplica a regra.
 
@@ -445,7 +471,12 @@ def compor(
         except Exception as exc:  # qualquer falha do avaliador: revisao humana, nunca parcial.
             return _falhou(composicao, decisao, exc, resultados, sinais_auditoria)
     return escolher(
-        composicao, resultados, ordem_restricao=ordem_restricao, sinais_auditoria=sinais_auditoria
+        composicao,
+        resultados,
+        ordem_restricao=ordem_restricao,
+        sinais_auditoria=sinais_auditoria,
+        adversas=adversas,
+        adversa_exige_preenchidos=adversa_exige_preenchidos,
     )
 
 
@@ -456,6 +487,8 @@ async def compor_async(
     *,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
+    adversas: Collection[str] = ADVERSAS_PISO,
+    adversa_exige_preenchidos: Sequence[str] = ADVERSA_EXIGE_PISO,
 ) -> ResultadoComposicao:
     """`compor` para avaliador assincrono (`DmnTransport.evaluate` serve, com `decision_key` = id da
     decisao). Mesma regra; em serie, na ordem do grupo."""
@@ -467,13 +500,21 @@ async def compor_async(
         except Exception as exc:  # qualquer falha do avaliador: revisao humana, nunca parcial.
             return _falhou(composicao, decisao, exc, resultados, sinais_auditoria)
     return escolher(
-        composicao, resultados, ordem_restricao=ordem_restricao, sinais_auditoria=sinais_auditoria
+        composicao,
+        resultados,
+        ordem_restricao=ordem_restricao,
+        sinais_auditoria=sinais_auditoria,
+        adversas=adversas,
+        adversa_exige_preenchidos=adversa_exige_preenchidos,
     )
 
 
 __all__ = [
     "Avaliador",
     "AvaliadorAsync",
+    "ADVERSAS_PISO",
+    "ADVERSA_EXIGE_PISO",
+    "CODIGO_ADVERSA_INCOMPLETA",
     "CODIGO_EXCLUSIVIDADE",
     "CODIGO_FORA_DA_ORDEM",
     "CODIGO_LACUNA",
