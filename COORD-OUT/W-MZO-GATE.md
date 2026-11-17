@@ -145,3 +145,7 @@ Status enviado à mescladora.
 
 - #1285 (E-SF-10) mesclado; main 60262572.
 - E-SF-36: main trazida por merge num clone isolado (diff com 2 arquivos); checks e suítes rodando antes do push e do PR.
+
+## 2026-11-17 ~06:10Z
+
+- PR #1287 (E-SF-36) aberto, head f6a0beca8b3c7935c232153305fa0f6253c4adea, sobre a main 6026257. O topo da descrição diz que o módulo ainda não está ligado ao gateway (CD-39). Antes do push: validate com 0 erros; ruff e mypy verdes; 29974 passed, só com falhas ambientais. Durante os testes a main avançou para 14fb708; antes do PRONTO vou conferir a defasagem e simular o merge.
