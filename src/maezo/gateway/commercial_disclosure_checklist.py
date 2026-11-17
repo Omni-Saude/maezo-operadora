@@ -231,8 +231,9 @@ def require_disclosure_before_decision(
 # is the C6-4 `denied/terms_review_required` (the terms review that the decision needs is not
 # complete). Nothing here states the disclosure as complete: the checklist status stays
 # `incompleto_fonte_pendente` while the art. 18 Guia is pending. Called by the bound Sales
-# admission (`commercial_admission`) and again by `CommercialGateway.execute`, so a gateway
-# composed with another admission does not skip it.
+# admission (`commercial_admission`); `CommercialGateway` keeps the payload opaque, so the
+# gate is a property of the bound composition (`compose_commercial_gateway`, the only one in
+# `src/`).
 
 DISCLOSURE_GATED_COMMANDS: Final = frozenset({"acceptance.record"})
 

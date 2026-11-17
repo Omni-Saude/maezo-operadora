@@ -19,7 +19,6 @@ from dataclasses import replace
 import pytest
 
 from maezo.adapters.amh.commercial import CommercialWire
-from maezo.gateway.commercial import CommercialGateway
 from maezo.gateway.commercial_admission import (
     DISCLOSURE_GATED_COMMANDS,
     AcceptanceSupportUnadmittedSalesAdmission,
@@ -37,7 +36,7 @@ from maezo.gateway.commercial_disclosure_checklist import (
     DisclosureChecklistError,
     DisclosureRefusal,
 )
-from maezo.ports.commercial import CommercialRefusalError, SalesAdmission
+from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_admission_a3 import (
     AcceptanceScopeAuthority,
     acceptance_command,
@@ -217,37 +216,4 @@ async def test_bound_route_refuses_accept_with_zero_source_dispatch(schema_bytes
         assert refused.json()["status"] == "denied"
         assert refused.json()["reason_code"] == "terms_review_required"
         assert b"rn413" not in refused.content and b"incompleto" not in refused.content
-    assert calls == []
-
-
-class _ForeignAdmission(SalesAdmission):
-    """An admission that is NOT the bound Sales one: it never runs the disclosure gate."""
-
-    def __init__(self, scope) -> None:
-        self.scope = scope
-        self.phases: list[str] = []
-
-    async def acquire(self, transport):
-        return self.scope
-
-    async def current(self, scope, *, phase, command=None):
-        self.phases.append(phase)
-        return scope
-
-
-@pytest.mark.asyncio
-async def test_gateway_runs_the_gate_whatever_the_admission(schema_bytes) -> None:
-    # Defense in depth: `CommercialGateway.execute` calls the gate after the before_source
-    # currentness, so a gateway composed with another admission still refuses the accept
-    # with no source step.
-    calls: list[object] = []
-    bound = build_app(
-        schema_bytes, calls, sales_admitted=True, catalog_admitted=False, acceptance_admitted=True
-    ).state.commercial_gateway
-    foreign = _ForeignAdmission(AcceptanceScopeAuthority().scope)
-    gateway = CommercialGateway(codec=bound.codec, admission=foreign, source=bound.source)
-    accept = _parsed(schema_bytes, acceptance_command())
-    result = await gateway.execute(accept, foreign.scope)
-    assert (result.status, result.reason_code) == ("denied", "terms_review_required")
-    assert foreign.phases == ["before_source"]
     assert calls == []
