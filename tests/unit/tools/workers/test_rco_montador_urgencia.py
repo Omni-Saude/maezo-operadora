@@ -11,11 +11,13 @@ no codigo. Os cenarios C047-C051 do proprio rco estao em
 from __future__ import annotations
 
 import dataclasses
+import json
 from typing import Any
 
 import pytest
 
-from maezo.platform.rco_entradas import DicionarioEntradasK1, RegimeFormulaK1
+from maezo.platform.rco_entradas import DicionarioEntradasK1, RegimeFormulaK1, ler_dicionario_entradas
+from maezo.platform.rco_manifesto import ManifestoK1InvalidoError
 from maezo.tools.workers import rco_montador as mt
 from tests.unit.platform import rco_k1_2_3_recorte as rec
 
@@ -241,3 +243,68 @@ def test_formulas_novas_nao_implementadas_ficam_nulas(dic: DicionarioEntradasK1,
     fatos = mt.FatosDoCaso(guia={"data_atendimento": "2026-11-03"}, versao_k3_pinada=(1, 15))
     montadas = mt.montar_entradas(decisao, dic, fatos)
     assert (montadas.variaveis[nome], montadas.nulos[nome]) == (None, "formula_publicada_nao_implementada")
+
+
+# --- decisao da coordenacao (DL-0183): parametro ausente e transcricao PROVISORIA -----------------
+
+
+def test_um_dia_sem_parametro_e_nulo_mesmo_com_as_duas_horas(dic: DicionarioEntradasK1) -> None:
+    # O pacote nao publica o valor de `horasMinimasUrgencia`: nenhum numero no codigo, 1 dia vai nulo
+    # (-> regulacao) mesmo com a hora do cadastro e a da guia presentes.
+    tiss = {"data_execucao": "2026-11-03", "hora_inicial": "23:00:00"}
+    assert _montar(dic, hora_inicio="01:00", tiss=tiss, horas=None) == (None, "termo_da_formula_ausente")
+    # Com 2 dias ou mais (ou 0) as datas bastam e o parametro nao e lido.
+    assert _montar(dic, tiss={"data_execucao": "2026-11-04"}, hora_inicio=None, horas=None) == (True, None)
+
+
+def test_urgencia_sem_bloco_estruturado_no_pacote() -> None:
+    """Falha DE PROPOSITO quando o pacote passar a publicar a referencia por tipo de guia (bloco estruturado
+    na `formula` da urgencia em `entradas.json`): entao troque `TIPOS_GUIA_REFERENCIA_PROVISORIO` pela
+    leitura do pacote (dicionario 1.5.0) e atualize este teste."""
+    bruto = json.loads((rec.RECORTE / "entradas-recorte.json").read_text(encoding="utf-8"))
+    (entrada,) = [e for e in bruto["entradas"] if e["nome_dmn"] == URGENCIA]
+    assert set(entrada["formula"]) == {"formula", "termos"}, (
+        "o pacote publicou bloco estruturado: troque a transcricao"
+    )
+    assert all(set(t) == {"nome", "origem", "fonte"} for t in entrada["formula"]["termos"])
+    assert set(mt.TIPOS_GUIA_REFERENCIA_PROVISORIO) == {
+        mt.TIPO_GUIA_SOLICITACAO_SP_SADT,
+        mt.TIPO_GUIA_SOLICITACAO_INTERNACAO,
+        mt.TIPO_GUIA_CONSULTA,
+        mt.TIPO_GUIA_CONTA_SP_SADT,
+        mt.TIPO_GUIA_RESUMO_INTERNACAO,
+    }
+
+
+@pytest.mark.parametrize("termo_data", ["dataReferenciaAtendimento", "dataInicioCobertura"])
+def test_bloco_estruturado_publicado_para_a_urgencia_e_recusado(
+    dic: DicionarioEntradasK1, termo_data: str
+) -> None:
+    # Qualquer bloco `regimes` publicado para a urgencia (igual ou nao a transcricao) faz o montador recusar
+    # ate a troca ser feita: nunca se mistura a transcricao com o que o pacote diz.
+    entrada = dic.entradas[URGENCIA]
+    assert entrada.formula is not None
+    regimes = (RegimeFormulaK1("conta_sp_sadt", ("guiaSP-SADT",), termo_data, "xsd"),)
+    formula = dataclasses.replace(entrada.formula, regimes=regimes)
+    mutado = dataclasses.replace(
+        dic, entradas={**dic.entradas, URGENCIA: dataclasses.replace(entrada, formula=formula)}
+    )
+    decisao = rec.manifesto().decisoes["rco_geral_carencia"]
+    assert any(
+        "regimes do dicionario divergem" in p
+        for p in mt.conferir_mapeamento(mutado, decisao.dominio, decisao.entradas)
+    )
+    fatos = mt.FatosDoCaso(guia={"data_atendimento": "2026-11-03"}, versao_k3_pinada=(1, 15))
+    with pytest.raises(mt.MontadorEntradasError, match="regimes"):
+        mt.montar_entradas(decisao, mutado, fatos)
+
+
+def test_campo_estruturado_desconhecido_na_formula_e_recusado_pelo_leitor() -> None:
+    bruto = json.loads((rec.RECORTE / "entradas-recorte.json").read_text(encoding="utf-8"))
+    for e in bruto["entradas"]:
+        if e["nome_dmn"] == URGENCIA:
+            e["formula"]["referencia"] = [
+                {"tipo_guia": "guiaConsulta", "termo_data": "dataReferenciaAtendimento"}
+            ]
+    with pytest.raises(ManifestoK1InvalidoError, match="desconhecidos \\['referencia'\\]"):
+        ler_dicionario_entradas(json.dumps(bruto).encode("utf-8"))

@@ -191,7 +191,8 @@ class FatosDoCaso:
     #: Termos de formula que nenhum worker do Maezo produz no caminho que chama (nome do termo no
     #: dicionario): entram nulos com `termo_sem_produtor_no_maezo`, mesmo que algum mapa traga a chave.
     termos_sem_produtor: frozenset[str] = frozenset()
-    #: Tipo da guia TISS de onde vem a data de referencia do atendimento (`TIPOS_GUIA_REFERENCIA`), para a
+    #: Tipo da guia TISS de onde vem a data de referencia do atendimento
+    #: (`TIPOS_GUIA_REFERENCIA_PROVISORIO`, transcricao provisoria), para a
     #: formula de `urgenciaAposVinteQuatroHorasCobertura`. Qualquer outro valor ou None = nulo; nunca
     #: deduzido.
     tipo_guia: str | None = None
@@ -522,16 +523,22 @@ def _dias_ate_recurso(termos: Mapping[str, object]) -> tuple[int | None, MotivoN
     return _dias_entre(termos, "dataDemonstrativoAnalise", "dataRecebimentoLoteRecurso")
 
 
-#: Tipos de guia (`FatosDoCaso.tipo_guia`) com data de referencia do atendimento para a urgencia (termo
-#: `dataReferenciaAtendimento` do dicionario 1.4.0) -> (chave da data, chave da hora ou None) em
-#: `FatosDoCaso.tiss`. As solicitacoes e a consulta nao tem hora no XSD; honorarios, odontologia,
-#: prorrogacao e anexos ficam fora (lacuna L-prog-rco-urg-01 do rco): nulo.
+#: PROVISORIO (DL-0183, decisao da coordenacao): TRANSCRICAO a mao de `derivacao.referencia_por_tipo_guia`
+#: de `urgenciaAposVinteQuatroHorasCobertura` em `docs/dicionario/regras-gerais.yaml` do rco no commit
+#: 5dc95b12ca6cd267b5f06a874339ce59725d4ce3, porque o pacote K1 (dicionario 1.4.0) NAO publica esse bloco
+#: em `entradas.json` (so o texto da `fonte` do termo). Sera SUBSTITUIDA pela leitura do pacote no
+#: dicionario 1.5.0: enquanto isso, formula da urgencia com bloco estruturado (`regimes` ou outro) no
+#: pacote faz o montador recusar (`conferir_mapeamento`) e o leitor recusa campo desconhecido; o teste
+#: `test_urgencia_sem_bloco_estruturado_no_pacote` falha quando o pacote o trouxer, forcando a troca.
+#: Tipos de guia (`FatosDoCaso.tipo_guia`) -> (chave da data, chave da hora ou None) em `FatosDoCaso.tiss`.
+#: As solicitacoes e a consulta nao tem hora no XSD; honorarios, odontologia, prorrogacao e anexos ficam
+#: fora (lacuna L-prog-rco-urg-01 do rco): nulo.
 TIPO_GUIA_SOLICITACAO_SP_SADT: Final[str] = "solicitacao_sp_sadt"
 TIPO_GUIA_SOLICITACAO_INTERNACAO: Final[str] = "solicitacao_internacao"
 TIPO_GUIA_CONSULTA: Final[str] = "consulta"
 TIPO_GUIA_CONTA_SP_SADT: Final[str] = "conta_sp_sadt"
 TIPO_GUIA_RESUMO_INTERNACAO: Final[str] = "resumo_internacao"
-TIPOS_GUIA_REFERENCIA: Final[Mapping[str, tuple[str, str | None]]] = MappingProxyType(
+TIPOS_GUIA_REFERENCIA_PROVISORIO: Final[Mapping[str, tuple[str, str | None]]] = MappingProxyType(
     {
         # tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao
         TIPO_GUIA_SOLICITACAO_SP_SADT: ("data_solicitacao", None),
@@ -545,7 +552,8 @@ TIPOS_GUIA_REFERENCIA: Final[Mapping[str, tuple[str, str | None]]] = MappingProx
         TIPO_GUIA_RESUMO_INTERNACAO: ("data_execucao", "hora_inicial"),
     }
 )
-#: Termos `tiss` cujo elemento depende do tipo da guia: termo -> posicao em `TIPOS_GUIA_REFERENCIA`.
+#: Termos `tiss` cujo elemento depende do tipo da guia: termo -> posicao em
+#: `TIPOS_GUIA_REFERENCIA_PROVISORIO`.
 TERMOS_POR_TIPO_GUIA: Final[Mapping[str, int]] = MappingProxyType(
     {"dataReferenciaAtendimento": 0, "horaReferenciaAtendimento": 1}
 )
@@ -581,7 +589,7 @@ def _urgencia_apos_vinte_quatro_horas(termos: Mapping[str, object]) -> tuple[obj
     falso se `dias <= 0`; se `dias = 1`, verdadeiro se `(dataRef + horaRef) - (dataIni + horaIni) >=
     horasMinimasUrgencia`, falso se menor, nulo se faltar uma das duas horas; nulo se faltar uma das datas.
     A data de referencia vem do tipo da guia (`tipoGuia`); sem tipo com referencia, nulo."""
-    if termos.get("tipoGuia") not in TIPOS_GUIA_REFERENCIA:
+    if termos.get("tipoGuia") not in TIPOS_GUIA_REFERENCIA_PROVISORIO:
         return None, MotivoNulo.TIPO_GUIA_SEM_REFERENCIA
     dias, motivo = _dias_entre(termos, "dataInicioCobertura", "dataReferenciaAtendimento")
     if dias is None:
@@ -734,7 +742,7 @@ def _termo(nome: str, origem: str, fatos: FatosDoCaso) -> object:
         return SEM_PRODUTOR
     if origem == "tiss" and nome in TERMOS_POR_TIPO_GUIA:
         # O elemento da guia depende do tipo da guia (nunca deduzido): sem tipo com referencia, nulo.
-        referencia = TIPOS_GUIA_REFERENCIA.get(str(fatos.tipo_guia))
+        referencia = TIPOS_GUIA_REFERENCIA_PROVISORIO.get(str(fatos.tipo_guia))
         chave_tipo = referencia[TERMOS_POR_TIPO_GUIA[nome]] if referencia is not None else None
         return fatos.tiss.get(chave_tipo) if chave_tipo is not None else None
     fontes: dict[str, tuple[Mapping[str, str], Mapping[str, object]]] = {
