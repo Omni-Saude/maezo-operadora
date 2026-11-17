@@ -126,3 +126,8 @@ pronto: maezo-operadora #1278, head c4be57001609c4aeb63c5e73d2de97e38a62fa58, ch
 ## 2026-11-17 ~04:00Z
 
 #1278: o CI está verde no head dafb55af84a83bc7b0132cbb80d071a433394c23 (40 success e 2 skipped), mas o #1279 entrou depois, e o head ficou 4 commits atrás da main 9cf06684. Simulei o merge localmente e rodei gateway, agents, a5, a7, agent_def, adapters e noqa: 15326 passed e 1 failed, que é o test_audit_anchor (root, ambiental). A mescladora foi consultada; o PRONTO depende da decisão dela.
+
+## 2026-11-17 ~04:25Z
+
+- #1278 (E-SF-06) mesclado; main 3d173b3f.
+- PR #1285 (E-SF-10) aberto, head 26e0fb70a3dffadb6033d51c9324a56afe70840e, com o aviso da CD-37 no topo. Antes do push: validate-artifacts com 0 erros; ruff e mypy verdes; ci, adapters, ports, gateway, portal, platform, docs, agents e comercial com 29937 passed (só falhas ambientais). PRONTO depois do CI verde, conferindo que o ramo contém a main atual.
