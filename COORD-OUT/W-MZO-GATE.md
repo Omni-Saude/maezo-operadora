@@ -80,3 +80,7 @@ E-SF-06 pronto localmente. O ramo `sf-w1/gate/E-SF-06` (25c2e02) foi publicado s
     - GAP-36-2. O Guia do art. 18 continua sem fonte (GAP-10); o slot fica impreenchível.
     - GAP-36-3. O C6-4 não tem campo por inciso; os slots são candidatos para o sucessor.
     - GAP-36-4. Falta superfície de botão de decisão; o teste usa a pré-condição de `acceptance.record` com decision=accept.
+
+## 2026-11-17 ~00:55Z
+
+pronto: maezo-operadora #1273, head 019b5046f444f74d080aae83a466e52805ee5780, checks verdes (41 success e 2 skipped; integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skips). Enviado direto à mescladora (CD-42). A descrição do PR foi atualizada para o caminho `adapters/amh/commercial_fences.py`, sem push.
