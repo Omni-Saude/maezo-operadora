@@ -264,3 +264,14 @@ async def test_guarda_enforcing_na_corrida_com_o_aniversario_recusa_indisponivel
     result = await _execute_enforcing(gateway)
     assert (result.status, result.reason_code) == ("unavailable", "source_unavailable")
     assert "execute" not in source.calls
+
+
+@pytest.mark.asyncio
+async def test_guard_registra_sobre_cabeca_com_art39_sem_would_block() -> None:
+    # Cabeça com art. 39 sem `would_block` (permitida pelo substrato) não é observação do
+    # guard: a postura ainda grava a sua linha (só o par completo é idempotente).
+    store = _Store(_valid_head(art39_signaled=True, art39_anchor="RN 557/2022, art. 39"))
+    gateway, _, _ = _gateway(LegitimacyScreenShadow, store)
+    await _execute(gateway)
+    head = store.head("tenant-a", "entity-a")
+    assert head is not None and head.screen_revision == 2 and head.created_by == GUARD_ACTOR
