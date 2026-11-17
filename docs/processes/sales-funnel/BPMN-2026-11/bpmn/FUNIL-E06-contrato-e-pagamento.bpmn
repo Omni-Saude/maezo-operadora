@@ -90,6 +90,7 @@
         <bpmn:flowNodeRef>EndEvent_PrazoVencido_Sombra</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>EndEvent_VigenciaAutomaticaDia26</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE06</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_NotificaAlarmeInterno</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>EndEvent_AlarmeP25D</bpmn:flowNodeRef>
       </bpmn:lane>
@@ -314,6 +315,7 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_AbandonoE06_di" bpmnElement="Event_AbandonoE06">
         <dc:Bounds x="1122" y="1555" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1162" y="1585" width="96" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_S1_OpcoesRecebidas_di" bpmnElement="Flow_S1_OpcoesRecebidas"><di:waypoint x="726" y="338" /><di:waypoint x="960" y="338" />
         <bpmndi:BPMNLabel><dc:Bounds x="830" y="306" width="90" height="14" /></bpmndi:BPMNLabel>
@@ -387,7 +389,8 @@
       <bpmndi:BPMNEdge id="Flow_A15_Abandono_di" bpmnElement="Flow_A15_Abandono"><di:waypoint x="1140" y="1438" /><di:waypoint x="1140" y="1555" />
         <bpmndi:BPMNLabel><dc:Bounds x="1160" y="1464" width="90" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_A15_Abandonoa_Fim_di" bpmnElement="Flow_A15_Abandonoa_Fim"><di:waypoint x="1140" y="1546" /><di:waypoint x="1140" y="1618" /><di:waypoint x="1150" y="1618" />
+      <bpmndi:BPMNEdge id="Flow_A15_Abandonoa_Fim_di" bpmnElement="Flow_A15_Abandonoa_Fim"><di:waypoint x="1140" y="1591" /><di:waypoint x="1140" y="1618" /><di:waypoint x="1150" y="1618" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1121" y="1683" width="100" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_A16_Notificada_di" bpmnElement="Flow_A16_Notificada"><di:waypoint x="1280" y="1730" /><di:waypoint x="1280" y="1740" />
         <bpmndi:BPMNLabel><dc:Bounds x="1340" y="1704" width="90" height="14" /></bpmndi:BPMNLabel>

@@ -297,7 +297,7 @@
       <bpmndi:BPMNEdge id="Flow_E02Segue_di" bpmnElement="Flow_E02Segue"><di:waypoint x="750" y="420" /><di:waypoint x="820" y="420" />
         <bpmndi:BPMNLabel><dc:Bounds x="760" y="290" width="90" height="28" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_E02Abandona_di" bpmnElement="Flow_E02Abandona"><di:waypoint x="725" y="450" /><di:waypoint x="820" y="578" />
+      <bpmndi:BPMNEdge id="Flow_E02Abandona_di" bpmnElement="Flow_E02Abandona"><di:waypoint x="725" y="450" /><di:waypoint x="725" y="578" /><di:waypoint x="820" y="578" />
         <bpmndi:BPMNLabel><dc:Bounds x="730" y="500" width="80" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_E03_E04_di" bpmnElement="Flow_E03_E04"><di:waypoint x="960" y="420" /><di:waypoint x="1040" y="420" />

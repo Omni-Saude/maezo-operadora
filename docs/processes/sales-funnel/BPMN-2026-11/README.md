@@ -16,11 +16,11 @@
 | E03-cotacao-e-comparador | `c17788b7e86bb519` |
 | E04-proposta-e-termos | `59750d6e0933c094` |
 | E05-aceite | `378a4b269ba0bb1c` |
-| E06-contrato-e-pagamento | `3ea9448fe75a93c4` |
+| E06-contrato-e-pagamento | `bd39e7d125bd86a8` |
 | E07-declaracao-de-saude | `eb19a831a844cf69` |
 | E08-admissao-e-acompanhamento | `03cb8d88ccf1f169` |
-| E09-pos-venda | `f4215c07827b8ae2` |
-| E2E-ponta-a-ponta | `8a3887b1f4fd240d` |
+| E09-pos-venda | `7c2cd44f069cbcca` |
+| E2E-ponta-a-ponta | `d2d6ae739b4ca562` |
 | F01-mediacao | `a6610bcf20bdbcbb` |
 | F02-recuperacao-e-mensagens | `a81b77132cc7f0f0` |
 | F03-canal-de-vendas | `8fb3d807f8cbf9af` |

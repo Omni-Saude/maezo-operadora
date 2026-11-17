@@ -480,7 +480,7 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="EndEvent_ReembolsoComPrazoVariante_di" bpmnElement="EndEvent_ReembolsoComPrazoVariante">
         <dc:Bounds x="2520" y="1140" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="2466" y="1096" width="130" height="28" /></bpmndi:BPMNLabel>
+        <bpmndi:BPMNLabel><dc:Bounds x="2566" y="1148" width="130" height="24" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_JuridicoDecideContagem_di" bpmnElement="Task_JuridicoDecideContagem">
         <dc:Bounds x="1180" y="1370" width="100" height="80" />
@@ -513,7 +513,7 @@
         <dc:Bounds x="2620" y="290" width="300" height="110" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_RLSF015_di" bpmnElement="Annotation_RLSF015">
-        <dc:Bounds x="970" y="1365" width="200" height="110" />
+        <dc:Bounds x="970" y="1360" width="200" height="110" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_RTJ3a_di" bpmnElement="Annotation_RTJ3a">
         <dc:Bounds x="2440" y="400" width="340" height="70" />
@@ -531,7 +531,7 @@
         <dc:Bounds x="2700" y="940" width="240" height="150" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_ZeroSaude_di" bpmnElement="Annotation_ZeroSaude">
-        <dc:Bounds x="1620" y="954" width="240" height="110" />
+        <dc:Bounds x="1620" y="950" width="240" height="110" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_RLSF043_di" bpmnElement="Annotation_RLSF043">
         <dc:Bounds x="1960" y="970" width="220" height="110" />
@@ -754,10 +754,10 @@
       <bpmndi:BPMNEdge id="Association_Art21_di" bpmnElement="Association_Art21"><di:waypoint x="390" y="885" /><di:waypoint x="410" y="885" /><di:waypoint x="410" y="1030" /><di:waypoint x="420" y="1030" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="1230" y="1450" /><di:waypoint x="1230" y="1470" /><di:waypoint x="1300" y="1470" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_MedicaoA9_di" bpmnElement="Association_MedicaoA9"><di:waypoint x="158" y="656" /><di:waypoint x="158" y="735" /><di:waypoint x="200" y="735" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Association_RTD4_di" bpmnElement="Association_RTD4"><di:waypoint x="158" y="656" /><di:waypoint x="137" y="656" /><di:waypoint x="137" y="940" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RTD4_di" bpmnElement="Association_RTD4"><di:waypoint x="158" y="656" /><di:waypoint x="137" y="656" /><di:waypoint x="137" y="952" /><di:waypoint x="1546" y="952" /><di:waypoint x="1546" y="1100" /><di:waypoint x="2730" y="1100" /><di:waypoint x="2730" y="1090" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_RTD4_Gate_di" bpmnElement="Association_RTD4_Gate"><di:waypoint x="460" y="635" /><di:waypoint x="620" y="635" /><di:waypoint x="620" y="930" /><di:waypoint x="1558" y="930" /><di:waypoint x="1558" y="1095" /><di:waypoint x="2730" y="1095" /><di:waypoint x="2730" y="1090" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_RLSF043_PROC06_di" bpmnElement="Association_RLSF043_PROC06"><di:waypoint x="2190" y="1170" /><di:waypoint x="2260" y="1170" /><di:waypoint x="2260" y="1025" /><di:waypoint x="2180" y="1025" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Association_ZeroSaude_di" bpmnElement="Association_ZeroSaude"><di:waypoint x="1750" y="930" /><di:waypoint x="1750" y="970" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ZeroSaude_di" bpmnElement="Association_ZeroSaude"><di:waypoint x="1750" y="930" /><di:waypoint x="1750" y="950" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_RLSF043_di" bpmnElement="Association_RLSF043"><di:waypoint x="1900" y="890" /><di:waypoint x="1900" y="1010" /><di:waypoint x="1960" y="1010" /></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
