@@ -18,8 +18,10 @@ O que cada insumo aceito vira aqui (tabela de ripple §8 do ANSWERS-V1):
   desconhecida → recusa tipada"); C2/C6 ⇒ k-anon obrigatório sobre a tupla; C5 livre com base
   declarada, presence-only (G-CADE: nenhuma RATE atravessa payload).
 - **SLA `T_total` = 15 dias úteis** (§4c/§6.3) com relógio visível: `t_deadline` COMPUTADO NO
-  NASCIMENTO do registro por calendário own-code seg–sex (SEM feriados — limite documentado;
-  dias úteis são cálculo de APLICAÇÃO, nunca SQL). Registro sem deadline = recusa do store
+  NASCIMENTO do registro por calendário seg–sex MENOS os feriados NACIONAIS do calendário
+  versionado `maezo.platform.calendario` (R-005/DEC-02; sem UF — vencimento nunca posterior ao
+  de um calendário completo; E-SF-08/EP-REG-20b; dias úteis são cálculo de APLICAÇÃO, nunca
+  SQL). Registro sem deadline = recusa do store
   (`SuppressionRefusalReason.DEADLINE_UNCOMPUTABLE` — fail-closed). Escalonamento mecânico:
   50% lembrete (7º dia útil — piso, nunca depois da metade), 80% encarregado (12º), 100%
   catch-all `ANALISE_HUMANA` (= `t_deadline`, 15º).
@@ -57,6 +59,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from maezo.platform.calendario import FUSO_NEGOCIO, eh_dia_util
 from maezo.portal.contracts.models import OpaqueRef, Sha256Digest
 
 __all__ = [
@@ -212,18 +215,21 @@ def require(condition: bool, reason: SuppressionRefusalReason) -> None:
 
 
 # ----------------------------------------------------------------------------------
-# Calendário own-code de dias úteis (§4c) — seg–sex, SEM feriados (limite documentado)
+# Calendário de dias úteis (§4c) — seg–sex menos feriados NACIONAIS (`maezo.platform.calendario`)
 # ----------------------------------------------------------------------------------
 
 
 def add_business_days(start: datetime, days: int) -> datetime:
-    """Soma `days` dias úteis (seg–sex) a `start`, preservando o horário (TZ-aware obrigatório).
+    """Soma `days` dias úteis a `start`, preservando o horário (TZ-aware obrigatório).
 
-    LIMITE DOCUMENTADO: o calendário é own-code SIMPLES — sábados e domingos são não-úteis e
-    NENHUM feriado (nacional, estadual ou corporativo) é observado. O SLA aceito é política do
-    DPO (§4c — a LGPD não impõe prazo para supressão, fato 3); feriados exigiriam tabela
-    custodiada (RATIFY-LATER) e ninguém a inventa aqui. Sob-contagem de dias úteis só pode
-    ENCURTAR o prazo percebido pelo titular (direção conservadora para o titular).
+    Dia útil = `maezo.platform.calendario.eh_dia_util` sobre a data em `America/Sao_Paulo`
+    (`FUSO_NEGOCIO`), SEM UF: seg–sex que não é feriado NACIONAL do calendário versionado
+    (`CALENDARIO_VERSAO`, R-005/DEC-02 — o dado mora lá; este módulo não decide feriado). O
+    registro de supressão não tem UF (zero endereço), então feriado estadual/municipal,
+    Sexta-feira da Paixão e ponto facultativo contam como úteis: o vencimento fica IGUAL OU
+    ANTERIOR ao de um calendário completo, nunca posterior (direção conservadora para o titular).
+    O SLA aceito (15 dias úteis) continua política do DPO (§4c — a LGPD não impõe prazo para
+    supressão, fato 3). E-SF-08 / EP-REG-20b.
     """
     require(days >= 0, SuppressionRefusalReason.DEADLINE_UNCOMPUTABLE)
     aware = start.tzinfo is not None and start.utcoffset() is not None
@@ -232,7 +238,7 @@ def add_business_days(start: datetime, days: int) -> datetime:
     remaining = days
     while remaining > 0:
         current = current + timedelta(days=1)
-        if current.weekday() < 5:  # 0=segunda … 4=sexta; 5=sábado, 6=domingo
+        if eh_dia_util(current.astimezone(FUSO_NEGOCIO).date()):  # seg–sex e não feriado nacional
             remaining -= 1
     return current
 

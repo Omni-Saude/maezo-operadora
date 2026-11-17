@@ -1,0 +1,8 @@
+{{- /*
+Cerca de pre-voo do WhatsApp outbound (GTM-E-44 / E-SF-14). Nao renderiza nenhum recurso: so'
+dispara `maezo-tenant.whatsapp.requirePhoneNumberId` (em `_helpers.tpl`), que falha o render
+nomeando `whatsapp.phoneNumberId` quando outbound/lembrete esta ligado e o id esta vazio.
+Fica fora de `deployment-webhook-receiver.yaml` de proposito: aquele arquivo e' condicionado a
+`webhookReceiver.enabled` e a cerca nao pode depender disso.
+*/ -}}
+{{- include "maezo-tenant.whatsapp.requirePhoneNumberId" . -}}
