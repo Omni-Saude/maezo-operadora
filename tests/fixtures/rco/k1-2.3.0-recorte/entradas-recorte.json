@@ -1,0 +1,1553 @@
+{
+ "entradas": [
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{concedida, nao_solicitada, em_analise, nao_concedida}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "autorizacaoExtemporanea",
+   "nome_maezo": null,
+   "nome_snake": "autorizacao_extemporanea",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "solicitação fora da TISS",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "avisoItensNaoIncluidos",
+   "nome_maezo": null,
+   "nome_snake": "aviso_itens_nao_incluidos",
+   "origem": "fora_tiss",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_autorizacao.dmn#diaria_autorizacao"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "guia TISS: tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/caraterAtendimento; tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dadosInternacao/caraterAtendimento; tissGuiasV4_03_00.xsd#ctm_internacaoDados/caraterAtendimento",
+   "derivacao_lago": {
+    "campo_lago": "LACUNA (dado do atendimento, não do beneficiário; domínio 2819 do Tasy)",
+    "classe_lago": "campo_novo",
+    "derivacao": "O consumidor lê o caráter da guia TISS (elementos do dicionário) e o envia como parâmetro; o lago não o guarda como dado do beneficiário.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "O relatório cita o domínio 2819 do Tasy; o dicionário usa a TUSS 23 (valores 1 e 2). O de-para entre os dois não consta do relatório: LACUNA.",
+    "rota": "parâmetro de entrada novo (rota ainda não definida: LACUNA)"
+   },
+   "dominio": "{1, 2}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "caraterAtendimento",
+   "nome_maezo": "carater_atendimento",
+   "nome_snake": "carater_atendimento",
+   "origem": "tiss",
+   "tabelas": [
+    "dmn/anatomia-patologica/anatpat_cobertura.dmn#anatpat_cobertura",
+    "dmn/anatomia-patologica/anatpat_dut.dmn#anatpat_dut",
+    "dmn/anestesia-terapia-dor/anestdor_autorizacao.dmn#anestdor_autorizacao",
+    "dmn/anestesia-terapia-dor/anestdor_pacote.dmn#anestdor_pacote",
+    "dmn/cardiovascular/cardio_autorizacao.dmn#cardio_autorizacao",
+    "dmn/cardiovascular/cardio_dut.dmn#cardio_dut",
+    "dmn/cardiovascular/cardio_pacote.dmn#cardio_pacote",
+    "dmn/cirurgia-bariatrica/bariat_autorizacao.dmn#bariat_autorizacao",
+    "dmn/cirurgia-bariatrica/bariat_pacote_enquadramento.dmn#bariat_pacote_enquadramento",
+    "dmn/cirurgia-geral-digestiva/cirger_autorizacao.dmn#cirger_autorizacao",
+    "dmn/cirurgia-geral-digestiva/cirger_pacote_episodio.dmn#cirger_pacote_episodio",
+    "dmn/cirurgia-geral-digestiva/cirger_pedido_eletivo.dmn#cirger_pedido_eletivo",
+    "dmn/consultas-telemedicina/consult_autorizacao.dmn#consult_autorizacao",
+    "dmn/consultas-telemedicina/consult_cobertura.dmn#consult_cobertura",
+    "dmn/consultas-telemedicina/consult_compatibilidade.dmn#consult_compatibilidade",
+    "dmn/consultas-telemedicina/consult_limite_quantidade.dmn#consult_limite_quantidade",
+    "dmn/diarias-taxas/diaria_autorizacao.dmn#diaria_autorizacao",
+    "dmn/endoscopia/endosc_autorizacao.dmn#endosc_autorizacao",
+    "dmn/endoscopia/endosc_pacote.dmn#endosc_pacote",
+    "dmn/exames-funcionais/exfunc_autorizacao.dmn#exfunc_autorizacao",
+    "dmn/exames-funcionais/exfunc_cobertura.dmn#exfunc_cobertura",
+    "dmn/exames-funcionais/exfunc_compatibilidade.dmn#exfunc_compatibilidade",
+    "dmn/exames-funcionais/exfunc_dut.dmn#exfunc_dut",
+    "dmn/genetica/genet_autorizacao.dmn#genet_autorizacao",
+    "dmn/ginecologia-obstetricia/go_autorizacao.dmn#go_autorizacao",
+    "dmn/ginecologia-obstetricia/go_dut.dmn#go_dut",
+    "dmn/ginecologia-obstetricia/go_pacote.dmn#go_pacote",
+    "dmn/hemodialise-nefrologia/nefro_autorizacao.dmn#nefro_autorizacao",
+    "dmn/hemodialise-nefrologia/nefro_limite.dmn#nefro_limite",
+    "dmn/hemodialise-nefrologia/nefro_pacote.dmn#nefro_pacote",
+    "dmn/hemoterapia/hemot_autorizacao.dmn#hemot_autorizacao",
+    "dmn/hemoterapia/hemot_compatibilidade.dmn#hemot_compatibilidade",
+    "dmn/imagem-alto-custo/imgac_autorizacao.dmn#imgac_autorizacao",
+    "dmn/imagem-alto-custo/imgac_dut.dmn#imgac_dut",
+    "dmn/imagem-alto-custo/imgac_dut_ablacao.dmn#imgac_dut_ablacao",
+    "dmn/imagem-alto-custo/imgac_limite_intervalo.dmn#imgac_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_autorizacao.dmn#imgconv_autorizacao",
+    "dmn/imagem-convencional/imgconv_cobertura.dmn#imgconv_cobertura",
+    "dmn/imagem-convencional/imgconv_criterio.dmn#imgconv_criterio",
+    "dmn/imagem-convencional/imgconv_dut.dmn#imgconv_dut",
+    "dmn/imagem-convencional/imgconv_limite_intervalo.dmn#imgconv_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_limite_intervalo_us.dmn#imgconv_limite_intervalo_us",
+    "dmn/imagem-convencional/imgconv_pacote.dmn#imgconv_pacote",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_autorizacao.dmn#imunob_autorizacao",
+    "dmn/laboratorio/lab_autorizacao.dmn#lab_autorizacao",
+    "dmn/laboratorio/lab_cobertura.dmn#lab_cobertura",
+    "dmn/laboratorio/lab_dut.dmn#lab_dut",
+    "dmn/mastologia/mama_autorizacao.dmn#mama_autorizacao",
+    "dmn/mastologia/mama_pacote.dmn#mama_pacote",
+    "dmn/medicina-nuclear/mednuc_autorizacao.dmn#mednuc_autorizacao",
+    "dmn/medicina-nuclear/mednuc_cobertura.dmn#mednuc_cobertura",
+    "dmn/medicina-nuclear/mednuc_dut.dmn#mednuc_dut",
+    "dmn/medicina-nuclear/mednuc_limite_quantidade.dmn#mednuc_limite_quantidade",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_autorizacao.dmn#neuro_autorizacao",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_dut.dmn#neuro_dut",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_pacote.dmn#neuro_pacote",
+    "dmn/odontologia-hospitalar/odonto_cobertura.dmn#odonto_cobertura",
+    "dmn/odontologia-hospitalar/odonto_dut.dmn#odonto_dut",
+    "dmn/odontologia-hospitalar/odonto_opme.dmn#odonto_opme",
+    "dmn/oftalmologia/oftalmo_autorizacao.dmn#oftalmo_autorizacao",
+    "dmn/oftalmologia/oftalmo_dut.dmn#oftalmo_dut",
+    "dmn/oftalmologia/oftalmo_pacote.dmn#oftalmo_pacote",
+    "dmn/oncologia-terapia-sistemica/oncoqt_autorizacao.dmn#oncoqt_autorizacao",
+    "dmn/opme-coluna/coluna_autorizacao_previa.dmn#coluna_autorizacao_previa",
+    "dmn/opme-coluna/coluna_opme_prova_uso.dmn#coluna_opme_prova_uso",
+    "dmn/opme-coluna/coluna_opme_solicitacao.dmn#coluna_opme_solicitacao",
+    "dmn/opme-coluna/coluna_pacote_enquadramento.dmn#coluna_pacote_enquadramento",
+    "dmn/ortopedia-opme/autorizacao_ortop.dmn#autorizacao_ortop",
+    "dmn/ortopedia-opme/opme_processo_ortop.dmn#opme_processo_ortop",
+    "dmn/ortopedia-opme/pacote_artroplastia_ortop.dmn#pacote_artroplastia_ortop",
+    "dmn/otorrino-cabeca-pescoco/autorizacao_orl.dmn#autorizacao_orl",
+    "dmn/otorrino-cabeca-pescoco/opme_processo_orl.dmn#opme_processo_orl",
+    "dmn/otorrino-cabeca-pescoco/pacote_orl.dmn#pacote_orl",
+    "dmn/plastica-dermatologia/plast_autorizacao.dmn#plast_autorizacao",
+    "dmn/plastica-dermatologia/plast_cobertura.dmn#plast_cobertura",
+    "dmn/plastica-dermatologia/plast_dut.dmn#plast_dut",
+    "dmn/procedimentos-clinicos/clin_autorizacao.dmn#clin_autorizacao",
+    "dmn/procedimentos-clinicos/clin_dut.dmn#clin_dut",
+    "dmn/procedimentos-clinicos/clin_limite_quantidade.dmn#clin_limite_quantidade",
+    "dmn/radioterapia/radio_autorizacao.dmn#radio_autorizacao",
+    "dmn/regras-gerais/geral_autorizacao_materiais.dmn#geral_autorizacao_materiais",
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia",
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt",
+    "dmn/regras-gerais/geral_elegibilidade.dmn#geral_elegibilidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_autorizacao.dmn#teresp_autorizacao",
+    "dmn/terapias-multiprofissionais-tea/teresp_cobertura.dmn#teresp_cobertura",
+    "dmn/terapias-multiprofissionais-tea/teresp_dut.dmn#teresp_dut",
+    "dmn/terapias-multiprofissionais-tea/teresp_limite_quantidade.dmn#teresp_limite_quantidade",
+    "dmn/torax-pneumologia/torax_autorizacao.dmn#torax_autorizacao",
+    "dmn/torax-pneumologia/torax_pacote.dmn#torax_pacote",
+    "dmn/transplantes/transpl_autorizacao.dmn#transpl_autorizacao",
+    "dmn/transplantes/transpl_contas.dmn#transpl_contas",
+    "dmn/urgencia/urg_enquadramento.dmn#urg_enquadramento",
+    "dmn/urgencia/urg_roteamento_opme.dmn#urg_roteamento_opme",
+    "dmn/urologia/uro_autorizacao.dmn#uro_autorizacao",
+    "dmn/urologia/uro_pacote.dmn#uro_pacote"
+   ],
+   "tipo": "string",
+   "valores_maezo": {
+    "base": "TUSS Tabela 23 (aba 'Tab 23' do arquivo TUSS - Demais terminologias 202609, id_fonte ANS-TISS-TAB38): 1 = Eletivo; 2 = Urgência/Emergência. Os códigos '1' e '2' também são aceitos sem conversão.",
+    "eletivo": "1",
+    "emergencia": "2",
+    "urgencia": "2"
+   }
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": {
+    "campo_lago": "dias (origem em `regra`)",
+    "classe_lago": "ja_existe",
+    "derivacao": "Leia `dias` do item de carência do grupo do procedimento (ver grupoCarencia). Sem conversão.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "O relatório não diz como o item é escolhido por grupo: a escolha depende da derivação de grupoCarencia (LACUNA até o de-para existir). O dicionário limita o valor a 0..300 dias.",
+    "rota": "/carencias e /cobertura"
+   },
+   "dominio": "faixa 0..300",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "carenciaContratualDias",
+   "nome_maezo": null,
+   "nome_snake": "carencia_contratual_dias",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Uma única leitura de CID idêntico: igualdade completa do CID-10 da guia com o código declarado, sem pontos, em todos os caracteres do código declarado. Se a doença foi declarada pela categoria de três caracteres (por exemplo, I10), o CID da guia é idêntico quando pertence a essa categoria (I10 ou qualquer subcategoria, como I10.0): a declaração não restringiu a subcategoria. Se a doença foi declarada com subcategoria (por exemplo, E11.9), só o mesmo código é idêntico; E11.2 na guia dá false. true quando a guia é idêntica a algum CID declarado com CPT; false quando só a categoria coincide (cidNaDlpDeclarada = true) ou o CID não coincide. Coincidência só pela categoria da guia, com a doença declarada em subcategoria, não prova que o procedimento é relacionado exclusivamente à doença declarada (ANS-RN-558 art. 2º, II).",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "para cada cidDeclaradoCpt: diagnosticoPrincipal = cidDeclaradoCpt (igualdade completa) ou, se cidDeclaradoCpt tem 3 caracteres, diagnosticoPrincipal começa por cidDeclaradoCpt; nulo se faltar um dos termos",
+    "termos": [
+     {
+      "fonte": "TISS diagnosticoPrincipal (CID-10) da guia",
+      "nome": "diagnosticoPrincipal",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "cadastro da declaração de saúde do beneficiário (CID-10 de cada doença ou lesão declarada com CPT)",
+      "nome": "cidDeclaradoCpt",
+      "origem": "cadastro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "cidIgualDlpDeclarada",
+   "nome_maezo": null,
+   "nome_snake": "cid_igual_dlp_declarada",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: CID-10 principal da guia comparado, na categoria de três caracteres, com as doenças declaradas com CPT no cadastro do beneficiário. Coincide pela categoria mesmo quando o CID completo é outro; o CID idêntico está em cidIgualDlpDeclarada (versão 3.0.0 da regra OMNI-GERAL-CAR-0004). A semântica deste campo não mudou.",
+   "derivacao_lago": {
+    "campo_lago": "LACUNA (a declaração de saúde do segurado não está no lago)",
+    "classe_lago": "lacuna_ingestao",
+    "derivacao": "Rota nova que recebe o CID do atendimento e devolve só um booleano calculado no servidor, sem expor a declaração. Depende de ingestão da declaração e de decisão do DPO.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "Sem ingestão e sem decisão do DPO a entrada fica nula e a regra segue o fallback de nulo (nunca negar). O dicionário compara o CID principal da guia, na categoria de três caracteres, com as doenças declaradas com CPT.",
+    "rota": "rota nova (proposta)"
+   },
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "categoria de 3 caracteres do CID-10 principal da guia está entre as categorias de 3 caracteres das doenças declaradas com CPT no cadastro do beneficiário (nulo se faltar um dos termos)",
+    "termos": [
+     {
+      "fonte": "CID-10 principal da guia (elemento do XSD não registrado na derivação)",
+      "nome": "cidPrincipal",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "doenças declaradas com CPT no cadastro do beneficiário (declaração de saúde)",
+      "nome": "doencasDeclaradasCpt",
+      "origem": "cadastro"
+     }
+    ]
+   },
+   "lacuna_lago": false,
+   "nome_dmn": "cidNaDlpDeclarada",
+   "nome_maezo": null,
+   "nome_snake": "cid_na_dlp_declarada",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: true quando a guia de resumo de internação traz ao menos um CID-10 além do principal (diagnostico 2 a 4 de dadosSaidaInternacao); false quando traz só o principal; nulo quando o resumo de internação não foi extraído ou a guia não tem o grupo de saída. [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoDadosSaida/diagnostico]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "quantidade de elementos diagnostico de dadosSaidaInternacao maior que 1 (nulo se a guia de resumo de internação não foi extraída)",
+    "termos": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDadosSaida/diagnostico (st_texto4, de 0 a 4 ocorrências; a primeira é o CID principal)",
+      "nome": "diagnostico",
+      "origem": "tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "cidSecundarioInformado",
+   "nome_maezo": null,
+   "nome_snake": "cid_secundario_informado",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{protese_implantavel, opme_fora_da_lista, sem_autorizacao_lista, material_comum, kit_hemodialise_continua_proprietario, cateter_intravenoso_periferico}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "classeMaterial",
+   "nome_maezo": null,
+   "nome_snake": "classe_material",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/hemodialise-nefrologia/nefro_glosa.dmn#nefro_glosa",
+    "dmn/procedimentos-clinicos/clin_limite_quantidade.dmn#clin_limite_quantidade",
+    "dmn/regras-gerais/geral_autorizacao_materiais.dmn#geral_autorizacao_materiais"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "clausulaItensInclusos",
+   "nome_maezo": null,
+   "nome_snake": "clausula_itens_inclusos",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "guia TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoDados/codigoProcedimento; tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/procedimentosSolicitados/procedimento/codigoProcedimento; tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/procedimentosSolicitados/procedimento/codigoProcedimento; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/procedimento/codigoProcedimento",
+   "derivacao_lago": null,
+   "dominio": "tabela TUSS 22 (procedimentos e eventos em saúde)",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "codigoProcedimento",
+   "nome_maezo": "codigo_procedimento_tuss",
+   "nome_snake": "codigo_procedimento_tuss",
+   "origem": "tiss",
+   "tabelas": [
+    "dmn/anatomia-patologica/anatpat_cobertura.dmn#anatpat_cobertura",
+    "dmn/anatomia-patologica/anatpat_compatibilidade.dmn#anatpat_compatibilidade",
+    "dmn/anatomia-patologica/anatpat_dut.dmn#anatpat_dut",
+    "dmn/anatomia-patologica/anatpat_limite_quantidade.dmn#anatpat_limite_quantidade",
+    "dmn/anatomia-patologica/anatpat_pacote.dmn#anatpat_pacote",
+    "dmn/anestesia-terapia-dor/anestdor_cobertura.dmn#anestdor_cobertura",
+    "dmn/anestesia-terapia-dor/anestdor_compatibilidade.dmn#anestdor_compatibilidade",
+    "dmn/anestesia-terapia-dor/anestdor_limite_quantidade.dmn#anestdor_limite_quantidade",
+    "dmn/cardiovascular/cardio_autorizacao.dmn#cardio_autorizacao",
+    "dmn/cardiovascular/cardio_cobertura.dmn#cardio_cobertura",
+    "dmn/cardiovascular/cardio_compatibilidade.dmn#cardio_compatibilidade",
+    "dmn/cardiovascular/cardio_dut.dmn#cardio_dut",
+    "dmn/cardiovascular/cardio_limite_quantidade.dmn#cardio_limite_quantidade",
+    "dmn/cardiovascular/cardio_opme.dmn#cardio_opme",
+    "dmn/cardiovascular/cardio_opme_estrutural.dmn#cardio_opme_estrutural",
+    "dmn/cardiovascular/cardio_opme_vascular.dmn#cardio_opme_vascular",
+    "dmn/cardiovascular/cardio_pacote.dmn#cardio_pacote",
+    "dmn/cirurgia-bariatrica/bariat_autorizacao.dmn#bariat_autorizacao",
+    "dmn/cirurgia-bariatrica/bariat_dut_banda.dmn#bariat_dut_banda",
+    "dmn/cirurgia-bariatrica/bariat_dut_gastroplastia.dmn#bariat_dut_gastroplastia",
+    "dmn/cirurgia-bariatrica/bariat_opme_quantidade.dmn#bariat_opme_quantidade",
+    "dmn/cirurgia-bariatrica/bariat_pacote_enquadramento.dmn#bariat_pacote_enquadramento",
+    "dmn/cirurgia-geral-digestiva/cirger_dut_ablacao_hepatica.dmn#cirger_dut_ablacao_hepatica",
+    "dmn/consultas-telemedicina/consult_compatibilidade.dmn#consult_compatibilidade",
+    "dmn/consultas-telemedicina/consult_dut.dmn#consult_dut",
+    "dmn/endoscopia/endosc_autorizacao.dmn#endosc_autorizacao",
+    "dmn/endoscopia/endosc_cobertura.dmn#endosc_cobertura",
+    "dmn/endoscopia/endosc_compatibilidade.dmn#endosc_compatibilidade",
+    "dmn/endoscopia/endosc_dut.dmn#endosc_dut",
+    "dmn/endoscopia/endosc_limite_quantidade.dmn#endosc_limite_quantidade",
+    "dmn/exames-funcionais/exfunc_autorizacao.dmn#exfunc_autorizacao",
+    "dmn/exames-funcionais/exfunc_cobertura.dmn#exfunc_cobertura",
+    "dmn/exames-funcionais/exfunc_compatibilidade.dmn#exfunc_compatibilidade",
+    "dmn/exames-funcionais/exfunc_dut.dmn#exfunc_dut",
+    "dmn/exames-funcionais/exfunc_excludentes.dmn#exfunc_excludentes",
+    "dmn/exames-funcionais/exfunc_limite_quantidade.dmn#exfunc_limite_quantidade",
+    "dmn/exames-funcionais/exfunc_pacote.dmn#exfunc_pacote",
+    "dmn/ginecologia-obstetricia/go_autorizacao.dmn#go_autorizacao",
+    "dmn/ginecologia-obstetricia/go_cobertura.dmn#go_cobertura",
+    "dmn/ginecologia-obstetricia/go_compatibilidade.dmn#go_compatibilidade",
+    "dmn/ginecologia-obstetricia/go_dut.dmn#go_dut",
+    "dmn/ginecologia-obstetricia/go_limite_quantidade.dmn#go_limite_quantidade",
+    "dmn/ginecologia-obstetricia/go_opme.dmn#go_opme",
+    "dmn/hemodialise-nefrologia/nefro_autorizacao.dmn#nefro_autorizacao",
+    "dmn/hemodialise-nefrologia/nefro_cobertura.dmn#nefro_cobertura",
+    "dmn/hemodialise-nefrologia/nefro_compatibilidade.dmn#nefro_compatibilidade",
+    "dmn/hemodialise-nefrologia/nefro_glosa.dmn#nefro_glosa",
+    "dmn/hemodialise-nefrologia/nefro_limite.dmn#nefro_limite",
+    "dmn/hemoterapia/hemot_autorizacao.dmn#hemot_autorizacao",
+    "dmn/hemoterapia/hemot_cobertura.dmn#hemot_cobertura",
+    "dmn/hemoterapia/hemot_compatibilidade.dmn#hemot_compatibilidade",
+    "dmn/hemoterapia/hemot_glosa.dmn#hemot_glosa",
+    "dmn/hemoterapia/hemot_limite_quantidade.dmn#hemot_limite_quantidade",
+    "dmn/hemoterapia/hemot_pacote.dmn#hemot_pacote",
+    "dmn/imagem-alto-custo/imgac_cobertura.dmn#imgac_cobertura",
+    "dmn/imagem-alto-custo/imgac_compatibilidade.dmn#imgac_compatibilidade",
+    "dmn/imagem-alto-custo/imgac_dut.dmn#imgac_dut",
+    "dmn/imagem-alto-custo/imgac_dut_ablacao.dmn#imgac_dut_ablacao",
+    "dmn/imagem-alto-custo/imgac_limite_intervalo.dmn#imgac_limite_intervalo",
+    "dmn/imagem-alto-custo/imgac_limite_quantidade.dmn#imgac_limite_quantidade",
+    "dmn/imagem-alto-custo/imgac_pacote.dmn#imgac_pacote",
+    "dmn/imagem-convencional/imgconv_autorizacao.dmn#imgconv_autorizacao",
+    "dmn/imagem-convencional/imgconv_cobertura.dmn#imgconv_cobertura",
+    "dmn/imagem-convencional/imgconv_compatibilidade.dmn#imgconv_compatibilidade",
+    "dmn/imagem-convencional/imgconv_criterio.dmn#imgconv_criterio",
+    "dmn/imagem-convencional/imgconv_dut.dmn#imgconv_dut",
+    "dmn/imagem-convencional/imgconv_limite_intervalo.dmn#imgconv_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_limite_intervalo_us.dmn#imgconv_limite_intervalo_us",
+    "dmn/imagem-convencional/imgconv_limite_quantidade.dmn#imgconv_limite_quantidade",
+    "dmn/imagem-convencional/imgconv_pacote.dmn#imgconv_pacote",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_cobertura.dmn#imunob_cobertura",
+    "dmn/laboratorio/lab_autorizacao.dmn#lab_autorizacao",
+    "dmn/laboratorio/lab_cobertura.dmn#lab_cobertura",
+    "dmn/laboratorio/lab_composicao.dmn#lab_composicao",
+    "dmn/laboratorio/lab_dut.dmn#lab_dut",
+    "dmn/laboratorio/lab_glosa.dmn#lab_glosa",
+    "dmn/laboratorio/lab_limite_quantidade.dmn#lab_limite_quantidade",
+    "dmn/mastologia/mama_autorizacao.dmn#mama_autorizacao",
+    "dmn/mastologia/mama_cobertura.dmn#mama_cobertura",
+    "dmn/mastologia/mama_opme.dmn#mama_opme",
+    "dmn/mastologia/mama_pacote.dmn#mama_pacote",
+    "dmn/medicina-nuclear/mednuc_dut.dmn#mednuc_dut",
+    "dmn/medicina-nuclear/mednuc_excludentes.dmn#mednuc_excludentes",
+    "dmn/medicina-nuclear/mednuc_pacote.dmn#mednuc_pacote",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_autorizacao.dmn#neuro_autorizacao",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_cobertura.dmn#neuro_cobertura",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_dut.dmn#neuro_dut",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_limite_quantidade.dmn#neuro_limite_quantidade",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_opme.dmn#neuro_opme",
+    "dmn/odontologia-hospitalar/odonto_dut.dmn#odonto_dut",
+    "dmn/odontologia-hospitalar/odonto_opme.dmn#odonto_opme",
+    "dmn/oftalmologia/oftalmo_autorizacao.dmn#oftalmo_autorizacao",
+    "dmn/oftalmologia/oftalmo_cobertura.dmn#oftalmo_cobertura",
+    "dmn/oftalmologia/oftalmo_dut.dmn#oftalmo_dut",
+    "dmn/oftalmologia/oftalmo_limite_quantidade.dmn#oftalmo_limite_quantidade",
+    "dmn/oftalmologia/oftalmo_opme.dmn#oftalmo_opme",
+    "dmn/oftalmologia/oftalmo_pacote.dmn#oftalmo_pacote",
+    "dmn/opme-coluna/coluna_autorizacao_previa.dmn#coluna_autorizacao_previa",
+    "dmn/opme-coluna/coluna_dut_133.dmn#coluna_dut_133",
+    "dmn/opme-coluna/coluna_endoscopica.dmn#coluna_endoscopica",
+    "dmn/opme-coluna/coluna_pacote_enquadramento.dmn#coluna_pacote_enquadramento",
+    "dmn/ortopedia-opme/compatibilidade_ortop.dmn#compatibilidade_ortop",
+    "dmn/ortopedia-opme/pacote_artroplastia_ortop.dmn#pacote_artroplastia_ortop",
+    "dmn/otorrino-cabeca-pescoco/compatibilidade_orl.dmn#compatibilidade_orl",
+    "dmn/plastica-dermatologia/plast_autorizacao.dmn#plast_autorizacao",
+    "dmn/plastica-dermatologia/plast_cobertura.dmn#plast_cobertura",
+    "dmn/plastica-dermatologia/plast_dut.dmn#plast_dut",
+    "dmn/plastica-dermatologia/plast_limite_quantidade.dmn#plast_limite_quantidade",
+    "dmn/procedimentos-clinicos/clin_autorizacao.dmn#clin_autorizacao",
+    "dmn/procedimentos-clinicos/clin_cobertura.dmn#clin_cobertura",
+    "dmn/procedimentos-clinicos/clin_compatibilidade.dmn#clin_compatibilidade",
+    "dmn/procedimentos-clinicos/clin_dut.dmn#clin_dut",
+    "dmn/procedimentos-clinicos/clin_glosa.dmn#clin_glosa",
+    "dmn/procedimentos-clinicos/clin_limite_quantidade.dmn#clin_limite_quantidade",
+    "dmn/radioterapia/radio_autorizacao.dmn#radio_autorizacao",
+    "dmn/radioterapia/radio_cobertura.dmn#radio_cobertura",
+    "dmn/radioterapia/radio_compatibilidade.dmn#radio_compatibilidade",
+    "dmn/radioterapia/radio_limite_quantidade.dmn#radio_limite_quantidade",
+    "dmn/radioterapia/radio_pacote.dmn#radio_pacote",
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos",
+    "dmn/terapias-multiprofissionais-tea/teresp_cobertura.dmn#teresp_cobertura",
+    "dmn/terapias-multiprofissionais-tea/teresp_compatibilidade.dmn#teresp_compatibilidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_dut.dmn#teresp_dut",
+    "dmn/terapias-multiprofissionais-tea/teresp_limite_quantidade.dmn#teresp_limite_quantidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_pacote.dmn#teresp_pacote",
+    "dmn/torax-pneumologia/torax_autorizacao.dmn#torax_autorizacao",
+    "dmn/torax-pneumologia/torax_cobertura.dmn#torax_cobertura",
+    "dmn/torax-pneumologia/torax_compatibilidade.dmn#torax_compatibilidade",
+    "dmn/torax-pneumologia/torax_opme.dmn#torax_opme",
+    "dmn/transplantes/transpl_autorizacao.dmn#transpl_autorizacao",
+    "dmn/urologia/uro_autorizacao.dmn#uro_autorizacao",
+    "dmn/urologia/uro_cobertura.dmn#uro_cobertura",
+    "dmn/urologia/uro_dut.dmn#uro_dut",
+    "dmn/urologia/uro_opme.dmn#uro_opme"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": {
+    "campo_lago": "tem_cpt_vigente",
+    "classe_lago": "ja_existe",
+    "derivacao": "Leia tem_cpt_vigente. Só vale como cptVigente da data do atendimento depois que a rota avaliar na dataAtendimento.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "A vigência é calculada para hoje (date.today()), não para a data do atendimento: o valor atual diverge do que o dicionário pede enquanto a rota não receber dataAtendimento.",
+    "rota": "/cpt (gold tina_carencia_tipo com cpt=true)"
+   },
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "cptVigente",
+   "nome_maezo": null,
+   "nome_snake": "cpt_vigente",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "solicitação fora da TISS",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "criterioRevisaoAtendido",
+   "nome_maezo": null,
+   "nome_snake": "criterio_revisao_atendido",
+   "origem": "fora_tiss",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_autorizacao.dmn#diaria_autorizacao",
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura",
+    "dmn/diarias-taxas/diaria_compatibilidade.dmn#diaria_compatibilidade",
+    "dmn/diarias-taxas/diaria_excludentes.dmn#diaria_excludentes",
+    "dmn/diarias-taxas/diaria_limite_quantidade.dmn#diaria_limite_quantidade",
+    "dmn/diarias-taxas/diaria_pacote.dmn#diaria_pacote"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "guia TISS: tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao; tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dataSolicitacao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao; tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataInicioFaturamento",
+   "derivacao_lago": {
+    "campo_lago": "LACUNA (nenhuma rota tina recebe a data; nome do parâmetro ainda não definido)",
+    "classe_lago": "campo_novo",
+    "derivacao": "O consumidor lê a data da guia TISS (elementos do dicionário) e a envia como query opcional. Sem o parâmetro, a rota usa a data corrente.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "O relatório descreve query opcional \"com padrão hoje\" nas três rotas. Sem a data do atendimento, carência (saldo), CPT e situação cadastral ficam avaliadas em data errada.",
+    "rota": "/carencias, /cobertura e /cpt (parâmetro de entrada novo)"
+   },
+   "dominio": "padrão ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "dataAtendimento",
+   "nome_maezo": null,
+   "nome_snake": "data_atendimento",
+   "origem": "tiss",
+   "tabelas": [
+    "dmn/anatomia-patologica/anatpat_cobertura.dmn#anatpat_cobertura",
+    "dmn/anatomia-patologica/anatpat_compatibilidade.dmn#anatpat_compatibilidade",
+    "dmn/anatomia-patologica/anatpat_dut.dmn#anatpat_dut",
+    "dmn/anatomia-patologica/anatpat_limite_quantidade.dmn#anatpat_limite_quantidade",
+    "dmn/anatomia-patologica/anatpat_pacote.dmn#anatpat_pacote",
+    "dmn/anestesia-terapia-dor/anestdor_autorizacao.dmn#anestdor_autorizacao",
+    "dmn/anestesia-terapia-dor/anestdor_cobertura.dmn#anestdor_cobertura",
+    "dmn/anestesia-terapia-dor/anestdor_compatibilidade.dmn#anestdor_compatibilidade",
+    "dmn/anestesia-terapia-dor/anestdor_excludentes.dmn#anestdor_excludentes",
+    "dmn/anestesia-terapia-dor/anestdor_limite_quantidade.dmn#anestdor_limite_quantidade",
+    "dmn/anestesia-terapia-dor/anestdor_pacote.dmn#anestdor_pacote",
+    "dmn/cardiovascular/cardio_autorizacao.dmn#cardio_autorizacao",
+    "dmn/cardiovascular/cardio_cobertura.dmn#cardio_cobertura",
+    "dmn/cardiovascular/cardio_compatibilidade.dmn#cardio_compatibilidade",
+    "dmn/cardiovascular/cardio_dut.dmn#cardio_dut",
+    "dmn/cardiovascular/cardio_excludentes.dmn#cardio_excludentes",
+    "dmn/cardiovascular/cardio_limite_quantidade.dmn#cardio_limite_quantidade",
+    "dmn/cardiovascular/cardio_opme.dmn#cardio_opme",
+    "dmn/cardiovascular/cardio_opme_estrutural.dmn#cardio_opme_estrutural",
+    "dmn/cardiovascular/cardio_opme_vascular.dmn#cardio_opme_vascular",
+    "dmn/cardiovascular/cardio_pacote.dmn#cardio_pacote",
+    "dmn/cirurgia-bariatrica/bariat_autorizacao.dmn#bariat_autorizacao",
+    "dmn/cirurgia-bariatrica/bariat_dut_banda.dmn#bariat_dut_banda",
+    "dmn/cirurgia-bariatrica/bariat_dut_gastroplastia.dmn#bariat_dut_gastroplastia",
+    "dmn/cirurgia-bariatrica/bariat_excludentes.dmn#bariat_excludentes",
+    "dmn/cirurgia-bariatrica/bariat_opme_quantidade.dmn#bariat_opme_quantidade",
+    "dmn/cirurgia-bariatrica/bariat_pacote_enquadramento.dmn#bariat_pacote_enquadramento",
+    "dmn/cirurgia-geral-digestiva/cirger_autorizacao.dmn#cirger_autorizacao",
+    "dmn/cirurgia-geral-digestiva/cirger_compatibilidade.dmn#cirger_compatibilidade",
+    "dmn/cirurgia-geral-digestiva/cirger_dut_ablacao_hepatica.dmn#cirger_dut_ablacao_hepatica",
+    "dmn/cirurgia-geral-digestiva/cirger_excludentes.dmn#cirger_excludentes",
+    "dmn/cirurgia-geral-digestiva/cirger_limite_quantidade.dmn#cirger_limite_quantidade",
+    "dmn/cirurgia-geral-digestiva/cirger_pacote_episodio.dmn#cirger_pacote_episodio",
+    "dmn/cirurgia-geral-digestiva/cirger_peca_anatomopatologica.dmn#cirger_peca_anatomopatologica",
+    "dmn/cirurgia-geral-digestiva/cirger_pedido_eletivo.dmn#cirger_pedido_eletivo",
+    "dmn/consultas-telemedicina/consult_autorizacao.dmn#consult_autorizacao",
+    "dmn/consultas-telemedicina/consult_cobertura.dmn#consult_cobertura",
+    "dmn/consultas-telemedicina/consult_compatibilidade.dmn#consult_compatibilidade",
+    "dmn/consultas-telemedicina/consult_dut.dmn#consult_dut",
+    "dmn/consultas-telemedicina/consult_excludentes.dmn#consult_excludentes",
+    "dmn/consultas-telemedicina/consult_limite_quantidade.dmn#consult_limite_quantidade",
+    "dmn/consultas-telemedicina/consult_pacote.dmn#consult_pacote",
+    "dmn/diarias-taxas/diaria_autorizacao.dmn#diaria_autorizacao",
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura",
+    "dmn/diarias-taxas/diaria_compatibilidade.dmn#diaria_compatibilidade",
+    "dmn/diarias-taxas/diaria_excludentes.dmn#diaria_excludentes",
+    "dmn/diarias-taxas/diaria_limite_quantidade.dmn#diaria_limite_quantidade",
+    "dmn/diarias-taxas/diaria_opme.dmn#diaria_opme",
+    "dmn/diarias-taxas/diaria_pacote.dmn#diaria_pacote",
+    "dmn/endoscopia/endosc_autorizacao.dmn#endosc_autorizacao",
+    "dmn/endoscopia/endosc_cobertura.dmn#endosc_cobertura",
+    "dmn/endoscopia/endosc_compatibilidade.dmn#endosc_compatibilidade",
+    "dmn/endoscopia/endosc_dut.dmn#endosc_dut",
+    "dmn/endoscopia/endosc_excludentes.dmn#endosc_excludentes",
+    "dmn/endoscopia/endosc_limite_quantidade.dmn#endosc_limite_quantidade",
+    "dmn/endoscopia/endosc_pacote.dmn#endosc_pacote",
+    "dmn/exames-funcionais/exfunc_autorizacao.dmn#exfunc_autorizacao",
+    "dmn/exames-funcionais/exfunc_cobertura.dmn#exfunc_cobertura",
+    "dmn/exames-funcionais/exfunc_compatibilidade.dmn#exfunc_compatibilidade",
+    "dmn/exames-funcionais/exfunc_dut.dmn#exfunc_dut",
+    "dmn/exames-funcionais/exfunc_excludentes.dmn#exfunc_excludentes",
+    "dmn/exames-funcionais/exfunc_limite_quantidade.dmn#exfunc_limite_quantidade",
+    "dmn/exames-funcionais/exfunc_pacote.dmn#exfunc_pacote",
+    "dmn/genetica/genet_autorizacao.dmn#genet_autorizacao",
+    "dmn/genetica/genet_compatibilidade.dmn#genet_compatibilidade",
+    "dmn/genetica/genet_limite_quantidade.dmn#genet_limite_quantidade",
+    "dmn/genetica/genet_pacote.dmn#genet_pacote",
+    "dmn/ginecologia-obstetricia/go_autorizacao.dmn#go_autorizacao",
+    "dmn/ginecologia-obstetricia/go_cobertura.dmn#go_cobertura",
+    "dmn/ginecologia-obstetricia/go_compatibilidade.dmn#go_compatibilidade",
+    "dmn/ginecologia-obstetricia/go_dut.dmn#go_dut",
+    "dmn/ginecologia-obstetricia/go_excludentes.dmn#go_excludentes",
+    "dmn/ginecologia-obstetricia/go_limite_quantidade.dmn#go_limite_quantidade",
+    "dmn/ginecologia-obstetricia/go_opme.dmn#go_opme",
+    "dmn/ginecologia-obstetricia/go_pacote.dmn#go_pacote",
+    "dmn/hemodialise-nefrologia/nefro_autorizacao.dmn#nefro_autorizacao",
+    "dmn/hemodialise-nefrologia/nefro_cobertura.dmn#nefro_cobertura",
+    "dmn/hemodialise-nefrologia/nefro_compatibilidade.dmn#nefro_compatibilidade",
+    "dmn/hemodialise-nefrologia/nefro_excludentes.dmn#nefro_excludentes",
+    "dmn/hemodialise-nefrologia/nefro_glosa.dmn#nefro_glosa",
+    "dmn/hemodialise-nefrologia/nefro_limite.dmn#nefro_limite",
+    "dmn/hemodialise-nefrologia/nefro_pacote.dmn#nefro_pacote",
+    "dmn/hemoterapia/hemot_autorizacao.dmn#hemot_autorizacao",
+    "dmn/hemoterapia/hemot_cobertura.dmn#hemot_cobertura",
+    "dmn/hemoterapia/hemot_compatibilidade.dmn#hemot_compatibilidade",
+    "dmn/hemoterapia/hemot_glosa.dmn#hemot_glosa",
+    "dmn/hemoterapia/hemot_limite_quantidade.dmn#hemot_limite_quantidade",
+    "dmn/hemoterapia/hemot_pacote.dmn#hemot_pacote",
+    "dmn/imagem-alto-custo/imgac_autorizacao.dmn#imgac_autorizacao",
+    "dmn/imagem-alto-custo/imgac_cobertura.dmn#imgac_cobertura",
+    "dmn/imagem-alto-custo/imgac_compatibilidade.dmn#imgac_compatibilidade",
+    "dmn/imagem-alto-custo/imgac_dut.dmn#imgac_dut",
+    "dmn/imagem-alto-custo/imgac_dut_ablacao.dmn#imgac_dut_ablacao",
+    "dmn/imagem-alto-custo/imgac_limite_intervalo.dmn#imgac_limite_intervalo",
+    "dmn/imagem-alto-custo/imgac_limite_quantidade.dmn#imgac_limite_quantidade",
+    "dmn/imagem-alto-custo/imgac_pacote.dmn#imgac_pacote",
+    "dmn/imagem-convencional/imgconv_autorizacao.dmn#imgconv_autorizacao",
+    "dmn/imagem-convencional/imgconv_cobertura.dmn#imgconv_cobertura",
+    "dmn/imagem-convencional/imgconv_compatibilidade.dmn#imgconv_compatibilidade",
+    "dmn/imagem-convencional/imgconv_criterio.dmn#imgconv_criterio",
+    "dmn/imagem-convencional/imgconv_dut.dmn#imgconv_dut",
+    "dmn/imagem-convencional/imgconv_excludentes.dmn#imgconv_excludentes",
+    "dmn/imagem-convencional/imgconv_limite_intervalo.dmn#imgconv_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_limite_intervalo_us.dmn#imgconv_limite_intervalo_us",
+    "dmn/imagem-convencional/imgconv_limite_quantidade.dmn#imgconv_limite_quantidade",
+    "dmn/imagem-convencional/imgconv_pacote.dmn#imgconv_pacote",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_autorizacao.dmn#imunob_autorizacao",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_cobertura.dmn#imunob_cobertura",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_dut.dmn#imunob_dut",
+    "dmn/imunobiologicos-imunoglobulinas/imunob_limite_quantidade.dmn#imunob_limite_quantidade",
+    "dmn/laboratorio/lab_autorizacao.dmn#lab_autorizacao",
+    "dmn/laboratorio/lab_cobertura.dmn#lab_cobertura",
+    "dmn/laboratorio/lab_composicao.dmn#lab_composicao",
+    "dmn/laboratorio/lab_dut.dmn#lab_dut",
+    "dmn/laboratorio/lab_glosa.dmn#lab_glosa",
+    "dmn/laboratorio/lab_limite_quantidade.dmn#lab_limite_quantidade",
+    "dmn/mastologia/mama_autorizacao.dmn#mama_autorizacao",
+    "dmn/mastologia/mama_cobertura.dmn#mama_cobertura",
+    "dmn/mastologia/mama_excludentes.dmn#mama_excludentes",
+    "dmn/mastologia/mama_opme.dmn#mama_opme",
+    "dmn/mastologia/mama_pacote.dmn#mama_pacote",
+    "dmn/medicina-nuclear/mednuc_autorizacao.dmn#mednuc_autorizacao",
+    "dmn/medicina-nuclear/mednuc_cobertura.dmn#mednuc_cobertura",
+    "dmn/medicina-nuclear/mednuc_dut.dmn#mednuc_dut",
+    "dmn/medicina-nuclear/mednuc_excludentes.dmn#mednuc_excludentes",
+    "dmn/medicina-nuclear/mednuc_glosa.dmn#mednuc_glosa",
+    "dmn/medicina-nuclear/mednuc_limite_quantidade.dmn#mednuc_limite_quantidade",
+    "dmn/medicina-nuclear/mednuc_pacote.dmn#mednuc_pacote",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_autorizacao.dmn#neuro_autorizacao",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_cobertura.dmn#neuro_cobertura",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_dut.dmn#neuro_dut",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_excludentes.dmn#neuro_excludentes",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_limite_quantidade.dmn#neuro_limite_quantidade",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_opme.dmn#neuro_opme",
+    "dmn/neurocirurgia-neuroestimulacao/neuro_pacote.dmn#neuro_pacote",
+    "dmn/odontologia-hospitalar/odonto_cobertura.dmn#odonto_cobertura",
+    "dmn/odontologia-hospitalar/odonto_dut.dmn#odonto_dut",
+    "dmn/odontologia-hospitalar/odonto_opme.dmn#odonto_opme",
+    "dmn/oftalmologia/oftalmo_autorizacao.dmn#oftalmo_autorizacao",
+    "dmn/oftalmologia/oftalmo_cobertura.dmn#oftalmo_cobertura",
+    "dmn/oftalmologia/oftalmo_compatibilidade.dmn#oftalmo_compatibilidade",
+    "dmn/oftalmologia/oftalmo_dut.dmn#oftalmo_dut",
+    "dmn/oftalmologia/oftalmo_excludentes.dmn#oftalmo_excludentes",
+    "dmn/oftalmologia/oftalmo_limite_quantidade.dmn#oftalmo_limite_quantidade",
+    "dmn/oftalmologia/oftalmo_opme.dmn#oftalmo_opme",
+    "dmn/oftalmologia/oftalmo_pacote.dmn#oftalmo_pacote",
+    "dmn/oncologia-terapia-sistemica/oncoqt_autorizacao.dmn#oncoqt_autorizacao",
+    "dmn/oncologia-terapia-sistemica/oncoqt_cobertura.dmn#oncoqt_cobertura",
+    "dmn/oncologia-terapia-sistemica/oncoqt_dut.dmn#oncoqt_dut",
+    "dmn/oncologia-terapia-sistemica/oncoqt_excludentes.dmn#oncoqt_excludentes",
+    "dmn/oncologia-terapia-sistemica/oncoqt_glosa.dmn#oncoqt_glosa",
+    "dmn/oncologia-terapia-sistemica/oncoqt_limite_quantidade.dmn#oncoqt_limite_quantidade",
+    "dmn/oncologia-terapia-sistemica/oncoqt_pacote.dmn#oncoqt_pacote",
+    "dmn/opme-coluna/coluna_autorizacao_previa.dmn#coluna_autorizacao_previa",
+    "dmn/opme-coluna/coluna_dut_133.dmn#coluna_dut_133",
+    "dmn/opme-coluna/coluna_endoscopica.dmn#coluna_endoscopica",
+    "dmn/opme-coluna/coluna_excludentes.dmn#coluna_excludentes",
+    "dmn/opme-coluna/coluna_opme_prova_uso.dmn#coluna_opme_prova_uso",
+    "dmn/opme-coluna/coluna_opme_quantidade.dmn#coluna_opme_quantidade",
+    "dmn/opme-coluna/coluna_opme_solicitacao.dmn#coluna_opme_solicitacao",
+    "dmn/opme-coluna/coluna_pacote_enquadramento.dmn#coluna_pacote_enquadramento",
+    "dmn/otorrino-cabeca-pescoco/autorizacao_orl.dmn#autorizacao_orl",
+    "dmn/otorrino-cabeca-pescoco/compatibilidade_orl.dmn#compatibilidade_orl",
+    "dmn/otorrino-cabeca-pescoco/dut_implante_coclear_orl.dmn#dut_implante_coclear_orl",
+    "dmn/otorrino-cabeca-pescoco/dut_laserterapia_orl.dmn#dut_laserterapia_orl",
+    "dmn/otorrino-cabeca-pescoco/dut_protese_ancorada_orl.dmn#dut_protese_ancorada_orl",
+    "dmn/otorrino-cabeca-pescoco/especime_orl.dmn#especime_orl",
+    "dmn/otorrino-cabeca-pescoco/mex_orl.dmn#mex_orl",
+    "dmn/otorrino-cabeca-pescoco/opme_lista_orl.dmn#opme_lista_orl",
+    "dmn/otorrino-cabeca-pescoco/opme_processo_orl.dmn#opme_processo_orl",
+    "dmn/otorrino-cabeca-pescoco/pacote_orl.dmn#pacote_orl",
+    "dmn/plastica-dermatologia/plast_autorizacao.dmn#plast_autorizacao",
+    "dmn/plastica-dermatologia/plast_cobertura.dmn#plast_cobertura",
+    "dmn/plastica-dermatologia/plast_compatibilidade.dmn#plast_compatibilidade",
+    "dmn/plastica-dermatologia/plast_dut.dmn#plast_dut",
+    "dmn/plastica-dermatologia/plast_excludentes.dmn#plast_excludentes",
+    "dmn/plastica-dermatologia/plast_limite_quantidade.dmn#plast_limite_quantidade",
+    "dmn/plastica-dermatologia/plast_pacote.dmn#plast_pacote",
+    "dmn/procedimentos-clinicos/clin_autorizacao.dmn#clin_autorizacao",
+    "dmn/procedimentos-clinicos/clin_cobertura.dmn#clin_cobertura",
+    "dmn/procedimentos-clinicos/clin_compatibilidade.dmn#clin_compatibilidade",
+    "dmn/procedimentos-clinicos/clin_dut.dmn#clin_dut",
+    "dmn/procedimentos-clinicos/clin_excludentes.dmn#clin_excludentes",
+    "dmn/procedimentos-clinicos/clin_glosa.dmn#clin_glosa",
+    "dmn/procedimentos-clinicos/clin_limite_quantidade.dmn#clin_limite_quantidade",
+    "dmn/procedimentos-clinicos/clin_pacote.dmn#clin_pacote",
+    "dmn/radioterapia/radio_autorizacao.dmn#radio_autorizacao",
+    "dmn/radioterapia/radio_cobertura.dmn#radio_cobertura",
+    "dmn/radioterapia/radio_compatibilidade.dmn#radio_compatibilidade",
+    "dmn/radioterapia/radio_limite_quantidade.dmn#radio_limite_quantidade",
+    "dmn/radioterapia/radio_pacote.dmn#radio_pacote",
+    "dmn/regras-gerais/geral_autorizacao_materiais.dmn#geral_autorizacao_materiais",
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia",
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt",
+    "dmn/regras-gerais/geral_elegibilidade.dmn#geral_elegibilidade",
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos",
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta",
+    "dmn/terapias-multiprofissionais-tea/teresp_autorizacao.dmn#teresp_autorizacao",
+    "dmn/terapias-multiprofissionais-tea/teresp_cobertura.dmn#teresp_cobertura",
+    "dmn/terapias-multiprofissionais-tea/teresp_compatibilidade.dmn#teresp_compatibilidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_dut.dmn#teresp_dut",
+    "dmn/terapias-multiprofissionais-tea/teresp_excludentes.dmn#teresp_excludentes",
+    "dmn/terapias-multiprofissionais-tea/teresp_limite_quantidade.dmn#teresp_limite_quantidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_pacote.dmn#teresp_pacote",
+    "dmn/torax-pneumologia/torax_autorizacao.dmn#torax_autorizacao",
+    "dmn/torax-pneumologia/torax_cobertura.dmn#torax_cobertura",
+    "dmn/torax-pneumologia/torax_compatibilidade.dmn#torax_compatibilidade",
+    "dmn/torax-pneumologia/torax_excludentes.dmn#torax_excludentes",
+    "dmn/torax-pneumologia/torax_limite_quantidade.dmn#torax_limite_quantidade",
+    "dmn/torax-pneumologia/torax_opme.dmn#torax_opme",
+    "dmn/torax-pneumologia/torax_pacote.dmn#torax_pacote",
+    "dmn/transplantes/transpl_autorizacao.dmn#transpl_autorizacao",
+    "dmn/transplantes/transpl_contas.dmn#transpl_contas",
+    "dmn/transplantes/transpl_dut_tcth.dmn#transpl_dut_tcth",
+    "dmn/transplantes/transpl_itens_conta.dmn#transpl_itens_conta",
+    "dmn/urgencia/urg_enquadramento.dmn#urg_enquadramento",
+    "dmn/urgencia/urg_roteamento_opme.dmn#urg_roteamento_opme",
+    "dmn/urologia/uro_autorizacao.dmn#uro_autorizacao",
+    "dmn/urologia/uro_cobertura.dmn#uro_cobertura",
+    "dmn/urologia/uro_dut.dmn#uro_dut",
+    "dmn/urologia/uro_excludentes.dmn#uro_excludentes",
+    "dmn/urologia/uro_opme.dmn#uro_opme",
+    "dmn/urologia/uro_pacote.dmn#uro_pacote"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "deficienciaCadastro",
+   "nome_maezo": null,
+   "nome_snake": "deficiencia_cadastro",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Fórmula: diasAteApresentacao - prazoApresentacaoContratualDias. Termo diasAteApresentacao: TISS (dias corridos entre a alta, dataFinalFaturamento, ou a dataExecucao ambulatorial e o recebimento do lote, protocolo de recebimento). Termo prazoApresentacaoContratualDias: cadastro do contrato vigente do prestador (30 no contrato e no aditivo OMNI; outro valor no contrato migrado sem aditivo). Nulo: se faltar qualquer termo, ou se o prazo do contrato for negativo (cadastro inconsistente), o worker manda nulo e nunca há glosa (conta em até 30 dias segue; depois de 30 dias, faturamento). Positivo = fora do prazo do contrato. Ausente no extrato do backtest 2026-10 (decisão C2-prazo-conta-02). [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao]",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "diasAteApresentacao - prazoApresentacaoContratualDias (nulo se faltar um dos termos ou se o prazo do contrato for negativo)",
+    "termos": [
+     {
+      "fonte": "entrada diasAteApresentacao deste dicionário (dias corridos entre dataFinalFaturamento ou dataExecucao e o protocolo de recebimento do lote)",
+      "nome": "diasAteApresentacao",
+      "origem": "derivado"
+     },
+     {
+      "fonte": "cadastro do contrato vigente do prestador (prazo de apresentação da conta, em dias)",
+      "nome": "prazoApresentacaoContratualDias",
+      "origem": "cadastro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "diasAlemDoPrazoContratual",
+   "nome_maezo": null,
+   "nome_snake": "dias_alem_do_prazo_contratual",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Dias corridos entre a dataExecucao do procedimento cirúrgico do mesmo profissional e a dataExecucao do item. [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao]",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "dataExecucao(item) - dataExecucao(procedimento cirúrgico do mesmo profissional), em dias corridos (nulo se faltar um dos termos)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao",
+      "nome": "dataExecucaoItem",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao do procedimento cirúrgico (TUSS 22, grupo 3) executado pelo mesmo profissional (codProfissional da equipe)",
+      "nome": "dataExecucaoCirurgia",
+      "origem": "tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "diasAposCirurgia",
+   "nome_maezo": null,
+   "nome_snake": "dias_apos_cirurgia",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Dias corridos entre a alta (dataFinalFaturamento) ou a dataExecucao ambulatorial e o recebimento do lote de cobrança (protocolo de recebimento). [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao]",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "dataRecebimentoLote - dataFinalFaturamento (internação, alta) ou dataRecebimentoLote - dataExecucao (ambulatorial), em dias corridos (nulo se faltar um dos termos)",
+    "regimes": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_guiaLote/guiasTISS/guiaResumoInternacao (ctm_internacaoResumoGuia/dadosInternacao, ctm_internacaoDados/dataFinalFaturamento)",
+      "regime": "internacao",
+      "termo_data": "dataFinalFaturamento",
+      "tipos_guia": [
+       "guiaResumoInternacao"
+      ]
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_guiaLote/guiasTISS/guiaSP-SADT (ctm_sp-sadtGuia, tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao)",
+      "regime": "ambulatorial",
+      "termo_data": "dataExecucao",
+      "tipos_guia": [
+       "guiaSP-SADT"
+      ]
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_guiaLote/guiasTISS (guiaConsulta: ctm_consultaAtendimento/dataAtendimento; guiaHonorarios: ct_procedimentoExecutadoHonorIndiv/dataExecucao; guiaOdonto: cto_guiaOdontologia/procedimentosExecutados/dataRealizacao)",
+      "lacuna": "A descrição da entrada define só a alta (internação) e a dataExecucao ambulatorial (SP/SADT); a data de referência destas guias não tem fonte (L-prog-rco-04, item 11). O valor é nulo, e nulo nunca glosa.",
+      "regime": "sem_regime",
+      "termo_data": null,
+      "tipos_guia": [
+       "guiaConsulta",
+       "guiaHonorarios",
+       "guiaOdonto"
+      ]
+     }
+    ],
+    "termos": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento (data da alta, guia de resumo de internação)",
+      "nome": "dataFinalFaturamento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao (atendimento ambulatorial)",
+      "nome": "dataExecucao",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "protocolo de recebimento do lote de cobrança (não é elemento da guia)",
+      "nome": "dataRecebimentoLote",
+      "origem": "fora_tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "diasAteApresentacao",
+   "nome_maezo": null,
+   "nome_snake": "dias_ate_apresentacao",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Dias corridos entre o demonstrativo de análise da conta e o recebimento do lote de recurso de glosa.",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "dataRecebimentoLoteRecurso - dataDemonstrativoAnalise, em dias corridos (nulo se faltar um dos termos)",
+    "termos": [
+     {
+      "fonte": "data do demonstrativo de análise da conta (descrição da derivação; elemento do XSD não registrado)",
+      "nome": "dataDemonstrativoAnalise",
+      "origem": "fora_tiss"
+     },
+     {
+      "fonte": "protocolo de recebimento do lote de recurso de glosa (não é elemento da guia)",
+      "nome": "dataRecebimentoLoteRecurso",
+      "origem": "fora_tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "diasAteRecurso",
+   "nome_maezo": null,
+   "nome_snake": "dias_ate_recurso",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "diasDesdeFimImpedimento",
+   "nome_maezo": null,
+   "nome_snake": "dias_desde_fim_impedimento",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_apresentacao_extemporanea.dmn#geral_apresentacao_extemporanea"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{senha_emitida_apos_atendimento, indisponibilidade_registrada, cadastro_regularizado_apos_atendimento, protocolo_operadora_origem_no_prazo, devolucao_tecnica_registrada, nenhuma}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "evidenciaOperadora",
+   "nome_maezo": null,
+   "nome_snake": "evidencia_operadora",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_apresentacao_extemporanea.dmn#geral_apresentacao_extemporanea"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: codigoProcedimento (TUSS 18) do item cobrado classificado por regras/diarias-taxas/dominio.yaml: classes (por termo), famílias tuss18_* (primeira palavra do termo, familias_codigos) e temas tema_* (seções do M.A.M.E. sem código). Um código em mais de uma classe fica de fora (ambíguo: entrada nula). [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoOutras/codigoProcedimento]",
+   "derivacao_lago": null,
+   "dominio": "{tema_admissao_em_uti, tema_curativos_regras_especificas, tema_desmame_ventilatorio, tema_diaria_global, tema_diaria_hospitalar, tema_diaria_semi_global, … (73 valores)}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "classificar(codigoProcedimento, regras/diarias-taxas/dominio.yaml) = classe, família tuss18_* ou tema_*; nulo se o código tem mais de uma classe (ambíguo)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoOutras/codigoProcedimento (TUSS 18)",
+      "nome": "codigoProcedimento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "regras/diarias-taxas/dominio.yaml (classes por termo, familias_codigos e temas tema_*)",
+      "nome": "tabelaClassificacao",
+      "origem": "parametro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "familiaDiariaTaxa",
+   "nome_maezo": null,
+   "nome_snake": "familia_diaria_taxa",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_autorizacao.dmn#diaria_autorizacao",
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura",
+    "dmn/diarias-taxas/diaria_compatibilidade.dmn#diaria_compatibilidade",
+    "dmn/diarias-taxas/diaria_excludentes.dmn#diaria_excludentes",
+    "dmn/diarias-taxas/diaria_limite_quantidade.dmn#diaria_limite_quantidade",
+    "dmn/diarias-taxas/diaria_opme.dmn#diaria_opme",
+    "dmn/diarias-taxas/diaria_pacote.dmn#diaria_pacote"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": {
+    "campo_lago": "nr_seq_tipo_carencia (o tipo sai hoje só como descrição livre)",
+    "classe_lago": "derivavel",
+    "derivacao": "Aplique um de-para nr_seq_tipo_carencia para grupo (parto_a_termo ou demais), mantido pelo negócio numa coluna nova de tina_carencia_tipo, ou obtido da ingestão de PLS_GRUPO_CARENCIA se a tabela existir. Não rotule \"parto\" por texto da descrição.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "Derivável com curadoria: o de-para ainda não existe. A existência de PLS_GRUPO_CARENCIA no Tasy está condicionada a confirmação (LACUNA). O dicionário define o grupo pelo código TUSS do pedido; o relatório não diz como a rota /cobertura liga o procedimento ao grupo além do vínculo tipo-procedimento citado em procedimentoAlcancadoCpt (LACUNA).",
+    "rota": "/cobertura (carencias[]; gold tina_carencia_tipo)"
+   },
+   "dominio": "{parto_a_termo, demais}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "grupoCarencia",
+   "nome_maezo": null,
+   "nome_snake": "grupo_carencia",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "faixa 0..130",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "idadeBeneficiario",
+   "nome_maezo": "idade_anos",
+   "nome_snake": "idade_anos",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/cirurgia-bariatrica/bariat_dut_banda.dmn#bariat_dut_banda",
+    "dmn/cirurgia-bariatrica/bariat_dut_gastroplastia.dmn#bariat_dut_gastroplastia",
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura",
+    "dmn/exames-funcionais/exfunc_compatibilidade.dmn#exfunc_compatibilidade",
+    "dmn/exames-funcionais/exfunc_dut.dmn#exfunc_dut",
+    "dmn/ginecologia-obstetricia/go_dut.dmn#go_dut",
+    "dmn/opme-coluna/coluna_dut_133.dmn#coluna_dut_133",
+    "dmn/ortopedia-opme/compatibilidade_ortop.dmn#compatibilidade_ortop",
+    "dmn/otorrino-cabeca-pescoco/dut_implante_coclear_orl.dmn#dut_implante_coclear_orl",
+    "dmn/radioterapia/radio_cobertura.dmn#radio_cobertura",
+    "dmn/terapias-multiprofissionais-tea/teresp_dut.dmn#teresp_dut",
+    "dmn/transplantes/transpl_dut_tcth.dmn#transpl_dut_tcth"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: true quando tipoInternacao é 3 (obstétrica, Tabela 57) e o anexo da conta indica acompanhante escolhido pela mulher; false quando a internação não é obstétrica; nulo quando o tipo não foi extraído. O texto do anexo nunca entra no payload: o worker grava só o booleano. [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoDados/tipoInternacao; tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dadosInternacao/tipoInternacao]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "tipoInternacao == 3 e o anexo da conta indica acompanhante escolhido pela mulher; false se a internação não é obstétrica; nulo se tipoInternacao não foi extraído (o texto do anexo nunca entra no payload)",
+    "termos": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDados/tipoInternacao ou ctm_internacaoSolicitacaoGuia/dadosInternacao/tipoInternacao (3 = obstétrica, Tabela 57)",
+      "nome": "tipoInternacao",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "anexo da conta que indica acompanhante escolhido pela mulher (só o booleano é gravado)",
+      "nome": "acompanhanteNoAnexo",
+      "origem": "fora_tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "internacaoObstetricaComAcompanhante",
+   "nome_maezo": null,
+   "nome_snake": "internacao_obstetrica_com_acompanhante",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_cobertura.dmn#diaria_cobertura"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "solicitação fora da TISS",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "internacaoProgramadaOuComplicacao",
+   "nome_maezo": null,
+   "nome_snake": "internacao_programada_ou_complicacao",
+   "origem": "fora_tiss",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_limite_quantidade.dmn#diaria_limite_quantidade"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: O profissional executante do item (identificação da equipe) também executou procedimento cirúrgico (TUSS 22, grupo 3) na mesma guia ou internação. O mesmo vínculo com a internação define o regime usado por OMNI-GERAL-MEX-0001 e OMNI-GERAL-MEX-0002: o worker deriva a entrada regime da internação vinculada ao item (guia de resumo de internação ou de solicitação de internação da mesma internação em que o profissional operou), não da guia do item. Uma visita 10102019 cobrada em guia de honorários herda o regime da internação vinculada. Se não houver internação vinculada, o regime fica nulo; com a cláusula de itens incluídos no contrato, regime nulo vai à fila faturamento com o item pendente, sem pagamento e sem glosa; sem a cláusula, o item é pago. [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/identEquipe; tissComplexTypesV4_03_00.xsd#ct_identEquipe/codProfissional]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "existe procedimento cirúrgico (TUSS 22, grupo 3) na mesma guia ou internação cujo codProfissional da equipe é igual ao codProfissional do item executado (nulo se o profissional do item não foi extraído)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_identEquipe/codProfissional do item (ct_procedimentoExecutadoInt/identEquipe)",
+      "nome": "codProfissionalItem",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_identEquipe/codProfissional dos procedimentos cirúrgicos da mesma guia ou internação",
+      "nome": "codProfissionalCirurgia",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "TUSS 22, grupo 3 (fontes/derivados/tuss-22-202609.csv, id_fonte ANS-TUSS-22-202609)",
+      "nome": "procedimentoCirurgico",
+      "origem": "parametro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "mesmoProfissionalCirurgia",
+   "nome_maezo": null,
+   "nome_snake": "mesmo_profissional_cirurgia",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "{atraso_imputavel_operadora, transicao_carteira, devolucao_tecnica, caso_fortuito_forca_maior, ordem_judicial, outro}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "motivoExtemporaneidade",
+   "nome_maezo": null,
+   "nome_snake": "motivo_extemporaneidade",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_apresentacao_extemporanea.dmn#geral_apresentacao_extemporanea"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Isenção de carência que vale para o atendimento, com a base de cada valor. Urgência e emergência NÃO geram valor aqui: a urgência em carência vai à regulação (OMNI-GERAL-CAR-0003), porque a isenção depende da definição estrita do art. 35-C da LEI-9656-1998, a Resolução CONSU 13/1998 está sem vigência registrada e o ponto J-d6-geral-01 segue aberto; o caráter TISS 2 sozinho não prova urgência. portabilidade: portabilidade de carências ou aproveitamento registrado no cadastro (ANS-RN-438 art. 2º, I). dispensa_contratual: o contrato ou a proposta dispensa a carência do grupo (cadastro; LEI-9656-1998 art. 12, V fixa só prazos máximos). coletivo_ingresso_30_dias: plano coletivo empresarial com 30 beneficiários ou mais e ingresso em até 30 dias da celebração do contrato coletivo ou da vinculação à pessoa jurídica contratante, ou coletivo por adesão com ingresso em até 30 dias da celebração do contrato ou do aniversário (ANS-RN-557 arts. 6º e 17). recem_nascido_30_dias: recém-nascido, filho natural ou adotivo do beneficiário ou de seu dependente, inscrito em até 30 dias do nascimento ou da adoção, em plano que inclui atendimento obstétrico (LEI-9656-1998 art. 12, III, b); quem afirma a isenção é o cadastro, pela segmentação do plano (com obstetrícia) e pelas datas; segmentação desconhecida vai nula e o caso segue à fila cadastro, nunca à negativa. nenhuma: o cadastro afirma que não há isenção. Nulo: o cadastro não informa; nunca vira negativa.",
+   "derivacao_lago": null,
+   "dominio": "{nenhuma, portabilidade, dispensa_contratual, coletivo_ingresso_30_dias, recem_nascido_30_dias}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "isencaoCadastro (portabilidade, dispensa_contratual, coletivo_ingresso_30_dias, recem_nascido_30_dias com segmentação que inclui obstetrícia, ou nenhuma); nulo se o cadastro não informar ou se a segmentação do plano for desconhecida",
+    "termos": [
+     {
+      "fonte": "TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD",
+      "nome": "dataAtendimento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "cadastro do beneficiário e do contrato (portabilidade, dispensa contratual, ingresso no prazo da RN 557, recém-nascido no prazo legal ou nenhuma)",
+      "nome": "isencaoCadastro",
+      "origem": "cadastro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "motivoIsencaoCarencia",
+   "nome_maezo": null,
+   "nome_snake": "motivo_isencao_carencia",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": null,
+   "dominio": "faixa -36500..36500",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "pedidosExtemporaneos12mPrestador",
+   "nome_maezo": null,
+   "nome_snake": "pedidos_extemporaneos_12m_prestador",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_apresentacao_extemporanea.dmn#geral_apresentacao_extemporanea"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: TISS codigoProcedimento classificado como PAC no Rol (fontes/derivados/rol-correlacao-tuss.csv), cirúrgico (TUSS 22, grupo 3) ou diária de leito de alta tecnologia (TUSS 18). [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoDados/codigoProcedimento]",
+   "derivacao_lago": {
+    "campo_lago": "proposta: `cpt: boolean` no item de carencias[] (hoje só o rótulo genérico de CPT)",
+    "classe_lago": "campo_novo",
+    "derivacao": "Leia o booleano `cpt` do item de carencias[] do procedimento, quando o K3 o criar. Hoje o lago devolve o rótulo genérico de CPT quando PLS_CARENCIA_PROC liga o tipo de carência ao procedimento (derivação frágil).",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "DIVERGÊNCIA DE SENTIDO. O dicionário define a entrada como derivada da guia TISS: código classificado como PAC no Rol, cirúrgico (TUSS 22, grupo 3) ou diária de leito de alta tecnologia (TUSS 18). O relatório descreve o vínculo tipo de carência x procedimento (PLS_CARENCIA_PROC). Os dois critérios não são o mesmo: a equivalência é LACUNA, e o consumidor deve manter o cálculo do dicionário até o negócio confirmar. Registrar em K1/K3.",
+    "rota": "/cobertura (carencias[])"
+   },
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "codigoProcedimento é PAC no Rol (fontes/derivados/rol-correlacao-tuss.csv) OU é cirúrgico (TUSS 22, grupo 3) OU é diária de leito de alta tecnologia (TUSS 18) (nulo se o código não foi extraído)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoDados/codigoProcedimento",
+      "nome": "codigoProcedimento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "fontes/derivados/rol-correlacao-tuss.csv (PAC no Rol)",
+      "nome": "classificacaoPacRol",
+      "origem": "parametro"
+     },
+     {
+      "fonte": "TUSS 22, grupo 3 (fontes/derivados/tuss-22-202609.csv)",
+      "nome": "procedimentoCirurgico",
+      "origem": "parametro"
+     },
+     {
+      "fonte": "TUSS 18 (fontes/derivados/tuss-18-202609.csv): quais códigos são de alta tecnologia não está registrado (LACUNA L-prog-rco-04)",
+      "nome": "diariaLeitoAltaTecnologia",
+      "origem": "parametro"
+     }
+    ]
+   },
+   "lacuna_lago": false,
+   "nome_dmn": "procedimentoAlcancadoCpt",
+   "nome_maezo": null,
+   "nome_snake": "procedimento_alcancado_cpt",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_cpt.dmn#geral_cpt"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: internacao ← regimeInternacao 1 (Hospitalar, Tab 41) ou regimeAtendimento 03 (Internação, Tab 76); hospital_dia ← regimeInternacao 2 (Hospital-dia, Tab 41); ambulatorial ← regimeAtendimento 01 (Ambulatorial, Tab 76); pronto_socorro ← regimeAtendimento 04 (Pronto Socorro, Tab 76). Outros códigos (02 Domiciliar, 05 Telessaúde, regimeInternacao 3 Domiciliar) → nulo. [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dadosInternacao/regimeInternacao; tissGuiasV4_03_00.xsd#ctm_internacaoDados/regimeInternacao; tissGuiasV4_03_00.xsd#ctm_sp-sadtAtendimento/regimeAtendimento]",
+   "derivacao_lago": null,
+   "dominio": "{ambulatorial, pronto_socorro, hospital_dia, internacao}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "regime = internacao se regimeInternacao = 1 (Tab 41) OU regimeAtendimento = 03 (Tab 76); hospital_dia se regimeInternacao = 2; ambulatorial se regimeAtendimento = 01; pronto_socorro se regimeAtendimento = 04; nulo nos demais códigos (regimeAtendimento 02 e 05, regimeInternacao 3)",
+    "termos": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dadosInternacao/regimeInternacao e tissGuiasV4_03_00.xsd#ctm_internacaoDados/regimeInternacao (Tabela 41, aba 'Tab 41', ANS-TISS-TAB38)",
+      "nome": "regimeInternacao",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_sp-sadtAtendimento/regimeAtendimento (Tabela 76, comentário de dm_regimeAtendimento em tissSimpleTypesV4_03_00.xsd)",
+      "nome": "regimeAtendimento",
+      "origem": "tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "regime",
+   "nome_maezo": null,
+   "nome_snake": "regime_atendimento",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/cirurgia-geral-digestiva/cirger_autorizacao.dmn#cirger_autorizacao",
+    "dmn/endoscopia/endosc_autorizacao.dmn#endosc_autorizacao",
+    "dmn/endoscopia/endosc_cobertura.dmn#endosc_cobertura",
+    "dmn/exames-funcionais/exfunc_cobertura.dmn#exfunc_cobertura",
+    "dmn/imagem-alto-custo/imgac_limite_intervalo.dmn#imgac_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_autorizacao.dmn#imgconv_autorizacao",
+    "dmn/imagem-convencional/imgconv_limite_intervalo.dmn#imgconv_limite_intervalo",
+    "dmn/imagem-convencional/imgconv_limite_intervalo_us.dmn#imgconv_limite_intervalo_us",
+    "dmn/imagem-convencional/imgconv_pacote.dmn#imgconv_pacote",
+    "dmn/odontologia-hospitalar/odonto_cobertura.dmn#odonto_cobertura",
+    "dmn/odontologia-hospitalar/odonto_dut.dmn#odonto_dut",
+    "dmn/oftalmologia/oftalmo_pacote.dmn#oftalmo_pacote",
+    "dmn/ortopedia-opme/autorizacao_ortop.dmn#autorizacao_ortop",
+    "dmn/ortopedia-opme/imobilizacao_ortop.dmn#imobilizacao_ortop",
+    "dmn/otorrino-cabeca-pescoco/autorizacao_orl.dmn#autorizacao_orl",
+    "dmn/procedimentos-clinicos/clin_autorizacao.dmn#clin_autorizacao",
+    "dmn/procedimentos-clinicos/clin_cobertura.dmn#clin_cobertura",
+    "dmn/procedimentos-clinicos/clin_compatibilidade.dmn#clin_compatibilidade",
+    "dmn/procedimentos-clinicos/clin_pacote.dmn#clin_pacote",
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos",
+    "dmn/terapias-multiprofissionais-tea/teresp_autorizacao.dmn#teresp_autorizacao",
+    "dmn/terapias-multiprofissionais-tea/teresp_compatibilidade.dmn#teresp_compatibilidade",
+    "dmn/terapias-multiprofissionais-tea/teresp_dut.dmn#teresp_dut",
+    "dmn/terapias-multiprofissionais-tea/teresp_pacote.dmn#teresp_pacote"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: registroANVISA preenchido no item de material, dispositivo ou OPME cobrado (elemento opcional, 0..1, no XSD). Difere de registroAnvisaInformado (COLUNA, todos os itens do anexo de OPME). [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoOutras/registroANVISA]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "registroANVISA do item de material, dispositivo ou OPME está preenchido (elemento opcional 0..1)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoOutras/registroANVISA",
+      "nome": "registroANVISA",
+      "origem": "tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "registroAnvisaItem",
+   "nome_maezo": null,
+   "nome_snake": "registro_anvisa_item",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_opme.dmn#diaria_opme"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "solicitação fora da TISS",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "registroAnvisaVigente",
+   "nome_maezo": null,
+   "nome_snake": "registro_anvisa_vigente",
+   "origem": "fora_tiss",
+   "tabelas": [
+    "dmn/diarias-taxas/diaria_opme.dmn#diaria_opme"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Nova internação no mesmo prestador até 30 dias da alta anterior E pela mesma causa: mesma categoria (3 caracteres) do CID principal de saída ou mesmo procedimento principal, comparando guias de resumo de internação do mesmo beneficiário pseudonimizado (critério de condicoes.outras das regras de pacote, ex.: regras/cirurgia-bariatrica/OMNI-BARIAT-PAC-0002.yaml; corrigido na PROG-RCO-1 porque a glosa 1711 é automática de conta). CID principal ou procedimento ausente: o worker devolve nulo, nunca true. [elementos TISS: tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataInicioFaturamento; tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento; tissGuiasV4_03_00.xsd#ctm_internacaoDadosSaida/diagnostico; tissGuiasV4_03_00.xsd#ctm_internacaoResumoGuia/dadosExecutante/contratadoExecutante]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "nova internação do mesmo beneficiário no mesmo prestador com dataInicioFaturamento - dataFinalFaturamento da alta anterior <= 30 dias E (categoria de 3 caracteres do CID principal de saída igual OU procedimento principal igual); nulo se CID principal ou procedimento ausente",
+    "termos": [
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataInicioFaturamento da nova internação",
+      "nome": "dataInicioFaturamento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento da alta anterior",
+      "nome": "dataFinalFaturamento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDadosSaida/diagnostico",
+      "nome": "cidPrincipalSaida",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoResumoGuia/dadosExecutante/contratadoExecutante",
+      "nome": "prestador",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "identificação pseudonimizada do beneficiário nas guias de resumo de internação",
+      "nome": "beneficiarioPseudonimizado",
+      "origem": "cadastro"
+     },
+     {
+      "fonte": "procedimento principal da internação (elemento do XSD não registrado na derivação)",
+      "nome": "procedimentoPrincipal",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "30 dias da alta anterior (critério de condicoes.outras das regras de pacote, ex.: regras/cirurgia-bariatrica/OMNI-BARIAT-PAC-0002.yaml)",
+      "nome": "janelaDias",
+      "origem": "parametro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "reinternacaoMesmaCausa",
+   "nome_maezo": null,
+   "nome_snake": "reinternacao_mesma_causa",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/cirurgia-bariatrica/bariat_pacote_desvios.dmn#bariat_pacote_desvios",
+    "dmn/diarias-taxas/diaria_limite_quantidade.dmn#diaria_limite_quantidade",
+    "dmn/opme-coluna/coluna_pacote_desvios.dmn#coluna_pacote_desvios"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": {
+    "campo_lago": "termina_em (cobertura) ou validade (carências)",
+    "classe_lago": "derivavel",
+    "derivacao": "Dias entre dataAtendimento e termina_em (ou validade): termina_em menos dataAtendimento. Positivo = dias que faltam; zero ou negativo = cumprida, como no dicionário. Exige a entrada dataAtendimento.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "O dicionário define o saldo \"já com as isenções\"; o relatório não menciona isenções: se termina_em e validade já as consideram é LACUNA. Hoje nenhuma rota avalia na data do atendimento (usa a data corrente); o cálculo deve usar a data do atendimento, nunca a corrente.",
+    "rota": "/cobertura (termina_em) ou /carencias (validade)"
+   },
+   "dominio": "faixa -36500..300",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "saldoCarenciaDias",
+   "nome_maezo": null,
+   "nome_snake": "saldo_carencia_dias",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia"
+   ],
+   "tipo": "integer",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cadastro",
+   "derivacao_lago": {
+    "campo_lago": "LACUNA (campo normalizado ainda não existe; não há enumeração de 6 valores no lago)",
+    "classe_lago": "campo_novo",
+    "derivacao": "Campo novo normalizado nos seis valores do dicionário (ativo, excluido_a_pedido, excluido_outro_motivo, suspenso, anterior_inclusao, nao_localizado), em substituição ao texto livre. Origem provável no Tasy: PLS_SEGURADO (situação de atendimento). O de-para precisa de validação do negócio.",
+    "fonte": "amh-data-platform:docs/planning/prontidao-virada-e-contratos-2026-11-14.md#3",
+    "ressalva": "O valor anterior_inclusao só existe em relação a uma data; o relatório não diz como o lago avalia a situação na data do atendimento (nenhuma rota avalia nessa data): LACUNA. O de-para do texto livre para os seis valores é LACUNA até a validação do negócio.",
+    "rota": "/elegibilidade, /identificacao-cadastro, /dependentes (hoje, situação em texto livre)"
+   },
+   "dominio": "{ativo, excluido_a_pedido, excluido_outro_motivo, suspenso, anterior_inclusao, nao_localizado}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": false,
+   "nome_dmn": "situacaoCadastral",
+   "nome_maezo": null,
+   "nome_snake": "situacao_cadastral",
+   "origem": "cadastro",
+   "tabelas": [
+    "dmn/regras-gerais/geral_elegibilidade.dmn#geral_elegibilidade"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "guia TISS: tissV4_03_00.xsd#cabecalhoTransacao/identificacaoTransacao/tipoTransacao",
+   "derivacao_lago": null,
+   "dominio": "{ENVIO_LOTE_GUIAS, ENVIO_ANEXO, SOLIC_DEMONSTRATIVO_RETORNO, SOLIC_STATUS_PROTOCOLO, SOLICITACAO_PROCEDIMENTOS, SOLICITA_STATUS_AUTORIZACAO, … (27 valores)}",
+   "fallback_nulo": "nunca_negar",
+   "formula": null,
+   "lacuna_lago": true,
+   "nome_dmn": "tipoTransacao",
+   "nome_maezo": null,
+   "nome_snake": "tipo_transacao",
+   "origem": "tiss",
+   "tabelas": [
+    "dmn/regras-gerais/geral_prazos_conta.dmn#geral_prazos_conta"
+   ],
+   "tipo": "string",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: Verdadeiro quando o atendimento acontece 24 horas ou mais depois do início da cobertura do beneficiário (LEI-9656-1998 art. 12, V, c: carência máxima de 24 horas para urgência e emergência). Decide primeiro pelas DATAS, sem inferir hora (ajuste da orquestradora de 17/11/2026, para que a decisão do dono PROG-COORD-26 valha também no pedido): dias corridos entre a data de referência do atendimento e a data de início da cobertura; 2 dias ou mais: verdadeiro (24 horas cumpridas qualquer que seja a hora, coerente com contar do fim do dia de início); 0 dia ou menos: falso; 1 dia: decide pelas horas só se o cadastro tem a hora de início da cobertura e a guia tem a hora do atendimento, senão nulo. Data de referência por tipo de guia em derivacao.referencia_por_tipo_guia: no pedido, a data da solicitação ou do atendimento que a guia de fato tem; na conta, a do procedimento executado. Usar a data da solicitação como referência é escolha da orquestradora: o risco de a solicitação ser posterior ao atendimento real fica coberto pelo aviso à auditoria médica e ao cadastro e pela auditoria depois do efeito. Nulo quando falta o início da cobertura ou a data de referência, ou no caso de 1 dia sem as duas horas, ou em tipo de guia sem data utilizável: nulo vai à regulação, nunca libera nem nega. Usado só na urgência (caráter 2) do grupo demais, pela decisão do dono PROG-COORD-26. [elementos TISS: tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao; tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dataSolicitacao; tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/dataAtendimento; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/horaInicial; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao; tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/horaInicial]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "dias = dataReferenciaAtendimento - dataInicioCobertura (dias corridos); verdadeiro se dias >= 2; falso se dias <= 0; se dias = 1, verdadeiro se (dataReferenciaAtendimento + horaReferenciaAtendimento) - (dataInicioCobertura + horaInicioCobertura) >= horasMinimasUrgencia, falso se menor, nulo se faltar uma das duas horas; nulo se faltar dataInicioCobertura ou dataReferenciaAtendimento",
+    "termos": [
+     {
+      "fonte": "cadastro do beneficiário no lago (K3), data de início da cobertura do plano",
+      "nome": "dataInicioCobertura",
+      "origem": "cadastro"
+     },
+     {
+      "fonte": "cadastro do beneficiário no lago (K3), hora de início da cobertura, quando houver; só é usada no caso de 1 dia",
+      "nome": "horaInicioCobertura",
+      "origem": "cadastro"
+     },
+     {
+      "fonte": "data do atendimento conforme o tipo de guia (derivacao.referencia_por_tipo_guia): dataSolicitacao na solicitação de SP/SADT e de internação, dataAtendimento na consulta, dataExecucao do procedimento executado na conta de SP/SADT e de internação",
+      "nome": "dataReferenciaAtendimento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "horaInicial do procedimento executado na conta (opcional no XSD); as guias de solicitação e de consulta não têm hora: no caso de 1 dia a derivada fica nula",
+      "nome": "horaReferenciaAtendimento",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "regras/regras-gerais/OMNI-GERAL-CAR-0003.yaml, efeito.prazos (24 horas contadas do início da cobertura, LEI-9656-1998 art. 12, V, c)",
+      "nome": "horasMinimasUrgencia",
+      "origem": "parametro"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "urgenciaAposVinteQuatroHorasCobertura",
+   "nome_maezo": null,
+   "nome_snake": "urgencia_apos_vinte_quatro_horas_cobertura",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_carencia.dmn#geral_carencia"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  },
+  {
+   "de_onde": "cálculo do worker: dataExecucao da visita igual à dataFinalFaturamento da guia de resumo de internação encerrada por alta. [elementos TISS: tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao; tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento]",
+   "derivacao_lago": null,
+   "dominio": "{true, false}",
+   "fallback_nulo": "nunca_negar",
+   "formula": {
+    "formula": "dataExecucao(visita) == dataFinalFaturamento da guia de resumo de internação encerrada por alta (nulo se faltar um dos termos)",
+    "termos": [
+     {
+      "fonte": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao",
+      "nome": "dataExecucaoVisita",
+      "origem": "tiss"
+     },
+     {
+      "fonte": "tissGuiasV4_03_00.xsd#ctm_internacaoDados/dataFinalFaturamento da guia encerrada por alta",
+      "nome": "dataFinalFaturamento",
+      "origem": "tiss"
+     }
+    ]
+   },
+   "lacuna_lago": true,
+   "nome_dmn": "visitaNaDataDaAlta",
+   "nome_maezo": null,
+   "nome_snake": "visita_na_data_da_alta",
+   "origem": "derivado",
+   "tabelas": [
+    "dmn/regras-gerais/geral_itens_inclusos.dmn#geral_itens_inclusos"
+   ],
+   "tipo": "boolean",
+   "valores_maezo": null
+  }
+ ],
+ "sha256_conteudo": "sha256:48af5210b4827e7f5b8b36f9fa3898ab016dfe5629921cd81fbbb2bb3ffd4b2e",
+ "versao": "1.4.0"
+}

@@ -1,0 +1,391 @@
+{
+  "dmn": "dmn/regras-gerais/geral_cpt.dmn",
+  "decisao": "geral_cpt",
+  "casos": [
+    {
+      "id": "C001",
+      "tipo": "positivo",
+      "descricao": "Sem CPT: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C002",
+      "tipo": "negativo",
+      "descricao": "CPT vigente, cirurgia eletiva com CID declarado: negativa 3173",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "recomendar_negativa",
+        "motivoTab38": "3173",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica",
+        "classeAdverso": "clinico"
+      }
+    },
+    {
+      "id": "C003",
+      "tipo": "positivo",
+      "descricao": "CPT vigente, consulta ou exame simples: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": false,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C004",
+      "tipo": "positivo",
+      "descricao": "CPT vigente, cirurgia com CID de outra doença: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": false
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C005",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "CPT vigente, urgência alcançada: regulação, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C006",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "CPT vigente, caráter ausente: regulação, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": null,
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C007",
+      "tipo": "borda",
+      "descricao": "Situação de CPT nula: cadastro",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": null,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C008",
+      "tipo": "borda",
+      "descricao": "Classificação do procedimento nula: auditoria médica",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica"
+      }
+    },
+    {
+      "id": "C009",
+      "tipo": "borda",
+      "descricao": "CID nulo: auditoria médica",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica"
+      }
+    },
+    {
+      "id": "C010",
+      "tipo": "borda",
+      "descricao": "Véspera da vigência: regra não se aplica",
+      "entradas": {
+        "dataAtendimento": "2026-11-02",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": ""
+      }
+    },
+    {
+      "id": "C011",
+      "tipo": "borda",
+      "descricao": "Dia de início da vigência: negativa no eletivo alcançado",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "recomendar_negativa",
+        "motivoTab38": "3173",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica",
+        "classeAdverso": "clinico"
+      }
+    },
+    {
+      "id": "C012",
+      "tipo": "borda",
+      "descricao": "Data nula: cadastro",
+      "entradas": {
+        "dataAtendimento": null,
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C013",
+      "tipo": "positivo",
+      "descricao": "Sem CPT e urgência: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C014",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "CPT vigente, urgência com CID fora: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": false
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C015",
+      "tipo": "negativo",
+      "descricao": "CPT vigente, leito de alta tecnologia eletivo com CID declarado, um ano depois: negativa",
+      "entradas": {
+        "dataAtendimento": "2027-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "recomendar_negativa",
+        "motivoTab38": "3173",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica",
+        "classeAdverso": "clinico"
+      }
+    },
+    {
+      "id": "C016",
+      "tipo": "borda",
+      "descricao": "Sem CPT e dados nulos: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": null,
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C017",
+      "tipo": "borda",
+      "descricao": "CPT vigente, cirurgia eletiva com CID só na mesma categoria da doença declarada: relatório do médico assistente, sem recomendação de negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": false
+      },
+      "esperado": {
+        "decisao": "exigir_documento",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C018",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "CPT vigente, eletivo alcançado com a igualdade do CID ausente: auditoria médica, nunca recomenda negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C019",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "CPT vigente, urgência alcançada com CID só na categoria: regulação, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": false
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "regulacao",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C020",
+      "tipo": "positivo",
+      "descricao": "CPT vigente, cirurgia com CID de outra categoria: segue (a igualdade é indiferente)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": false,
+        "cidIgualDlpDeclarada": false
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004"
+      }
+    },
+    {
+      "id": "C021",
+      "tipo": "negativo",
+      "descricao": "CPT vigente, cirurgia eletiva com CID idêntico ao declarado: recomendação de negativa 3173 à auditoria médica",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "recomendar_negativa",
+        "motivoTab38": "3173",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "auditoria_medica",
+        "classeAdverso": "clinico"
+      }
+    }
+  ]
+}

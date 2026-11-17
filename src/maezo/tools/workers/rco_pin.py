@@ -43,7 +43,9 @@ gate de CI: formato MAJOR 1 ou 2 LIDO, mas o pin exige 2.1.0+ com `provas[]` nao
 no shard de integracao, `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos exatos,
 prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegra` emitidos =
 `regras[]`, linha adversa preenchida e, no 2.2.0 (DL-0173), `composicoes[]` bem formada (exposta em
-`RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`).
+`RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`) e, no
+2.3.0 (DL-0183), `ordem_restricao`, `sinalAuditoria` e `avisos` do K6 conferidos e expostos
+(`RcoRulesPin.ordem_restricao`, `.sinais_auditoria`, `.avisos`).
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
 `provenance` a `origem` dele. Manifesto MAJOR 2 com `ativacao` em `plena`, `conferida` ou `em_correcao`,
 com ou sem `exige_aditivo`, e aceito desde a unidade 5e-0 (DL-0181), tudo em sombra: o efeito e de
@@ -63,7 +65,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -166,6 +168,13 @@ class RcoRulesPin:
     #: (`rco_entradas.carregar_dicionario_entradas`) sem reler o pin. `None` sem pacote.
     manifesto: rco_manifesto.ManifestoK1 | None = None
     k1_dir: Path | None = None
+    #: Formato 2.3.0 (DL-0183): `vocabulario.json` `ordem_restricao` (composicao `mais_restritiva`) e
+    #: `sinalAuditoria` (vocabulario fechado do sinal), e `avisos` do K6 por sinal. Vazios sem pacote ou
+    #: abaixo de 2.3.0. Quem compoe passa os dois primeiros a `rco_composicao.compor`; a notificacao as
+    #: filas de `avisos` e de unidade posterior.
+    ordem_restricao: tuple[str, ...] = ()
+    sinais_auditoria: tuple[str, ...] = ()
+    avisos: Mapping[str, rco_manifesto.AvisoK6] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def composicoes(self) -> tuple[rco_manifesto.ComposicaoK1, ...]:
@@ -247,11 +256,17 @@ def checar_manifest_pin(lock: Mapping[str, Any]) -> str:
 
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
-) -> tuple[rco_manifesto.ManifestoK1, rco_manifesto.ParametrosAtivacao | None, set[str]]:
+) -> tuple[
+    rco_manifesto.ManifestoK1,
+    rco_manifesto.VocabularioPacoteK1,
+    Mapping[str, rco_manifesto.AvisoK6],
+    set[str],
+]:
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
-    Devolve o manifesto, os parametros de ativacao de `vocabulario.json` e os nomes aceitos em `k1/`
-    (manifesto, anexos e arquivos de provas, como o gate).
+    Devolve o manifesto, o `vocabulario.json` tipado (parametros de ativacao; `ordem_restricao` e
+    `sinalAuditoria` no 2.3.0), os `avisos` do K6 (2.3.0) e os nomes aceitos em `k1/` (manifesto, anexos e
+    arquivos de provas, como o gate).
     """
     digest = checar_manifest_pin(lock)
     k1_dir = _k1_dir(lock_path)
@@ -289,11 +304,12 @@ def _manifesto_fixado(
         )
     try:
         vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)
+        avisos = rco_manifesto.carregar_avisos_k6(manifesto, vocab, k1_dir=k1_dir)
     except rco_manifesto.ManifestoK1InvalidoError as exc:
-        raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
+        raise RcoRulesPinError(f"pin: vocabulario.json ou k6-filas.json do K1 recusado: {exc}") from exc
     # A MESMA fonte do gate (`verify_rco_rules_pin`): manifesto, anexos e arquivos de `provas[]`.
     nomes_k1 = rco_manifesto.nomes_k1_declarados(raw)
-    return manifesto, vocab.parametros_ativacao, nomes_k1
+    return manifesto, vocab, avisos, nomes_k1
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -317,10 +333,13 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     artifacts = _entries(lock, "artifacts")
     por_caminho: dict[str, rco_manifesto.DecisaoK1] = {}
     parametros: rco_manifesto.ParametrosAtivacao | None = None
+    vocab: rco_manifesto.VocabularioPacoteK1 | None = None
+    avisos: Mapping[str, rco_manifesto.AvisoK6] = MappingProxyType({})
     nomes_k1: set[str] = set()
     manifesto: rco_manifesto.ManifestoK1 | None = None
     if estado == ESTADO_FIXADO:
-        manifesto, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        manifesto, vocab, avisos, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        parametros = vocab.parametros_ativacao
         por_caminho = manifesto.decisao_por_caminho()
         pinados = {str(rel): digest for rel, digest in artifacts}
         if len(pinados) != len(artifacts) or pinados != {c: d.sha256 for c, d in por_caminho.items()}:
@@ -372,6 +391,9 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
         parametros_ativacao=parametros,
         manifesto=manifesto,
         k1_dir=_k1_dir(lock_path) if manifesto is not None else None,
+        ordem_restricao=vocab.ordem_restricao if vocab is not None else (),
+        sinais_auditoria=vocab.sinais_auditoria if vocab is not None else (),
+        avisos=avisos,
     )
 
 

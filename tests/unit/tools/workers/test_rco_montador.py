@@ -26,6 +26,7 @@ import pytest
 
 from maezo.platform.rco_entradas import DicionarioEntradasK1, FormulaK1, TermoFormulaK1
 from maezo.tools.workers import rco_montador as mt
+from tests.unit.platform import rco_k1_2_3_recorte
 from tests.unit.tools.workers import rco_recorte
 
 PIN_SEM_K3 = (1, 15)
@@ -72,18 +73,26 @@ def _k3(**extra: Any) -> mt.FatosK3V116:
 def test_mapeamento_cobre_exatamente_as_entradas_dos_dominios(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
+    # O mapeamento cobre o pacote MAIS NOVO suportado (K1 2.3.0, dicionario 1.4.0; DL-0183): nem entrada
+    # sem fonte, nem mapeamento morto. As decisoes do recorte 1.1.0 continuam cobertas (sem entrada a menos).
+    novas = rco_k1_2_3_recorte.manifesto().decisoes.values()
     for dominio, mapa in mt.MAPEAMENTOS.items():
         do_dominio = [d for d in decisoes.values() if d.dominio == dominio]
         assert do_dominio, dominio
         declaradas = {nome for d in do_dominio for nome in d.entradas}
-        assert set(mapa) == declaradas, dominio  # nem entrada sem fonte, nem mapeamento morto
+        assert declaradas <= set(mapa), dominio
+        assert set(mapa) == {nome for d in novas if d.dominio == dominio for nome in d.entradas}, dominio
         for d in do_dominio:
             assert mt.conferir_mapeamento(dic, dominio, d.entradas) == [], d.id
 
 
 def test_mapeamento_segue_a_origem_e_a_formula_do_dicionario(dic: DicionarioEntradasK1) -> None:
+    dic_14 = rco_k1_2_3_recorte.dicionario()
     for mapa in mt.MAPEAMENTOS.values():
         for nome, m in mapa.items():
+            if nome not in dic.entradas:  # entrada do dicionario 1.3.0/1.4.0 (DL-0183)
+                assert m.origem == dic_14.entradas[nome].origem, nome
+                continue
             entrada = dic.entradas[nome]
             assert m.origem == entrada.origem, nome
             if entrada.origem == "derivado":

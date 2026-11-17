@@ -19,7 +19,9 @@ FAIL-CLOSED (contrato §4 e §5):
   dispara o detector de segredos; mesma notacao do K2, HEL-3a);
 - `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece (2.1: `provas[]`, obrigatorio
   a partir de 2.1.0 e campo desconhecido, logo recusado, antes; 2.2: `composicoes[]`, opcional a partir de
-  2.2.0 — ausente vale lista vazia — e campo desconhecido, logo recusado, antes); outro e recusado.
+  2.2.0 — ausente vale lista vazia — e campo desconhecido, logo recusado, antes; 2.3: regra
+  `mais_restritiva`, `ordem_restricao` e `sinalAuditoria` em `vocabulario.json`, saida opcional
+  `sinalAuditoria` e bloco `avisos` do K6 — DL-0183); outro e recusado.
   MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, estavel na branch `prog/rco/ativacao-k1` do rco no
   commit 75015304, ainda NAO em `main` do rco): cada regra tem exatamente `idRegra`,
   `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`, `ativacao`, `exige_aditivo` e
@@ -41,8 +43,18 @@ FAIL-CLOSED (contrato §4 e §5):
 - `composicoes[]` (2.2.0, DL-0173): cada grupo com exatamente `nome`, `decisoes`, `regra` e `padrao`;
   `nome` unico; ao menos 2 decisoes, sem repeticao, todas em `decisoes[]` e com a saida `idRegra`;
   nenhuma decisao em dois grupos; `padrao` e a ultima de `decisoes`; `regra` no vocabulario fechado
-  `REGRAS_COMPOSICAO`. Como e o leitor que recusa, gate e runtime recusam o pin pela MESMA checagem. A
-  semantica da composicao (avaliar o grupo inteiro e escolher) e de `maezo.platform.rco_composicao`;
+  `REGRAS_COMPOSICAO` (`mais_restritiva` so a partir de 2.3.0). Como e o leitor que recusa, gate e
+  runtime recusam o pin pela MESMA checagem. A semantica da composicao (avaliar o grupo inteiro e
+  escolher) e de `maezo.platform.rco_composicao`;
+- formato 2.3.0 (DL-0183; contrato-k1.md §3, §4 item 8, §6 e §9): `vocabulario.json` traz
+  `ordem_restricao`, PERMUTACAO EXATA de `decisao` (cada valor uma vez; senao `ordem-restricao-invalida`), e
+  `sinalAuditoria` (vocabulario fechado da saida opcional, com o vazio `""`; `sinal-auditoria-invalido`),
+  fora de `saidas_obrigatorias`; `k6-filas.json` traz `avisos`, um item por sinal nao vazio, com as chaves
+  EXATAS `filas` e `prazo_parametro`, filas existentes no K6 (`avisos-k6-invalido`); celula de
+  `sinalAuditoria` fora do vocabulario ou nao literal recusa o pin (`sinal-auditoria-fora-do-vocabulario`);
+  linha de decisao de grupo `mais_restritiva` com `decisao` fora da ordem tambem
+  (`composicao-decisao-fora-da-ordem`). Abaixo de 2.3.0 a saida `sinalAuditoria` e recusada
+  (`sinal-auditoria-antes-de-2.3`) e os blocos novos nao sao lidos;
 - `provas_ausentes_no_pin`: pacote abaixo de 2.1.0 (sem `provas[]`) ou com `provas[]` vazia e recusado NO
   PIN (o leitor ainda o le para diagnostico; decisao da ROOT, 16/11/2026);
 - `ativacao_nao_suportada`: pacote MAJOR 2 com regra cuja `ativacao` esta fora do conjunto fechado
@@ -84,7 +96,9 @@ PREFIXO_DECISAO: Final[str] = "rco_"
 #: `ativacao` (conjunto fechado) e `exige_aditivo` (booleano); `vocabulario.json` ganha o bloco
 #: `ativacao` (`valores` + `parametros`). Campo a mais ou a menos continua recusado.
 #: 2.2.0 (DL-0173, decisao da ROOT de 17/11/2026): campo de topo aditivo `composicoes[]`.
-FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 2})
+#: 2.3.0 (DL-0183, PROG-COORD-26/PROG-RCO-33): `mais_restritiva`, `ordem_restricao`, `sinalAuditoria`,
+#: `avisos`.
+FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 3})
 #: Primeiro `(MAJOR, MINOR)` com o campo obrigatorio `provas[]` (contrato-k1.md §3, PROG-RCO-8, 2.1.0).
 #: Abaixo disso o campo e desconhecido e recusado (leitor estrito).
 FORMATO_COM_PROVAS: Final[tuple[int, int]] = (2, 1)
@@ -97,8 +111,22 @@ CAMPOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"nome", "decisoes", "regra
 #: Regra de composicao `primeira_com_idRegra` (contrato-k1.md §11 item 14): vale a primeira decisao, na
 #: ordem, cujo resultado traz `idRegra` preenchido; se nenhuma antes do padrao trouxer, vale o padrao.
 REGRA_PRIMEIRA_COM_ID_REGRA: Final[str] = "primeira_com_idRegra"
+#: Regra de composicao `mais_restritiva` (formato 2.3.0, contrato-k1.md §3 e §11 item 16): avalia todas as
+#: decisoes com as mesmas entradas e vale a de `decisao` mais restritiva pela `ordem_restricao` de
+#: `vocabulario.json`; empate: a primeira em `decisoes`.
+REGRA_MAIS_RESTRITIVA: Final[str] = "mais_restritiva"
 #: Vocabulario FECHADO de `composicoes[].regra`. Valor fora dele recusa o pin.
-REGRAS_COMPOSICAO: Final[frozenset[str]] = frozenset({REGRA_PRIMEIRA_COM_ID_REGRA})
+REGRAS_COMPOSICAO: Final[frozenset[str]] = frozenset({REGRA_PRIMEIRA_COM_ID_REGRA, REGRA_MAIS_RESTRITIVA})
+#: Primeiro `(MAJOR, MINOR)` com `mais_restritiva`, `ordem_restricao`, `sinalAuditoria` e `avisos` (DL-0183).
+FORMATO_COM_MAIS_RESTRITIVA: Final[tuple[int, int]] = (2, 3)
+#: Regras de composicao aceitas por formato: no 2.2.0 so `primeira_com_idRegra`.
+REGRAS_COMPOSICAO_2_2: Final[frozenset[str]] = frozenset({REGRA_PRIMEIRA_COM_ID_REGRA})
+#: Saida de `decisao` da tabela (a ordenada por `ordem_restricao`) e saida opcional do sinal (2.3.0).
+SAIDA_DECISAO: Final[str] = "decisao"
+SAIDA_SINAL_AUDITORIA: Final[str] = "sinalAuditoria"
+#: Chaves EXATAS de cada item de `avisos` do K6 (K6 1.1.0, formato 2.3.0).
+CAMPOS_AVISO_K6: Final[frozenset[str]] = frozenset({"filas", "prazo_parametro"})
+_SINAL: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 #: Valores de `regras[].ativacao` (MAJOR 2, contrato §7). Valor fora do conjunto reprova (fail-closed).
 ATIVACOES: Final[frozenset[str]] = frozenset({"plena", "conferida", "em_correcao"})
 #: Chaves EXATAS de `vocabulario.json` `ativacao.parametros` (MAJOR 2). Os numeros vem do pacote,
@@ -303,6 +331,11 @@ class ManifestoK1:
     def major(self) -> int:
         return int(self.formato_manifesto.split(".", 1)[0])
 
+    @property
+    def major_minor(self) -> tuple[int, int]:
+        major, minor, _ = (int(p) for p in self.formato_manifesto.split("."))
+        return major, minor
+
     def composicao_de(self, decisao_id: str) -> ComposicaoK1 | None:
         """O grupo de `composicoes[]` que contem `decisao_id` (no maximo um: o leitor recusa dois)."""
         return next((c for c in self.composicoes if decisao_id in c.decisoes), None)
@@ -338,6 +371,23 @@ class VocabularioPacoteK1:
     #: exige esses campos preenchidos na linha da tabela.
     adversas: frozenset[str] = frozenset()
     adversa_exige_preenchidos: tuple[str, ...] = ()
+    #: Formato 2.3.0 (DL-0183): `ordem_restricao` (da mais restritiva para a menos; permutacao exata de
+    #: `decisao`) e `sinalAuditoria` (vocabulario fechado da saida opcional, com o vazio `""`). Vazios abaixo.
+    ordem_restricao: tuple[str, ...] = ()
+    sinais_auditoria: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AvisoK6:
+    """Um item de `avisos` do K6 (formato 2.3.0): para onde vai o aviso de um sinal de `sinalAuditoria`.
+
+    So dado: as filas (existentes em `filas` do K6) e o NOME do parametro do prazo da analise. A
+    notificacao (interna, nao bloqueante) e de unidade posterior; aqui nada e enviado.
+    """
+
+    sinal: str
+    filas: tuple[str, ...]
+    prazo_parametro: str
 
 
 class _ChaveDuplicadaError(ValueError):
@@ -680,8 +730,11 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
                     exemplos.append(caminho)
 
     provas = _ler_provas(topo[CAMPO_TOPO_PROVAS], problemas) if com_provas else ()
+    regras_aceitas = (
+        REGRAS_COMPOSICAO if _formato_ao_menos(topo, FORMATO_COM_MAIS_RESTRITIVA) else REGRAS_COMPOSICAO_2_2
+    )
     composicoes = (
-        _ler_composicoes(topo[CAMPO_TOPO_COMPOSICOES], decisoes, problemas)
+        _ler_composicoes(topo[CAMPO_TOPO_COMPOSICOES], decisoes, problemas, regras_aceitas)
         if com_composicoes and CAMPO_TOPO_COMPOSICOES in topo
         else ()
     )
@@ -724,13 +777,18 @@ def _formato_tem_provas(dados: object) -> bool:
 
 
 def _ler_composicoes(
-    no: object, decisoes: Mapping[str, DecisaoK1], problemas: list[str]
+    no: object,
+    decisoes: Mapping[str, DecisaoK1],
+    problemas: list[str],
+    regras_aceitas: frozenset[str] = REGRAS_COMPOSICAO_2_2,
 ) -> tuple[ComposicaoK1, ...]:
     """`composicoes[]` (2.2.0, DL-0173). Cada recusa leva um codigo estavel `composicao-*` na mensagem.
 
     Forma estrita por grupo; cruzamento com `decisoes[]` (ja lidas): decisao fora do manifesto, decisao
     sem a saida `idRegra`, decisao em dois grupos, `padrao` diferente da ultima e `regra` fora do
     vocabulario fechado recusam o manifesto — e, como gate e runtime usam este leitor, o pin.
+    `regras_aceitas`: as regras do formato do manifesto (`mais_restritiva` so a partir de 2.3.0, DL-0183;
+    no 2.2.0 ela e `composicao-regra-fora-do-formato`).
     """
     if not isinstance(no, list):
         problemas.append("composicoes: composicao-forma: tem de ser lista (vazia = sem composicao)")
@@ -776,6 +834,12 @@ def _ler_composicoes(
             problemas.append(
                 f"{rotulo}: composicao-regra-desconhecida: regra {regra!r} "
                 f"fora de {sorted(REGRAS_COMPOSICAO)}"
+            )
+            ok = False
+        elif regra not in regras_aceitas:
+            problemas.append(
+                f"{rotulo}: composicao-regra-fora-do-formato: regra {regra!r} so existe a partir do "
+                f"formato_manifesto {'.'.join(map(str, FORMATO_COM_MAIS_RESTRITIVA))}.0"
             )
             ok = False
         if not ids or padrao != ids[-1]:
@@ -963,7 +1027,71 @@ def _lista_de_textos(no: object) -> list[str] | None:
     return [str(v) for v in no]
 
 
-def _ler_vocabulario(raw: bytes, major: int, problemas: list[str]) -> VocabularioPacoteK1 | None:
+def _ler_ordem_e_sinais(
+    vocab: Mapping[str, Any], saidas: list[str], problemas: list[str]
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """`ordem_restricao` e `sinalAuditoria` de `vocabulario.json` (formato 2.3.0, DL-0183).
+
+    `ordem_restricao`: lista de textos, cada valor de `decisao` EXATAMENTE uma vez (nenhum a mais, a menos
+    ou repetido); senao o pacote e recusado (`ordem-restricao-invalida`). Nao ha desempate por sinal.
+    `sinalAuditoria`: lista de textos sem repeticao, com o vazio `""`, os demais no padrao `_SINAL`
+    (`sinal-auditoria-invalido`). A saida `sinalAuditoria` e opcional: nunca em `saidas_obrigatorias`.
+    """
+    onde = "vocabulario.json"
+    ok = True
+    decisoes = vocab.get(SAIDA_DECISAO)
+    ordem = vocab.get("ordem_restricao")
+    if (
+        not isinstance(decisoes, list)
+        or not decisoes
+        or not all(isinstance(d, str) and d for d in decisoes)
+        or len(set(decisoes)) != len(decisoes)
+    ):
+        problemas.append(
+            f"{onde}: ordem-restricao-invalida: 'decisao' tem de ser lista de textos sem repeticao"
+        )
+        ok = False
+    elif (
+        not isinstance(ordem, list)
+        or not all(isinstance(d, str) for d in ordem)
+        or len(ordem) != len(decisoes)
+        or len(set(ordem)) != len(ordem)
+        or set(ordem) != set(decisoes)
+    ):
+        problemas.append(
+            f"{onde}: ordem-restricao-invalida: 'ordem_restricao' tem de ser permutacao exata de 'decisao' "
+            "(cada valor uma vez; contrato-k1.md §3 e §4 item 8)"
+        )
+        ok = False
+    sinais = vocab.get(SAIDA_SINAL_AUDITORIA)
+    if (
+        not isinstance(sinais, list)
+        or not all(isinstance(v, str) for v in sinais)
+        or len(set(sinais)) != len(sinais)
+        or "" not in sinais
+        or not all(v == "" or _SINAL.fullmatch(v) for v in sinais)
+    ):
+        problemas.append(
+            f"{onde}: sinal-auditoria-invalido: 'sinalAuditoria' tem de ser lista de textos sem repeticao, "
+            f'com o vazio "" e os demais no padrao {_SINAL.pattern}'
+        )
+        ok = False
+    if SAIDA_SINAL_AUDITORIA in saidas:
+        problemas.append(
+            f"{onde}: sinal-auditoria-obrigatorio: '{SAIDA_SINAL_AUDITORIA}' e saida opcional, nunca em "
+            "saidas_obrigatorias (contrato-k1.md §6)"
+        )
+        ok = False
+    if not ok or not isinstance(ordem, list) or not isinstance(sinais, list):
+        return None
+    return tuple(str(d) for d in ordem), tuple(str(v) for v in sinais)
+
+
+def _ler_vocabulario(
+    raw: bytes, major: int, problemas: list[str], formato: tuple[int, int] | None = None
+) -> VocabularioPacoteK1 | None:
+    """`vocabulario.json` tipado. `formato` (MAJOR, MINOR) do manifesto: a partir de 2.3.0 le tambem
+    `ordem_restricao` e `sinalAuditoria` (DL-0183); abaixo, os blocos nao sao lidos."""
     vocab = _carregar_json(raw, "vocabulario.json", problemas)
     if not isinstance(vocab, dict):
         if vocab is not None:
@@ -992,7 +1120,22 @@ def _ler_vocabulario(raw: bytes, major: int, problemas: list[str]) -> Vocabulari
     ativacao = _ler_ativacao(vocab["ativacao"], problemas)
     if ativacao is None:
         return None
-    return VocabularioPacoteK1(tuple(saidas), ativacao[0], ativacao[1], frozenset(adversas), tuple(exige))
+    ordem: tuple[str, ...] = ()
+    sinais: tuple[str, ...] = ()
+    if formato is not None and formato >= FORMATO_COM_MAIS_RESTRITIVA:
+        lidos = _ler_ordem_e_sinais(vocab, saidas, problemas)
+        if lidos is None:
+            return None
+        ordem, sinais = lidos
+    return VocabularioPacoteK1(
+        tuple(saidas),
+        ativacao[0],
+        ativacao[1],
+        frozenset(adversas),
+        tuple(exige),
+        ordem_restricao=ordem,
+        sinais_auditoria=sinais,
+    )
 
 
 def _anexo_raw(manifesto: ManifestoK1, papel: str, k1_dir: Path, problemas: list[str]) -> bytes | None:
@@ -1027,10 +1170,87 @@ def carregar_vocabulario(manifesto: ManifestoK1, *, k1_dir: Path) -> Vocabulario
     """`vocabulario.json` pinado pelo manifesto, lido e tipado. Levanta `ManifestoK1InvalidoError`."""
     problemas: list[str] = []
     raw = _anexo_raw(manifesto, "vocabulario", k1_dir, problemas)
-    vocab = _ler_vocabulario(raw, manifesto.major, problemas) if raw is not None else None
+    vocab = (
+        _ler_vocabulario(raw, manifesto.major, problemas, manifesto.major_minor) if raw is not None else None
+    )
     if vocab is None or problemas:
         raise ManifestoK1InvalidoError(problemas or ["vocabulario.json invalido"])
     return vocab
+
+
+def _ler_avisos_k6(raw: bytes, sinais: tuple[str, ...], problemas: list[str]) -> dict[str, AvisoK6] | None:
+    """Bloco `avisos` de `k6-filas.json` (K6 1.1.0, formato 2.3.0, DL-0183). Codigo `avisos-k6-invalido`.
+
+    Estrito: `filas` e objeto nao vazio (os nomes das filas do K6); `avisos` e objeto com EXATAMENTE um item
+    por sinal NAO vazio de `vocabulario.json` `sinalAuditoria` (sinal sem destino perderia o aviso; sinal
+    fora do vocabulario nao tem de onde vir); cada item com as chaves EXATAS `filas` (lista nao vazia, sem
+    repeticao, de filas existentes no K6) e `prazo_parametro` (texto nao vazio). Os destinos sao dado.
+    """
+    onde = "k6-filas.json: avisos-k6-invalido"
+    k6 = _carregar_json(raw, "k6-filas.json", problemas)
+    if not isinstance(k6, dict):
+        if k6 is not None:
+            problemas.append(f"{onde}: tem de ser objeto")
+        return None
+    filas = k6.get("filas")
+    if not isinstance(filas, dict) or not filas:
+        problemas.append(f"{onde}: 'filas' tem de ser objeto nao vazio (os nomes das filas do K6)")
+        return None
+    avisos = k6.get("avisos")
+    if not isinstance(avisos, dict):
+        problemas.append(f"{onde}: 'avisos' tem de ser objeto sinal -> {{filas, prazo_parametro}}")
+        return None
+    esperados = {s for s in sinais if s}
+    if set(avisos) != esperados:
+        problemas.append(
+            f"{onde}: 'avisos' tem de ter exatamente um item por sinal nao vazio de sinalAuditoria "
+            f"(faltam {sorted(esperados - set(avisos))}, desconhecidos {sorted(set(avisos) - esperados)})"
+        )
+        return None
+    lidos: dict[str, AvisoK6] = {}
+    for sinal in sorted(avisos):
+        item = avisos[sinal]
+        if not isinstance(item, dict) or set(item) != CAMPOS_AVISO_K6:
+            problemas.append(
+                f"{onde}: aviso {sinal!r} tem de ter exatamente as chaves {sorted(CAMPOS_AVISO_K6)}"
+            )
+            continue
+        destinos = item["filas"]
+        prazo = item["prazo_parametro"]
+        if (
+            not isinstance(destinos, list)
+            or not destinos
+            or not all(isinstance(f, str) and f for f in destinos)
+            or len(set(destinos)) != len(destinos)
+        ):
+            problemas.append(
+                f"{onde}: aviso {sinal!r}: 'filas' tem de ser lista nao vazia de filas sem repeticao"
+            )
+            continue
+        inexistentes = sorted(f for f in destinos if f not in filas)
+        if inexistentes:
+            problemas.append(f"{onde}: aviso {sinal!r} aponta fila(s) inexistente(s) no K6 {inexistentes}")
+            continue
+        if not isinstance(prazo, str) or not prazo.strip():
+            problemas.append(f"{onde}: aviso {sinal!r}: 'prazo_parametro' tem de ser texto nao vazio")
+            continue
+        lidos[sinal] = AvisoK6(sinal, tuple(destinos), prazo)
+    return lidos if len(lidos) == len(avisos) else None
+
+
+def carregar_avisos_k6(
+    manifesto: ManifestoK1, vocab: VocabularioPacoteK1, *, k1_dir: Path
+) -> Mapping[str, AvisoK6]:
+    """`avisos` do K6 pinado (formato 2.3.0), por sinal. Vazio abaixo de 2.3.0 (o bloco nao e lido).
+    Levanta `ManifestoK1InvalidoError`."""
+    if manifesto.major_minor < FORMATO_COM_MAIS_RESTRITIVA:
+        return MappingProxyType({})
+    problemas: list[str] = []
+    raw = _anexo_raw(manifesto, "k6", k1_dir, problemas)
+    avisos = _ler_avisos_k6(raw, vocab.sinais_auditoria, problemas) if raw is not None else None
+    if avisos is None or problemas:
+        raise ManifestoK1InvalidoError(problemas or ["k6-filas.json invalido"])
+    return MappingProxyType(avisos)
 
 
 def ids_de_decisao(raw: bytes, rotulo: str, *, exigir_prefixo: bool = True) -> list[str]:
@@ -1132,6 +1352,56 @@ def _conferir_linhas(
             f"{onde}: idRegra emitidos pela tabela diferem de regras[] do manifesto (contrato §3): "
             f"so na tabela {sorted(emitidos - declarados)}, so no manifesto {sorted(declarados - emitidos)}"
         )
+
+
+def _conferir_sinal_e_ordem(
+    decisao: DecisaoK1,
+    colunas: list[str],
+    linhas: list[list[str]],
+    vocab: VocabularioPacoteK1 | None,
+    formato: tuple[int, int],
+    mais_restritiva: bool,
+    problemas: list[str],
+) -> None:
+    """Formato 2.3.0 (DL-0183): celula de `sinalAuditoria` e `decisao` de grupo `mais_restritiva`.
+
+    - abaixo de 2.3.0 a saida `sinalAuditoria` nao existe no contrato: declarada ou na tabela, recusa
+      (`sinal-auditoria-antes-de-2.3`);
+    - a partir de 2.3.0, cada celula de `sinalAuditoria` e literal string (vazia ou `null` = sinal vazio)
+      do vocabulario fechado de `vocabulario.json` (`sinal-auditoria-fora-do-vocabulario`);
+    - em decisao de grupo `mais_restritiva`, cada `decisao` emitida esta em `ordem_restricao`
+      (`composicao-decisao-fora-da-ordem`; a prova CMP11 do rco).
+    Sem vocabulario legivel nao ha contra o que conferir: o problema do vocabulario ja foi registrado.
+    """
+    onde = decisao.caminho_consumidor
+    tem_sinal = SAIDA_SINAL_AUDITORIA in colunas or SAIDA_SINAL_AUDITORIA in decisao.saidas
+    if formato < FORMATO_COM_MAIS_RESTRITIVA:
+        if tem_sinal:
+            problemas.append(
+                f"{onde}: sinal-auditoria-antes-de-2.3: saida {SAIDA_SINAL_AUDITORIA!r} so existe a partir "
+                "do "
+                "formato_manifesto 2.3.0"
+            )
+        return
+    if vocab is None:
+        return
+    for i, celulas in enumerate(linhas):
+        linha = dict(zip(colunas, celulas, strict=True))
+        if SAIDA_SINAL_AUDITORIA in linha:
+            sinal = _literal(linha[SAIDA_SINAL_AUDITORIA])
+            if sinal is None or sinal not in vocab.sinais_auditoria:
+                problemas.append(
+                    f"{onde}: linha {i}: sinal-auditoria-fora-do-vocabulario: {SAIDA_SINAL_AUDITORIA} "
+                    f"{linha[SAIDA_SINAL_AUDITORIA]!r} fora de {list(vocab.sinais_auditoria)} "
+                    "(vocabulario.json, contrato-k1.md §6)"
+                )
+        if mais_restritiva:
+            valor = _literal(linha.get(SAIDA_DECISAO, ""))
+            if valor is None or valor not in vocab.ordem_restricao:
+                problemas.append(
+                    f"{onde}: linha {i}: composicao-decisao-fora-da-ordem: decisao "
+                    f"{linha.get(SAIDA_DECISAO)!r} fora de ordem_restricao (grupo mais_restritiva)"
+                )
 
 
 # --- guarda da tolerancia do prazo de conta (MZO-TOL, PROG-COORD-22) -------------------------------
@@ -1472,8 +1742,11 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
 
     obrigatorias: tuple[str, ...] | None = None
     vocab: VocabularioPacoteK1 | None = None
+    formato = manifesto.major_minor
     if "vocabulario" in anexos_raw:
-        vocab = _ler_vocabulario(anexos_raw["vocabulario"], manifesto.major, problemas)
+        vocab = _ler_vocabulario(anexos_raw["vocabulario"], manifesto.major, problemas, formato)
+        if vocab is not None and formato >= FORMATO_COM_MAIS_RESTRITIVA and "k6" in anexos_raw:
+            _ler_avisos_k6(anexos_raw["k6"], vocab.sinais_auditoria, problemas)
         if vocab is not None:
             obrigatorias = vocab.saidas_obrigatorias
             if vocab.ativacoes is not None:
@@ -1500,6 +1773,16 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
             continue
         colunas, linhas = tabela
         _conferir_linhas(decisao, colunas, linhas, vocab, problemas)
+        grupo = manifesto.composicao_de(decisao.id)
+        _conferir_sinal_e_ordem(
+            decisao,
+            colunas,
+            linhas,
+            vocab,
+            formato,
+            grupo is not None and grupo.regra == REGRA_MAIS_RESTRITIVA,
+            problemas,
+        )
         repetidas = sorted({c for c in colunas if colunas.count(c) > 1})
         if repetidas:
             problemas.append(f"{onde}: coluna de saida repetida {repetidas}")
@@ -1522,6 +1805,14 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
 __all__ = [
     "ANEXOS",
     "ATIVACOES",
+    "AvisoK6",
+    "CAMPOS_AVISO_K6",
+    "FORMATO_COM_MAIS_RESTRITIVA",
+    "REGRA_MAIS_RESTRITIVA",
+    "REGRAS_COMPOSICAO_2_2",
+    "SAIDA_DECISAO",
+    "SAIDA_SINAL_AUDITORIA",
+    "carregar_avisos_k6",
     "PARAMETROS_ATIVACAO",
     "ParametrosAtivacao",
     "VocabularioPacoteK1",

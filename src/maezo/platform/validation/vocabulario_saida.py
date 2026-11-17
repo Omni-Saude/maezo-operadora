@@ -18,7 +18,9 @@ Dois gates, um por pasta (`dmn.is_rco_dmn` separa as duas):
     contrato-k1.md §6); `negar`/`glosar`/
     `recomendar_negativa` exigem `classeAdverso` e `fila` preenchidas; `classeAdverso=clinico`
     nunca acompanha `negar`. As tabelas do K1 nao passam por (a): o K1 emite o adverso por desenho,
-    e quem o executa e o worker guardado (ADR-0075 (d)).
+    e quem o executa e o worker guardado (ADR-0075 (d)). A saida OPCIONAL `sinalAuditoria` (K1 formato
+    2.3.0, DL-0183), quando a tabela a declara, so aceita literal do vocabulario fechado
+    `k1.sinalAuditoria` (vazio = sinal vazio); tabela com a coluna e arquivo de dados sem a lista reprova.
 
 O VOCABULARIO NAO MORA AQUI. Ele e lido de `config/integrations/rco/vocabulario-saida.yaml`
 (versionado, com `schema` + `versao`), que a trilha rco congela (PROG-RCO-1). Este modulo so aplica
@@ -133,6 +135,9 @@ class VocabularioK1:
     textos_vazio: frozenset[str]
     exigem_classe_e_fila: frozenset[str]
     classes_proibidas: tuple[ClasseProibida, ...]
+    #: `k1.sinalAuditoria` (opcional; K1 2.3.0): vocabulario fechado da saida opcional, com o vazio `""`.
+    #: None = o arquivo de dados nao o declara (tabela com a coluna reprova).
+    sinais_auditoria: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +293,24 @@ def _ler_k1(no: object) -> VocabularioK1:
             f"{sorted(CLASSES_PROIBIDAS_MINIMAS - pares)}"
         )
 
+    sinais: frozenset[str] | None = None
+    if "sinalAuditoria" in mapa:
+        bruto = mapa.get("sinalAuditoria")
+        if (
+            not isinstance(bruto, list)
+            or not all(isinstance(v, str) for v in bruto)
+            or len(set(bruto)) != len(bruto)
+            or "" not in bruto
+        ):
+            raise VocabularioInvalidoError(
+                "k1.sinalAuditoria: esperada lista de textos sem repeticao, com o vazio ''"
+            )
+        if "sinalAuditoria" in saidas:
+            raise VocabularioInvalidoError(
+                "k1.saidas_obrigatorias: 'sinalAuditoria' e saida opcional (contrato-k1.md §6)"
+            )
+        sinais = frozenset(bruto)
+
     return VocabularioK1(
         saidas_obrigatorias=saidas,
         decisoes=decisoes,
@@ -296,6 +319,7 @@ def _ler_k1(no: object) -> VocabularioK1:
         textos_vazio=textos_vazio,
         exigem_classe_e_fila=exigem,
         classes_proibidas=tuple(proibidas),
+        sinais_auditoria=sinais,
     )
 
 
@@ -492,8 +516,25 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
         i_classe = tabela.saidas.index("classeAdverso")
         i_fila = tabela.saidas.index("fila")
         i_id_regra = tabela.saidas.index("idRegra") if "idRegra" in tabela.saidas else None
+        i_sinal = tabela.saidas.index("sinalAuditoria") if "sinalAuditoria" in tabela.saidas else None
+        if i_sinal is not None and k1.sinais_auditoria is None:
+            erro(
+                did,
+                "saida 'sinalAuditoria' sem vocabulario fechado em k1.sinalAuditoria do arquivo de dados "
+                "(K1 2.3.0; fail-closed)",
+            )
+            i_sinal = None
         for rid, celulas in tabela.regras:
             onde = f"regra '{rid}'"
+            if i_sinal is not None and k1.sinais_auditoria is not None:
+                sinal = celulas[i_sinal]
+                valor_sinal = "" if sinal.tipo is Tipo.AUSENTE else sinal.valor
+                if sinal.tipo is Tipo.EXPRESSAO or valor_sinal not in k1.sinais_auditoria:
+                    erro(
+                        did,
+                        f"{onde}: sinalAuditoria {sinal.texto or '(vazio)'} fora do vocabulario fechado "
+                        f"{sorted(k1.sinais_auditoria)} (K1 2.3.0, contrato-k1.md §6)",
+                    )
             decisao, classe, fila = celulas[i_decisao], celulas[i_classe], celulas[i_fila]
 
             valor_decisao: str | None = None

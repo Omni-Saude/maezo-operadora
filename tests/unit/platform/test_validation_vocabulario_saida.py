@@ -576,3 +576,67 @@ def test_k1_linha_adversa_sem_id_regra_reprova(tmp_path: Path, vazio: str) -> No
     path = _rco_com_id_regra(tmp_path, [['"glosar"', vazio, '"faturamento"', '"contas"']])
     report = _run([path])
     assert not report.ok and "exige idRegra preenchido" in _messages(report)
+
+
+# ---------------------------------------------------------------------------------------------
+# K1 2.3.0 (DL-0183): saida opcional `sinalAuditoria`, vocabulario fechado em `k1.sinalAuditoria`
+# ---------------------------------------------------------------------------------------------
+
+
+def _rco_sinal(tmp_path: Path, sinais: list[str], name: str = "rco_s.dmn") -> Path:
+    path = tmp_path / "dmn" / "rco" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    linhas = [['"liberar"', '""', '""', s] for s in sinais]
+    path.write_text(
+        _dmn(path.stem, ["decisao", "classeAdverso", "fila", "sinalAuditoria"], linhas), encoding="utf-8"
+    )
+    return path
+
+
+def test_arquivo_de_dados_real_declara_o_vocabulario_do_sinal() -> None:
+    assert carregar(VOCAB).k1.sinais_auditoria == frozenset({"", "aviso_urgencia_carencia"})
+    assert "sinalAuditoria" not in carregar(VOCAB).k1.saidas_obrigatorias
+
+
+def test_k1_sinal_no_vocabulario_passa(tmp_path: Path) -> None:
+    report = _run([_rco_sinal(tmp_path, ['"aviso_urgencia_carencia"', '""', "null", ""])])
+    assert report.ok, _messages(report)
+
+
+@pytest.mark.parametrize(
+    "celula", ['"aviso_inventado"', '"AVISO_URGENCIA_CARENCIA"', 'if true then "x" else ""']
+)
+def test_k1_sinal_fora_do_vocabulario_reprova(tmp_path: Path, celula: str) -> None:
+    report = _run([_rco_sinal(tmp_path, ['""', celula])])
+    assert not report.ok
+    assert "sinalAuditoria" in _messages(report) and "fora do vocabulario fechado" in _messages(report)
+    assert len(report.findings) == 1, _messages(report)
+
+
+def test_k1_coluna_de_sinal_sem_vocabulario_no_dado_reprova(tmp_path: Path) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    data["k1"].pop("sinalAuditoria")
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    report = _run([_rco_sinal(tmp_path, ['""'])], out)
+    assert not report.ok and "sem vocabulario fechado" in _messages(report)
+    assert _run([_rco(tmp_path, _VALIDAS)], out).ok  # tabela sem a coluna nao precisa do vocabulario
+
+
+@pytest.mark.parametrize(
+    "mutacao",
+    [
+        lambda d: d["k1"].update(sinalAuditoria=["aviso_urgencia_carencia"]),  # sem o vazio
+        lambda d: d["k1"].update(sinalAuditoria=["", "", "x"]),
+        lambda d: d["k1"].update(sinalAuditoria=""),
+        lambda d: d["k1"].update(sinalAuditoria=["", 3]),
+        lambda d: d["k1"]["saidas_obrigatorias"].append("sinalAuditoria"),
+    ],
+)
+def test_vocabulario_do_sinal_fora_do_schema_reprova(tmp_path: Path, mutacao: object) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    mutacao(data)  # type: ignore[operator]
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    report = _run([_maezo(tmp_path, "x.dmn", ["r"], [['"ANALISE_HUMANA"']])], out)
+    assert [f.path for f in report.findings] == [out]

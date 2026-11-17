@@ -1,0 +1,206 @@
+{
+  "grupo": "composicao_carencia_cpt",
+  "dominio": "regras-gerais",
+  "regra": "mais_restritiva",
+  "casos": [
+    {
+      "id": "C001",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência libera com aviso (urgência, 24 h cumpridas) e a CPT libera (sem CPT): libera com aviso",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "decisao_de": "geral_carencia",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "sinais": [
+          "aviso_urgencia_carencia"
+        ]
+      }
+    },
+    {
+      "id": "C002",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência libera com aviso e a CPT alcança o caso em urgência: regulação (geral_cpt), com o aviso junto para o humano ver",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "decisao_de": "geral_cpt",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "regulacao",
+        "sinais": [
+          "aviso_urgencia_carencia"
+        ]
+      }
+    },
+    {
+      "id": "C003",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência na regulação (23 horas) e a CPT libera: regulação (geral_carencia), sem aviso",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": false,
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "decisao_de": "geral_carencia",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "sinais": []
+      }
+    },
+    {
+      "id": "C004",
+      "tipo": "nulo",
+      "descricao": "Urgência com a derivada nula e a situação de CPT nula: as duas vão a revisão humana; empate de decisão, vale geral_carencia (regulação)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": null,
+        "cptVigente": null,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "decisao_de": "geral_carencia",
+        "fila": "regulacao",
+        "sinais": []
+      }
+    },
+    {
+      "id": "C005",
+      "tipo": "negativo",
+      "descricao": "Eletivo em carência com isenção nenhuma e a CPT nula: a negativa vem só da carência (3171, OMNI-GERAL-CAR-0002, recurso pela Ouvidoria); a CPT nula só manda ao cadastro",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": null,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "negar",
+        "decisao_de": "geral_carencia",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "motivoTab38": "3171",
+        "fila": "cadastro",
+        "sinais": []
+      }
+    },
+    {
+      "id": "C006",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência cumprida (saldo zero) e a CPT libera: libera, sem aviso",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 0,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "sinais": []
+      }
+    },
+    {
+      "id": "C007",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência cumprida e a CPT recomenda a negativa no eletivo (CID idêntico): recomendação de negativa à auditoria médica (geral_cpt)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 0,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": true,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "recomendar_negativa",
+        "decisao_de": "geral_cpt",
+        "motivoTab38": "3173",
+        "fila": "auditoria_medica",
+        "sinais": []
+      }
+    },
+    {
+      "id": "C008",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Parto a termo em urgência com a derivada verdadeira e sem CPT: regulação (a decisão do dono não se estende ao parto)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": false,
+        "procedimentoAlcancadoCpt": null,
+        "cidNaDlpDeclarada": null,
+        "cidIgualDlpDeclarada": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "decisao_de": "geral_carencia",
+        "fila": "regulacao",
+        "sinais": []
+      }
+    }
+  ]
+}

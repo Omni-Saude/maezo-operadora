@@ -1,0 +1,38 @@
+{
+  "origem_repo": "Omni-Saude/regras-contratos-operadora",
+  "origem_commit": "5dc95b12ca6cd267b5f06a874339ce59725d4ce3",
+  "formato_manifesto": "2.3.0",
+  "manifesto_sha256": "sha256:29361a33731af9d43a35a182dc70ec0d58376dff177eb6e183c0567abbe54d60",
+  "entradas_json_sha256": "sha256:063397ece1226591228be72a6e85df790a4e1dfbb0639eaef4bd6144ae39773f",
+  "gerador": [
+    "git archive 5dc95b12ca6cd267b5f06a874339ce59725d4ce3 | tar -x -C <copia>; na copia: git init, alternates para os objetos do rco e HEAD destacado = esse commit (git update-ref --no-deref HEAD <sha>; git read-tree HEAD), para scripts/pacote.py::origem_git",
+    "make pacote PY=python3 PACOTE_ARGS='--saida <saida>'  # roda make derivar e publica (modo de publicacao, publicar=True): o dicionario de entradas 1.4.0 tem a impressao registrada",
+    "python3 scripts/pacote.py --raiz . --gerar --saida <saida2>  # segunda geracao: mesmo k1/manifesto.sha256",
+    "python3 scripts/pacote.py --raiz . --verificar --saida <saida>  # pacote verificado",
+    "entradas-recorte.json: k1/entradas.json com so as entradas das decisoes dos dominios regras-gerais e diarias-taxas (39), mesma ordem, mesmo versao e sha256_conteudo (o do dicionario COMPLETO), serializado como scripts/pacote.py::legivel"
+  ],
+  "arquivos": {
+    "dmn/geral_carencia.dmn": "sha256:1db637ee862b6d1c947e959009136edef20350d627aea1223aa1a9b2be0a07d7",
+    "dmn/geral_cpt.dmn": "sha256:04bd2cabe022dc239d31522658619fceaea71bd40c38f091c5c2579a336a87fc",
+    "entradas-recorte.json": "sha256:30905a2232ceaa89dcb1d820654225b3906d5d77639f0852402406921371200d",
+    "k6-filas.json": "sha256:2a8f0f23fb9659808c2c8ac53b437a5bbc38d3c0e7e3c8432bc99a82ea26e2e4",
+    "manifesto.json": "sha256:29361a33731af9d43a35a182dc70ec0d58376dff177eb6e183c0567abbe54d60",
+    "manifesto.sha256": "sha256:07ad0915b964f29964f9bc1d1d2add40f4155624544f30f84ddfaf64e262bbae",
+    "validacao/casos/regras-gerais/geral_carencia.json": "sha256:8120524a84d2252774c06f60a4e415164c6a95b11ed2f8a072b795df2df0fec8",
+    "validacao/casos/regras-gerais/geral_cpt.json": "sha256:e4467dacae9ae0b94c7885239fb51f09f7c17a1796a53b90e2b82ca01bf404c5",
+    "validacao/composicao/regras-gerais/composicao_carencia_cpt.json": "sha256:76cb93e6adced5113a47bf3029aa41c1b3429c533ae4a1549d714aad15f30ce4",
+    "vocabulario.json": "sha256:17a1b20e3f423945656526ab86cfb117f8296ed67f8c8dee5d22feb7db896c88"
+  },
+  "origem_caminhos": {
+    "dmn/geral_carencia.dmn": "pacote:k1/dmn/geral_carencia.dmn",
+    "dmn/geral_cpt.dmn": "pacote:k1/dmn/geral_cpt.dmn",
+    "entradas-recorte.json": "recorte:k1/entradas.json",
+    "k6-filas.json": "pacote:k1/k6-filas.json",
+    "manifesto.json": "pacote:k1/manifesto.json",
+    "manifesto.sha256": "pacote:k1/manifesto.sha256",
+    "validacao/casos/regras-gerais/geral_carencia.json": "repo:validacao/casos/regras-gerais/geral_carencia.json",
+    "validacao/casos/regras-gerais/geral_cpt.json": "repo:validacao/casos/regras-gerais/geral_cpt.json",
+    "validacao/composicao/regras-gerais/composicao_carencia_cpt.json": "repo:validacao/composicao/regras-gerais/composicao_carencia_cpt.json",
+    "vocabulario.json": "pacote:k1/vocabulario.json"
+  }
+}

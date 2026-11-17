@@ -47,7 +47,9 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 
 - o sha256 do manifesto diverge de `manifest_pin`, ou os bytes não são os canônicos (contrato §3);
 - `formato_manifesto` não tem MAJOR 1 ou 2 ou tem MINOR maior que o que o leitor conhece (hoje `1.0.x` e
-  `2.0.x`); o leitor é atualizado antes de pinar (contrato §5). O 2.0.0 segue o contrato estável da
+  `2.0.x` a `2.3.x`: `provas[]` desde 2.1, `composicoes[]` desde 2.2 — DL-0173 —, `mais_restritiva`,
+  `ordem_restricao`, `sinalAuditoria` e `avisos` do K6 desde 2.3 — DL-0183); o leitor é atualizado antes de
+  pinar (contrato §5). O 2.0.0 segue o contrato estável da
   branch `prog/rco/ativacao-k1` do rco no commit 75015304 (PROG-RCO-8, contrato §3 e §7), **ainda
   não em `main` do rco**. No 2.0.0
   cada regra tem exatamente `idRegra`, `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`,
@@ -84,6 +86,16 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
   vale em linha não adversa: linha com decisão em `combinacao.adversas` tem de preencher os campos de
   `combinacao.adversa_exige_preenchidos` de `vocabulario.json` (`idRegra`, `fila`, `classeAdverso`,
   `motivoTab38`; contrato §6);
+- (2.3.0, DL-0183) `vocabulario.json` `ordem_restricao` que não é permutação exata de `decisao`
+  (`ordem-restricao-invalida`); `sinalAuditoria` que não é lista de textos sem repetição com o vazio `""`
+  (`sinal-auditoria-invalido`) ou que aparece em `saidas_obrigatorias` (`sinal-auditoria-obrigatorio`);
+  `k6-filas.json` sem `avisos` com exatamente um item por sinal não vazio, cada um com as chaves exatas
+  `filas` (filas existentes no K6) e `prazo_parametro` (`avisos-k6-invalido`); célula de `sinalAuditoria`
+  fora do vocabulário ou não literal (`sinal-auditoria-fora-do-vocabulario`); linha de decisão de grupo
+  `mais_restritiva` com `decisao` fora da ordem (`composicao-decisao-fora-da-ordem`); `mais_restritiva` em
+  manifesto 2.2 (`composicao-regra-fora-do-formato`); a saída `sinalAuditoria` antes de 2.3
+  (`sinal-auditoria-antes-de-2.3`). O pin expõe `ordem_restricao`, `sinais_auditoria` e `avisos`
+  (`RcoRulesPin`); a composição está em `rco_composicao` e a notificação dos avisos é de unidade posterior;
 - `artifacts` difere de `decisoes[]`, ou `provenance` difere de `origem`;
 - arquivo listado ausente, digest divergente, `.dmn` em `rco/` fora da lista, arquivo em `k1/` que não
   é o manifesto nem anexo dele (inclusive `k1/exemplos/`), subpasta, link simbólico (inclusive a própria
@@ -122,7 +134,8 @@ anexos para `config/integrations/rco/k1/` (nunca `exemplos/`), preencher `proven
 
 `entradas.json` (o anexo `dicionario_entradas` do manifesto) é lido por
 `src/maezo/platform/rco_entradas.py`, depois de `rco_manifesto.anexo_pinado` conferir o sha256. O
-leitor só aceita as versões do dicionário que o montador conhece (`VERSOES_SUPORTADAS`, hoje `1.1.0`)
+leitor só aceita as versões do dicionário que o montador conhece (`VERSOES_SUPORTADAS`, hoje `1.1.0`,
+`1.2.0` e `1.4.0`; a 1.4.0 traz o campo opcional `formula.regimes`, DL-0183)
 e só a política de nulo `nunca_negar`. Pinar um K1 com dicionário de versão nova exige rever antes o
 montador (`src/maezo/tools/workers/rco_montador.py`): entrada nova sem mapeamento, origem diferente ou
 fórmula publicada diferente da implementada fazem o montador recusar a decisão.
@@ -145,7 +158,9 @@ Dado versionado (`schema: maezo.dmn.vocabulario-saida`, `versao`, `estado`) lido
   `permissoes` explícitas (arquivo, saída, valor, citação) — hoje nenhuma;
 - `k1`: vocabulário fechado das tabelas em `spec/processes/dmn/rco/` (ADR-0075 (d)): `decisao`,
   `classeAdverso` (com `vazio` = `""`, o vazio canônico do pacote — contrato §6 —, ou `null`/célula
-  vazia) e as regras de `classeAdverso`/`fila`.
+  vazia) e as regras de `classeAdverso`/`fila`; e `sinalAuditoria` (K1 2.3.0, DL-0183), o vocabulário
+  fechado da saída opcional de mesmo nome (`""` = sem aviso): tabela com a coluna reprova se o valor estiver
+  fora dele ou se o arquivo de dados não o declarar.
 
 A seção `k1` será congelada pela trilha rco (PR da unidade PROG-RCO-1 em
 `regras-contratos-operadora`). Mudar o vocabulário é mudar este arquivo, não o código. Fica aqui, e

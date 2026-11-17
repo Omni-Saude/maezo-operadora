@@ -106,7 +106,10 @@ def test_formula_implementada_e_a_publicada(dic: DicionarioEntradasK1, nome: str
 
 def test_toda_formula_publicada_esta_implementada_ou_pendente(dic: DicionarioEntradasK1) -> None:
     com_formula = {n for n, e in dic.entradas.items() if e.formula is not None}
-    assert com_formula == set(mt.FORMULAS) | set(mt.FORMULAS_PENDENTES)
+    # 1.2.0: toda formula publicada e implementada ou pendente; as implementadas desde 1.2.0 estao nela. A
+    # igualdade exata vale no dicionario 1.4.0 (test_rco_k1_2_3_conformidade.py, DL-0183).
+    assert com_formula <= set(mt.FORMULAS) | set(mt.FORMULAS_PENDENTES)
+    assert {n for n, f in mt.FORMULAS.items() if f.desde <= (1, 2, 0)} <= com_formula
     assert not set(mt.FORMULAS) & set(mt.FORMULAS_PENDENTES)
     for mapa in mt.MAPEAMENTOS.values():
         for nome, m in mapa.items():
@@ -119,8 +122,10 @@ def test_toda_formula_publicada_esta_implementada_ou_pendente(dic: DicionarioEnt
 def test_termos_nao_derivados_tem_chave_no_montador() -> None:
     chaves = {
         "cadastro": mt.CAMPOS_TERMO_CADASTRO,
-        "tiss": mt.CAMPOS_TERMO_TISS,
+        # termos `tiss` cujo elemento depende do tipo da guia (DL-0183) resolvem por `TIPOS_GUIA_REFERENCIA`
+        "tiss": {**mt.CAMPOS_TERMO_TISS, **mt.TERMOS_POR_TIPO_GUIA},
         "fora_tiss": mt.CAMPOS_TERMO_FORA_TISS,
+        "parametro": mt.CAMPOS_TERMO_PARAMETRO,
     }
     for impl in mt.FORMULAS.values():
         for nome, origem in impl.termos:
