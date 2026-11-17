@@ -28,14 +28,26 @@ class RuntimeObservationProtectedReadTest {
   private static void linux() {
     assumeTrue(Files.isDirectory(Path.of("/proc/self/fd")),"Actual Linux opened-FD custody is unavailable on this host");
   }
+  /** The census restricted to the descriptors of {@code file} by (dev, ino): the full census
+   * carries every regular-file descriptor of the JVM, so unrelated concurrent opens are excluded
+   * while the subset under test is still asserted exactly. */
+  private static Map<Path,Map<String,Object>> censusOf(Path file)throws Exception {
+    var identity=Files.readAttributes(file,"unix:dev,ino",LinkOption.NOFOLLOW_LINKS);
+    var subset=new HashMap<Path,Map<String,Object>>();
+    for(var entry:RuntimeObservationAdmission.descriptorCensus().entrySet())
+      if(((Number)entry.getValue().get("dev")).longValue()==((Number)identity.get("dev")).longValue()
+          && ((Number)entry.getValue().get("ino")).longValue()==((Number)identity.get("ino")).longValue())subset.put(entry.getKey(),entry.getValue());
+    return subset;
+  }
   @Test void actualLinuxProtectedReadPossessesDescriptorAndRepeatedReadsReopenNothing()throws Exception {
-    linux();Path path=protectedFile("valid.json");var before=RuntimeObservationAdmission.descriptorCensus();
+    linux();Path path=protectedFile("valid.json");assertEquals(0,censusOf(path).size());
     assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
-    var possessed=RuntimeObservationAdmission.descriptorCensus();
-    assertEquals(before.size()+1,possessed.size());
+    var possessed=censusOf(path);
+    assertEquals(1,possessed.size());
     assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
+    assertEquals(possessed,censusOf(path));
     assertArrayEquals(new byte[]{1,2,3},RuntimeObservationAdmission.readProtected(path,Jcs.digest(new byte[]{1,2,3}),64));
-    assertEquals(possessed,RuntimeObservationAdmission.descriptorCensus());
+    assertEquals(possessed,censusOf(path));
   }
   @Test void wrongOpenedInodeRefusesEvenWithSameBytesAndAnExternalMatchingDescriptor()throws Exception {
     linux();Path wanted=protectedFile("wanted.json"),substituted=protectedFile("substituted.json");
