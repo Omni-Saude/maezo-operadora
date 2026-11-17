@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import typing
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Literal
 
 from maezo.gateway.communications.whatsapp_templates import contem_dado_de_saude
@@ -129,14 +129,23 @@ class VisaoDaJornada:
     party_ref: str | None
 
 
-def _tem_saude(node: object) -> bool:
+_PROFUNDIDADE_MAXIMA: Final = 32
+
+
+def _tem_saude(node: object, profundidade: int = 0) -> bool:
+    if profundidade > _PROFUNDIDADE_MAXIMA:
+        raise SpecialistConsoleError("console_snapshot_contract_mismatch")
+    if node is None or type(node) in (bool, int, float):
+        return False
     if isinstance(node, str):
         return contem_dado_de_saude(node)
     if isinstance(node, Mapping):
-        return any(_tem_saude(k) or _tem_saude(v) for k, v in node.items())
+        return any(
+            _tem_saude(k, profundidade + 1) or _tem_saude(v, profundidade + 1) for k, v in node.items()
+        )
     if isinstance(node, list | tuple):
-        return any(_tem_saude(v) for v in node)
-    return False
+        return any(_tem_saude(v, profundidade + 1) for v in node)
+    raise SpecialistConsoleError("console_snapshot_contract_mismatch")
 
 
 def _ref(valor: object) -> str | None:
@@ -168,7 +177,7 @@ def projetar_jornada(snapshot: object) -> VisaoDaJornada:
 
 @dataclass(frozen=True, slots=True)
 class RegistroDoCompromisso:
-    n_minutos: int | None
+    n_minutos: int | None = field(repr=False)
     assinaturas_de_dono: tuple[str, ...]
     ato_ref: str | None
     estado: Literal["NAO_RATIFICADO"]

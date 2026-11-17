@@ -185,3 +185,46 @@ def test_console_not_mounted() -> None:
         n.attr for n in ast.walk(mod) if isinstance(n, ast.Attribute)
     }
     assert "APIRouter" not in nomes and "FastAPI" not in nomes
+
+
+@pytest.mark.parametrize(
+    "valor", [b"declaracao de saude", {"diagnostico"}, frozenset({"cid"}), iter(["diagnostico"])]
+)
+def test_snapshot_opaque_types_fail_closed(valor: typing.Any) -> None:
+    s = snapshot()
+    s["pending_items"] = [valor]
+    with pytest.raises(SpecialistConsoleError) as e:
+        projetar_jornada(s)
+    assert e.value.code in {"PHI_IN_COMMERCIAL_INPUT", "console_snapshot_contract_mismatch"}
+    assert "diagnostico" not in str(e.value)
+
+
+def test_snapshot_profundo_recusa_tipado() -> None:
+    s = snapshot()
+    no: list[typing.Any] = []
+    s["pending_items"] = no
+    for _ in range(100):
+        filho: list[typing.Any] = []
+        no.append(filho)
+        no = filho
+    with pytest.raises(SpecialistConsoleError) as e:
+        projetar_jornada(s)
+    assert e.value.code == "console_snapshot_contract_mismatch"
+
+
+def test_padrao_cid_isolado_recusa() -> None:
+    s = snapshot()
+    s["pending_items"] = [{"code": "J45"}]
+    with pytest.raises(SpecialistConsoleError) as e:
+        projetar_jornada(s)
+    assert e.value.code == "PHI_IN_COMMERCIAL_INPUT"
+
+
+def test_repr_do_registro_nao_mostra_n() -> None:
+    registro = RegistroDoCompromisso(
+        n_minutos=30,
+        assinaturas_de_dono=("dono-a", "dono-b"),
+        ato_ref="ato-sintetico",
+        estado="NAO_RATIFICADO",
+    )
+    assert "30" not in repr(registro)
