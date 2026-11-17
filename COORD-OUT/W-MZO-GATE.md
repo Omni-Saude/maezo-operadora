@@ -149,3 +149,7 @@ Status enviado à mescladora.
 ## 2026-11-17 ~06:10Z
 
 - PR #1287 (E-SF-36) aberto, head f6a0beca8b3c7935c232153305fa0f6253c4adea, sobre a main 6026257. O topo da descrição diz que o módulo ainda não está ligado ao gateway (CD-39). Antes do push: validate com 0 erros; ruff e mypy verdes; 29974 passed, só com falhas ambientais. Durante os testes a main avançou para 14fb708; antes do PRONTO vou conferir a defasagem e simular o merge.
+
+## 2026-11-17 ~06:50Z
+
+#1287: head f6a0beca8b3c7935c232153305fa0f6253c4adea com 40 checks em success e 2 skipped; integração lida do junit (5 shards, 1403 testes, 0 falhas). O head está 18 commits atrás da main 12497495 (#1280, #1283, #1284, #1286). Simulei o merge localmente: 15639 passed, só a falha ambiental de root. Status enviado à mescladora; o PRONTO depende da decisão dela.
