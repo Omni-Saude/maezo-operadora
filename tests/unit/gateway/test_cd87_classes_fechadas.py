@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import copy
 import re
-import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -124,7 +123,7 @@ _TABELA: dict[str, tuple[list[str], list[str]]] = {
     "contagem": (["0", "1", "42"], ["", "J45", "-1", "1.0", "01", "1 ", "um", "٣"]),
     "data_publicacao_fonte": (["01/10/2026", "29/02/2028"], ["29/02/2027", "2026-10-01", "01/10/26"]),
     "link_opaco_jornada": (
-        ["https://app.exemplo.com.br/j/abc123", "ref_opaca-0001", "https://x.io/a?t=ab12"],
+        ["https://app.exemplo.com.br/j/0123456789abcdef"],
         [
             "abc",
             "https://x.io/ com espaco",
@@ -132,6 +131,9 @@ _TABELA: dict[str, tuple[list[str], list[str]]] = {
             "retome sua jornada",
             "https://",
             "a b c d e f g h",
+            "metformina",
+            "ref_opaca-0001",
+            "https://x.io/diagnostico/cancer-de-mama",
         ],
     ),
     "data": (
@@ -143,13 +145,35 @@ _TABELA: dict[str, tuple[list[str], list[str]]] = {
         ["1.234,56", "R$ 1234,56", "R$ 1.234,5", "R$ 1.23,56", "R$1.234,56", "R$ 1.234,56 "],
     ),
     "protocolo_ref": (
-        ["AB12-CD34", "2026-10-0001", "abcd"],
-        ["abc", "J 45", "ab_12", "protocolo é", "a" * 65, "AB12-CD34\n"],
+        ["2026-10-0001", "20261016000123"],
+        [
+            "abc",
+            "J 45",
+            "ab_12",
+            "protocolo é",
+            "a" * 65,
+            "AB12-CD34\n",
+            "abcd",
+            "AB12-CD34",
+            "E119",
+            "losartana",
+        ],
     ),
     "produto_catalogo": ([], ["Plano Austa", "", "qualquer coisa"]),
     "primeiro_nome": (
         ["Maria", "José", "Ângela", "Li"],
-        ["M", "gestante hipertensa", "Maria1", "Ana-Clara", "Maria ", "a" * 31, "J45", "Maria_"],
+        [
+            "M",
+            "gestante hipertensa",
+            "Maria1",
+            "Ana-Clara",
+            "Maria ",
+            "\u041caria",
+            "\u039c\u03b1\u03c1\u03af\u03b1",
+            "a" * 31,
+            "J45",
+            "Maria_",
+        ],
     ),
 }
 
@@ -253,7 +277,7 @@ def _gate_sintetico() -> OutboundGate:
     return OutboundGate(validar_registro(doc), supressao=SupressaoFixa())
 
 
-_VALIDOS = ("Maria", "AB12-CD34", "3", "01/10/2026")
+_VALIDOS = ("Maria", "2026-10-0001", "3", "01/10/2026")
 
 
 def _pedido(variaveis: tuple[str, ...]) -> PedidoDeEnvio:
@@ -280,6 +304,8 @@ async def test_gate_sintetico_autoriza_valores_dentro_das_classes() -> None:
         (1, "J 45"),  # protocolo_ref: espaco
         (2, "J45"),  # contagem: nao e' digito
         (3, "losartana 50mg"),  # data: nao e' data
+        (1, "losartana"),  # protocolo_ref: letras
+        (1, "E119"),  # protocolo_ref: parece CID
     ],
 )
 async def test_recusa_vem_da_classe_e_nao_da_lista(
@@ -290,6 +316,7 @@ async def test_recusa_vem_da_classe_e_nao_da_lista(
     gate = _gate_sintetico()  # o registro carrega com o detector real; so' depois o desligamos
     monkeypatch.setattr(wt, "TERMOS_DE_SAUDE", ())
     monkeypatch.setattr(wt, "_CID10", re.compile(r"(?!x)x"))
+    monkeypatch.setattr(wt, "_CID10_MAIN", re.compile(r"(?!x)x"))
     monkeypatch.setattr(og, "contem_dado_de_saude", lambda _s: False)
     assert not contem_dado_de_saude(valor)  # a lista nao recusaria
     variaveis = list(_VALIDOS)
@@ -347,6 +374,14 @@ def _pedido_lead(valor: str) -> PedidoDeEnvio:
         "J  45",
         "sua J45 esta",
         "K 35.8",
+        "asma–J45",
+        "x—J45",
+        "texto→J45",
+        "dor•K35.8",
+        "nota·E11",
+        "ref«J45»",
+        "x\u200bJ45",
+        "áJ45",
     ],
 )
 def test_detector_endurecido_recusa_cid_com_separador_e_espacos(texto: str) -> None:
@@ -362,17 +397,26 @@ def test_detector_recusa_termos_acrescentados(texto: str) -> None:
 
 
 def test_detector_nao_perdeu_nenhum_termo_da_main() -> None:
-    saida = subprocess.run(
-        ["git", "show", "HEAD:src/maezo/gateway/communications/whatsapp_templates.py"],
-        cwd=_RAIZ,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if saida.returncode != 0:
-        pytest.skip("HEAD indisponivel")
-    bloco = saida.stdout.split("TERMOS_DE_SAUDE: Final[tuple[str, ...]] = (")[1].split("\n)\n")[0]
-    antigos = re.findall(r'"([^"]+)"', bloco)
+    antigos = [
+        "cpt",
+        "cobertura parcial temporaria",
+        "carencia de cpt",
+        "agravo",
+        "dps",
+        "declaracao de saude",
+        "dpp",
+        "doenca preexistente",
+        "doencas preexistentes",
+        "recusa motivo",
+        "cid",
+        "diagnostico",
+        "condicao de saude",
+        "internacao",
+        "sinistro",
+        "utilizacao assistencial",
+        "recusa por saude",
+        "motivo de saude",
+    ]
     assert len(antigos) >= 18
     assert set(antigos) <= set(wt.TERMOS_DE_SAUDE)
     assert all(contem_dado_de_saude(f"x {t} y") for t in antigos)

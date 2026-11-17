@@ -123,6 +123,11 @@ TERMOS_DE_SAUDE: Final[tuple[str, ...]] = (
 _CID10: Final[re.Pattern[str]] = re.compile(
     r"(?<![a-z0-9])[a-tv-z][ ._/\-]?[0-9]{2}(?:[ ._/\-]?[0-9a-z]{1,2})?(?![a-z0-9])"
 )
+#: CID-10 sobre o texto ORIGINAL (sem normalizacao): fronteira so' ASCII (lookaround, nao `\b`), para que
+#: letra acentuada, travessao, seta, bullet e aspas nao escondam o codigo.
+_CID10_MAIN: Final[re.Pattern[str]] = re.compile(
+    r"(?<![A-Za-z0-9])[A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,2})?(?![A-Za-z0-9])", re.IGNORECASE
+)
 _NOME_META: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9_]{1,512}$")
 _ID: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_.]*$")
 _PLACEHOLDER: Final[re.Pattern[str]] = re.compile(r"\{\{(\d+)\}\}")
@@ -153,7 +158,7 @@ def contem_dado_de_saude(texto: str) -> bool:
     de saude" vem da classe fechada da variavel + validador de valor (`VALIDADORES_DE_CLASSE`).
     """
     norm = re.sub(r"\s+", " ", _normalizar(texto))
-    if _CID10.search(norm):
+    if _CID10_MAIN.search(texto) or _CID10.search(norm):
         return True
     norm = re.sub(r"[=_\-:]", " ", norm)
     return any(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", norm) for t in TERMOS_DE_SAUDE)
@@ -182,12 +187,12 @@ _RE_DIA_MES: Final[re.Pattern[str]] = re.compile(r"([0-9]{2})/([0-9]{2})")
 _RE_DATA: Final[re.Pattern[str]] = re.compile(r"([0-9]{2})/([0-9]{2})/([0-9]{4})")
 _RE_CONTAGEM: Final[re.Pattern[str]] = re.compile(r"0|[1-9][0-9]{0,8}")
 _RE_LINK: Final[re.Pattern[str]] = re.compile(
-    r"https://[A-Za-z0-9][A-Za-z0-9.\-]{0,100}(?:/[A-Za-z0-9._~\-/]{0,200})?(?:\?[A-Za-z0-9._~\-=&%]{0,200})?"
-    r"|[A-Za-z0-9_\-]{8,128}"
+    r"https://[A-Za-z0-9][A-Za-z0-9.\-]{0,100}(?:/[a-z]{1,2})?/[0-9a-f]{16,128}(?:\?[A-Za-z0-9._~\-=&%]{0,200})?"
+    r"|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,128}"
 )
 _RE_CENTAVOS: Final[re.Pattern[str]] = re.compile(r"R\$ (?:0|[1-9][0-9]{0,2}(?:\.[0-9]{3})*),[0-9]{2}")
-_RE_PROTOCOLO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9\-]{4,64}")
-_RE_PRIMEIRO_NOME: Final[re.Pattern[str]] = re.compile(r"[^\W\d_]{2,30}")
+_RE_PROTOCOLO: Final[re.Pattern[str]] = re.compile(r"[0-9]{4,20}(?:-[0-9]{1,10}){0,3}")
+_RE_PRIMEIRO_NOME: Final[re.Pattern[str]] = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]{2,30}")
 
 
 def _simples(valor: object, tamanho_max: int) -> bool:
@@ -245,8 +250,8 @@ def validador_produto_catalogo(nomes: Collection[str] = frozenset()) -> Callable
     """Validador da classe `produto_catalogo`: so' vale nome que PERTENCE ao conjunto injetado.
 
     GAP: nao existe catalogo de produtos publicado. O padrao e' o conjunto VAZIO, que recusa tudo; quem
-    publicar o catalogo injeta os nomes, trocando a entrada `produto_catalogo` de `VALIDADORES_DE_CLASSE`
-    (o gate le' o mapa do modulo). Nunca aceita texto avulso.
+    publicar o catalogo injeta os nomes por PR que altere este modulo, com o catalogo publicado (o mapa
+    `VALIDADORES_DE_CLASSE` e' somente leitura em tempo de execucao). Nunca aceita texto avulso.
     """
     permitidos = frozenset(nomes)
 
@@ -271,9 +276,9 @@ VALIDADORES_DE_CLASSE: Final[Mapping[str, Callable[[str], bool]]] = MappingProxy
         "link_opaco_jornada": _v_link_opaco,  # URL https opaca ou referencia, sem espaco nem texto
         "data": _v_data,  # DD/MM/AAAA valida
         "valor_centavos_formatado": _v_centavos,  # `R$ 1.234,56`
-        "protocolo_ref": _v_protocolo,  # ASCII alfanumerico e hifen, 4-64
+        "protocolo_ref": _v_protocolo,  # numerico com hifen, ex.: `2026-10-0001`
         "produto_catalogo": validador_produto_catalogo(),  # GAP: catalogo nao publicado -> recusa tudo
-        "primeiro_nome": _v_primeiro_nome,  # uma palavra, so' letras, 2-30
+        "primeiro_nome": _v_primeiro_nome,  # uma palavra, so' letras latinas, 2-30
     }
 )
 
