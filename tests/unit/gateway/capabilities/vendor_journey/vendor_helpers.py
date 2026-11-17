@@ -32,6 +32,14 @@ from tests.unit.gateway.capabilities.journeys.helpers import (
 )
 
 
+def enforcing_posture() -> Any:
+    """The OP21 enforcing posture, built directly (no composition mounts it; GTM-E-36)."""
+    from tests.unit.gateway.test_commercial_legitimacy_enforcing import _enforcing
+    from tests.unit.gateway.test_commercial_legitimacy_guard import _Store
+
+    return _enforcing(_Store())[0]
+
+
 def vendor_config(*, enabled: bool = True) -> VendorJourneyConfig:
     return VendorJourneyConfig(
         tenant_ref="unit-tenant",
@@ -71,6 +79,7 @@ def vendor_parts(steps: list[Step]) -> tuple[Any, ...]:
         ),
         memberships=MEMBERS,
         clock=lambda: NOW,
+        legitimacy_posture=enforcing_posture(),
     )
     assert driver is not None
     executor.clock = lambda: driver.clock()

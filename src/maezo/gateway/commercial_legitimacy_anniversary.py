@@ -16,8 +16,8 @@ reconfirmação vencida. É só registro: nenhuma postura aplica efeito a partir
   revisão própria, à espera da revalidação humana.
 - Não sinaliza o art. 39: o aniversário não é ingresso de beneficiário. O sinal do art. 39
   continua sendo da postura do guard, sobre um comando do caminho coletivo: a idempotência
-  do guard é a cabeça já carregar `art39_signaled`, não `would_block`, então a linha do
-  aniversário não suprime a linha do guard.
+  do guard é a cabeça já carregar o par `would_block` e `art39_signaled`, então a linha do
+  aniversário (`would_block` sem art. 39) não suprime a linha do guard.
 - O eixo é a PJ (como no guard: "tela verde" é atributo da PJ): o aniversário registrado é
   o da última revisão da PJ, não o de um contrato específico que tenha disparado o evento.
 - Não tem efeito adverso: não chama gateway comercial, comunicação, processo nem efeito.
@@ -101,19 +101,25 @@ class LegitimacyAnniversaryTrigger:
         self._clock = clock or (lambda: datetime.now(UTC))
 
     async def on_anniversary(self, legal_entity_ref: str) -> LegitimacyScreenRecord | None:
-        """Registra o aniversário da PJ; devolve a linha escrita, ou `None` se nada foi escrito."""
+        """Registra o aniversário da PJ; devolve a linha escrita, ou `None` se nada foi escrito.
+
+        Corrida (`revision_taken`: guard ou staff gravou a mesma revisão antes): nada deste
+        gatilho foi gravado; relê a cabeça UMA vez e decide sobre a revisão vigente (no
+        máximo uma escrita). Nova colisão propaga o erro do store: sem laço, sem escrita
+        por cima; o próximo disparo relê.
+        """
+        now = self._clock()
         head = await self._store.latest_for_legal_entity(self._tenant, legal_entity_ref)
-        if head is None:
-            return None
-        revision = anniversary_revision(head, now=self._clock())
+        revision = None if head is None else anniversary_revision(head, now=now)
         if revision is None:
             return None
         try:
             return await self._store.save(revision)
         except LegitimacyScreenStoreError as exc:
-            # Corrida perdida (guard ou staff gravou a mesma revisão antes): o store recusa
-            # `revision_taken` e nada deste gatilho foi gravado. É o `stale_revision` do
-            # gatilho: não há o que reportar como escrito; o próximo disparo relê a cabeça.
-            if exc.code == "revision_taken":
-                return None
-            raise
+            if exc.code != "revision_taken":
+                raise
+        head = await self._store.latest_for_legal_entity(self._tenant, legal_entity_ref)
+        revision = None if head is None else anniversary_revision(head, now=now)
+        if revision is None:
+            return None
+        return await self._store.save(revision)
