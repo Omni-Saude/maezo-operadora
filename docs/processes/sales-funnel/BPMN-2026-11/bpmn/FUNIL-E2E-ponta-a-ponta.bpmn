@@ -1,0 +1,394 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E2E" targetNamespace="urn:funil:descritivo:e2e" exporter="build_e2e.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E2E" name="Funil de vendas — ponta a ponta (E2E, nível 1)">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do contratante/beneficiário. Pool externo (caixa-preta): chega à vitrine e INICIA arrependimento/cancelamento (reativo) — NUNCA recebe mensagem proativa (RT-D4; missão §8). Nenhuma tarefa inventada neste pool.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Omni" name="Superfície de vendas" processRef="Process_Omni"><bpmn:documentation>Superfície de vendas (omni_sales_platform) — espinha do funil E2E: entrada com preço, qualificação, cotação e comparador, proposta e termos, aceite. Handoffs à operadora por message flow (missão §4). isExecutable=false; internos por etapa em FUNIL-E01..E05.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ANS" name="ANS"><bpmn:documentation>Pool externo (caixa-preta): registro de produtos — checagem registro ativo/não suspenso na vitrine (RN 413 art. 4º I-IV, BASELINE-v2 §2.3). Só message flow.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ProvedorEmail" name="Provedor de e-mail"><bpmn:documentation>Pool externo (caixa-preta): protocolo por e-mail — transporte EM-01 FECHADO (RL-SF-010/RL-SF-011/RL-SF-012). Só message flow.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora) — declaração de saúde (custódia clínica), contrato e pagamento (relógio P25D), admissão e acompanhamento, pós-venda. Raias por papel; isExecutable=false; internos em FUNIL-E06/E07/E08/E09.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_AMH" name="Executor comercial e lago"><bpmn:documentation>Executor comercial e lago (amh-data-platform) — caixa-preta na E2E: executa o contrato na fonte e expõe vínculo/vigência para LEITURA (RL-SF-003/A4). Internos em FUNIL-E06 e FUNIL-E08.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ProvedorPagamento" name="Provedor de pagamento"><bpmn:documentation>Pool externo (caixa-preta): porta de pagamento — pagamento incerto NUNCA recriado nem trocado de provedor (missão §6; boundary de erro na E06). Só message flow.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_E01_ANS" name="Consulta situação do registro (ativo/não suspenso)" sourceRef="SubProcess_EntradaPreco_E01" targetRef="Participant_ANS" />
+    <bpmn:messageFlow id="MsgFlow_E04_Email" name="Protocolo por e-mail (transporte EM-01 fechado)" sourceRef="SubProcess_PropostaTermos_E04" targetRef="Participant_ProvedorEmail" />
+    <bpmn:messageFlow id="MsgFlow_E04_E07" name="Proposta apresentada — inicia DS (posição padrão)" sourceRef="SubProcess_PropostaTermos_E04" targetRef="StartEvent_PropostaApresentadaE07" />
+    <bpmn:messageFlow id="MsgFlow_E07_E05" name="DS concluída — fato (existe/não, escopo) — libera aceite" sourceRef="SubProcess_DeclaracaoSaude_E07" targetRef="StartEvent_DSConcluidaE05" />
+    <bpmn:messageFlow id="MsgFlow_E05_E06" name="Aceite registrado — inicia contrato e pagamento" sourceRef="SubProcess_AceiteE05" targetRef="StartEvent_AceiteRegistradoE06" />
+    <bpmn:messageFlow id="MsgFlow_E06_Pag" name="Autorização de pagamento (porta)" sourceRef="SubProcess_ContratoPagamento_E06" targetRef="Participant_ProvedorPagamento" />
+    <bpmn:messageFlow id="MsgFlow_Pag_E06" name="Resultado da autorização (incerto nunca recriado/trocado)" sourceRef="Participant_ProvedorPagamento" targetRef="SubProcess_ContratoPagamento_E06" />
+    <bpmn:messageFlow id="MsgFlow_E06_AMH" name="Executa contrato na fonte" sourceRef="SubProcess_ContratoPagamento_E06" targetRef="Participant_AMH" />
+    <bpmn:messageFlow id="MsgFlow_AMH_E08" name="Vínculo e vigência na fonte (leitura)" sourceRef="Participant_AMH" targetRef="SubProcess_AdmissaoAcompanhamento_E08" />
+    <bpmn:messageFlow id="MsgFlow_Comprador_E09" name="Pedido de arrependimento/cancelamento (iniciado pelo beneficiário)" sourceRef="Participant_Comprador" targetRef="SubProcess_PosVenda_E09" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo VERMELHO = PORTÃO FECHADO / caminho fechado (A1, A3, RL-SF-020, RL-SF-038/EM-01, A4/RL-SF-003, RL-SF-035, contagem do arrependimento, RT-D4 — ids nas anotações). AZUL = CUSTÓDIA CLÍNICA (E07 — internos da declaração de saúde vivem em FUNIL-E07-declaracao-de-saude.bpmn; uso comercial da DS vedado — RL-SF-014). Tracejado = variante anotada, não caminho ativo (RL-SF-023 / RL-REG-11 §Q10-seq). A informação nunca depende só da cor.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Omni" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform) — espinha do funil E2E: entrada com preço, qualificação, cotação e comparador, proposta e termos, aceite. Handoffs à operadora por message flow (missão §4). isExecutable=false; internos por etapa em FUNIL-E01..E05.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Omni">
+      <bpmn:lane id="Lane_OmniJornada" name="Jornada na superfície">
+        <bpmn:flowNodeRef>StartEvent_EntradaVitrine</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_EntradaPreco_E01</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_Qualificacao_E02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_SegueQualificacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_CotacaoComparador_E03</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_PropostaTermos_E04</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_LegitimidadeColetiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_LegitPendenteF03</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_DSConcluidaE05</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_AceiteE05</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PosAceite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteRegistradoE05</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteNaoConcluidoE05</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ProspectAbandonadoE02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PropostaApresentadaE04</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_EntradaVitrine" name="Comprador chega à vitrine (entrada com preço)"><bpmn:documentation>Início do funil E2E (missão §5.1 linha 1). Épicos E-SF-03, E-SF-02 | RN 413 art. 4º (BASELINE-v2 §2.3). Internos: FUNIL-E01-entrada-com-preco.bpmn.</bpmn:documentation><bpmn:outgoing>Flow_Inicio_E01</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:subProcess id="SubProcess_EntradaPreco_E01" name="E01 · Entrada com preço"><bpmn:documentation>Épicos E-SF-02, E-SF-03, E-SF-46, E-SF-04 | Lei 9.656 art. 9º I-II/§4º e art. 16 XII (§2.2); RN 413 art. 4º I-IV (§2.3); CDC 30/31/37§3º (§2.6) | PORTÃO A1 FECHADO (RL-SF-001, jurídico signatário; perna preço B2): sem A1 não há vitrine pública com preço. Internos: FUNIL-E01-entrada-com-preco.bpmn.</bpmn:documentation><bpmn:incoming>Flow_Inicio_E01</bpmn:incoming><bpmn:outgoing>Flow_E01_E02</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:subProcess id="SubProcess_Qualificacao_E02" name="E02 · Qualificação"><bpmn:documentation>Épicos E-SF-04, E-SF-04r, E-SF-40r | RN 558 art. 10 §ú (§2.4); LGPD art. 7º V e art. 11 §5º (§2.5); RN 413 art. 3º (§2.3) | PORTÕES FECHADOS: A2 (RL-SF-002, DPO); zero-saúde (RL-SF-049/TB-03, jurídico — nem opcional); consulta por CPF (RL-SF-041/048 — default: sem CPF na entrada). Internos: FUNIL-E02-qualificacao.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E01_E02</bpmn:incoming><bpmn:outgoing>Flow_E02_Gate</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:exclusiveGateway id="Gateway_SegueQualificacao" name="Prospect segue?" default="Flow_E02Segue"><bpmn:documentation>Divisão após a qualificação: prospect segue à cotação (fluxo padrão) x abandona (fim nomeado + link throw ABANDONO-E02, par com FUNIL-F02-recuperacao-e-mensagens.bpmn).</bpmn:documentation><bpmn:incoming>Flow_E02_Gate</bpmn:incoming><bpmn:outgoing>Flow_E02Segue</bpmn:outgoing><bpmn:outgoing>Flow_E02Abandona</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:subProcess id="SubProcess_CotacaoComparador_E03" name="E03 · Cotação e comparador"><bpmn:documentation>Épicos E-SF-52, E-SF-38, E-SF-08 | RN 413 art. 4º (§2.3); CDC 30/31/36 (§2.6); Lei 9.656 art. 35-E (§2.2) | PORTÕES: A2 residual (DPO); preço numérico herda A1-B2; comparação entre operadoras FECHADA (CADE — por regra). Internos: FUNIL-E03-cotacao-e-comparador.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E02Segue</bpmn:incoming><bpmn:outgoing>Flow_E03_E04</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:subProcess id="SubProcess_PropostaTermos_E04" name="E04 · Proposta e termos"><bpmn:documentation>Épicos E-SF-23, E-SF-41, E-SF-20, E-SF-62 | RN 413 art. 5º §1º (§2.3); LGPD art. 5º VII (§2.5); CDC 39 (§2.6) | PORTÕES FECHADOS: EM-01 (RL-SF-010/RL-SF-011/RL-SF-012 — transporte de e-mail indefinido); legitimidade coletiva (RL-SF-020/RL-REG-08 — mais urgente). Internos: FUNIL-E04-proposta-e-termos.bpmn; canal: FUNIL-F03-canal-de-vendas.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E03_E04</bpmn:incoming><bpmn:outgoing>Flow_E04_Gate</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:exclusiveGateway id="Gateway_LegitimidadeColetiva" name="Venda coletiva (PJ)?" default="Flow_E04Individual"><bpmn:documentation>PORTÃO FECHADO RL-SF-020/RL-REG-08 (tela de legitimidade da venda coletiva — ratificação mais urgente; degrau de multa 2027-01-01): fluxo padrão = proposta individual; rota coletiva FECHADA → frente F3 (FUNIL-F03-canal-de-vendas.bpmn).</bpmn:documentation><bpmn:incoming>Flow_E04_Gate</bpmn:incoming><bpmn:outgoing>Flow_E04Individual</bpmn:outgoing><bpmn:outgoing>Flow_E04Coletiva</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_LegitPendenteF03" name="Legitimidade coletiva pendente — F3"><bpmn:documentation>Fim nomeado da rota coletiva: legitimidade pendente de ratificação (RL-SF-020/RL-REG-08) — conduzida pela frente F3 (canal de vendas).</bpmn:documentation><bpmn:incoming>Flow_E04Coletiva</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_DSConcluidaE05" name="Declaração de saúde concluída (posição padrão)"><bpmn:documentation>Message start: a DS concluída na operadora libera o aceite com o FATO da ponte CPT (existe/não, escopo — decisão humana do médico auditor); NENHUM conteúdo clínico cruza para a superfície (RL-SF-014; LGPD art. 11, §2.5). Posição padrão ATIVA: DS antes do aceite (missão §5.1 linha 10).</bpmn:documentation><bpmn:outgoing>Flow_DS_E05</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_DSConcluidaE05" messageRef="Msg_DSConcluida" /></bpmn:startEvent>
+      <bpmn:subProcess id="SubProcess_AceiteE05" name="E05 · Aceite"><bpmn:documentation>Épicos E-SF-02, E-SF-03, E-SF-41 | RN 413 art. 5º caput/§§ (§2.3); CDC 49 (§2.6) | PORTÃO A3 FECHADO (forma do aceite = ratificação jurídica; E-SF-02 signatários mesclados); assinatura eletrônica da forma = variante anotada. Internos: FUNIL-E05-aceite.bpmn.</bpmn:documentation><bpmn:incoming>Flow_DS_E05</bpmn:incoming><bpmn:outgoing>Flow_E05_Gate</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:exclusiveGateway id="Gateway_PosAceite" name="Aceite concluído?" default="Flow_E05Registrado"><bpmn:documentation>Divisão após o aceite: aceite registrado (fluxo padrão — inicia contrato na operadora) x recusa/não conclusão (fim nomeado — abandono/não-aderência).</bpmn:documentation><bpmn:incoming>Flow_E05_Gate</bpmn:incoming><bpmn:outgoing>Flow_E05Registrado</bpmn:outgoing><bpmn:outgoing>Flow_E05Recusa</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_AceiteRegistradoE05" name="Aceite registrado — inicia contrato"><bpmn:documentation>Fim nomeado da superfície no aceite: aceite registrado; contrato e pagamento iniciados na operadora por message flow (RN 413 art. 5º, §2.3).</bpmn:documentation><bpmn:incoming>Flow_E05Registrado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_AceiteNaoConcluidoE05" name="Aceite não concluído — recusa/abandono"><bpmn:documentation>Fim nomeado: recusa ou não conclusão do aceite (abandono/não-aderência — nenhum caminho termina em silêncio; missão §6).</bpmn:documentation><bpmn:incoming>Flow_E05Recusa</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ProspectAbandonadoE02" name="Prospect abandonado — recuperação na F2"><bpmn:documentation>Fim nomeado: abandono na qualificação — a instância do funil encerra; a recuperação segue na F2 (portão RL-SF-066 na frente; lembretes encerram antes dos 25 dias).</bpmn:documentation><bpmn:incoming>Flow_E02Abandona</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_PropostaApresentadaE04" name="Proposta apresentada — inicia DS na operadora"><bpmn:documentation>Fim nomeado da superfície na proposta: handoff à operadora inicia a declaração de saúde NA POSIÇÃO PADRÃO (antes do aceite; missão §5.1 linha 10).</bpmn:documentation><bpmn:incoming>Flow_E04Individual</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_Inicio_E01" name="Comprador chega à vitrine" sourceRef="StartEvent_EntradaVitrine" targetRef="SubProcess_EntradaPreco_E01" />
+      <bpmn:sequenceFlow id="Flow_E01_E02" name="Só produto com registro ANS ativo (A1)" sourceRef="SubProcess_EntradaPreco_E01" targetRef="SubProcess_Qualificacao_E02" />
+      <bpmn:sequenceFlow id="Flow_E02_Gate" name="Qualificado" sourceRef="SubProcess_Qualificacao_E02" targetRef="Gateway_SegueQualificacao" />
+      <bpmn:sequenceFlow id="Flow_E02Segue" name="Segue à cotação (padrão)" sourceRef="Gateway_SegueQualificacao" targetRef="SubProcess_CotacaoComparador_E03" />
+      <bpmn:sequenceFlow id="Flow_E02Abandona" name="Abandona" sourceRef="Gateway_SegueQualificacao" targetRef="EndEvent_ProspectAbandonadoE02" />
+      <bpmn:sequenceFlow id="Flow_E03_E04" name="Oferta + informações pré-contratuais" sourceRef="SubProcess_CotacaoComparador_E03" targetRef="SubProcess_PropostaTermos_E04" />
+      <bpmn:sequenceFlow id="Flow_E04_Gate" name="Proposta pronta" sourceRef="SubProcess_PropostaTermos_E04" targetRef="Gateway_LegitimidadeColetiva" />
+      <bpmn:sequenceFlow id="Flow_E04Individual" name="Individual (padrão)" sourceRef="Gateway_LegitimidadeColetiva" targetRef="EndEvent_PropostaApresentadaE04" />
+      <bpmn:sequenceFlow id="Flow_E04Coletiva" name="Coletiva (portão fechado)" sourceRef="Gateway_LegitimidadeColetiva" targetRef="EndEvent_LegitPendenteF03" />
+      <bpmn:sequenceFlow id="Flow_DS_E05" name="Fato DS (ponte CPT)" sourceRef="StartEvent_DSConcluidaE05" targetRef="SubProcess_AceiteE05" />
+      <bpmn:sequenceFlow id="Flow_E05_Gate" name="Aceite dado" sourceRef="SubProcess_AceiteE05" targetRef="Gateway_PosAceite" />
+      <bpmn:sequenceFlow id="Flow_E05Registrado" name="Registrado (padrão)" sourceRef="Gateway_PosAceite" targetRef="EndEvent_AceiteRegistradoE05" />
+      <bpmn:sequenceFlow id="Flow_E05Recusa" name="Recusa/não conclui" sourceRef="Gateway_PosAceite" targetRef="EndEvent_AceiteNaoConcluidoE05"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">aceite não concluído ou recusado</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:textAnnotation id="Annotation_E01A1"><bpmn:text>PORTÃO FECHADO A1 (RL-SF-001): vitrine pública com catálogo e preço só com assinatura do jurídico (perna preço B2) — sem A1 não há vitrine (E-SF-03/02; RN 413 art. 4º, §2.3). Internos em FUNIL-E01-entrada-com-preco.bpmn.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_LegitE04"><bpmn:text>PORTÃO FECHADO RL-SF-020 / RL-REG-08: tela de legitimidade da venda coletiva — rota coletiva FECHADA; fluxo padrão = proposta individual. Ratificação mais urgente (degrau de multa 2027-01-01). Detalhe em FUNIL-F03-canal-de-vendas.bpmn.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_E05A3"><bpmn:text>PORTÃO FECHADO A3: forma do aceite depende de ratificação jurídica (E-SF-02 signatários mesclados; RN 413 art. 5º, §2.3). Assinatura eletrônica da forma = variante anotada. Internos em FUNIL-E05-aceite.bpmn.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_E01A1" sourceRef="SubProcess_EntradaPreco_E01" targetRef="Annotation_E01A1" />
+    <bpmn:association id="Association_LegitE04" sourceRef="Gateway_LegitimidadeColetiva" targetRef="Annotation_LegitE04" />
+    <bpmn:association id="Association_E05A3" sourceRef="SubProcess_AceiteE05" targetRef="Annotation_E05A3" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora) — declaração de saúde (custódia clínica), contrato e pagamento (relógio P25D), admissão e acompanhamento, pós-venda. Raias por papel; isExecutable=false; internos em FUNIL-E06/E07/E08/E09.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Encarregado" name="Encarregado (DPO)">
+      </bpmn:lane>
+      <bpmn:lane id="Lane_MedicoAuditor" name="Médico auditor">
+        <bpmn:flowNodeRef>StartEvent_PropostaApresentadaE07</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_DeclaracaoSaude_E07</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_DSConcluidaE07</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Cadastro" name="Cadastro">
+        <bpmn:flowNodeRef>SubProcess_AdmissaoAcompanhamento_E08</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>SubProcess_PosVenda_E09</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FunilConcluidoE09</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Financeiro" name="Financeiro">
+        <bpmn:flowNodeRef>StartEvent_AceiteRegistradoE06</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SubProcess_ContratoPagamento_E06</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_TimerP25D</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraContrato26</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ContratoAutomatico26</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_PropostaApresentadaE07" name="Proposta apresentada (posição padrão)"><bpmn:documentation>Message start: a proposta apresentada pela superfície inicia a declaração de saúde NA POSIÇÃO PADRÃO (antes do aceite — missão §5.1 linha 10); RL-SF-023 / RL-REG-11 §Q10-seq = variante pós-contrato ANOTADA (associação tracejada E06→E07). Épicos E-SF-01, E-SF-44.</bpmn:documentation><bpmn:outgoing>Flow_E07a</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_PropostaApresentadaE07" messageRef="Msg_PropostaApresentada" /></bpmn:startEvent>
+      <bpmn:subProcess id="SubProcess_DeclaracaoSaude_E07" name="E07 · Declaração de saúde"><bpmn:documentation>Épicos E-SF-01, E-SF-01r, E-SF-44, E-SF-17 | RN 558 arts. 3º§1º/4º/§ú/6º/10§ú/12/14 (§2.4); LGPD art. 11 (§2.5) | POSIÇÃO PADRÃO ATIVA: ANTES do aceite (E04→E07→E05); variante pós-contrato = ANOTADA (RL-SF-023 / RL-REG-11 §Q10-seq, associação tracejada E06→E07) até jurídico ratificar. PORTÕES: RL-SF-039 (forma da Carta), RL-SF-042 (campo II intermediário), RL-SF-014 (uso comercial da DS VEDADO). Custódia clínica em raia própria (AZUL) — internos: FUNIL-E07-declaracao-de-saude.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E07a</bpmn:incoming><bpmn:outgoing>Flow_E07b</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:endEvent id="EndEvent_DSConcluidaE07" name="DS concluída — libera aceite"><bpmn:documentation>Fim nomeado na operadora: DS concluída — o FATO da ponte CPT (existe/não, escopo, por decisão humana do médico auditor) segue à superfície; ZERO conteúdo clínico (missão §6).</bpmn:documentation><bpmn:incoming>Flow_E07b</bpmn:incoming></bpmn:endEvent>
+      <bpmn:subProcess id="SubProcess_AdmissaoAcompanhamento_E08" name="E08 · Admissão e acompanhamento"><bpmn:documentation>Épicos E-SF-08, E-SF-05r, E-SF-47 | RN 413 art. 5º (§2.3); RN 623 arts. 10/13/19 (§2.1); RN 500 (§2.12) | PORTÕES FECHADOS: A4 (RL-SF-003 — cobertura vigente); prazo só de norma nomeada (RL-SF-035/RL-REG-27); A9 medição NÃO EXECUTÁVEL (OS-04 — nada emite evento; percurso de teste em hml). Rastreador de 7 estágios; consulta de andamento reativa em FUNIL-E08-admissao-e-acompanhamento.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E06_E08</bpmn:incoming><bpmn:outgoing>Flow_E08_F1</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:subProcess id="SubProcess_PosVenda_E09" name="E09 · Pós-venda"><bpmn:documentation>Épicos E-SF-09, E-SF-09r, E-SF-11, E-SF-RT-02, E-SF-RT-03, E-SF-RT-04 | CDC art. 49 (§2.6); RN 561 arts. 4º/6º/15-21 (§2.11); Lei 9.656 art. 12 VI (§2.2); RN 566 art. 16 I (§2.8) | PORTÕES FECHADOS: contagem do arrependimento 7d — RL-SF-015/RL-REG-03 (RLR:23; jurídico — duas contagens; timer P7D parametrizado); RT-J2 cancelamento; RL-SF-043 reembolso P30D; RT-D4 (nenhuma mensagem proativa a beneficiário); GTM-07 check-in D+7 (DPO). Internos: FUNIL-E09-pos-venda.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E08_F1</bpmn:incoming><bpmn:outgoing>Flow_E09_F4</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:endEvent id="EndEvent_FunilConcluidoE09" name="Funil concluído — contrato vigente"><bpmn:documentation>Fim nomeado do funil E2E: beneficiário admitido e acompanhado (E08), pós-venda em curso (E09); ciclo de renovação sinalizado à F4 (link).</bpmn:documentation><bpmn:incoming>Flow_E09_F4</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_AceiteRegistradoE06" name="Aceite registrado"><bpmn:documentation>Message start: o aceite registrado pela superfície inicia contrato e pagamento (execução comercial na AMH + porta de pagamento; relógio P25D com caminho do 26º dia). Épicos E-SF-07, E-SF-51.</bpmn:documentation><bpmn:outgoing>Flow_E06a</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_AceiteRegistradoE06" messageRef="Msg_AceiteRegistrado" /></bpmn:startEvent>
+      <bpmn:subProcess id="SubProcess_ContratoPagamento_E06" name="E06 · Contrato e pagamento"><bpmn:documentation>Épicos E-SF-07, E-SF-07r, E-SF-08, E-SF-51 | RN 413 art. 5º §§2º-7º (§2.3 — P25D/26º dia §6º); Lei 9.656 (§2.2) | PORTÕES FECHADOS: início do relógio (RL-SF-038, jurídico — default: relógio-sombra do evento mais cedo, sem ETA exibido); e-mail (EM-01). Timer de borda NÃO-INTERRUPTIVO P25D → caminho próprio do 26º dia (contrato vale automaticamente). Execução comercial na AMH; porta de pagamento (incerto nunca recriado/trocado de provedor). Internos: FUNIL-E06-contrato-e-pagamento.bpmn.</bpmn:documentation><bpmn:incoming>Flow_E06a</bpmn:incoming><bpmn:outgoing>Flow_E06_E08</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:boundaryEvent id="Event_TimerP25D" name="Relógio de 25 dias (P25D)" attachedToRef="SubProcess_ContratoPagamento_E06" cancelActivity="false"><bpmn:documentation>Timer de borda NÃO-INTERRUPTIVO (cancelActivity=false), valor ISO 8601 P25D = catálogo funnel_deadline_catalog regra r_rn413_art5_par2 (RN 413 art. 5º §2º, BASELINE-v2 §2.3: contratação conclui em ≤25 dias corridos). Início do relógio FECHADO: RL-SF-038 (jurídico; default = relógio-sombra do evento mais cedo, sem ETA exibido) + EM-01. Alarme/caminho do 26º dia: RN 413 art. 5º §6º.</bpmn:documentation><bpmn:outgoing>Flow_Timer26</bpmn:outgoing><bpmn:timerEventDefinition id="TimerDef_Event_TimerP25D"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P25D</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+      <bpmn:serviceTask id="Task_RegistraContrato26" name="Registra contratação por decurso (26º dia)"><bpmn:documentation>Caminho próprio do 26º dia (RN 413 art. 5º §6º, BASELINE-v2 §2.3: no 26º dia o contrato vale automaticamente). Registro do efeito automático do decurso do P25D; alarmes de acompanhamento vivem nos internos da E06 (FUNIL-E06-contrato-e-pagamento.bpmn).</bpmn:documentation><bpmn:incoming>Flow_Timer26</bpmn:incoming><bpmn:outgoing>Flow_Task26_Fim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_ContratoAutomatico26" name="Contrato vale automaticamente (26º dia)"><bpmn:documentation>Fim nomeado do caminho do 26º dia: contratação concluída por decurso de prazo (RN 413 art. 5º §6º).</bpmn:documentation><bpmn:incoming>Flow_Task26_Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_E07a" name="Proposta apresentada (posição padrão)" sourceRef="StartEvent_PropostaApresentadaE07" targetRef="SubProcess_DeclaracaoSaude_E07" />
+      <bpmn:sequenceFlow id="Flow_E07b" name="DS concluída — libera aceite" sourceRef="SubProcess_DeclaracaoSaude_E07" targetRef="EndEvent_DSConcluidaE07" />
+      <bpmn:sequenceFlow id="Flow_E06a" name="Aceite registrado" sourceRef="StartEvent_AceiteRegistradoE06" targetRef="SubProcess_ContratoPagamento_E06" />
+      <bpmn:sequenceFlow id="Flow_E06_E08" name="Contrato emitido — inicia admissão" sourceRef="SubProcess_ContratoPagamento_E06" targetRef="SubProcess_AdmissaoAcompanhamento_E08" />
+      <bpmn:sequenceFlow id="Flow_E08_F1" name="Sinaliza estágios (par F1 — A9 fechada)" sourceRef="SubProcess_AdmissaoAcompanhamento_E08" targetRef="SubProcess_PosVenda_E09" />
+      <bpmn:sequenceFlow id="Flow_E09_F4" name="Ciclo vigente (par F4)" sourceRef="SubProcess_PosVenda_E09" targetRef="EndEvent_FunilConcluidoE09" />
+      <bpmn:sequenceFlow id="Flow_Timer26" name="P25D → 26º dia" sourceRef="Event_TimerP25D" targetRef="Task_RegistraContrato26" />
+      <bpmn:sequenceFlow id="Flow_Task26_Fim" name="Contratação concluída por decurso" sourceRef="Task_RegistraContrato26" targetRef="EndEvent_ContratoAutomatico26" />
+      <bpmn:textAnnotation id="Annotation_Juridico"><bpmn:text>Custódia jurídica (raia sem tarefa ativa no nível 1): posição da DS (RL-SF-023 / RL-REG-11 §Q10-seq) e contagem do arrependimento são do jurídico (missão §8); portões A1, A3, RL-SF-020/RL-REG-08 e RL-SF-038 vivem dentro das etapas E01/E04/E05/E06 e na frente F3.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Encarregado"><bpmn:text>Custódia do encarregado (DPO) — raia sem tarefa ativa no nível 1: A2/RL-SF-002 (E02); assinatura da medição A9 (F1 — não executável, OS-04); RL-SF-066 (F2); RL-SF-005/RL-SF-044 (F1); RT-D4 e GTM-07 D+7 (E09).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_E07Custodia"><bpmn:text>CUSTÓDIA CLÍNICA — os internos da declaração de saúde (banco de perguntas aprovado, entrevista digital, custódia isolada em raia própria, ponte CPT por decisão humana do médico auditor) vivem em FUNIL-E07-declaracao-de-saude.bpmn. ZERO dado de saúde em lógica comercial/medição/mensagem/retenção (RL-SF-014; LGPD art. 11). Portões: RL-SF-039 (forma da Carta), RL-SF-042 (campo II). Posição padrão ATIVA: antes do aceite.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_VarianteDS"><bpmn:text>VARIANTE ANOTADA — NÃO caminho ativo (RL-SF-023 / RL-REG-11 §Q10-seq): declaração de saúde DEPOIS do contrato, aguardando ratificação jurídica da posição; seta tracejada E06→E07. Padrão seguro ATIVO: DS antes do aceite (E04→E07→E05). A posição é do jurídico (missão §8).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_E08Portoes"><bpmn:text>PORTÕES FECHADOS: A4 (RL-SF-003 — cobertura vigente; default: tracker termina no estágio 6); prazo só de norma nomeada (RL-SF-035/RL-REG-27 — sem ETA, só datas); A9 medição NÃO EXECUTÁVEL (OS-04 — nada emite evento; o sinal de link p/ F1 NÃO é medição). Internos em FUNIL-E08-admissao-e-acompanhamento.bpmn.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_E06Portoes"><bpmn:text>PORTÕES FECHADOS: início do relógio RL-SF-038 (jurídico — default: relógio-sombra do evento mais cedo, sem ETA exibido) e EM-01 (e-mail). Timer de borda NÃO-interruptivo P25D (RN 413 art. 5º §§2º-6º, §2.3) → caminho próprio do 26º dia: contrato vale automaticamente. Pagamento incerto nunca recriado nem trocado de provedor. Internos em FUNIL-E06-contrato-e-pagamento.bpmn.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_E09Portoes"><bpmn:text>PORTÕES FECHADOS: contagem do arrependimento 7d — RL-SF-015/RL-REG-03 (RLR:23; jurídico — duas contagens; timer P7D parametrizado); RT-J2 cancelamento; RL-SF-043 reembolso P30D; RT-D4 — NENHUMA mensagem proativa a beneficiário. Ciclo de renovação/remição: F4 (link). Internos em FUNIL-E09-pos-venda.bpmn.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_E07Custodia" sourceRef="SubProcess_DeclaracaoSaude_E07" targetRef="Annotation_E07Custodia" />
+    <bpmn:association id="Association_VarianteDSAnn" sourceRef="SubProcess_DeclaracaoSaude_E07" targetRef="Annotation_VarianteDS" />
+    <bpmn:association id="Association_Juridico" sourceRef="SubProcess_DeclaracaoSaude_E07" targetRef="Annotation_Juridico" />
+    <bpmn:association id="Association_Encarregado" sourceRef="SubProcess_AdmissaoAcompanhamento_E08" targetRef="Annotation_Encarregado" />
+    <bpmn:association id="Association_E08Portoes" sourceRef="SubProcess_AdmissaoAcompanhamento_E08" targetRef="Annotation_E08Portoes" />
+    <bpmn:association id="Association_E09Portoes" sourceRef="SubProcess_PosVenda_E09" targetRef="Annotation_E09Portoes" />
+    <bpmn:association id="Association_E06Portoes" sourceRef="SubProcess_ContratoPagamento_E06" targetRef="Annotation_E06Portoes" />
+    <bpmn:association id="Association_VarianteDS" sourceRef="SubProcess_ContratoPagamento_E06" targetRef="SubProcess_DeclaracaoSaude_E07" associationDirection="One" />
+  </bpmn:process>
+  <bpmn:message id="Msg_PropostaApresentada" name="Proposta apresentada — inicia declaração de saúde (posição padrão)" />
+  <bpmn:message id="Msg_DSConcluida" name="Declaração de saúde concluída — fato da ponte CPT libera aceite" />
+  <bpmn:message id="Msg_AceiteRegistrado" name="Aceite registrado — inicia contrato e pagamento" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E2E">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E2E" bpmnElement="Collaboration_FUNIL_E2E">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2600" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Omni_di" bpmnElement="Participant_Omni" isHorizontal="true"><dc:Bounds x="40" y="220" width="2600" height="820" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ANS_di" bpmnElement="Participant_ANS" isHorizontal="true"><dc:Bounds x="40" y="1120" width="2600" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ProvedorEmail_di" bpmnElement="Participant_ProvedorEmail" isHorizontal="true"><dc:Bounds x="40" y="1300" width="2600" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="1480" width="2600" height="1320" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_AMH_di" bpmnElement="Participant_AMH" isHorizontal="true"><dc:Bounds x="40" y="2880" width="2600" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ProvedorPagamento_di" bpmnElement="Participant_ProvedorPagamento" isHorizontal="true"><dc:Bounds x="40" y="3060" width="2600" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_OmniJornada_di" bpmnElement="Lane_OmniJornada" isHorizontal="true"><dc:Bounds x="70" y="220" width="2530" height="820" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="1480" width="2530" height="120" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Encarregado_di" bpmnElement="Lane_Encarregado" isHorizontal="true"><dc:Bounds x="70" y="1600" width="2530" height="120" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_MedicoAuditor_di" bpmnElement="Lane_MedicoAuditor" isHorizontal="true"><dc:Bounds x="70" y="1720" width="2530" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Cadastro_di" bpmnElement="Lane_Cadastro" isHorizontal="true"><dc:Bounds x="70" y="1980" width="2530" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="2240" width="2530" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Financeiro_di" bpmnElement="Lane_Financeiro" isHorizontal="true"><dc:Bounds x="70" y="2500" width="2530" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_EntradaVitrine_di" bpmnElement="StartEvent_EntradaVitrine">
+        <dc:Bounds x="140" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="446" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_EntradaPreco_E01_di" bpmnElement="SubProcess_EntradaPreco_E01" isExpanded="false">
+        <dc:Bounds x="300" y="340" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_Qualificacao_E02_di" bpmnElement="SubProcess_Qualificacao_E02" isExpanded="false">
+        <dc:Bounds x="520" y="340" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_SegueQualificacao_di" bpmnElement="Gateway_SegueQualificacao" isMarkerVisible="true">
+        <dc:Bounds x="700" y="400" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="665" y="354" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_CotacaoComparador_E03_di" bpmnElement="SubProcess_CotacaoComparador_E03" isExpanded="false">
+        <dc:Bounds x="820" y="340" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_PropostaTermos_E04_di" bpmnElement="SubProcess_PropostaTermos_E04" isExpanded="false">
+        <dc:Bounds x="1040" y="340" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_LegitimidadeColetiva_di" bpmnElement="Gateway_LegitimidadeColetiva" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1260" y="400" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1240" y="354" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_LegitPendenteF03_di" bpmnElement="EndEvent_LegitPendenteF03" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1490" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1400" y="446" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_DSConcluidaE05_di" bpmnElement="StartEvent_DSConcluidaE05">
+        <dc:Bounds x="1600" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1480" y="478" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_AceiteE05_di" bpmnElement="SubProcess_AceiteE05" isExpanded="false">
+        <dc:Bounds x="1680" y="340" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PosAceite_di" bpmnElement="Gateway_PosAceite" isMarkerVisible="true">
+        <dc:Bounds x="1900" y="400" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1830" y="354" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteRegistradoE05_di" bpmnElement="EndEvent_AceiteRegistradoE05">
+        <dc:Bounds x="2020" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1956" y="446" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteNaoConcluidoE05_di" bpmnElement="EndEvent_AceiteNaoConcluidoE05">
+        <dc:Bounds x="1907" y="560" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1800" y="646" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ProspectAbandonadoE02_di" bpmnElement="EndEvent_ProspectAbandonadoE02">
+        <dc:Bounds x="820" y="560" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="760" y="606" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PropostaApresentadaE04_di" bpmnElement="EndEvent_PropostaApresentadaE04">
+        <dc:Bounds x="1180" y="560" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="640" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E01A1_di" bpmnElement="Annotation_E01A1" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="640" y="640" width="300" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_LegitE04_di" bpmnElement="Annotation_LegitE04" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1260" y="640" width="300" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E05A3_di" bpmnElement="Annotation_E05A3" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2020" y="640" width="300" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="2260" y="340" width="280" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_PropostaApresentadaE07_di" bpmnElement="StartEvent_PropostaApresentadaE07">
+        <dc:Bounds x="140" y="1832" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="100" y="1878" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_DeclaracaoSaude_E07_di" bpmnElement="SubProcess_DeclaracaoSaude_E07" isExpanded="false" bioc:stroke="#1B6EC2" bioc:fill="#DCEBFA">
+        <dc:Bounds x="300" y="1770" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_DSConcluidaE07_di" bpmnElement="EndEvent_DSConcluidaE07">
+        <dc:Bounds x="520" y="1832" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="480" y="1900" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_AdmissaoAcompanhamento_E08_di" bpmnElement="SubProcess_AdmissaoAcompanhamento_E08" isExpanded="false">
+        <dc:Bounds x="850" y="2030" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_PosVenda_E09_di" bpmnElement="SubProcess_PosVenda_E09" isExpanded="false">
+        <dc:Bounds x="1180" y="2290" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FunilConcluidoE09_di" bpmnElement="EndEvent_FunilConcluidoE09">
+        <dc:Bounds x="1490" y="2332" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1470" y="2424" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_AceiteRegistradoE06_di" bpmnElement="StartEvent_AceiteRegistradoE06">
+        <dc:Bounds x="140" y="2612" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="168" y="2658" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_ContratoPagamento_E06_di" bpmnElement="SubProcess_ContratoPagamento_E06" isExpanded="false">
+        <dc:Bounds x="300" y="2550" width="140" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_TimerP25D_di" bpmnElement="Event_TimerP25D">
+        <dc:Bounds x="352" y="2692" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="2740" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraContrato26_di" bpmnElement="Task_RegistraContrato26">
+        <dc:Bounds x="520" y="2670" width="100" height="80" />
+        <bpmndi:BPMNLabel><dc:Bounds x="500" y="2634" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ContratoAutomatico26_di" bpmnElement="EndEvent_ContratoAutomatico26">
+        <dc:Bounds x="700" y="2692" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="2634" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Juridico_di" bpmnElement="Annotation_Juridico">
+        <dc:Bounds x="700" y="1500" width="480" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Encarregado_di" bpmnElement="Annotation_Encarregado">
+        <dc:Bounds x="700" y="1620" width="480" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E07Custodia_di" bpmnElement="Annotation_E07Custodia" bioc:stroke="#1B6EC2" bioc:fill="#DCEBFA">
+        <dc:Bounds x="640" y="1770" width="420" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_VarianteDS_di" bpmnElement="Annotation_VarianteDS">
+        <dc:Bounds x="1460" y="1770" width="420" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E08Portoes_di" bpmnElement="Annotation_E08Portoes" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2120" y="2030" width="420" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E06Portoes_di" bpmnElement="Annotation_E06Portoes" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1250" y="2550" width="420" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_E09Portoes_di" bpmnElement="Annotation_E09Portoes" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2120" y="2290" width="420" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_Inicio_E01_di" bpmnElement="Flow_Inicio_E01"><di:waypoint x="176" y="420" /><di:waypoint x="300" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="190" y="290" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E01_E02_di" bpmnElement="Flow_E01_E02"><di:waypoint x="440" y="420" /><di:waypoint x="520" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="445" y="290" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E02_Gate_di" bpmnElement="Flow_E02_Gate"><di:waypoint x="660" y="420" /><di:waypoint x="700" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="655" y="290" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E02Segue_di" bpmnElement="Flow_E02Segue"><di:waypoint x="750" y="420" /><di:waypoint x="820" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="760" y="290" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E02Abandona_di" bpmnElement="Flow_E02Abandona"><di:waypoint x="725" y="450" /><di:waypoint x="820" y="578" />
+        <bpmndi:BPMNLabel><dc:Bounds x="730" y="500" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E03_E04_di" bpmnElement="Flow_E03_E04"><di:waypoint x="960" y="420" /><di:waypoint x="1040" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="965" y="290" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E04_Gate_di" bpmnElement="Flow_E04_Gate"><di:waypoint x="1180" y="420" /><di:waypoint x="1260" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="290" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E04Individual_di" bpmnElement="Flow_E04Individual"><di:waypoint x="1285" y="450" /><di:waypoint x="1285" y="510" /><di:waypoint x="1198" y="510" /><di:waypoint x="1198" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1290" y="574" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E04Coletiva_di" bpmnElement="Flow_E04Coletiva"><di:waypoint x="1310" y="420" /><di:waypoint x="1490" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1315" y="290" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DS_E05_di" bpmnElement="Flow_DS_E05"><di:waypoint x="1636" y="420" /><di:waypoint x="1680" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1585" y="290" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E05_Gate_di" bpmnElement="Flow_E05_Gate"><di:waypoint x="1820" y="420" /><di:waypoint x="1900" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1825" y="290" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E05Registrado_di" bpmnElement="Flow_E05Registrado"><di:waypoint x="1950" y="420" /><di:waypoint x="2020" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1955" y="290" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E05Recusa_di" bpmnElement="Flow_E05Recusa"><di:waypoint x="1925" y="450" /><di:waypoint x="1925" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1855" y="500" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E07a_di" bpmnElement="Flow_E07a"><di:waypoint x="176" y="1850" /><di:waypoint x="300" y="1850" />
+        <bpmndi:BPMNLabel><dc:Bounds x="180" y="1814" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E07b_di" bpmnElement="Flow_E07b"><di:waypoint x="440" y="1850" /><di:waypoint x="520" y="1850" />
+        <bpmndi:BPMNLabel><dc:Bounds x="444" y="1800" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E06a_di" bpmnElement="Flow_E06a"><di:waypoint x="176" y="2630" /><di:waypoint x="300" y="2630" />
+        <bpmndi:BPMNLabel><dc:Bounds x="180" y="2594" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E06_E08_di" bpmnElement="Flow_E06_E08"><di:waypoint x="440" y="2590" /><di:waypoint x="820" y="2590" /><di:waypoint x="820" y="2110" /><di:waypoint x="850" y="2110" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="2546" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E08_F1_di" bpmnElement="Flow_E08_F1"><di:waypoint x="990" y="2110" /><di:waypoint x="1130" y="2110" /><di:waypoint x="1130" y="2370" /><di:waypoint x="1180" y="2370" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1260" y="2080" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E09_F4_di" bpmnElement="Flow_E09_F4"><di:waypoint x="1320" y="2370" /><di:waypoint x="1490" y="2370" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1424" y="2384" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Timer26_di" bpmnElement="Flow_Timer26"><di:waypoint x="388" y="2710" /><di:waypoint x="520" y="2710" />
+        <bpmndi:BPMNLabel><dc:Bounds x="442" y="2712" width="76" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Task26_Fim_di" bpmnElement="Flow_Task26_Fim"><di:waypoint x="620" y="2710" /><di:waypoint x="700" y="2710" />
+        <bpmndi:BPMNLabel><dc:Bounds x="660" y="2740" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E01_ANS_di" bpmnElement="MsgFlow_E01_ANS"><di:waypoint x="370" y="500" /><di:waypoint x="370" y="1120" />
+        <bpmndi:BPMNLabel><dc:Bounds x="382" y="700" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E04_Email_di" bpmnElement="MsgFlow_E04_Email"><di:waypoint x="1070" y="500" /><di:waypoint x="1070" y="1300" />
+        <bpmndi:BPMNLabel><dc:Bounds x="952" y="620" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E04_E07_di" bpmnElement="MsgFlow_E04_E07"><di:waypoint x="1110" y="500" /><di:waypoint x="1110" y="1430" /><di:waypoint x="158" y="1430" /><di:waypoint x="158" y="1832" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="1404" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E07_E05_di" bpmnElement="MsgFlow_E07_E05"><di:waypoint x="330" y="1770" /><di:waypoint x="330" y="1450" /><di:waypoint x="1618" y="1450" /><di:waypoint x="1618" y="438" />
+        <bpmndi:BPMNLabel><dc:Bounds x="376" y="1620" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E05_E06_di" bpmnElement="MsgFlow_E05_E06"><di:waypoint x="1700" y="500" /><di:waypoint x="1700" y="610" /><di:waypoint x="2000" y="610" /><di:waypoint x="2000" y="2780" /><di:waypoint x="158" y="2780" /><di:waypoint x="158" y="2648" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2010" y="940" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E06_Pag_di" bpmnElement="MsgFlow_E06_Pag"><di:waypoint x="320" y="2710" /><di:waypoint x="320" y="3060" />
+        <bpmndi:BPMNLabel><dc:Bounds x="140" y="2820" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Pag_E06_di" bpmnElement="MsgFlow_Pag_E06"><di:waypoint x="430" y="3060" /><di:waypoint x="430" y="2710" />
+        <bpmndi:BPMNLabel><dc:Bounds x="140" y="2900" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_E06_AMH_di" bpmnElement="MsgFlow_E06_AMH"><di:waypoint x="400" y="2710" /><di:waypoint x="400" y="2880" />
+        <bpmndi:BPMNLabel><dc:Bounds x="168" y="2706" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AMH_E08_di" bpmnElement="MsgFlow_AMH_E08"><di:waypoint x="970" y="2880" /><di:waypoint x="970" y="2190" />
+        <bpmndi:BPMNLabel><dc:Bounds x="980" y="2450" width="160" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Comprador_E09_di" bpmnElement="MsgFlow_Comprador_E09"><di:waypoint x="1240" y="140" /><di:waypoint x="1240" y="2210" /><di:waypoint x="1160" y="2210" /><di:waypoint x="1160" y="2330" /><di:waypoint x="1180" y="2330" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1250" y="1000" width="190" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E01A1_di" bpmnElement="Association_E01A1"><di:waypoint x="330" y="500" /><di:waypoint x="330" y="610" /><di:waypoint x="640" y="610" /><di:waypoint x="640" y="640" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_LegitE04_di" bpmnElement="Association_LegitE04"><di:waypoint x="1285" y="450" /><di:waypoint x="1285" y="640" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E05A3_di" bpmnElement="Association_E05A3"><di:waypoint x="1750" y="500" /><di:waypoint x="1750" y="620" /><di:waypoint x="2170" y="620" /><di:waypoint x="2170" y="640" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E07Custodia_di" bpmnElement="Association_E07Custodia"><di:waypoint x="440" y="1890" /><di:waypoint x="640" y="1890" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_VarianteDSAnn_di" bpmnElement="Association_VarianteDSAnn"><di:waypoint x="410" y="1770" /><di:waypoint x="410" y="1750" /><di:waypoint x="1560" y="1750" /><di:waypoint x="1560" y="1770" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Juridico_di" bpmnElement="Association_Juridico"><di:waypoint x="370" y="1770" /><di:waypoint x="370" y="1540" /><di:waypoint x="700" y="1540" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Encarregado_di" bpmnElement="Association_Encarregado"><di:waypoint x="990" y="2140" /><di:waypoint x="1140" y="2140" /><di:waypoint x="1140" y="1660" /><di:waypoint x="1180" y="1660" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E08Portoes_di" bpmnElement="Association_E08Portoes"><di:waypoint x="990" y="2060" /><di:waypoint x="2100" y="2060" /><di:waypoint x="2100" y="2100" /><di:waypoint x="2120" y="2100" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E09Portoes_di" bpmnElement="Association_E09Portoes"><di:waypoint x="1320" y="2330" /><di:waypoint x="1400" y="2330" /><di:waypoint x="1400" y="2250" /><di:waypoint x="2100" y="2250" /><di:waypoint x="2100" y="2360" /><di:waypoint x="2120" y="2360" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_E06Portoes_di" bpmnElement="Association_E06Portoes"><di:waypoint x="410" y="2550" /><di:waypoint x="410" y="2520" /><di:waypoint x="1350" y="2520" /><di:waypoint x="1350" y="2550" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_VarianteDS_di" bpmnElement="Association_VarianteDS"><di:waypoint x="370" y="2550" /><di:waypoint x="370" y="1930" /><bpmndi:BPMNLabel><dc:Bounds x="380" y="2200" width="150" height="28" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

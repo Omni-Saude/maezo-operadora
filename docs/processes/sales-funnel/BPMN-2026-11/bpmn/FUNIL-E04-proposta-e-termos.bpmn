@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E04" targetNamespace="urn:funil:descritivo:etapa4" exporter="build_etapa04.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E04" name="Etapa 4 — Proposta e termos">
+    <bpmn:participant id="Participant_Comprador" name="Comprador" processRef="Process_Comprador"><bpmn:documentation>Papel do comprador/proponente. Processo descritivo (isExecutable=false): preenche a tela de proposta e termos (userTask), envia ou abandona, e registra o recibo/protocolo recebido. Épico E-SF-41 (superfície, onda 2). Nenhum dado de saúde nesta etapa.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Bloco de contratação: aviso prévio de assinatura (RN 413 art. 7º §2º, baseline L123), tela de proposta com documentos por referência (art. 4º §1º, L116) e tela de legitimidade coletiva (portão RL-SF-020 FECHADO). Épicos E-SF-41 (onda 2) e E-SF-20 (não iniciado).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, cadastro, jurídico. Portões FECHADOS: EM-01 (RL-SF-010/011/012 — transporte do e-mail indefinido), RL-SF-036 (pré-montagem cadastral RN 500). RN 413 art. 5º (L117-118); RN 500/2022 (L307/309/310). Épicos E-SF-23 (onda 2), E-SF-41 (onda 2).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Email" name="Provedor de e-mail"><bpmn:documentation>Pool externo sem lanes. Destino do protocolo (RN 413 art. 5º §1º, baseline L117) — BLOQUEADO pelos portões EM-01: RL-SF-010 (DPO-operador), RL-SF-011 (jurídico), RL-SF-012 (dono-deploy). Só recebe mensagem na variante ratificada.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_SessaoAberta" name="Comprador abre a proposta" sourceRef="Participant_Comprador" targetRef="StartEvent_SessaoProposta" />
+    <bpmn:messageFlow id="MsgFlow_TelaDisponivel" name="Tela de proposta disponível" sourceRef="Task_ExibeTelaProposta" targetRef="StartEvent_PropostaDevida" />
+    <bpmn:messageFlow id="MsgFlow_PropostaSubmetida" name="Proposta preenchida e enviada" sourceRef="EndEvent_PropostaEnviada" targetRef="StartEvent_PropostaRecebida" />
+    <bpmn:messageFlow id="MsgFlow_ReciboProtocolo" name="Recibo e protocolo — visualização imediata" sourceRef="Task_GeraProtocolo" targetRef="StartEvent_ReciboRecebido" />
+    <bpmn:messageFlow id="MsgFlow_ProtocoloEmail" name="Protocolo da proposta por e-mail" sourceRef="Task_EnviaProtocoloEmail" targetRef="Participant_Email" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (decisão pendente: EM-01 = RL-SF-010/011/012; RL-SF-020 legitimidade coletiva; RL-SF-036 pré-montagem cadastral). A informação nunca depende só da cor: ids nas anotações e na documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Comprador" isExecutable="false">
+    <bpmn:documentation>Papel do comprador/proponente. Processo descritivo (isExecutable=false): preenche a tela de proposta e termos (userTask), envia ou abandona, e registra o recibo/protocolo recebido. Épico E-SF-41 (superfície, onda 2). Nenhum dado de saúde nesta etapa.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Comprador">
+      <bpmn:lane id="Lane_Comprador" name="Comprador">
+        <bpmn:flowNodeRef>StartEvent_PropostaDevida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PreencheTelaProposta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_EnvioProposta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PropostaEnviada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE04</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_ReciboRecebido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PropostaRegistrada</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_PropostaDevida" name="Tela de proposta disponível"><bpmn:documentation>Message start: tela de proposta disponível na superfície (E-SF-41, onda 2). RN 413 art. 5º caput (baseline L117): o interessado preenche todas as informações e envia a documentação.</bpmn:documentation><bpmn:outgoing>Flow_B1_Preenche</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_PropostaDevida" messageRef="Message_TelaPropostaDisponivel" /></bpmn:startEvent>
+      <bpmn:userTask id="Task_PreencheTelaProposta" name="Preenche tela de proposta e termos"><bpmn:documentation>Ato humano na tela (E-SF-41, onda 2). RN 413 art. 4º caput (baseline L115): disclosure I-IV, VII-IX antes da finalização; art. 4º §1º (L116): guias e manuais por impressão/download. CDC art. 30 (L217) e art. 31 (L218): a informação exibida integra o contrato; CDC art. 39 I (L221): venda casada vedada. Coleta mínima de identificação do titular (RL-SF-036 FECHADO — default). Formação do preço: RL-SF-019 citada, não respondida.</bpmn:documentation><bpmn:incoming>Flow_B1_Preenche</bpmn:incoming><bpmn:outgoing>Flow_B2_Envia</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_EnvioProposta" name="Envia a proposta?" default="Flow_B3_Enviada"><bpmn:documentation>Divisão do comprador: enviar a proposta preenchida ou abandonar. Default = enviar (caminho principal). Ambos os desfechos têm fim nomeado.</bpmn:documentation><bpmn:incoming>Flow_B2_Envia</bpmn:incoming><bpmn:outgoing>Flow_B3_Enviada</bpmn:outgoing><bpmn:outgoing>Flow_B4_Abandona</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_PropostaEnviada" name="Proposta enviada"><bpmn:documentation>Fim nomeado: proposta preenchida e enviada à operadora (RN 413 art. 5º caput, baseline L117).</bpmn:documentation><bpmn:incoming>Flow_B3_Enviada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Abandono da proposta"><bpmn:documentation>Fim nomeado: abandono da proposta na tela. Recuperação = Frente F2 (RL-SF-066 FECHADO — sem mensagem proativa; aceite único do prospect só captura).</bpmn:documentation><bpmn:incoming>Flow_B4a_FimAbandono</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_ReciboRecebido" name="Recibo e protocolo recebidos"><bpmn:documentation>Message start: recibo de apresentação + protocolo com visualização imediata (RN 413 art. 5º §1º, baseline L117). O envio POR E-MAIL é outro desfecho, gated por EM-01.</bpmn:documentation><bpmn:outgoing>Flow_B5_Registra</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_ReciboRecebido" messageRef="Message_ReciboProtocolo" /></bpmn:startEvent>
+      <bpmn:endEvent id="EndEvent_PropostaRegistrada" name="Proposta registrada"><bpmn:documentation>Fim nomeado: proposta registrada — recibo de apresentação e protocolo de visualização imediata recebidos pelo comprador (RN 413 art. 5º §1º, baseline L117). Vale mesmo com o e-mail FECHADO.</bpmn:documentation><bpmn:incoming>Flow_B5_Registra</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_AbandonoE04" name="Abandono da proposta — link 'ABANDONO-E04' (par F2)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F2 — Recuperação de abandono e mensagens (FUNIL-F02-recuperacao-e-mensagens.bpmn): o catch de 'ABANDONO-E04' captura linkEventDefinition com este nome (grafia idêntica à de F02). Missão §5.2: a frente LIGA às etapas e não duplica as tarefas delas; recuperação só com consentimento, nunca a beneficiário, janela encerra antes dos 25 dias (BM-08). Épico E-SF-61.</bpmn:documentation><bpmn:incoming>Flow_B4_Abandona</bpmn:incoming><bpmn:outgoing>Flow_B4a_FimAbandono</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE04" name="ABANDONO-E04" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_B1_Preenche" name="Preenche" sourceRef="StartEvent_PropostaDevida" targetRef="Task_PreencheTelaProposta" />
+      <bpmn:sequenceFlow id="Flow_B2_Envia" name="Proposta preenchida" sourceRef="Task_PreencheTelaProposta" targetRef="Gateway_EnvioProposta" />
+      <bpmn:sequenceFlow id="Flow_B3_Enviada" name="Envia à operadora" sourceRef="Gateway_EnvioProposta" targetRef="EndEvent_PropostaEnviada" />
+      <bpmn:sequenceFlow id="Flow_B4_Abandona" name="Abandona a proposta — emite 'ABANDONO-E04' (par F2)" sourceRef="Gateway_EnvioProposta" targetRef="Event_AbandonoE04"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">proposta abandonada na tela</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_B4a_FimAbandono" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE04" targetRef="EndEvent_Abandono" />
+      <bpmn:sequenceFlow id="Flow_B5_Registra" name="Recibo e protocolo recebidos" sourceRef="StartEvent_ReciboRecebido" targetRef="EndEvent_PropostaRegistrada" />
+  </bpmn:process>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Bloco de contratação: aviso prévio de assinatura (RN 413 art. 7º §2º, baseline L123), tela de proposta com documentos por referência (art. 4º §1º, L116) e tela de legitimidade coletiva (portão RL-SF-020 FECHADO). Épicos E-SF-41 (onda 2) e E-SF-20 (não iniciado).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície">
+        <bpmn:flowNodeRef>StartEvent_SessaoProposta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_TipoVenda</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinTiposVenda</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibeAvisoPrevioAssinatura</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibeTelaProposta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_TelaExibida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConsultaLegitimidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_LegitimidadeColetiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ColetivoRotaHumana</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_CatchLegColetiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LegColetivaE04</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_SessaoProposta" name="Comprador abre a proposta"><bpmn:documentation>Message start: comprador abre a sessão de proposta na superfície (E-SF-41, onda 2).</bpmn:documentation><bpmn:outgoing>Flow_S1_Abre</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_SessaoProposta" messageRef="Message_SessaoPropostaAberta" /></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_TipoVenda" name="Tipo de venda?" default="Flow_S2_PF"><bpmn:documentation>Divisão por tipo de venda. Default = pessoa física (funil omni permanece PF-only enquanto o portão de legitimidade coletiva segue FECHADO — fallback da entrada). O ramo coletivo só segue com checagem de legitimidade.</bpmn:documentation><bpmn:incoming>Flow_S1_Abre</bpmn:incoming><bpmn:outgoing>Flow_S2_PF</bpmn:outgoing><bpmn:outgoing>Flow_S3_Coletiva</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_ConsultaLegitimidade" name="Consulta recibo OP21 de legitimidade coletiva"><bpmn:documentation>Consulta o recibo de legitimidade (OP21) da PJ contratante no back-office. SC-08 (fail-closed): nada chega a offer.terms sem recibo 'valid' vigente. RL-SF-020 / RL-REG-08 (RATIFY-LATER-REGISTER.md:28; D-SF-024). Épico E-SF-20 não iniciado (EXECUTION-LOG.md:125).</bpmn:documentation><bpmn:incoming>Flow_S3_Coletiva</bpmn:incoming><bpmn:outgoing>Flow_S4_Consulta</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_Gate_LegitimidadeColetiva" name="Recibo OP21 'valid'?" default="Flow_S5_SemRecibo"><bpmn:documentation>PORTÃO FECHADO RL-SF-020 / RL-REG-08 (jurídico — Diretor Jurídico; RATIFY-LATER-REGISTER.md:28). Default: sem recibo 'valid' vigente → coletivo só por rota humana interna (EP-REG-08a, não bloqueado; EP-REG-08b bloqueado). Urgência (1): degrau de multa RN 489 art. 23-A em 2027-01-01 (ADDENDUM-01.md:106).</bpmn:documentation><bpmn:incoming>Flow_S4_Consulta</bpmn:incoming><bpmn:outgoing>Flow_S5_SemRecibo</bpmn:outgoing><bpmn:outgoing>Flow_S6_ReciboValido</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_ColetivoRotaHumana" name="Coletivo — rota humana interna"><bpmn:documentation>Fim nomeado conservador: venda coletiva encaminhada à rota humana interna com OP21 no back-office; funil self-service permanece PF-only (fallback da entrada P4). Nenhum texto exibido caracteriza o canal.</bpmn:documentation><bpmn:incoming>Flow_S5_SemRecibo</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_JoinTiposVenda" name="Venda aprovada" default="Flow_S7_Aviso"><bpmn:documentation>Junção dos tipos de venda aprovados (PF — default; coletiva com recibo 'valid' na variante ratificada).</bpmn:documentation><bpmn:incoming>Flow_S2_PF</bpmn:incoming><bpmn:incoming>Flow_S6a_ReciboValido</bpmn:incoming><bpmn:outgoing>Flow_S7_Aviso</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_ExibeAvisoPrevioAssinatura" name="Exibe aviso prévio de assinatura"><bpmn:documentation>AVISO PRÉVIO VIGENTE (dever, não-gated): RN 413 art. 7º §2º (baseline L123) — antes de iniciar a contratação, informar que cada assinatura significa assinar o documento. Posicionado ANTES da tela de proposta (1º envio contratual). GAP-E45-3: âncora exata do momento pendente — RL-SF-028 e RL-SF-052/TB-06 citadas, não respondidas. Épico E-SF-41 (onda 2).</bpmn:documentation><bpmn:incoming>Flow_S7a_Aviso</bpmn:incoming><bpmn:outgoing>Flow_S8_Tela</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_ExibeTelaProposta" name="Exibe tela de proposta e termos"><bpmn:documentation>Exibe a tela de proposta/termos (offer.terms) com documentos por referência — URL+hash com impressão/download (RN 413 art. 4º §1º, baseline L116; disclosure do art. 4º caput, L115). offer.terms só depois do portão de legitimidade (SC-08). Épico E-SF-41 (onda 2).</bpmn:documentation><bpmn:incoming>Flow_S8_Tela</bpmn:incoming><bpmn:outgoing>Flow_S9_Fim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_TelaExibida" name="Tela disponível ao comprador"><bpmn:documentation>Fim nomeado: tela de proposta e termos disponível ao comprador (aviso prévio já exibido).</bpmn:documentation><bpmn:incoming>Flow_S9_Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_CatchLegColetiva" name="Legitimidade coletiva validada — link 'F3-LEG-COLETIVA-VALIDA' (par F3)"><bpmn:documentation>CATCH DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): Event_ThrowLegColetivaValida (F03) lança linkEventDefinition name='F3-LEG-COLETIVA-VALIDA' (grafia idêntica à de F03). Momento: jurídico ratifica RL-SF-020/RL-REG-08 e a validação OP21 passa a existir — a frente emite; a etapa 4 captura e o coletivo segue pela variante ratificada. Enquanto o portão estiver fechado, default = rota humana interna (EP-REG-08a). Épico E-SF-20.</bpmn:documentation><bpmn:incoming>Flow_S6_ReciboValido</bpmn:incoming><bpmn:outgoing>Flow_S6a_ReciboValido</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_CatchLegColetiva" name="F3-LEG-COLETIVA-VALIDA" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateThrowEvent id="Event_LegColetivaE04" name="Coletiva em curso — link 'E04-LEG-COLETIVA' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): Event_LinkE04LegColetiva captura linkEventDefinition name='E04-LEG-COLETIVA' (grafia idêntica à de F03). Momento: variante coletiva selecionada no portão de tipos de venda; a validação OP21 (RL-SF-020/RL-REG-08) permanece na etapa 4. Épico E-SF-20.</bpmn:documentation><bpmn:incoming>Flow_S7_Aviso</bpmn:incoming><bpmn:outgoing>Flow_S7a_Aviso</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LegColetivaE04" name="E04-LEG-COLETIVA" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Abre" name="Abre a proposta" sourceRef="StartEvent_SessaoProposta" targetRef="Gateway_TipoVenda" />
+      <bpmn:sequenceFlow id="Flow_S2_PF" name="Pessoa física — segue" sourceRef="Gateway_TipoVenda" targetRef="Gateway_JoinTiposVenda" />
+      <bpmn:sequenceFlow id="Flow_S3_Coletiva" name="Coletiva — checar legitimidade" sourceRef="Gateway_TipoVenda" targetRef="Task_ConsultaLegitimidade"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">venda coletiva (contractType ∈ {coletivo_empresarial, coletivo_adesao})</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S4_Consulta" name="Recibo OP21?" sourceRef="Task_ConsultaLegitimidade" targetRef="Gateway_Gate_LegitimidadeColetiva" />
+      <bpmn:sequenceFlow id="Flow_S5_SemRecibo" name="Sem recibo 'valid' — rota humana interna (FECHADO)" sourceRef="Gateway_Gate_LegitimidadeColetiva" targetRef="EndEvent_ColetivoRotaHumana" />
+      <bpmn:sequenceFlow id="Flow_S6_ReciboValido" name="Recibo 'valid' vigente — captura 'F3-LEG-COLETIVA-VALIDA' (par F3)" sourceRef="Gateway_Gate_LegitimidadeColetiva" targetRef="Event_CatchLegColetiva" />
+      <bpmn:sequenceFlow id="Flow_S6a_ReciboValido" name="Legitimidade validada — coletivo segue (variante ratificada)" sourceRef="Event_CatchLegColetiva" targetRef="Gateway_JoinTiposVenda"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">recibo OP21 'valid' vigente (RL-SF-020 ratificado)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S7_Aviso" name="Segue — emite 'E04-LEG-COLETIVA' (par F3)" sourceRef="Gateway_JoinTiposVenda" targetRef="Event_LegColetivaE04" />
+      <bpmn:sequenceFlow id="Flow_S7a_Aviso" name="Coletiva sinalizada à frente F3 — a validação OP21 permanece na etapa 4" sourceRef="Event_LegColetivaE04" targetRef="Task_ExibeAvisoPrevioAssinatura" />
+      <bpmn:sequenceFlow id="Flow_S8_Tela" name="Aviso exibido" sourceRef="Task_ExibeAvisoPrevioAssinatura" targetRef="Task_ExibeTelaProposta" />
+      <bpmn:sequenceFlow id="Flow_S9_Fim" name="Disponível ao comprador" sourceRef="Task_ExibeTelaProposta" targetRef="EndEvent_TelaExibida" />
+      <bpmn:textAnnotation id="Annotation_Coletivo"><bpmn:text>PORTÃO FECHADO RL-SF-020 / RL-REG-08 (jurídico — Diretor Jurídico; RATIFY-LATER-REGISTER.md:28; D-SF-024): venda coletiva SEM recibo OP21 'valid' vigente não chega a offer.terms (SC-08, fail-closed). Default: coletivo só por rota humana interna (EP-REG-08a, não bloqueado; EP-REG-08b bloqueado). Urgência (1): degrau de multa RN 489 art. 23-A em 2027-01-01 (ADDENDUM-01.md:106). E-SF-20 não iniciado (EXECUTION-LOG.md:125).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_AvisoPrevio"><bpmn:text>AVISO PRÉVIO VIGENTE (não-gated — dever): RN 413 art. 7º §2º (baseline L123). Exibido ANTES da tela de proposta (1º envio contratual). GAP-E45-3: âncora exata do momento pendente — RL-SF-028 e RL-SF-052/TB-06 citadas, não respondidas. Épico E-SF-41 (onda 2).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Coletivo" sourceRef="Gateway_Gate_LegitimidadeColetiva" targetRef="Annotation_Coletivo" />
+    <bpmn:association id="Association_Aviso" sourceRef="Task_ExibeAvisoPrevioAssinatura" targetRef="Annotation_AvisoPrevio" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, cadastro, jurídico. Portões FECHADOS: EM-01 (RL-SF-010/011/012 — transporte do e-mail indefinido), RL-SF-036 (pré-montagem cadastral RN 500). RN 413 art. 5º (L117-118); RN 500/2022 (L307/309/310). Épicos E-SF-23 (onda 2), E-SF-41 (onda 2).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_PropostaRecebida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GeraReciboApresentacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GeraProtocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaProtocoloEmail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ProtocoloEnviadoVariante</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Cadastro" name="Cadastro">
+        <bpmn:flowNodeRef>Task_MontaDadosProposta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_PreMontagem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PreparaPropostaMinima</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PreMontagemAmpliada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinPreMontagem</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>Gateway_Gate_TransporteEmail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_SemEnvioTransporteIndefinido</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_PropostaRecebida" name="Proposta recebida"><bpmn:documentation>Message start: proposta preenchida e enviada pelo comprador (RN 413 art. 5º caput, baseline L117 — entrada completa com toda a documentação).</bpmn:documentation><bpmn:outgoing>Flow_O1_Monta</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_PropostaRecebida" messageRef="Message_PropostaEnviada" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_GeraReciboApresentacao" name="Gera recibo de apresentação"><bpmn:documentation>Gera automaticamente o recibo de apresentação da proposta/termos — recebível entregue ao comprador. CDC art. 30 (baseline L217): o que foi exibido integra o contrato; paridade documental digital×presencial (RN 413 art. 4º §1º, L116). Épico E-SF-41 (superfície) + E-SF-23.</bpmn:documentation><bpmn:incoming>Flow_C6_Recibo</bpmn:incoming><bpmn:outgoing>Flow_C7_Protocolo</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_GeraProtocolo" name="Gera protocolo da proposta"><bpmn:documentation>RN 413 art. 5º §1º (baseline L117): o sistema eletrônico gera automaticamente número de protocolo de visualização imediata, que TAMBÉM será encaminhado por correio eletrônico — o transporte do e-mail depende do portão EM-01. SLA-mestre de 25 dias (art. 5º §§2º-3º, L118) é herança da etapa 6 (RL-SF-038/NORM-GAP-8). Épico E-SF-23 (onda 2).</bpmn:documentation><bpmn:incoming>Flow_C7_Protocolo</bpmn:incoming><bpmn:outgoing>Flow_C8_Portao</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:sendTask id="Task_EnviaProtocoloEmail" name="Envia protocolo por e-mail"><bpmn:documentation>VARIANTE NÃO ATIVA: envio por provedor de e-mail só com EM-01 aberto (RL-SF-010 + RL-SF-011 + RL-SF-012 ratificados). RN 413 art. 5º §1º (baseline L117). Épico E-SF-23 (onda 2).</bpmn:documentation><bpmn:incoming>Flow_J2_Variante</bpmn:incoming><bpmn:outgoing>Flow_C9_Enviada</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:endEvent id="EndEvent_ProtocoloEnviadoVariante" name="Protocolo enviado (variante)"><bpmn:documentation>Fim nomeado da variante: protocolo enviado por e-mail (não ativo enquanto EM-01 FECHADO).</bpmn:documentation><bpmn:incoming>Flow_C9_Enviada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_MontaDadosProposta" name="Monta dados cadastrais da proposta"><bpmn:documentation>Monta os dados cadastrais da proposta na operadora. O dever cadastral é da OPERADORA (RN 500 art. 3º §1º, baseline L307) — nunca 'confirmação de dados pelo cliente'. Dado incompleto/falso = infração (art. 27, L310) — motivo de qualidade de dado, nunca de triagem adversa automática. Nível 2: nenhum SP-OP-* correspondente (GAP).</bpmn:documentation><bpmn:incoming>Flow_O1_Monta</bpmn:incoming><bpmn:outgoing>Flow_C1_Dados</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_Gate_PreMontagem" name="Escopo da pré-montagem?" default="Flow_C2_Minima"><bpmn:documentation>PORTÃO FECHADO RL-SF-036 / RL-REG-28 (DPO + jurídico co-ratificador; RATIFY-LATER-REGISTER.md:44). Default: a pré-montagem coleta SÓ o mínimo necessário à proposta (identificação do titular); nome da mãe, CPF de dependentes, município, CNS e CNPJ/CAEPF são coletados APÓS a assinatura; nenhum pré-preenchimento por fonte externa (fallback verbatim da entrada). RN 500 art. 16 (L309), art. 27 (L310); GAP-E45-4: RN 590/2023 não pinada (L302). EP-REG-28b bloqueado.</bpmn:documentation><bpmn:incoming>Flow_C1_Dados</bpmn:incoming><bpmn:outgoing>Flow_C2_Minima</bpmn:outgoing><bpmn:outgoing>Flow_C3_Ampliada</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_PreparaPropostaMinima" name="Prepara proposta com identificação do titular"><bpmn:documentation>DEFAULT ATIVO: proposta com coleta mínima — identificação do titular; campos SIB complementares ficam para após a assinatura (RL-SF-036 FECHADO; RN 500 art. 16, baseline L309).</bpmn:documentation><bpmn:incoming>Flow_C2_Minima</bpmn:incoming><bpmn:outgoing>Flow_C4_MinimaPronta</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_PreMontagemAmpliada" name="Pré-monta campos SIB mínimos"><bpmn:documentation>VARIANTE NÃO ATIVA: pré-montagem ampliada com base ratificada (RL-SF-036 aberto) — campos mínimos SIB (nome, CPF, nome da mãe — RN 500 art. 16, baseline L309) antes da assinatura. Não desenhar como caminho ativo (missão §6 portões).</bpmn:documentation><bpmn:incoming>Flow_C3_Ampliada</bpmn:incoming><bpmn:outgoing>Flow_C5_AmpliadaPronta</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinPreMontagem" name="Pré-montagem concluída" default="Flow_C4_MinimaPronta"><bpmn:documentation>Junção dos escopos de pré-montagem (mínimo — default; ampliado — variante ratificada).</bpmn:documentation><bpmn:incoming>Flow_C4_MinimaPronta</bpmn:incoming><bpmn:incoming>Flow_C5_AmpliadaPronta</bpmn:incoming><bpmn:outgoing>Flow_C6_Recibo</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="Gateway_Gate_TransporteEmail" name="Transporte de e-mail definido?" default="Flow_J1_SemEnvio"><bpmn:documentation>PORTÃO FECHADO EM-01: o envio por e-mail é exigência normativa (RN 413 art. 5º §1º, baseline L117) e ainda não tem transporte definido. RL-SF-010 (DPO-operador ESP; RATIFY-LATER-REGISTER.md:18), RL-SF-011 (jurídico: texto estático §1º, bounce, ponte E; :19), RL-SF-012 (dono-deploy: MAEZO_NOTICE_EMAIL_TRANSPORT; :20). Default: sem envio.</bpmn:documentation><bpmn:incoming>Flow_C8_Portao</bpmn:incoming><bpmn:outgoing>Flow_J1_SemEnvio</bpmn:outgoing><bpmn:outgoing>Flow_J2_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_SemEnvioTransporteIndefinido" name="Sem envio — transporte indefinido"><bpmn:documentation>Fim nomeado conservador: proposta registrada SEM envio do protocolo por e-mail — transporte não definido enquanto EM-01 FECHADO (RL-SF-010/011/012). O protocolo com visualização imediata continua devido.</bpmn:documentation><bpmn:incoming>Flow_J1_SemEnvio</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_O1_Monta" name="Monta dados da proposta" sourceRef="StartEvent_PropostaRecebida" targetRef="Task_MontaDadosProposta" />
+      <bpmn:sequenceFlow id="Flow_C1_Dados" name="Dados montados" sourceRef="Task_MontaDadosProposta" targetRef="Gateway_Gate_PreMontagem" />
+      <bpmn:sequenceFlow id="Flow_C2_Minima" name="Só o mínimo — identificação do titular (FECHADO)" sourceRef="Gateway_Gate_PreMontagem" targetRef="Task_PreparaPropostaMinima" />
+      <bpmn:sequenceFlow id="Flow_C3_Ampliada" name="Pré-montagem ampliada com base ratificada (variante)" sourceRef="Gateway_Gate_PreMontagem" targetRef="Task_PreMontagemAmpliada"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">pré-montagem ampliada ratificada (RL-SF-036)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C4_MinimaPronta" name="Proposta mínima pronta" sourceRef="Task_PreparaPropostaMinima" targetRef="Gateway_JoinPreMontagem" />
+      <bpmn:sequenceFlow id="Flow_C5_AmpliadaPronta" name="Pré-montagem ampliada pronta (variante)" sourceRef="Task_PreMontagemAmpliada" targetRef="Gateway_JoinPreMontagem" />
+      <bpmn:sequenceFlow id="Flow_C6_Recibo" name="Dados da proposta prontos" sourceRef="Gateway_JoinPreMontagem" targetRef="Task_GeraReciboApresentacao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">dados da proposta prontos</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C7_Protocolo" name="Recibo emitido" sourceRef="Task_GeraReciboApresentacao" targetRef="Task_GeraProtocolo" />
+      <bpmn:sequenceFlow id="Flow_C8_Portao" name="Protocolo devido" sourceRef="Task_GeraProtocolo" targetRef="Gateway_Gate_TransporteEmail" />
+      <bpmn:sequenceFlow id="Flow_J1_SemEnvio" name="Sem envio — transporte não definido (FECHADO)" sourceRef="Gateway_Gate_TransporteEmail" targetRef="EndEvent_SemEnvioTransporteIndefinido" />
+      <bpmn:sequenceFlow id="Flow_J2_Variante" name="Transporte definido (variante ratificada RL-SF-010+011+012)" sourceRef="Gateway_Gate_TransporteEmail" targetRef="Task_EnviaProtocoloEmail"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">transporte ratificado (RL-SF-010 + RL-SF-011 + RL-SF-012)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C9_Enviada" name="Protocolo enviado (variante)" sourceRef="Task_EnviaProtocoloEmail" targetRef="EndEvent_ProtocoloEnviadoVariante" />
+      <bpmn:textAnnotation id="Annotation_PreMontagem"><bpmn:text>PORTÃO FECHADO RL-SF-036 / RL-REG-28 (DPO + jurídico co-ratificador; RATIFY-LATER-REGISTER.md:44): default = pré-montagem coleta SÓ o mínimo à proposta (identificação do titular); nome da mãe, CPF de dependentes, município, CNS e CNPJ/CAEPF APÓS a assinatura; nenhum pré-preenchimento por fonte externa. RN 500 art. 3º §1º (L307), art. 16 (L309), art. 27 (L310); GAP-E45-4: RN 590/2023 não pinada (L302). EP-REG-28b bloqueado.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EM01"><bpmn:text>PORTÃO FECHADO EM-01: RL-SF-010 (DPO-operador ESP; RATIFY-LATER-REGISTER.md:18), RL-SF-011 (jurídico: texto estático §1º, bounce, ponte E; :19), RL-SF-012 (dono-deploy: transporte; :20). Envio por e-mail é exigência normativa (RN 413 art. 5º §1º, baseline L117) e ainda não tem transporte definido → sem envio (default).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_FallbackF"><bpmn:text>FALLBACK F — contratação eletrônica NÃO oferecida (RN 413 art. 2º caput, baseline L113: 'É facultativo o oferecimento de contratação eletrônica'): funil encaminha à contratação assistida/presencial. Caminho ANOTADO, não ativo (nenhuma tarefa desenhada).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2 — nenhum SP-OP-* de proposta/protocolo existe (GAP). Épicos: E-SF-23 EM-01 executável (onda 2); E-SF-41 bloco de contratação na superfície (onda 2); E-SF-20 legitimidade coletiva (não iniciado); E-SF-62 minuta do termo de contato (texto entregue RCO, sem PR — ADDENDUM-01.md:67; EXECUTION-LOG.md:146; GAP-E45-2: fora do EPICS-PLAN.tsv). SP-OP-LGPD-DSR-001 existe (direitos do titular) — citado, não duplicado (nenhum DSR desenhado aqui). Nenhum executável criado.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_PreMontagem" sourceRef="Gateway_Gate_PreMontagem" targetRef="Annotation_PreMontagem" />
+    <bpmn:association id="Association_EM01" sourceRef="Gateway_Gate_TransporteEmail" targetRef="Annotation_EM01" />
+    <bpmn:association id="Association_FallbackF" sourceRef="Gateway_Gate_TransporteEmail" targetRef="Annotation_FallbackF" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_GeraReciboApresentacao" targetRef="Annotation_Nivel2" />
+  </bpmn:process>
+  <bpmn:message id="Message_TelaPropostaDisponivel" name="Tela de proposta disponível" />
+  <bpmn:message id="Message_SessaoPropostaAberta" name="Comprador abre a proposta" />
+  <bpmn:message id="Message_PropostaEnviada" name="Proposta preenchida e enviada" />
+  <bpmn:message id="Message_ReciboProtocolo" name="Recibo e protocolo da proposta" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E04">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E04" bpmnElement="Collaboration_FUNIL_E04">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2900" height="280" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="400" width="2900" height="320" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="780" width="2900" height="760" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Email_di" bpmnElement="Participant_Email" isHorizontal="true"><dc:Bounds x="40" y="1620" width="2900" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comprador_di" bpmnElement="Lane_Comprador" isHorizontal="true"><dc:Bounds x="70" y="70" width="2870" height="250" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="430" width="2870" height="290" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="810" width="2870" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Cadastro_di" bpmnElement="Lane_Cadastro" isHorizontal="true"><dc:Bounds x="70" y="1030" width="2870" height="290" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="1320" width="2870" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_PropostaDevida_di" bpmnElement="StartEvent_PropostaDevida">
+        <dc:Bounds x="910" y="160" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="830" y="124" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PreencheTelaProposta_di" bpmnElement="Task_PreencheTelaProposta">
+        <dc:Bounds x="990" y="140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_EnvioProposta_di" bpmnElement="Gateway_EnvioProposta" isMarkerVisible="true">
+        <dc:Bounds x="1170" y="130" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1050" y="86" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PropostaEnviada_di" bpmnElement="EndEvent_PropostaEnviada">
+        <dc:Bounds x="1330" y="160" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1190" y="300" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="1180" y="240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1040" y="286" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ReciboRecebido_di" bpmnElement="StartEvent_ReciboRecebido">
+        <dc:Bounds x="2380" y="240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2170" y="240" width="200" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PropostaRegistrada_di" bpmnElement="EndEvent_PropostaRegistrada">
+        <dc:Bounds x="2560" y="240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2470" y="286" width="220" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_SessaoProposta_di" bpmnElement="StartEvent_SessaoProposta">
+        <dc:Bounds x="180" y="520" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="70" y="610" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_TipoVenda_di" bpmnElement="Gateway_TipoVenda" isMarkerVisible="true">
+        <dc:Bounds x="300" y="490" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="230" y="446" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConsultaLegitimidade_di" bpmnElement="Task_ConsultaLegitimidade">
+        <dc:Bounds x="420" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_LegitimidadeColetiva_di" bpmnElement="Gateway_Gate_LegitimidadeColetiva" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="600" y="610" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="520" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ColetivoRotaHumana_di" bpmnElement="EndEvent_ColetivoRotaHumana" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="610" y="670" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="920" y="684" width="170" height="22" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinTiposVenda_di" bpmnElement="Gateway_JoinTiposVenda" isMarkerVisible="true">
+        <dc:Bounds x="600" y="490" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="590" y="446" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibeAvisoPrevioAssinatura_di" bpmnElement="Task_ExibeAvisoPrevioAssinatura">
+        <dc:Bounds x="700" y="500" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibeTelaProposta_di" bpmnElement="Task_ExibeTelaProposta">
+        <dc:Bounds x="880" y="500" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TelaExibida_di" bpmnElement="EndEvent_TelaExibida">
+        <dc:Bounds x="1060" y="520" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="990" y="562" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_PropostaRecebida_di" bpmnElement="StartEvent_PropostaRecebida">
+        <dc:Bounds x="1330" y="900" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1160" y="946" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GeraReciboApresentacao_di" bpmnElement="Task_GeraReciboApresentacao">
+        <dc:Bounds x="2150" y="880" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GeraProtocolo_di" bpmnElement="Task_GeraProtocolo">
+        <dc:Bounds x="2350" y="880" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaProtocoloEmail_di" bpmnElement="Task_EnviaProtocoloEmail">
+        <dc:Bounds x="2550" y="880" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ProtocoloEnviadoVariante_di" bpmnElement="EndEvent_ProtocoloEnviadoVariante">
+        <dc:Bounds x="2750" y="900" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2700" y="946" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_MontaDadosProposta_di" bpmnElement="Task_MontaDadosProposta">
+        <dc:Bounds x="1450" y="1100" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_PreMontagem_di" bpmnElement="Gateway_Gate_PreMontagem" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1650" y="1090" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1580" y="1044" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PreparaPropostaMinima_di" bpmnElement="Task_PreparaPropostaMinima">
+        <dc:Bounds x="1800" y="1100" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PreMontagemAmpliada_di" bpmnElement="Task_PreMontagemAmpliada">
+        <dc:Bounds x="1800" y="1210" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinPreMontagem_di" bpmnElement="Gateway_JoinPreMontagem" isMarkerVisible="true">
+        <dc:Bounds x="1980" y="1090" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1820" y="1044" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_TransporteEmail_di" bpmnElement="Gateway_Gate_TransporteEmail" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2350" y="1400" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2170" y="1354" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_SemEnvioTransporteIndefinido_di" bpmnElement="EndEvent_SemEnvioTransporteIndefinido" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2550" y="1420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2420" y="1462" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1900" y="80" width="280" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Coletivo_di" bpmnElement="Annotation_Coletivo">
+        <dc:Bounds x="1360" y="580" width="230" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_AvisoPrevio_di" bpmnElement="Annotation_AvisoPrevio">
+        <dc:Bounds x="670" y="600" width="230" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PreMontagem_di" bpmnElement="Annotation_PreMontagem">
+        <dc:Bounds x="1210" y="1170" width="230" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EM01_di" bpmnElement="Annotation_EM01">
+        <dc:Bounds x="1900" y="1330" width="240" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_FallbackF_di" bpmnElement="Annotation_FallbackF">
+        <dc:Bounds x="1650" y="1430" width="190" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="2100" y="1040" width="280" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_CatchLegColetiva_di" bpmnElement="Event_CatchLegColetiva">
+        <dc:Bounds x="607" y="555" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE04_di" bpmnElement="Event_AbandonoE04">
+        <dc:Bounds x="1150" y="196" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LegColetivaE04_di" bpmnElement="Event_LegColetivaE04">
+        <dc:Bounds x="660" y="552" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_B1_Preenche_di" bpmnElement="Flow_B1_Preenche"><di:waypoint x="946" y="178" /><di:waypoint x="990" y="178" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="230" width="110" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B2_Envia_di" bpmnElement="Flow_B2_Envia"><di:waypoint x="1090" y="180" /><di:waypoint x="1130" y="180" /><di:waypoint x="1130" y="155" /><di:waypoint x="1170" y="155" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1060" y="262" width="110" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B3_Enviada_di" bpmnElement="Flow_B3_Enviada"><di:waypoint x="1220" y="155" /><di:waypoint x="1300" y="155" /><di:waypoint x="1300" y="178" /><di:waypoint x="1330" y="178" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1225" y="120" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B4_Abandona_di" bpmnElement="Flow_B4_Abandona"><di:waypoint x="1195" y="180" /><di:waypoint x="1195" y="214" /><di:waypoint x="1186" y="214" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1210" y="200" width="120" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B4a_FimAbandono_di" bpmnElement="Flow_B4a_FimAbandono"><di:waypoint x="1168" y="232" /><di:waypoint x="1168" y="258" /><di:waypoint x="1177" y="258" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B5_Registra_di" bpmnElement="Flow_B5_Registra"><di:waypoint x="2416" y="258" /><di:waypoint x="2560" y="258" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2440" y="204" width="130" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S1_Abre_di" bpmnElement="Flow_S1_Abre"><di:waypoint x="216" y="538" /><di:waypoint x="258" y="538" /><di:waypoint x="258" y="515" /><di:waypoint x="300" y="515" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="566" width="130" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_PF_di" bpmnElement="Flow_S2_PF"><di:waypoint x="350" y="515" /><di:waypoint x="600" y="515" />
+        <bpmndi:BPMNLabel><dc:Bounds x="390" y="478" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_Coletiva_di" bpmnElement="Flow_S3_Coletiva"><di:waypoint x="325" y="540" /><di:waypoint x="325" y="660" /><di:waypoint x="420" y="660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="335" y="560" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_Consulta_di" bpmnElement="Flow_S4_Consulta"><di:waypoint x="520" y="660" /><di:waypoint x="560" y="660" /><di:waypoint x="560" y="630" /><di:waypoint x="600" y="630" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="704" width="140" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S5_SemRecibo_di" bpmnElement="Flow_S5_SemRecibo"><di:waypoint x="625" y="660" /><di:waypoint x="625" y="670" />
+        <bpmndi:BPMNLabel><dc:Bounds x="900" y="610" width="240" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S6_ReciboValido_di" bpmnElement="Flow_S6_ReciboValido"><di:waypoint x="625" y="610" /><di:waypoint x="625" y="591" />
+        <bpmndi:BPMNLabel><dc:Bounds x="990" y="412" width="150" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S6a_ReciboValido_di" bpmnElement="Flow_S6a_ReciboValido"><di:waypoint x="625" y="555" /><di:waypoint x="625" y="540" />
+        <bpmndi:BPMNLabel><dc:Bounds x="990" y="432" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S7_Aviso_di" bpmnElement="Flow_S7_Aviso"><di:waypoint x="650" y="515" /><di:waypoint x="656" y="515" /><di:waypoint x="656" y="570" /><di:waypoint x="660" y="570" />
+        <bpmndi:BPMNLabel><dc:Bounds x="655" y="480" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S7a_Aviso_di" bpmnElement="Flow_S7a_Aviso"><di:waypoint x="678" y="552" /><di:waypoint x="678" y="540" /><di:waypoint x="700" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S8_Tela_di" bpmnElement="Flow_S8_Tela"><di:waypoint x="800" y="540" /><di:waypoint x="880" y="540" />
+        <bpmndi:BPMNLabel><dc:Bounds x="790" y="460" width="110" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S9_Fim_di" bpmnElement="Flow_S9_Fim"><di:waypoint x="980" y="538" /><di:waypoint x="1060" y="538" />
+        <bpmndi:BPMNLabel><dc:Bounds x="986" y="492" width="140" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O1_Monta_di" bpmnElement="Flow_O1_Monta"><di:waypoint x="1348" y="936" /><di:waypoint x="1348" y="1010" /><di:waypoint x="1500" y="1010" /><di:waypoint x="1500" y="1100" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1370" y="984" width="140" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C1_Dados_di" bpmnElement="Flow_C1_Dados"><di:waypoint x="1550" y="1140" /><di:waypoint x="1650" y="1140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1552" y="1114" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_Minima_di" bpmnElement="Flow_C2_Minima"><di:waypoint x="1700" y="1115" /><di:waypoint x="1750" y="1115" /><di:waypoint x="1750" y="1140" /><di:waypoint x="1800" y="1140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1950" y="1170" width="240" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C3_Ampliada_di" bpmnElement="Flow_C3_Ampliada"><di:waypoint x="1700" y="1140" /><di:waypoint x="1750" y="1140" /><di:waypoint x="1750" y="1250" /><di:waypoint x="1800" y="1250" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1754" y="1300" width="240" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C4_MinimaPronta_di" bpmnElement="Flow_C4_MinimaPronta"><di:waypoint x="1900" y="1140" /><di:waypoint x="1980" y="1140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1950" y="1240" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C5_AmpliadaPronta_di" bpmnElement="Flow_C5_AmpliadaPronta"><di:waypoint x="1900" y="1250" /><di:waypoint x="1940" y="1250" /><di:waypoint x="1940" y="1115" /><di:waypoint x="1980" y="1115" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1950" y="1204" width="140" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C6_Recibo_di" bpmnElement="Flow_C6_Recibo"><di:waypoint x="2005" y="1090" /><di:waypoint x="2005" y="920" /><di:waypoint x="2150" y="920" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2030" y="960" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C7_Protocolo_di" bpmnElement="Flow_C7_Protocolo"><di:waypoint x="2250" y="920" /><di:waypoint x="2350" y="920" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2250" y="840" width="130" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C8_Portao_di" bpmnElement="Flow_C8_Portao"><di:waypoint x="2400" y="960" /><di:waypoint x="2400" y="1400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2410" y="1000" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J1_SemEnvio_di" bpmnElement="Flow_J1_SemEnvio"><di:waypoint x="2400" y="1425" /><di:waypoint x="2500" y="1425" /><di:waypoint x="2500" y="1438" /><di:waypoint x="2550" y="1438" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2410" y="1360" width="220" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J2_Variante_di" bpmnElement="Flow_J2_Variante"><di:waypoint x="2375" y="1400" /><di:waypoint x="2375" y="1350" /><di:waypoint x="2600" y="1350" /><di:waypoint x="2600" y="960" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2410" y="1300" width="220" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C9_Enviada_di" bpmnElement="Flow_C9_Enviada"><di:waypoint x="2650" y="920" /><di:waypoint x="2750" y="920" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2660" y="846" width="120" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_SessaoAberta_di" bpmnElement="MsgFlow_SessaoAberta"><di:waypoint x="198" y="320" /><di:waypoint x="198" y="520" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="400" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_TelaDisponivel_di" bpmnElement="MsgFlow_TelaDisponivel"><di:waypoint x="928" y="500" /><di:waypoint x="928" y="160" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="320" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PropostaSubmetida_di" bpmnElement="MsgFlow_PropostaSubmetida"><di:waypoint x="1348" y="196" /><di:waypoint x="1348" y="900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1360" y="520" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ReciboProtocolo_di" bpmnElement="MsgFlow_ReciboProtocolo"><di:waypoint x="2400" y="880" /><di:waypoint x="2400" y="276" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2410" y="560" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ProtocoloEmail_di" bpmnElement="MsgFlow_ProtocoloEmail"><di:waypoint x="2640" y="960" /><di:waypoint x="2640" y="1620" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2650" y="1240" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Coletivo_di" bpmnElement="Association_Coletivo"><di:waypoint x="650" y="620" /><di:waypoint x="650" y="592" /><di:waypoint x="1360" y="592" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Aviso_di" bpmnElement="Association_Aviso"><di:waypoint x="760" y="580" /><di:waypoint x="760" y="600" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PreMontagem_di" bpmnElement="Association_PreMontagem"><di:waypoint x="1665" y="1140" /><di:waypoint x="1665" y="1190" /><di:waypoint x="1440" y="1190" /><di:waypoint x="1440" y="1230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_EM01_di" bpmnElement="Association_EM01"><di:waypoint x="2350" y="1425" /><di:waypoint x="2140" y="1425" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_FallbackF_di" bpmnElement="Association_FallbackF"><di:waypoint x="2375" y="1450" /><di:waypoint x="2375" y="1480" /><di:waypoint x="1840" y="1480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="2200" y="960" /><di:waypoint x="2200" y="1040" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

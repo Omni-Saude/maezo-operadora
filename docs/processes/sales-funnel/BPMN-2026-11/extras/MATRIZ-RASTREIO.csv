@@ -1,0 +1,485 @@
+elemento_id;elemento_tipo;diagrama;etapa_frente;epicos;norma_linha;portoes;estado
+StartEvent_VitrineAutorizada;startEvent;E01;Etapa 1;;RN 413 art. 4º caput L115;RL-SF-001 | A1;ATIVO
+Task_ExibeVitrine;serviceTask;E01;Etapa 1;E-SF-46;CDC art. 31 L218 | CDC art. 36 caput L219 | RN 413 art. 4º caput I–IV L115 | RN 413 §1º MPS/GLC L116 | RN 413 art. 18 não localizado L370;RL-SF-041 | RL-SF-048;ATIVO
+EndEvent_VitrinePublica;endEvent;E01;Etapa 1;;;RL-SF-001 | A1;ATIVO
+StartEvent_CatalogoFonte;startEvent;E01;Etapa 1;;;;ATIVO
+Task_VerificaRegistro;businessRuleTask;E01;Etapa 1;;Lei 9.656 art. 9º I–II L84 | Lei 9.656 §4º L85 | RN 413 art. 4º I L115 | CDC art. 31 L218;;ATIVO
+Gateway_GateRegistro;gateway;E01;Etapa 1;;Lei 9.656 art. 9º I–II L84 | Lei 9.656 §4º L85;;ATIVO
+EndEvent_ProdutoFora;endEvent;E01;Etapa 1;;Lei 9.656 art. 9º §4º L85;;ATIVO
+Task_PublicaVitrine;serviceTask;E01;Etapa 1;E-SF-46;;RL-SF-001 | A1;ATIVO
+EndEvent_VitrineHabilitada;endEvent;E01;Etapa 1;;;;ATIVO
+Gateway_GateA1;gateway;E01;Etapa 1;E-SF-02 | E-SF-03;Lei 9.656 art. 9º I–II L84 | RN 413 art. 4º I–IV L115;RL-SF-001 | A1;FECHADO
+EndEvent_FunilParadoTopo;endEvent;E01;Etapa 1;;;RL-SF-001 | A1;FECHADO
+Task_ConferePreco;userTask;E01;Etapa 1;;CDC art. 31 L218;RL-SF-001 | A1;VARIANTE
+Gateway_GatePreco;gateway;E01;Etapa 1;;CDC arts. 30 L217 | CDC 31 L218;RL-SF-001 | A1;FECHADO
+Task_RegistraPrecoQualificado;serviceTask;E01;Etapa 1;;CADE L25;A1;VARIANTE
+Gateway_JoinSemPreco;gateway;E01;Etapa 1;;;;FECHADO
+Task_AplicaPrecoNaoInformado;serviceTask;E01;Etapa 1;;CDC art. 31 L218;RL-SF-001;ATIVO
+Gateway_JoinVitrine;gateway;E01;Etapa 1;;;;ATIVO
+StartEvent_CatalogoAtualizado;startEvent;E01;Etapa 1;;;;ATIVO
+Task_PublicaCatalogo;serviceTask;E01;Etapa 1;E-SF-46;;;ATIVO
+EndEvent_CatalogoPublicado;endEvent;E01;Etapa 1;;;A1;ATIVO
+StartEvent_FormularioApresentado;startEvent;E02;Etapa 2;E-SF-40r;;;ATIVO
+Task_PreencheFormulario;userTask;E02;Etapa 2;E-SF-40r;RN 558 art. 10 §ú L153 | LGPD art. 11 §5º L185 | Lei 9.656 art. 14 L95;;ATIVO
+Gateway_Continua;gateway;E02;Etapa 2;;;;ATIVO
+EndEvent_Abandono;endEvent;E02;Etapa 2;;;RL-SF-066 | OS-05;ATIVO
+Task_CapturaAceiteUnico;userTask;E02;Etapa 2;;;RL-SF-066 | OS-05;FECHADO
+EndEvent_AceiteRegistrado;endEvent;E02;Etapa 2;;;;ATIVO
+StartEvent_LeadDaVitrine;startEvent;E02;Etapa 2;E-SF-40r;;;ATIVO
+Task_ApresentaFormulario;serviceTask;E02;Etapa 2;E-SF-40r;RN 413 art. 3º L114 | RN 413 art. 4º I-IV L115 | RN 558 art. 10 §ú L153;;ATIVO
+EndEvent_FormularioApresentado;endEvent;E02;Etapa 2;;;;ATIVO
+StartEvent_SessaoMinima;startEvent;E02;Etapa 2;E-SF-40r;;RL-SF-002 | A2;ATIVO
+Task_CriaSessaoProspectA2;serviceTask;E02;Etapa 2;E-SF-40r;LGPD art. 7º V L178 | RN 413 art. 3º L114;RL-SF-002 | A2;FECHADO
+EndEvent_Qualificado;endEvent;E02;Etapa 2;;;;ATIVO
+StartEvent_FormularioRecebido;startEvent;E02;Etapa 2;E-SF-04;;;ATIVO
+Task_CercaZeroSaude;businessRuleTask;E02;Etapa 2;E-SF-04 | E-SF-04r;RN 558 art. 10 §ú L153 | LGPD art. 11 §5º L185 | Lei 9.656 art. 14 L95;RL-SF-014 | RL-SF-022;ATIVO
+Gateway_ZeroSaude;gateway;E02;Etapa 2;;;;ATIVO
+EndEvent_CercaZeroSaudeRecusou;endEvent;E02;Etapa 2;;RN 558 art. 10 §ú L153 | LGPD art. 11 §5º L185;;ATIVO
+Gateway_RLSF049;gateway;E02;Etapa 2;E-SF-40r;Lei 9.656 art. 14 L95 | Lei 9.656 art. 15 L96;RL-SF-049;FECHADO
+Gateway_JoinComposicao;gateway;E02;Etapa 2;;;;FECHADO
+Gateway_ConsultaCpf;gateway;E02;Etapa 2;;;RL-SF-041 | RL-SF-048;FECHADO
+EndEvent_CpfVarianteNaoAtiva;endEvent;E02;Etapa 2;;;RL-SF-041 | RL-SF-048;VARIANTE
+Gateway_PortaoA2;gateway;E02;Etapa 2;E-SF-40r;LGPD art. 7º V L178;RL-SF-002 | A2;FECHADO
+EndEvent_VarianteContaPrimeiroNaoAtiva;endEvent;E02;Etapa 2;;;RL-SF-002 | A2;VARIANTE
+Task_AutorizaSessaoMinima;sendTask;E02;Etapa 2;E-SF-40r;RN 413 art. 3º L114;RL-SF-002 | A2;FECHADO
+EndEvent_AutorizacaoEnviada;endEvent;E02;Etapa 2;;;;ATIVO
+StartEvent_SessaoCotacao;startEvent;E03;Etapa 3;E-SF-38;;RL-SF-002 | A2;ATIVO
+Task_CarregaSessaoA2;serviceTask;E03;Etapa 3;E-SF-38;RN 413 art. 3º L114 | LGPD art. 11 §5º L185;RL-SF-002 | A2;ATIVO
+Gateway_GateA2Sessao;gateway;E03;Etapa 3;E-SF-40r;LGPD art. 7º V L178 | LGPD art. 11 §5º L185 | LGPD . Épico E-SF-40r AGUARDA-RATIFICAÇÃO TSV L68;RL-SF-002 | A2;FECHADO
+Task_PedeCotacaoPersonalizada;serviceTask;E03;Etapa 3;E-SF-38;LGPD art. 11 §5º L185 | RN 558 art. 10 §ú L153;RL-SF-002 | A2;ATIVO
+Task_PedeCotacaoGenerica;serviceTask;E03;Etapa 3;E-SF-38;LGPD art. 7º V L178;RL-SF-002 | A2;FECHADO
+Gateway_JoinCotacao;gateway;E03;Etapa 3;;;;ATIVO
+Task_EnviaSolicitacaoCotacao;serviceTask;E03;Etapa 3;E-SF-38;;;ATIVO
+Task_RecebeOferta;receiveTask;E03;Etapa 3;E-SF-38;;;ATIVO
+Event_AbandonoSessao;boundaryEvent;E03;Etapa 3;;;RL-SF-066;ATIVO
+Gateway_GateComparacao;gateway;E03;Etapa 3;E-SF-39;CADE proibido comparar preços ou comissões entre operadoras de L25 | CADE estado assentado L337;RL-SF-019 | RL-SF-051;ATIVO
+Task_ComparaOpcoes;serviceTask;E03;Etapa 3;E-SF-38 | E-SF-39;CADE L25/L337 | CDC art. 36 §ú L219 | CDC art. 37 §1º/§3º L220 | CDC arts. 30/31 L217/218 | CDC . Épicos E-SF-38 mesclado e E-SF-39 âncora TSV L101;;ATIVO
+Task_ApresentaPreContratuais;serviceTask;E03;Etapa 3;E-SF-38;RN 413 art. 4º caput I–IX L115 | RN 413 §1º documentos para impressão/download L116 | RN 413 art. 18 NÃO localizado L370 | CDC arts. 30/31 L217/218 | CDC 37 §3º L220;;ATIVO
+EndEvent_OfertaExibida;endEvent;E03;Etapa 3;E-SF-38;;;ATIVO
+EndEvent_Abandono;endEvent;E03;Etapa 3;;;RL-SF-066;ATIVO
+EndEvent_ComparacaoVedada;endEvent;E03;Etapa 3;E-SF-38;CADE L25/L337;;ATIVO
+StartEvent_ComposicaoDevida;startEvent;E03;Etapa 3;E-SF-52;;;ATIVO
+Task_ValidaComposicaoPreco;businessRuleTask;E03;Etapa 3;E-SF-52;RN 413 art. 4º VII L115;RL-SF-019;ATIVO
+Gateway_GateComposicaoPreco;gateway;E03;Etapa 3;E-SF-52;CADE L25;RL-SF-019;FECHADO
+Task_OfertaComComposicao;serviceTask;E03;Etapa 3;E-SF-52;RN 413 art. 4º VII L115 | CDC art. 31 L218;RL-SF-001 | A1;ATIVO
+Task_OfertaSemComposicao;serviceTask;E03;Etapa 3;E-SF-52;CDC art. 31 L218;RL-SF-019;FECHADO
+Gateway_JoinComposicao;gateway;E03;Etapa 3;;;;ATIVO
+Task_ConsultaValidadeCatalogo;businessRuleTask;E03;Etapa 3;E-SF-08;;;ATIVO
+Gateway_GateValidadePreco;gateway;E03;Etapa 3;E-SF-08;;;VARIANTE
+Task_RegistraOfertaSemValidade;serviceTask;E03;Etapa 3;E-SF-08;CDC art. 31 L218;;ATIVO
+EndEvent_OfertaComValidadePendente;endEvent;E03;Etapa 3;E-SF-08;;;ATIVO
+Task_ExibePrecoValidoAte;serviceTask;E03;Etapa 3;E-SF-08;;;VARIANTE
+EndEvent_OfertaComValidadeExibida;endEvent;E03;Etapa 3;E-SF-08;;;VARIANTE
+StartEvent_CotacaoSolicitada;startEvent;E03;Etapa 3;E-SF-52;;A2;ATIVO
+Task_GeraCotacaoFonte;serviceTask;E03;Etapa 3;E-SF-52;Lei 9.656 art. 15 caput+§ú L96 | Lei 9.656 art. 35-E §1º I L99 | CDC art. 31 L218 | LGPD art. 11 §5º L185;RL-SF-001 | RL-SF-047 | A1;ATIVO
+Event_ErroCotacao;boundaryEvent;E03;Etapa 3;E-SF-52;;;ATIVO
+Task_NotificaIndisponibilidade;serviceTask;E03;Etapa 3;E-SF-52;;;ATIVO
+EndEvent_CotacaoIndisponivel;endEvent;E03;Etapa 3;E-SF-52;;;ATIVO
+Task_PublicaCotacaoQualificada;serviceTask;E03;Etapa 3;E-SF-52;CDC art. 36 §ú L219;;ATIVO
+EndEvent_CotacaoPublicada;endEvent;E03;Etapa 3;E-SF-52;;;ATIVO
+StartEvent_PropostaDevida;startEvent;E04;Etapa 4;E-SF-41;RN 413 art. 5º caput L117;;ATIVO
+Task_PreencheTelaProposta;userTask;E04;Etapa 4;E-SF-41;RN 413 art. 4º caput L115 | RN 413 disclosure I-IV VII-IX antes da finalização art. 4º §1º L116 | CDC art. 30 L217 | CDC art. 31 L218 | CDC art. 39 I L221;RL-SF-019 | RL-SF-036;ATIVO
+Gateway_EnvioProposta;gateway;E04;Etapa 4;;;;ATIVO
+EndEvent_PropostaEnviada;endEvent;E04;Etapa 4;;RN 413 art. 5º caput L117;;ATIVO
+EndEvent_Abandono;endEvent;E04;Etapa 4;;;RL-SF-066;ATIVO
+StartEvent_ReciboRecebido;startEvent;E04;Etapa 4;;RN 413 art. 5º §1º L117;EM-01;ATIVO
+EndEvent_PropostaRegistrada;endEvent;E04;Etapa 4;;RN 413 art. 5º §1º L117;;ATIVO
+StartEvent_SessaoProposta;startEvent;E04;Etapa 4;E-SF-41;;;ATIVO
+Gateway_TipoVenda;gateway;E04;Etapa 4;;;;FECHADO
+Task_ConsultaLegitimidade;serviceTask;E04;Etapa 4;E-SF-20;;RL-SF-020 | RL-REG-08 | SC-08;ATIVO
+Gateway_Gate_LegitimidadeColetiva;gateway;E04;Etapa 4;;;RL-SF-020 | RL-REG-08;FECHADO
+EndEvent_ColetivoRotaHumana;endEvent;E04;Etapa 4;;;;FECHADO
+Gateway_JoinTiposVenda;gateway;E04;Etapa 4;;;;FECHADO
+Task_ExibeAvisoPrevioAssinatura;serviceTask;E04;Etapa 4;E-SF-41;RN 413 art. 7º §2º L123;RL-SF-028 | RL-SF-052;ATIVO
+Task_ExibeTelaProposta;serviceTask;E04;Etapa 4;E-SF-41;RN 413 art. 4º §1º L116 | RN 413 disclosure do art. 4º caput L115;SC-08;ATIVO
+EndEvent_TelaExibida;endEvent;E04;Etapa 4;;;;ATIVO
+StartEvent_PropostaRecebida;startEvent;E04;Etapa 4;;RN 413 art. 5º caput L117;;ATIVO
+Task_GeraReciboApresentacao;serviceTask;E04;Etapa 4;E-SF-23 | E-SF-41;CDC art. 30 L217 | RN 413 art. 4º §1º L116;;ATIVO
+Task_GeraProtocolo;serviceTask;E04;Etapa 4;E-SF-23;RN 413 art. 5º §1º L117;RL-SF-038 | EM-01;ATIVO
+Task_EnviaProtocoloEmail;sendTask;E04;Etapa 4;E-SF-23;RN 413 art. 5º §1º L117;RL-SF-010 | RL-SF-011 | RL-SF-012 | EM-01;VARIANTE
+EndEvent_ProtocoloEnviadoVariante;endEvent;E04;Etapa 4;;;EM-01;VARIANTE
+Task_MontaDadosProposta;serviceTask;E04;Etapa 4;;RN 500 art. 3º §1º L307 | RN 500 nunca 'confirmação de dados pelo cliente'. Dado L310;;ATIVO
+Gateway_Gate_PreMontagem;gateway;E04;Etapa 4;;RN 500 art. 16 L309 | RN 500 art. 27 L310 | RN 590/2023 não pinada L302;RL-SF-036 | RL-REG-28;FECHADO
+Task_PreparaPropostaMinima;serviceTask;E04;Etapa 4;;RN 500 art. 16 L309;RL-SF-036;FECHADO
+Task_PreMontagemAmpliada;serviceTask;E04;Etapa 4;;RN 500 art. 16 L309;RL-SF-036;VARIANTE
+Gateway_JoinPreMontagem;gateway;E04;Etapa 4;;;;VARIANTE
+Gateway_Gate_TransporteEmail;gateway;E04;Etapa 4;;RN 413 art. 5º §1º L117;RL-SF-010 | RL-SF-011 | RL-SF-012 | EM-01;FECHADO
+EndEvent_SemEnvioTransporteIndefinido;endEvent;E04;Etapa 4;;;RL-SF-010 | EM-01;FECHADO
+StartEvent_DSConcluida;startEvent;E05;Etapa 5;E-SF-01;;;VARIANTE
+Task_ExibeAvisoPrevio;serviceTask;E05;Etapa 5;E-SF-41;RN 413 art. 7º §2º L123;RL-SF-028 | RL-SF-052;ATIVO
+Task_DeclaraPlanoReferencia;userTask;E05;Etapa 5;E-SF-41 | E-SF-41r;RN 413 art. 7º L123;RL-SF-028 | RL-SF-053 | A3;ATIVO
+Task_RegistraReciboPlano;serviceTask;E05;Etapa 5;E-SF-02 | E-SF-03;RN 413 art. 5º §1º L117;A1 | A5;ATIVO
+Task_DeclaraCienciaResumo;userTask;E05;Etapa 5;E-SF-41;RN 413 art. 7º L123 | CDC art. 30/31 L217/L218;RL-SF-028;ATIVO
+Event_Desistencia;boundaryEvent;E05;Etapa 5;;;RL-SF-066;ATIVO
+Task_RegistraReciboCiencia;serviceTask;E05;Etapa 5;E-SF-02 | E-SF-03;RN 413 art. 5º §1º L117;;ATIVO
+Gateway_FormaAceite;gateway;E05;Etapa 5;E-SF-02 | E-SF-03;;RL-SF-027 | RL-SF-028 | A1 | A3 | A5;FECHADO
+Task_AssinaAceite;userTask;E05;Etapa 5;E-SF-41 | E-SF-41r;RN 413 art. 7º caput I–IV L123 | CDC art. 49 L222;RL-SF-015 | RL-SF-027 | RL-SF-028 | A3;VARIANTE
+Task_RegistraAceite;serviceTask;E05;Etapa 5;E-SF-03;RN 413 art. 5º §§2º-3º L118;RL-SF-027 | RL-SF-038 | A3;ATIVO
+EndEvent_AceiteRegistrado;endEvent;E05;Etapa 5;;RN 413 art. 5º L117 | CDC art. 49 L222;A3;VARIANTE
+Task_EncaminhaFaixaAssistida;sendTask;E05;Etapa 5;;RN 413 art. 2º caput L113;A3 | A5 | RT-D4;FECHADO
+EndEvent_FormaNaoRatificadaAssistida;endEvent;E05;Etapa 5;;;RL-SF-027 | RL-SF-028;ATIVO
+EndEvent_Abandono;endEvent;E05;Etapa 5;;;RL-SF-066;ATIVO
+StartEvent_Portabilidade;startEvent;E05;Etapa 5;;RN 413 art. 2º caput L113;;ATIVO
+Task_ConfereEstadoPortabilidade;serviceTask;E05;Etapa 5;;RN 438 art. 20 L241;RL-SF-004 | RL-SF-046;FECHADO
+Gateway_Portabilidade;gateway;E05;Etapa 5;;RN 438 art. 20 L241;RL-SF-046;FECHADO
+Task_OrientaPortabilidade;serviceTask;E05;Etapa 5;;RN 438 art. 20 L241;RL-SF-004 | RL-SF-046 | A7;FECHADO
+EndEvent_PortabilidadeInterina;endEvent;E05;Etapa 5;;;RL-SF-046;ATIVO
+EndEvent_PortabilidadeVariante;endEvent;E05;Etapa 5;;;RL-SF-046;VARIANTE
+StartEvent_Assistida;startEvent;E05;Etapa 5;;;RL-SF-027 | RL-SF-028 | A3;FECHADO
+Task_AcolheContratacaoAssistida;userTask;E05;Etapa 5;;;A3 | RT-D4;ATIVO
+EndEvent_AcolhimentoRegistrado;endEvent;E05;Etapa 5;;;;ATIVO
+StartEvent_OpcoesRecebidas;startEvent;E06;Etapa 6;E-SF-51;;;ATIVO
+Task_ExibeOpcoesPagamento;serviceTask;E06;Etapa 6;E-SF-07 | E-SF-08;RN 413 art. 5º §2º L118;RL-SF-038;ATIVO
+EndEvent_OpcoesExibidas;endEvent;E06;Etapa 6;;;;ATIVO
+StartEvent_ProtocoloDevido;startEvent;E06;Etapa 6;;RN 413 art. 5º §1º L117;RL-SF-052;ATIVO
+Task_PreparaProtocoloEmail;serviceTask;E06;Etapa 6;;RN 413 art. 5º §1º L117;RL-SF-010 | RL-SF-011 | RL-SF-012 | EM-01;FECHADO
+Task_EnviaProtocoloEmail;sendTask;E06;Etapa 6;;RN 413 art. 5º §1º L117;RL-SF-010 | EM-01;VARIANTE
+EndEvent_ProtocoloEnviadoVariante;endEvent;E06;Etapa 6;;;EM-01;VARIANTE
+Gateway_EmailPortao;gateway;E06;Etapa 6;;;RL-SF-010 | RL-SF-011 | RL-SF-012 | EM-01;FECHADO
+EndEvent_ProtocoloSemEnvio;endEvent;E06;Etapa 6;;;RL-SF-010 | EM-01;FECHADO
+StartEvent_PagamentoIncerto;startEvent;E06;Etapa 6;E-SF-51;;;ATIVO
+Task_AnalisaPagamentoIncerto;userTask;E06;Etapa 6;;;RL-SF-021 | DEC-15;ATIVO
+EndEvent_PagamentoIncertoParado;endEvent;E06;Etapa 6;;;;ATIVO
+StartEvent_ContratacaoIniciada;startEvent;E06;Etapa 6;;;RL-SF-038;ATIVO
+Task_ExecucaoComercial;serviceTask;E06;Etapa 6;E-SF-07;;;ATIVO
+Task_EmitePdfs;serviceTask;E06;Etapa 6;E-SF-07 | E-SF-08;;;ATIVO
+Task_PortaDePagamento;serviceTask;E06;Etapa 6;E-SF-51;;RL-SF-029 | DEC-15;ATIVO
+Event_ErroPsp;boundaryEvent;E06;Etapa 6;;;DEC-15;ATIVO
+Task_EnviaCobrancaPSP;sendTask;E06;Etapa 6;;;DEC-15;ATIVO
+Task_AguardaConfirmacao;receiveTask;E06;Etapa 6;;RN 413 art. 5º §2º L118 | RN 413 art. 6º caput — vigência = pagamento efetivo L122;;ATIVO
+Event_Timer25D;boundaryEvent;E06;Etapa 6;E-SF-07;RN 413 art. 5º §§2º-3º §2.3 L118;RL-SF-038;VARIANTE
+Event_Desistencia;boundaryEvent;E06;Etapa 6;;;;ATIVO
+Gateway_JoinDesfecho;gateway;E06;Etapa 6;;;;ATIVO
+Gateway_PagamentoIncerto;gateway;E06;Etapa 6;;;DEC-15;ATIVO
+Task_NotificaPagamentoIncerto;sendTask;E06;Etapa 6;;;DEC-15;ATIVO
+Gateway_Relogio;gateway;E06;Etapa 6;;RN 413 art. 5º §6º L120;RL-SF-038;FECHADO
+Task_RegistraConclusao;serviceTask;E06;Etapa 6;E-SF-07;RN 413 art. 6º caput = pagamento efetivo L122;;ATIVO
+EndEvent_ContratoEmitido;endEvent;E06;Etapa 6;;RN 413 art. 5º §2º L118;;ATIVO
+EndEvent_PrazoVencido_Sombra;endEvent;E06;Etapa 6;E-SF-07;;RL-SF-038;FECHADO
+EndEvent_VigenciaAutomaticaDia26;endEvent;E06;Etapa 6;E-SF-07r;RN 413 art. 5º §6º L120;RL-SF-021 | RL-SF-038;VARIANTE
+EndEvent_Abandono;endEvent;E06;Etapa 6;;;RL-SF-066;ATIVO
+EndEvent_NotificacaoEnviada;endEvent;E06;Etapa 6;;;;ATIVO
+Task_NotificaAlarmeInterno;serviceTask;E06;Etapa 6;E-SF-07;RN 413 §6º L120;RL-SF-038;ATIVO
+EndEvent_AlarmeP25D;endEvent;E06;Etapa 6;E-SF-07;;RL-SF-038;ATIVO
+StartEvent_NavegacaoDS;startEvent;E07;Etapa 7;E-SF-44;;;ATIVO
+Task_NavegacaoCartaDS;serviceTask;E07;Etapa 7;E-SF-44;RN 558 art. 3º §2º L146;RL-SF-039 | RL-SF-132;ATIVO
+EndEvent_DsAssistida;endEvent;E07;Etapa 7;E-SF-44;;RL-SF-039 | RL-REG-33;ATIVO
+StartEvent_FatoCPT;startEvent;E07;Etapa 7;;;;ATIVO
+Task_RepassaFatoContratacao;serviceTask;E07;Etapa 7;;RN 558 arts. 2º III e 6º §1º L149 | LGPD art. 11 §5º L185;RL-SF-014;ATIVO
+EndEvent_FatoNaContratacao;endEvent;E07;Etapa 7;E-SF-44;LGPD art. 11 §4º L184 | RN 558 art. 12 L154;;ATIVO
+StartEvent_PropostaPronta;startEvent;E07;Etapa 7;E-SF-17;RN 558 art. 14 L155;;ATIVO
+Gateway_Gate_PosicaoDS;gateway;E07;Etapa 7;E-SF-17;RN 558 art. 6º §2º L150;RL-SF-023 | RL-REG-11;FECHADO
+EndEvent_VariantePosContrato;endEvent;E07;Etapa 7;;;RL-SF-023 | RL-REG-11;VARIANTE
+Task_EmiteCartaOrientacao;serviceTask;E07;Etapa 7;E-SF-01 | E-SF-44;RN 558 art. 3º caput L144 | RN 558 documento padronizado da ANS com L159;RL-SF-039;FECHADO
+Gateway_Gate_FormaCarta;gateway;E07;Etapa 7;;RN 558 art. 4º caput+§ú L160;RL-SF-039 | RL-REG-33;FECHADO
+EndEvent_FormaDigitalVariante;endEvent;E07;Etapa 7;;;RL-SF-039 | RL-REG-33;VARIANTE
+Task_BancoPerguntasAprovado;userTask;E07;Etapa 7;E-SF-44;RN 558 art. 10 caput L152 | RN 558 definição de CPT e de Agravo direito de ser orientado sem L153;RL-SF-042;FECHADO
+Gateway_Gate_CampoII;gateway;E07;Etapa 7;E-SF-17;RN 558 art. 3º §1º II L145;RL-SF-042 | RL-REG-43;FECHADO
+EndEvent_KitRecusadoCampoII;endEvent;E07;Etapa 7;;;RL-SF-017 | RL-SF-042 | RL-REG-05;FECHADO
+Task_EntrevistaDigital;userTask;E07;Etapa 7;E-SF-44;RN 558 art. 10 III L152 | RN 558 . Art. 5º §4º L148;RL-SF-034 | RL-SF-132 | RL-REG-26;ATIVO
+Task_GravaCustodiaClinica;serviceTask;E07;Etapa 7;E-SF-01 | E-SF-44;LGPD art. 11 caput+I L182 | RN 558 art. 12 L154;RL-SF-023 | RL-REG-11;ATIVO
+Task_DecisaoClinicaDLP;userTask;E07;Etapa 7;E-SF-01r;RN 558 art. 6º caput+§1º L149;RL-SF-034 | RL-REG-26;ATIVO
+Task_RegistraFatoCPT;businessRuleTask;E07;Etapa 7;E-SF-01;RN 558 art. 2º II L142 | RN 558 art. 6º §1º L149;;ATIVO
+EndEvent_FatoRegistrado;endEvent;E07;Etapa 7;E-SF-44;;;ATIVO
+StartEvent_DemandaComercial;startEvent;E07;Etapa 7;E-SF-17;;;ATIVO
+Gateway_Gate_SemDerivacaoComercial;gateway;E07;Etapa 7;;LGPD art. 11 §5º L185 | RN 558 art. 12 L154;RL-SF-014;ATIVO
+EndEvent_DerivacaoBloqueada;endEvent;E07;Etapa 7;;LGPD art. 11 §5º L185;RL-SF-014;FECHADO
+EndEvent_ComercialSemDS;endEvent;E07;Etapa 7;;;;ATIVO
+StartEvent_AdmissaoIniciada;startEvent;E08;Etapa 8;;RN 413 art. 5º §2º L118;RL-SF-038;ATIVO
+Task_RegistraProtocolo;serviceTask;E08;Etapa 8;E-SF-47;RN 623 art. 10 caput L62;;ATIVO
+Gateway_JoinCiclo;gateway;E08;Etapa 8;;;;ATIVO
+Task_RastreiaEstagios;serviceTask;E08;Etapa 8;E-SF-07 | E-SF-42;;RL-SF-003 | RL-SF-062 | A4 | A9 | OS-04;ATIVO
+Gateway_CicloEstagios;gateway;E08;Etapa 8;;;;ATIVO
+Task_ConsultaCatalogo;businessRuleTask;E08;Etapa 8;E-SF-08;RN413 art5-par7 5 úteis L66-84;;ATIVO
+Gateway_PrazoNormaNomeada;gateway;E08;Etapa 8;;;RL-SF-035 | RL-REG-27;FECHADO
+Task_AguardaFimEstagio;receiveTask;E08;Etapa 8;;;RL-SF-035 | RL-REG-27;VARIANTE
+Event_TimerEstouro;boundaryEvent;E08;Etapa 8;;;RL-SF-038;ATIVO
+Task_RegistraSoDatas;serviceTask;E08;Etapa 8;;RN 413 art. 5º §2º L118;RL-SF-035 | RL-REG-27;FECHADO
+Task_EmiteAvisoInterno;sendTask;E08;Etapa 8;;RN 413 art. 5º §2º L118;RT-D4;ATIVO
+Task_ConsultaCoberturaFonte;receiveTask;E08;Etapa 8;E-SF-05r;;RL-SF-003 | A1 | A4;FECHADO
+Gateway_CoberturaA4;gateway;E08;Etapa 8;;;RL-SF-003 | A4;FECHADO
+Task_RegistraEstagio7;serviceTask;E08;Etapa 8;E-SF-05r;;RL-SF-003 | A4;VARIANTE
+EndEvent_Estagio7Registrado;endEvent;E08;Etapa 8;;;RL-SF-003 | A4;VARIANTE
+EndEvent_TrackerEstagio6;endEvent;E08;Etapa 8;E-SF-05r;;A4;FECHADO
+Task_RecebeConsultaAndamento;receiveTask;E08;Etapa 8;;RN 623 art. 13 §ú L68;RT-D4;ATIVO
+Task_RespondeAndamento;sendTask;E08;Etapa 8;;RN 623 art. 13 §ú L68 | RN 623 art. 19 registros e gravações em até 72 h L72;RL-SF-035 | RL-REG-27;ATIVO
+StartEvent_CicloMensalSib;startEvent;E08;Etapa 8;;RN 500 art. 6º/7º L308;;ATIVO
+Task_EnviaSibMensal;serviceTask;E08;Etapa 8;;RN 500 art. 3º §1º L307 | RN 500 responsabilidade da OPERADORA em manter os dados L308 | RN 500 /SIB sem pin L364;RL-SF-031 | RL-REG-28;ATIVO
+EndEvent_SibEnviado;endEvent;E08;Etapa 8;;;;ATIVO
+Task_TrataAviso;userTask;E08;Etapa 8;;RN 413 art. 5º §2º L118;RL-SF-035 | RL-REG-27 | RT-D4;ATIVO
+EndEvent_AvisoTratado;endEvent;E08;Etapa 8;;;;ATIVO
+StartEvent_ConsultaBeneficiario;startEvent;E08;Etapa 8;;RN 623 art. 13 §ú L68;RT-D4;ATIVO
+EndEvent_RespostaEnviada;endEvent;E08;Etapa 8;;RN 623 art. 19 L72;RL-SF-035 | RL-REG-27 | RT-D4;ATIVO
+Event_EmiteES1;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES2;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES3;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES4;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES5;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES6;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+Event_EmiteES7;linkEvent;E08;Etapa 8;;;A9 | OS-04;ATIVO
+StartEvent_ContratoEmitido;startEvent;E08;Etapa 8;;RN 413 art. 5º §2º L118;A4;ATIVO
+Task_RegistraVigenciaNaFonte;serviceTask;E08;Etapa 8;;;RL-SF-003;ATIVO
+EndEvent_FonteDisponivel;endEvent;E08;Etapa 8;;;A4;ATIVO
+StartEvent_ArrependimentoPortal;startEvent;E09;Etapa 9;;CDC art.49 L222 | RN 413 art.8º L124;RL-SF-015;ATIVO
+Task_PersisteAncorasArrependimento;serviceTask;E09;Etapa 9;E-SF-09 | E-SF-09r;;RL-SF-015;ATIVO
+StartEvent_CancelamentoToque1;startEvent;E09;Etapa 9;;RN 561 art.4º III L291;;ATIVO
+Task_TelaCancelamentoToque1;serviceTask;E09;Etapa 9;E-SF-RT-02 | E-SF-RT-04;;OS-08 | RT-D1 | RT-J2 | RT-J3 | RT-J3a;ATIVO
+StartEvent_ReembolsoWizard;startEvent;E09;Etapa 9;;;RL-SF-043 | RL-REG-44;ATIVO
+Task_WizardReembolso;serviceTask;E09;Etapa 9;;Lei 9.656 art.12 VI L101;;ATIVO
+StartEvent_OposicaoContato;startEvent;E09;Etapa 9;E-SF-11;;RL-SF-093;ATIVO
+Task_RegistraOposicao;serviceTask;E09;Etapa 9;E-SF-11;;;ATIVO
+EndEvent_ArrependimentoRegistrado;endEvent;E09;Etapa 9;;;;ATIVO
+EndEvent_Toque1Enviado;endEvent;E09;Etapa 9;;RN 623 art.10 L62;;ATIVO
+EndEvent_WizardEnviado;endEvent;E09;Etapa 9;;Lei 9.656 art.12 VI L101;;ATIVO
+EndEvent_OposicaoRegistrada;endEvent;E09;Etapa 9;E-SF-11;;;ATIVO
+StartEvent_ContatoReativo;startEvent;E09;Etapa 9;;;A9 | OS-04 | RT-D4;ATIVO
+Task_PreparaRespostaBoasVindas;userTask;E09;Etapa 9;E-SF-RT-03;;RT-D3 | GTM-07;ATIVO
+Gateway_Gate_RTD4;gateway;E09;Etapa 9;E-SF-62;;RL-SF-093 | OS05-J1 | RT-D4;FECHADO
+Task_RespondeNaConversa;sendTask;E09;Etapa 9;;;RT-D4;FECHADO
+EndEvent_SemProatividade;endEvent;E09;Etapa 9;;;RT-D4;ATIVO
+Task_EnviaBoasVindasProativa;sendTask;E09;Etapa 9;E-SF-22r | E-SF-62;;RT-D4 | GTM-07;VARIANTE
+EndEvent_ProativaVariante;endEvent;E09;Etapa 9;;;RT-D4;VARIANTE
+StartEvent_PedidoArrependimentoOp;startEvent;E09;Etapa 9;E-SF-09 | E-SF-09r;;RL-SF-015;ATIVO
+Task_TrataArrependimento;userTask;E09;Etapa 9;;RN 413 art.8º caput L124 | RN 413 direito de arrependimento/rescisão unilateral em 7 dias §1º L124;;ATIVO
+Gateway_Gate_RLSF015;gateway;E09;Etapa 9;;CDC art.49 L222 | RN 413 art.8º L124 | RN 413 desde a VIGÊNCIA — dia do pagamento do art.6º caput L122;RL-SF-015 | RL-REG-03;FECHADO
+Task_AvaliaTempestividadeHumana;userTask;E09;Etapa 9;;;;FECHADO
+Task_EnviaReciboArrependimento;sendTask;E09;Etapa 9;;RN 413 art.8º §1º L124;;ATIVO
+EndEvent_ArrependimentoSemPrazoAfirmado;endEvent;E09;Etapa 9;;;RL-SF-015;ATIVO
+Task_AguardaJanelaP7D;receiveTask;E09;Etapa 9;;;RL-SF-015;VARIANTE
+Event_TimerP7DParam;boundaryEvent;E09;Etapa 9;;CDC L222 | RN 413 L124;;VARIANTE
+EndEvent_JanelaVarianteRLSF015;endEvent;E09;Etapa 9;;;;VARIANTE
+StartEvent_PedidoCancelamentoOp;startEvent;E09;Etapa 9;;RN 561 art.4º III L291 | RN 561 canal página da internet art.6º §3º L292 | RN 623 art.10 L62;;ATIVO
+Task_ConfirmaCancelamentoToque2;userTask;E09;Etapa 9;E-SF-RT-02 | E-SF-RT-04;RN 561 art.15 II L293 | RN 561 verbatim 'efeito imediato e caráter irrevogável da L294 | RN 561 art.21 L297;RT-D1;ATIVO
+Gateway_Gate_RTJ2;gateway;E09;Etapa 9;;RN 561 art.18 L295;RL-SF-035 | RL-REG-27 | RT-J2;FECHADO
+Task_EmiteProtocoloImediato;sendTask;E09;Etapa 9;;RN 623 art.10 L62 | RN 561 art.6º §3º L292;RT-J2;FECHADO
+Task_EmiteComprovanteEfetivo;sendTask;E09;Etapa 9;;RN 561 art.18 L295;RL-SF-035 | RL-REG-27 | RT-J2;ATIVO
+Task_NoticiaFonteCancelamento;sendTask;E09;Etapa 9;;RN 561 art.21 L297;RL-SF-003;ATIVO
+EndEvent_CancelamentoSemPrazoExibido;endEvent;E09;Etapa 9;;;RT-J2;ATIVO
+Event_ThrowE9CicloVigente;linkEvent;E09;Etapa 9;E-SF-RT-04;;OS-07;ATIVO
+EndEvent_CicloRemetidoF4;endEvent;E09;Etapa 9;E-SF-RT-04;;OS-07;ATIVO
+Event_LinkF4Cancelamento;linkEvent;E09;Etapa 9;E-SF-RT-02;RN 561 art. 18 L295;RT-J2;ATIVO
+Event_LinkF4Renovacao;linkEvent;E09;Etapa 9;E-SF-RT-01;;OS-07;ATIVO
+StartEvent_PedidoReembolsoOp;startEvent;E09;Etapa 9;;Lei 9.656 art.12 VI L101;RL-SF-043 | RL-REG-44;ATIVO
+Task_ConsultaDMNReembolso;businessRuleTask;E09;Etapa 9;;;;ATIVO
+Gateway_Gate_RLSF043;gateway;E09;Etapa 9;;RN 566 art.16 I L259;RL-SF-043 | RL-REG-44;FECHADO
+Task_RegistraCanalHumano;userTask;E09;Etapa 9;;RN 623 art.10 L62 | RN 623 protocolo como primeira ação. Sem prazo exibido DMN L18-19;RL-SF-035 | RL-SF-043 | RL-REG-27;FECHADO
+Task_InformaAndamentoSemETA;sendTask;E09;Etapa 9;;;RL-SF-035 | RL-SF-043 | RL-REG-27 | RT-D4;ATIVO
+EndEvent_ReembolsoCanalSemPrazo;endEvent;E09;Etapa 9;;;RL-SF-043;ATIVO
+StartEvent_OposicaoOp;startEvent;E09;Etapa 9;E-SF-11;;RT-D4;ATIVO
+Task_AplicaOposicao;userTask;E09;Etapa 9;;;RL-SF-093 | RT-D4;VARIANTE
+EndEvent_OposicaoAplicada;endEvent;E09;Etapa 9;E-SF-11;;RT-D4;ATIVO
+Task_ApuraCusteioArrependimento;userTask;E09;Etapa 9;;RN 413 art.8º §2º L124;;ATIVO
+Task_AnalisaReembolsoFinanceiro;userTask;E09;Etapa 9;;Lei 9.656 art.12 VI L101;RL-SF-043;VARIANTE
+Event_TimerP30D;boundaryEvent;E09;Etapa 9;;Lei 9.656 art.12 VI L91/L101 | Lei 9.656 'pagáveis no prazo máximo de trinta dias após a entrega da L102 | Lei 9.656 calendário indefinido L93;;ATIVO
+Task_TrataEstouroP30D;userTask;E09;Etapa 9;;Lei 9.656 art.12 VI L91/L101;RT-D4;ATIVO
+EndEvent_EstouroP30DTratado;endEvent;E09;Etapa 9;;;RL-SF-035 | RL-REG-27;ATIVO
+Gateway_Gate_PROC06;gateway;E09;Etapa 9;;;RL-SF-043;FECHADO
+Task_InformaTimestampsSemPrazo;sendTask;E09;Etapa 9;;;RL-SF-043;FECHADO
+EndEvent_ReembolsoUrgenciaSemPrazo;endEvent;E09;Etapa 9;;;RL-SF-043;ATIVO
+Task_InformaReembolsoComPrazo;sendTask;E09;Etapa 9;;Lei 9.656 art.12 VI L91/L101;RL-SF-043;VARIANTE
+EndEvent_ReembolsoComPrazoVariante;endEvent;E09;Etapa 9;;;RL-SF-043;VARIANTE
+Task_JuridicoDecideContagem;userTask;E09;Etapa 9;E-SF-09 | E-SF-09r;CDC art.49 L222 | RN 413 art.8º L124;RL-SF-015;VARIANTE
+Task_JuridicoRatificaTeto;userTask;E09;Etapa 9;;RN 561 art.18 L295;RL-SF-035 | RL-REG-27 | RT-J2;VARIANTE
+Task_EmiteComprovanteComTeto;sendTask;E09;Etapa 9;;RN 561 art.18 L295;RT-J2;VARIANTE
+EndEvent_ComprovanteComTetoVariante;endEvent;E09;Etapa 9;;;RT-J2;VARIANTE
+Task_JuridicoRatificaP30D;userTask;E09;Etapa 9;;;RL-SF-043;VARIANTE
+StartEvent_FonteCancelada;startEvent;E09;Etapa 9;;;RL-SF-003;ATIVO
+Task_RegistraCancelamentoFonte;serviceTask;E09;Etapa 9;;;RL-SF-003;ATIVO
+EndEvent_FonteAtualizada;endEvent;E09;Etapa 9;;;;ATIVO
+StartEvent_FrenteMedicao;startEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_DistribuiEstagios;gateway;F01;Frente 1;E-SF-47;;A9 | OS-04;FECHADO
+EndEvent_ForaLista;endEvent;F01;Frente 1;E-SF-35r;;A9;FECHADO
+Event_LinkES1;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES1;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES1;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES1;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES2;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES2;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES2;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES2;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES3;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES3;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES3;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES3;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES4;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES4;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES4;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES4;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES5;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES5;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES5;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES5;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES6;linkEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES6;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES6;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES6;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A9 | OS-04 | OS04;VARIANTE
+Event_LinkES7;linkEvent;F01;Frente 1;E-SF-47;;A4 | A9 | OS-04;ATIVO
+Gateway_PortaoA9_ES7;gateway;F01;Frente 1;E-SF-35r | E-SF-55;LGPD art. 7º I L177;RL-SF-005 | RL-SF-045 | A9 | OS-04;FECHADO
+EndEvent_NadaEmite_ES7;endEvent;F01;Frente 1;E-SF-35r;;A9 | OS-04;FECHADO
+Event_Emite_ES7;linkEvent;F01;Frente 1;;LGPD art. 11 L185;RL-SF-005 | RL-SF-014 | RL-SF-044 | RL-SF-045 | A4 | A9 | OS-04 | OS04;VARIANTE
+StartEvent_Destravamento;startEvent;F01;Frente 1;E-SF-60;;A9;VARIANTE
+Task_AssinaRegistroA9;userTask;F01;Frente 1;E-SF-35r | E-SF-60;LGPD art. 37 — ROPA L188 | LGPD art. 5º VI-VII L192-193;A9 | OS-04;ATIVO
+Gateway_PortaoA9Admissao;gateway;F01;Frente 1;E-SF-35r;;RL-SF-005 | RL-SF-044 | RL-SF-045 | A9;FECHADO
+EndEvent_MedicaoFechada;endEvent;F01;Frente 1;E-SF-35r | E-SF-47;;A9;FECHADO
+Task_HabilitaAgregador;serviceTask;F01;Frente 1;E-SF-55;;OS04;VARIANTE
+EndEvent_A9Operante;endEvent;F01;Frente 1;;;RL-SF-005 | RL-SF-044 | RL-SF-045 | A9;VARIANTE
+StartEvent_WalkSintetico;startEvent;F01;Frente 1;E-SF-47;;A9 | OS-04;VARIANTE
+Task_WalkSintetico;serviceTask;F01;Frente 1;E-SF-35r | E-SF-47 | E-SF-47r;;A9;ATIVO
+EndEvent_EvidenciaWalk;endEvent;F01;Frente 1;E-SF-47;;RL-SF-005 | A9;ATIVO
+StartEvent_Sessao;startEvent;F02;Frente 2;E-SF-40r;;RL-SF-066 | A2 | A9;ATIVO
+Task_AceiteUnico;userTask;F02;Frente 2;E-SF-61;LGPD art. 9º §1º L198 | LGPD sem aceite o telefone não é usado para contato e L302 | LGPD art. 8º caput L179 | LGPD art. 8º §4º L181;RL-SF-066 | A9 | OS-05 | Q-OS05-1;ATIVO
+Gateway_CompradorDecide;gateway;F02;Frente 2;;;RL-SF-093 | A6;ATIVO
+EndEvent_SegueJornada;endEvent;F02;Frente 2;E-SF-40r;;RL-SF-066;ATIVO
+EndEvent_Abandono;endEvent;F02;Frente 2;E-SF-16r | E-SF-40r;;RL-SF-066;ATIVO
+Task_Oposicao;userTask;F02;Frente 2;E-SF-12;LGPD art. 18 §2º L204;A6 | A9 | OS-05 | GT-4;ATIVO
+EndEvent_OposicaoEnviada;endEvent;F02;Frente 2;E-SF-12;LGPD art. 18 §2º L204;A6 | GT-4;ATIVO
+Task_RetomaPassiva;userTask;F02;Frente 2;E-SF-40r;;RL-SF-066 | RL-SF-093 | A2;ATIVO
+EndEvent_RetomadaPassiva;endEvent;F02;Frente 2;E-SF-40r;;RL-SF-066 | RL-SF-093;ATIVO
+StartEvent_Captura;startEvent;F02;Frente 2;E-SF-61;;RL-SF-066 | A9 | OS-05;ATIVO
+Task_CapturaAceite;serviceTask;F02;Frente 2;E-SF-61;LGPD art. 8º L179/L181 | LGPD art. 9º §1º L198;RL-SF-066 | A9 | OS-05 | Q-OS05-1;ATIVO
+EndEvent_AceiteRegistrado;endEvent;F02;Frente 2;E-SF-61;;RL-SF-066 | OS-05 | Q-OS05-1;ATIVO
+Event_AbandonoE02;linkEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9;ATIVO
+Event_AbandonoE03;linkEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9;ATIVO
+Event_AbandonoE04;linkEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9;ATIVO
+Event_AbandonoE05;linkEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9;ATIVO
+Event_AbandonoE06;linkEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9;ATIVO
+Gateway_JuntaAbandonos;gateway;F02;Frente 2;E-SF-16r;;RL-SF-066;ATIVO
+Gateway_GateEnvioProativo;gateway;F02;Frente 2;E-SF-16r;CDC art. 36 L219;RL-SF-066 | A9 | GTM-05 | Q-OS05-1;FECHADO
+Task_DeepLink;serviceTask;F02;Frente 2;E-SF-40r;;RL-SF-066 | RL-SF-093 | A2 | SC-09;FECHADO
+EndEvent_Passivo;endEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | Q-OS05-1;ATIVO
+Task_PedeEnvio;serviceTask;F02;Frente 2;E-SF-16r;;RL-SF-066 | Q-OS05-1;VARIANTE
+EndEvent_PedidoEncaminhado;endEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | GT-2 | GT-3 | Q-OS05-1;VARIANTE
+StartEvent_FrenteOperadora;startEvent;F02;Frente 2;E-SF-13 | E-SF-16r;;RL-SF-066 | Q-OS05-1;FECHADO
+Gateway_DistribuiControles;gateway;F02;Frente 2;E-SF-13 | E-SF-16r | E-SF-62;;RL-SF-066 | A6 | RT-D4 | GT-4 | Q-OS05-1;FECHADO
+EndEvent_PortaoFechado;endEvent;F02;Frente 2;E-SF-16r;;RL-SF-066 | Q-OS05-1;FECHADO
+Task_OutboundGate;serviceTask;F02;Frente 2;E-SF-13;;RL-SF-066 | A6 | OS-05 | GT-2 | GT-3 | Q-OS05-1;VARIANTE
+Task_CercaZeroSaude;businessRuleTask;F02;Frente 2;E-SF-13;LGPD art. 11 §5º L185 | RN 558 art. 12 L154;A9 | OS-05 | GT-2;ATIVO
+Gateway_GateConsentimento;gateway;F02;Frente 2;E-SF-16r;LGPD art. 7º I + art. 8º caput/§2º/§4º art. 8º §4º L181 | CDC art. 36 L219;RL-SF-066 | GT-3 | Q-OS05-1;FECHADO
+EndEvent_EnvioRecusado;endEvent;F02;Frente 2;E-SF-13;;RL-SF-066 | GT-2 | Q-OS05-1;FECHADO
+Task_Cadencia;serviceTask;F02;Frente 2;E-SF-16r;;RL-SF-066 | A9 | GTM-05;VARIANTE
+Event_TimerP25D;boundaryEvent;F02;Frente 2;E-SF-16r;RN 413 art. 5º §2º L118 | RN 413 25 dias corridos e §6º L120 | RN 413 art. 5º §§2º/6º L118/L120;GTM-05;ATIVO
+EndEvent_Janela;endEvent;F02;Frente 2;E-SF-16r;RN 413 art. 5º §§2º/6º L118/L120;GTM-05;ATIVO
+Task_EnviaWhatsApp;sendTask;F02;Frente 2;E-SF-13 | E-SF-16r;CDC art. 36 L219;RL-SF-066 | OS-05 | GT-2 | GTM-04 | Q-OS05-1;VARIANTE
+Event_ErroWhatsApp;boundaryEvent;F02;Frente 2;E-SF-13;;RL-SF-066 | OS-05 | GTM-04;VARIANTE
+EndEvent_FalhaEnvio;endEvent;F02;Frente 2;E-SF-13;;GTM-04;ATIVO
+EndEvent_LembreteEnviado;endEvent;F02;Frente 2;E-SF-13 | E-SF-16r;;RL-SF-066 | A6 | GT-2 | GTM-04 | Q-OS05-1;VARIANTE
+Gateway_GateOposicao;gateway;F02;Frente 2;E-SF-12;;A6 | A9 | GT-4 | GTM-04;FECHADO
+EndEvent_OpFechado;endEvent;F02;Frente 2;E-SF-12;;A6 | A9 | GT-4;FECHADO
+EndEvent_SupressaoAtiva;endEvent;F02;Frente 2;E-SF-12;LGPD art. 18 §2º L204;A6;VARIANTE
+StartEvent_Beneficiario;startEvent;F02;Frente 2;E-SF-62;;A9 | OS-05;ATIVO
+Task_MinutaTermo;userTask;F02;Frente 2;E-SF-62 | E-SF-62r;;RL-SF-066 | RL-SF-093 | OS05-J1;ATIVO
+Gateway_GateTermoBenef;gateway;F02;Frente 2;E-SF-62 | E-SF-62r;;RL-SF-093 | OS05-J1 | RT-D4 | GT-4 | GTM-04;FECHADO
+EndEvent_BenefFechado;endEvent;F02;Frente 2;E-SF-62;;RT-D4;FECHADO
+EndEvent_TermoVigente;endEvent;F02;Frente 2;E-SF-62 | E-SF-62r;;OS05-J1 | RT-D4 | GTM-04;VARIANTE
+StartEvent_EntradaCanal;startEvent;F03;Frente 3;E-SF-17;;RL-SF-066 | A2 | OS-06 | SC-01 | SC-09;ATIVO
+Task_PedeEspecialista;userTask;F03;Frente 3;E-SF-17;;OS-06 | SC-01 | SC-10;ATIVO
+EndEvent_AguardaEspecialista;endEvent;F03;Frente 3;E-SF-17;;GTM-04 | SC-09;ATIVO
+StartEvent_Superficie;startEvent;F03;Frente 3;E-SF-17;;RL-SF-020 | RL-REG-08 | OS-06 | SC-01 | SC-09;ATIVO
+Task_ConsoleEspecialista;serviceTask;F03;Frente 3;;;A9 | OS-04 | GTM-01 | SC-01 | SC-02;ATIVO
+EndEvent_Encaminhado;endEvent;F03;Frente 3;;;RL-SF-066 | SC-01 | SC-09;ATIVO
+Event_LinkE04Leg;linkEvent;F03;Frente 3;E-SF-20;;RL-SF-020 | RL-REG-08;ATIVO
+Gateway_PortaoColetivo;gateway;F03;Frente 3;E-SF-20 | E-SF-20r;RN 659/2025 L267 | RN 659/2025 Anexo L269;RL-SF-020 | RL-SF-126 | RL-REG-08 | SC-08;ATIVO
+EndEvent_ColetivoHumano;endEvent;F03;Frente 3;E-SF-20;RN 489 art. 23-A L267;RL-SF-020 | RL-REG-08 | SC-08;FECHADO
+Task_TelaLegitimidade;serviceTask;F03;Frente 3;E-SF-20;;RL-SF-020 | RL-REG-08 | SC-4 | SC-08 | SC-08.D1;VARIANTE
+Event_F3LegValida;linkEvent;F03;Frente 3;E-SF-20;;RL-SF-020 | RL-REG-08 | A9 | SC-08.D1;VARIANTE
+EndEvent_ColetivoValido;endEvent;F03;Frente 3;E-SF-20;;RL-SF-020 | SC-08.D1;VARIANTE
+Event_LinkE01Humano;linkEvent;F03;Frente 3;E-SF-17;;SC-01;ATIVO
+Event_LinkE02Humano;linkEvent;F03;Frente 3;E-SF-17;;RL-SF-049 | SC-01;ATIVO
+Event_LinkE03Humano;linkEvent;F03;Frente 3;E-SF-17;;;ATIVO
+Event_LinkE05Humano;linkEvent;F03;Frente 3;E-SF-17;;A3;ATIVO
+Task_Especialista;userTask;F03;Frente 3;E-SF-17;;RL-SF-014 | RL-SF-049 | A9 | GTM-01 | SC-02;ATIVO
+Gateway_Copiloto;gateway;F03;Frente 3;;;SC-03 | SC-03.D1;ATIVO
+EndEvent_EnvioHumano;endEvent;F03;Frente 3;E-SF-17;;SC-01 | SC-09;FECHADO
+Task_CopilotoRascunho;serviceTask;F03;Frente 3;;;SC-03 | SC-03.D1;VARIANTE
+EndEvent_RascunhoCopiloto;endEvent;F03;Frente 3;;;SC-03 | SC-03.D1;VARIANTE
+Event_LinkCorretorEntrada;linkEvent;F03;Frente 3;E-SF-18;;A10 | GTM-03 | SC-04 | SC-04.D1;VARIANTE
+Gateway_PortaoCorretor;gateway;F03;Frente 3;E-SF-18;;RL-SF-086 | RL-SF-087 | RL-SF-088 | RL-SF-089 | GTM-03 | SC-04.D1 | SC-05.J1;FECHADO
+EndEvent_CorretorFechado;endEvent;F03;Frente 3;E-SF-18;;GTM-03 | SC-04.D1 | SC-05.J1;FECHADO
+Task_FaixaNeutra;serviceTask;F03;Frente 3;;RN 518 nenhuma norma pinada de disclosure L321/L323;RL-SF-082 | OS-05 | GTM-02 | SC-05 | SC-05.J1;VARIANTE
+EndEvent_AceiteComprador;endEvent;F03;Frente 3;E-SF-18;;SC-05 | SC-05.J1;VARIANTE
+Event_LinkE02Origem;linkEvent;F03;Frente 3;;;RL-SF-084 | A9 | GTM-02 | SC-06 | SC-10;ATIVO
+Gateway_PortaoComissao;gateway;F03;Frente 3;;;RL-SF-081 | RL-SF-082 | RL-SF-084 | GTM-02;FECHADO
+EndEvent_SemComissao;endEvent;F03;Frente 3;;;GTM-02 | SC-06;FECHADO
+EndEvent_ExtratoVariante;endEvent;F03;Frente 3;;;GTM-02 | SC-06;VARIANTE
+StartEvent_ParecerQ8;startEvent;F03;Frente 3;E-SF-20;;RL-SF-020 | RL-REG-08;ATIVO
+Task_RatificaLegitimidade;userTask;F03;Frente 3;E-SF-20 | E-SF-20r;RN 659/2025 Anexo L269;RL-SF-020 | RL-SF-126 | RL-REG-08;ATIVO
+Gateway_RatificadoColetivo;gateway;F03;Frente 3;E-SF-20;;RL-SF-020;ATIVO
+EndEvent_MultaDegrau;endEvent;F03;Frente 3;E-SF-20;RN 659/2025 art. 23-A + Anexo L267/L269;RL-SF-020 | RL-REG-08;FECHADO
+EndEvent_ParecerRatificado;endEvent;F03;Frente 3;E-SF-20;;RL-SF-020 | RL-SF-126 | RL-REG-08;VARIANTE
+StartEvent_Contato;startEvent;F04;Frente 4;E-SF-RT-04;;RT-D4;ATIVO
+Gateway_ContatoDecide;gateway;F04;Frente 4;E-SF-RT-04;;;ATIVO
+Task_PedeSegundaVia;userTask;F04;Frente 4;E-SF-RT-04;;RT-D4;ATIVO
+Task_PedeNegociacao;userTask;F04;Frente 4;E-SF-RT-03;;RT-D3 | GTM-06;ATIVO
+Task_AbreContestacao;userTask;F04;Frente 4;E-SF-RT-01;;;ATIVO
+Task_PedeCancelamento;userTask;F04;Frente 4;E-SF-RT-02;Lei 9.656 art. 21 L297 | RN 561 art. 21 — PIN L297;OS-08 | RT-D1 | RT-J2 | RT-J3 | RT-J4;VARIANTE
+EndEvent_2ViaRecebida;endEvent;F04;Frente 4;E-SF-RT-04;;RT-D4;ATIVO
+EndEvent_NegociacaoEncerrada;endEvent;F04;Frente 4;E-SF-RT-03;;RT-D2;ATIVO
+EndEvent_ContestacaoRespondida;endEvent;F04;Frente 4;E-SF-RT-01;;;ATIVO
+EndEvent_PedidoProtocolado;endEvent;F04;Frente 4;E-SF-RT-02;;RT-J2 | RT-J3;ATIVO
+EndEvent_ContatoEncerrado;endEvent;F04;Frente 4;E-SF-RT-04;;;ATIVO
+StartEvent_FrenteRetencao;startEvent;F04;Frente 4;;;OS-07;ATIVO
+Event_LinkE9Ciclo;linkEvent;F04;Frente 4;E-SF-RT-04;;OS-07;ATIVO
+Gateway_GateRTJ1;gateway;F04;Frente 4;E-SF-RT-01;Lei 9.656, L96 | Lei 9.656 art. 15 §ú L96;RL-SF-104 | RL-SF-105 | OS-07 | RT-J1;FECHADO
+Task_QuadroRT02;serviceTask;F04;Frente 4;E-SF-RT-01;;RT-J1 | GTM;VARIANTE
+EndEvent_VarianteRTJ1;endEvent;F04;Frente 4;E-SF-RT-01;;RT-J1;VARIANTE
+Task_R0D30;serviceTask;F04;Frente 4;E-SF-RT-01;;OS-07 | RT-J1 | RT-D4 | GTM-04 | GTM-06;FECHADO
+Gateway_GateRTD4;gateway;F04;Frente 4;E-SF-RT-04;Lei 9.656 art. 13 §ú II L94;A9 | OS-07 | RT-D4 | GT-3 | GTM-04 | GTM-06;FECHADO
+Task_EspelhaMeuPlano;serviceTask;F04;Frente 4;E-SF-RT-04;;RT-D4;FECHADO
+Task_ReciboD0;serviceTask;F04;Frente 4;E-SF-RT-01;;RT-J1 | RT-D4 | GTM-06;ATIVO
+Gateway_DistribuiCiclo;gateway;F04;Frente 4;E-SF-RT-01;;RT-J1 | RT-D4;ATIVO
+Event_ThrowRenovacaoE9;linkEvent;F04;Frente 4;E-SF-RT-01;;OS-07;ATIVO
+EndEvent_RemeteE9;endEvent;F04;Frente 4;;;OS-07;ATIVO
+Task_EnviaR0Proativo;sendTask;F04;Frente 4;E-SF-RT-04;;RT-D4 | GTM-04;VARIANTE
+EndEvent_VarianteProativo;endEvent;F04;Frente 4;E-SF-RT-04;;RT-D4 | GTM-04;VARIANTE
+Task_RecebeContestacao;receiveTask;F04;Frente 4;E-SF-RT-01;;;ATIVO
+Task_TrilhaAtendimento;userTask;F04;Frente 4;E-SF-RT-03;;RT-D3;FECHADO
+EndEvent_TrilhaRespondeu;endEvent;F04;Frente 4;E-SF-RT-01;;;ATIVO
+Task_RegistraPedidoCancel;serviceTask;F04;Frente 4;E-SF-RT-02;RN 561 L295 | RN 561 art. 21 — PIN L297 | Lei 9.656 art. 13 §ú II — notificação do 50º dia é outro ato L94 | RN 561 art. 20 L296;RT-J2 | RT-J3 | GTM-06;ATIVO
+Event_ThrowCancelE9;linkEvent;F04;Frente 4;E-SF-RT-02;;;ATIVO
+EndEvent_CancelRemetidoE9;endEvent;F04;Frente 4;E-SF-RT-02;;;ATIVO
+Gateway_GateCercaRT09;gateway;F04;Frente 4;E-SF-RT-01;;RL-SF-014 | OS-07 | SC-10;ATIVO
+Task_RegistraRet;serviceTask;F04;Frente 4;E-SF-RT-01;;RL-SF-005 | A9;VARIANTE
+EndEvent_GatilhoRecusado;endEvent;F04;Frente 4;E-SF-RT-01;LGPD art. 11 L185;;ATIVO
+EndEvent_RetLocal;endEvent;F04;Frente 4;E-SF-RT-01;;;ATIVO
+Task_EmiteBoleto;serviceTask;F04;Frente 4;E-SF-RT-01;;RT-J1 | RT-D4;ATIVO
+EndEvent_ValorViaBoleto;endEvent;F04;Frente 4;E-SF-RT-01;;RT-J1;ATIVO
+Task_SegundaVia;serviceTask;F04;Frente 4;E-SF-RT-04;;RT-D4 | GTM-06;ATIVO
+EndEvent_2ViaEmitida;endEvent;F04;Frente 4;E-SF-RT-04;;;ATIVO
+Task_Negociacao;userTask;F04;Frente 4;E-SF-RT-03;Lei 9.656 art. 21 L297;RT-D3 | RT-D4 | GTM-06;ATIVO
+EndEvent_NegociacaoConcluida;endEvent;F04;Frente 4;E-SF-RT-03;;;ATIVO
+StartEvent_Ratificacao;startEvent;F04;Frente 4;E-SF-RT-01;;RL-SF-104 | RT-J1;VARIANTE
+Task_RatificaRTJ1;userTask;F04;Frente 4;E-SF-RT-01;Lei 9.656 L96 | Lei 9.656 art. 35-E §1º I L99;RL-SF-104 | RL-SF-105 | RT-J1;ATIVO
+Gateway_GateRTJ1Juridico;gateway;F04;Frente 4;E-SF-RT-01;RN 561 arts. 4º III L291 | RN 561 6º §3º 15 16 L294 | RN 561 teto art. 18 L295;OS-07 | OS-08 | RT-J1 | RT-J2 | RT-J3 | RT-J4 | RT-J5;FECHADO
+EndEvent_RTJ1Pendente;endEvent;F04;Frente 4;E-SF-RT-01;;RT-J1;FECHADO
+Task_PublicaNotaRTJ1;serviceTask;F04;Frente 4;E-SF-RT-01;Lei 9.656 art. 15 §ú L96 | Lei 9.656 repactuação art. 35-E §1º I L99;RT-J1;VARIANTE
+EndEvent_RTJ1Operante;endEvent;F04;Frente 4;E-SF-RT-01;;RT-J1;VARIANTE
+StartEvent_EntradaVitrine;startEvent;E2E;Ponta a ponta;E-SF-02 | E-SF-03;;;ATIVO
+SubProcess_EntradaPreco_E01;subProcess;E2E;Ponta a ponta;E-SF-02 | E-SF-03 | E-SF-04 | E-SF-46;;RL-SF-001 | A1;FECHADO
+SubProcess_Qualificacao_E02;subProcess;E2E;Ponta a ponta;E-SF-04 | E-SF-04r | E-SF-40r;;RL-SF-002 | RL-SF-041 | RL-SF-049 | A2;FECHADO
+Gateway_SegueQualificacao;gateway;E2E;Ponta a ponta;;;;ATIVO
+SubProcess_CotacaoComparador_E03;subProcess;E2E;Ponta a ponta;E-SF-08 | E-SF-38 | E-SF-52;;A1 | A2;ATIVO
+SubProcess_PropostaTermos_E04;subProcess;E2E;Ponta a ponta;E-SF-20 | E-SF-23 | E-SF-41 | E-SF-62;;RL-SF-010 | RL-SF-011 | RL-SF-012 | RL-SF-020 | RL-REG-08 | EM-01;FECHADO
+Gateway_LegitimidadeColetiva;gateway;E2E;Ponta a ponta;;;RL-SF-020 | RL-REG-08;FECHADO
+LinkEvent_ThrowF3;linkEvent;E2E;Ponta a ponta;E-SF-20;;RL-SF-020 | RL-REG-08;ATIVO
+EndEvent_LegitPendenteF03;endEvent;E2E;Ponta a ponta;;;RL-SF-020 | RL-REG-08;ATIVO
+StartEvent_DSConcluidaE05;startEvent;E2E;Ponta a ponta;;;RL-SF-014;ATIVO
+SubProcess_AceiteE05;subProcess;E2E;Ponta a ponta;E-SF-02 | E-SF-03 | E-SF-41;;A3;FECHADO
+Gateway_PosAceite;gateway;E2E;Ponta a ponta;;;;ATIVO
+EndEvent_AceiteRegistradoE05;endEvent;E2E;Ponta a ponta;;;;ATIVO
+EndEvent_AceiteNaoConcluidoE05;endEvent;E2E;Ponta a ponta;;;;ATIVO
+LinkEvent_ThrowF2;linkEvent;E2E;Ponta a ponta;E-SF-13 | E-SF-16r | E-SF-61;;RL-SF-066;FECHADO
+EndEvent_ProspectAbandonadoE02;endEvent;E2E;Ponta a ponta;;;RL-SF-066;ATIVO
+EndEvent_PropostaApresentadaE04;endEvent;E2E;Ponta a ponta;;;;FECHADO
+StartEvent_PropostaApresentadaE07;startEvent;E2E;Ponta a ponta;E-SF-01 | E-SF-44;;RL-SF-023 | RL-REG-11;VARIANTE
+SubProcess_DeclaracaoSaude_E07;subProcess;E2E;Ponta a ponta;E-SF-01 | E-SF-01r | E-SF-17 | E-SF-44;;RL-SF-014 | RL-SF-023 | RL-SF-039 | RL-SF-042 | RL-REG-11;VARIANTE
+EndEvent_DSConcluidaE07;endEvent;E2E;Ponta a ponta;;;;ATIVO
+SubProcess_AdmissaoAcompanhamento_E08;subProcess;E2E;Ponta a ponta;E-SF-05r | E-SF-08 | E-SF-47;;RL-SF-003 | RL-SF-035 | RL-REG-27 | A4 | A9 | OS-04;FECHADO
+LinkEvent_ThrowF1;linkEvent;E2E;Ponta a ponta;E-SF-35r | E-SF-47 | E-SF-55 | E-SF-60;;A9 | OS-04;ATIVO
+SubProcess_PosVenda_E09;subProcess;E2E;Ponta a ponta;E-SF-09 | E-SF-09r | E-SF-11 | E-SF-RT-02 | E-SF-RT-03 | E-SF-RT-04;;RL-SF-015 | RL-SF-043 | RL-REG-03 | RT-J2 | RT-D4 | GTM-07;FECHADO
+LinkEvent_ThrowF4;linkEvent;E2E;Ponta a ponta;E-SF-RT-01;;RL-SF-104 | RL-SF-105 | OS-07 | RT-J1 | RT-D4;ATIVO
+EndEvent_FunilConcluidoE09;endEvent;E2E;Ponta a ponta;;;;ATIVO
+StartEvent_AceiteRegistradoE06;startEvent;E2E;Ponta a ponta;E-SF-07 | E-SF-51;;;ATIVO
+SubProcess_ContratoPagamento_E06;subProcess;E2E;Ponta a ponta;E-SF-07 | E-SF-07r | E-SF-08 | E-SF-51;;RL-SF-038 | EM-01;FECHADO
+Event_TimerP25D;boundaryEvent;E2E;Ponta a ponta;;;RL-SF-038 | EM-01;ATIVO
+Task_RegistraContrato26;serviceTask;E2E;Ponta a ponta;;;;ATIVO
+EndEvent_ContratoAutomatico26;endEvent;E2E;Ponta a ponta;;;;ATIVO

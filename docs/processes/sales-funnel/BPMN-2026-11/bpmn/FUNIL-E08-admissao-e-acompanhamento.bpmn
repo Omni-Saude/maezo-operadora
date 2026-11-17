@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E08" targetNamespace="urn:funil:descritivo:etapa8" exporter="build_etapa08.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E08" name="Etapa 8 — Admissão e acompanhamento">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do contratante. Pool externo (caixa-preta): consulta o andamento (RN 623 art. 13 §ú, baseline L68) e recebe resposta à própria consulta. NENHUMA mensagem proativa (RT-D4 herdado; GAP-CONSENT-ADMISSAO). Nenhuma tarefa inventada neste pool.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: cadastro, comercial. Rastreador de 7 estágios, catálogo de prazos (DMN funnel_deadline_catalog), regra prazo-só-norma-nomeada (RL-SF-035/RL-REG-27), aviso INTERNO de estágio estourado, cobertura vigente A4 (RL-SF-003 FECHADO). Épicos E-SF-08 (mesclado PR 1271), E-SF-05r, E-SF-47.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago" processRef="Process_ExecutorAMH"><bpmn:documentation>Executor comercial e lago (amh-data-platform). Fonte competente do vínculo/cobertura (campos vigencia_inicio, cancelamento, situacao_cadastral — RL-SF-003, RLR:11); leitura, nenhum comando. isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_AdmissaoIniciada" name="Admissão iniciada — contrato emitido" sourceRef="Participant_ExecutorAMH" targetRef="StartEvent_AdmissaoIniciada" />
+    <bpmn:messageFlow id="MsgFlow_ConsultaAndamento" name="Consulta de andamento — iniciada pelo beneficiário" sourceRef="Participant_Comprador" targetRef="StartEvent_ConsultaBeneficiario" />
+    <bpmn:messageFlow id="MsgFlow_RespostaAndamento" name="Andamento e datas — resposta à consulta (nunca proativa)" sourceRef="Task_RespondeAndamento" targetRef="Participant_Comprador" />
+    <bpmn:messageFlow id="MsgFlow_A4Registro" name="customer-coverage.proposed.v1 (leitura — sem comando)" sourceRef="Task_RegistraVigenciaNaFonte" targetRef="Task_ConsultaCoberturaFonte" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO / caminho fechado ativo (RL-SF-035/RL-REG-27 prazo-só-norma-nomeada; RL-SF-003/A4 cobertura vigente). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentation.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: cadastro, comercial. Rastreador de 7 estágios, catálogo de prazos (DMN funnel_deadline_catalog), regra prazo-só-norma-nomeada (RL-SF-035/RL-REG-27), aviso INTERNO de estágio estourado, cobertura vigente A4 (RL-SF-003 FECHADO). Épicos E-SF-08 (mesclado PR 1271), E-SF-05r, E-SF-47.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Cadastro" name="Cadastro">
+        <bpmn:flowNodeRef>StartEvent_AdmissaoIniciada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraProtocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinCiclo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RastreiaEstagios</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_CicloEstagios</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConsultaCatalogo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PrazoNormaNomeada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AguardaFimEstagio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_TimerEstouro</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraSoDatas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EmiteAvisoInterno</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConsultaCoberturaFonte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_CoberturaA4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraEstagio7</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Estagio7Registrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_TrackerEstagio6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecebeConsultaAndamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RespondeAndamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_CicloMensalSib</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaSibMensal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_SibEnviado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_ConsultaBeneficiario</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RespostaEnviada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_EmiteES7</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>Task_TrataAviso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AvisoTratado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_AdmissaoIniciada" name="Contrato emitido (etapa 6)"><bpmn:documentation>Message start: resultado da etapa 6 (RN 413 art. 5º §2º, baseline L118: contratação concluída em ≤25 dias corridos). Início do dever de acompanhamento da etapa 8. T0 do relógio de 25 dias segue FECHADO (RL-SF-038, RLR:46; NORM-GAP-8).</bpmn:documentation><bpmn:outgoing>Flow_S1_Inicia</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_AdmissaoIniciada" messageRef="Message_AdmContratoEmitido" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_RegistraProtocolo" name="Registra protocolo — primeira ação"><bpmn:documentation>RN 623 art. 10, caput (baseline L62, verbatim: 'deverá ser fornecido número de protocolo como primeira ação, no início do atendimento') — dever VIGENTE para toda demanda recebida, independente de canal. Épico mais próximo: E-SF-47 (walk em staging, onda 2).</bpmn:documentation><bpmn:incoming>Flow_S1_Inicia</bpmn:incoming><bpmn:outgoing>Flow_S2_Protocolo</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinCiclo" name="Ciclo — entrada" default="Flow_S3_Ciclo"><bpmn:documentation>Junção do ciclo do rastreador: entrada da primeira ação, retorno do registro de datas e retorno da espera concluída.</bpmn:documentation><bpmn:incoming>Flow_S2_Protocolo</bpmn:incoming><bpmn:incoming>Flow_S10_VoltaEspera</bpmn:incoming><bpmn:incoming>Flow_S16_VoltaDatas</bpmn:incoming><bpmn:outgoing>Flow_S3_Ciclo</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RastreiaEstagios" name="Rastreia os 7 estágios (contador)"><bpmn:documentation>PADRÃO ESCOLHIDO: task única com contador de estágio (alternativa: subprocesso recolhido por estágio — menos legível para o nível 1; ver AUTORIA). Estágios conforme o tracker da fonte: catálogo dá prazo só aos estágios 1–3 (r_rn413_art5_par2, estagios_tracker '1,2,3'); estágios 4–7 do tracker NÃO têm prazo (DMN L22). A9/OS-04: NENHUM caminho emite evento de medição (anotação anexa). GAP: nenhum SP-OP-* de tracker existe; épicos que o criam: E-SF-07 (relógio de 25 d, alarmes, 26º dia — maezo, onda 2) e E-SF-42 (tracker de 7 estágios no portal — omni, onda 2). Estágios (fonte: RL-SF-062/RLR:70; estágio 7 = RL-SF-003/RLR:11; nomes canônicos: DEC-CORE.md:1965-1973, registro CORE-13a): 1 Proposta registrada · 2 Contrato emitido · 3 Financeiro confirmado · 4 Declaração de saúde recebida (só se CPT/agravo E DEC-14 E não-portabilidade; senão omitido) · 5 Matrícula em curso (NUNCA 'em análise') · 6 Matrícula emitida ('não confirma cobertura ativa') · 7 Cobertura vigente (só com A4; senão omitido).</bpmn:documentation><bpmn:incoming>Flow_S3_Ciclo</bpmn:incoming><bpmn:outgoing>Flow_S4_Conta</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES1</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES2</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES3</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES4</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES5</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES6</bpmn:outgoing><bpmn:outgoing>Flow_EmiteES7</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_CicloEstagios" name="Estágios 1–6 completos?" default="Flow_S5_Proximo"><bpmn:documentation>Divisão do ciclo: próximo estágio (default) x ciclo de seis estágios completo, que segue à leitura do registro de cobertura na fonte.</bpmn:documentation><bpmn:incoming>Flow_S4_Conta</bpmn:incoming><bpmn:incoming>Flow_ES1_Conta</bpmn:incoming><bpmn:incoming>Flow_ES2_Conta</bpmn:incoming><bpmn:incoming>Flow_ES3_Conta</bpmn:incoming><bpmn:incoming>Flow_ES4_Conta</bpmn:incoming><bpmn:incoming>Flow_ES5_Conta</bpmn:incoming><bpmn:incoming>Flow_ES6_Conta</bpmn:incoming><bpmn:incoming>Flow_ES7_Conta</bpmn:incoming><bpmn:outgoing>Flow_S5_Proximo</bpmn:outgoing><bpmn:outgoing>Flow_S11_Completos</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:businessRuleTask id="Task_ConsultaCatalogo" name="Consulta catálogo de prazos (deadline_ref)"><bpmn:documentation>businessRuleTask → decisão funnel_deadline_catalog (spec/processes/dmn/funnel_deadline_catalog.dmn), entrada deadline_ref (DMN L29-31): RN413-art5-par2 (25 corridos, L47-65), RN413-art5-par7 (5 úteis, L66-84), Lei9656-art12-VI (fora do tracker). GAP-WIRE: catálogo DRAFT e SEM CONSUMIDOR nesta onda (L23-24; EXECUTION-LOG L126, CD-24). Épico E-SF-08 mesclado (PR 1271). Timer nunca construído de DRAFT (L16-19).</bpmn:documentation><bpmn:incoming>Flow_S5_Proximo</bpmn:incoming><bpmn:outgoing>Flow_S6_Deadline</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_PrazoNormaNomeada" name="Prazo de norma nomeada (RATIFIED)?" default="Flow_S7_SoDatas"><bpmn:documentation>PORTÃO FECHADO RL-SF-035 / RL-REG-27 (RLR:43/:235; missão §5.1 linha 8): 'prazo só aparece quando vem de norma nomeada'. Default = sem entrada RATIFIED (com regulatory_approval_ref + evento-âncora observado, DMN L16-21) → SÓ DATAS, sem ETA. Todas as entradas estão DRAFT hoje (DMN L9/L18-19).</bpmn:documentation><bpmn:incoming>Flow_S6_Deadline</bpmn:incoming><bpmn:outgoing>Flow_S7_SoDatas</bpmn:outgoing><bpmn:outgoing>Flow_S8_Ratified</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:receiveTask id="Task_AguardaFimEstagio" name="Aguarda fim do estágio (só com prazo RATIFIED)"><bpmn:documentation>Caminho variante: só com entrada RATIFIED + refs + evento-âncora observado na fonte (DMN L16-21). Host do timer de borda (alarme não-interruptivo). Sem prazo confirmado em norma nomeada → sem timer, só datas (RL-SF-035/RL-REG-27, RLR:43/:235).</bpmn:documentation><bpmn:incoming>Flow_S8_Ratified</bpmn:incoming><bpmn:outgoing>Flow_S10_VoltaEspera</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:boundaryEvent id="Event_TimerEstouro" name="Prazo do estágio vencido (P?D — só do catálogo)" attachedToRef="Task_AguardaFimEstagio" cancelActivity="false"><bpmn:documentation>Timer de borda NÃO-interruptivo (cancelActivity=false): valor SEMPRE do catálogo (${funnel_deadline_catalog[deadline_ref]}) ou ISO 8601 de norma citada com linha — nunca número solto (missão §6). HOJE não instanciável: todas as entradas DRAFT (DMN L18-19) e âncora do §3º indefinida (NORM-GAP-8/RL-SF-038, RLR:46). GAP-WIRE: catálogo sem consumidor (DMN L23-24). Alarme dispara aviso INTERNO — nunca mensagem a beneficiário.</bpmn:documentation><bpmn:outgoing>Flow_S9_Alarme</bpmn:outgoing><bpmn:timerEventDefinition id="TimerDef_Event_TimerEstouro"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${funnel_deadline_catalog[deadline_ref]}</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+      <bpmn:serviceTask id="Task_RegistraSoDatas" name="Registra só datas observadas — sem ETA"><bpmn:documentation>RL-SF-035/RL-REG-27 (RLR:43/:235): sem prazo de norma nomeada RATIFIED → nenhum prazo exibido; só timestamps observados (DMN L18-19). B-13: nenhum prazo da RN 566 em estágio de contratação (RLR:235). O teto de 25 dias (RN 413 art. 5º §2º, baseline L118) vive no catálogo DRAFT — não vira ETA em tela.</bpmn:documentation><bpmn:incoming>Flow_S7_SoDatas</bpmn:incoming><bpmn:outgoing>Flow_S16_VoltaDatas</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:sendTask id="Task_EmiteAvisoInterno" name="Emite aviso interno de estágio estourado"><bpmn:documentation>Aviso INTERNO → raia Comercial da própria operadora (fluxo de sequência interno) — NUNCA mensagem proativa a beneficiário (missão §8; RT-D4 herdado). Teto observado: RN 413 art. 5º §2º (baseline L118). Alarme não-interruptivo: a espera pelo fim do estágio continua.</bpmn:documentation><bpmn:incoming>Flow_S9_Alarme</bpmn:incoming><bpmn:outgoing>Flow_A1_Aviso</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:receiveTask id="Task_ConsultaCoberturaFonte" name="Recebe leitura de cobertura da fonte (A4)" messageRef="Message_RegistroCoberturaA4"><bpmn:documentation>Registro customer-coverage.proposed.v1: leitura, NENHUM comando, finalidade comercial própria, expiração ligada ao pin d1d796b8… (RL-SF-003, RLR:11). Portão A4 FECHADO: registro refused → cartão unknown/source_unavailable → estágio 7 omitido. Bind das admissões A1–A4 = E-SF-05r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:incoming>Flow_S11_Completos</bpmn:incoming><bpmn:outgoing>Flow_S12_LeA4</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:exclusiveGateway id="Gateway_CoberturaA4" name="Cobertura vigente na fonte (A4)?" default="Flow_S13_Estagio6"><bpmn:documentation>PORTÃO FECHADO RL-SF-003 / A4 (RLR:11; CORE-03/D-SF-004; jurídico ratifica — direito signatário; ato DPO lado AMH): default = situação de cobertura DESCONHECIDA, sem qualquer inferência pelo sistema — tracker termina no estágio 6. Ratificado (variante) → estágio 7 registrado.</bpmn:documentation><bpmn:incoming>Flow_S12_LeA4</bpmn:incoming><bpmn:outgoing>Flow_S13_Estagio6</bpmn:outgoing><bpmn:outgoing>Flow_S14_Estagio7</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RegistraEstagio7" name="Registra estágio 7 — cobertura vigente"><bpmn:documentation>VARIANTE NÃO ATIVA: só com A4 ratificado (RL-SF-003, RLR:11). Leitura na fonte AMH: vigencia_inicio, cancelamento, situacao_cadastral (fonte competente, distinta do recibo de emissão — pergunta (1) do registro). Épico E-SF-05r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:incoming>Flow_S14_Estagio7</bpmn:incoming><bpmn:outgoing>Flow_S15_Registra7</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_Estagio7Registrado" name="Estágio 7 registrado (A4)"><bpmn:documentation>Fim nomeado da variante A4 (não ativa enquanto RL-SF-003 pendente).</bpmn:documentation><bpmn:incoming>Flow_S15_Registra7</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_TrackerEstagio6" name="Tracker termina no estágio 6"><bpmn:documentation>Fim nomeado do fallback literal A4 (RLR:11): 'situação de cobertura desconhecida' — 'desconhecida não significa sem cobertura', sem inferência; estágio 7 omitido. Épico E-SF-05r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:incoming>Flow_S13_Estagio6</bpmn:incoming></bpmn:endEvent>
+      <bpmn:receiveTask id="Task_RecebeConsultaAndamento" name="Recebe consulta de andamento" messageRef="Message_ConsultaAndamento"><bpmn:documentation>RN 623 art. 13 §ú (baseline L68): acesso ao andamento por meio virtual obrigatório. Consulta INICIADA pelo beneficiário (start de mensagem reativo StartEvent_ConsultaBeneficiario) — nenhuma mensagem proativa (RT-D4 herdado; GAP-CONSENT-ADMISSAO: beneficiários já admitidos sem consentimento de contato demonstrável, RT-D4.md:73).</bpmn:documentation><bpmn:incoming>Flow_Q0_ConsultaChega</bpmn:incoming><bpmn:outgoing>Flow_Q1_ConsultaRecebida</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:sendTask id="Task_RespondeAndamento" name="Responde andamento com datas observadas"><bpmn:documentation>Resposta à consulta do beneficiário (nunca proativa): andamento + timestamps observados, SEM ETA (RL-SF-035/RL-REG-27, RLR:43/:235; DMN L18-19). RN 623 art. 13 §ú (L68); art. 19: registros e gravações em até 72 h (L72) — ver anotação RN 623.</bpmn:documentation><bpmn:incoming>Flow_Q1_ConsultaRecebida</bpmn:incoming><bpmn:outgoing>Flow_Q2_RespostaRegistrada</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:startEvent id="StartEvent_CicloMensalSib" name="Ciclo mensal SIB — dia 5"><bpmn:documentation>Job interno de admissão/agregação cadastral (RN 500 art. 6º/7º, baseline L308: mensal, até o dia 5). NUNCA exibido ao comprador como prazo (regra prazo-só-norma; RLR:235).</bpmn:documentation><bpmn:outgoing>Flow_B1_Mensal</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_EnviaSibMensal" name="Envia atualização cadastral SIB (mensal)"><bpmn:documentation>RN 500 art. 3º §1º (baseline L307): responsabilidade da OPERADORA em manter os dados atualizados, corretos e fidedignos na ANS; arts. 6º/7º: periodicidade mensal, envio até o dia 5 (L308); art. 16: campos mínimos nome/CPF/nome da mãe (L309). GAP-4 residual: RN 590/2023 (alteração da RN 500/SIB) sem pin — baseline L364; leitura RL-REG-28/RL-SF-031 (RLR:35).</bpmn:documentation><bpmn:incoming>Flow_B1_Mensal</bpmn:incoming><bpmn:outgoing>Flow_B2_Sib</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_SibEnviado" name="SIB enviado"><bpmn:documentation>Fim nomeado do job mensal de atualização cadastral.</bpmn:documentation><bpmn:incoming>Flow_B2_Sib</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_TrataAviso" name="Trata aviso de estágio estourado"><bpmn:documentation>Ato humano na raia competente (regra transversal 2): tratamento e escalação INTERNA do atraso — NUNCA mensagem proativa a beneficiário (RT-D4 herdado). Sem ETA ao comprador enquanto RL-SF-035/RL-REG-27 vigente (RLR:43/:235); teto regulatório observado em RN 413 art. 5º §2º (baseline L118).</bpmn:documentation><bpmn:incoming>Flow_A1_Aviso</bpmn:incoming><bpmn:outgoing>Flow_A2_Tratado</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_AvisoTratado" name="Aviso tratado internamente"><bpmn:documentation>Fim nomeado: tratamento interno do aviso registrado; nenhum caminho termina em silêncio.</bpmn:documentation><bpmn:incoming>Flow_A2_Tratado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_ConsultaBeneficiario" name="Consulta de andamento iniciada pelo beneficiário (reativa)"><bpmn:documentation>Start de mensagem REATIVO (missão §8; RT-D4.md:23/91-92): instancia o atendimento só quando o beneficiário consulta — NENHUMA mensagem proativa (GAP-CONSENT-ADMISSAO, RT-D4.md:73). MsgFlow_ConsultaAndamento traz Message_ConsultaAndamento do pool Comprador; RN 623 art. 13 §ú (baseline L68).</bpmn:documentation><bpmn:outgoing>Flow_Q0_ConsultaChega</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_ConsultaBeneficiario" messageRef="Message_ConsultaAndamento" /></bpmn:startEvent>
+      <bpmn:endEvent id="EndEvent_RespostaEnviada" name="Resposta enviada ao beneficiário (reativa)"><bpmn:documentation>Fim nomeado do atendimento reativo à consulta: resposta enviada (só em conversa iniciada por ele — RT-D4) e registrada (RN 623 art. 19, baseline L72: registros e gravações em até 72 h). Sem ETA — só datas observadas (RL-SF-035/RL-REG-27).</bpmn:documentation><bpmn:incoming>Flow_Q2_RespostaRegistrada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES1" name="Estágio 1 concluído — link 'E08-ES1' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES1 captura linkEventDefinition name='E08-ES1' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 1 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES1</bpmn:incoming><bpmn:outgoing>Flow_ES1_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES1" name="E08-ES1" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES2" name="Estágio 2 concluído — link 'E08-ES2' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES2 captura linkEventDefinition name='E08-ES2' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 2 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES2</bpmn:incoming><bpmn:outgoing>Flow_ES2_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES2" name="E08-ES2" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES3" name="Estágio 3 concluído — link 'E08-ES3' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES3 captura linkEventDefinition name='E08-ES3' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 3 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES3</bpmn:incoming><bpmn:outgoing>Flow_ES3_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES3" name="E08-ES3" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES4" name="Estágio 4 concluído — link 'E08-ES4' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES4 captura linkEventDefinition name='E08-ES4' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 4 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES4</bpmn:incoming><bpmn:outgoing>Flow_ES4_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES4" name="E08-ES4" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES5" name="Estágio 5 concluído — link 'E08-ES5' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES5 captura linkEventDefinition name='E08-ES5' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 5 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES5</bpmn:incoming><bpmn:outgoing>Flow_ES5_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES5" name="E08-ES5" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES6" name="Estágio 6 concluído — link 'E08-ES6' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES6 captura linkEventDefinition name='E08-ES6' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 6 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES6</bpmn:incoming><bpmn:outgoing>Flow_ES6_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES6" name="E08-ES6" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_EmiteES7" name="Estágio 7 concluído — link 'E08-ES7' (par F1)"><bpmn:documentation>THROW DE LINK — NÃO é emissão A9/medição (A9/OS-04 segue FECHADA: nenhum caminho ativo emite evento de medição; ver Annotation_MedicaoA9). Par de link com a FRENTE F1 — Medição (FUNIL-F01-mediacao.bpmn): Event_LinkES7 captura linkEventDefinition name='E08-ES7' (grafia idêntica à de F01). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: conclusão do estágio 7 do rastreador de sete estágios (nomes canônicos DEC-CORE.md:1965-1973).</bpmn:documentation><bpmn:incoming>Flow_EmiteES7</bpmn:incoming><bpmn:outgoing>Flow_ES7_Conta</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_EmiteES7" name="E08-ES7" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Inicia" name="Inicia admissão" sourceRef="StartEvent_AdmissaoIniciada" targetRef="Task_RegistraProtocolo" />
+      <bpmn:sequenceFlow id="Flow_S2_Protocolo" name="Protocolo — primeira ação" sourceRef="Task_RegistraProtocolo" targetRef="Gateway_JoinCiclo" />
+      <bpmn:sequenceFlow id="Flow_S3_Ciclo" name="Ciclo do rastreador" sourceRef="Gateway_JoinCiclo" targetRef="Task_RastreiaEstagios" />
+      <bpmn:sequenceFlow id="Flow_S4_Conta" name="Estágio contabilizado" sourceRef="Task_RastreiaEstagios" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_S5_Proximo" name="Próximo estágio" sourceRef="Gateway_CicloEstagios" targetRef="Task_ConsultaCatalogo" />
+      <bpmn:sequenceFlow id="Flow_S6_Deadline" name="Consulta deadline_ref" sourceRef="Task_ConsultaCatalogo" targetRef="Gateway_PrazoNormaNomeada" />
+      <bpmn:sequenceFlow id="Flow_S7_SoDatas" name="Sem norma nomeada RATIFIED — só datas (FECHADO)" sourceRef="Gateway_PrazoNormaNomeada" targetRef="Task_RegistraSoDatas" />
+      <bpmn:sequenceFlow id="Flow_S8_Ratified" name="RATIFIED + refs + âncora observada (variante)" sourceRef="Gateway_PrazoNormaNomeada" targetRef="Task_AguardaFimEstagio"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">entrada RATIFIED com regulatory_approval_ref e evento-âncora observado</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S9_Alarme" name="Alarme — estágio estourado" sourceRef="Event_TimerEstouro" targetRef="Task_EmiteAvisoInterno" />
+      <bpmn:sequenceFlow id="Flow_S10_VoltaEspera" name="Estágio concluído — volta ao ciclo" sourceRef="Task_AguardaFimEstagio" targetRef="Gateway_JoinCiclo" />
+      <bpmn:sequenceFlow id="Flow_S11_Completos" name="Estágios 1–6 completos — verificar cobertura" sourceRef="Gateway_CicloEstagios" targetRef="Task_ConsultaCoberturaFonte"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">contador do rastreador marca seis estágios completos</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S12_LeA4" name="Lê registro A4" sourceRef="Task_ConsultaCoberturaFonte" targetRef="Gateway_CoberturaA4" />
+      <bpmn:sequenceFlow id="Flow_S13_Estagio6" name="Desconhecida — estágio 7 omitido (FECHADO)" sourceRef="Gateway_CoberturaA4" targetRef="EndEvent_TrackerEstagio6" />
+      <bpmn:sequenceFlow id="Flow_S14_Estagio7" name="Vigência registrada na fonte (A4)" sourceRef="Gateway_CoberturaA4" targetRef="Task_RegistraEstagio7"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">registro A4 ratificado com vigência registrada na fonte</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S15_Registra7" name="Estágio 7 registrado" sourceRef="Task_RegistraEstagio7" targetRef="EndEvent_Estagio7Registrado" />
+      <bpmn:sequenceFlow id="Flow_S16_VoltaDatas" name="Datas registradas — volta ao ciclo" sourceRef="Task_RegistraSoDatas" targetRef="Gateway_JoinCiclo" />
+      <bpmn:sequenceFlow id="Flow_A1_Aviso" name="Encaminha aviso (nunca a beneficiário)" sourceRef="Task_EmiteAvisoInterno" targetRef="Task_TrataAviso" />
+      <bpmn:sequenceFlow id="Flow_A2_Tratado" name="Tratamento registrado" sourceRef="Task_TrataAviso" targetRef="EndEvent_AvisoTratado" />
+      <bpmn:sequenceFlow id="Flow_B1_Mensal" name="Solicitação mensal" sourceRef="StartEvent_CicloMensalSib" targetRef="Task_EnviaSibMensal" />
+      <bpmn:sequenceFlow id="Flow_B2_Sib" name="SIB enviado" sourceRef="Task_EnviaSibMensal" targetRef="EndEvent_SibEnviado" />
+      <bpmn:sequenceFlow id="Flow_Q1_ConsultaRecebida" name="Consulta recebida — responde com datas observadas" sourceRef="Task_RecebeConsultaAndamento" targetRef="Task_RespondeAndamento" />
+      <bpmn:sequenceFlow id="Flow_Q0_ConsultaChega" name="Consulta do beneficiário abre atendimento (reativa)" sourceRef="StartEvent_ConsultaBeneficiario" targetRef="Task_RecebeConsultaAndamento" />
+      <bpmn:sequenceFlow id="Flow_Q2_RespostaRegistrada" name="Resposta registrada — fim reativo" sourceRef="Task_RespondeAndamento" targetRef="EndEvent_RespostaEnviada" />
+      <bpmn:sequenceFlow id="Flow_EmiteES1" name="Estágio 1 concluído — emite link 'E08-ES1' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES1" />
+      <bpmn:sequenceFlow id="Flow_ES1_Conta" name="Link 'E08-ES1' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES1" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES2" name="Estágio 2 concluído — emite link 'E08-ES2' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES2" />
+      <bpmn:sequenceFlow id="Flow_ES2_Conta" name="Link 'E08-ES2' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES2" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES3" name="Estágio 3 concluído — emite link 'E08-ES3' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES3" />
+      <bpmn:sequenceFlow id="Flow_ES3_Conta" name="Link 'E08-ES3' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES3" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES4" name="Estágio 4 concluído — emite link 'E08-ES4' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES4" />
+      <bpmn:sequenceFlow id="Flow_ES4_Conta" name="Link 'E08-ES4' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES4" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES5" name="Estágio 5 concluído — emite link 'E08-ES5' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES5" />
+      <bpmn:sequenceFlow id="Flow_ES5_Conta" name="Link 'E08-ES5' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES5" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES6" name="Estágio 6 concluído — emite link 'E08-ES6' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES6" />
+      <bpmn:sequenceFlow id="Flow_ES6_Conta" name="Link 'E08-ES6' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES6" targetRef="Gateway_CicloEstagios" />
+      <bpmn:sequenceFlow id="Flow_EmiteES7" name="Estágio 7 concluído — emite link 'E08-ES7' (par F1)" sourceRef="Task_RastreiaEstagios" targetRef="Event_EmiteES7" />
+      <bpmn:sequenceFlow id="Flow_ES7_Conta" name="Link 'E08-ES7' emitido — ciclo segue (par F1)" sourceRef="Event_EmiteES7" targetRef="Gateway_CicloEstagios" />
+      <bpmn:textAnnotation id="Annotation_MedicaoA9"><bpmn:text>MEDIÇÃO A9/OS-04 (AD §3.1 L23/37/46/52): DECIDIDA pelo dono, NÃO EXECUTÁVEL — NENHUM caminho ativo emite evento de medição neste diagrama; os 7 pontos de medição dos estágios ficam na FRENTE F1 (referência à frente, sem emissor desenhado aqui). Walk em staging/hml, estado UNMEASURED (E-SF-47, onda 2). Assinatura do registro A9 pelo encarregado PENDENTE (ato de indicação não assinado).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_GapWire"><bpmn:text>GAP-WIRE (DMN L23-24): funnel_deadline_catalog DRAFT e SEM CONSUMIDOR nesta onda — projeção em journey.get exige campo novo no sucessor do C6-4 (casa AMH; EXECUTION-LOG L126, CD-24). Nenhum prazo é exibível hoje (todas DRAFT, L18-19); o alarme só existe com entrada RATIFIED. Estágios 4–7 do tracker não têm prazo (L22).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_PrazoNorma"><bpmn:text>PORTÃO FECHADO RL-SF-035 / RL-REG-27 (RLR:43/:235): prazo só de norma nomeada RATIFIED; sem prazo confirmado → SÓ DATAS, sem ETA (missão §5.1 linha 8).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_A4"><bpmn:text>PORTÃO FECHADO RL-SF-003 / A4 (RLR:11; CORE-03): leitura customer-coverage.proposed.v1 — NENHUM comando, sem inferência; fallback literal: registro refused, cartão unknown/source_unavailable, ESTÁGIO 7 OMITIDO — tracker termina no 6.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Art623"><bpmn:text>RN 623 (baseline): art. 10 (L62) protocolo como PRIMEIRA AÇÃO de todo atendimento; art. 13 §ú (L68) andamento virtual obrigatório; art. 19 (L72) registros e gravações em até 72 h. Dever VIGENTE para demandas recebidas.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RTD4"><bpmn:text>PORTÃO RT-D4 (herdado; RT-D4.md:23/91-92): NENHUMA mensagem proativa a beneficiário — resposta só em conversa iniciada por ele. GAP-CONSENT-ADMISSAO (RT-D4.md:73): beneficiários já admitidos sem consentimento de contato demonstrável.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_MedicaoA9" sourceRef="Task_RastreiaEstagios" targetRef="Annotation_MedicaoA9" />
+    <bpmn:association id="Association_GapWire" sourceRef="Task_ConsultaCatalogo" targetRef="Annotation_GapWire" />
+    <bpmn:association id="Association_PrazoNorma" sourceRef="Gateway_PrazoNormaNomeada" targetRef="Annotation_PrazoNorma" />
+    <bpmn:association id="Association_A4" sourceRef="Gateway_CoberturaA4" targetRef="Annotation_A4" />
+    <bpmn:association id="Association_Art623" sourceRef="Task_RegistraProtocolo" targetRef="Annotation_Art623" />
+    <bpmn:association id="Association_RTD4" sourceRef="Task_RespondeAndamento" targetRef="Annotation_RTD4" />
+  </bpmn:process>
+  <bpmn:process id="Process_ExecutorAMH" isExecutable="false">
+    <bpmn:documentation>Executor comercial e lago (amh-data-platform). Fonte competente do vínculo/cobertura (campos vigencia_inicio, cancelamento, situacao_cadastral — RL-SF-003, RLR:11); leitura, nenhum comando. isExecutable=false.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ExecutorAMH">
+      <bpmn:lane id="Lane_ExecutorAMH" name="Executor">
+        <bpmn:flowNodeRef>StartEvent_ContratoEmitido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraVigenciaNaFonte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FonteDisponivel</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_ContratoEmitido" name="Contrato emitido (etapa 6)"><bpmn:documentation>Fato interno do executor vindo da etapa 6 (RN 413 art. 5º §2º, baseline L118). A partir daqui a fonte AMH passa a expor o vínculo para leitura (base do registro A4).</bpmn:documentation><bpmn:outgoing>Flow_M1_Fonte</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_RegistraVigenciaNaFonte" name="Registra vínculo e vigência na fonte"><bpmn:documentation>Campos vigencia_inicio, cancelamento, situacao_cadastral = fonte competente de 'cobertura vigente' a exibir ao contratante, distinta do recibo de emissão (RL-SF-003 pergunta (1), RLR:11). LEITURA — nenhum comando; expiração ligada ao pin d1d796b8… (RLR:11).</bpmn:documentation><bpmn:incoming>Flow_M1_Fonte</bpmn:incoming><bpmn:outgoing>Flow_M2_FontePronta</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_FonteDisponivel" name="Fonte pronta para leitura (A4)"><bpmn:documentation>Fim nomeado: fonte disponível para leitura pela operadora enquanto o registro A4 está pendente (RLR:11).</bpmn:documentation><bpmn:incoming>Flow_M2_FontePronta</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_M1_Fonte" name="Contrato emitido — registro na fonte" sourceRef="StartEvent_ContratoEmitido" targetRef="Task_RegistraVigenciaNaFonte" />
+      <bpmn:sequenceFlow id="Flow_M2_FontePronta" name="Fonte pronta" sourceRef="Task_RegistraVigenciaNaFonte" targetRef="EndEvent_FonteDisponivel" />
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: nenhum SP-OP-* de rastreador existe — GAP; rastreador = GAP: nenhum SP-OP-* de tracker existe; épicos que o criam: E-SF-07 (relógio de 25 d, alarmes, 26º dia — maezo, onda 2) e E-SF-42 (tracker de 7 estágios no portal — omni, onda 2). Catálogo = funnel_deadline_catalog.dmn (E-SF-08 mesclado PR 1271; DRAFT, GAP-WIRE). Bind A1–A4 = E-SF-05r (AGUARDA-RATIFICAÇÃO). Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_RegistraVigenciaNaFonte" targetRef="Annotation_Nivel2" />
+  </bpmn:process>
+  <bpmn:message id="Message_AdmContratoEmitido" name="Admissão iniciada — contrato emitido (etapa 6)" />
+  <bpmn:message id="Message_ConsultaAndamento" name="Consulta de andamento iniciada pelo beneficiário" />
+  <bpmn:message id="Message_RegistroCoberturaA4" name="Registro de cobertura da fonte (leitura)" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E08">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E08" bpmnElement="Collaboration_FUNIL_E08">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2320" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="220" width="2320" height="860" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="1180" width="2320" height="280" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Cadastro_di" bpmnElement="Lane_Cadastro" isHorizontal="true"><dc:Bounds x="70" y="250" width="2290" height="520" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="770" width="2290" height="310" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ExecutorAMH_di" bpmnElement="Lane_ExecutorAMH" isHorizontal="true"><dc:Bounds x="70" y="1210" width="2290" height="250" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_AdmissaoIniciada_di" bpmnElement="StartEvent_AdmissaoIniciada">
+        <dc:Bounds x="180" y="380" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="422" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraProtocolo_di" bpmnElement="Task_RegistraProtocolo">
+        <dc:Bounds x="280" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinCiclo_di" bpmnElement="Gateway_JoinCiclo" isMarkerVisible="true">
+        <dc:Bounds x="440" y="355" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="380" y="425" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RastreiaEstagios_di" bpmnElement="Task_RastreiaEstagios">
+        <dc:Bounds x="560" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_CicloEstagios_di" bpmnElement="Gateway_CicloEstagios" isMarkerVisible="true">
+        <dc:Bounds x="720" y="355" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="300" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConsultaCatalogo_di" bpmnElement="Task_ConsultaCatalogo">
+        <dc:Bounds x="840" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PrazoNormaNomeada_di" bpmnElement="Gateway_PrazoNormaNomeada" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1000" y="355" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1010" y="300" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AguardaFimEstagio_di" bpmnElement="Task_AguardaFimEstagio">
+        <dc:Bounds x="1160" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_TimerEstouro_di" bpmnElement="Event_TimerEstouro">
+        <dc:Bounds x="1192" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1090" y="445" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraSoDatas_di" bpmnElement="Task_RegistraSoDatas">
+        <dc:Bounds x="980" y="560" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EmiteAvisoInterno_di" bpmnElement="Task_EmiteAvisoInterno">
+        <dc:Bounds x="1160" y="560" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConsultaCoberturaFonte_di" bpmnElement="Task_ConsultaCoberturaFonte">
+        <dc:Bounds x="1360" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_CoberturaA4_di" bpmnElement="Gateway_CoberturaA4" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1520" y="355" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1440" y="430" width="70" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraEstagio7_di" bpmnElement="Task_RegistraEstagio7">
+        <dc:Bounds x="1660" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Estagio7Registrado_di" bpmnElement="EndEvent_Estagio7Registrado">
+        <dc:Bounds x="1860" y="382" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1766" y="360" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TrackerEstagio6_di" bpmnElement="EndEvent_TrackerEstagio6" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1527" y="560" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1500" y="600" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RecebeConsultaAndamento_di" bpmnElement="Task_RecebeConsultaAndamento">
+        <dc:Bounds x="360" y="660" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RespondeAndamento_di" bpmnElement="Task_RespondeAndamento">
+        <dc:Bounds x="200" y="660" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_CicloMensalSib_di" bpmnElement="StartEvent_CicloMensalSib">
+        <dc:Bounds x="2080" y="560" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2040" y="600" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaSibMensal_di" bpmnElement="Task_EnviaSibMensal">
+        <dc:Bounds x="2180" y="540" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_SibEnviado_di" bpmnElement="EndEvent_SibEnviado">
+        <dc:Bounds x="2212" y="680" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2254" y="686" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_TrataAviso_di" bpmnElement="Task_TrataAviso">
+        <dc:Bounds x="1160" y="790" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AvisoTratado_di" bpmnElement="EndEvent_AvisoTratado">
+        <dc:Bounds x="1360" y="812" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1400" y="854" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ContratoEmitido_di" bpmnElement="StartEvent_ContratoEmitido">
+        <dc:Bounds x="140" y="1300" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="100" y="1342" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraVigenciaNaFonte_di" bpmnElement="Task_RegistraVigenciaNaFonte">
+        <dc:Bounds x="280" y="1280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FonteDisponivel_di" bpmnElement="EndEvent_FonteDisponivel">
+        <dc:Bounds x="440" y="1300" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="380" y="1342" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="2400" y="220" width="240" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_MedicaoA9_di" bpmnElement="Annotation_MedicaoA9">
+        <dc:Bounds x="110" y="250" width="500" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_GapWire_di" bpmnElement="Annotation_GapWire">
+        <dc:Bounds x="1130" y="250" width="410" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PrazoNorma_di" bpmnElement="Annotation_PrazoNorma">
+        <dc:Bounds x="840" y="980" width="200" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_A4_di" bpmnElement="Annotation_A4">
+        <dc:Bounds x="1600" y="250" width="300" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Art623_di" bpmnElement="Annotation_Art623">
+        <dc:Bounds x="160" y="470" width="280" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="700" y="1280" width="240" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RTD4_di" bpmnElement="Annotation_RTD4">
+        <dc:Bounds x="160" y="790" width="230" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ConsultaBeneficiario_di" bpmnElement="StartEvent_ConsultaBeneficiario">
+        <dc:Bounds x="140" y="600" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="134" y="646" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RespostaEnviada_di" bpmnElement="EndEvent_RespostaEnviada">
+        <dc:Bounds x="316" y="720" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="316" y="760" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES1_di" bpmnElement="Event_EmiteES1">
+        <dc:Bounds x="1900" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1934" y="684" width="24" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES2_di" bpmnElement="Event_EmiteES2">
+        <dc:Bounds x="1968" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2002" y="684" width="24" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES3_di" bpmnElement="Event_EmiteES3">
+        <dc:Bounds x="2036" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2038" y="684" width="24" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES4_di" bpmnElement="Event_EmiteES4">
+        <dc:Bounds x="2104" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2076" y="684" width="26" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES5_di" bpmnElement="Event_EmiteES5">
+        <dc:Bounds x="2172" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2142" y="684" width="26" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES6_di" bpmnElement="Event_EmiteES6">
+        <dc:Bounds x="2240" y="720" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2278" y="660" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_EmiteES7_di" bpmnElement="Event_EmiteES7">
+        <dc:Bounds x="2324" y="620" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2336" y="584" width="22" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_Inicia_di" bpmnElement="Flow_S1_Inicia"><di:waypoint x="216" y="398" /><di:waypoint x="280" y="398" />
+        <bpmndi:BPMNLabel><dc:Bounds x="220" y="360" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_Protocolo_di" bpmnElement="Flow_S2_Protocolo"><di:waypoint x="380" y="380" /><di:waypoint x="440" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="384" y="342" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_Ciclo_di" bpmnElement="Flow_S3_Ciclo"><di:waypoint x="490" y="380" /><di:waypoint x="560" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="494" y="342" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_Conta_di" bpmnElement="Flow_S4_Conta"><di:waypoint x="660" y="380" /><di:waypoint x="720" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="664" y="342" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S5_Proximo_di" bpmnElement="Flow_S5_Proximo"><di:waypoint x="770" y="380" /><di:waypoint x="840" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="774" y="342" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S6_Deadline_di" bpmnElement="Flow_S6_Deadline"><di:waypoint x="940" y="380" /><di:waypoint x="1000" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="944" y="342" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S7_SoDatas_di" bpmnElement="Flow_S7_SoDatas"><di:waypoint x="1025" y="405" /><di:waypoint x="1025" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="790" y="566" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S8_Ratified_di" bpmnElement="Flow_S8_Ratified"><di:waypoint x="1050" y="380" /><di:waypoint x="1160" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1060" y="342" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S9_Alarme_di" bpmnElement="Flow_S9_Alarme"><di:waypoint x="1210" y="438" /><di:waypoint x="1210" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1220" y="470" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S10_VoltaEspera_di" bpmnElement="Flow_S10_VoltaEspera"><di:waypoint x="1260" y="380" /><di:waypoint x="1340" y="380" /><di:waypoint x="1340" y="700" /><di:waypoint x="520" y="700" /><di:waypoint x="520" y="400" /><di:waypoint x="490" y="400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1350" y="500" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S11_Completos_di" bpmnElement="Flow_S11_Completos"><di:waypoint x="745" y="405" /><di:waypoint x="745" y="440" /><di:waypoint x="1330" y="440" /><di:waypoint x="1330" y="380" /><di:waypoint x="1360" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="750" y="444" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S12_LeA4_di" bpmnElement="Flow_S12_LeA4"><di:waypoint x="1460" y="380" /><di:waypoint x="1520" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1464" y="342" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S13_Estagio6_di" bpmnElement="Flow_S13_Estagio6"><di:waypoint x="1545" y="405" /><di:waypoint x="1545" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1551" y="476" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S14_Estagio7_di" bpmnElement="Flow_S14_Estagio7"><di:waypoint x="1570" y="380" /><di:waypoint x="1660" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1576" y="342" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S15_Registra7_di" bpmnElement="Flow_S15_Registra7"><di:waypoint x="1760" y="400" /><di:waypoint x="1860" y="400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1780" y="410" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S16_VoltaDatas_di" bpmnElement="Flow_S16_VoltaDatas"><di:waypoint x="980" y="600" /><di:waypoint x="505" y="600" /><di:waypoint x="505" y="390" /><di:waypoint x="490" y="390" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="606" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A1_Aviso_di" bpmnElement="Flow_A1_Aviso"><di:waypoint x="1210" y="640" /><di:waypoint x="1210" y="790" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1220" y="720" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A2_Tratado_di" bpmnElement="Flow_A2_Tratado"><di:waypoint x="1260" y="830" /><di:waypoint x="1360" y="830" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1266" y="838" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B1_Mensal_di" bpmnElement="Flow_B1_Mensal"><di:waypoint x="2116" y="578" /><di:waypoint x="2180" y="578" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2120" y="550" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B2_Sib_di" bpmnElement="Flow_B2_Sib"><di:waypoint x="2230" y="620" /><di:waypoint x="2230" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2240" y="636" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M1_Fonte_di" bpmnElement="Flow_M1_Fonte"><di:waypoint x="176" y="1318" /><di:waypoint x="280" y="1318" />
+        <bpmndi:BPMNLabel><dc:Bounds x="180" y="1240" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M2_FontePronta_di" bpmnElement="Flow_M2_FontePronta"><di:waypoint x="380" y="1318" /><di:waypoint x="440" y="1318" />
+        <bpmndi:BPMNLabel><dc:Bounds x="384" y="1280" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Q1_ConsultaRecebida_di" bpmnElement="Flow_Q1_ConsultaRecebida"><di:waypoint x="460" y="700" /><di:waypoint x="300" y="700" />
+        <bpmndi:BPMNLabel><dc:Bounds x="302" y="678" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Q0_ConsultaChega_di" bpmnElement="Flow_Q0_ConsultaChega"><di:waypoint x="176" y="618" /><di:waypoint x="410" y="618" /><di:waypoint x="410" y="660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="596" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Q2_RespostaRegistrada_di" bpmnElement="Flow_Q2_RespostaRegistrada"><di:waypoint x="270" y="740" /><di:waypoint x="270" y="756" /><di:waypoint x="334" y="756" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="748" width="96" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES1_di" bpmnElement="Flow_EmiteES1"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="1906" y="232" /><di:waypoint x="1906" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES1_Conta_di" bpmnElement="Flow_ES1_Conta"><di:waypoint x="1930" y="676" /><di:waypoint x="1930" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES2_di" bpmnElement="Flow_EmiteES2"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="1974" y="232" /><di:waypoint x="1974" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES2_Conta_di" bpmnElement="Flow_ES2_Conta"><di:waypoint x="1998" y="676" /><di:waypoint x="1998" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES3_di" bpmnElement="Flow_EmiteES3"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="2020" y="232" /><di:waypoint x="2020" y="658" /><di:waypoint x="2036" y="658" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES3_Conta_di" bpmnElement="Flow_ES3_Conta"><di:waypoint x="2066" y="676" /><di:waypoint x="2066" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES4_di" bpmnElement="Flow_EmiteES4"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="2176" y="232" /><di:waypoint x="2176" y="634" /><di:waypoint x="2110" y="634" /><di:waypoint x="2110" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES4_Conta_di" bpmnElement="Flow_ES4_Conta"><di:waypoint x="2134" y="676" /><di:waypoint x="2134" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES5_di" bpmnElement="Flow_EmiteES5"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="2178" y="232" /><di:waypoint x="2178" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES5_Conta_di" bpmnElement="Flow_ES5_Conta"><di:waypoint x="2202" y="676" /><di:waypoint x="2202" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES6_di" bpmnElement="Flow_EmiteES6"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="2246" y="232" /><di:waypoint x="2246" y="530" /><di:waypoint x="2321" y="530" /><di:waypoint x="2321" y="680" /><di:waypoint x="2249" y="680" /><di:waypoint x="2249" y="716" /><di:waypoint x="2258" y="716" /><di:waypoint x="2258" y="720" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES6_Conta_di" bpmnElement="Flow_ES6_Conta"><di:waypoint x="2270" y="756" /><di:waypoint x="2270" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EmiteES7_di" bpmnElement="Flow_EmiteES7"><di:waypoint x="620" y="340" /><di:waypoint x="620" y="232" /><di:waypoint x="2330" y="232" /><di:waypoint x="2330" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES7_Conta_di" bpmnElement="Flow_ES7_Conta"><di:waypoint x="2342" y="656" /><di:waypoint x="2342" y="766" /><di:waypoint x="730" y="766" /><di:waypoint x="730" y="405" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AdmissaoIniciada_di" bpmnElement="MsgFlow_AdmissaoIniciada"><di:waypoint x="130" y="1180" /><di:waypoint x="130" y="398" /><di:waypoint x="180" y="398" />
+        <bpmndi:BPMNLabel><dc:Bounds x="158" y="900" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ConsultaAndamento_di" bpmnElement="MsgFlow_ConsultaAndamento"><di:waypoint x="104" y="140" /><di:waypoint x="104" y="598" /><di:waypoint x="140" y="598" /><di:waypoint x="140" y="600" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="566" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_RespostaAndamento_di" bpmnElement="MsgFlow_RespostaAndamento"><di:waypoint x="200" y="700" /><di:waypoint x="80" y="700" /><di:waypoint x="80" y="140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="88" y="106" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_A4Registro_di" bpmnElement="MsgFlow_A4Registro"><di:waypoint x="330" y="1360" /><di:waypoint x="330" y="1430" /><di:waypoint x="1120" y="1430" /><di:waypoint x="1120" y="470" /><di:waypoint x="1330" y="470" /><di:waypoint x="1330" y="400" /><di:waypoint x="1360" y="400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1060" y="706" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_MedicaoA9_di" bpmnElement="Association_MedicaoA9"><di:waypoint x="610" y="340" /><di:waypoint x="610" y="330" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_GapWire_di" bpmnElement="Association_GapWire"><di:waypoint x="870" y="340" /><di:waypoint x="870" y="290" /><di:waypoint x="1130" y="290" /><di:waypoint x="1130" y="270" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PrazoNorma_di" bpmnElement="Association_PrazoNorma"><di:waypoint x="1050" y="405" /><di:waypoint x="1050" y="465" /><di:waypoint x="1690" y="465" /><di:waypoint x="1690" y="950" /><di:waypoint x="940" y="950" /><di:waypoint x="940" y="980" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_A4_di" bpmnElement="Association_A4"><di:waypoint x="1550" y="355" /><di:waypoint x="1550" y="280" /><di:waypoint x="1600" y="280" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Art623_di" bpmnElement="Association_Art623"><di:waypoint x="370" y="420" /><di:waypoint x="370" y="470" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="360" y="1360" /><di:waypoint x="360" y="1390" /><di:waypoint x="700" y="1390" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RTD4_di" bpmnElement="Association_RTD4"><di:waypoint x="250" y="740" /><di:waypoint x="250" y="830" /><di:waypoint x="390" y="830" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

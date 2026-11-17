@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_F01" targetNamespace="urn:funil:descritivo:frente1" exporter="build_frente01.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_F01" name="Frente F1 — Medição">
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: comercial (coluna de referência dos 7 pontos de medição + portões A9 por estágio) e encarregado-DPO (destravamento G4 + resíduos RL-SF-005/RL-SF-044/RL-SF-045). Estado: NADA EMITE EVENTO (A9 admitida por OS-04 mas NÃO executável — missão §5.2 F1 e §8).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago" processRef="Process_ExecutorAMH"><bpmn:documentation>Executor comercial e lago (amh-data-platform). Raias: executor (percurso de teste em homologação — walk sintético em staging, E-SF-47; sucessor C6-x — E-SF-55) e lago AMH (destino dos agregados k≥10 — FECHADO: nenhum fluxo ativo de dados chega ao lago enquanto o portão A9 estiver fechado).</bpmn:documentation></bpmn:participant>
+    <bpmn:textAnnotation id="Annotation_Escopo"><bpmn:text>FRENTE F1 — MEDIÇÃO (missão §5.2 verbatim: 'Pontos de medição dos sete estágios sem medição hoje | Fechada: depende da admissão A9, que exige assinatura do encarregado. Até lá, percurso de teste em homologação. Nada emite evento'). Sete estágios = rastreador da etapa 8 (IDE §5:200-208): 1 Proposta registrada · 2 Contrato emitido · 3 Financeiro confirmado · 4 Declaração de saúde recebida · 5 Matrícula em curso · 6 Matrícula emitida · 7 Cobertura vigente. A frente LIGA por link events — não duplica as tarefas das etapas.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (A9 fechado-em-execução — OS-04/G4; resíduos RL-SF-005/RL-SF-044/RL-SF-045). Links: E08-ESn entra do rastreador da etapa 8; F1-EMITE-ESn emite (variante não ativa). A informação nunca depende só da cor: ids nos nomes, anotações e documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: comercial (coluna de referência dos 7 pontos de medição + portões A9 por estágio) e encarregado-DPO (destravamento G4 + resíduos RL-SF-005/RL-SF-044/RL-SF-045). Estado: NADA EMITE EVENTO (A9 admitida por OS-04 mas NÃO executável — missão §5.2 F1 e §8).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_FrenteMedicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_DistribuiEstagios</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ForaLista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES6</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkES7</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9_ES7</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NadaEmite_ES7</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Emite_ES7</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Encarregado" name="Encarregado (DPO)">
+        <bpmn:flowNodeRef>StartEvent_Destravamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AssinaRegistroA9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA9Admissao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_MedicaoFechada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_HabilitaAgregador</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_A9Operante</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_FrenteMedicao" name="Frente F1 — medição do funil (estado atual)"><bpmn:documentation>Início da frente F1 (nenhum gatilho externo: hoje NADA emite — A9 não executável, OS-04; missão §8). Observação descritiva do funil por estágio; a frente LIGA às etapas por link events e não duplica as tarefas delas (missão §5.2). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81) | portão A9.</bpmn:documentation><bpmn:outgoing>Flow_Inicio</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_DistribuiEstagios" name="Estágio observado?" default="Flow_ForaLista"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23): distribui os pontos de medição pelos SETE estágios do rastreador (etapa 8; IDE §5:200-208; TABELA-ETAPAS linha 8). Default = estágio fora da lista fechada → nada mede (fim nomeado). Convenção de links: E08-ESn (entrada, par com a etapa 8) e F1-EMITE-ESn (emissão, variante não ativa) — a frente liga, não duplica (missão §5.2). Épico E-SF-47 | evidência por estágio | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Inicio</bpmn:incoming><bpmn:outgoing>Flow_ForaLista</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES1</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES2</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES3</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES4</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES5</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES6</bpmn:outgoing><bpmn:outgoing>Flow_Branch_ES7</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_ForaLista" name="Sem ponto de medição — fora da lista"><bpmn:documentation>Fim nomeado: fato fora dos sete estágios da lista fechada — nenhum ponto de medição (nada mede). Estado UNMEASURED. Épico E-SF-35r (regressão: nada emite sem registro admitido) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ForaLista</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES1" name="ES1 · Proposta registrada (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES1 (linkEventDefinition 'E08-ES1'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 1 (Proposta registrada): recibo de aceite da contratação (etapa 5); comando/fonte: acceptance.record. A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES1</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES1</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES1" name="E08-ES1" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES1" name="A9 operante?" default="Flow_ES1_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES1</bpmn:incoming><bpmn:outgoing>Flow_ES1_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES1_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES1" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES1_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES1" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES1'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES1_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES1" name="F1-EMITE-ES1" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES2" name="ES2 · Contrato emitido (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES2 (linkEventDefinition 'E08-ES2'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 2 (Contrato emitido): recibo de emissão do contrato; comando/fonte: contract.issue. A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES2</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES2</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES2" name="E08-ES2" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES2" name="A9 operante?" default="Flow_ES2_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES2</bpmn:incoming><bpmn:outgoing>Flow_ES2_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES2_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES2" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES2_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES2" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES2'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES2_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES2" name="F1-EMITE-ES2" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES3" name="ES3 · Financeiro confirmado (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES3 (linkEventDefinition 'E08-ES3'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 3 (Financeiro confirmado): recibos de recebível, pagamento e mandate; comando/fonte: receivable.get / mandate.get / pagamento reconciliado (DEC-CORE.md:1969). A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES3</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES3</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES3" name="E08-ES3" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES3" name="A9 operante?" default="Flow_ES3_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES3</bpmn:incoming><bpmn:outgoing>Flow_ES3_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES3_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES3" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES3_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES3" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES3'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES3_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES3" name="F1-EMITE-ES3" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES4" name="ES4 · Declaração de saúde recebida (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES4 (linkEventDefinition 'E08-ES4'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 4 (Declaração de saúde recebida): fato 'recebida' — SEM qualquer conteúdo clínico; comando/fonte: referência de atesto (sem comando C6-4). A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES4</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES4</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES4" name="E08-ES4" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES4" name="A9 operante?" default="Flow_ES4_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES4</bpmn:incoming><bpmn:outgoing>Flow_ES4_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES4_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES4" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES4_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES4" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES4'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Estágio 4: só o fato 'recebida' — NUNCA conteúdo clínico (LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES4_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES4" name="F1-EMITE-ES4" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES5" name="ES5 · Matrícula em curso (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES5 (linkEventDefinition 'E08-ES5'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 5 (Matrícula em curso (DEC-CORE.md:1971)): linha do tempo de matrícula (pending/issued/refused/review_required); comando/fonte: journey.get + vocabulário de matrícula. A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES5</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES5</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES5" name="E08-ES5" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES5" name="A9 operante?" default="Flow_ES5_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES5</bpmn:incoming><bpmn:outgoing>Flow_ES5_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES5_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES5" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES5_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES5" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES5'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES5_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES5" name="F1-EMITE-ES5" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES6" name="ES6 · Matrícula emitida (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES6 (linkEventDefinition 'E08-ES6'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 6 (Matrícula emitida): fato 'issued' — fato de matrícula, NUNCA fato de cobertura; comando/fonte: CustomerEnrollmentRead — issued de matrícula (DEC-CORE.md:1972). A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES6</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES6</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES6" name="E08-ES6" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES6" name="A9 operante?" default="Flow_ES6_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES6</bpmn:incoming><bpmn:outgoing>Flow_ES6_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES6_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES6" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES6_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES6" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES6'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES6_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES6" name="F1-EMITE-ES6" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkES7" name="ES7 · Cobertura vigente (LINK↔E08)"><bpmn:documentation>LINK↔E08-ES7 (linkEventDefinition 'E08-ES7'): par de link com o rastreador de sete estágios da etapa 8 (FUNIL-E08) — convenção da missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato do estágio 7 (Cobertura vigente): fato de cobertura da fonte — só existe com A4 (hoje ABSENT, G5); comando/fonte: CustomerCoverageRead active, só com A4 (DEC-CORE.md:1973). A medição do estágio hoje NÃO existe (A9 não executável — OS-04; missão §8). Épico E-SF-47 | evidência por estágio (EPICS-PLAN.tsv:81; Onda 2 — não iniciado) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Branch_ES7</bpmn:incoming><bpmn:outgoing>Flow_LinkGate_ES7</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkES7" name="E08-ES7" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9_ES7" name="A9 operante?" default="Flow_ES7_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04, ADDENDUM-01.md:23; A9 §3.4, ADD-A9-CONSENT.md:233-236; G4, ADDENDUM-01.md:52): default = NADA EMITE EVENTO (estado UNMEASURED). Quem destrava: encarregado indicado assina o registro admitido (GAP-ENCARREGADO, ADDENDUM-01.md:417 — bloqueio n.º 1) + sucessor C6-x publicado (E-SF-55, amh 415 em CI) + RL-SF-045 (controlador/operador, RATIFY-LATER-REGISTER.md:53). Base do agregado NÃO é consentimento de titular (LGPD art. 7º I, baseline L177) — finalidade/base = resíduo RL-SF-005(a) (DPO, RATIFY-LATER-REGISTER.md:13). Épico E-SF-35r | regressão 'sem registro admitido do sucessor, nada emite' (AGUARDA-RATIFICAÇÃO; ADDENDUM-01.md:42) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_LinkGate_ES7</bpmn:incoming><bpmn:outgoing>Flow_ES7_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_ES7_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_NadaEmite_ES7" name="Nada emite evento — A9 fechado"><bpmn:documentation>FIM nomeado do caminho fechado: nenhum evento de medição emitido (A9 não executável — OS-04; missão §8: 'Nenhum caminho ativo emite evento de medição'). Épico E-SF-35r (regressão ativa: nada emite sem registro admitido do sucessor) | portão A9.</bpmn:documentation><bpmn:incoming>Flow_ES7_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_Emite_ES7" name="Emite evento de medição (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (linkEventDefinition 'F1-EMITE-ES7'): emissão só com A9 operante — após G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044. Conteúdo = LISTA FECHADA OS-04: nome do evento, horário, resultado; NUNCA dado de cadastro, de termos, chave de pessoa/jornada (C2 não admitida) nem dimensões (Q-OS04-2 → GAP-DIM-A9; defaults do dono ADDENDUM-01.md:379-380). ZERO dado de saúde em qualquer dimensão (RL-SF-014; missão §8; LGPD art. 11, baseline L185). Estágio 7: só com fato de cobertura da fonte (A4 ABSENT — G5). Destino: agregador na fonte (forma C1 — OS-04); só agregados k≥10 seguem ao lago AMH (RL-SF-044: PISO_MINIMO=2 global intocado — k≥10 só no validador do funil).</bpmn:documentation><bpmn:incoming>Flow_ES7_Variante</bpmn:incoming><bpmn:linkEventDefinition id="LinkDef_Event_Emite_ES7" name="F1-EMITE-ES7" /></bpmn:intermediateThrowEvent>
+      <bpmn:startEvent id="StartEvent_Destravamento" name="Destravamento A9 (sequência A9 §3.5)"><bpmn:documentation>Início do caminho de DESTRAVAMENTO (variante não ativa): sequência de admissão A9 §3.5 (ADD-A9-CONSENT.md:245-256) — indicação → item 6 do objeto publicável → sucessor C6-x → leitor re-pinado → contrato aditivo + gold → arquivo A9-ADMISSION-RECORD.json → agregador na fonte. Hoje: o ato de indicação NÃO está assinado (GAP-ENCARREGADO, ADDENDUM-01.md:417) e o arquivo do registro não existe (E-SF-60 mesclado omni 42 — EXECUTION-LOG.md:141). Portão A9 (G4).</bpmn:documentation><bpmn:outgoing>Flow_Destrava1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_AssinaRegistroA9" name="Encarregado indicado assina o registro de admissão A9"><bpmn:documentation>ATO HUMANO (userTask na raia do encarregado — decisão/papel competente, regra transversal 2): encarregado INDICADO assina o registro de admissão A9. owners:['DPO'] sem titular legítimo do papel até a indicação (A9, ADD-A9-CONSENT.md:235). Épico E-SF-35r (maezo — AGUARDA-RATIFICAÇÃO; reescopado por OS-04, ADDENDUM-01.md:42) + E-SF-60 (dossiê — mesclado omni 42, sem A9-ADMISSION-RECORD.json) | LGPD art. 37 — ROPA (baseline L188); art. 5º VI-VII (L192-193) | portão A9 (G4).</bpmn:documentation><bpmn:incoming>Flow_Destrava1</bpmn:incoming><bpmn:outgoing>Flow_Destrava2</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA9Admissao" name="Registro admitido assinado?" default="Flow_A9_Fechado"><bpmn:documentation>PORTÃO A9 FECHADO-EM-EXECUÇÃO (G4 — assinatura do encarregado; A9 §3.4, ADD-A9-CONSENT.md:233-236; ADDENDUM-01.md:52): default = NÃO assinado (GAP-ENCARREGADO — ato de indicação não assinado, ADDENDUM-01.md:417; bloqueio n.º 1) → medição permanece fechada (UNMEASURED; nada emite evento). Variante não ativa: sequência A9 §3.5 completa. Resíduos que permanecem mesmo após a assinatura: RL-SF-005 (RATIFY-LATER-REGISTER.md:13), RL-SF-044 (:52), RL-SF-045 (:53) — DPO + jurídico. Épico E-SF-35r | portão A9.</bpmn:documentation><bpmn:incoming>Flow_Destrava2</bpmn:incoming><bpmn:outgoing>Flow_A9_Fechado</bpmn:outgoing><bpmn:outgoing>Flow_A9_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_MedicaoFechada" name="Medição fechada — nada emite (UNMEASURED)"><bpmn:documentation>FIM nomeado do estado atual: medição FECHADA — nada emite evento (UNMEASURED); percurso de teste só em homologação (E-SF-47, walk sintético em staging — SYNTHETIC_EXAMPLE_ONLY, nunca baseline). Épico E-SF-35r | portão A9.</bpmn:documentation><bpmn:incoming>Flow_A9_Fechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_HabilitaAgregador" name="Publica sucessor C6-x e habilita agregador na fonte"><bpmn:documentation>VARIANTE NÃO ATIVA: publica o sucessor C6-x com superfície de medição de processo (vocabulário e dimensões fechados), contrato aditivo de agregado de funil e gold com supressão k — piso 10 NÃO rebaixável e controller_ref obrigatório (E-SF-55, EPICS-PLAN.tsv:117; PR amh 415 em CI — EXECUTION-LOG.md:144). GAP-C6X-CLASSE: classe do ato de publicar o sucessor indefinida (ADDENDUM-01.md:420). Agregação na fonte = forma C1: só agregados, contados na fonte (default Q-OS04-1, ADDENDUM-01.md:379). Nenhuma decisão de implantação tomada por agente (missão §8).</bpmn:documentation><bpmn:incoming>Flow_A9_Variante</bpmn:incoming><bpmn:outgoing>Flow_A9_Operante</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_A9Operante" name="A9 operante — eventos ativos (variante)"><bpmn:documentation>FIM da VARIANTE NÃO ATIVA: A9 operante — eventos de medição ativos (nome, horário, resultado), agregados k≥10 ao lago. Só depois de G4 + RL-SF-045 + RL-SF-005/RL-SF-044. Missão §8: enquanto isso, NENHUM caminho ativo emite evento de medição.</bpmn:documentation><bpmn:incoming>Flow_A9_Operante</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_Inicio" name="Observa o funil" sourceRef="StartEvent_FrenteMedicao" targetRef="Gateway_DistribuiEstagios" />
+      <bpmn:sequenceFlow id="Flow_ForaLista" name="Estágio não listado — nada mede (FECHADO)" sourceRef="Gateway_DistribuiEstagios" targetRef="EndEvent_ForaLista" />
+      <bpmn:sequenceFlow id="Flow_Branch_ES1" name="Estágio 1" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES1"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 1 observado no rastreador (Proposta registrada)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES1" name="Ponto de medição" sourceRef="Event_LinkES1" targetRef="Gateway_PortaoA9_ES1" />
+      <bpmn:sequenceFlow id="Flow_ES1_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES1" targetRef="EndEvent_NadaEmite_ES1" />
+      <bpmn:sequenceFlow id="Flow_ES1_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES1" targetRef="Event_Emite_ES1"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES2" name="Estágio 2" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES2"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 2 observado no rastreador (Contrato emitido)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES2" name="Ponto de medição" sourceRef="Event_LinkES2" targetRef="Gateway_PortaoA9_ES2" />
+      <bpmn:sequenceFlow id="Flow_ES2_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES2" targetRef="EndEvent_NadaEmite_ES2" />
+      <bpmn:sequenceFlow id="Flow_ES2_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES2" targetRef="Event_Emite_ES2"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES3" name="Estágio 3" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES3"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 3 observado no rastreador (Financeiro confirmado)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES3" name="Ponto de medição" sourceRef="Event_LinkES3" targetRef="Gateway_PortaoA9_ES3" />
+      <bpmn:sequenceFlow id="Flow_ES3_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES3" targetRef="EndEvent_NadaEmite_ES3" />
+      <bpmn:sequenceFlow id="Flow_ES3_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES3" targetRef="Event_Emite_ES3"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES4" name="Estágio 4" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES4"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 4 observado no rastreador (Declaração de saúde recebida)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES4" name="Ponto de medição" sourceRef="Event_LinkES4" targetRef="Gateway_PortaoA9_ES4" />
+      <bpmn:sequenceFlow id="Flow_ES4_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES4" targetRef="EndEvent_NadaEmite_ES4" />
+      <bpmn:sequenceFlow id="Flow_ES4_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES4" targetRef="Event_Emite_ES4"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES5" name="Estágio 5" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES5"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 5 observado no rastreador (Matrícula em curso)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES5" name="Ponto de medição" sourceRef="Event_LinkES5" targetRef="Gateway_PortaoA9_ES5" />
+      <bpmn:sequenceFlow id="Flow_ES5_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES5" targetRef="EndEvent_NadaEmite_ES5" />
+      <bpmn:sequenceFlow id="Flow_ES5_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES5" targetRef="Event_Emite_ES5"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES6" name="Estágio 6" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES6"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 6 observado no rastreador (Matrícula emitida)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES6" name="Ponto de medição" sourceRef="Event_LinkES6" targetRef="Gateway_PortaoA9_ES6" />
+      <bpmn:sequenceFlow id="Flow_ES6_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES6" targetRef="EndEvent_NadaEmite_ES6" />
+      <bpmn:sequenceFlow id="Flow_ES6_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES6" targetRef="Event_Emite_ES6"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Branch_ES7" name="Estágio 7" sourceRef="Gateway_DistribuiEstagios" targetRef="Event_LinkES7"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato do estágio 7 observado no rastreador (Cobertura vigente)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_LinkGate_ES7" name="Ponto de medição" sourceRef="Event_LinkES7" targetRef="Gateway_PortaoA9_ES7" />
+      <bpmn:sequenceFlow id="Flow_ES7_Fechado" name="Nada emite evento (FECHADO)" sourceRef="Gateway_PortaoA9_ES7" targetRef="EndEvent_NadaEmite_ES7" />
+      <bpmn:sequenceFlow id="Flow_ES7_Variante" name="A9 operante — emite (variante não ativa)" sourceRef="Gateway_PortaoA9_ES7" targetRef="Event_Emite_ES7"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A9 operante (G4 + RL-SF-045 + resíduos RL-SF-005/RL-SF-044)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Destrava1" name="Encarregado indicado" sourceRef="StartEvent_Destravamento" targetRef="Task_AssinaRegistroA9" />
+      <bpmn:sequenceFlow id="Flow_Destrava2" name="Registro pronto" sourceRef="Task_AssinaRegistroA9" targetRef="Gateway_PortaoA9Admissao" />
+      <bpmn:sequenceFlow id="Flow_A9_Fechado" name="Não assinado — GAP-ENCARREGADO (FECHADO)" sourceRef="Gateway_PortaoA9Admissao" targetRef="EndEvent_MedicaoFechada" />
+      <bpmn:sequenceFlow id="Flow_A9_Variante" name="Sim — sequência A9 §3.5 (variante não ativa)" sourceRef="Gateway_PortaoA9Admissao" targetRef="Task_HabilitaAgregador"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: registro A9 admitido assinado (G4; A9 §3.5 — ADD-A9-CONSENT.md:245-256)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A9_Operante" name="Agregador habilitado (variante)" sourceRef="Task_HabilitaAgregador" targetRef="EndEvent_A9Operante" />
+      <bpmn:textAnnotation id="Annotation_Convencao"><bpmn:text>CONVENÇÃO DE LINKS + PORTÃO A9: E08-ESn (catch) = par de link com o rastreador da etapa 8 (FUNIL-E08) — a frente LIGA às etapas, não duplica tarefas (missão §5.2). F1-EMITE-ESn (throw) = emissão do ponto de medição — VARIANTE NÃO ATIVA. Nenhum messageFlow neste diagrama: nada cruza pools enquanto o portão A9 estiver fechado ('Nada emite evento').</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES1"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 1 (Proposta registrada): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES2"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 2 (Contrato emitido): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES3"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 3 (Financeiro confirmado): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES4"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 4 (Declaração de saúde recebida): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline). Estágio 4: só o fato 'recebida' — NUNCA conteúdo clínico (LGPD art. 11, baseline L185).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES5"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 5 (Matrícula em curso): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES6"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 6 (Matrícula emitida): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_EstagioES7"><bpmn:text>PORTÃO A9 FECHADO-EM-EXECUÇÃO (OS-04; RL-SF-005 resíduos — DPO): nada emite evento; estado UNMEASURED. Mediria no estágio 7 (Cobertura vigente): evento de processo — NOME, HORÁRIO, RESULTADO (lista fechada OS-04, ADDENDUM-01.md:23); zero dado de saúde (RL-SF-014; missão §8); sem dimensões (Q-OS04-2 — GAP-DIM-A9); C2 fora — sem chave de pessoa/jornada. Destrava: assinatura do encarregado (G4; GAP-ENCARREGADO) + sucessor C6-x (E-SF-55). Walk de teste: E-SF-47 (staging — nunca baseline). Estágio 7: só com fato de cobertura da fonte (A4 ABSENT — G5).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_PortoesDPO"><bpmn:text>PORTÃO A9 (G4) + RESÍDUOS DPO/JURÍDICO — quem destrava: (1) dono indica o encarregado (GAP-ENCARREGADO — ato não assinado, ADDENDUM-01.md:417; bloqueio n.º 1); (2) encarregado assina o registro admitido (A9 §3.4, ADD-A9-CONSENT.md:233-236; owners:['DPO'] sem titular legítimo até lá — L235); (3) sucessor C6-x publicado (E-SF-55, amh 415 — GAP-C6X-CLASSE, ADDENDUM-01.md:420); (4) leitor re-pinado → contrato aditivo + gold → A9-ADMISSION-RECORD.json (não existe — E-SF-60 mesclado omni 42, EXECUTION-LOG.md:141). RESÍDUOS pendentes: RL-SF-005 (finalidade/base legal, granularidade, retenção, natureza pessoal, RIPD, refs opacos — RATIFY-LATER-REGISTER.md:13, DPO); RL-SF-044 (piso global, diferenciação entre publicações — L52); RL-SF-045 (controlador/operador por tratamento — ROPA art. 37, baseline L188; L53 — DPO+jurídico): 'nenhum agregado sai'. LGPD art. 7º I (L177): consentimento de titular NÃO é a base do agregado.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Convencao" sourceRef="Gateway_DistribuiEstagios" targetRef="Annotation_Convencao" />
+    <bpmn:association id="Association_PortaoES1" sourceRef="Gateway_PortaoA9_ES1" targetRef="Annotation_EstagioES1" />
+    <bpmn:association id="Association_PortaoES2" sourceRef="Gateway_PortaoA9_ES2" targetRef="Annotation_EstagioES2" />
+    <bpmn:association id="Association_PortaoES3" sourceRef="Gateway_PortaoA9_ES3" targetRef="Annotation_EstagioES3" />
+    <bpmn:association id="Association_PortaoES4" sourceRef="Gateway_PortaoA9_ES4" targetRef="Annotation_EstagioES4" />
+    <bpmn:association id="Association_PortaoES5" sourceRef="Gateway_PortaoA9_ES5" targetRef="Annotation_EstagioES5" />
+    <bpmn:association id="Association_PortaoES6" sourceRef="Gateway_PortaoA9_ES6" targetRef="Annotation_EstagioES6" />
+    <bpmn:association id="Association_PortaoES7" sourceRef="Gateway_PortaoA9_ES7" targetRef="Annotation_EstagioES7" />
+    <bpmn:association id="Association_PortoesDPO" sourceRef="Gateway_PortaoA9Admissao" targetRef="Annotation_PortoesDPO" />
+  </bpmn:process>
+  <bpmn:process id="Process_ExecutorAMH" isExecutable="false">
+    <bpmn:documentation>Executor comercial e lago (amh-data-platform). Raias: executor (percurso de teste em homologação — walk sintético em staging, E-SF-47; sucessor C6-x — E-SF-55) e lago AMH (destino dos agregados k≥10 — FECHADO: nenhum fluxo ativo de dados chega ao lago enquanto o portão A9 estiver fechado).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ExecutorAMH">
+      <bpmn:lane id="Lane_ExecutorAMH" name="Executor (homologação)">
+        <bpmn:flowNodeRef>StartEvent_WalkSintetico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_WalkSintetico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_EvidenciaWalk</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Lago" name="Lago AMH">
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_WalkSintetico" name="Walk sintético em staging (homologação)"><bpmn:documentation>Início do PERCURSO DE TESTE em HOMOLOGAÇÃO (variante não ativa em produção): walk sintético em staging — SYNTHETIC_EXAMPLE_ONLY; NUNCA baseline (missão §5.2 F1: 'Até lá, percurso de teste em homologação'). Épico E-SF-47 | walk em staging e evidência por estágio (G1) — omni_sales_platform executável, Onda 2, NÃO iniciado (EPICS-PLAN.tsv:81; sem linha na tabela §7 do EXECUTION-LOG, L112/L114) | portão A9 (G1 — resíduo (i): prova de existência por refs opacos, OS-04 não cobre).</bpmn:documentation><bpmn:outgoing>Flow_Walk1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_WalkSintetico" name="Executa walk sintético por estágio"><bpmn:documentation>Executa o walk sintético por estágio em STAGING (dados sintéticos marcados SYNTHETIC_EXAMPLE_ONLY — nunca baseline; nenhum agregado real; evidência vai ao dossiê do portão, NÃO ao lago). Fonte executável: omni_sales_platform (E-SF-47 — Onda 2, não iniciado). Com k≥10, jornada única nunca aparece no lago: a prova por agregado não serve (A9 §5.2, ADD-A9-CONSENT.md:400-404, linha E-SF-47r). Regressão correlata (E-SF-35r): sem registro admitido do sucessor, nada emite.</bpmn:documentation><bpmn:incoming>Flow_Walk1</bpmn:incoming><bpmn:outgoing>Flow_Walk2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_EvidenciaWalk" name="Evidência por estágio — dossiê (nunca baseline)"><bpmn:documentation>Fim nomeado: evidência do walk por estágio registrada no dossiê A9 (G1) — NUNCA baseline; nenhum fluxo de dados ao lago AMH. Épico E-SF-47 | portão A9 (resíduo RL-SF-005 (i)).</bpmn:documentation><bpmn:incoming>Flow_Walk2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:dataStoreReference id="DataStore_LagoAMH" name="Lago AMH — agregados do funil (k≥10)"><bpmn:documentation>LAGO da AMH (amh-data-platform) — destino dos AGREGADOS do funil (OS-04: destino lago da AMH; forma C1 — contagem na fonte, só agregados; ADDENDUM-01.md:23/37). PISO de supressão k≥10 na célula do funil (validação de SAÍDA — nunca política global: PISO_MINIMO=2 intocado, RL-SF-044(2), RATIFY-LATER-REGISTER.md:52). Sem chave de pessoa ou de jornada (C2 não admitida — OS-04). NENHUM fluxo ativo de dados chega ao lago (portão A9 fechado — nada emite evento). Controle de diferenciação entre publicações pendente (RL-SF-044(4) — G2, DPO). Retenção/natureza pessoal do agregado/RIPD: resíduos RL-SF-005 (c)(d)(e)(i). Épico E-SF-55 | LGPD art. 7º I (baseline L177 — base NÃO decidida), art. 37 (L188) | portão A9.</bpmn:documentation></bpmn:dataStoreReference>
+      <bpmn:sequenceFlow id="Flow_Walk1" name="Staging" sourceRef="StartEvent_WalkSintetico" targetRef="Task_WalkSintetico" />
+      <bpmn:sequenceFlow id="Flow_Walk2" name="Evidência por estágio" sourceRef="Task_WalkSintetico" targetRef="EndEvent_EvidenciaWalk" />
+      <bpmn:textAnnotation id="Annotation_Walk"><bpmn:text>PERCURSO DE TESTE EM HOMOLOGAÇÃO — VARIANTE NÃO ATIVA (E-SF-47): walk sintético em staging, evidência por estágio (G1); SYNTHETIC_EXAMPLE_ONLY — NUNCA baseline; nenhum agregado real; destino da evidência = dossiê do portão, NÃO o lago. Fonte executável omni_sales_platform — Onda 2, NÃO INICIADO (EPICS-PLAN.tsv:81; sem linha na tabela §7 do EXECUTION-LOG, L112/L114). Variante ratificada E-SF-47r (EPICS-PLAN.tsv:82) segue com resíduo RL-SF-005 (i) — prova por refs opacos.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2 — GAP: nenhum SP-OP-* de medição do funil existe (maezo-operadora nem AMH); NADA criado nesta missão (isExecutable=false; missão §4/§5). Emissor proposto: E-SF-35r (maezo — AGUARDA-RATIFICAÇÃO; reescopado por OS-04: ficou a regressão 'sem registro admitido do sucessor, nada emite' — ADDENDUM-01.md:42). Superfície/agregador: E-SF-55 (sucessor C6-x — PR amh 415 em CI). Walk: E-SF-47 (omni, onda 2). Dossiê: E-SF-60 (mesclado omni 42 — sem A9-ADMISSION-RECORD.json). GAP-OS-LOG: OS-04 a OS-08 fora do MISSION-LOG (ADDENDUM-01.md:414).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_AgregadorC1"><bpmn:text>AGREGADOR NA FONTE — FORMA C1 (OS-04, ADDENDUM-01.md:23/37): eventos contados NA FONTE; só AGREGADOS seguem ao lago AMH; evento-linha NÃO pousa no lago (default Q-OS04-1 — ADDENDUM-01.md:379). Dimensões (origem, faixa, etapa, motivo, canal) FORA até Q-OS04-2 (default: 'Só nome do evento, janela de horário e resultado' — L380; GAP-DIM-A9, L419). Piso k≥10 só no validador do funil (RL-SF-044 — G2). Prova de existência por refs opacos: resíduo RL-SF-005 (i).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_C6x"><bpmn:text>SUCESSOR C6-x (E-SF-55, EPICS-PLAN.tsv:117): superfície de medição de processo com vocabulário e dimensões fechados, contrato aditivo de agregado de funil, gold com supressão k — piso 10 NÃO rebaixável — e controller_ref obrigatório. Estado: PR aberto, base atualizada duas vezes, em CI — amh 415 (EXECUTION-LOG.md:144). Sucessor publicado = pré-requisito não-portão do destravamento (A9 §5.2, ADD-A9-CONSENT.md:400-404). Nenhum agregado emitido enquanto o registro admitido não existir.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_LagoPiso"><bpmn:text>LAGO AMH — AGREGADOS SÓ (OS-04/C1): piso de supressão k≥10 por célula do funil — validação de SAÍDA, nunca política global (PISO_MINIMO=2 global intocado — RL-SF-044(2), RATIFY-LATER-REGISTER.md:52, DPO). Sem chave de pessoa/jornada (C2 NÃO admitida — OS-04). Controle de diferenciação entre publicações pendente (RL-SF-044(4) — G2). Retenção, natureza pessoal do agregado, RIPD, granularidade do horário: resíduos RL-SF-005 (c)(d)(e)(i) (RATIFY-LATER-REGISTER.md:13). NENHUM fluxo ativo de dados chega ao lago — portão A9 fechado: NADA EMITE EVENTO (missão §5.2 F1). Base legal do agregado NÃO decidida (LGPD art. 7º I, baseline L177 — resíduo RL-SF-005(a)).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_LagoZeroSaude"><bpmn:text>ZERO DADO DE SAÚDE (missão §8; RL-SF-014; lista fechada OS-04): nenhuma dimensão do evento ou do agregado contém dado de saúde — só NOME do evento, HORÁRIO, RESULTADO. Estágio 4 (declaração de saúde recebida): só o fato 'recebida' — NUNCA conteúdo clínico, pergunta, resposta ou motivo (LGPD art. 11, baseline L185; custódia clínica em raia própria da etapa 7 — sem qualquer fluxo para mediação/medição). 'analytics' no contrato congelado aparece só em PROIBIÇÕES de persistência (FUNNEL-INVENTORY-RECONCILIATION.md:208).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_WalkAnnot" sourceRef="Task_WalkSintetico" targetRef="Annotation_Walk" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_WalkSintetico" targetRef="Annotation_Nivel2" />
+    <bpmn:association id="Association_Agregador" sourceRef="Task_WalkSintetico" targetRef="Annotation_AgregadorC1" />
+    <bpmn:association id="Association_C6x" sourceRef="EndEvent_EvidenciaWalk" targetRef="Annotation_C6x" />
+    <bpmn:association id="Association_LagoPiso" sourceRef="DataStore_LagoAMH" targetRef="Annotation_LagoPiso" />
+    <bpmn:association id="Association_LagoZero" sourceRef="Annotation_LagoPiso" targetRef="Annotation_LagoZeroSaude" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_F01">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_F01" bpmnElement="Collaboration_FUNIL_F01">
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="40" width="2500" height="2240" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="2360" width="2500" height="860" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="70" width="2470" height="1680" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Encarregado_di" bpmnElement="Lane_Encarregado" isHorizontal="true"><dc:Bounds x="70" y="1750" width="2470" height="530" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ExecutorAMH_di" bpmnElement="Lane_ExecutorAMH" isHorizontal="true"><dc:Bounds x="70" y="2390" width="2470" height="560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Lago_di" bpmnElement="Lane_Lago" isHorizontal="true"><dc:Bounds x="70" y="2950" width="2470" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FrenteMedicao_di" bpmnElement="StartEvent_FrenteMedicao">
+        <dc:Bounds x="90" y="107" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="72" y="152" width="126" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_DistribuiEstagios_di" bpmnElement="Gateway_DistribuiEstagios" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="180" y="100" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="110" y="72" width="130" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ForaLista_di" bpmnElement="EndEvent_ForaLista" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="310" y="1647" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1687" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES1_di" bpmnElement="Event_LinkES1">
+        <dc:Bounds x="310" y="227" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="267" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES1_di" bpmnElement="Gateway_PortaoA9_ES1" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="220" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="276" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES1_di" bpmnElement="EndEvent_NadaEmite_ES1" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="227" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="267" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES1_di" bpmnElement="Event_Emite_ES1">
+        <dc:Bounds x="477" y="350" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="392" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES2_di" bpmnElement="Event_LinkES2">
+        <dc:Bounds x="310" y="427" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="467" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES2_di" bpmnElement="Gateway_PortaoA9_ES2" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="420" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="476" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES2_di" bpmnElement="EndEvent_NadaEmite_ES2" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="427" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="467" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES2_di" bpmnElement="Event_Emite_ES2">
+        <dc:Bounds x="477" y="550" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="592" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES3_di" bpmnElement="Event_LinkES3">
+        <dc:Bounds x="310" y="627" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="667" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES3_di" bpmnElement="Gateway_PortaoA9_ES3" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="620" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="676" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES3_di" bpmnElement="EndEvent_NadaEmite_ES3" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="627" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="667" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES3_di" bpmnElement="Event_Emite_ES3">
+        <dc:Bounds x="477" y="750" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="792" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES4_di" bpmnElement="Event_LinkES4">
+        <dc:Bounds x="310" y="827" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="867" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES4_di" bpmnElement="Gateway_PortaoA9_ES4" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="820" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="876" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES4_di" bpmnElement="EndEvent_NadaEmite_ES4" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="827" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="867" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES4_di" bpmnElement="Event_Emite_ES4">
+        <dc:Bounds x="477" y="950" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="992" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES5_di" bpmnElement="Event_LinkES5">
+        <dc:Bounds x="310" y="1027" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1067" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES5_di" bpmnElement="Gateway_PortaoA9_ES5" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="1020" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="1076" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES5_di" bpmnElement="EndEvent_NadaEmite_ES5" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="1027" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="1067" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES5_di" bpmnElement="Event_Emite_ES5">
+        <dc:Bounds x="477" y="1150" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="1192" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES6_di" bpmnElement="Event_LinkES6">
+        <dc:Bounds x="310" y="1227" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1267" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES6_di" bpmnElement="Gateway_PortaoA9_ES6" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="1220" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="1276" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES6_di" bpmnElement="EndEvent_NadaEmite_ES6" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="1227" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="1267" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES6_di" bpmnElement="Event_Emite_ES6">
+        <dc:Bounds x="477" y="1350" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="1392" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkES7_di" bpmnElement="Event_LinkES7">
+        <dc:Bounds x="310" y="1427" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1467" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9_ES7_di" bpmnElement="Gateway_PortaoA9_ES7" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="470" y="1420" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="1476" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NadaEmite_ES7_di" bpmnElement="EndEvent_NadaEmite_ES7" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="630" y="1427" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="1467" width="136" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Emite_ES7_di" bpmnElement="Event_Emite_ES7">
+        <dc:Bounds x="477" y="1550" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="1592" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Destravamento_di" bpmnElement="StartEvent_Destravamento">
+        <dc:Bounds x="240" y="1810" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="202" y="1854" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AssinaRegistroA9_di" bpmnElement="Task_AssinaRegistroA9">
+        <dc:Bounds x="390" y="1788" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA9Admissao_di" bpmnElement="Gateway_PortaoA9Admissao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="560" y="1803" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="525" y="1769" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_MedicaoFechada_di" bpmnElement="EndEvent_MedicaoFechada" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="567" y="1973" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="610" y="1975" width="200" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_HabilitaAgregador_di" bpmnElement="Task_HabilitaAgregador">
+        <dc:Bounds x="820" y="1788" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_A9Operante_di" bpmnElement="EndEvent_A9Operante">
+        <dc:Bounds x="1140" y="1810" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1100" y="1854" width="210" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Convencao_di" bpmnElement="Annotation_Convencao">
+        <dc:Bounds x="90" y="210" width="140" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES1_di" bpmnElement="Annotation_EstagioES1">
+        <dc:Bounds x="710" y="214" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES2_di" bpmnElement="Annotation_EstagioES2">
+        <dc:Bounds x="710" y="414" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES3_di" bpmnElement="Annotation_EstagioES3">
+        <dc:Bounds x="710" y="614" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES4_di" bpmnElement="Annotation_EstagioES4">
+        <dc:Bounds x="710" y="814" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES5_di" bpmnElement="Annotation_EstagioES5">
+        <dc:Bounds x="710" y="1014" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES6_di" bpmnElement="Annotation_EstagioES6">
+        <dc:Bounds x="710" y="1214" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EstagioES7_di" bpmnElement="Annotation_EstagioES7">
+        <dc:Bounds x="710" y="1414" width="540" height="96" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PortoesDPO_di" bpmnElement="Annotation_PortoesDPO">
+        <dc:Bounds x="390" y="2090" width="500" height="185" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_WalkSintetico_di" bpmnElement="StartEvent_WalkSintetico">
+        <dc:Bounds x="240" y="2450" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="202" y="2494" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_WalkSintetico_di" bpmnElement="Task_WalkSintetico">
+        <dc:Bounds x="390" y="2428" width="100" height="80" />
+        <bpmndi:BPMNLabel><dc:Bounds x="355" y="2394" width="220" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_EvidenciaWalk_di" bpmnElement="EndEvent_EvidenciaWalk">
+        <dc:Bounds x="610" y="2450" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="580" y="2412" width="185" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Walk_di" bpmnElement="Annotation_Walk">
+        <dc:Bounds x="350" y="2570" width="420" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="810" y="2570" width="420" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_AgregadorC1_di" bpmnElement="Annotation_AgregadorC1">
+        <dc:Bounds x="350" y="2760" width="420" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_C6x_di" bpmnElement="Annotation_C6x">
+        <dc:Bounds x="810" y="2760" width="420" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DataStore_LagoAMH_di" bpmnElement="DataStore_LagoAMH">
+        <dc:Bounds x="240" y="3020" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="202" y="3076" width="120" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_LagoPiso_di" bpmnElement="Annotation_LagoPiso">
+        <dc:Bounds x="400" y="2990" width="480" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_LagoZeroSaude_di" bpmnElement="Annotation_LagoZeroSaude">
+        <dc:Bounds x="940" y="2990" width="480" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Escopo_di" bpmnElement="Annotation_Escopo">
+        <dc:Bounds x="90" y="3280" width="700" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1600" y="3280" width="560" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_Inicio_di" bpmnElement="Flow_Inicio"><di:waypoint x="126" y="125" /><di:waypoint x="180" y="125" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="100" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ForaLista_di" bpmnElement="Flow_ForaLista"><di:waypoint x="230" y="150" /><di:waypoint x="230" y="180" /><di:waypoint x="270" y="180" /><di:waypoint x="270" y="1665" /><di:waypoint x="310" y="1665" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1615" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES1_di" bpmnElement="Flow_Branch_ES1"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="245" /><di:waypoint x="310" y="245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="198" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES1_di" bpmnElement="Flow_LinkGate_ES1"><di:waypoint x="346" y="245" /><di:waypoint x="470" y="245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="218" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES1_Fechado_di" bpmnElement="Flow_ES1_Fechado"><di:waypoint x="520" y="245" /><di:waypoint x="630" y="245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="180" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES1_Variante_di" bpmnElement="Flow_ES1_Variante"><di:waypoint x="495" y="270" /><di:waypoint x="495" y="350" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="354" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES2_di" bpmnElement="Flow_Branch_ES2"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="445" /><di:waypoint x="310" y="445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="398" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES2_di" bpmnElement="Flow_LinkGate_ES2"><di:waypoint x="346" y="445" /><di:waypoint x="470" y="445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="418" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES2_Fechado_di" bpmnElement="Flow_ES2_Fechado"><di:waypoint x="520" y="445" /><di:waypoint x="630" y="445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="380" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES2_Variante_di" bpmnElement="Flow_ES2_Variante"><di:waypoint x="495" y="470" /><di:waypoint x="495" y="550" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="554" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES3_di" bpmnElement="Flow_Branch_ES3"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="645" /><di:waypoint x="310" y="645" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="598" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES3_di" bpmnElement="Flow_LinkGate_ES3"><di:waypoint x="346" y="645" /><di:waypoint x="470" y="645" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="618" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES3_Fechado_di" bpmnElement="Flow_ES3_Fechado"><di:waypoint x="520" y="645" /><di:waypoint x="630" y="645" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="580" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES3_Variante_di" bpmnElement="Flow_ES3_Variante"><di:waypoint x="495" y="670" /><di:waypoint x="495" y="750" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="754" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES4_di" bpmnElement="Flow_Branch_ES4"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="845" /><di:waypoint x="310" y="845" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="798" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES4_di" bpmnElement="Flow_LinkGate_ES4"><di:waypoint x="346" y="845" /><di:waypoint x="470" y="845" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="818" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES4_Fechado_di" bpmnElement="Flow_ES4_Fechado"><di:waypoint x="520" y="845" /><di:waypoint x="630" y="845" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="780" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES4_Variante_di" bpmnElement="Flow_ES4_Variante"><di:waypoint x="495" y="870" /><di:waypoint x="495" y="950" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="954" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES5_di" bpmnElement="Flow_Branch_ES5"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="1045" /><di:waypoint x="310" y="1045" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="998" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES5_di" bpmnElement="Flow_LinkGate_ES5"><di:waypoint x="346" y="1045" /><di:waypoint x="470" y="1045" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="1018" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES5_Fechado_di" bpmnElement="Flow_ES5_Fechado"><di:waypoint x="520" y="1045" /><di:waypoint x="630" y="1045" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="980" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES5_Variante_di" bpmnElement="Flow_ES5_Variante"><di:waypoint x="495" y="1070" /><di:waypoint x="495" y="1150" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="1154" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES6_di" bpmnElement="Flow_Branch_ES6"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="1245" /><di:waypoint x="310" y="1245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1198" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES6_di" bpmnElement="Flow_LinkGate_ES6"><di:waypoint x="346" y="1245" /><di:waypoint x="470" y="1245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="1218" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES6_Fechado_di" bpmnElement="Flow_ES6_Fechado"><di:waypoint x="520" y="1245" /><di:waypoint x="630" y="1245" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="1180" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES6_Variante_di" bpmnElement="Flow_ES6_Variante"><di:waypoint x="495" y="1270" /><di:waypoint x="495" y="1350" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="1354" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Branch_ES7_di" bpmnElement="Flow_Branch_ES7"><di:waypoint x="230" y="125" /><di:waypoint x="270" y="125" /><di:waypoint x="270" y="1445" /><di:waypoint x="310" y="1445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="272" y="1398" width="92" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGate_ES7_di" bpmnElement="Flow_LinkGate_ES7"><di:waypoint x="346" y="1445" /><di:waypoint x="470" y="1445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="1418" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES7_Fechado_di" bpmnElement="Flow_ES7_Fechado"><di:waypoint x="520" y="1445" /><di:waypoint x="630" y="1445" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="1380" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ES7_Variante_di" bpmnElement="Flow_ES7_Variante"><di:waypoint x="495" y="1470" /><di:waypoint x="495" y="1550" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="1554" width="210" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Destrava1_di" bpmnElement="Flow_Destrava1"><di:waypoint x="276" y="1828" /><di:waypoint x="390" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="280" y="1800" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Destrava2_di" bpmnElement="Flow_Destrava2"><di:waypoint x="490" y="1828" /><di:waypoint x="560" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="495" y="1800" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A9_Fechado_di" bpmnElement="Flow_A9_Fechado"><di:waypoint x="585" y="1853" /><di:waypoint x="585" y="1973" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="1875" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A9_Variante_di" bpmnElement="Flow_A9_Variante"><di:waypoint x="610" y="1828" /><di:waypoint x="820" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="660" y="1800" width="140" height="26" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A9_Operante_di" bpmnElement="Flow_A9_Operante"><di:waypoint x="920" y="1828" /><di:waypoint x="1140" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="1800" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Walk1_di" bpmnElement="Flow_Walk1"><di:waypoint x="276" y="2468" /><di:waypoint x="390" y="2468" />
+        <bpmndi:BPMNLabel><dc:Bounds x="285" y="2444" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Walk2_di" bpmnElement="Flow_Walk2"><di:waypoint x="490" y="2468" /><di:waypoint x="610" y="2468" />
+        <bpmndi:BPMNLabel><dc:Bounds x="500" y="2444" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Convencao_di" bpmnElement="Association_Convencao"><di:waypoint x="200" y="150" /><di:waypoint x="200" y="210" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES1_di" bpmnElement="Association_PortaoES1"><di:waypoint x="495" y="220" /><di:waypoint x="495" y="190" /><di:waypoint x="770" y="190" /><di:waypoint x="770" y="214" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES2_di" bpmnElement="Association_PortaoES2"><di:waypoint x="495" y="420" /><di:waypoint x="495" y="390" /><di:waypoint x="770" y="390" /><di:waypoint x="770" y="414" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES3_di" bpmnElement="Association_PortaoES3"><di:waypoint x="495" y="620" /><di:waypoint x="495" y="590" /><di:waypoint x="770" y="590" /><di:waypoint x="770" y="614" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES4_di" bpmnElement="Association_PortaoES4"><di:waypoint x="495" y="820" /><di:waypoint x="495" y="790" /><di:waypoint x="770" y="790" /><di:waypoint x="770" y="814" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES5_di" bpmnElement="Association_PortaoES5"><di:waypoint x="495" y="1020" /><di:waypoint x="495" y="990" /><di:waypoint x="770" y="990" /><di:waypoint x="770" y="1014" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES6_di" bpmnElement="Association_PortaoES6"><di:waypoint x="495" y="1220" /><di:waypoint x="495" y="1190" /><di:waypoint x="770" y="1190" /><di:waypoint x="770" y="1214" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoES7_di" bpmnElement="Association_PortaoES7"><di:waypoint x="495" y="1420" /><di:waypoint x="495" y="1390" /><di:waypoint x="770" y="1390" /><di:waypoint x="770" y="1414" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortoesDPO_di" bpmnElement="Association_PortoesDPO"><di:waypoint x="560" y="1853" /><di:waypoint x="560" y="2070" /><di:waypoint x="500" y="2070" /><di:waypoint x="500" y="2090" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_WalkAnnot_di" bpmnElement="Association_WalkAnnot"><di:waypoint x="400" y="2508" /><di:waypoint x="400" y="2570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="490" y="2508" /><di:waypoint x="490" y="2540" /><di:waypoint x="1000" y="2540" /><di:waypoint x="1000" y="2570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Agregador_di" bpmnElement="Association_Agregador"><di:waypoint x="390" y="2508" /><di:waypoint x="330" y="2508" /><di:waypoint x="330" y="2740" /><di:waypoint x="450" y="2740" /><di:waypoint x="450" y="2760" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_C6x_di" bpmnElement="Association_C6x"><di:waypoint x="646" y="2468" /><di:waypoint x="790" y="2468" /><di:waypoint x="790" y="2825" /><di:waypoint x="810" y="2825" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_LagoPiso_di" bpmnElement="Association_LagoPiso"><di:waypoint x="290" y="3045" /><di:waypoint x="400" y="3045" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_LagoZero_di" bpmnElement="Association_LagoZero"><di:waypoint x="880" y="3070" /><di:waypoint x="940" y="3070" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

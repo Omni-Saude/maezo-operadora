@@ -1,0 +1,520 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_F04" targetNamespace="urn:funil:descritivo:frente4" exporter="build_frente04.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_F04" name="Frente F4 — Retenção">
+    <bpmn:participant id="Participant_Beneficiario" name="Beneficiário" processRef="Process_Beneficiario" ><bpmn:documentation>Beneficiário (pool ativo nesta frente). Raia única: entra em contato POR INICIATIVA PRÓPRIA — 2ª via, negociação, contestação e cancelamento (RT-05/RT-06; ADD-RETENTION.md:283). Caminho passivo = default ativo; NENHUMA mensagem proativa parte desta frente (RT-D4 + missão §8, lembrete de cobrança incluído). A frente LIGA às etapas por link events ETAPA9-* e NÃO duplica as tarefas delas (missão §5.2).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora" ><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (Relacionamento e renovação — RT-10; portões RT-J1 e RT-D4 FECHADOS; cerca ret.* VIGENTE; contestação = caminho ATIVO hoje, protocolo RN 623 art. 10), Financeiro (boleto como veículo do valor; 2ª via e negociação só a pedido) e Jurídico (destravamento RT-J1 — RL-SF-104/105; RT-J2/J3/J4 anotados). Estado (missão §5.2 F4): AVISOS PROATIVOS FECHADOS; o que segue hoje = boleto como veículo do valor e contestação.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_AMH" name="Executor comercial e lago" ><bpmn:documentation>Executor comercial e lago (amh-data-platform) — BLACK-BOX nesta frente: nenhuma tarefa da retenção roda aqui e NENHUM fluxo ativo de dados chega ao lago; o catálogo ret.* fica local (cerca RT-09); o envio ao lago, quando existir, HERDA os portões da F1 (A9 — RL-SF-005/044/045), sem emissor desenhado (anotação Annotation_Lago).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_Pede2Via" name="pede 2ª via" sourceRef="Task_PedeSegundaVia" targetRef="Task_SegundaVia" />
+    <bpmn:messageFlow id="MsgFlow_2Via" name="2ª via" sourceRef="Task_SegundaVia" targetRef="EndEvent_2ViaRecebida" />
+    <bpmn:messageFlow id="MsgFlow_PedeNegociacao" name="pede negociação" sourceRef="Task_PedeNegociacao" targetRef="Task_Negociacao" />
+    <bpmn:messageFlow id="MsgFlow_Negociacao" name="resposta" sourceRef="Task_Negociacao" targetRef="EndEvent_NegociacaoEncerrada" />
+    <bpmn:messageFlow id="MsgFlow_AbreContestacao" name="contestação + protocolo" sourceRef="Task_AbreContestacao" targetRef="Task_RecebeContestacao" />
+    <bpmn:messageFlow id="MsgFlow_Contestacao" name="resposta da trilha" sourceRef="Task_TrilhaAtendimento" targetRef="EndEvent_ContestacaoRespondida" />
+    <bpmn:messageFlow id="MsgFlow_PedeCancelamento" name="pedido de cancelamento" sourceRef="Task_PedeCancelamento" targetRef="Task_RegistraPedidoCancel" />
+    <bpmn:messageFlow id="MsgFlow_Boleto" name="boleto — veículo do valor" sourceRef="Task_EmiteBoleto" targetRef="Participant_Beneficiario" />
+    <bpmn:textAnnotation id="Annotation_Lago"><bpmn:text>LAGO AMH — NENHUM FLUXO ATIVO DE DADOS NESTA FRENTE (pool black-box; missão §8): o catálogo ret.* fica LOCAL (cerca RT-09); o envio ao lago, quando existir, HERDA os portões da F1 (A9 — G4 + RL-SF-005/RL-SF-044/RL-SF-045) e o regime de agregados da medição (convenção F1: F1-EMITE-*; aqui NENHUM emissor é desenhado e nenhuma variante de emissão é ativa). Renovação/reajuste não executam contrato nem consultam o lago; o valor circula só pelo boleto (RT-J1 fallback — ADD-RETENTION.md:556). ZERO dado de saúde em qualquer gatilho ret.* (RL-SF-014; LGPD art. 11, baseline L185; missão §8).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO / VARIANTE NÃO ATIVA (RT-J1 fechado — RL-SF-104/105; RT-D4 fechado; RT-D3 flag-off). LINKS: ETAPA9-CICLO-VIGENTE entra do pós-venda (etapa 9); F4-ETAPA9-RENOVACAO e F4-ETAPA9-CANCELAMENTO remetem à etapa 9 — a frente LIGA às etapas e NÃO duplica tarefas (missão §5.2). Nenhuma mensagem proativa a beneficiário (missão §8; RT-D4). A informação nunca depende só da cor: ids nos nomes, anotações e documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Beneficiario" isExecutable="false">
+    <bpmn:documentation>Beneficiário (pool ativo nesta frente). Raia única: entra em contato POR INICIATIVA PRÓPRIA — 2ª via, negociação, contestação e cancelamento (RT-05/RT-06; ADD-RETENTION.md:283). Caminho passivo = default ativo; NENHUMA mensagem proativa parte desta frente (RT-D4 + missão §8, lembrete de cobrança incluído). A frente LIGA às etapas por link events ETAPA9-* e NÃO duplica as tarefas delas (missão §5.2).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Beneficiario">
+      <bpmn:lane id="Lane_Beneficiario" name="Beneficiário (contato por iniciativa própria)">
+        <bpmn:flowNodeRef>StartEvent_Contato</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ContatoDecide</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeSegundaVia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeNegociacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AbreContestacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeCancelamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_2ViaRecebida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NegociacaoEncerrada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ContestacaoRespondida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PedidoProtocolado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ContatoEncerrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_Contato</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_Contato" name="Beneficiário entra em contato"><bpmn:documentation>Início: contato SEMPRE por iniciativa do beneficiário (1:1 inbound — RT-06; ADD-RETENTION.md:283). Nenhuma mensagem proativa parte da retenção (missão §8, lembrete de cobrança incluído; RT-D4 fechado). Épico E-SF-RT-04 (superfície provisória — GAP-RT-06) | RT-06 | portão RT-D4.</bpmn:documentation><bpmn:outgoing>Flow_Contato1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_ContatoDecide" name="O que o beneficiário pede?" default="Flow_ContatoSemRota"><bpmn:documentation>Divisão do contato iniciado pelo beneficiário: 2ª via/vencimento, negociação (RT-06), contestação (ATIVA hoje — RN 623 art. 10) e cancelamento (RT-05, remete à etapa 9). Default = demanda sem rota fechada no catálogo → registro sem ação proativa (fim nomeado). Higiene missão §6: gateway exclusivo com default e rótulos. Épico E-SF-RT-04 | RT-05/RT-06.</bpmn:documentation><bpmn:incoming>Flow_Contato1</bpmn:incoming><bpmn:outgoing>Flow_Contato2Via</bpmn:outgoing><bpmn:outgoing>Flow_ContatoNegociacao</bpmn:outgoing><bpmn:outgoing>Flow_ContatoContestacao</bpmn:outgoing><bpmn:outgoing>Flow_ContatoCancelamento</bpmn:outgoing><bpmn:outgoing>Flow_ContatoSemRota</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:userTask id="Task_PedeSegundaVia" name="Pede 2ª via / vencimento"><bpmn:documentation>A pedido: 2ª via a 1 toque (ADD-RETENTION.md L400: '2ª via a 1 toque'). A resposta do financeiro volta por message flow — SÓ em resposta a este contato (RT-D4 default; ADD-RETENTION.md:283). Épico E-SF-RT-04 | RT-06 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_Contato2Via</bpmn:incoming><bpmn:outgoing>Flow_2ViaRecebida</bpmn:outgoing></bpmn:userTask>
+      <bpmn:userTask id="Task_PedeNegociacao" name="Pede negociação"><bpmn:documentation>A pedido: negociação de débito — fila humana do papel 'Relacionamento e renovação' (RT-10, 7 dias úteis). Retenção suprimida com INAD/CANCEL vivo (GTM-06.J3 — fallback adotado). Épico E-SF-RT-03 (bloqueado RT-D3) | RT-06/RT-10.</bpmn:documentation><bpmn:incoming>Flow_ContatoNegociacao</bpmn:incoming><bpmn:outgoing>Flow_NegociacaoEncerrada</bpmn:outgoing></bpmn:userTask>
+      <bpmn:userTask id="Task_AbreContestacao" name="Abre contestação de valor"><bpmn:documentation>CAMINHO ATIVO HOJE: contestação com protocolo (RN 623/2024 art. 10 — quem responde é a trilha de atendimento; ADD-RETENTION.md L408 'contestação com protocolo e 7 dias úteis'; E-63: contestação nunca recusada por janela). NÍVEL 2: SP-OP-CONTAS-001 é glosa de PRESTADOR — contestação de beneficiário sem SP-OP-* = GAP declarado (Annotation_Nivel2). Épico E-SF-RT-01/CD-07 | RN 623 art. 10.</bpmn:documentation><bpmn:incoming>Flow_ContatoContestacao</bpmn:incoming><bpmn:outgoing>Flow_ContestacaoRespondida</bpmn:outgoing></bpmn:userTask>
+      <bpmn:userTask id="Task_PedeCancelamento" name="Pede cancelamento (2 toques + protocolo)"><bpmn:documentation>RT-05: cancelar em 2 toques + protocolo imediato; humano FORA do caminho; motivo opcional em lista fechada sem saúde (RT-D1 pendente — E-SF-RT-02 aguardando). Bloco art. 15 RN 561 no ecrã e no comprovante; SEM prazo exibido (RT-J2 pendente; teto art. 18 — baseline L295 — só com REG-27). Cancelamento NUNCA recusado por débito (Lei 9.656 art. 21, baseline L297; RN 561 art. 21 — PIN L297; ADDENDUM-01.md:117-118). LINHA ÚNICA DE ALTERNATIVA existe por OS-08 (dono; ADDENDUM-01.md:27); redação/posição gated RT-J3(a) — variante: fluxo sem a linha; oferecida uma vez, nunca no caminho. Canal página (art. 4º III — baseline L291; RT-J2 pergunta o bloco completo). Exclusão de dependente só assistida (RT-J4). Épico E-SF-RT-02/04 | RN 561 arts. 4º/15/16/18/20/21 | portão RT-J2 + RT-J3(a).</bpmn:documentation><bpmn:incoming>Flow_ContatoCancelamento</bpmn:incoming><bpmn:outgoing>Flow_PedidoProtocolado</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_2ViaRecebida" name="2ª via recebida"><bpmn:documentation>Fim nomeado: 2ª via entregue em resposta ao contato (RT-06; RT-D4 default). Nenhum envio proativo de vencimento fora dele (missão §8). Épico E-SF-RT-04 | RT-06 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_2ViaRecebida</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_NegociacaoEncerrada" name="Negociação encerrada"><bpmn:documentation>Fim nomeado: resposta da negociação (fila RT-10, 7 dias úteis). Sem win-back proativo (RT-07/RT-D2 — 'sem win-back proativo', ADD-RETENTION.md:562). Épico E-SF-RT-03 | RT-06/RT-10.</bpmn:documentation><bpmn:incoming>Flow_NegociacaoEncerrada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ContestacaoRespondida" name="Contestação respondida"><bpmn:documentation>Fim nomeado: resposta da trilha de atendimento (protocolo RN 623 art. 10; 7 dias úteis — RT-10). Contestação permanece aberta depois (nunca recusada por janela — E-63, ADD-RETENTION.md L408). Épico E-SF-RT-01/CD-07 | RN 623 art. 10.</bpmn:documentation><bpmn:incoming>Flow_ContestacaoRespondida</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_PedidoProtocolado" name="Pedido com protocolo imediato"><bpmn:documentation>Fim nomeado (na perspectiva do beneficiário): resposta automática + protocolo com data e hora; comprovante com o bloco art. 15 RN 561; SEM prazo exibido (RT-J2). A operadora remete à etapa 9 por link F4-ETAPA9-CANCELAMENTO — não duplica (missão §5.2). Épico E-SF-RT-02/04 | RN 561 | portão RT-J2/RT-J3.</bpmn:documentation><bpmn:incoming>Flow_PedidoProtocolado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ContatoEncerrado" name="Demanda sem rota fechada — registro"><bpmn:documentation>Fim nomeado do DEFAULT: demanda fora das rotas fechadas do catálogo → registro sem ação proativa (nenhum caminho termina em silêncio — missão §6). Épico E-SF-RT-04 | RT-06.</bpmn:documentation><bpmn:incoming>Flow_ContatoSemRota</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_Contato1" name="" sourceRef="StartEvent_Contato" targetRef="Gateway_ContatoDecide" />
+      <bpmn:sequenceFlow id="Flow_Contato2Via" name="2ª via / venc." sourceRef="Gateway_ContatoDecide" targetRef="Task_PedeSegundaVia"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiário pede 2ª via / vencimento</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_ContatoNegociacao" name="negociação" sourceRef="Gateway_ContatoDecide" targetRef="Task_PedeNegociacao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiário pede negociação</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_ContatoContestacao" name="contestação" sourceRef="Gateway_ContatoDecide" targetRef="Task_AbreContestacao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiário abre contestação (ativa hoje)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_ContatoCancelamento" name="cancelar meu plano" sourceRef="Gateway_ContatoDecide" targetRef="Task_PedeCancelamento"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiário pede cancelamento</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_ContatoSemRota" name="sem rota fechada (default)" sourceRef="Gateway_ContatoDecide" targetRef="EndEvent_ContatoEncerrado" />
+      <bpmn:sequenceFlow id="Flow_2ViaRecebida" name="" sourceRef="Task_PedeSegundaVia" targetRef="EndEvent_2ViaRecebida" />
+      <bpmn:sequenceFlow id="Flow_NegociacaoEncerrada" name="" sourceRef="Task_PedeNegociacao" targetRef="EndEvent_NegociacaoEncerrada" />
+      <bpmn:sequenceFlow id="Flow_ContestacaoRespondida" name="" sourceRef="Task_AbreContestacao" targetRef="EndEvent_ContestacaoRespondida" />
+      <bpmn:sequenceFlow id="Flow_PedidoProtocolado" name="" sourceRef="Task_PedeCancelamento" targetRef="EndEvent_PedidoProtocolado" />
+      <bpmn:textAnnotation id="Annotation_Contato"><bpmn:text>CONTATO DO BENEFICIÁRIO — CAMINHO PASSIVO = DEFAULT ATIVO (RT-06; RT-D4): 2ª via, negociação e informação de vencimento SÓ em resposta a conversa iniciada pelo beneficiário (ADD-RETENTION.md:283). Nenhuma mensagem proativa a beneficiário, lembrete de cobrança incluído (missão §8; RT-D4 pendente — DPO). Retenção suprimida com INAD vivo (GTM-06.J3); cancelamento nunca recusado por débito (Lei 9.656 art. 21, baseline L297). Pedido: 2 toques + protocolo imediato, humano fora do caminho (RT-05); bloco art. 15 RN 561 no ecrã e no comprovante; SEM prazo exibido (RT-J2; teto art. 18 L295 só com REG-27). Linha única de alternativa existe por OS-08 (dono); redação/posição gated RT-J3(a) — variante: fluxo sem a linha. Motivo opcional sem saúde (RT-D1 pendente — E-SF-RT-02). Exclusão de dependente só assistida (RT-J4). Sem win-back proativo (RT-07/RT-D2).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Contato" sourceRef="Gateway_ContatoDecide" targetRef="Annotation_Contato" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (Relacionamento e renovação — RT-10; portões RT-J1 e RT-D4 FECHADOS; cerca ret.* VIGENTE; contestação = caminho ATIVO hoje, protocolo RN 623 art. 10), Financeiro (boleto como veículo do valor; 2ª via e negociação só a pedido) e Jurídico (destravamento RT-J1 — RL-SF-104/105; RT-J2/J3/J4 anotados). Estado (missão §5.2 F4): AVISOS PROATIVOS FECHADOS; o que segue hoje = boleto como veículo do valor e contestação.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial (Relacionamento e renovação)">
+        <bpmn:flowNodeRef>StartEvent_FrenteRetencao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE9Ciclo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateRTJ1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_QuadroRT02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VarianteRTJ1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_R0D30</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateRTD4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EspelhaMeuPlano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReciboD0</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_DistribuiCiclo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ThrowRenovacaoE9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RemeteE9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaR0Proativo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VarianteProativo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecebeContestacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_TrilhaAtendimento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_TrilhaRespondeu</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraPedidoCancel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ThrowCancelE9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CancelRemetidoE9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateCercaRT09</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraRet</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_GatilhoRecusado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RetLocal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_RTJ1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_RTD4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_Cerca</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_Nivel2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_RTD3</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Financeiro" name="Financeiro">
+        <bpmn:flowNodeRef>Task_EmiteBoleto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ValorViaBoleto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SegundaVia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_2ViaEmitida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Negociacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NegociacaoConcluida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_Financeiro</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>StartEvent_Ratificacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RatificaRTJ1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateRTJ1Juridico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RTJ1Pendente</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublicaNotaRTJ1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RTJ1Operante</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Annotation_Juridico</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_FrenteRetencao" name="Contrato no ciclo anual (etapa 9)"><bpmn:documentation>Início descritivo da frente F4: contrato vigente no ciclo anual (pós-venda — etapa 9). Sem gatilho externo; a frente LIGA à etapa 9 por link (Event_LinkE9Ciclo) e não duplica as tarefas dela (missão §5.2). Épico OS-07 (RT-01..RT-11, ADDENDUM-01.md:26).</bpmn:documentation><bpmn:outgoing>Flow_Inicio</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE9Ciclo" name="Ciclo vigente (LINK↔ETAPA9)"><bpmn:documentation>LINK↔ETAPA9-CICLO-VIGENTE (linkEventDefinition): par de link com a etapa 9 (pós-venda — FUNIL-E09) — convenção da missão §5.2: a frente LIGA às etapas e não duplica tarefas. Entrada do ciclo de renovação/reajuste (aniversário do contrato). Épico E-SF-RT-04 | OS-07.</bpmn:documentation><bpmn:incoming>Flow_Inicio</bpmn:incoming><bpmn:outgoing>Flow_LinkGateRTJ1</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE9Ciclo" name="ETAPA9-CICLO-VIGENTE" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_GateRTJ1" name="Percentual/quadro do reajuste?" default="Flow_R0SemPercentual"><bpmn:documentation>PORTÃO RT-J1 FECHADO (OS-07; RL-SF-104/105 — RATIFY-LATER-jurídico, RATIFY-LATER-REGISTER.md:112-113; ADDENDUM-01.md:134; ADD-RETENTION.md:556): antecedência, conteúdo mínimo e canal do aviso de reajuste; 'aviso proativo por WhatsApp/portal com percentual antes do boleto é lícito?' (RL-SF-105) — bloqueado: nenhum percentual exibido nem calculado. Default = R0 D−30 SEM percentual + zero lembrete extra + BOLETO como veículo do valor (ADD-RETENTION.md:106/556; variante conservadora que segue sem ratificação). Abre o portão: ratificação jurídica de RT-J1 (Lane_Juridico). Linha da coorte art. 15 §ú (Lei 9.656, baseline L96) só com RT-J1 — nota, não exigência (GAP-RT-01..03: reajuste sem norma na base, ADDENDUM-01.md:422). Épico E-SF-RT-01 | Lei 9.656 art. 15 §ú (L96) | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_LinkGateRTJ1</bpmn:incoming><bpmn:outgoing>Flow_R0SemPercentual</bpmn:outgoing><bpmn:outgoing>Flow_RJ1Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_QuadroRT02" name="Quadro antes→depois com números da fonte (RT-02)"><bpmn:documentation>VARIANTE NÃO ATIVA (só com RT-J1 ratificado): quadro 'antes → depois' por pessoa e total, percentual, base/autorização, cláusula, opções, contestação (RT-02; ADD-RETENTION.md L408) — só composição própria do contrato (ADDENDUM-01.md:114); item (vi)/linha da coorte só após nota RT-J1 (baseline L96). SIMULADOR só por cotação da fonte — nunca percentual calculado na camada GTM (GAP-RT-01). Réplica passiva no 'Meu plano' (RT-11). Épico E-SF-RT-01 | RT-02 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_RJ1Variante</bpmn:incoming><bpmn:outgoing>Flow_QuadroFim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_VarianteRTJ1" name="Variante não ativa — RT-J1 pendente"><bpmn:documentation>Fim nomeado da VARIANTE: quadro/simulador/percentual exigem RT-J1 ratificado — hoje não seguem (não desenhar o caminho ratificado como ativo — missão §6). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_QuadroFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_R0D30" name="R0 — aviso D−30 SEM percentual (calendário RT-01)"><bpmn:documentation>Decidido (coordenador — OS-07): calendário D−30/D0 e regra 'zero lembrete extra' (RT-01; ADD-RETENTION.md:105 L106). R0 = «seu plano faz aniversário em {data}» — SEM percentual, SEM a linha do art. 15 §ú (variante; baseline L96), frase do art. 13 caput já decidida (âncora BASE:74; GTM-06). Prazo D−30 = parâmetro do calendário RT-01 (decidido; nenhuma antecedência normativa — GAP-RT-02; antecedência legal é a pergunta RT-J1). Envio proativo real gated em RT-D4/GTM-04.O1 (Gateway_GateRTD4). Épico E-SF-RT-01 | RT-01 | portão RT-J1 (conteúdo) + RT-D4 (envio).</bpmn:documentation><bpmn:incoming>Flow_R0SemPercentual</bpmn:incoming><bpmn:outgoing>Flow_R0D30Proativo</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_GateRTD4" name="Envio proativo a beneficiário?" default="Flow_SemProativo"><bpmn:documentation>PORTÃO RT-D4 FECHADO (OS-07; DPO — ADDENDUM-01.md:142; pergunta íntegra ADD-RETENTION.md:563; contradição de origem L283: job de lembretes usa consentimento de atendimento 'wa-consent-v2', que A9 GT-3 diz nunca valer como permissão proativo) + GTM-04.O1 OWNER-DEPLOY (número/templates aprovados pelo dono). Default = flag desligada: NENHUMA mensagem proativa a beneficiário, lembrete de cobrança incluído (missão §8) — tudo espelhado no 'Meu plano' (passivo). 2ª via e vencimento SÓ em resposta a conversa iniciada pelo beneficiário (ADD-RETENTION.md:283). GTM-06.J4: lembrete de cobrança ≠ notificação do 50º dia (Lei 9.656 art. 13 §ú II, baseline L94). Oposição/supressão antes de qualquer envio (SP-OP-SUPP-001; GTM-06.J3). Épico E-SF-RT-04 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_R0D30Proativo</bpmn:incoming><bpmn:outgoing>Flow_SemProativo</bpmn:outgoing><bpmn:outgoing>Flow_ProativoVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_EspelhaMeuPlano" name="Espelha R0/recibo no 'Meu plano' (passivo)"><bpmn:documentation>Canal passivo (default RT-D4): espelho da informação no 'Meu plano' — superfície provisória no portal maezo-operadora (RT-11; GAP-RT-06 — ADR-0049 não implementado, ADDENDUM-01.md:418; default Q-RT-1 portal provisório L385; E-SF-RT-04 onda 3 bloqueada por portões). WhatsApp primário (RT-11) só inbound. Sempre espelhado: ADD-RETENTION.md:106 item 6. Épico E-SF-RT-04 | RT-11 | GAP-RT-06.</bpmn:documentation><bpmn:incoming>Flow_SemProativo</bpmn:incoming><bpmn:outgoing>Flow_Espelha</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_ReciboD0" name="Recibo D0 «contrato renovado em {data da fonte}»"><bpmn:documentation>RENOVAÇÃO RT-04: ZERO AÇÃO do beneficiário; SEM botão 'renovar' (renova sozinho — individual); recibo D0 «seu contrato foi renovado em {data da fonte}» SÓ com fato de renovação vindo da FONTE — sem fato, nada (ADD-RETENTION.md:103 item 4; L408). Processo interno: registro + espelho passivo; envio proativo herda RT-D4 (fechado). Frase legal do coletivo gated RT-J1/GTM-06.J5 (fallback neutro). Épico E-SF-RT-01 | RT-04 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_Espelha</bpmn:incoming><bpmn:outgoing>Flow_Recibo</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_DistribuiCiclo" name="Após D0 — destino do ciclo?" default="Flow_RemeteE9"><bpmn:documentation>Divisão do pós-D0 (higiene missão §6: gateway com default e rótulos): (1) DEFAULT — remete a renovação à etapa 9 por link (Event_ThrowRenovacaoE9); (2) 1ª cobrança com valor novo → boleto (raia Financeiro); (3) evento do ciclo → cerca do catálogo ret.* (Gateway_GateCercaRT09). Portões: ver anotações associadas aos gateways de destino (RT-J1, RT-D4, cerca). Épico E-SF-RT-01 | missão §5.2.</bpmn:documentation><bpmn:incoming>Flow_Recibo</bpmn:incoming><bpmn:outgoing>Flow_RemeteE9</bpmn:outgoing><bpmn:outgoing>Flow_CobrancaValor</bpmn:outgoing><bpmn:outgoing>Flow_EventoRet</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:intermediateThrowEvent id="Event_ThrowRenovacaoE9" name="Remete renovação à etapa 9"><bpmn:documentation>LINK↔F4-ETAPA9-RENOVACAO (linkEventDefinition): remete a renovação efetivada à etapa 9 (pós-venda/bem-vindo) — a frente LIGA, não duplica (missão §5.2). Épico E-SF-RT-01 | OS-07.</bpmn:documentation><bpmn:incoming>Flow_RemeteE9</bpmn:incoming><bpmn:outgoing>Flow_PosRenovacao</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_ThrowRenovacaoE9" name="F4-ETAPA9-RENOVACAO" /></bpmn:intermediateThrowEvent>
+      <bpmn:endEvent id="EndEvent_RemeteE9" name="Renovação remetida à etapa 9"><bpmn:documentation>Fim nomeado do DEFAULT: ciclo remetido à etapa 9 por link — nenhum caminho termina em silêncio (missão §6). Épico OS-07 | missão §5.2.</bpmn:documentation><bpmn:incoming>Flow_PosRenovacao</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sendTask id="Task_EnviaR0Proativo" name="Envia R0/recibo proativo (variante não ativa)"><bpmn:documentation>VARIANTE NÃO ATIVA (só com RT-D4 + GTM-04.O1 ratificados): envio proativo real (canal com consentimento de contato da admissão; WhatsApp proativo só com GTM-04.O1; sempre espelhado no 'Meu plano'; oposição SP-OP-SUPP-001 e supressão INAD/CANCEL antes de cada envio — ADD-RETENTION.md:106 item 6). Hoje: flag desligada — nada proativo. Épico E-SF-RT-04 | RT-D4/GTM-04.O1 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_ProativoVariante</bpmn:incoming><bpmn:outgoing>Flow_VariaR0Fim</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:endEvent id="EndEvent_VarianteProativo" name="Variante não ativa — nada proativo hoje"><bpmn:documentation>Fim nomeado da VARIANTE de envio proativo: exige RT-D4 (DPO) + GTM-04.O1 (dono) — enquanto pendentes, nenhuma mensagem proativa parte da retenção (missão §8). Épico E-SF-RT-04 | portão RT-D4.</bpmn:documentation><bpmn:incoming>Flow_VariaR0Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:receiveTask id="Task_RecebeContestacao" name="Recebe contestação e abre protocolo"><bpmn:documentation>CAMINHO ATIVO HOJE: contestação do beneficiário com protocolo (RN 623/2024 art. 10 — a contestação segue aberta; nunca recusada por janela, E-63; ADD-RETENTION.md L408). NÍVEL 2: nenhum SP-OP-* cobre contestação de beneficiário — SP-OP-CONTAS-001 é glosa de PRESTADOR → GAP declarado (E-SF-RT-01/CD-07; Annotation_Nivel2). Zero dado de saúde no gatilho (missão §8). Épico E-SF-RT-01/CD-07 | RN 623 art. 10.</bpmn:documentation><bpmn:outgoing>Flow_RecebeContestacao</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:userTask id="Task_TrilhaAtendimento" name="Trilha de atendimento responde (RT-10)"><bpmn:documentation>ATO HUMANO (userTask — decisão na raia do papel competente, missão §6): trilha de atendimento responde a contestação em 7 dias úteis — papel 'Relacionamento e renovação' (RT-10, coordenador); IA só assistente — PORTÃO RT-D3 FECHADO: assistente que lê dado do beneficiário = flag-off, fila humana sem assistente (ADDENDUM-01.md:141; E-SF-RT-03 onda 3 bloqueada). Épico E-SF-RT-03 | RT-10 | portão RT-D3.</bpmn:documentation><bpmn:incoming>Flow_RecebeContestacao</bpmn:incoming><bpmn:outgoing>Flow_TrilhaFim</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_TrilhaRespondeu" name="Resposta expedida (protocolo RN 623)"><bpmn:documentation>Fim nomeado: resposta da trilha expedida ao beneficiário por message flow (RN 623 art. 10). Épico E-SF-RT-01/CD-07 | RN 623 art. 10.</bpmn:documentation><bpmn:incoming>Flow_TrilhaFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_RegistraPedidoCancel" name="Registra pedido de cancelamento com protocolo"><bpmn:documentation>Registro do pedido (RT-05): protocolo imediato; SEM prazo exibido (RT-J2 — teto art. 18 RN 561, baseline L295, só com REG-27); execução humana NO CADASTRO pertence à etapa 9 — esta frente remete por link F4-ETAPA9-CANCELAMENTO e NÃO duplica (missão §5.2). Rescisão independe do adimplemento (RN 561 art. 21 — PIN L297; Lei 9.656 art. 13 §ú II — notificação do 50º dia é outro ato, baseline L94; GTM-06.J4). Multa rescisória antes de 12 meses (RN 561 art. 20, L296) só com texto ratificado RT-J3. Épico E-SF-RT-02/04 | RN 561 | portão RT-J2/RT-J3.</bpmn:documentation><bpmn:outgoing>Flow_RegistraCancel</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:intermediateThrowEvent id="Event_ThrowCancelE9" name="Remete cancelamento à etapa 9"><bpmn:documentation>LINK↔F4-ETAPA9-CANCELAMENTO (linkEventDefinition): remete o pedido protocolado à etapa 9 (execução no cadastro, comprovante do efetivo cancelamento — art. 18 RN 561; arrependimento art. 15 §7º tem fluxo próprio na etapa 9). A frente LIGA, não duplica (missão §5.2). Épico E-SF-RT-02/04 | RN 561 art. 18.</bpmn:documentation><bpmn:incoming>Flow_RegistraCancel</bpmn:incoming><bpmn:outgoing>Flow_CancelFim</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_ThrowCancelE9" name="F4-ETAPA9-CANCELAMENTO" /></bpmn:intermediateThrowEvent>
+      <bpmn:endEvent id="EndEvent_CancelRemetidoE9" name="Cancelamento remetido à etapa 9"><bpmn:documentation>Fim nomeado: pedido protocolado remetido à etapa 9 — nenhum caminho termina em silêncio (missão §6). Épico E-SF-RT-02/04 | missão §5.2.</bpmn:documentation><bpmn:incoming>Flow_CancelFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_GateCercaRT09" name="No catálogo ret.* e sem sinal clínico?" default="Flow_CercaRecusa"><bpmn:documentation>CERCA LOCAL VIGENTE (RT-09/OS-07 — DECIDIDO-coordenador, ADDENDUM-01.md:121; E-SF-RT-01 onda 1 NÃO iniciado, EXECUTION-LOG.md:129): recusa QUALQUER gatilho fora do catálogo fechado ret.* e qualquer sinal clínico (zero saúde — missão §8; RL-SF-014; lago igual a SC-10). Default = recusa (fim nomeado). Evento no catálogo: registro só LOCAL. Envio ao lago herda os portões F1 — sem emissor (Annotation_Cerca/Annotation_Lago). Épico E-SF-RT-01 | RT-09/OS-07.</bpmn:documentation><bpmn:incoming>Flow_EventoRet</bpmn:incoming><bpmn:outgoing>Flow_CercaRecusa</bpmn:outgoing><bpmn:outgoing>Flow_NoCatalogo</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RegistraRet" name="Registra evento ret.* só local (RT-09)"><bpmn:documentation>Registro LOCAL do evento do catálogo fechado ret.* (renovação, reajuste R0, contestação, 2ª via, negociação). Envio ao lago NÃO existe nesta frente: quando existir, HERDA os portões F1 (A9 — G4 + RL-SF-005/044/045) e o regime de agregados da medição — SEM EMISSOR desenhado (convenção F1-EMITE-*; nenhuma variante de emissão ativa aqui). Épico E-SF-RT-01 (não iniciado) | RT-09 | herda portão A9/F1.</bpmn:documentation><bpmn:incoming>Flow_NoCatalogo</bpmn:incoming><bpmn:outgoing>Flow_RetLocal</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_GatilhoRecusado" name="Gatilho recusado pela cerca (vigente)"><bpmn:documentation>Fim nomeado do DEFAULT: gatilho fora do catálogo ret.* ou com qualquer sinal clínico → recusa pela cerca local (VIGENTE — RT-09). Zero dado de saúde em qualquer gatilho (missão §8; LGPD art. 11, baseline L185). Épico E-SF-RT-01 | RT-09.</bpmn:documentation><bpmn:incoming>Flow_CercaRecusa</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_RetLocal" name="Evento ret.* registrado (local)"><bpmn:documentation>Fim nomeado: evento registrado só localmente (RT-09). Lago AMH não recebe desta frente (pool black-box — Annotation_Lago). Épico E-SF-RT-01 | RT-09.</bpmn:documentation><bpmn:incoming>Flow_RetLocal</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_EmiteBoleto" name="Emite boleto/fatura — veículo do valor"><bpmn:documentation>ATIVO HOJE: 1ª cobrança com valor novo — o boleto/fatura é o VEÍCULO CONTRATUAL do valor (cl. 15.5/15.8; RT-J1 fallback 'boleto como veículo do valor' — ADD-RETENTION.md:556; 'nenhum percentual fora do boleto' L106; L408). Entrega ao beneficiário por message flow (execução de contrato — não é mensagem proativa de marketing; lembrete de cobrança separado segue fechado em RT-D4). 'Meu plano' repete o quadro (RT-02/RT-11). Épico E-SF-RT-01 | RT-J1/RT-01 | portão RT-D4 (lembrete ≠ boleto).</bpmn:documentation><bpmn:incoming>Flow_CobrancaValor</bpmn:incoming><bpmn:outgoing>Flow_BoletoFim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_ValorViaBoleto" name="Valor circulado só pelo boleto"><bpmn:documentation>Fim nomeado: valor do reajuste circula EXCLUSIVAMENTE pelo boleto enquanto RT-J1 estiver fechado (ADD-RETENTION.md:106/556). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_BoletoFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_SegundaVia" name="Emite 2ª via (só a pedido)"><bpmn:documentation>2ª VIA SÓ EM RESPOSTA A CONTATO do beneficiário (RT-06; RT-D4 default fechado; ADD-RETENTION.md:283 '2ª via e informação de vencimento só em resposta a conversa iniciada pelo beneficiário'). Retenção suprimida com INAD/CANCEL vivo (GTM-06.J3). Épico E-SF-RT-04 | RT-06 | portão RT-D4.</bpmn:documentation><bpmn:outgoing>Flow_2ViaFim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_2ViaEmitida" name="2ª via emitida"><bpmn:documentation>Fim nomeado: 2ª via emitida e devolvida por message flow. Épico E-SF-RT-04 | RT-06.</bpmn:documentation><bpmn:incoming>Flow_2ViaFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_Negociacao" name="Negociação (fila humana RT-10)"><bpmn:documentation>ATO HUMANO (userTask — missão §6: valores em dinheiro nunca saem de serviço/agente): negociação de débito na fila do papel 'Relacionamento e renovação' (RT-10, 7 dias úteis); SÓ em resposta a contato iniciado pelo beneficiário (RT-06; RT-D4 default); retenção suprimida com INAD/CANCEL vivo (GTM-06.J3); cancelamento nunca recusado por débito (Lei 9.656 art. 21, baseline L297). IA assistente = RT-D3 flag-off. Épico E-SF-RT-03 | RT-06/RT-10 | portões RT-D3/RT-D4.</bpmn:documentation><bpmn:outgoing>Flow_NegFim</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_NegociacaoConcluida" name="Negociação concluída"><bpmn:documentation>Fim nomeado: resposta expedida ao beneficiário por message flow. Épico E-SF-RT-03 | RT-06/RT-10.</bpmn:documentation><bpmn:incoming>Flow_NegFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_Ratificacao" name="Pacote de ratificação da retenção (RT-J1..J5)"><bpmn:documentation>Início do caminho de DESTRAVAMENTO (variante não ativa): ratificação jurídica do pacote RT-J1..J5 (RL-SF-104/105 e adjacentes). Hoje: pendente — RATIFY-LATER-jurídico (RATIFY-LATER-REGISTER.md:112-113; ADDENDUM-01.md:134-138). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:outgoing>Flow_Ratifica</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_RatificaRTJ1" name="Jurídico ratifica RT-J1 (antecedência, conteúdo, canal)"><bpmn:documentation>ATO HUMANO (userTask — jurídico, missão §6/§8): ratifica RT-J1 — (i) antecedência mínima, (ii) conteúdo mínimo (percentual, base, autorização/ofício, período), (iii) canal do aviso de reajuste; e se aviso proativo com percentual antes do boleto é lícito (RL-SF-105); nota da linha da coorte art. 15 §ú (RL-SF-104; Lei 9.656 baseline L96; art. 35-E §1º I L99 — repactuação/diluição da coorte 60+/10+). Evidência: Lei 9.656 art. 35-E integral; Lei 9.961 art. 4º; RN de reajuste vigente (RN 565/2022 só candidata — GAP-RT-01..03). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_Ratifica</bpmn:incoming><bpmn:outgoing>Flow_RatificaGate</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_GateRTJ1Juridico" name="RT-J1 ratificado?" default="Flow_RTJ1Pendente"><bpmn:documentation>PORTÃO RT-J1 (OS-07; RATIFY-LATER-jurídico — RATIFY-LATER-REGISTER.md:112): default = PENDENTE — portão segue fechado, R0 sem percentual, boleto como veículo do valor (ADD-RETENTION.md:556). Variante não ativa: nota publicada e quadro RT-02 com números habilitados. Também dependentes: RT-J2 (pedido 2 toques × RN 561 arts. 4º III L291, 6º §3º, 15, 16 L294; teto art. 18 L295), RT-J3(a) redação da linha OS-08, RT-J4 exclusão de dependente, RT-J5 Decreto 11.034/2022. Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_RatificaGate</bpmn:incoming><bpmn:outgoing>Flow_RTJ1Pendente</bpmn:outgoing><bpmn:outgoing>Flow_RTJ1VarianteJ</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_RTJ1Pendente" name="RT-J1 pendente — portão fechado"><bpmn:documentation>Fim nomeado do DEFAULT: RT-J1 pendente — nenhum percentual, quadro ou simulador ativo; 'só R0 + contestação' (RATIFY-LATER-REGISTER.md:113). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_RTJ1Pendente</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_PublicaNotaRTJ1" name="Publica nota RT-J1 (linha da coorte) — variante"><bpmn:documentation>VARIANTE NÃO ATIVA (só com RT-J1 ratificado): publica a nota da linha da coorte «você não tem reajuste por mudança de faixa etária» (Lei 9.656 art. 15 §ú — baseline L96; repactuação art. 35-E §1º I — L99) no R0 e no item (vi) do quadro RT-02; habilita R1 'seu novo valor' com meta P30D (parâmetro aviso_valor_antecedencia_alvo — meta de UX, não prazo legal; ADD-RETENTION.md:100-101). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_RTJ1VarianteJ</bpmn:incoming><bpmn:outgoing>Flow_PublicaNota</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_RTJ1Operante" name="RT-J1 operante — quadro/simulador habilitados (variante)"><bpmn:documentation>Fim nomeado da VARIANTE: RT-J1 operante — percentual/base/canal do aviso definidos; quadro RT-02 e simulador (só cotação da fonte) habilitados. Não desenhar como ativo (missão §6). Épico E-SF-RT-01 | portão RT-J1.</bpmn:documentation><bpmn:incoming>Flow_PublicaNota</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_Inicio" name="" sourceRef="StartEvent_FrenteRetencao" targetRef="Event_LinkE9Ciclo" />
+      <bpmn:sequenceFlow id="Flow_LinkGateRTJ1" name="" sourceRef="Event_LinkE9Ciclo" targetRef="Gateway_GateRTJ1" />
+      <bpmn:sequenceFlow id="Flow_R0SemPercentual" name="R0 D−30 (default)" sourceRef="Gateway_GateRTJ1" targetRef="Task_R0D30" />
+      <bpmn:sequenceFlow id="Flow_RJ1Variante" name="percentual (variante)" sourceRef="Gateway_GateRTJ1" targetRef="Task_QuadroRT02"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RT-J1 ratificado (percentual/quadro RT-02/simulador)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_R0D30Proativo" name="R0 pronto" sourceRef="Task_R0D30" targetRef="Gateway_GateRTD4" />
+      <bpmn:sequenceFlow id="Flow_SemProativo" name="passivo (default)" sourceRef="Gateway_GateRTD4" targetRef="Task_EspelhaMeuPlano" />
+      <bpmn:sequenceFlow id="Flow_Espelha" name="" sourceRef="Task_EspelhaMeuPlano" targetRef="Task_ReciboD0" />
+      <bpmn:sequenceFlow id="Flow_Recibo" name="" sourceRef="Task_ReciboD0" targetRef="Gateway_DistribuiCiclo" />
+      <bpmn:sequenceFlow id="Flow_RemeteE9" name="remete E9 (default)" sourceRef="Gateway_DistribuiCiclo" targetRef="Event_ThrowRenovacaoE9" />
+      <bpmn:sequenceFlow id="Flow_PosRenovacao" name="" sourceRef="Event_ThrowRenovacaoE9" targetRef="EndEvent_RemeteE9" />
+      <bpmn:sequenceFlow id="Flow_CobrancaValor" name="1ª cobrança (valor novo)" sourceRef="Gateway_DistribuiCiclo" targetRef="Task_EmiteBoleto"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">1ª cobrança com valor novo (fato de fonte)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_EventoRet" name="evento ret.*" sourceRef="Gateway_DistribuiCiclo" targetRef="Gateway_GateCercaRT09"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">evento do ciclo de retenção</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_ProativoVariante" name="flag RT-D4 (variante)" sourceRef="Gateway_GateRTD4" targetRef="Task_EnviaR0Proativo"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RT-D4 + GTM-04.O1 ratificados (envio proativo)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_VariaR0Fim" name="" sourceRef="Task_EnviaR0Proativo" targetRef="EndEvent_VarianteProativo" />
+      <bpmn:sequenceFlow id="Flow_QuadroFim" name="" sourceRef="Task_QuadroRT02" targetRef="EndEvent_VarianteRTJ1" />
+      <bpmn:sequenceFlow id="Flow_RecebeContestacao" name="" sourceRef="Task_RecebeContestacao" targetRef="Task_TrilhaAtendimento" />
+      <bpmn:sequenceFlow id="Flow_TrilhaFim" name="" sourceRef="Task_TrilhaAtendimento" targetRef="EndEvent_TrilhaRespondeu" />
+      <bpmn:sequenceFlow id="Flow_RegistraCancel" name="" sourceRef="Task_RegistraPedidoCancel" targetRef="Event_ThrowCancelE9" />
+      <bpmn:sequenceFlow id="Flow_CancelFim" name="" sourceRef="Event_ThrowCancelE9" targetRef="EndEvent_CancelRemetidoE9" />
+      <bpmn:sequenceFlow id="Flow_CercaRecusa" name="fora do catálogo (default)" sourceRef="Gateway_GateCercaRT09" targetRef="EndEvent_GatilhoRecusado" />
+      <bpmn:sequenceFlow id="Flow_NoCatalogo" name="no catálogo" sourceRef="Gateway_GateCercaRT09" targetRef="Task_RegistraRet"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">gatilho no catálogo fechado ret.* e sem sinal clínico</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_RetLocal" name="" sourceRef="Task_RegistraRet" targetRef="EndEvent_RetLocal" />
+      <bpmn:sequenceFlow id="Flow_BoletoFim" name="" sourceRef="Task_EmiteBoleto" targetRef="EndEvent_ValorViaBoleto" />
+      <bpmn:sequenceFlow id="Flow_2ViaFim" name="" sourceRef="Task_SegundaVia" targetRef="EndEvent_2ViaEmitida" />
+      <bpmn:sequenceFlow id="Flow_NegFim" name="" sourceRef="Task_Negociacao" targetRef="EndEvent_NegociacaoConcluida" />
+      <bpmn:sequenceFlow id="Flow_Ratifica" name="" sourceRef="StartEvent_Ratificacao" targetRef="Task_RatificaRTJ1" />
+      <bpmn:sequenceFlow id="Flow_RatificaGate" name="" sourceRef="Task_RatificaRTJ1" targetRef="Gateway_GateRTJ1Juridico" />
+      <bpmn:sequenceFlow id="Flow_RTJ1Pendente" name="pendente (default)" sourceRef="Gateway_GateRTJ1Juridico" targetRef="EndEvent_RTJ1Pendente" />
+      <bpmn:sequenceFlow id="Flow_RTJ1VarianteJ" name="ratificado (variante)" sourceRef="Gateway_GateRTJ1Juridico" targetRef="Task_PublicaNotaRTJ1"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RT-J1 ratificado (nota da coorte art. 15 §ú)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_PublicaNota" name="" sourceRef="Task_PublicaNotaRTJ1" targetRef="EndEvent_RTJ1Operante" />
+      <bpmn:textAnnotation id="Annotation_RTJ1"><bpmn:text>PORTÃO RT-J1 FECHADO (OS-07; RL-SF-104/105 — RATIFY-LATER-jurídico, ADDENDUM-01.md:134; RATIFY-LATER-REGISTER.md:112-113): antecedência, conteúdo mínimo e canal do aviso de reajuste; aviso proativo com percentual antes do boleto (RL-SF-105) bloqueado — nenhum percentual exibido nem calculado. Default = R0 D−30 SEM percentual, zero lembrete extra, BOLETO como veículo do valor (ADD-RETENTION.md:106/556). Quadro antes→depois com números da fonte (RT-02) e simulador só por cotação da fonte = VARIANTE NÃO ATIVA. Linha da coorte art. 15 §ú (Lei 9.656, baseline L96) só com RT-J1 — GAP-RT-01..03: reajuste sem norma na base (ADDENDUM-01.md:422). Abre: jurídico ratifica RT-J1.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RTD4"><bpmn:text>PORTÃO RT-D4 FECHADO (OS-07; DPO — ADDENDUM-01.md:142; ADD-RETENTION.md:563; contradição L283): base do lembrete PROATIVO de cobrança (GTM-06.J4: lembrete ≠ notificação do 50º dia — Lei 9.656 art. 13 §ú II, baseline L94) + GTM-04.O1 (OWNER-DEPLOY — dono). Default: flag desligada — NADA proativo a beneficiário (missão §8); espelho passivo no 'Meu plano'.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Cerca"><bpmn:text>CATÁLOGO ret.* — CERCA LOCAL VIGENTE (RT-09/OS-07; E-SF-RT-01 onda 1 NÃO iniciado — EXECUTION-LOG.md:109/129): recusa gatilho fora do catálogo fechado e qualquer sinal clínico (zero saúde — missão §8). Evento no catálogo: registro só LOCAL. Envio ao lago HERDA os portões F1 (A9 — RL-SF-005/044/045) — SEM emissor nesta frente (anotação, não caminho). SP-OP-REAJUSTE-001 não existe — GAP (E-SF-RT-01; CD-07).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2 — SP-OP-* (nenhum executável criado nesta missão — isExecutable=false; missão §4/§5): CONTESTAÇÃO de beneficiário: SP-OP-CONTAS-001 é GLOSA DE PRESTADOR, não beneficiário — nenhum SP-OP-* cobre contestação do beneficiário → GAP DECLARADO (RN 623/2024 art. 10 — protocolo; quem responde é a trilha de atendimento; E-63: nunca recusada por janela). SP-OP-REEMBOLSO e SP-OP-CANCEL existem e REMETEM à etapa 9 (links F4-ETAPA9-*; não duplicar — missão §5.2). SP-OP-REAJUSTE-001 NÃO EXISTE — GAP (E-SF-RT-01/CD-07 — proposta: catálogo ret.* + cerca, onda 1; EXECUTION-LOG.md:109). E-SF-RT-04 'Meu plano' provisório no portal (GAP-RT-06; ADR-0049).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RTD3"><bpmn:text>PORTÃO RT-D3 FECHADO (DPO — ADDENDUM-01.md:141): assistente de IA que lê dado do beneficiário = flag-off; fila humana sem assistente (RT-10 — papel 'Relacionamento e renovação', 7 dias úteis; E-SF-RT-03 onda 3 bloqueada por RT-D3).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Financeiro"><bpmn:text>FINANCEIRO (estado atual): BOLETO como veículo do valor — a 1ª cobrança com valor novo carrega o conteúdo contratual (cl. 15.5/15.8; RT-J1 fallback ADD-RETENTION.md:556; 'nenhum percentual fora do boleto' L106). 2ª via e negociação SÓ em resposta a contato do beneficiário (RT-06; RT-D4 default fechado). Fila humana do papel 'Relacionamento e renovação' (RT-10); retenção suprimida com INAD/CANCEL vivo (GTM-06.J3); cancelamento nunca recusado por débito (Lei 9.656 art. 21, baseline L297). WhatsApp primário (RT-11) só inbound; casa 'Meu plano' provisória (GAP-RT-06).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Juridico"><bpmn:text>PORTÕES JURÍDICO (OS-07): RT-J1 — aviso de reajuste (RL-SF-104/105; RATIFY-LATER-REGISTER.md:112-113): Lei 9.656 art. 15 caput+§ú (baseline L96) e art. 35-E §1º I (L99) só como nota da variante; GAP-RT-01..03 — reajuste sem norma na base (ADDENDUM-01.md:422); RN 565/2022 só candidata. RT-J2 — pedido em 2 toques × RN 561 arts. 4º III (L291), 6º §3º, 15 e 16 (L294); teto do art. 18 (L295) não exibido até REG-27; multa do art. 20 (L296) só com texto ratificado. RT-J3(a) — redação/posição da linha OS-08; RT-J3(b) — troca self-service no aviso (estende RL-SF-109; RN 413 art. 16; RN 558 art. 14). RT-J4 — exclusão de dependente (RN 561 por analogia). RT-J5 — Decreto 11.034/2022 (SAC; planalto bloqueado). Destrava: ratificação jurídica; variantes conservadoras seguem sem esperar.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_RTJ1" sourceRef="Gateway_GateRTJ1" targetRef="Annotation_RTJ1" />
+    <bpmn:association id="Association_RTD4" sourceRef="Gateway_GateRTD4" targetRef="Annotation_RTD4" />
+    <bpmn:association id="Association_Cerca" sourceRef="Gateway_GateCercaRT09" targetRef="Annotation_Cerca" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_RecebeContestacao" targetRef="Annotation_Nivel2" />
+    <bpmn:association id="Association_RTD3" sourceRef="Task_TrilhaAtendimento" targetRef="Annotation_RTD3" />
+    <bpmn:association id="Association_Financeiro" sourceRef="Task_EmiteBoleto" targetRef="Annotation_Financeiro" />
+    <bpmn:association id="Association_Juridico" sourceRef="Gateway_GateRTJ1Juridico" targetRef="Annotation_Juridico" />
+    <bpmn:association id="Association_Lago" sourceRef="Task_RegistraRet" targetRef="Annotation_Lago" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_F04">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_F04" bpmnElement="Collaboration_FUNIL_F04">
+      <bpmndi:BPMNShape id="Participant_Beneficiario_di" bpmnElement="Participant_Beneficiario" isHorizontal="true"><dc:Bounds x="40" y="40" width="2500" height="840" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="920" width="2500" height="1530" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_AMH_di" bpmnElement="Participant_AMH" isHorizontal="true"><dc:Bounds x="40" y="2490" width="2500" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Beneficiario_di" bpmnElement="Lane_Beneficiario" isHorizontal="true"><dc:Bounds x="70" y="70" width="2470" height="780" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="950" width="2470" height="760" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Financeiro_di" bpmnElement="Lane_Financeiro" isHorizontal="true"><dc:Bounds x="70" y="1710" width="2470" height="420" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="2130" width="2470" height="320" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Contato_di" bpmnElement="StartEvent_Contato">
+        <dc:Bounds x="90" y="338" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="72" y="300" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ContatoDecide_di" bpmnElement="Gateway_ContatoDecide" isMarkerVisible="true">
+        <dc:Bounds x="180" y="331" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="70" y="250" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeSegundaVia_di" bpmnElement="Task_PedeSegundaVia">
+        <dc:Bounds x="320" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeNegociacao_di" bpmnElement="Task_PedeNegociacao">
+        <dc:Bounds x="320" y="200" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AbreContestacao_di" bpmnElement="Task_AbreContestacao">
+        <dc:Bounds x="320" y="320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeCancelamento_di" bpmnElement="Task_PedeCancelamento">
+        <dc:Bounds x="320" y="460" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_2ViaRecebida_di" bpmnElement="EndEvent_2ViaRecebida">
+        <dc:Bounds x="1672" y="120" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1520" y="165" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NegociacaoEncerrada_di" bpmnElement="EndEvent_NegociacaoEncerrada">
+        <dc:Bounds x="1752" y="240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1490" y="285" width="130" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ContestacaoRespondida_di" bpmnElement="EndEvent_ContestacaoRespondida">
+        <dc:Bounds x="1832" y="360" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1440" y="405" width="150" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PedidoProtocolado_di" bpmnElement="EndEvent_PedidoProtocolado">
+        <dc:Bounds x="500" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="455" y="525" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ContatoEncerrado_di" bpmnElement="EndEvent_ContatoEncerrado">
+        <dc:Bounds x="330" y="632" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="690" width="180" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Contato_di" bpmnElement="Annotation_Contato">
+        <dc:Bounds x="700" y="590" width="440" height="190" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FrenteRetencao_di" bpmnElement="StartEvent_FrenteRetencao">
+        <dc:Bounds x="90" y="1182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="72" y="1225" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE9Ciclo_di" bpmnElement="Event_LinkE9Ciclo">
+        <dc:Bounds x="180" y="1182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="1230" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateRTJ1_di" bpmnElement="Gateway_GateRTJ1" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="260" y="1175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="120" y="1135" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_QuadroRT02_di" bpmnElement="Task_QuadroRT02">
+        <dc:Bounds x="350" y="980" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VarianteRTJ1_di" bpmnElement="EndEvent_VarianteRTJ1" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="520" y="1002" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="450" y="1075" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_R0D30_di" bpmnElement="Task_R0D30">
+        <dc:Bounds x="350" y="1160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateRTD4_di" bpmnElement="Gateway_GateRTD4" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="510" y="1175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="452" y="1166" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EspelhaMeuPlano_di" bpmnElement="Task_EspelhaMeuPlano">
+        <dc:Bounds x="630" y="1160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReciboD0_di" bpmnElement="Task_ReciboD0">
+        <dc:Bounds x="790" y="1160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_DistribuiCiclo_di" bpmnElement="Gateway_DistribuiCiclo" isMarkerVisible="true">
+        <dc:Bounds x="950" y="1175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="1135" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ThrowRenovacaoE9_di" bpmnElement="Event_ThrowRenovacaoE9">
+        <dc:Bounds x="1060" y="1182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1014" y="1130" width="140" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RemeteE9_di" bpmnElement="EndEvent_RemeteE9">
+        <dc:Bounds x="1150" y="1182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="1245" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaR0Proativo_di" bpmnElement="Task_EnviaR0Proativo">
+        <dc:Bounds x="350" y="1330" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VarianteProativo_di" bpmnElement="EndEvent_VarianteProativo" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="520" y="1352" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="540" y="1440" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RecebeContestacao_di" bpmnElement="Task_RecebeContestacao">
+        <dc:Bounds x="1780" y="1140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_TrilhaAtendimento_di" bpmnElement="Task_TrilhaAtendimento">
+        <dc:Bounds x="1940" y="1140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TrilhaRespondeu_di" bpmnElement="EndEvent_TrilhaRespondeu">
+        <dc:Bounds x="2060" y="1160" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2050" y="1210" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraPedidoCancel_di" bpmnElement="Task_RegistraPedidoCancel">
+        <dc:Bounds x="1840" y="1330" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ThrowCancelE9_di" bpmnElement="Event_ThrowCancelE9">
+        <dc:Bounds x="2010" y="1352" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1975" y="1395" width="130" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CancelRemetidoE9_di" bpmnElement="EndEvent_CancelRemetidoE9">
+        <dc:Bounds x="2110" y="1352" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2085" y="1415" width="130" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateCercaRT09_di" bpmnElement="Gateway_GateCercaRT09" isMarkerVisible="true">
+        <dc:Bounds x="950" y="1560" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="890" y="1622" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraRet_di" bpmnElement="Task_RegistraRet">
+        <dc:Bounds x="1030" y="1545" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_GatilhoRecusado_di" bpmnElement="EndEvent_GatilhoRecusado">
+        <dc:Bounds x="1060" y="1642" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1024" y="1682" width="108" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RetLocal_di" bpmnElement="EndEvent_RetLocal">
+        <dc:Bounds x="1190" y="1567" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1150" y="1636" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RTJ1_di" bpmnElement="Annotation_RTJ1">
+        <dc:Bounds x="560" y="960" width="500" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RTD4_di" bpmnElement="Annotation_RTD4">
+        <dc:Bounds x="90" y="1250" width="260" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Cerca_di" bpmnElement="Annotation_Cerca">
+        <dc:Bounds x="90" y="1500" width="260" height="170" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="2100" y="960" width="400" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RTD3_di" bpmnElement="Annotation_RTD3">
+        <dc:Bounds x="2150" y="1250" width="350" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EmiteBoleto_di" bpmnElement="Task_EmiteBoleto">
+        <dc:Bounds x="620" y="1760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ValorViaBoleto_di" bpmnElement="EndEvent_ValorViaBoleto">
+        <dc:Bounds x="790" y="1782" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="760" y="1830" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SegundaVia_di" bpmnElement="Task_SegundaVia">
+        <dc:Bounds x="1590" y="1740" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_2ViaEmitida_di" bpmnElement="EndEvent_2ViaEmitida">
+        <dc:Bounds x="1622" y="1980" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1600" y="2020" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Negociacao_di" bpmnElement="Task_Negociacao">
+        <dc:Bounds x="1670" y="1860" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NegociacaoConcluida_di" bpmnElement="EndEvent_NegociacaoConcluida">
+        <dc:Bounds x="1702" y="1980" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1700" y="2020" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Financeiro_di" bpmnElement="Annotation_Financeiro">
+        <dc:Bounds x="820" y="1900" width="420" height="200" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Ratificacao_di" bpmnElement="StartEvent_Ratificacao">
+        <dc:Bounds x="90" y="2162" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="72" y="2230" width="140" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RatificaRTJ1_di" bpmnElement="Task_RatificaRTJ1">
+        <dc:Bounds x="180" y="2140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateRTJ1Juridico_di" bpmnElement="Gateway_GateRTJ1Juridico" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="340" y="2155" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="395" y="2240" width="85" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RTJ1Pendente_di" bpmnElement="EndEvent_RTJ1Pendente" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="450" y="2162" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="440" y="2210" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PublicaNotaRTJ1_di" bpmnElement="Task_PublicaNotaRTJ1">
+        <dc:Bounds x="450" y="2280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RTJ1Operante_di" bpmnElement="EndEvent_RTJ1Operante">
+        <dc:Bounds x="620" y="2302" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="585" y="2345" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Juridico_di" bpmnElement="Annotation_Juridico">
+        <dc:Bounds x="780" y="2150" width="300" height="280" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Lago_di" bpmnElement="Annotation_Lago">
+        <dc:Bounds x="620" y="2530" width="700" height="220" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="620" y="2830" width="640" height="200" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_Contato1_di" bpmnElement="Flow_Contato1"><di:waypoint x="126" y="356" /><di:waypoint x="180" y="356" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Contato2Via_di" bpmnElement="Flow_Contato2Via"><di:waypoint x="205" y="331" /><di:waypoint x="205" y="120" /><di:waypoint x="320" y="120" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="140" width="84" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ContatoNegociacao_di" bpmnElement="Flow_ContatoNegociacao"><di:waypoint x="205" y="331" /><di:waypoint x="205" y="240" /><di:waypoint x="320" y="240" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="254" width="76" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ContatoContestacao_di" bpmnElement="Flow_ContatoContestacao"><di:waypoint x="230" y="356" /><di:waypoint x="320" y="356" />
+        <bpmndi:BPMNLabel><dc:Bounds x="234" y="395" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ContatoCancelamento_di" bpmnElement="Flow_ContatoCancelamento"><di:waypoint x="205" y="381" /><di:waypoint x="205" y="500" /><di:waypoint x="320" y="500" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="515" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ContatoSemRota_di" bpmnElement="Flow_ContatoSemRota"><di:waypoint x="205" y="381" /><di:waypoint x="205" y="650" /><di:waypoint x="330" y="650" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="668" width="180" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2ViaRecebida_di" bpmnElement="Flow_2ViaRecebida"><di:waypoint x="420" y="120" /><di:waypoint x="1672" y="120" /><di:waypoint x="1672" y="138" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_NegociacaoEncerrada_di" bpmnElement="Flow_NegociacaoEncerrada"><di:waypoint x="420" y="240" /><di:waypoint x="1752" y="240" /><di:waypoint x="1752" y="258" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ContestacaoRespondida_di" bpmnElement="Flow_ContestacaoRespondida"><di:waypoint x="420" y="360" /><di:waypoint x="1832" y="360" /><di:waypoint x="1832" y="378" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PedidoProtocolado_di" bpmnElement="Flow_PedidoProtocolado"><di:waypoint x="420" y="500" /><di:waypoint x="500" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Inicio_di" bpmnElement="Flow_Inicio"><di:waypoint x="126" y="1200" /><di:waypoint x="180" y="1200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_LinkGateRTJ1_di" bpmnElement="Flow_LinkGateRTJ1"><di:waypoint x="216" y="1200" /><di:waypoint x="260" y="1200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_R0SemPercentual_di" bpmnElement="Flow_R0SemPercentual"><di:waypoint x="310" y="1200" /><di:waypoint x="350" y="1200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="365" y="1245" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RJ1Variante_di" bpmnElement="Flow_RJ1Variante"><di:waypoint x="285" y="1175" /><di:waypoint x="285" y="1020" /><di:waypoint x="350" y="1020" />
+        <bpmndi:BPMNLabel><dc:Bounds x="285" y="990" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_R0D30Proativo_di" bpmnElement="Flow_R0D30Proativo"><di:waypoint x="450" y="1200" /><di:waypoint x="510" y="1200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="452" y="1222" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SemProativo_di" bpmnElement="Flow_SemProativo"><di:waypoint x="560" y="1200" /><di:waypoint x="630" y="1200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="565" y="1170" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Espelha_di" bpmnElement="Flow_Espelha"><di:waypoint x="730" y="1200" /><di:waypoint x="790" y="1200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Recibo_di" bpmnElement="Flow_Recibo"><di:waypoint x="890" y="1200" /><di:waypoint x="950" y="1200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RemeteE9_di" bpmnElement="Flow_RemeteE9"><di:waypoint x="1000" y="1200" /><di:waypoint x="1060" y="1200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1002" y="1164" width="88" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PosRenovacao_di" bpmnElement="Flow_PosRenovacao"><di:waypoint x="1096" y="1200" /><di:waypoint x="1150" y="1200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CobrancaValor_di" bpmnElement="Flow_CobrancaValor"><di:waypoint x="975" y="1220" /><di:waypoint x="975" y="1300" /><di:waypoint x="670" y="1300" /><di:waypoint x="670" y="1760" />
+        <bpmndi:BPMNLabel><dc:Bounds x="985" y="1245" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EventoRet_di" bpmnElement="Flow_EventoRet"><di:waypoint x="950" y="1195" /><di:waypoint x="920" y="1195" /><di:waypoint x="920" y="1585" /><di:waypoint x="950" y="1585" />
+        <bpmndi:BPMNLabel><dc:Bounds x="850" y="1240" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ProativoVariante_di" bpmnElement="Flow_ProativoVariante"><di:waypoint x="535" y="1225" /><di:waypoint x="535" y="1300" /><di:waypoint x="400" y="1300" /><di:waypoint x="400" y="1330" />
+        <bpmndi:BPMNLabel><dc:Bounds x="405" y="1272" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_VariaR0Fim_di" bpmnElement="Flow_VariaR0Fim"><di:waypoint x="450" y="1370" /><di:waypoint x="520" y="1370" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_QuadroFim_di" bpmnElement="Flow_QuadroFim"><di:waypoint x="450" y="1020" /><di:waypoint x="520" y="1020" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RecebeContestacao_di" bpmnElement="Flow_RecebeContestacao"><di:waypoint x="1880" y="1180" /><di:waypoint x="1940" y="1180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_TrilhaFim_di" bpmnElement="Flow_TrilhaFim"><di:waypoint x="2040" y="1180" /><di:waypoint x="2060" y="1180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RegistraCancel_di" bpmnElement="Flow_RegistraCancel"><di:waypoint x="1940" y="1370" /><di:waypoint x="2010" y="1370" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CancelFim_di" bpmnElement="Flow_CancelFim"><di:waypoint x="2046" y="1370" /><di:waypoint x="2110" y="1370" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CercaRecusa_di" bpmnElement="Flow_CercaRecusa"><di:waypoint x="975" y="1610" /><di:waypoint x="975" y="1660" /><di:waypoint x="1060" y="1660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="990" y="1668" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_NoCatalogo_di" bpmnElement="Flow_NoCatalogo"><di:waypoint x="1000" y="1585" /><di:waypoint x="1030" y="1585" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1002" y="1548" width="26" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RetLocal_di" bpmnElement="Flow_RetLocal"><di:waypoint x="1130" y="1585" /><di:waypoint x="1190" y="1585" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BoletoFim_di" bpmnElement="Flow_BoletoFim"><di:waypoint x="720" y="1800" /><di:waypoint x="790" y="1800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2ViaFim_di" bpmnElement="Flow_2ViaFim"><di:waypoint x="1640" y="1820" /><di:waypoint x="1640" y="1980" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_NegFim_di" bpmnElement="Flow_NegFim"><di:waypoint x="1720" y="1940" /><di:waypoint x="1720" y="1980" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Ratifica_di" bpmnElement="Flow_Ratifica"><di:waypoint x="126" y="2180" /><di:waypoint x="180" y="2180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RatificaGate_di" bpmnElement="Flow_RatificaGate"><di:waypoint x="280" y="2180" /><di:waypoint x="340" y="2180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RTJ1Pendente_di" bpmnElement="Flow_RTJ1Pendente"><di:waypoint x="390" y="2180" /><di:waypoint x="450" y="2180" />
+        <bpmndi:BPMNLabel><dc:Bounds x="395" y="2148" width="55" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RTJ1VarianteJ_di" bpmnElement="Flow_RTJ1VarianteJ"><di:waypoint x="365" y="2205" /><di:waypoint x="365" y="2320" /><di:waypoint x="450" y="2320" />
+        <bpmndi:BPMNLabel><dc:Bounds x="368" y="2332" width="78" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PublicaNota_di" bpmnElement="Flow_PublicaNota"><di:waypoint x="550" y="2320" /><di:waypoint x="620" y="2320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Pede2Via_di" bpmnElement="MsgFlow_Pede2Via"><di:waypoint x="370" y="80" /><di:waypoint x="370" y="60" /><di:waypoint x="1650" y="60" /><di:waypoint x="1650" y="1740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_2Via_di" bpmnElement="MsgFlow_2Via"><di:waypoint x="1690" y="1740" /><di:waypoint x="1690" y="156" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PedeNegociacao_di" bpmnElement="MsgFlow_PedeNegociacao"><di:waypoint x="370" y="200" /><di:waypoint x="370" y="180" /><di:waypoint x="1730" y="180" /><di:waypoint x="1730" y="1860" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Negociacao_di" bpmnElement="MsgFlow_Negociacao"><di:waypoint x="1770" y="1860" /><di:waypoint x="1770" y="276" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AbreContestacao_di" bpmnElement="MsgFlow_AbreContestacao"><di:waypoint x="370" y="320" /><di:waypoint x="370" y="300" /><di:waypoint x="1810" y="300" /><di:waypoint x="1810" y="1140" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Contestacao_di" bpmnElement="MsgFlow_Contestacao"><di:waypoint x="1990" y="1140" /><di:waypoint x="1990" y="1080" /><di:waypoint x="1850" y="1080" /><di:waypoint x="1850" y="396" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PedeCancelamento_di" bpmnElement="MsgFlow_PedeCancelamento"><di:waypoint x="370" y="460" /><di:waypoint x="370" y="440" /><di:waypoint x="1890" y="440" /><di:waypoint x="1890" y="1330" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Boleto_di" bpmnElement="MsgFlow_Boleto"><di:waypoint x="700" y="1840" /><di:waypoint x="700" y="1870" /><di:waypoint x="1260" y="1870" /><di:waypoint x="1260" y="880" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Contato_di" bpmnElement="Association_Contato"><di:waypoint x="180" y="356" /><di:waypoint x="160" y="356" /><di:waypoint x="160" y="685" /><di:waypoint x="700" y="685" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RTJ1_di" bpmnElement="Association_RTJ1"><di:waypoint x="285" y="1225" /><di:waypoint x="240" y="1225" /><di:waypoint x="240" y="1120" /><di:waypoint x="560" y="1120" /><di:waypoint x="560" y="1080" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RTD4_di" bpmnElement="Association_RTD4"><di:waypoint x="535" y="1175" /><di:waypoint x="535" y="1140" /><di:waypoint x="340" y="1140" /><di:waypoint x="340" y="1250" /><di:waypoint x="200" y="1250" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Cerca_di" bpmnElement="Association_Cerca"><di:waypoint x="975" y="1560" /><di:waypoint x="975" y="1540" /><di:waypoint x="350" y="1540" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="1830" y="1140" /><di:waypoint x="1830" y="1050" /><di:waypoint x="2100" y="1050" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RTD3_di" bpmnElement="Association_RTD3"><di:waypoint x="1990" y="1220" /><di:waypoint x="1990" y="1270" /><di:waypoint x="2150" y="1270" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Financeiro_di" bpmnElement="Association_Financeiro"><di:waypoint x="670" y="1840" /><di:waypoint x="670" y="2000" /><di:waypoint x="820" y="2000" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Juridico_di" bpmnElement="Association_Juridico"><di:waypoint x="365" y="2155" /><di:waypoint x="365" y="2140" /><di:waypoint x="800" y="2140" /><di:waypoint x="800" y="2150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Lago_di" bpmnElement="Association_Lago"><di:waypoint x="1130" y="1585" /><di:waypoint x="1130" y="1620" /><di:waypoint x="1260" y="1620" /><di:waypoint x="1260" y="2530" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

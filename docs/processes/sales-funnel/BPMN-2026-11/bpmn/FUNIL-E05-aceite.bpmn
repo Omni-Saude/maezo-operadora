@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E05" targetNamespace="urn:funil:descritivo:etapa5" exporter="build_etapa05.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E05" name="Etapa 5 — Aceite">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do comprador/proponente. Pool externo (caixa-preta): os atos humanos do aceite (declarações e assinatura) são executados pelo comprador por meio do bloco de contratação da Superfície de vendas (E-SF-41) — nenhuma tarefa é inventada neste pool. Nenhuma mensagem proativa ao beneficiário (RT-D4).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Bloco de contratação/aceite (E-SF-41/E-SF-41r): aviso prévio do art. 7º §2º, declarações como atos separados com recibo, assinatura sob o portão A3 (RL-SF-027 + RL-SF-028) e encaminhamento à Faixa Assistida no caminho conservador. RN 413 art. 5º e art. 7º (baseline §2.3 L117/L123); CDC art. 49 (L222). isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: jurídico (portão RL-SF-046 — RN 438 art. 20, baseline L241) e comercial (acolhimento da contratação assistida/presencial — fallback do portão A3). O fato 'DS concluída' (etapa 7) entra como message start na superfície; a Declaração de Saúde NÃO é desenhada nesta etapa (custódia clínica fica na etapa 7, em raia própria).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_DSConcluida" name="Fato: DS concluída (etapa 7 — não desenhada)" sourceRef="Participant_Operadora" targetRef="StartEvent_DSConcluida" />
+    <bpmn:messageFlow id="MsgFlow_BlocoAcionado" name="Bloco de aceite acionado — consulta RL-SF-046" sourceRef="Task_ExibeAvisoPrevio" targetRef="StartEvent_Portabilidade" />
+    <bpmn:messageFlow id="MsgFlow_EncaminhaAssistida" name="Encaminha contratação assistida/presencial" sourceRef="Task_EncaminhaFaixaAssistida" targetRef="StartEvent_Assistida" />
+    <bpmn:messageFlow id="MsgFlow_Desistencia" name="Desistência do comprador" sourceRef="Participant_Comprador" targetRef="Event_Desistencia" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (decisão pendente): A3 = RL-SF-027 + RL-SF-028 (forma do aceite e admissão do aceite com efeito); RL-SF-046 (portabilidade eletrônica — RN 438 art. 20). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentation.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Bloco de contratação/aceite (E-SF-41/E-SF-41r): aviso prévio do art. 7º §2º, declarações como atos separados com recibo, assinatura sob o portão A3 (RL-SF-027 + RL-SF-028) e encaminhamento à Faixa Assistida no caminho conservador. RN 413 art. 5º e art. 7º (baseline §2.3 L117/L123); CDC art. 49 (L222). isExecutable=false.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície (omni)">
+        <bpmn:flowNodeRef>StartEvent_DSConcluida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibeAvisoPrevio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DeclaraPlanoReferencia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraReciboPlano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DeclaraCienciaResumo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_Desistencia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraReciboCiencia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_FormaAceite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AssinaAceite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraAceite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteRegistrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EncaminhaFaixaAssistida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FormaNaoRatificadaAssistida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE05</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_DSConcluida" name="DS concluída — atos do aceite habilitados"><bpmn:documentation>Message start: recebe o FATO 'declaração de saúde concluída' produzido na etapa 7 (ponte CPT — fato existente/não e escopo, produzido por decisão humana do médico auditor). A Declaração de Saúde NÃO é desenhada nesta etapa (custódia clínica = etapa 7, raia própria). Ordem ponta-a-ponta 1→2→3→4→7(DS)→5(aceite): a etapa 7 vem ANTES do aceite; variante DS pós-contrato = anotada na etapa 7 (posição do jurídico). Interlock T1 corrigido (E-SF-01 mesclado). MsgFlow de entrada: Participant_Operadora → este evento (message start sem órfão).</bpmn:documentation><bpmn:outgoing>Flow_S1_Prossegue</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_DSConcluida" messageRef="Message_DSConcluida" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ExibeAvisoPrevio" name="Exibe aviso prévio de assinatura"><bpmn:documentation>Dever VIGENTE (NÃO é portão): RN 413 art. 7º §2º (baseline L123) — antes de iniciar a contratação, o interessado deve ser informado de que toda vez em que for solicitada a sua assinatura significa que estará assinando o documento. Exibido ANTES do primeiro ato do aceite. GAP-E45-3: momento exato do aviso sem âncora fixada — RL-SF-028 (RATIFY-LATER-REGISTER.md:36) e RL-SF-052/TB-06 (:60) citadas, não respondidas. Épico E-SF-41 (aviso art. 7º §2º).</bpmn:documentation><bpmn:incoming>Flow_S1_Prossegue</bpmn:incoming><bpmn:outgoing>Flow_S2_AvisoExibido</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:userTask id="Task_DeclaraPlanoReferencia" name="Declara o plano-referência (ato separado)"><bpmn:documentation>ATO SEPARADO 1 de 2 (nunca um 'aceito geral'): declaração do plano-referência como ato distinto com registro próprio (fallback do portão A3/RL-SF-028 — RATIFY-LATER-REGISTER.md:36: forma II, login e senha após cadastro prévio, em mais de uma tela; RL-SF-053/TB-07 :61 citada, não respondida). Ato humano do Comprador, executado no bloco da superfície (userTask = ato humano; regra transversal 2). RN 413 art. 7º (baseline L123). Épicos E-SF-41/E-SF-41r.</bpmn:documentation><bpmn:incoming>Flow_S2_AvisoExibido</bpmn:incoming><bpmn:outgoing>Flow_S3_Ato1</bpmn:outgoing></bpmn:userTask>
+      <bpmn:serviceTask id="Task_RegistraReciboPlano" name="Emite recibo da declaração do plano-referência"><bpmn:documentation>Recibo autenticado e idempotente por ato (E-SF-02/E-SF-03 mesclados — PR 1268/1270: signatários A1–A5 e endurecimento fail-closed vigentes). RN 413 art. 5º §1º (baseline L117): protocolo automático e imediato. Cada ato separado tem recibo próprio.</bpmn:documentation><bpmn:incoming>Flow_S3_Ato1</bpmn:incoming><bpmn:outgoing>Flow_S4_Recibo1</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:userTask id="Task_DeclaraCienciaResumo" name="Declara ciência do resumo (ato separado)"><bpmn:documentation>ATO SEPARADO 2 de 2: ciência do resumo das condições como ato distinto com registro próprio (RL-SF-028, RATIFY-LATER-REGISTER.md:36). Nenhum botão único de 'aceito geral'. Ato humano do Comprador no bloco da superfície (E-SF-41). RN 413 art. 7º (baseline L123); CDC art. 30/31 (baseline L217/L218) — o que foi apresentado integra o contrato. Hospedeiro do boundary de desistência (Event_Desistencia).</bpmn:documentation><bpmn:incoming>Flow_S4_Recibo1</bpmn:incoming><bpmn:outgoing>Flow_S5_Ato2</bpmn:outgoing></bpmn:userTask>
+      <bpmn:boundaryEvent id="Event_Desistencia" name="Desistência do comprador" attachedToRef="Task_DeclaraCienciaResumo" cancelActivity="true"><bpmn:documentation>Boundary de mensagem interruptivo: desistência explícita do comprador durante os atos do aceite encerra o bloco SEM efeito (fim nomeado EndEvent_Abandono). GAP: mecanismo de sessão/tempo de abandono não definido no pacote (Annotation_AbandonoGap); recuperação = Frente F2 (RL-SF-066 FECHADO — nenhuma mensagem proativa).</bpmn:documentation><bpmn:outgoing>Flow_S11_Abandona</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_Event_Desistencia" messageRef="Message_DesistenciaComprador" /></bpmn:boundaryEvent>
+      <bpmn:serviceTask id="Task_RegistraReciboCiencia" name="Emite recibo da ciência do resumo"><bpmn:documentation>Recibo próprio do 2º ato separado (E-SF-02/E-SF-03 mesclados — PR 1268/1270). RN 413 art. 5º §1º (baseline L117).</bpmn:documentation><bpmn:incoming>Flow_S5_Ato2</bpmn:incoming><bpmn:outgoing>Flow_S6_Recibo2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_FormaAceite" name="Forma ratificada e A3 admitida?" default="Flow_S7_Encaminha"><bpmn:documentation>PORTÃO FECHADO A3 — RL-SF-027 (admissão do acceptance.record com efeito; RATIFY-LATER-REGISTER.md:35; dono) + RL-SF-028 (forma do aceite; :36; jurídico), nesta ordem. Default (FECHADO): forma do aceite não ratificada → modo leitura (termos apresentados, sem botão de efeito) + encaminhamento à Faixa Assistida. Abre com: ratificação jurídica da forma (RL-SF-028) E admissão A3 pelo dono (RL-SF-027). Signatários A1–A5 e endurecimento fail-closed JÁ MESCLADOS (E-SF-02 PR 1268; E-SF-03 PR 1270).</bpmn:documentation><bpmn:incoming>Flow_S6_Recibo2</bpmn:incoming><bpmn:outgoing>Flow_S7_Encaminha</bpmn:outgoing><bpmn:outgoing>Flow_S8_VarianteAssina</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:userTask id="Task_AssinaAceite" name="Assina o aceite por forma admitida"><bpmn:documentation>VARIANTE NÃO ATIVA (só com RL-SF-028 ratificado + RL-SF-027 admitido). RN 413 art. 7º caput I–IV (baseline L123): formas admitidas = certificação digital; login e senha após cadastro; identificação biométrica; assinatura eletrônica certificada. Assinatura eletrônica × qualificada = VARIANTES ANOTADAS (Annotation_FormasAssinatura) — a forma é do jurídico (portão A3); caminho ativo = conservador. CDC art. 49 (baseline L222): arrependimento conta da assinatura (2º marco; acumulabilidade RL-SF-015 :23 citada, não respondida). Épico E-SF-41/E-SF-41r.</bpmn:documentation><bpmn:incoming>Flow_S8_VarianteAssina</bpmn:incoming><bpmn:outgoing>Flow_S9_Assinado</bpmn:outgoing></bpmn:userTask>
+      <bpmn:serviceTask id="Task_RegistraAceite" name="Registra aceite e recibos (sem efeito até A3)"><bpmn:documentation>Registro do aceite e dos recibos dos atos separados; efeito de aceite/matrícula SÓ após admissão A3 (RL-SF-027 FECHADO — fail-closed; C8 não executa). Janela regulatória: RN 413 art. 5º §§2º-3º (baseline L118) — relógio de 25 dias parametrizado (RL-SF-038/NORM-GAP-8; DMN funnel_deadline_catalog r_rn413_art5_par2, DRAFT). Fato 'aceite registrado' é consumido pela etapa 6 (não desenhada aqui). E-SF-03 mesclado (PR 1270).</bpmn:documentation><bpmn:incoming>Flow_S9_Assinado</bpmn:incoming><bpmn:outgoing>Flow_S10_Registrado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_AceiteRegistrado" name="Aceite registrado"><bpmn:documentation>Fim nomeado do caminho variante: aceite assinado por forma ratificada e registrado (efeito após A3). RN 413 art. 5º (baseline L117); CDC art. 49 (L222).</bpmn:documentation><bpmn:incoming>Flow_S10_Registrado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sendTask id="Task_EncaminhaFaixaAssistida" name="Encaminha à Faixa Assistida (assistida/presencial)"><bpmn:documentation>Default conservador do portão A3 (fallback verbatim P6): E5 permanece navegável em modo leitura, com encaminhamento à Faixa Assistida (A5/decisão nº 12) e mensagem honesta de que a contratação digital não está disponível. sendTask → raia comercial da operadora (MsgFlow). RN 413 art. 2º caput (baseline L113): contratação eletrônica é facultativa. Nenhuma mensagem proativa ao beneficiário (RT-D4).</bpmn:documentation><bpmn:incoming>Flow_S7_Encaminha</bpmn:incoming><bpmn:outgoing>Flow_S12_Encaminhado</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:endEvent id="EndEvent_FormaNaoRatificadaAssistida" name="Forma não ratificada — assistida/presencial"><bpmn:documentation>Fim nomeado do caminho default: forma do aceite não ratificada (RL-SF-027 + RL-SF-028 FECHADOS) → contratação assistida/presencial.</bpmn:documentation><bpmn:incoming>Flow_S12_Encaminhado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Abandono do bloco de aceite"><bpmn:documentation>Fim nomeado: abandono/desistência sem efeito; sem mensagem proativa de recuperação (Frente F2 — RL-SF-066 FECHADO; encerra antes dos 25 dias).</bpmn:documentation><bpmn:incoming>Flow_S11_Abandonaa_Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_AbandonoE05" name="Abandono — link 'ABANDONO-E05' (par F2)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F2 — Recuperação de abandono e mensagens (FUNIL-F02-recuperacao-e-mensagens.bpmn): o catch de 'ABANDONO-E05' captura linkEventDefinition com este nome (grafia idêntica à de F02). Missão §5.2: a frente LIGA às etapas e não duplica as tarefas delas; recuperação só com consentimento, nunca a beneficiário, janela encerra antes dos 25 dias (BM-08). Épico E-SF-61.</bpmn:documentation><bpmn:incoming>Flow_S11_Abandona</bpmn:incoming><bpmn:outgoing>Flow_S11_Abandonaa_Fim</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE05" name="ABANDONO-E05" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Prossegue" name="Prossegue" sourceRef="StartEvent_DSConcluida" targetRef="Task_ExibeAvisoPrevio" />
+      <bpmn:sequenceFlow id="Flow_S2_AvisoExibido" name="Aviso exibido" sourceRef="Task_ExibeAvisoPrevio" targetRef="Task_DeclaraPlanoReferencia" />
+      <bpmn:sequenceFlow id="Flow_S3_Ato1" name="Ato declarado" sourceRef="Task_DeclaraPlanoReferencia" targetRef="Task_RegistraReciboPlano" />
+      <bpmn:sequenceFlow id="Flow_S4_Recibo1" name="Recibo emitido" sourceRef="Task_RegistraReciboPlano" targetRef="Task_DeclaraCienciaResumo" />
+      <bpmn:sequenceFlow id="Flow_S5_Ato2" name="Ato declarado" sourceRef="Task_DeclaraCienciaResumo" targetRef="Task_RegistraReciboCiencia" />
+      <bpmn:sequenceFlow id="Flow_S6_Recibo2" name="Recibo emitido" sourceRef="Task_RegistraReciboCiencia" targetRef="Gateway_FormaAceite" />
+      <bpmn:sequenceFlow id="Flow_S7_Encaminha" name="Forma não ratificada — modo leitura (FECHADO)" sourceRef="Gateway_FormaAceite" targetRef="Task_EncaminhaFaixaAssistida" />
+      <bpmn:sequenceFlow id="Flow_S8_VarianteAssina" name="Forma ratificada + A3 admitida (variante)" sourceRef="Gateway_FormaAceite" targetRef="Task_AssinaAceite"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">RL-SF-028 ratificado (forma) E RL-SF-027 admitido (admissão A3)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S9_Assinado" name="Assinado" sourceRef="Task_AssinaAceite" targetRef="Task_RegistraAceite" />
+      <bpmn:sequenceFlow id="Flow_S10_Registrado" name="Aceite registrado" sourceRef="Task_RegistraAceite" targetRef="EndEvent_AceiteRegistrado" />
+      <bpmn:sequenceFlow id="Flow_S11_Abandona" name="Abandona — emite 'ABANDONO-E05' (par F2)" sourceRef="Event_Desistencia" targetRef="Event_AbandonoE05" />
+      <bpmn:sequenceFlow id="Flow_S11_Abandonaa_Fim" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE05" targetRef="EndEvent_Abandono" />
+      <bpmn:sequenceFlow id="Flow_S12_Encaminhado" name="Encaminhado" sourceRef="Task_EncaminhaFaixaAssistida" targetRef="EndEvent_FormaNaoRatificadaAssistida" />
+      <bpmn:textAnnotation id="Annotation_A3Forma"><bpmn:text>PORTÃO FECHADO A3: RL-SF-027 (admissão do acceptance.record com efeito — dono) + RL-SF-028 (forma do aceite — jurídico). Default: forma não ratificada → modo leitura + Faixa Assistida. Abre: ratificação jurídica da forma E admissão A3, nesta ordem. Signatários A1–A5/fail-closed já mesclados (E-SF-02 PR 1268; E-SF-03 PR 1270).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_FormasAssinatura"><bpmn:text>VARIANTES DE FORMA (anotadas, não ativas): assinatura eletrônica × assinatura qualificada (certificação digital) — RN 413 art. 7º I–IV (baseline L123). A escolha da forma é do jurídico via RL-SF-028 (portão A3); caminho ativo = conservador (sem forma ratificada). Nenhuma variante desenhada como ativa.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_AbandonoGap"><bpmn:text>GAP: mecanismo de sessão/tempo para abandono no bloco de aceite não definido no pacote. Recuperação = Frente F2 (RL-SF-066 FECHADO — nenhuma mensagem proativa; encerra antes dos 25 dias).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_A3Forma" sourceRef="Gateway_FormaAceite" targetRef="Annotation_A3Forma" />
+    <bpmn:association id="Association_FormasAssinatura" sourceRef="Task_AssinaAceite" targetRef="Annotation_FormasAssinatura" />
+    <bpmn:association id="Association_AbandonoGap" sourceRef="EndEvent_Abandono" targetRef="Annotation_AbandonoGap" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: jurídico (portão RL-SF-046 — RN 438 art. 20, baseline L241) e comercial (acolhimento da contratação assistida/presencial — fallback do portão A3). O fato 'DS concluída' (etapa 7) entra como message start na superfície; a Declaração de Saúde NÃO é desenhada nesta etapa (custódia clínica fica na etapa 7, em raia própria).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>StartEvent_Portabilidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConfereEstadoPortabilidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Portabilidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OrientaPortabilidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PortabilidadeInterina</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PortabilidadeVariante</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_Assistida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AcolheContratacaoAssistida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AcolhimentoRegistrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_HumanoE05</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_Portabilidade" name="Bloco de contratação eletrônica acionado"><bpmn:documentation>Message start (MsgFlow da superfície — sem órfão): o acionamento do bloco eletrônico consulta o pré-requisito transversal da portabilidade antes de oferecer contratação eletrônica (RN 413 art. 2º caput, baseline L113 — facultativa).</bpmn:documentation><bpmn:outgoing>Flow_J0a_Consulta</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_Portabilidade" messageRef="Message_BlocoAcionado" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ConfereEstadoPortabilidade" name="Confere estado: RL-SF-046 e BL-01/Forma 1"><bpmn:documentation>Consulta de estado (serviceTask — não decide): leitura corrente da ratificação RL-SF-046 (RATIFY-LATER-REGISTER.md:54), do teto interino orientation-only (RL-SF-004, :12) e do estado de BL-01/DEC-01 + Forma 1. A DECISÃO permanece no gateway (portão fechado); a ratificação é ato do jurídico fora deste desenho. RN 438 art. 20 (baseline L241); art. 8º-A RN 585/2023 igualmente sujeito.</bpmn:documentation><bpmn:incoming>Flow_J0a_Consulta</bpmn:incoming><bpmn:outgoing>Flow_J0b_Estado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_Portabilidade" name="BL-01 ligada e Forma 1 pronta?" default="Flow_J1_Orienta"><bpmn:documentation>PORTÃO FECHADO RL-SF-046 (jurídico; RATIFY-LATER-REGISTER.md:54; D-SF-006): RN 438 art. 20 (baseline L241) — oferecida a contratação eletrônica, a portabilidade de carências deve ser disponibilizada por via eletrônica (Forma 1). Default (FECHADO): orientação apenas (Forma 2 interina até BL-01/DEC-01). Forma 1 NÃO desenhada como caminho ativo. Fallback: Forma 1 não pronta ⇒ BL-01 não liga ⇒ contratação eletrônica não oferecida (art. 2º, L113).</bpmn:documentation><bpmn:incoming>Flow_J0b_Estado</bpmn:incoming><bpmn:outgoing>Flow_J1_Orienta</bpmn:outgoing><bpmn:outgoing>Flow_J2_VariantePort</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_OrientaPortabilidade" name="Orienta portabilidade — Forma 2 interina"><bpmn:documentation>Teto interino 'orientation-only' (A7 Forma 2, valid_until expira antes de ligar a contratação — RL-SF-004, RATIFY-LATER-REGISTER.md:12): nenhuma formalização eletrônica da portabilidade; pedido/documentos/resposta online (Forma 1) NÃO desenhados como ativos. RL-SF-046; RN 438 art. 20 (baseline L241); art. 8º-A RN 585/2023 igualmente sujeito; épicos EP-CORE-05a/05c (EP-CORE-05b não é bloqueado).</bpmn:documentation><bpmn:incoming>Flow_J1_Orienta</bpmn:incoming><bpmn:outgoing>Flow_J1b_Interina</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_PortabilidadeInterina" name="Orientação interina registrada"><bpmn:documentation>Fim nomeado do caminho default: portabilidade segue por orientação eletrônica apenas (Forma 2 interina) até BL-01/DEC-01 (RL-SF-046 FECHADO).</bpmn:documentation><bpmn:incoming>Flow_J1b_Interina</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_PortabilidadeVariante" name="Portabilidade eletrônica habilitada (variante)"><bpmn:documentation>VARIANTE NÃO ATIVA: só com RL-SF-046 ratificado (leitura do art. 20 e do art. 8º-A) e Forma 1 pronta — então a realização eletrônica da portabilidade é dever exibível do destino. O ramo permanece variante; Forma 1 não é desenhada como ativa.</bpmn:documentation><bpmn:incoming>Flow_J2_VariantePort</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_Assistida" name="Encaminhamento assistida recebido"><bpmn:documentation>Message start (MsgFlow da superfície — sem órfão): encaminhamento da Faixa Assistida vindo do caminho default do portão A3 (RL-SF-027 + RL-SF-028 FECHADOS).</bpmn:documentation><bpmn:outgoing>Flow_C1_Acolhe</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_Assistida" messageRef="Message_AssistidaEncaminhada" /></bpmn:startEvent>
+      <bpmn:userTask id="Task_AcolheContratacaoAssistida" name="Acolhe contratação assistida/presencial"><bpmn:documentation>userTask humana na raia comercial: acolhimento da contratação assistida/presencial (fallback do portão A3 — P6) e registro do acolhimento. Nenhuma mensagem proativa ao beneficiário (RT-D4). GAP nível 2: acolhimento assistido sem SP-OP-* (Annotation_Nivel2).</bpmn:documentation><bpmn:incoming>Flow_C1_Acolhe</bpmn:incoming><bpmn:outgoing>Flow_C2_Registrado</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_AcolhimentoRegistrado" name="Acolhimento assistido registrado"><bpmn:documentation>Fim nomeado: contratação segue por canal assistido/presencial fora deste desenho.</bpmn:documentation><bpmn:incoming>Flow_C2_Registradoa_Hum</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_HumanoE05" name="Humano a um toque — link 'E05-HUMANO' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): o catch captura linkEventDefinition name='E05-HUMANO' (grafia idêntica à de F03). Momento: o especialista orienta/assiste SEM ranking e SEM comparação entre operadoras (CADE). Nenhum botão adicional desenhado aqui (a frente é a dona do atendimento). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_C2_Registrado</bpmn:incoming><bpmn:outgoing>Flow_C2_Registradoa_Hum</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_HumanoE05" name="E05-HUMANO" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_J0a_Consulta" name="Consulta" sourceRef="StartEvent_Portabilidade" targetRef="Task_ConfereEstadoPortabilidade" />
+      <bpmn:sequenceFlow id="Flow_J0b_Estado" name="Estado consultado" sourceRef="Task_ConfereEstadoPortabilidade" targetRef="Gateway_Portabilidade" />
+      <bpmn:sequenceFlow id="Flow_J1_Orienta" name="Forma 1 não pronta — orientação apenas (FECHADO)" sourceRef="Gateway_Portabilidade" targetRef="Task_OrientaPortabilidade" />
+      <bpmn:sequenceFlow id="Flow_J2_VariantePort" name="BL-01 ligada + Forma 1 pronta (variante)" sourceRef="Gateway_Portabilidade" targetRef="EndEvent_PortabilidadeVariante"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">RL-SF-046 ratificado (art. 20 + art. 8º-A) e Forma 1 pronta (BL-01 ligada)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_J1b_Interina" name="Interina registrada" sourceRef="Task_OrientaPortabilidade" targetRef="EndEvent_PortabilidadeInterina" />
+      <bpmn:sequenceFlow id="Flow_C1_Acolhe" name="Acolhe" sourceRef="StartEvent_Assistida" targetRef="Task_AcolheContratacaoAssistida" />
+      <bpmn:sequenceFlow id="Flow_C2_Registrado" name="Registrado — emite 'E05-HUMANO' (par F3)" sourceRef="Task_AcolheContratacaoAssistida" targetRef="Event_HumanoE05" />
+      <bpmn:sequenceFlow id="Flow_C2_Registradoa_Hum" name="Especialista pode orientar/assistir — a frente é a dona do atendimento" sourceRef="Event_HumanoE05" targetRef="EndEvent_AcolhimentoRegistrado" />
+      <bpmn:textAnnotation id="Annotation_Portabilidade"><bpmn:text>PORTÃO FECHADO RL-SF-046 (jurídico): RN 438 art. 20 (baseline L241) — oferecida a contratação eletrônica, a portabilidade de carências deve ser por via eletrônica (Forma 1). Forma 1 NÃO desenhada como ativa; default: orientação apenas (Forma 2 interina até BL-01/DEC-01); Forma 1 não pronta ⇒ BL-01 não liga ⇒ contratação eletrônica não oferecida (art. 2º, L113).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: nenhum SP-OP-* de aceite existe na engine — GAP com épicos: bloco de aceite da superfície = E-SF-41 (onda 2)/E-SF-41r (AGUARDA-RATIFICAÇÃO); signatários/fail-closed = E-SF-02/E-SF-03 (mesclados, PR 1268/1270). Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Portabilidade" sourceRef="Gateway_Portabilidade" targetRef="Annotation_Portabilidade" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_AcolheContratacaoAssistida" targetRef="Annotation_Nivel2" />
+  </bpmn:process>
+  <bpmn:message id="Message_DSConcluida" name="Declaração de saúde concluída" />
+  <bpmn:message id="Message_BlocoAcionado" name="Bloco de contratação eletrônica acionado" />
+  <bpmn:message id="Message_DesistenciaComprador" name="Desistência do comprador" />
+  <bpmn:message id="Message_AssistidaEncaminhada" name="Encaminhamento à contratação assistida" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E05">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E05" bpmnElement="Collaboration_FUNIL_E05">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="220" width="1820" height="560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="860" width="1820" height="460" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="250" width="1790" height="530" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="890" width="1790" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="1150" width="1790" height="170" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_DSConcluida_di" bpmnElement="StartEvent_DSConcluida">
+        <dc:Bounds x="180" y="460" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="140" y="414" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibeAvisoPrevio_di" bpmnElement="Task_ExibeAvisoPrevio">
+        <dc:Bounds x="300" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DeclaraPlanoReferencia_di" bpmnElement="Task_DeclaraPlanoReferencia">
+        <dc:Bounds x="460" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraReciboPlano_di" bpmnElement="Task_RegistraReciboPlano">
+        <dc:Bounds x="620" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DeclaraCienciaResumo_di" bpmnElement="Task_DeclaraCienciaResumo">
+        <dc:Bounds x="780" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Desistencia_di" bpmnElement="Event_Desistencia">
+        <dc:Bounds x="812" y="502" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="546" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraReciboCiencia_di" bpmnElement="Task_RegistraReciboCiencia">
+        <dc:Bounds x="940" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_FormaAceite_di" bpmnElement="Gateway_FormaAceite" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1120" y="450" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1110" y="414" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AssinaAceite_di" bpmnElement="Task_AssinaAceite">
+        <dc:Bounds x="1290" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraAceite_di" bpmnElement="Task_RegistraAceite">
+        <dc:Bounds x="1450" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteRegistrado_di" bpmnElement="EndEvent_AceiteRegistrado">
+        <dc:Bounds x="1640" y="460" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1600" y="504" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EncaminhaFaixaAssistida_di" bpmnElement="Task_EncaminhaFaixaAssistida">
+        <dc:Bounds x="1100" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FormaNaoRatificadaAssistida_di" bpmnElement="EndEvent_FormaNaoRatificadaAssistida" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1300" y="620" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1350" y="620" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="700" y="620" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="660" y="664" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Portabilidade_di" bpmnElement="StartEvent_Portabilidade">
+        <dc:Bounds x="350" y="960" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="300" y="1004" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConfereEstadoPortabilidade_di" bpmnElement="Task_ConfereEstadoPortabilidade">
+        <dc:Bounds x="460" y="940" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Portabilidade_di" bpmnElement="Gateway_Portabilidade" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="680" y="950" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="1004" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OrientaPortabilidade_di" bpmnElement="Task_OrientaPortabilidade">
+        <dc:Bounds x="660" y="1060" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PortabilidadeInterina_di" bpmnElement="EndEvent_PortabilidadeInterina" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="860" y="1060" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="790" y="1104" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PortabilidadeVariante_di" bpmnElement="EndEvent_PortabilidadeVariante">
+        <dc:Bounds x="800" y="920" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="740" y="964" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Assistida_di" bpmnElement="StartEvent_Assistida">
+        <dc:Bounds x="1150" y="1220" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="1262" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AcolheContratacaoAssistida_di" bpmnElement="Task_AcolheContratacaoAssistida">
+        <dc:Bounds x="1290" y="1200" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AcolhimentoRegistrado_di" bpmnElement="EndEvent_AcolhimentoRegistrado">
+        <dc:Bounds x="1490" y="1220" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1440" y="1266" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1900" y="400" width="210" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_A3Forma_di" bpmnElement="Annotation_A3Forma">
+        <dc:Bounds x="1560" y="580" width="230" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_FormasAssinatura_di" bpmnElement="Annotation_FormasAssinatura">
+        <dc:Bounds x="1560" y="280" width="230" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Portabilidade_di" bpmnElement="Annotation_Portabilidade">
+        <dc:Bounds x="1560" y="940" width="230" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_AbandonoGap_di" bpmnElement="Annotation_AbandonoGap">
+        <dc:Bounds x="420" y="580" width="210" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="180" y="1180" width="240" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE05_di" bpmnElement="Event_AbandonoE05">
+        <dc:Bounds x="800" y="590" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_HumanoE05_di" bpmnElement="Event_HumanoE05">
+        <dc:Bounds x="1422" y="1220" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_Prossegue_di" bpmnElement="Flow_S1_Prossegue"><di:waypoint x="216" y="478" /><di:waypoint x="300" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="222" y="484" width="60" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_AvisoExibido_di" bpmnElement="Flow_S2_AvisoExibido"><di:waypoint x="400" y="478" /><di:waypoint x="460" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="402" y="484" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_Ato1_di" bpmnElement="Flow_S3_Ato1"><di:waypoint x="560" y="478" /><di:waypoint x="620" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="562" y="484" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_Recibo1_di" bpmnElement="Flow_S4_Recibo1"><di:waypoint x="720" y="478" /><di:waypoint x="780" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="722" y="484" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S5_Ato2_di" bpmnElement="Flow_S5_Ato2"><di:waypoint x="880" y="478" /><di:waypoint x="940" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="880" y="590" width="60" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S6_Recibo2_di" bpmnElement="Flow_S6_Recibo2"><di:waypoint x="1040" y="478" /><di:waypoint x="1120" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1042" y="484" width="76" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S7_Encaminha_di" bpmnElement="Flow_S7_Encaminha"><di:waypoint x="1145" y="500" /><di:waypoint x="1145" y="620" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1000" y="530" width="110" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S8_VarianteAssina_di" bpmnElement="Flow_S8_VarianteAssina"><di:waypoint x="1170" y="478" /><di:waypoint x="1290" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1180" y="360" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S9_Assinado_di" bpmnElement="Flow_S9_Assinado"><di:waypoint x="1390" y="478" /><di:waypoint x="1450" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1392" y="484" width="56" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S10_Registrado_di" bpmnElement="Flow_S10_Registrado"><di:waypoint x="1550" y="478" /><di:waypoint x="1640" y="478" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1552" y="444" width="86" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S11_Abandona_di" bpmnElement="Flow_S11_Abandona"><di:waypoint x="818" y="538" /><di:waypoint x="818" y="590" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="620" width="70" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S11_Abandonaa_Fim_di" bpmnElement="Flow_S11_Abandonaa_Fim"><di:waypoint x="818" y="626" /><di:waypoint x="818" y="638" /><di:waypoint x="736" y="638" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S12_Encaminhado_di" bpmnElement="Flow_S12_Encaminhado"><di:waypoint x="1200" y="660" /><di:waypoint x="1260" y="660" /><di:waypoint x="1260" y="638" /><di:waypoint x="1300" y="638" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1206" y="630" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J0a_Consulta_di" bpmnElement="Flow_J0a_Consulta"><di:waypoint x="386" y="978" /><di:waypoint x="460" y="978" />
+        <bpmndi:BPMNLabel><dc:Bounds x="392" y="944" width="64" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J0b_Estado_di" bpmnElement="Flow_J0b_Estado"><di:waypoint x="560" y="978" /><di:waypoint x="680" y="978" />
+        <bpmndi:BPMNLabel><dc:Bounds x="566" y="944" width="110" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J1_Orienta_di" bpmnElement="Flow_J1_Orienta"><di:waypoint x="705" y="1000" /><di:waypoint x="705" y="1060" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1064" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J2_VariantePort_di" bpmnElement="Flow_J2_VariantePort"><di:waypoint x="705" y="950" /><di:waypoint x="705" y="938" /><di:waypoint x="800" y="938" />
+        <bpmndi:BPMNLabel><dc:Bounds x="710" y="910" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J1b_Interina_di" bpmnElement="Flow_J1b_Interina"><di:waypoint x="760" y="1078" /><di:waypoint x="860" y="1078" />
+        <bpmndi:BPMNLabel><dc:Bounds x="766" y="1044" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C1_Acolhe_di" bpmnElement="Flow_C1_Acolhe"><di:waypoint x="1186" y="1238" /><di:waypoint x="1290" y="1238" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1196" y="1206" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_Registrado_di" bpmnElement="Flow_C2_Registrado"><di:waypoint x="1390" y="1238" /><di:waypoint x="1422" y="1238" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1396" y="1180" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_Registradoa_Hum_di" bpmnElement="Flow_C2_Registradoa_Hum"><di:waypoint x="1458" y="1238" /><di:waypoint x="1490" y="1238" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_DSConcluida_di" bpmnElement="MsgFlow_DSConcluida"><di:waypoint x="198" y="860" /><di:waypoint x="198" y="496" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="700" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_BlocoAcionado_di" bpmnElement="MsgFlow_BlocoAcionado"><di:waypoint x="370" y="520" /><di:waypoint x="370" y="960" />
+        <bpmndi:BPMNLabel><dc:Bounds x="384" y="744" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_EncaminhaAssistida_di" bpmnElement="MsgFlow_EncaminhaAssistida"><di:waypoint x="1170" y="700" /><di:waypoint x="1170" y="1220" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1190" y="752" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Desistencia_di" bpmnElement="MsgFlow_Desistencia"><di:waypoint x="910" y="140" /><di:waypoint x="910" y="580" /><di:waypoint x="830" y="580" /><di:waypoint x="830" y="538" />
+        <bpmndi:BPMNLabel><dc:Bounds x="920" y="180" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_A3Forma_di" bpmnElement="Association_A3Forma"><di:waypoint x="1120" y="500" /><di:waypoint x="1120" y="528" /><di:waypoint x="1240" y="528" /><di:waypoint x="1240" y="556" /><di:waypoint x="1600" y="556" /><di:waypoint x="1600" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_FormasAssinatura_di" bpmnElement="Association_FormasAssinatura"><di:waypoint x="1340" y="440" /><di:waypoint x="1340" y="400" /><di:waypoint x="1560" y="400" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Portabilidade_di" bpmnElement="Association_Portabilidade"><di:waypoint x="700" y="950" /><di:waypoint x="700" y="908" /><di:waypoint x="1620" y="908" /><di:waypoint x="1620" y="940" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_AbandonoGap_di" bpmnElement="Association_AbandonoGap"><di:waypoint x="700" y="638" /><di:waypoint x="630" y="638" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="1340" y="1280" /><di:waypoint x="1340" y="1306" /><di:waypoint x="420" y="1306" /><di:waypoint x="420" y="1290" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

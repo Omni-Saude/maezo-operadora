@@ -1,0 +1,434 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E06" targetNamespace="urn:funil:descritivo:etapa6" exporter="build_etapa06.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E06" name="Etapa 6 — Contrato e pagamento">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do comprador/proponente. Pool externo (caixa-preta): a etapa começa com o aceite registrado (etapa 5) e o comprador segue pela Superfície de vendas. Nenhuma tarefa é inventada neste pool.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Exibe opções de pagamento e estado da contratação SEM ETA de 25 dias (RL-SF-038 fechado). RN 413 art. 5º §2º (baseline L118). Épicos E-SF-07/E-SF-08.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, jurídico, financeiro. Portões: EM-01 (RL-SF-010/011/012) FECHADO; escalação de pagamento incerto (DEC-15/RL-SF-029). RN 413 art. 5º §§1º-7º (baseline L117-121); art. 6º (L122).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago" processRef="Process_ExecutorAMH"><bpmn:documentation>Executor comercial e lago (amh-data-platform). Executa a contratação, emite PDFs, opera a porta de pagamento PSP-agnóstica (E-SF-51) e vigia o relógio-sombra de 25 dias (E-SF-07). isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_PSP" name="Provedor de pagamento"><bpmn:documentation>Pool externo sem lanes. Porta PSP-agnóstica (E-SF-51, mesclado amh 414 — só adaptadores sintéticos). Regra DEC-15 (DECISIONS-AND-ANSWERS.md:3117): pagamento incerto NUNCA é recriado nem troca de provedor. Ativação depende de RL-SF-029 (RATIFY-LATER-REGISTER.md:37).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Email" name="Provedor de e-mail"><bpmn:documentation>Pool externo sem lanes. Envio do protocolo (RN 413 art. 5º §1º, baseline L117) — transportes BLOQUEADOS pelos portões EM-01: RL-SF-010 (DPO), RL-SF-011 (jurídico), RL-SF-012 (dono-deploy).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_AceiteRegistrado" name="Aceite registrado (etapa 5)" sourceRef="Participant_Comprador" targetRef="StartEvent_ContratacaoIniciada" />
+    <bpmn:messageFlow id="MsgFlow_ContratacaoIniciadaOperadora" name="Contratação iniciada" sourceRef="Participant_ExecutorAMH" targetRef="StartEvent_ProtocoloDevido" />
+    <bpmn:messageFlow id="MsgFlow_OpcoesPagamento" name="Opções de pagamento" sourceRef="Task_PortaDePagamento" targetRef="StartEvent_OpcoesRecebidas" />
+    <bpmn:messageFlow id="MsgFlow_CobrancaPSP" name="Cria cobrança no PSP" sourceRef="Task_EnviaCobrancaPSP" targetRef="Participant_PSP" />
+    <bpmn:messageFlow id="MsgFlow_ConfirmacaoPagamento" name="Confirmação do pagamento" sourceRef="Participant_PSP" targetRef="Task_AguardaConfirmacao" />
+    <bpmn:messageFlow id="MsgFlow_PagamentoIncerto" name="Pagamento incerto notificado" sourceRef="Task_NotificaPagamentoIncerto" targetRef="StartEvent_PagamentoIncerto" />
+    <bpmn:messageFlow id="MsgFlow_ProtocoloEmail" name="Protocolo da contratação" sourceRef="Task_EnviaProtocoloEmail" targetRef="Participant_Email" />
+    <bpmn:messageFlow id="MsgFlow_Desistencia" name="Desistência do comprador" sourceRef="Participant_Comprador" targetRef="Event_Desistencia" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (decisão pendente: RL-SF-038; EM-01 = RL-SF-010/011/012; RL-SF-029). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Exibe opções de pagamento e estado da contratação SEM ETA de 25 dias (RL-SF-038 fechado). RN 413 art. 5º §2º (baseline L118). Épicos E-SF-07/E-SF-08.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície">
+        <bpmn:flowNodeRef>StartEvent_OpcoesRecebidas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibeOpcoesPagamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OpcoesExibidas</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_OpcoesRecebidas" name="Opções de pagamento"><bpmn:documentation>Message start: opções geradas pela porta de pagamento do executor AMH (E-SF-51).</bpmn:documentation><bpmn:outgoing>Flow_S1_OpcoesRecebidas</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_OpcoesRecebidas" messageRef="Message_OpcoesPagamento" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ExibeOpcoesPagamento" name="Exibe opções de pagamento e estado da contratação"><bpmn:documentation>RN 413 art. 5º §2º (baseline L118): concluir a contratação e disponibilizar as opções de pagamento em ≤25 dias corridos. Estado exibido SEM ETA de 25 dias — relógio-sombra (RL-SF-038 FECHADO; prazo no DMN funnel_deadline_catalog, deadline_ref RN413-art5-par2, DRAFT). Épicos E-SF-07/E-SF-08 (mesclado PR 1271).</bpmn:documentation><bpmn:incoming>Flow_S1_OpcoesRecebidas</bpmn:incoming><bpmn:outgoing>Flow_S2_ExibeComprador</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_OpcoesExibidas" name="Opções exibidas ao comprador"><bpmn:documentation>Fim do papel da Superfície na etapa 6.</bpmn:documentation><bpmn:incoming>Flow_S2_ExibeComprador</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_S1_OpcoesRecebidas" name="Recebidas" sourceRef="StartEvent_OpcoesRecebidas" targetRef="Task_ExibeOpcoesPagamento" />
+      <bpmn:sequenceFlow id="Flow_S2_ExibeComprador" name="Exibe ao comprador" sourceRef="Task_ExibeOpcoesPagamento" targetRef="EndEvent_OpcoesExibidas" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, jurídico, financeiro. Portões: EM-01 (RL-SF-010/011/012) FECHADO; escalação de pagamento incerto (DEC-15/RL-SF-029). RN 413 art. 5º §§1º-7º (baseline L117-121); art. 6º (L122).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_ProtocoloDevido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PreparaProtocoloEmail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaProtocoloEmail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ProtocoloEnviadoVariante</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>Gateway_EmailPortao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ProtocoloSemEnvio</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Financeiro" name="Financeiro">
+        <bpmn:flowNodeRef>StartEvent_PagamentoIncerto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AnalisaPagamentoIncerto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PagamentoIncertoParado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_ProtocoloDevido" name="Contratação iniciada — protocolo devido"><bpmn:documentation>Message start: contratação iniciada no executor AMH. RN 413 art. 5º §1º (baseline L117): protocolo automático e imediato, encaminhado por correio eletrônico — não é etapa manual opcional (RL-SF-052/TB-06 citada, não respondida).</bpmn:documentation><bpmn:outgoing>Flow_F1_IniciaProtocolo</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_ProtocoloDevido" messageRef="Message_ContratacaoIniciadaOperadora" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_PreparaProtocoloEmail" name="Prepara protocolo da contratação"><bpmn:documentation>Gera e prepara o protocolo (RN 413 art. 5º §1º, baseline L117). Portão EM-01 FECHADO: RL-SF-010 (DPO/operador, L18), RL-SF-011 (jurídico — texto §1º, bounce, ponte E, L19), RL-SF-012 (dono-deploy — transporte DARK, L20). Fallback F: contratação eletrônica não oferecida (art. 2º caput, baseline L113).</bpmn:documentation><bpmn:incoming>Flow_F1_IniciaProtocolo</bpmn:incoming><bpmn:outgoing>Flow_F2_Transporte</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:sendTask id="Task_EnviaProtocoloEmail" name="Envia protocolo por e-mail"><bpmn:documentation>VARIANTE NÃO ATIVA: só com EM-01 aberto (RL-SF-010/011/012). RN 413 art. 5º §1º (baseline L117). Provedor de e-mail = operador (base legal a ratificar no RL-SF-010).</bpmn:documentation><bpmn:incoming>Flow_F4_TransporteDefinido</bpmn:incoming><bpmn:outgoing>Flow_F5_EnviaVariante</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:endEvent id="EndEvent_ProtocoloEnviadoVariante" name="Protocolo enviado (variante)"><bpmn:documentation>Fim da variante de envio (não ativa enquanto EM-01 FECHADO).</bpmn:documentation><bpmn:incoming>Flow_F5_EnviaVariante</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_EmailPortao" name="Transporte e-mail definido?" default="Flow_F3_SemEnvio"><bpmn:documentation>PORTÃO FECHADO EM-01 (decide DPO + jurídico + dono-deploy): default = transporte não definido → SEM envio. RL-SF-010 (RATIFY-LATER-REGISTER.md:18), RL-SF-011 (:19), RL-SF-012 (:20). Fallback F: contratação eletrônica não oferecida (baseline L113).</bpmn:documentation><bpmn:incoming>Flow_F2_Transporte</bpmn:incoming><bpmn:outgoing>Flow_F3_SemEnvio</bpmn:outgoing><bpmn:outgoing>Flow_F4_TransporteDefinido</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_ProtocoloSemEnvio" name="Sem envio — transporte indefinido"><bpmn:documentation>Fim conservador: sem envio enquanto EM-01 FECHADO (RL-SF-010/011/012).</bpmn:documentation><bpmn:incoming>Flow_F3_SemEnvio</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_PagamentoIncerto" name="Pagamento incerto notificado"><bpmn:documentation>Message start: notificação do executor AMH (erro/incerteza na porta de pagamento, E-SF-51).</bpmn:documentation><bpmn:outgoing>Flow_F6_Analisa</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_PagamentoIncerto" messageRef="Message_PagamentoIncerto" /></bpmn:startEvent>
+      <bpmn:userTask id="Task_AnalisaPagamentoIncerto" name="Analisar pagamento incerto e interromper"><bpmn:documentation>userTask humana (valores em dinheiro/decisão = papel competente, regra transversal 2). Pagamento incerto NUNCA é recriado nem troca de provedor — payment.reconcile/operation.get (DEC-15, DECISIONS-AND-ANSWERS.md:3117; guarda test_uncertain_payment_never_recreated_or_switched, IMPLEMENTATION-PLAN.md:1910). Nenhuma ação adversa automática (RL-SF-021, :29).</bpmn:documentation><bpmn:incoming>Flow_F6_Analisa</bpmn:incoming><bpmn:outgoing>Flow_F7_Interrompe</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_PagamentoIncertoParado" name="Pagamento incerto parado"><bpmn:documentation>Fim nomeado: pagamento incerto parado para decisão humana (nunca recriado, nunca trocado de provedor).</bpmn:documentation><bpmn:incoming>Flow_F7_Interrompe</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_F1_IniciaProtocolo" name="Inicia" sourceRef="StartEvent_ProtocoloDevido" targetRef="Task_PreparaProtocoloEmail" />
+      <bpmn:sequenceFlow id="Flow_F2_Transporte" name="Transporte?" sourceRef="Task_PreparaProtocoloEmail" targetRef="Gateway_EmailPortao" />
+      <bpmn:sequenceFlow id="Flow_F3_SemEnvio" name="Não definido — sem envio (FECHADO)" sourceRef="Gateway_EmailPortao" targetRef="EndEvent_ProtocoloSemEnvio" />
+      <bpmn:sequenceFlow id="Flow_F4_TransporteDefinido" name="Transporte definido (variante)" sourceRef="Gateway_EmailPortao" targetRef="Task_EnviaProtocoloEmail"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">transporte ratificado (RL-SF-010 + RL-SF-011 + RL-SF-012)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_F5_EnviaVariante" name="Envia (variante)" sourceRef="Task_EnviaProtocoloEmail" targetRef="EndEvent_ProtocoloEnviadoVariante" />
+      <bpmn:sequenceFlow id="Flow_F6_Analisa" name="Analisa" sourceRef="StartEvent_PagamentoIncerto" targetRef="Task_AnalisaPagamentoIncerto" />
+      <bpmn:sequenceFlow id="Flow_F7_Interrompe" name="Interrompe" sourceRef="Task_AnalisaPagamentoIncerto" targetRef="EndEvent_PagamentoIncertoParado" />
+      <bpmn:textAnnotation id="Annotation_EmailPortao"><bpmn:text>PORTÃO FECHADO EM-01: RL-SF-010 (DPO-operador), RL-SF-011 (jurídico — texto §1º/bounce/ponte E), RL-SF-012 (dono-deploy — transporte DARK). Transporte não definido → sem envio (default). RN 413 art. 5º §1º (baseline L117).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_EmailPortao" sourceRef="Gateway_EmailPortao" targetRef="Annotation_EmailPortao" />
+  </bpmn:process>
+  <bpmn:process id="Process_ExecutorAMH" isExecutable="false">
+    <bpmn:documentation>Executor comercial e lago (amh-data-platform). Executa a contratação, emite PDFs, opera a porta de pagamento PSP-agnóstica (E-SF-51) e vigia o relógio-sombra de 25 dias (E-SF-07). isExecutable=false.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ExecutorAMH">
+      <bpmn:lane id="Lane_ExecutorAMH" name="Executor">
+        <bpmn:flowNodeRef>StartEvent_ContratacaoIniciada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExecucaoComercial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EmitePdfs</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PortaDePagamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaCobrancaPSP</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AguardaConfirmacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinDesfecho</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PagamentoIncerto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Relogio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_NotificaPagamentoIncerto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraConclusao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ContratoEmitido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_NotificacaoEnviada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PrazoVencido_Sombra</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VigenciaAutomaticaDia26</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_NotificaAlarmeInterno</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AlarmeP25D</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_ContratacaoIniciada" name="Aceite registrado"><bpmn:documentation>Message start: aceite registrado na etapa 5. Primeiro envio de dados = T0 candidato do relógio de 25 dias (RL-SF-038, RATIFY-LATER-REGISTER.md:46; leitura recomendada (a) — não decisão).</bpmn:documentation><bpmn:outgoing>Flow_A1_Inicio</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_ContratacaoIniciada" messageRef="Message_AceiteRegistrado" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ExecucaoComercial" name="Executa contratação na AMH"><bpmn:documentation>Execução comercial da contratação na AMH. GAP: processo executável de execução comercial do funil NÃO existe — épico E-SF-07 (onda 2, não iniciado). Nível 2: nenhum SP-OP-* correspondente; nada criado nesta missão.</bpmn:documentation><bpmn:incoming>Flow_A1_Inicio</bpmn:incoming><bpmn:outgoing>Flow_A2_Executada</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_EmitePdfs" name="Emite PDFs do contrato e termos"><bpmn:documentation>Emissão de PDFs (contrato + termos) — paridade documental digital×presencial (RN 413 art. 4º §1º; disclosure do art. 4º caput, baseline §2.3). Épico E-SF-07; integra E-SF-08 (catálogo de prazos, mesclado PR 1271).</bpmn:documentation><bpmn:incoming>Flow_A2_Executada</bpmn:incoming><bpmn:outgoing>Flow_A3_PDFs</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_PortaDePagamento" name="Porta de pagamento (PSP-agnóstica)"><bpmn:documentation>Porta de pagamento PSP-agnóstica (E-SF-51, mesclado amh 414 — só adaptadores sintéticos; sem credencial/endpoint real). Ativação = RL-SF-029 OWNER-DEPLOY (RATIFY-LATER-REGISTER.md:37) + homologação (DEC-15). Nenhum rótulo regulatório no nó: GAP-NORM-1 — não há norma sobre provedor de pagamento. SP-OP-PAGTO-001 existe (pagamentos alçada, pós-venda) — não alterado.</bpmn:documentation><bpmn:incoming>Flow_A3_PDFs</bpmn:incoming><bpmn:outgoing>Flow_A4_Opcoes</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:boundaryEvent id="Event_ErroPsp" name="Erro PSP" attachedToRef="Task_PortaDePagamento" cancelActivity="true"><bpmn:documentation>Boundary de erro na chamada ao PSP → caminho de incerteza explícito (regra transversal 6). Regra DEC-15: após incerteza, payment.reconcile/operation.get — NUNCA recriar a cobrança nem trocar de provedor (DECISIONS-AND-ANSWERS.md:3117).</bpmn:documentation><bpmn:outgoing>Flow_A7_Erro</bpmn:outgoing><bpmn:errorEventDefinition id="ErrDef_Event_ErroPsp" errorRef="Error_PSP" /></bpmn:boundaryEvent>
+      <bpmn:sendTask id="Task_EnviaCobrancaPSP" name="Envia cobrança ao PSP"><bpmn:documentation>sendTask → PSP externo (messageFlow). Zero PAN/CVV; só checkout hospedado em origem oficial; default deny sem secret store (DEC-15, DECISIONS-AND-ANSWERS.md:3116).</bpmn:documentation><bpmn:incoming>Flow_A4_Opcoes</bpmn:incoming><bpmn:outgoing>Flow_A5_Envio</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:receiveTask id="Task_AguardaConfirmacao" name="Aguarda conclusão e confirmação" messageRef="Message_ConfirmacaoPagamento"><bpmn:documentation>Tarefa que aguarda a conclusão da contratação e a confirmação do pagamento (RN 413 art. 5º §2º, baseline L118; art. 6º caput — vigência = pagamento efetivo, L122). Host dos boundaries P25D e desistência.</bpmn:documentation><bpmn:incoming>Flow_A5_Envio</bpmn:incoming><bpmn:outgoing>Flow_A6_Aguarda</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:boundaryEvent id="Event_Timer25D" name="P25D vencido" attachedToRef="Task_AguardaConfirmacao" cancelActivity="false"><bpmn:documentation>ALARME de timer de borda NÃO-interruptivo (cancelActivity=false): P25D (ISO 8601) vencido sem conclusão dispara notificação interna SEM interromper a espera da confirmação (RN 413 art. 5º §§2º-3º, baseline §2.3 L118). Valor/âncora no DMN funnel_deadline_catalog (r_rn413_art5_par2, DRAFT; evento_ancora_ref vazio = NORM-GAP-8/RL-SF-038): não instanciável até RATIFIED + âncora observada — relógio-sombra do evento mais cedo. Caminho próprio do 26º dia permanece no Gateway_Relogio (art. 5º §6º, baseline §2.3 L120). Alarmes INTERMEDIÁRIOS adicionais = proposta E-SF-07 (onda 2, não iniciado) — anotação. §7º (L121): solicitação de documentação suspende — variante fora do escopo deste desenho.</bpmn:documentation><bpmn:outgoing>Flow_A12_Timer</bpmn:outgoing><bpmn:outgoing>Flow_A17_Alarme</bpmn:outgoing><bpmn:timerEventDefinition id="TimerDef_Event_Timer25D"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P25D</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="Event_Desistencia" name="Desistência" attachedToRef="Task_AguardaConfirmacao" cancelActivity="true"><bpmn:documentation>Boundary de mensagem: desistência explícita do comprador durante a espera. GAP: mecanismo de registro de desistência na etapa 6 não definido no pacote (anotação anexa).</bpmn:documentation><bpmn:outgoing>Flow_A15_Abandono</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_Event_Desistencia" messageRef="Message_DesistenciaComprador" /></bpmn:boundaryEvent>
+      <bpmn:exclusiveGateway id="Gateway_JoinDesfecho" name="Desfecho?" default="Flow_A8_Desfecho"><bpmn:documentation>Junção dos desfechos da espera: confirmação recebida × erro da porta de pagamento.</bpmn:documentation><bpmn:incoming>Flow_A6_Aguarda</bpmn:incoming><bpmn:incoming>Flow_A7_Erro</bpmn:incoming><bpmn:outgoing>Flow_A8_Desfecho</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="Gateway_PagamentoIncerto" name="Pagamento incerto?" default="Flow_A9_Notifica"><bpmn:documentation>XOR com default conservador: pagamento incerto → interromper e escalar humano (raia financeiro). NUNCA recriar nem trocar de provedor (DEC-15, DECISIONS-AND-ANSWERS.md:3117).</bpmn:documentation><bpmn:incoming>Flow_A8_Desfecho</bpmn:incoming><bpmn:outgoing>Flow_A9_Notifica</bpmn:outgoing><bpmn:outgoing>Flow_A10_Confirmada</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:sendTask id="Task_NotificaPagamentoIncerto" name="Notifica pagamento incerto à operadora"><bpmn:documentation>sendTask → raia financeiro da plataforma da operadora (messageFlow). Escalação humana; sem retentativa automática (nunca recriar/trocar provedor, DEC-15).</bpmn:documentation><bpmn:incoming>Flow_A9_Notifica</bpmn:incoming><bpmn:outgoing>Flow_A16_Notificada</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:exclusiveGateway id="Gateway_Relogio" name="Relógio T0 (RL-SF-038)?" default="Flow_A13_Sombra"><bpmn:documentation>PORTÃO FECHADO RL-SF-038 (jurídico; RATIFY-LATER-REGISTER.md:46; NORM-GAP-8): T0 do relógio de 25 dias não definido → default = relógio-sombra do evento mais cedo, SEM ETA exibido. Variante não ativa: vigência automática no 26º dia (RN 413 art. 5º §6º, baseline L120) — só com T0 ratificado.</bpmn:documentation><bpmn:incoming>Flow_A12_Timer</bpmn:incoming><bpmn:outgoing>Flow_A13_Sombra</bpmn:outgoing><bpmn:outgoing>Flow_A14_Variante26</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RegistraConclusao" name="Registra contratação concluída"><bpmn:documentation>Registra conclusão da contratação e contrato emitido (E-SF-07). Vigência civil pela RN 413 art. 6º caput = pagamento efetivo (baseline L122) — o diagrama não liga vigência à efetivação automática do §6º.</bpmn:documentation><bpmn:incoming>Flow_A10_Confirmada</bpmn:incoming><bpmn:outgoing>Flow_A11_Emitido</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_ContratoEmitido" name="Contrato emitido"><bpmn:documentation>Fim: contratação concluída em ≤25 dias corridos com confirmação de pagamento (RN 413 art. 5º §2º, L118).</bpmn:documentation><bpmn:incoming>Flow_A11_Emitido</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_PrazoVencido_Sombra" name="Prazo vencido — sombra"><bpmn:documentation>Fim nomeado: P25D vencido sem conclusão — relógio-sombra, sem ETA exibido, bloco sem GO autônomo (RL-SF-038 FECHADO, RATIFY-LATER-REGISTER.md:46). Épico E-SF-07 (onda 2).</bpmn:documentation><bpmn:incoming>Flow_A13_Sombra</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_VigenciaAutomaticaDia26" name="Vigência no 26º dia"><bpmn:documentation>VARIANTE NÃO ATIVA: vigência automática no 26º dia, independentemente de pagamento e sem alegação de DLP (RN 413 art. 5º §6º, baseline L120; RL-SF-021 :29 — nenhuma ação adversa automática). Épico E-SF-07r (AGUARDA-RATIFICAÇÃO). Só se torna caminho ativo após RL-SF-038.</bpmn:documentation><bpmn:incoming>Flow_A14_Variante26</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Abandono (desistência)"><bpmn:documentation>Fim nomeado: abandono na espera da confirmação. Recuperação = Frente F2 (RL-SF-066 FECHADO — sem mensagem proativa; encerra antes dos 25 dias).</bpmn:documentation><bpmn:incoming>Flow_A15_Abandonoa_Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_NotificacaoEnviada" name="Notificação enviada"><bpmn:documentation>Fim do ramo AMH após notificar a operadora (a continuação do pagamento incerto é na raia financeiro da operadora, via messageFlow).</bpmn:documentation><bpmn:incoming>Flow_A16_Notificada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_NotificaAlarmeInterno" name="Notifica alarme interno — escalar conclusão"><bpmn:documentation>Reação ao alarme P25D (borda não-interruptiva): notificação interna para escalar conclusão pendente — sem interromper a espera da confirmação e sem mensagem proativa a beneficiário. Valor/âncora: DMN funnel_deadline_catalog r_rn413_art5_par2 (DRAFT); RN 413 art. 5º §§2º-3º (baseline §2.3 L118); §6º (L120); portão RL-SF-038; épico E-SF-07 (onda 2, não iniciado).</bpmn:documentation><bpmn:incoming>Flow_A17_Alarme</bpmn:incoming><bpmn:outgoing>Flow_A18_Escalado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_AlarmeP25D" name="Alarme P25D disparado"><bpmn:documentation>Fim nomeado do alarme: notificação interna registrada; a espera pela confirmação permanece ativa (cancelActivity=false). Valor/âncora DMN r_rn413_art5_par2 (DRAFT); baseline §2.3 L118/L120; portão RL-SF-038; épico E-SF-07 (onda 2, não iniciado).</bpmn:documentation><bpmn:incoming>Flow_A18_Escalado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_AbandonoE06" name="Abandono — link 'ABANDONO-E06' (par F2)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F2 — Recuperação de abandono e mensagens (FUNIL-F02-recuperacao-e-mensagens.bpmn): o catch de 'ABANDONO-E06' captura linkEventDefinition com este nome (grafia idêntica à de F02). Missão §5.2: a frente LIGA às etapas e não duplica as tarefas delas; recuperação só com consentimento, nunca a beneficiário, janela encerra antes dos 25 dias (BM-08). Épico E-SF-61.</bpmn:documentation><bpmn:incoming>Flow_A15_Abandono</bpmn:incoming><bpmn:outgoing>Flow_A15_Abandonoa_Fim</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE06" name="ABANDONO-E06" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_A1_Inicio" name="Recebe aceite" sourceRef="StartEvent_ContratacaoIniciada" targetRef="Task_ExecucaoComercial" />
+      <bpmn:sequenceFlow id="Flow_A2_Executada" name="Contratação executada" sourceRef="Task_ExecucaoComercial" targetRef="Task_EmitePdfs" />
+      <bpmn:sequenceFlow id="Flow_A3_PDFs" name="PDFs prontos" sourceRef="Task_EmitePdfs" targetRef="Task_PortaDePagamento" />
+      <bpmn:sequenceFlow id="Flow_A4_Opcoes" name="Opções geradas" sourceRef="Task_PortaDePagamento" targetRef="Task_EnviaCobrancaPSP" />
+      <bpmn:sequenceFlow id="Flow_A5_Envio" name="Instrução enviada" sourceRef="Task_EnviaCobrancaPSP" targetRef="Task_AguardaConfirmacao" />
+      <bpmn:sequenceFlow id="Flow_A6_Aguarda" name="Aguarda desfecho" sourceRef="Task_AguardaConfirmacao" targetRef="Gateway_JoinDesfecho" />
+      <bpmn:sequenceFlow id="Flow_A7_Erro" name="Erro na porta" sourceRef="Event_ErroPsp" targetRef="Gateway_JoinDesfecho" />
+      <bpmn:sequenceFlow id="Flow_A8_Desfecho" name="Desfecho" sourceRef="Gateway_JoinDesfecho" targetRef="Gateway_PagamentoIncerto" />
+      <bpmn:sequenceFlow id="Flow_A9_Notifica" name="Pagamento incerto — interromper (FECHADO)" sourceRef="Gateway_PagamentoIncerto" targetRef="Task_NotificaPagamentoIncerto" />
+      <bpmn:sequenceFlow id="Flow_A10_Confirmada" name="Confirmação recebida" sourceRef="Gateway_PagamentoIncerto" targetRef="Task_RegistraConclusao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">confirmação de pagamento recebida do PSP</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A11_Emitido" name="Concluída" sourceRef="Task_RegistraConclusao" targetRef="EndEvent_ContratoEmitido" />
+      <bpmn:sequenceFlow id="Flow_A12_Timer" name="Sem conclusão" sourceRef="Event_Timer25D" targetRef="Gateway_Relogio" />
+      <bpmn:sequenceFlow id="Flow_A13_Sombra" name="Não definido — sombra, sem ETA (FECHADO)" sourceRef="Gateway_Relogio" targetRef="EndEvent_PrazoVencido_Sombra" />
+      <bpmn:sequenceFlow id="Flow_A14_Variante26" name="Variante T0 (não ativa)" sourceRef="Gateway_Relogio" targetRef="EndEvent_VigenciaAutomaticaDia26"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: T0 ratificado (RL-SF-038) e 26º dia alcançado</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A15_Abandono" name="Abandono — emite 'ABANDONO-E06' (par F2)" sourceRef="Event_Desistencia" targetRef="Event_AbandonoE06" />
+      <bpmn:sequenceFlow id="Flow_A15_Abandonoa_Fim" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE06" targetRef="EndEvent_Abandono" />
+      <bpmn:sequenceFlow id="Flow_A16_Notificada" name="Notificada" sourceRef="Task_NotificaPagamentoIncerto" targetRef="EndEvent_NotificacaoEnviada" />
+      <bpmn:sequenceFlow id="Flow_A17_Alarme" name="Alarme P25D — notificar internamente" sourceRef="Event_Timer25D" targetRef="Task_NotificaAlarmeInterno" />
+      <bpmn:sequenceFlow id="Flow_A18_Escalado" name="Escalado" sourceRef="Task_NotificaAlarmeInterno" targetRef="EndEvent_AlarmeP25D" />
+      <bpmn:textAnnotation id="Annotation_RLSF038"><bpmn:text>PORTÃO FECHADO RL-SF-038 (jurídico): início do relógio de 25 dias pendente (NORM-GAP-8). Default: relógio-sombra do evento mais cedo, SEM ETA exibido. RN 413 art. 5º §§2º-3º (baseline L118); §6º = 26º dia (L120). Épico E-SF-07 (onda 2).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_AlarmesEsf07"><bpmn:text>ALARME DESSENHADO: Event_Timer25D é boundary de timer NÃO-interruptivo (cancelActivity=false): P25D (ISO 8601) vencido sem conclusão dispara Flow_A17_Alarme → notificação interna (Task_NotificaAlarmeInterno), SEM interromper a espera da confirmação. Valor/âncora: DMN funnel_deadline_catalog r_rn413_art5_par2 (DRAFT); RN 413 art. 5º §§2º-3º (baseline §2.3 L118); §6º/26º dia = caminho próprio no Gateway_Relogio (L120); portão RL-SF-038. GAP de valor: alarmes INTERMEDIÁRIOS adicionais = PROPOSTA do épico E-SF-07 (onda 2, não iniciado) — não desenhados.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_PagamentoIncerto"><bpmn:text>Pagamento incerto NUNCA é recriado nem troca de provedor (DEC-15, DECISIONS-AND-ANSWERS.md:3117; guarda E-SF-51). Default: interromper e escalar humano na raia financeiro.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_DesistenciaGap"><bpmn:text>GAP: desistência sem mecanismo definido no pacote. Recuperação = Frente F2 (RL-SF-066 fechado — sem mensagem proativa; encerra antes dos 25 dias).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: SP-OP-PAGTO-001 existe (pagamentos alçada) — processo executável existente, NÃO alterado; SP-OP-CANCEL-001 existe (pós-venda). GAP: execução comercial do funil na AMH não existe — épico E-SF-07 (onda 2); porta PSP = E-SF-51 (onda 1, mesclada amh 414, só adaptadores sintéticos). Nenhum executável novo criado.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Vigencia26"><bpmn:text>VARIANTE NÃO ATIVA: vigência automática no 26º dia (RN 413 art. 5º §6º, baseline L120; sem DLP; RL-SF-021 :29). Depende de RL-SF-038; épico E-SF-07r (AGUARDA-RATIFICAÇÃO).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_RLSF038" sourceRef="Gateway_Relogio" targetRef="Annotation_RLSF038" />
+    <bpmn:association id="Association_Alarmes" sourceRef="Event_Timer25D" targetRef="Annotation_AlarmesEsf07" />
+    <bpmn:association id="Association_PagamentoIncerto" sourceRef="Gateway_PagamentoIncerto" targetRef="Annotation_PagamentoIncerto" />
+    <bpmn:association id="Association_DesistenciaGap" sourceRef="Event_Desistencia" targetRef="Annotation_DesistenciaGap" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_ExecucaoComercial" targetRef="Annotation_Nivel2" />
+    <bpmn:association id="Association_Vigencia26" sourceRef="EndEvent_VigenciaAutomaticaDia26" targetRef="Annotation_Vigencia26" />
+  </bpmn:process>
+  <bpmn:message id="Message_AceiteRegistrado" name="Aceite registrado" />
+  <bpmn:message id="Message_OpcoesPagamento" name="Opções de pagamento" />
+  <bpmn:message id="Message_ConfirmacaoPagamento" name="Confirmação do pagamento" />
+  <bpmn:message id="Message_PagamentoIncerto" name="Pagamento incerto" />
+  <bpmn:message id="Message_ContratacaoIniciadaOperadora" name="Contratação iniciada" />
+  <bpmn:message id="Message_DesistenciaComprador" name="Desistência do comprador" />
+  <bpmn:error id="Error_PSP" name="Erro na porta de pagamento" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E06">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E06" bpmnElement="Collaboration_FUNIL_E06">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="220" width="1820" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="520" width="1820" height="690" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="1290" width="1820" height="570" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_PSP_di" bpmnElement="Participant_PSP" isHorizontal="true"><dc:Bounds x="40" y="1940" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Email_di" bpmnElement="Participant_Email" isHorizontal="true"><dc:Bounds x="40" y="2120" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="550" width="1790" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="770" width="1790" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Financeiro_di" bpmnElement="Lane_Financeiro" isHorizontal="true"><dc:Bounds x="70" y="990" width="1790" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="250" width="1790" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ExecutorAMH_di" bpmnElement="Lane_ExecutorAMH" isHorizontal="true"><dc:Bounds x="70" y="1320" width="1790" height="540" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_OpcoesRecebidas_di" bpmnElement="StartEvent_OpcoesRecebidas">
+        <dc:Bounds x="690" y="320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="670" y="280" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibeOpcoesPagamento_di" bpmnElement="Task_ExibeOpcoesPagamento">
+        <dc:Bounds x="960" y="300" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OpcoesExibidas_di" bpmnElement="EndEvent_OpcoesExibidas">
+        <dc:Bounds x="1160" y="320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="362" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ProtocoloDevido_di" bpmnElement="StartEvent_ProtocoloDevido">
+        <dc:Bounds x="180" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="680" width="110" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PreparaProtocoloEmail_di" bpmnElement="Task_PreparaProtocoloEmail">
+        <dc:Bounds x="290" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaProtocoloEmail_di" bpmnElement="Task_EnviaProtocoloEmail">
+        <dc:Bounds x="460" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ProtocoloEnviadoVariante_di" bpmnElement="EndEvent_ProtocoloEnviadoVariante">
+        <dc:Bounds x="660" y="640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="620" y="682" width="80" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_EmailPortao_di" bpmnElement="Gateway_EmailPortao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="460" y="830" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="170" y="810" width="90" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ProtocoloSemEnvio_di" bpmnElement="EndEvent_ProtocoloSemEnvio" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="560" y="840" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="490" y="882" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_PagamentoIncerto_di" bpmnElement="StartEvent_PagamentoIncerto">
+        <dc:Bounds x="1430" y="1070" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1420" y="1032" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AnalisaPagamentoIncerto_di" bpmnElement="Task_AnalisaPagamentoIncerto">
+        <dc:Bounds x="1560" y="1050" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PagamentoIncertoParado_di" bpmnElement="EndEvent_PagamentoIncertoParado">
+        <dc:Bounds x="1760" y="1070" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1700" y="1110" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ContratacaoIniciada_di" bpmnElement="StartEvent_ContratacaoIniciada">
+        <dc:Bounds x="120" y="1360" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="120" y="1400" width="80" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExecucaoComercial_di" bpmnElement="Task_ExecucaoComercial">
+        <dc:Bounds x="260" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EmitePdfs_di" bpmnElement="Task_EmitePdfs">
+        <dc:Bounds x="460" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PortaDePagamento_di" bpmnElement="Task_PortaDePagamento">
+        <dc:Bounds x="660" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ErroPsp_di" bpmnElement="Event_ErroPsp">
+        <dc:Bounds x="690" y="1402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="1442" width="130" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaCobrancaPSP_di" bpmnElement="Task_EnviaCobrancaPSP">
+        <dc:Bounds x="860" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AguardaConfirmacao_di" bpmnElement="Task_AguardaConfirmacao">
+        <dc:Bounds x="1060" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Timer25D_di" bpmnElement="Event_Timer25D">
+        <dc:Bounds x="1060" y="1402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1150" y="1490" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_Desistencia_di" bpmnElement="Event_Desistencia">
+        <dc:Bounds x="1120" y="1402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1160" y="1442" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinDesfecho_di" bpmnElement="Gateway_JoinDesfecho" isMarkerVisible="true">
+        <dc:Bounds x="1260" y="1440" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1160" y="1420" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PagamentoIncerto_di" bpmnElement="Gateway_PagamentoIncerto" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1260" y="1540" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1170" y="1556" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_NotificaPagamentoIncerto_di" bpmnElement="Task_NotificaPagamentoIncerto">
+        <dc:Bounds x="1230" y="1650" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Relogio_di" bpmnElement="Gateway_Relogio" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="930" y="1480" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="1480" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraConclusao_di" bpmnElement="Task_RegistraConclusao">
+        <dc:Bounds x="1300" y="1340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ContratoEmitido_di" bpmnElement="EndEvent_ContratoEmitido">
+        <dc:Bounds x="1500" y="1360" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1470" y="1402" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PrazoVencido_Sombra_di" bpmnElement="EndEvent_PrazoVencido_Sombra" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="860" y="1600" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="918" y="1670" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VigenciaAutomaticaDia26_di" bpmnElement="EndEvent_VigenciaAutomaticaDia26">
+        <dc:Bounds x="1050" y="1600" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1146" y="1524" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="1150" y="1600" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="1640" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_NotificacaoEnviada_di" bpmnElement="EndEvent_NotificacaoEnviada">
+        <dc:Bounds x="1260" y="1740" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1350" y="1746" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_NotificaAlarmeInterno_di" bpmnElement="Task_NotificaAlarmeInterno">
+        <dc:Bounds x="560" y="1640" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AlarmeP25D_di" bpmnElement="EndEvent_AlarmeP25D">
+        <dc:Bounds x="460" y="1670" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="440" y="1740" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1900" y="520" width="200" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF038_di" bpmnElement="Annotation_RLSF038">
+        <dc:Bounds x="600" y="1740" width="210" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_AlarmesEsf07_di" bpmnElement="Annotation_AlarmesEsf07">
+        <dc:Bounds x="1620" y="1360" width="240" height="250" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_EmailPortao_di" bpmnElement="Annotation_EmailPortao">
+        <dc:Bounds x="210" y="860" width="180" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PagamentoIncerto_di" bpmnElement="Annotation_PagamentoIncerto">
+        <dc:Bounds x="1470" y="1500" width="140" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_DesistenciaGap_di" bpmnElement="Annotation_DesistenciaGap">
+        <dc:Bounds x="930" y="1700" width="160" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="110" y="1480" width="240" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Vigencia26_di" bpmnElement="Annotation_Vigencia26">
+        <dc:Bounds x="1140" y="1780" width="230" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE06_di" bpmnElement="Event_AbandonoE06">
+        <dc:Bounds x="1122" y="1555" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_OpcoesRecebidas_di" bpmnElement="Flow_S1_OpcoesRecebidas"><di:waypoint x="726" y="338" /><di:waypoint x="960" y="338" />
+        <bpmndi:BPMNLabel><dc:Bounds x="830" y="306" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_ExibeComprador_di" bpmnElement="Flow_S2_ExibeComprador"><di:waypoint x="1060" y="338" /><di:waypoint x="1160" y="338" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1070" y="300" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F1_IniciaProtocolo_di" bpmnElement="Flow_F1_IniciaProtocolo"><di:waypoint x="216" y="660" /><di:waypoint x="290" y="660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="618" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F2_Transporte_di" bpmnElement="Flow_F2_Transporte"><di:waypoint x="340" y="700" /><di:waypoint x="340" y="855" /><di:waypoint x="460" y="855" />
+        <bpmndi:BPMNLabel><dc:Bounds x="316" y="836" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F3_SemEnvio_di" bpmnElement="Flow_F3_SemEnvio"><di:waypoint x="510" y="855" /><di:waypoint x="560" y="855" />
+        <bpmndi:BPMNLabel><dc:Bounds x="610" y="882" width="90" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F4_TransporteDefinido_di" bpmnElement="Flow_F4_TransporteDefinido"><di:waypoint x="485" y="830" /><di:waypoint x="485" y="700" />
+        <bpmndi:BPMNLabel><dc:Bounds x="220" y="750" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F5_EnviaVariante_di" bpmnElement="Flow_F5_EnviaVariante"><di:waypoint x="560" y="660" /><di:waypoint x="660" y="660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="566" y="630" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F6_Analisa_di" bpmnElement="Flow_F6_Analisa"><di:waypoint x="1466" y="1092" /><di:waypoint x="1560" y="1092" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1475" y="1060" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F7_Interrompe_di" bpmnElement="Flow_F7_Interrompe"><di:waypoint x="1660" y="1092" /><di:waypoint x="1760" y="1092" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1665" y="1060" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A1_Inicio_di" bpmnElement="Flow_A1_Inicio"><di:waypoint x="156" y="1380" /><di:waypoint x="260" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="164" y="1340" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A2_Executada_di" bpmnElement="Flow_A2_Executada"><di:waypoint x="360" y="1380" /><di:waypoint x="460" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="300" y="1430" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A3_PDFs_di" bpmnElement="Flow_A3_PDFs"><di:waypoint x="560" y="1380" /><di:waypoint x="660" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="565" y="1340" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A4_Opcoes_di" bpmnElement="Flow_A4_Opcoes"><di:waypoint x="760" y="1380" /><di:waypoint x="860" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="765" y="1340" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A5_Envio_di" bpmnElement="Flow_A5_Envio"><di:waypoint x="960" y="1380" /><di:waypoint x="1060" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="965" y="1340" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A6_Aguarda_di" bpmnElement="Flow_A6_Aguarda"><di:waypoint x="1160" y="1380" /><di:waypoint x="1285" y="1380" /><di:waypoint x="1285" y="1440" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1180" y="1340" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A7_Erro_di" bpmnElement="Flow_A7_Erro"><di:waypoint x="720" y="1438" /><di:waypoint x="720" y="1460" /><di:waypoint x="1260" y="1460" />
+        <bpmndi:BPMNLabel><dc:Bounds x="730" y="1462" width="140" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A8_Desfecho_di" bpmnElement="Flow_A8_Desfecho"><di:waypoint x="1285" y="1490" /><di:waypoint x="1285" y="1540" />
+        <bpmndi:BPMNLabel><dc:Bounds x="985" y="1512" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A9_Notifica_di" bpmnElement="Flow_A9_Notifica"><di:waypoint x="1285" y="1590" /><di:waypoint x="1285" y="1650" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1290" y="1590" width="100" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A10_Confirmada_di" bpmnElement="Flow_A10_Confirmada"><di:waypoint x="1310" y="1565" /><di:waypoint x="1350" y="1565" /><di:waypoint x="1350" y="1420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1460" y="1470" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A11_Emitido_di" bpmnElement="Flow_A11_Emitido"><di:waypoint x="1400" y="1380" /><di:waypoint x="1500" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1460" y="1340" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A12_Timer_di" bpmnElement="Flow_A12_Timer"><di:waypoint x="1080" y="1438" /><di:waypoint x="1080" y="1450" /><di:waypoint x="955" y="1450" /><di:waypoint x="955" y="1480" />
+        <bpmndi:BPMNLabel><dc:Bounds x="960" y="1460" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A13_Sombra_di" bpmnElement="Flow_A13_Sombra"><di:waypoint x="955" y="1530" /><di:waypoint x="955" y="1618" /><di:waypoint x="896" y="1618" />
+        <bpmndi:BPMNLabel><dc:Bounds x="820" y="1670" width="80" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A14_Variante26_di" bpmnElement="Flow_A14_Variante26"><di:waypoint x="980" y="1505" /><di:waypoint x="1068" y="1505" /><di:waypoint x="1068" y="1600" />
+        <bpmndi:BPMNLabel><dc:Bounds x="810" y="1530" width="70" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A15_Abandono_di" bpmnElement="Flow_A15_Abandono"><di:waypoint x="1140" y="1438" /><di:waypoint x="1140" y="1555" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1160" y="1464" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A15_Abandonoa_Fim_di" bpmnElement="Flow_A15_Abandonoa_Fim"><di:waypoint x="1140" y="1546" /><di:waypoint x="1140" y="1618" /><di:waypoint x="1150" y="1618" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A16_Notificada_di" bpmnElement="Flow_A16_Notificada"><di:waypoint x="1280" y="1730" /><di:waypoint x="1280" y="1740" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1340" y="1704" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A17_Alarme_di" bpmnElement="Flow_A17_Alarme"><di:waypoint x="1093" y="1438" /><di:waypoint x="1093" y="1660" /><di:waypoint x="660" y="1660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="1632" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A18_Escalado_di" bpmnElement="Flow_A18_Escalado"><di:waypoint x="560" y="1690" /><di:waypoint x="496" y="1690" />
+        <bpmndi:BPMNLabel><dc:Bounds x="502" y="1672" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AceiteRegistrado_di" bpmnElement="MsgFlow_AceiteRegistrado"><di:waypoint x="140" y="140" /><di:waypoint x="140" y="1360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="465" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ContratacaoIniciadaOperadora_di" bpmnElement="MsgFlow_ContratacaoIniciadaOperadora"><di:waypoint x="198" y="1290" /><di:waypoint x="198" y="950" /><di:waypoint x="140" y="950" /><di:waypoint x="140" y="658" /><di:waypoint x="180" y="658" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="1000" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_OpcoesPagamento_di" bpmnElement="MsgFlow_OpcoesPagamento"><di:waypoint x="710" y="1340" /><di:waypoint x="710" y="356" />
+        <bpmndi:BPMNLabel><dc:Bounds x="720" y="465" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_CobrancaPSP_di" bpmnElement="MsgFlow_CobrancaPSP"><di:waypoint x="910" y="1420" /><di:waypoint x="910" y="1940" />
+        <bpmndi:BPMNLabel><dc:Bounds x="930" y="1880" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ConfirmacaoPagamento_di" bpmnElement="MsgFlow_ConfirmacaoPagamento"><di:waypoint x="1110" y="1940" /><di:waypoint x="1110" y="1420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="1880" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PagamentoIncerto_di" bpmnElement="MsgFlow_PagamentoIncerto"><di:waypoint x="1330" y="1690" /><di:waypoint x="1450" y="1690" /><di:waypoint x="1450" y="1106" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1460" y="1230" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ProtocoloEmail_di" bpmnElement="MsgFlow_ProtocoloEmail"><di:waypoint x="460" y="660" /><di:waypoint x="430" y="660" /><di:waypoint x="430" y="2120" />
+        <bpmndi:BPMNLabel><dc:Bounds x="440" y="1230" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Desistencia_di" bpmnElement="MsgFlow_Desistencia"><di:waypoint x="1410" y="140" /><di:waypoint x="1410" y="1520" /><di:waypoint x="1130" y="1520" /><di:waypoint x="1130" y="1438" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1420" y="165" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF038_di" bpmnElement="Association_RLSF038"><di:waypoint x="930" y="1520" /><di:waypoint x="900" y="1520" /><di:waypoint x="900" y="1740" /><di:waypoint x="705" y="1740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Alarmes_di" bpmnElement="Association_Alarmes"><di:waypoint x="1096" y="1420" /><di:waypoint x="1096" y="1740" /><di:waypoint x="1700" y="1740" /><di:waypoint x="1700" y="1610" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_EmailPortao_di" bpmnElement="Association_EmailPortao"><di:waypoint x="485" y="880" /><di:waypoint x="485" y="910" /><di:waypoint x="390" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PagamentoIncerto_di" bpmnElement="Association_PagamentoIncerto"><di:waypoint x="1310" y="1575" /><di:waypoint x="1470" y="1575" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_DesistenciaGap_di" bpmnElement="Association_DesistenciaGap"><di:waypoint x="1120" y="1420" /><di:waypoint x="1100" y="1420" /><di:waypoint x="1100" y="1700" /><di:waypoint x="1010" y="1700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="260" y="1380" /><di:waypoint x="210" y="1380" /><di:waypoint x="210" y="1480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Vigencia26_di" bpmnElement="Association_Vigencia26"><di:waypoint x="1068" y="1636" /><di:waypoint x="1068" y="1690" /><di:waypoint x="1120" y="1690" /><di:waypoint x="1120" y="1750" /><di:waypoint x="1160" y="1750" /><di:waypoint x="1160" y="1780" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,15 @@
+{
+  "//": "Config do check 5 (LINT) do verificador DI. Regras em 'error' causam falha (exit 1 do bpmnlint); regras em 'warn' nao falham.",
+  "rules": {
+    "no-bpmndi": "error",
+    "no-duplicate-sequence-flows": "error",
+    "conditional-flows": "warn",
+    "end-event-required": "warn",
+    "label-required": "warn",
+    "no-disconnected": "warn",
+    "no-implicit-end": "warn",
+    "no-implicit-start": "warn",
+    "start-event-required": "warn",
+    "superfluous-gateway": "warn"
+  }
+}

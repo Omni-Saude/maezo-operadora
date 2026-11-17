@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E01" targetNamespace="urn:funil:descritivo:etapa1" exporter="build_etapa01.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E01" name="Etapa 1 — Entrada com preço">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do comprador/prospect. Pool externo caixa-preta: acesso anônimo à vitrine pública (pull); nenhuma mensagem proativa a beneficiário (missão §8). Nenhuma tarefa inventada neste pool. Consulta por CPF FECHADA na entrada (RL-SF-041/RL-SF-048 — anotação anexa na Superfície).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Exibe a vitrine pública com catálogo e preço só depois que a operadora habilita — sem A1 não há vitrine pública (RL-SF-001). RN 413 art. 4º caput I–IV (baseline L115) e §1º (L116); CDC arts. 30 (L217), 31 (L218) e 37 §3º (L220). Épico E-SF-46 (mesclado, omni 39). GAP-10: Guia de Orientação (RN 413 art. 18) não localizado — checklist limitado aos incisos I–IX + §1º, nenhum item do Guia inventado.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: produto, jurídico, comercial. PORTÃO FECHADO A1 (RL-SF-001): sem vitrine pública; pernas B1 (catálogo) × B2 (preço numérico). Lei 9.656 art. 9º I–II (baseline L84) e §4º (L85), art. 16 XII (L97). Épicos: E-SF-02 (mesclado, PR 1268), E-SF-03 (mesclado, PR 1270), E-SF-04 (PR 1273). Regra transversal: valor em dinheiro = userTask humana (Task_ConferePreco).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago" processRef="Process_ExecutorAMH"><bpmn:documentation>Executor comercial e lago (amh-data-platform) — fonte de catálogo publicada (catalog.publish). MISSÃO §5.1 L1: 'fonte de catálogo publicada pela AMH'. GAP nível 2: nenhum SP-OP-* cobre publicação de catálogo/vitrine (épico proposto).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ANS" name="ANS"><bpmn:documentation>Pool externo caixa-preta: a situação do registro (ativo e não suspenso) é lida como FATO DE FONTE pública da ANS — nenhuma consulta/integração desenhada nesta etapa; a ANS nunca é chamada como sistema da casa. Lei 9.656 art. 9º I–II (L84) e §4º (L85).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_PublicacaoCatalogo" name="Catálogo publicado pela fonte" sourceRef="Task_PublicaCatalogo" targetRef="StartEvent_CatalogoFonte" />
+    <bpmn:messageFlow id="MsgFlow_VitrineHabilitada" name="Vitrine habilitada (catálogo e preço)" sourceRef="Task_PublicaVitrine" targetRef="StartEvent_VitrineAutorizada" />
+    <bpmn:messageFlow id="MsgFlow_AcessoComprador" name="Acesso anônimo à vitrine" sourceRef="Participant_Comprador" targetRef="Task_ExibeVitrine" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (A1/RL-SF-001: vitrine pública; perna B2: preço numérico). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentation.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Exibe a vitrine pública com catálogo e preço só depois que a operadora habilita — sem A1 não há vitrine pública (RL-SF-001). RN 413 art. 4º caput I–IV (baseline L115) e §1º (L116); CDC arts. 30 (L217), 31 (L218) e 37 §3º (L220). Épico E-SF-46 (mesclado, omni 39). GAP-10: Guia de Orientação (RN 413 art. 18) não localizado — checklist limitado aos incisos I–IX + §1º, nenhum item do Guia inventado.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Vitrine" name="Vitrine">
+        <bpmn:flowNodeRef>StartEvent_VitrineAutorizada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibeVitrine</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_HumanoE01</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VitrinePublica</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_VitrineAutorizada" name="Vitrine habilitada pela operadora"><bpmn:documentation>Message start: vitrine habilitada pela operadora após o portão A1 (RL-SF-001). Sem A1 não há vitrine pública (fallback: funil parado no topo). RN 413 art. 4º caput (baseline L115).</bpmn:documentation><bpmn:outgoing>Flow_S1_Recebida</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_VitrineAutorizada" messageRef="Message_VitrineHabilitada" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ExibeVitrine" name="Exibe vitrine pública com catálogo e preço"><bpmn:documentation>Vitrine pública anônima com catálogo e preço. Informações corretas, claras, precisas, ostensivas e em língua portuguesa (CDC art. 31, baseline L218); publicidade identificável como tal (CDC art. 36 caput, L219). Disclosure mínimo do RN 413 art. 4º caput I–IV (L115) + §1º MPS/GLC (L116); GAP-10: Guia de Orientação (RN 413 art. 18) não localizado (baseline L370) — nenhum item do Guia inventado. Acesso anônimo (pull) do comprador — nenhuma mensagem proativa (missão §8). Consulta por CPF FECHADA (RL-SF-041/RL-SF-048 — anotação anexa). Épico E-SF-46 (mesclado, omni 39).</bpmn:documentation><bpmn:incoming>Flow_S1_Recebida</bpmn:incoming><bpmn:outgoing>Flow_S2_Exibe</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_VitrinePublica" name="Vitrine pública no ar"><bpmn:documentation>Fim do papel da Superfície na etapa 1: vitrine pública exibindo só produtos elegíveis (registro ANS ativo e não suspenso) e preço conforme a perna B2 do portão A1 (RL-SF-001).</bpmn:documentation><bpmn:incoming>Flow_E01HumanoFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_HumanoE01" name="Humano a um toque na vitrine — link 'E01-HUMANO' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): Event_LinkE01Humano captura linkEventDefinition name='E01-HUMANO' (grafia idêntica à de F03). Missão §5.2: a frente LIGA às etapas por link events e não duplica as tarefas delas. Fato sinalizado: 'humano a um toque em toda tela' (SC-01) disponível a partir da vitrine — papel comercial humano F3/SC-02; nenhum botão ou tarefa de especialista desenhado aqui (a frente é a dona do atendimento). Épico E-SF-17 | portão nenhum (SC-01 decidido).</bpmn:documentation><bpmn:incoming>Flow_S2_Exibe</bpmn:incoming><bpmn:outgoing>Flow_E01HumanoFim</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_HumanoE01" name="E01-HUMANO" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Recebida" name="Recebida" sourceRef="StartEvent_VitrineAutorizada" targetRef="Task_ExibeVitrine" />
+      <bpmn:sequenceFlow id="Flow_S2_Exibe" name="Exibe ao comprador" sourceRef="Task_ExibeVitrine" targetRef="Event_HumanoE01" />
+      <bpmn:sequenceFlow id="Flow_E01HumanoFim" name="Humano a um toque disponível — link 'E01-HUMANO' emitido (par F3)" sourceRef="Event_HumanoE01" targetRef="EndEvent_VitrinePublica" />
+      <bpmn:textAnnotation id="Annotation_CPFEntrada"><bpmn:text>Entrada anônima: consulta por CPF FECHADA (RL-SF-041 + RL-SF-048 — DPO + jurídico; default: sem CPF na entrada, sem consulta e sem exibição de dado de base). Campo de contato/telefone = aceite único OS-05, captura da frente F2 — não duplicado aqui. Sessão de prospect A2 = etapa 2. RATIFY-LATER-REGISTER.md:49 e :56.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_CPFEntrada" sourceRef="Task_ExibeVitrine" targetRef="Annotation_CPFEntrada" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: produto, jurídico, comercial. PORTÃO FECHADO A1 (RL-SF-001): sem vitrine pública; pernas B1 (catálogo) × B2 (preço numérico). Lei 9.656 art. 9º I–II (baseline L84) e §4º (L85), art. 16 XII (L97). Épicos: E-SF-02 (mesclado, PR 1268), E-SF-03 (mesclado, PR 1270), E-SF-04 (PR 1273). Regra transversal: valor em dinheiro = userTask humana (Task_ConferePreco).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Produto" name="Produto">
+        <bpmn:flowNodeRef>StartEvent_CatalogoFonte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_VerificaRegistro</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateRegistro</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ProdutoFora</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublicaVitrine</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VitrineHabilitada</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>Gateway_GateA1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FunilParadoTopo</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>Task_ConferePreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GatePreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraPrecoQualificado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinSemPreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AplicaPrecoNaoInformado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinVitrine</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_CatalogoFonte" name="Catálogo da fonte publicado"><bpmn:documentation>Message start: catálogo publicado pela fonte AMH (catalog.publish). MISSÃO §5.1 L1: 'fonte de catálogo publicada pela AMH'.</bpmn:documentation><bpmn:outgoing>Flow_P1_Publicacao</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_CatalogoFonte" messageRef="Message_CatalogoPublicado" /></bpmn:startEvent>
+      <bpmn:businessRuleTask id="Task_VerificaRegistro" name="Verifica registro ANS ativo e não suspenso"><bpmn:documentation>Verifica, por produto, a situação do registro ANS: ativo e não suspenso — fato de fonte pública (a ANS nunca é chamada como sistema da casa; consulta não desenhada). Lei 9.656 art. 9º I–II (baseline L84) e §4º (L85); RN 413 art. 4º I (L115); CDC art. 31 (L218). Regra transversal: só produto elegível entra na vitrine. GAP nível 2: nenhuma decisão DMN publicada para esta regra (épico proposto).</bpmn:documentation><bpmn:incoming>Flow_P1_Publicacao</bpmn:incoming><bpmn:outgoing>Flow_P2_Verificado</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_GateRegistro" name="Registro ativo e não suspenso?" default="Flow_P4_NaoElegivel"><bpmn:documentation>Regra de elegibilidade em vigor (não é portão de ratificação): só produto com registro ANS ativo e não suspenso prossegue para a vitrine. Default conservador: produto fora da vitrine. Lei 9.656 art. 9º I–II (baseline L84) e §4º (L85).</bpmn:documentation><bpmn:incoming>Flow_P2_Verificado</bpmn:incoming><bpmn:outgoing>Flow_P3_Elegivel</bpmn:outgoing><bpmn:outgoing>Flow_P4_NaoElegivel</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_ProdutoFora" name="Produto fora da vitrine"><bpmn:documentation>Fim nomeado: produto sem registro ativo ou suspenso pela ANS fora da vitrine pública (Lei 9.656 art. 9º §4º, baseline L85 — venda de produto suspenso é vedada).</bpmn:documentation><bpmn:incoming>Flow_P4_NaoElegivel</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_PublicaVitrine" name="Habilita vitrine pública do catálogo elegível"><bpmn:documentation>Habilita a vitrine pública com o catálogo elegível e o preço conforme a perna B2 do portão A1 (RL-SF-001). Sem A1 não há vitrine pública. MISSÃO §5.1 L1 verbatim: 'Vitrine pública com catálogo e preço; fonte de catálogo publicada pela AMH'. GAP nível 2: nenhum SP-OP-* cobre a vitrine (E-SF-46 omni mesclado p/ superfície — omni 39; catalog.publish na casa AMH — épico proposto). Nenhum executável criado.</bpmn:documentation><bpmn:incoming>Flow_C14_VitrinePronta</bpmn:incoming><bpmn:outgoing>Flow_P5_Habilitada</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_VitrineHabilitada" name="Vitrine habilitada"><bpmn:documentation>Fim: vitrine habilitada para exibição pública (continua na Superfície, via messageFlow).</bpmn:documentation><bpmn:incoming>Flow_P5_Habilitada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_GateA1" name="Vitrine pública autorizada? (A1)" default="Flow_J5_SemA1"><bpmn:documentation>PORTÃO FECHADO A1 (RL-SF-001): vitrine pública com catálogo e preço — pública anônima. Default = sem vitrine pública — funil parado no topo ('Negada A1 inteira: registro refused, P6.1 não iniciado, caminho privado fechado pela porta EP-CORE-00a' — RATIFY-LATER-REGISTER.md:9). Pernas: B1 catálogo × B2 preço numérico. Abre: ratificação do jurídico + assinatura do A1-ADMISSION-RECORD.json pelos 3 signatários (produto, comercial, legal) — E-SF-02 (mesclado, PR 1268). Lei 9.656 art. 9º I–II (baseline L84); RN 413 art. 4º I–IV (L115). Fail-closed no POST sem A1 = E-SF-03 (mesclado, PR 1270, ADR 0078).</bpmn:documentation><bpmn:incoming>Flow_P3_Elegivel</bpmn:incoming><bpmn:outgoing>Flow_J5_SemA1</bpmn:outgoing><bpmn:outgoing>Flow_J6_B1Catalogo</bpmn:outgoing><bpmn:outgoing>Flow_J7_B2Preco</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_FunilParadoTopo" name="Funil parado no topo"><bpmn:documentation>Fim nomeado conservador: funil parado no topo — sem vitrine pública enquanto A1 FECHADO (RL-SF-001; RATIFY-LATER-REGISTER.md:9). Caminho privado fechado pela porta EP-CORE-00a.</bpmn:documentation><bpmn:incoming>Flow_J5_SemA1</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_ConferePreco" name="Confere preço numérico qualificado da fonte"><bpmn:documentation>userTask humana: confere, por produto/composição/período, o preço numérico qualificado da fonte (valor Tasy/fonte-qualificado). Valores em dinheiro nunca saem de tarefa de serviço ou de agente (regra transversal 2; missão §6 Decisão humana). Sem valor qualificado: 'dado não informado', vedado 'a partir de' (RL-SF-001; RATIFY-LATER-REGISTER.md:9). CDC art. 31 (baseline L218). Caminho de variante não ativa enquanto A1 FECHADO.</bpmn:documentation><bpmn:incoming>Flow_J7_B2Preco</bpmn:incoming><bpmn:outgoing>Flow_C8_Conferido</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_GatePreco" name="Valor qualificado da fonte?" default="Flow_C9_SemValor"><bpmn:documentation>PORTÃO FECHADO A1-B2 (RL-SF-001 — perna de preço numérico): preço exibido só com valor Tasy/fonte-qualificado por produto/composição/período. Default = 'dado não informado' (sem 'a partir de'); negada só B2: preço desconhecido em todos os produtos — preço só na cotação privada (etapa 3). RATIFY-LATER-REGISTER.md:9; CDC arts. 30 (L217) e 31 (L218).</bpmn:documentation><bpmn:incoming>Flow_C8_Conferido</bpmn:incoming><bpmn:outgoing>Flow_C9_SemValor</bpmn:outgoing><bpmn:outgoing>Flow_C10_Qualificado</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RegistraPrecoQualificado" name="Registra preço qualificado do produto"><bpmn:documentation>Registra o preço numérico qualificado do produto para exibição na vitrine (por produto/composição/período). Preço só da própria operadora; sem comparação de preço entre operadoras (missão §8; CADE — baseline L25). Caminho de variante não ativa enquanto A1 FECHADO.</bpmn:documentation><bpmn:incoming>Flow_C10_Qualificado</bpmn:incoming><bpmn:outgoing>Flow_C13_Registrado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinSemPreco" name="Pernas sem preço?" default="Flow_C11_SemPreco"><bpmn:documentation>Junção das pernas que chegam sem preço numérico exibível: sem valor qualificado da fonte, ou sem ratificação da perna de preço. A vitrine nunca exibe 'a partir de'.</bpmn:documentation><bpmn:incoming>Flow_J6_B1Catalogo</bpmn:incoming><bpmn:incoming>Flow_C9_SemValor</bpmn:incoming><bpmn:outgoing>Flow_C11_SemPreco</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_AplicaPrecoNaoInformado" name="Aplica 'dado não informado' ao preço"><bpmn:documentation>Aplica 'dado não informado' ao preço do produto na vitrine — nunca 'a partir de' (RL-SF-001; RATIFY-LATER-REGISTER.md:9; CDC art. 31, baseline L218 — proíbe preço aproximado/genérico como se definitivo).</bpmn:documentation><bpmn:incoming>Flow_C11_SemPreco</bpmn:incoming><bpmn:outgoing>Flow_C12_NaoInformado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinVitrine" name="Vitrine pronta?" default="Flow_C14_VitrinePronta"><bpmn:documentation>Junção das pernas da vitrine: com preço qualificado registrado ou com 'dado não informado'.</bpmn:documentation><bpmn:incoming>Flow_C12_NaoInformado</bpmn:incoming><bpmn:incoming>Flow_C13_Registrado</bpmn:incoming><bpmn:outgoing>Flow_C14_VitrinePronta</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:sequenceFlow id="Flow_P1_Publicacao" name="Recebe publicação" sourceRef="StartEvent_CatalogoFonte" targetRef="Task_VerificaRegistro" />
+      <bpmn:sequenceFlow id="Flow_P2_Verificado" name="Verificado" sourceRef="Task_VerificaRegistro" targetRef="Gateway_GateRegistro" />
+      <bpmn:sequenceFlow id="Flow_P3_Elegivel" name="Ativo e não suspenso" sourceRef="Gateway_GateRegistro" targetRef="Gateway_GateA1"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">ativo e não suspenso</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_P4_NaoElegivel" name="Não ativo/suspenso — fora" sourceRef="Gateway_GateRegistro" targetRef="EndEvent_ProdutoFora" />
+      <bpmn:sequenceFlow id="Flow_P5_Habilitada" name="Habilitada" sourceRef="Task_PublicaVitrine" targetRef="EndEvent_VitrineHabilitada" />
+      <bpmn:sequenceFlow id="Flow_J5_SemA1" name="Sem A1 — vitrine não autorizada (FECHADO)" sourceRef="Gateway_GateA1" targetRef="EndEvent_FunilParadoTopo" />
+      <bpmn:sequenceFlow id="Flow_J6_B1Catalogo" name="A1-B1 ratificada; B2 negada (variante)" sourceRef="Gateway_GateA1" targetRef="Gateway_JoinSemPreco"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A1-B1 ratificada, perna B2 negada (RL-SF-001)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_J7_B2Preco" name="A1 ratificada (B1+B2) (variante)" sourceRef="Gateway_GateA1" targetRef="Task_ConferePreco"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: A1 ratificada (B1+B2) (RL-SF-001)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C8_Conferido" name="Preço conferido" sourceRef="Task_ConferePreco" targetRef="Gateway_GatePreco" />
+      <bpmn:sequenceFlow id="Flow_C9_SemValor" name="Sem valor qualificado — 'dado não informado'" sourceRef="Gateway_GatePreco" targetRef="Gateway_JoinSemPreco" />
+      <bpmn:sequenceFlow id="Flow_C10_Qualificado" name="Valor qualificado da fonte" sourceRef="Gateway_GatePreco" targetRef="Task_RegistraPrecoQualificado"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">valor qualificado da fonte por produto/composição/período</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C11_SemPreco" name="Sem preço numérico" sourceRef="Gateway_JoinSemPreco" targetRef="Task_AplicaPrecoNaoInformado" />
+      <bpmn:sequenceFlow id="Flow_C12_NaoInformado" name="Preço: 'dado não informado'" sourceRef="Task_AplicaPrecoNaoInformado" targetRef="Gateway_JoinVitrine" />
+      <bpmn:sequenceFlow id="Flow_C13_Registrado" name="Preço qualificado registrado" sourceRef="Task_RegistraPrecoQualificado" targetRef="Gateway_JoinVitrine" />
+      <bpmn:sequenceFlow id="Flow_C14_VitrinePronta" name="Vitrine pronta" sourceRef="Gateway_JoinVitrine" targetRef="Task_PublicaVitrine" />
+      <bpmn:textAnnotation id="Annotation_A1Portao"><bpmn:text>PORTÃO FECHADO A1 (RL-SF-001): vitrine pública com catálogo e preço — pública anônima. Default: funil parado no topo ('Negada A1 inteira: registro refused, P6.1 não iniciado, caminho privado fechado pela porta EP-CORE-00a'). Pernas: B1 (catálogo) × B2 (preço numérico — sem B2: preço desconhecido/'dado não informado', sem 'a partir de'; preço só na cotação privada). ABRE: ratificação do jurídico + assinatura do A1-ADMISSION-RECORD.json pelos 3 signatários (produto, comercial, legal) — E-SF-02 (mesclado, PR 1268). RATIFY-LATER-REGISTER.md:9.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_B2Preco"><bpmn:text>PERNA B2 DO PORTÃO A1 (RL-SF-001): preço numérico só com valor Tasy/fonte-qualificado por produto/composição/período; sem valor → 'dado não informado', vedado 'a partir de'. Negada só B2: preço desconhecido — preço só na cotação privada (etapa 3). RATIFY-LATER-REGISTER.md:9.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_ANSFonte"><bpmn:text>Fato de fonte: situação do registro (ativo/não suspenso) lida da fonte pública da ANS — consulta/integração NÃO desenhada; a ANS nunca é chamada como sistema da casa. Lei 9.656 art. 9º I–II (L84) e §4º (L85).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2GAP"><bpmn:text>NÍVEL 2/GAP: nenhum SP-OP-* cobre vitrine pública nem publicação de catálogo (catalog.publish na casa AMH; E-SF-46 mesclado p/ superfície — omni 39). Regra de registro ativo/não suspenso sem decisão DMN publicada (GAP — épico proposto). GAP-10: Guia RN 413 art. 18 não localizado. Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_A1Portao" sourceRef="Gateway_GateA1" targetRef="Annotation_A1Portao" />
+    <bpmn:association id="Association_B2Preco" sourceRef="Gateway_GatePreco" targetRef="Annotation_B2Preco" />
+    <bpmn:association id="Association_ANSFonte" sourceRef="Task_VerificaRegistro" targetRef="Annotation_ANSFonte" />
+    <bpmn:association id="Association_Nivel2GAP" sourceRef="Task_PublicaVitrine" targetRef="Annotation_Nivel2GAP" />
+  </bpmn:process>
+  <bpmn:process id="Process_ExecutorAMH" isExecutable="false">
+    <bpmn:documentation>Executor comercial e lago (amh-data-platform) — fonte de catálogo publicada (catalog.publish). MISSÃO §5.1 L1: 'fonte de catálogo publicada pela AMH'. GAP nível 2: nenhum SP-OP-* cobre publicação de catálogo/vitrine (épico proposto).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ExecutorAMH">
+      <bpmn:lane id="Lane_AMH" name="Fonte de catálogo">
+        <bpmn:flowNodeRef>StartEvent_CatalogoAtualizado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublicaCatalogo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CatalogoPublicado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_CatalogoAtualizado" name="Catálogo da fonte atualizado"><bpmn:documentation>Início: catálogo da fonte atualizado (lago comercial da AMH).</bpmn:documentation><bpmn:outgoing>Flow_A1_Atualizado</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_PublicaCatalogo" name="Publica catálogo da fonte (catalog.publish)"><bpmn:documentation>Publica o catálogo da fonte (catalog.publish) para a operadora. MISSÃO §5.1 L1: 'fonte de catálogo publicada pela AMH'. GAP nível 2: nenhum SP-OP-* cobre publicação de catálogo (épico proposto; E-SF-46 cobre a superfície omni — mesclado omni 39).</bpmn:documentation><bpmn:incoming>Flow_A1_Atualizado</bpmn:incoming><bpmn:outgoing>Flow_A2_Publicado</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_CatalogoPublicado" name="Catálogo publicado"><bpmn:documentation>Fim: catálogo publicado pela fonte (a restrição a produtos elegíveis e o portão A1 seguem na Plataforma da operadora).</bpmn:documentation><bpmn:incoming>Flow_A2_Publicado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_A1_Atualizado" name="Fonte atualizada" sourceRef="StartEvent_CatalogoAtualizado" targetRef="Task_PublicaCatalogo" />
+      <bpmn:sequenceFlow id="Flow_A2_Publicado" name="Publicado" sourceRef="Task_PublicaCatalogo" targetRef="EndEvent_CatalogoPublicado" />
+  </bpmn:process>
+  <bpmn:message id="Message_CatalogoPublicado" name="Catálogo publicado" />
+  <bpmn:message id="Message_VitrineHabilitada" name="Vitrine habilitada" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E01">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E01" bpmnElement="Collaboration_FUNIL_E01">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="220" width="1820" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="580" width="1820" height="960" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="1590" width="1820" height="250" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ANS_di" bpmnElement="Participant_ANS" isHorizontal="true"><dc:Bounds x="40" y="1920" width="1820" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Vitrine_di" bpmnElement="Lane_Vitrine" isHorizontal="true"><dc:Bounds x="70" y="250" width="1790" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Produto_di" bpmnElement="Lane_Produto" isHorizontal="true"><dc:Bounds x="70" y="610" width="1790" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="910" width="1790" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="1210" width="1790" height="330" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_AMH_di" bpmnElement="Lane_AMH" isHorizontal="true"><dc:Bounds x="70" y="1620" width="1790" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_VitrineAutorizada_di" bpmnElement="StartEvent_VitrineAutorizada">
+        <dc:Bounds x="160" y="320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="185" y="374" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibeVitrine_di" bpmnElement="Task_ExibeVitrine">
+        <dc:Bounds x="400" y="300" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VitrinePublica_di" bpmnElement="EndEvent_VitrinePublica">
+        <dc:Bounds x="620" y="320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="270" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_HumanoE01_di" bpmnElement="Event_HumanoE01">
+        <dc:Bounds x="540" y="320" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_CatalogoFonte_di" bpmnElement="StartEvent_CatalogoFonte">
+        <dc:Bounds x="160" y="680" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="120" y="724" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_VerificaRegistro_di" bpmnElement="Task_VerificaRegistro">
+        <dc:Bounds x="320" y="660" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateRegistro_di" bpmnElement="Gateway_GateRegistro" isMarkerVisible="true">
+        <dc:Bounds x="520" y="670" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="600" width="160" height="36" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ProdutoFora_di" bpmnElement="EndEvent_ProdutoFora">
+        <dc:Bounds x="460" y="760" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="295" y="810" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PublicaVitrine_di" bpmnElement="Task_PublicaVitrine">
+        <dc:Bounds x="1380" y="660" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VitrineHabilitada_di" bpmnElement="EndEvent_VitrineHabilitada">
+        <dc:Bounds x="1580" y="680" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1520" y="620" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateA1_di" bpmnElement="Gateway_GateA1" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="680" y="1060" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="510" y="1080" width="125" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FunilParadoTopo_di" bpmnElement="EndEvent_FunilParadoTopo" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="560" y="1160" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="426" y="1160" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConferePreco_di" bpmnElement="Task_ConferePreco">
+        <dc:Bounds x="860" y="1310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GatePreco_di" bpmnElement="Gateway_GatePreco" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1030" y="1330" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1000" y="1248" width="140" height="36" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraPrecoQualificado_di" bpmnElement="Task_RegistraPrecoQualificado">
+        <dc:Bounds x="1270" y="1310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinSemPreco_di" bpmnElement="Gateway_JoinSemPreco" isMarkerVisible="true">
+        <dc:Bounds x="1030" y="1430" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="850" y="1392" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AplicaPrecoNaoInformado_di" bpmnElement="Task_AplicaPrecoNaoInformado">
+        <dc:Bounds x="860" y="1450" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinVitrine_di" bpmnElement="Gateway_JoinVitrine" isMarkerVisible="true">
+        <dc:Bounds x="1440" y="1440" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1350" y="1398" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_CatalogoAtualizado_di" bpmnElement="StartEvent_CatalogoAtualizado">
+        <dc:Bounds x="160" y="1690" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="120" y="1734" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PublicaCatalogo_di" bpmnElement="Task_PublicaCatalogo">
+        <dc:Bounds x="400" y="1670" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CatalogoPublicado_di" bpmnElement="EndEvent_CatalogoPublicado">
+        <dc:Bounds x="620" y="1690" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="1734" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1900" y="580" width="220" height="170" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_A1Portao_di" bpmnElement="Annotation_A1Portao">
+        <dc:Bounds x="120" y="1030" width="300" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_B2Preco_di" bpmnElement="Annotation_B2Preco">
+        <dc:Bounds x="1520" y="1430" width="240" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_CPFEntrada_di" bpmnElement="Annotation_CPFEntrada">
+        <dc:Bounds x="760" y="280" width="320" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_ANSFonte_di" bpmnElement="Annotation_ANSFonte">
+        <dc:Bounds x="500" y="790" width="200" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2GAP_di" bpmnElement="Annotation_Nivel2GAP">
+        <dc:Bounds x="1620" y="740" width="220" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_Recebida_di" bpmnElement="Flow_S1_Recebida"><di:waypoint x="196" y="338" /><di:waypoint x="400" y="338" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="302" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_Exibe_di" bpmnElement="Flow_S2_Exibe"><di:waypoint x="500" y="338" /><di:waypoint x="540" y="338" />
+        <bpmndi:BPMNLabel><dc:Bounds x="506" y="270" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E01HumanoFim_di" bpmnElement="Flow_E01HumanoFim"><di:waypoint x="576" y="338" /><di:waypoint x="620" y="338" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_P1_Publicacao_di" bpmnElement="Flow_P1_Publicacao"><di:waypoint x="196" y="698" /><di:waypoint x="320" y="698" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="662" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_P2_Verificado_di" bpmnElement="Flow_P2_Verificado"><di:waypoint x="420" y="698" /><di:waypoint x="520" y="698" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="662" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_P3_Elegivel_di" bpmnElement="Flow_P3_Elegivel"><di:waypoint x="570" y="698" /><di:waypoint x="705" y="698" /><di:waypoint x="705" y="1060" />
+        <bpmndi:BPMNLabel><dc:Bounds x="575" y="662" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_P4_NaoElegivel_di" bpmnElement="Flow_P4_NaoElegivel"><di:waypoint x="545" y="720" /><di:waypoint x="545" y="778" /><di:waypoint x="496" y="778" />
+        <bpmndi:BPMNLabel><dc:Bounds x="555" y="730" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_P5_Habilitada_di" bpmnElement="Flow_P5_Habilitada"><di:waypoint x="1480" y="700" /><di:waypoint x="1580" y="700" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1500" y="740" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J5_SemA1_di" bpmnElement="Flow_J5_SemA1"><di:waypoint x="705" y="1110" /><di:waypoint x="705" y="1178" /><di:waypoint x="596" y="1178" />
+        <bpmndi:BPMNLabel><dc:Bounds x="596" y="1186" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J6_B1Catalogo_di" bpmnElement="Flow_J6_B1Catalogo"><di:waypoint x="730" y="1100" /><di:waypoint x="760" y="1100" /><di:waypoint x="760" y="1430" /><di:waypoint x="1030" y="1430" />
+        <bpmndi:BPMNLabel><dc:Bounds x="570" y="1240" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J7_B2Preco_di" bpmnElement="Flow_J7_B2Preco"><di:waypoint x="730" y="1085" /><di:waypoint x="910" y="1085" /><di:waypoint x="910" y="1310" />
+        <bpmndi:BPMNLabel><dc:Bounds x="745" y="1038" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C8_Conferido_di" bpmnElement="Flow_C8_Conferido"><di:waypoint x="960" y="1350" /><di:waypoint x="1030" y="1350" />
+        <bpmndi:BPMNLabel><dc:Bounds x="975" y="1296" width="80" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C9_SemValor_di" bpmnElement="Flow_C9_SemValor"><di:waypoint x="1055" y="1380" /><di:waypoint x="1055" y="1430" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1165" y="1396" width="150" height="32" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C10_Qualificado_di" bpmnElement="Flow_C10_Qualificado"><di:waypoint x="1080" y="1355" /><di:waypoint x="1270" y="1355" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1085" y="1316" width="170" height="32" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C11_SemPreco_di" bpmnElement="Flow_C11_SemPreco"><di:waypoint x="1055" y="1480" /><di:waypoint x="1055" y="1490" /><di:waypoint x="960" y="1490" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="1462" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C12_NaoInformado_di" bpmnElement="Flow_C12_NaoInformado"><di:waypoint x="960" y="1530" /><di:waypoint x="1465" y="1530" /><di:waypoint x="1465" y="1490" />
+        <bpmndi:BPMNLabel><dc:Bounds x="975" y="1494" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C13_Registrado_di" bpmnElement="Flow_C13_Registrado"><di:waypoint x="1320" y="1390" /><di:waypoint x="1320" y="1465" /><di:waypoint x="1440" y="1465" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1326" y="1432" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C14_VitrinePronta_di" bpmnElement="Flow_C14_VitrinePronta"><di:waypoint x="1490" y="1465" /><di:waypoint x="1490" y="760" /><di:waypoint x="1430" y="760" /><di:waypoint x="1430" y="740" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1340" y="780" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A1_Atualizado_di" bpmnElement="Flow_A1_Atualizado"><di:waypoint x="196" y="1708" /><di:waypoint x="400" y="1708" />
+        <bpmndi:BPMNLabel><dc:Bounds x="206" y="1672" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A2_Publicado_di" bpmnElement="Flow_A2_Publicado"><di:waypoint x="500" y="1708" /><di:waypoint x="620" y="1708" />
+        <bpmndi:BPMNLabel><dc:Bounds x="506" y="1672" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PublicacaoCatalogo_di" bpmnElement="MsgFlow_PublicacaoCatalogo"><di:waypoint x="450" y="1670" /><di:waypoint x="450" y="1565" /><di:waypoint x="970" y="1565" /><di:waypoint x="970" y="650" /><di:waypoint x="196" y="650" /><di:waypoint x="196" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="980" y="780" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_VitrineHabilitada_di" bpmnElement="MsgFlow_VitrineHabilitada"><di:waypoint x="1430" y="660" /><di:waypoint x="1430" y="500" /><di:waypoint x="178" y="500" /><di:waypoint x="178" y="356" />
+        <bpmndi:BPMNLabel><dc:Bounds x="980" y="440" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AcessoComprador_di" bpmnElement="MsgFlow_AcessoComprador"><di:waypoint x="450" y="140" /><di:waypoint x="450" y="300" />
+        <bpmndi:BPMNLabel><dc:Bounds x="460" y="170" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_A1Portao_di" bpmnElement="Association_A1Portao"><di:waypoint x="690" y="1110" /><di:waypoint x="690" y="1130" /><di:waypoint x="420" y="1130" /><di:waypoint x="420" y="1160" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_B2Preco_di" bpmnElement="Association_B2Preco"><di:waypoint x="1080" y="1370" /><di:waypoint x="1150" y="1370" /><di:waypoint x="1150" y="1510" /><di:waypoint x="1520" y="1510" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CPFEntrada_di" bpmnElement="Association_CPFEntrada"><di:waypoint x="500" y="380" /><di:waypoint x="500" y="400" /><di:waypoint x="760" y="400" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ANSFonte_di" bpmnElement="Association_ANSFonte"><di:waypoint x="420" y="740" /><di:waypoint x="420" y="860" /><di:waypoint x="500" y="860" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2GAP_di" bpmnElement="Association_Nivel2GAP"><di:waypoint x="1460" y="660" /><di:waypoint x="1460" y="620" /><di:waypoint x="1700" y="620" /><di:waypoint x="1700" y="740" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

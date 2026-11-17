@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_F03" targetNamespace="urn:funil:descritivo:frente3" exporter="build_frente03.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_F03" name="Frente F3 — Canal de vendas">
+    <bpmn:participant id="Participant_Comprador" name="Comprador / Prospect" processRef="Process_Comprador" ><bpmn:documentation>Comprador / Prospect (pool ativo nesta frente). Raia Comprador: entra pelo canal de vendas (SC-09 — uma jornada como fonte única) e pede o especialista a um toque (SC-01); o ACEITE da contratação permanece na etapa 5 e NÃO é desenhado aqui (a frente LIGA, não duplica — missão §5.2). Vitrine/cotação/proposta = etapas 1/3/4.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Omni" name="Superfície de vendas" processRef="Process_Omni" ><bpmn:documentation>Superfície de vendas (omni_sales_platform). Raia Superfície: encaminha o pedido de especialista com journey_ref (zero redigitação — SC-01; console work.* do especialista, E-SF-ADD01-02) e concentra a triagem coletiva 'CNPJ primeiro' da etapa 4 (RL-SF-020/RL-REG-08 — MAIS URGENTE; SC-08; E-SF-20/E-SF-ADD01-06). Nenhum envio proativo parte da superfície (portão F2/RL-SF-066; RT-D4).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora" ><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (canal de vendas) — papel comercial humano SC-01/SC-02 com console work.* (E-SF-ADD01-02), copiloto staff_assist flag OFF (SC-03), portões do corretor (GTM-03/J1–J4) e da comissão (GTM-02/J1); Jurídico (portões e ratificações) — ratificação da legitimidade coletiva RL-SF-020/RL-REG-08, MAIS URGENTE (degrau de multa 2027-01-01). DPO (resíduos SC-03.D1/SC-04.D1/SC-08.D1/GTM-02.D1 = RL-SF-084) anotado nos portões correspondentes.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Corretor" name="Corretor / parceiro (papel)" ><bpmn:documentation>Corretor / parceiro — PAPEL externo, black-box nesta frente (NUNCA nome de empresa ou de pessoa; missão §5). Nenhuma tarefa da frente roda aqui e nenhum fluxo ativo cruza para este pool: o canal do corretor está FECHADO até GTM-03/J1–J4 (RL-SF-086/087/088/089) + SC-04.D1 + SC-05.J1 (fallback RATIFY L94–97: 'Canal fechado'; J4: PF-only permanente). A entrada por link/QR não-pessoal e a faixa neutra 'atendimento iniciado por parceiro' (SC-05) só existem como VARIANTE ANOTADA na raia Comercial; o aceite da contratação é sempre do comprador (SC-05).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_AMH" name="Executor comercial e lago" ><bpmn:documentation>Executor comercial e lago (amh-data-platform) — BLACK-BOX nesta frente: nenhuma tarefa do canal roda aqui. ZERO medição na frente (A9 fechada — OS-04, frente F1): nenhum evento canal.* sai desta superfície para o lago. NÍVEL 2 — GAP: nenhum SP-OP-* de canal de vendas existe (maezo nem AMH); nada criado nesta missão (isExecutable=false); propostos: E-SF-17 (persona comercial e Faixa Assistida — revisão PASS em ramo), E-SF-18 (canal vendor — PR 1276 em CI), E-SF-20 (legitimidade coletiva — não iniciado) e E-SF-ADD01-02..06 (onda 2).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_PedeEspecialista" name="pedido de especialista com journey_ref (SC-01 — zero redigitação)" sourceRef="Task_PedeEspecialista" targetRef="Task_ConsoleEspecialista" />
+    <bpmn:messageFlow id="MsgFlow_EncaminhaEspecialista" name="abre console work.* para o especialista (E-SF-ADD01-02 — onda 2)" sourceRef="Task_ConsoleEspecialista" targetRef="Task_Especialista" />
+    <bpmn:textAnnotation id="Annotation_Escopo"><bpmn:text>FRENTE F3 — CANAL DE VENDAS (missão §5.2 verbatim: 'Papel comercial humano; canal do corretor; comissão; tela de legitimidade da venda coletiva | Corretor e comissão aguardam ratificação; legitimidade coletiva é a ratificação mais urgente'). PAPEL COMERCIAL HUMANO ativo (SC-01 a um toque ligado às etapas 1/2/3/5 por link events; SC-02 especialista com console work.*). CORRETOR e COMISSÃO = PORTÕES FECHADOS (aguardam ratificação). LEGITIMIDADE COLETIVA = portão MAIS URGENTE (RL-SF-020/RL-REG-08; degrau de multa 2027-01-01) ligado à etapa 4 por link event. ZERO saúde; ZERO medição; sem valor de comissão; sem comparação entre operadoras (CADE).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2 — GAP: nenhum SP-OP-* de canal de vendas existe (maezo-operadora nem AMH); NADA criado nesta missão (isExecutable=false; missão §4/§5). Propostos: E-SF-17 persona comercial e Faixa Assistida (maezo — revisão PASS em ramo, EPICS-PLAN.tsv:31; EXECUTION-LOG.md:132); E-SF-18 canal vendor (maezo — PR 1276 em CI, :133); E-SF-20 legitimidade coletiva Q8/OP21 (maezo — NÃO iniciado, :125); E-SF-ADD01-02 console do especialista + compromisso N (onda 2); E-SF-ADD01-03 copiloto staff_assist flag off (bloqueado SC-03.D1); E-SF-ADD01-04 área do corretor/link-faixa (bloqueado GTM-03/J1–J4, SC-04.D1, SC-05.J1, GTM-02/J2); E-SF-ADD01-05 extrato de remuneração (sem linha executável — GTM-02/J1, D1, O1); E-SF-ADD01-06 pré-triagem coletiva 'CNPJ primeiro' (bloqueado RL-REG-08, SC-08.D1).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (caminho conservador/default): legitimidade coletiva RL-SF-020/RL-REG-08 (MAIS URGENTE), canal do corretor GTM-03/J1–J4 + SC-04.D1 + SC-05.J1, comissão GTM-02/J1, copiloto SC-03.D1 flag OFF. Links: E0n-HUMANO entra das etapas 1/2/3/5; E04-LEG-COLETIVA entra da etapa 4; F3-LEG-COLETIVA-VALIDA e F3-CORRETOR-ENTRADA são variantes não ativas; E02-ORIGEM é o 1º prospect.save (anotado). A informação nunca depende só da cor: ids nos nomes, anotações e documentation.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Comprador" isExecutable="false">
+    <bpmn:documentation>Comprador / Prospect (pool ativo nesta frente). Raia Comprador: entra pelo canal de vendas (SC-09 — uma jornada como fonte única) e pede o especialista a um toque (SC-01); o ACEITE da contratação permanece na etapa 5 e NÃO é desenhado aqui (a frente LIGA, não duplica — missão §5.2). Vitrine/cotação/proposta = etapas 1/3/4.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Comprador">
+      <bpmn:lane id="Lane_Comprador" name="Comprador / Prospect">
+        <bpmn:flowNodeRef>StartEvent_EntradaCanal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeEspecialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AguardaEspecialista</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_EntradaCanal" name="Comprador entra pelo canal de vendas (SC-09 — uma jornada)"><bpmn:documentation>Início do canal de vendas: UMA jornada como fonte única (SC-09 — DECIDIDO-coordenador, OS-06, ADDENDUM-01.md:88), link de retomada opaco com sessão A2; 'Continuar pelo WhatsApp' só iniciado pelo comprador e usa o aceite único (herda F2/RL-SF-066). A frente LIGA às etapas por link events e NÃO duplica as tarefas delas (missão §5.2). Épico E-SF-17 (persona comercial e Faixa Assistida — revisão PASS em ramo, EPICS-PLAN.tsv:31/EXECUTION-LOG.md:132) | portão SC-01 (DECIDIDO-coordenador).</bpmn:documentation><bpmn:outgoing>Flow_C1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_PedeEspecialista" name="Comprador pede especialista a um toque (SC-01)"><bpmn:documentation>HUMANO A UM TOQUE em toda tela (SC-01 — DECIDIDO-coordenador, OS-06; ADDENDUM-01.md:80): botão sempre disponível levando journey_ref — ZERO redigitação; convite do canal só em 3 eventos de processo (SC-01/SC-10). A pedido do comprador — nunca convite proativo (missão §8: nenhuma mensagem proativa). Épico E-SF-17 | E-SF-ADD01-02 (console work.* — onda 2) | portão nenhum (decisão de desenho do coordenador).</bpmn:documentation><bpmn:incoming>Flow_C1</bpmn:incoming><bpmn:outgoing>Flow_C2</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_AguardaEspecialista" name="Aguarda especialista — mesma jornada (SC-09)"><bpmn:documentation>Fim nomeado do pedido: comprador aguarda o especialista na MESMA jornada (SC-09 — sem troca de contexto; componente OWNER-DEPLOY GTM-04.O1, ADDENDUM-01.md:62/88). A resposta do especialista aparece na própria tela da etapa (retornam por link da raia Comercial). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_C2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_C1" name="Canal aberto" sourceRef="StartEvent_EntradaCanal" targetRef="Task_PedeEspecialista" />
+      <bpmn:sequenceFlow id="Flow_C2" name="Pedido registrado" sourceRef="Task_PedeEspecialista" targetRef="EndEvent_AguardaEspecialista" />
+  </bpmn:process>
+  <bpmn:process id="Process_Omni" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Raia Superfície: encaminha o pedido de especialista com journey_ref (zero redigitação — SC-01; console work.* do especialista, E-SF-ADD01-02) e concentra a triagem coletiva 'CNPJ primeiro' da etapa 4 (RL-SF-020/RL-REG-08 — MAIS URGENTE; SC-08; E-SF-20/E-SF-ADD01-06). Nenhum envio proativo parte da superfície (portão F2/RL-SF-066; RT-D4).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Omni">
+      <bpmn:lane id="Lane_Superficie" name="Superfície (canal e triagem coletiva)">
+        <bpmn:flowNodeRef>StartEvent_Superficie</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConsoleEspecialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Encaminhado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE04Leg</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoColetivo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ColetivoHumano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_TelaLegitimidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_F3LegValida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ColetivoValido</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_Superficie" name="Sessão do comprador na superfície (SC-09)"><bpmn:documentation>Sessão ativa do comprador na superfície de vendas (SC-09 — uma jornada, fonte única; link de retomada opaco; DECIDIDO-coordenador OS-06, ADDENDUM-01.md:88). A superfície é a casa do botão 'a um toque' (SC-01) e da triagem coletiva da etapa 4 (RL-SF-020/RL-REG-08). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:outgoing>Flow_O1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ConsoleEspecialista" name="Encaminha ao especialista (SC-02)"><bpmn:documentation>Nome completo: Encaminha ao especialista com journey_ref — console work.* (SC-02; E-SF-ADD01-02). Recebe o pedido do comprador e abre o console work.* do especialista com horário + estado (SC-02 — núcleo DECIDIDO-coordenador; relação operadora–corretor/comercial herda RATIFY-LATER-jurídico TB-21(c); ADDENDUM-01.md:81): journey_ref evita redigitação (SC-01); compromisso N (primeira resposta) só com N assinado + medido por eventos A9 e nunca ETA de etapa regulada — SEM A9 operando, só horário + estado (GTM-01 D5, ADDENDUM-01.md:93). NÍVEL 2: console = E-SF-ADD01-02 (maezo, onda 2, SEM execução registrada — ADDENDUM-01.md:275). ZERO dado de saúde; ZERO medição (A9 fechada — OS-04).</bpmn:documentation><bpmn:incoming>Flow_O1</bpmn:incoming><bpmn:outgoing>Flow_O2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_Encaminhado" name="Pedido encaminhado — resposta na jornada"><bpmn:documentation>Fim nomeado: pedido do comprador entregue ao console do especialista (work.*); a resposta retorna na própria tela da etapa de origem (SC-01/SC-09) e não por mensagem proativa (missão §8; F2/RL-SF-066). Épico E-SF-ADD01-02 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_O2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE04Leg" name="PJ chega à proposta coletiva (LINK↔E04)"><bpmn:documentation>LINK↔E04-LEG-COLETIVA (linkEventDefinition): par de link com a tela de proposta da etapa 4 (FUNIL-E04) — a frente LIGA às etapas, não duplica (missão §5.2). Momento: comprador PJ inicia proposta coletiva e a superfície precisa da tela de legitimidade (TABELA-ETAPAS linha 4: 'coletivo: tela legitimidade FECHADA — RL-SF-020/RL-REG-08 urgente'). Épico E-SF-20 (legitimidade coletiva Q8/OP21 — NÃO INICIADO, EXECUTION-LOG.md:125) + E-SF-ADD01-06 | portão RL-SF-020/RL-REG-08 — MAIS URGENTE.</bpmn:documentation><bpmn:outgoing>Flow_O3</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE04Leg" name="E04-LEG-COLETIVA" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoColetivo" name="Legitimidade coletiva ratificada? (RL-SF-020/RL-REG-08)" default="Flow_ColetivoFechado"><bpmn:documentation>PORTÃO MAIS URGENTE RL-SF-020/RL-REG-08 (Q8 — parecer OP21 estendido ao funil; RATIFY-LATER-REGISTER.md:28/L220; jurídico): default = NÃO ratificada → coletivo NÃO é oferecido em self-service — só rota humana interna (EP-REG-08a, não bloqueada); recusa ao comprador usa linguagem neutra sem caracterizar o canal e oferece caminho PF na mesma tela (SC-08). Nada chega a offer.terms/acceptance.record sem recibo de legitimidade valid (RN 489 art. 23-A, red. RN 659/2025 — baseline L267). DEGRAU DE MULTA-BASE em 2027-01-01 (RN 659/2025 Anexo — baseline L269): 'a 46 dias de 2026-11-16' (ADDENDUM-01.md:399); prioridade (1) do orquestrador (RATIFY L207). E-SF-20r segue bloqueado até ratificação (RL-SF-126 OWNER-DEPLOY enforcing — RATIFY L134). Épico E-SF-20 + E-SF-ADD01-06 | portão RL-SF-020.</bpmn:documentation><bpmn:incoming>Flow_O3</bpmn:incoming><bpmn:outgoing>Flow_ColetivoFechado</bpmn:outgoing><bpmn:outgoing>Flow_ColetivoVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_ColetivoHumano" name="Coletivo só por rota humana interna (EP-REG-08a) — self-service fechado"><bpmn:documentation>FIM nomeado do caminho FECHADO (default): coletivo só por rota humana interna (EP-REG-08a — decisão de engenharia no registro, RATIFY L220); recusa nomeia o critério (critério 1 em duas perguntas) e oferece caminho PF na mesma tela (SC-08); linguagem neutra sem caracterizar o canal; NENHUMA oferta coletiva chega a offer.terms sem recibo valid (RN 489 art. 23-A — baseline L267). Épico E-SF-20 | portão RL-SF-020/RL-REG-08.</bpmn:documentation><bpmn:incoming>Flow_ColetivoFechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_TelaLegitimidade" name="Tela de legitimidade coletiva (SC-08.D1)"><bpmn:documentation>Nome completo: Tela de legitimidade: CNPJ primeiro → recibo valid (E-SF-20/E-SF-ADD01-06; SC-08.D1). VARIANTE NÃO ATIVA (só com RL-SF-020/RL-REG-08 ratificado + SC-08.D1): tela de legitimidade da venda coletiva (SC-08 — DECIDIDO-coordenador no desenho; fonte externa de PJ = RATIFY-LATER-DPO): CNPJ primeiro → critério 1 em duas perguntas → recusa POR CRITÉRIO nomeado → caminho PF na mesma tela; NADA chega a offer.terms sem recibo valid. SC-08.D1 pendente (DPO): 'CNPJ digitado; verificação manual pelo staff' (default Q-SC-4, ADDENDUM-01.md:388/105). Épico E-SF-20 (não iniciado) + E-SF-ADD01-06 (omni, onda 2, bloqueado) | portão RL-SF-020/RL-REG-08 + SC-08.D1.</bpmn:documentation><bpmn:incoming>Flow_ColetivoVariante</bpmn:incoming><bpmn:outgoing>Flow_O4</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:intermediateThrowEvent id="Event_F3LegValida" name="Recibo valid retorna à etapa 4 (variante)"><bpmn:documentation>VARIANTE NÃO ATIVA — LINK↔F3-LEG-COLETIVA-VALIDA: recibo de legitimidade valid devolve a etapa 4 para prosseguir a proposta coletiva (par com a tela de proposta do FUNIL-E04; convenção da missão §5.2). Só existe com RL-SF-020/RL-REG-08 ratificado + SC-08.D1. ZERO medição (nenhum evento coletivo.* emitido — A9 fechada, frente F1). Épico E-SF-20 | portão RL-SF-020.</bpmn:documentation><bpmn:incoming>Flow_O4</bpmn:incoming><bpmn:outgoing>Flow_O5</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_F3LegValida" name="F3-LEG-COLETIVA-VALIDA" /></bpmn:intermediateThrowEvent>
+      <bpmn:endEvent id="EndEvent_ColetivoValido" name="Legitimidade validada — segue na etapa 4 (variante)"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: recibo valid emitido e devolvido à etapa 4 (a contratação coletiva continua nos diagramas das etapas — a frente não duplica). Épico E-SF-20/E-SF-ADD01-06 | portão RL-SF-020 + SC-08.D1.</bpmn:documentation><bpmn:incoming>Flow_O5</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_O1" name="Sessão ativa" sourceRef="StartEvent_Superficie" targetRef="Task_ConsoleEspecialista" />
+      <bpmn:sequenceFlow id="Flow_O2" name="Zero redigitação" sourceRef="Task_ConsoleEspecialista" targetRef="EndEvent_Encaminhado" />
+      <bpmn:sequenceFlow id="Flow_O3" name="Proposta coletiva" sourceRef="Event_LinkE04Leg" targetRef="Gateway_PortaoColetivo" />
+      <bpmn:sequenceFlow id="Flow_ColetivoFechado" name="Não ratificada — EP-REG-08a (FECHADO)" sourceRef="Gateway_PortaoColetivo" targetRef="EndEvent_ColetivoHumano" />
+      <bpmn:sequenceFlow id="Flow_ColetivoVariante" name="Variante não ativa: RL-SF-020 + SC-08.D1 ratificados" sourceRef="Gateway_PortaoColetivo" targetRef="Task_TelaLegitimidade"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RL-SF-020/RL-REG-08 ratificado (jurídico) + SC-08.D1 (DPO)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O4" name="recibo valid" sourceRef="Task_TelaLegitimidade" targetRef="Event_F3LegValida" />
+      <bpmn:sequenceFlow id="Flow_O5" name="Devolvida à etapa 4" sourceRef="Event_F3LegValida" targetRef="EndEvent_ColetivoValido" />
+      <bpmn:textAnnotation id="Annotation_Convencao"><bpmn:text>CONVENÇÃO DE LINKS (missão §5.2 — a frente LIGA às etapas, NÃO duplica tarefas): E01/E02/E03/E05-HUMANO = botão 'a um toque' (SC-01) nas etapas 1/2/3/5 → console do especialista; E02-ORIGEM = 1º prospect.save (vínculo de originação proposto — anotado); E04-LEG-COLETIVA = tela de proposta coletiva da etapa 4 entra na triagem daqui; F3-LEG-COLETIVA-VALIDA = recibo valid devolve à etapa 4 (variante); F3-CORRETOR-ENTRADA = chegada por link/QR (variante). Os pares dependem dos diagramas FUNIL-E01/E02/E03/E04/E05 declararem os throws/catches correspondentes — registrado aqui e na legenda. Message flows ATIVOS só no canal humano decidido (SC-01/SC-02): nada cruza pools pelos portões fechados (corretor, comissão, coletivo).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_SC08"><bpmn:text>TELA DE LEGITIMIDADE — SC-08 (DECIDIDO-coordenador no desenho; portão RL-SF-020/RL-REG-08 + SC-08.D1): CNPJ PRIMEIRO → critério 1 em duas perguntas → recusa POR CRITÉRIO nomeado → caminho PF NA MESMA TELA; NADA chega a offer.terms sem recibo valid. SC-08.D1 (DPO) pendente: fonte externa de PJ com quadro societário — default 'CNPJ digitado; verificação manual pelo staff' (ADDENDUM-01.md:105/388). NÍVEL 2: E-SF-20 (não iniciado) + E-SF-ADD01-06 (onda 2, bloqueado pelo portão coletivo).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Atribuicao"><bpmn:text>JORNADA ÚNICA + EVENTOS DO CANAL (SC-09/SC-10): uma jornada como fonte única, link de retomada opaco com sessão A2, 'Continuar pelo WhatsApp' só iniciado pelo comprador usando o ACEITE ÚNICO da entrada (SC-09 — DECIDIDO-coordenador; componente OWNER-DEPLOY GTM-04.O1; F2/RL-SF-066 governa o envio). Catálogo de eventos do canal (SC-10 — nomes DECIDIDO-coordenador; envio ao lago herda resíduos DPO de CORE-06 + RL-REG-45/46): canal.*, assistida.*, funil.*, coletivo.*, retomada.* — conversão por CLASSE DE ORIGEM, NUNCA por corretor (SC-10); ZERO medição hoje (A9 fechada — frente F1): nenhum evento sai daqui. ZERO dado de saúde em qualquer evento (RL-SF-014; missão §8).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Convencao" sourceRef="EndEvent_Encaminhado" targetRef="Annotation_Convencao" />
+    <bpmn:association id="Association_Coletivo" sourceRef="Gateway_PortaoColetivo" targetRef="Annotation_SC08" />
+    <bpmn:association id="Association_SC08" sourceRef="Task_TelaLegitimidade" targetRef="Annotation_SC08" />
+    <bpmn:association id="Association_Atribuicao" sourceRef="Task_ConsoleEspecialista" targetRef="Annotation_Atribuicao" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (canal de vendas) — papel comercial humano SC-01/SC-02 com console work.* (E-SF-ADD01-02), copiloto staff_assist flag OFF (SC-03), portões do corretor (GTM-03/J1–J4) e da comissão (GTM-02/J1); Jurídico (portões e ratificações) — ratificação da legitimidade coletiva RL-SF-020/RL-REG-08, MAIS URGENTE (degrau de multa 2027-01-01). DPO (resíduos SC-03.D1/SC-04.D1/SC-08.D1/GTM-02.D1 = RL-SF-084) anotado nos portões correspondentes.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_ComercialCanal" name="Comercial (canal de vendas)">
+        <bpmn:flowNodeRef>Event_LinkE01Humano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE02Humano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE03Humano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE05Humano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Especialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Copiloto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_EnvioHumano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CopilotoRascunho</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RascunhoCopiloto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkCorretorEntrada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoCorretor</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CorretorFechado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_FaixaNeutra</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteComprador</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_LinkE02Origem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoComissao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_SemComissao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ExtratoVariante</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_JuridicoPortoes" name="Jurídico (portões e ratificações)">
+        <bpmn:flowNodeRef>StartEvent_ParecerQ8</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RatificaLegitimidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_RatificadoColetivo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_MultaDegrau</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ParecerRatificado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:intermediateCatchEvent id="Event_LinkE01Humano" name="Etapa 1 — vitrine (LINK↔E01)"><bpmn:documentation>LINK↔E01-HUMANO (linkEventDefinition): par de link com o botão 'Falar com a operadora' da vitrine da etapa 1 (FUNIL-E01) — a frente LIGA às etapas, não duplica (missão §5.2). 'Humano a um toque em toda tela' (SC-01) inclui a etapa 1. Épico E-SF-17 | portão nenhum (SC-01 decidido).</bpmn:documentation><bpmn:outgoing>Flow_A1</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE01Humano" name="E01-HUMANO" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE02Humano" name="Etapa 2 — qualificação (LINK↔E02)"><bpmn:documentation>LINK↔E02-HUMANO: par de link com a tela de qualificação da etapa 2 (FUNIL-E02) — 'humano a um toque em toda tela' (SC-01). ZERO dado de saúde em qualquer contexto assistido (RL-SF-049/TB-03; missão §8). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:outgoing>Flow_A2</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE02Humano" name="E02-HUMANO" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE03Humano" name="Etapa 3 — cotação (LINK↔E03)"><bpmn:documentation>LINK↔E03-HUMANO: par de link com a cotação/comparador da etapa 3 (FUNIL-E03) — o especialista orienta, SEM ranking e SEM comparação entre operadoras (cade do comparador; CADE — sem comparação também de comissão entre operadoras). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:outgoing>Flow_A3</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE03Humano" name="E03-HUMANO" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE05Humano" name="Etapa 5 — aceite (LINK↔E05)"><bpmn:documentation>LINK↔E05-HUMANO: par de link com a tela de aceite da etapa 5 (FUNIL-E05) — o especialista pode ASSISTIR a dúvidas do aceite; a forma e a decisão de aceite permanecem na etapa 5 (A3 fechado — forma ratificada; a frente não duplica). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:outgoing>Flow_A4</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE05Humano" name="E05-HUMANO" /></bpmn:intermediateCatchEvent>
+      <bpmn:userTask id="Task_Especialista" name="Especialista interno responde com horário + estado (SC-02 — separado do cadastro; console work.*)"><bpmn:documentation>PAPEL COMERCIAL HUMANO (userTask na raia competente — missão §6: agente só prepara/encaminha): especialista interno na diretoria comercial, SEPARADO do cadastro (SC-02 — núcleo DECIDIDO-coordenador; herda RATIFY-LATER-jurídico TB-21(c), ADDENDUM-01.md:81); opera pelo console work.* (E-SF-ADD01-02 — onda 2, sem execução); responde com horário + estado; compromisso N só se assinado e medido (GTM-01 D5 — sem A9, só horário + estado). ZERO dado de saúde (RL-SF-014/RL-SF-049); agente de IA nunca decide (missão §6). Épico E-SF-17 + E-SF-ADD01-02 | portão TB-21(c) herdado.</bpmn:documentation><bpmn:incoming>Flow_A1</bpmn:incoming><bpmn:incoming>Flow_A2</bpmn:incoming><bpmn:incoming>Flow_A3</bpmn:incoming><bpmn:incoming>Flow_A4</bpmn:incoming><bpmn:outgoing>Flow_A5</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_Copiloto" name="Copiloto staff_assist habilitado? (SC-03.O1)" default="Flow_CopilotoOff"><bpmn:documentation>Flag OWNER-DEPLOY SC-03.O1: copiloto interno do especialista DESLIGADO na v1 (SC-03.O1 off); inferência que lê snapshot do prospect = portão SC-03.D1 (DPO) pendente (ADDENDUM-01.md:82/102); enquanto pendente, copiloto flag OFF ou só conteúdo de produto. Default = OFF → envio SEMPRE por clique humano (SC-03 — missão §6: agente nunca decide/envia). Épico E-SF-ADD01-03 (copiloto staff_assist flag off — onda 2, bloqueado) | portão SC-03.D1.</bpmn:documentation><bpmn:incoming>Flow_A5</bpmn:incoming><bpmn:outgoing>Flow_CopilotoOff</bpmn:outgoing><bpmn:outgoing>Flow_CopilotoVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_EnvioHumano" name="Envio por clique humano — retorna à etapa de origem (SC-01)"><bpmn:documentation>Fim nomeado do caminho ATIVO: resposta do especialista enviada por CLIQUE HUMANO e devolvida à tela da etapa de origem via link da própria etapa (SC-01/SC-09 — sem mensagem proativa; missão §8). Épico E-SF-17/E-SF-ADD01-02 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_CopilotoOff</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_CopilotoRascunho" name="Copiloto redige rascunho (variante — flag OFF hoje; E-SF-ADD01-03)"><bpmn:documentation>VARIANTE NÃO ATIVA: copiloto staff_assist redige APENAS rascunho de conteúdo de produto; inferência sobre snapshot do prospect exige SC-03.D1 (DPO) ratificado; envio continua SEMPRE por clique humano (SC-03; missão §6). Flag SC-03.O1 (OWNER-DEPLOY) permanece OFF até lá. Épico E-SF-ADD01-03 (onda 2 — aguardando SC-03.D1/SC-03.O1) | portão SC-03.D1.</bpmn:documentation><bpmn:incoming>Flow_CopilotoVariante</bpmn:incoming><bpmn:outgoing>Flow_A6</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_RascunhoCopiloto" name="Rascunho sugerido — envio continua por clique humano"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: rascunho sugerido ao especialista; o envio nunca sai do copiloto (SC-03; missão §6). Épico E-SF-ADD01-03 | portão SC-03.D1.</bpmn:documentation><bpmn:incoming>Flow_A6</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkCorretorEntrada" name="Comprador chegaria por link/QR de parceiro (variante — LINK↔E01)"><bpmn:documentation>VARIANTE NÃO ATIVA — LINK↔F3-CORRETOR-ENTRADA (par com a entrada da etapa 1): comprador chegaria por link/QR não-pessoal do canal vendor (SC-04 — só parâmetros não pessoais; nenhuma posição individual de prospect enquanto SC-04.D1 pendente). O pool 'Corretor / parceiro' é PAPEL externo — nunca nome (missão §5; TABELA-ETAPAS linha F3). Épico E-SF-18 (canal vendor A10 — PR 1276 em CI, EXECUTION-LOG.md:133) + E-SF-ADD01-04 | portão GTM-03/J1–J4.</bpmn:documentation><bpmn:outgoing>Flow_B1</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkCorretorEntrada" name="F3-CORRETOR-ENTRADA" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoCorretor" name="Canal do corretor habilitado? (GTM-03/J1–J4)" default="Flow_CorretorFechado"><bpmn:documentation>PORTÃO FECHADO RL-SF-086/RL-SF-087/RL-SF-088/RL-SF-089 (GTM-03/J1–J4 — jurídico; RATIFY L94–97): default = canal do corretor NÃO habilitado — aguarda GTM-03/J1–J4 (DS em autosserviço por corretor RN 558 art. 3º §1º II; responsabilidade por conduta CDC art. 34; remuneração fora da plataforma; coletivo fora do canal vendor até Q8), SC-04.D1 (DPO — posição de prospect) e SC-05.J1 (jurídico — texto da faixa; sem texto ratificado, botão não exibido). Fallback comum do registro: 'Canal fechado'; J4: PF-only permanente. Épico E-SF-18 (PR 1276) + E-SF-ADD01-04 (onda 2 — bloqueado) | portão GTM-03/J1–J4.</bpmn:documentation><bpmn:incoming>Flow_B1</bpmn:incoming><bpmn:outgoing>Flow_CorretorFechado</bpmn:outgoing><bpmn:outgoing>Flow_CorretorVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_CorretorFechado" name="Canal do corretor não habilitado — aguarda GTM-03/J1–J4, SC-04.D1, SC-05.J1"><bpmn:documentation>FIM nomeado do caminho FECHADO (default): canal vendor fechado até ratificação (RATIFY L94–96); nenhuma superfície de corretor é oferecida; nenhuma remuneração circula (remuneração fora da plataforma — GTM-03/J3). Épico E-SF-18/E-SF-ADD01-04 | portão GTM-03/J1–J4 + SC-04.D1 + SC-05.J1.</bpmn:documentation><bpmn:incoming>Flow_CorretorFechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_FaixaNeutra" name="Exibe faixa neutra 'atendimento iniciado por parceiro' + 'Falar com a operadora' (SC-05.J1)"><bpmn:documentation>VARIANTE NÃO ATIVA (só com texto ratificado — SC-05.J1; sem texto, o botão NÃO é exibido): faixa genérica 'atendimento iniciado por parceiro' + botão 'Falar com a operadora' (SC-05 — RATIFY-LATER-jurídico, ADDENDUM-01.md:84/104); o ACEITE da contratação é sempre do comprador (SC-05; aceite único da entrada — OS-05); disclosure ao consumidor é parecer CDC pendente (GTM-02/J2 — RL-SF-082; GAP-NORM RN 518: nenhuma norma pinada de disclosure — baseline L321/L323). Épico E-SF-ADD01-04 (faixa + componente de divulgação — bloqueado) | portão SC-05.J1 + GTM-02/J2.</bpmn:documentation><bpmn:incoming>Flow_CorretorVariante</bpmn:incoming><bpmn:outgoing>Flow_B2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_AceiteComprador" name="Aceite permanece sempre do comprador (SC-05)"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: qualquer jornada tocada por parceiro termina com o aceite NA MÃO DO COMPRADOR (SC-05) — parceiro nunca aceita em nome do comprador. Épico E-SF-18/E-SF-ADD01-04 | portão SC-05.J1.</bpmn:documentation><bpmn:incoming>Flow_B2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_LinkE02Origem" name="1º prospect.save — vínculo de originação proposto (LINK↔E02)"><bpmn:documentation>LINK↔E02-ORIGEM (par com a sessão de prospect da etapa 2 — FUNIL-E02): o 1º prospect.save proporia o vínculo de originação (SC-06 — recomendação; a REGRA de remuneração é jurídica, GTM-02/J1). Hoje NADA é vinculado: attribution só agregada/manual, FORA da plataforma; OP15 attributionPolicy=UNMEASURED (fallback GTM-02/D1 — RL-SF-084, RATIFY L92). ZERO medição (A9 fechada — frente F1); conversão por classe de origem, nunca por corretor (SC-10). Épico E-SF-ADD01-05 | portão GTM-02/J1 + GTM-02/D1.</bpmn:documentation><bpmn:outgoing>Flow_D1</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_LinkE02Origem" name="E02-ORIGEM" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoComissao" name="Fato gerador da comissão ratificado? (GTM-02/J1)" default="Flow_ComissaoFechado"><bpmn:documentation>PORTÃO FECHADO RL-SF-081 (GTM-02/J1 — natureza da relação operadora–corretor e fato gerador lícito da comissão; RATIFY L89): default = SEM vínculo de originação e extrato SEM VALOR — nenhum valor de comissão existe ou circula (missão §8: sem valor de comissão; sem comparação entre operadoras — CADE); staff_commission_policies=False; 0029 DRAFT-only; Forma 2 registrada mesmo na negativa. Disclosure da existência/natureza da remuneração = GTM-02/J2 (RL-SF-082 — CDC arts. 6º III e 31, parecer pendente; sem disclosure de valor). Classe de campo/k-anon do extrato = GTM-02/D1 (RL-SF-084 — DPO). Épico E-SF-ADD01-05 (extrato — sem linha executável, aguarda GTM-02/J1/D1/O1) | portão GTM-02/J1.</bpmn:documentation><bpmn:incoming>Flow_D1</bpmn:incoming><bpmn:outgoing>Flow_ComissaoFechado</bpmn:outgoing><bpmn:outgoing>Flow_ComissaoVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_SemComissao" name="Sem vínculo de originação — extrato sem valor (FECHADO)"><bpmn:documentation>FIM nomeado do caminho FECHADO (default): nenhuma comissão é calculada, prometida ou paga; extrato de remuneração não é emitido (E-SF-ADD01-05 aguarda GTM-02/J1 + D1 + O1 — ADDENDUM-01.md:278/317); 'liberar após a janela' em vez de estorno é desenho futuro (SC-06) e não roda hoje. Épico E-SF-ADD01-05 | portão GTM-02/J1.</bpmn:documentation><bpmn:incoming>Flow_ComissaoFechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ExtratoVariante" name="Extrato com estados e motivos em centavos (variante — aguarda GTM-02/J1+D1; E-SF-ADD01-05)"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: extrato de remuneração com estados e motivos em centavos e 'liberar após a janela' em vez de estorno (SC-06) — SEM VALOR de comissão em campo algum (missão §8; GTM-02/J2: sem disclosure de valor); EPIC E-SF-ADD01-05 (maezo, sem linha executável — aguarda GTM-02/J1, D1, O1). Épico E-SF-ADD01-05 | portão GTM-02/J1.</bpmn:documentation><bpmn:incoming>Flow_ComissaoVariante</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_ParecerQ8" name="Jurídico retoma parecer OP21/Q8 (RL-SF-020/RL-REG-08)"><bpmn:documentation>Início da pauta jurídica da frente: parecer OP21 (legitimidade da PJ contratante em coletivo) estendido ao funil, com screen de legitimidade como pré-condição e resposta pela RN 489 art. 23-A (red. RN 659/2025) — RL-SF-020 (RATIFY L28) + RL-REG-08 (íntegra RATIFY L220). Épico E-SF-20 | portão RL-SF-020/RL-REG-08.</bpmn:documentation><bpmn:outgoing>Flow_J1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_RatificaLegitimidade" name="Diretor Jurídico ratifica a legitimidade coletiva (RL-SF-020/RL-REG-08 — Q8/OP21)"><bpmn:documentation>ATO DE DONO (userTask na raia do papel competente — missão §6: o que espera ratificação ou ato de dono aparece como gateway exclusivo com default fechado): Diretor Jurídico ratifica RL-SF-020 (parecer OP21 no funil) e RL-REG-08 (íntegra). RATIFICAÇÃO MAIS URGENTE DA MISSÃO: degrau de multa-base em 2027-01-01 (RN 659/2025 Anexo — baseline L269; 'a 46 dias de 2026-11-16' — ADDENDUM-01.md:399; prioridade (1) RATIFY L207). EP-REG-08a (rota humana interna) NÃO é bloqueado; E-SF-20r só destrava com enforcing pós-ratificação (RL-SF-126 OWNER-DEPLOY — RATIFY L134). Épico E-SF-20 | portão RL-SF-020/RL-REG-08.</bpmn:documentation><bpmn:incoming>Flow_J1</bpmn:incoming><bpmn:outgoing>Flow_J2</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_RatificadoColetivo" name="RL-SF-020 ratificado?" default="Flow_JPendente"><bpmn:documentation>PORTÃO RL-SF-020 ratificado? (jurídico — Diretor Jurídico; RATIFY L28/L220): default = NÃO ratificado → permanece PENDENTE com degrau de multa-base em 2027-01-01 (MAIS URGENTE); enquanto pendente, o funil omni NÃO oferece caminho coletivo self-service (fallback RATIFY L220: (i) coletivo só por rota humana interna EP-REG-08a; (ii) qualquer consumo futuro é do OP21 maezo; (iii) recusa ao comprador em linguagem neutra). Épico E-SF-20 | portão RL-SF-020.</bpmn:documentation><bpmn:incoming>Flow_J2</bpmn:incoming><bpmn:outgoing>Flow_JPendente</bpmn:outgoing><bpmn:outgoing>Flow_JRatifica</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_MultaDegrau" name="Pendente — degrau de multa-base em 2027-01-01 (MAIS URGENTE)"><bpmn:documentation>FIM nomeado do caminho FECHADO (default): ratificação pendente — a exposição coletiva sem legitimidade é tipo infracional com multa-base escalonada (RN 659/2025 art. 23-A + Anexo, baseline L267/L269: R$ 337.500 → 506.250 → 675.000 nos degraus 1º/5/2026 → 1º/1/2027 → 1º/1/2028). Épico E-SF-20 | portão RL-SF-020/RL-REG-08 — MAIS URGENTE.</bpmn:documentation><bpmn:incoming>Flow_JPendente</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ParecerRatificado" name="Parecer ratificado — tela de legitimidade destravada (variante)"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: RL-SF-020/RL-REG-08 ratificado → a tela de legitimidade da venda coletiva (raia Omni) pode ser construída (E-SF-20/E-SF-ADD01-06), com enforcing OWNER-DEPLOY (RL-SF-126 — RATIFY L134). Épico E-SF-20 | portão RL-SF-020/RL-REG-08.</bpmn:documentation><bpmn:incoming>Flow_JRatifica</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_A1" name="Etapa 1" sourceRef="Event_LinkE01Humano" targetRef="Task_Especialista"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador pede ajuda na vitrine (etapa 1)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A2" name="Etapa 2" sourceRef="Event_LinkE02Humano" targetRef="Task_Especialista"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador pede ajuda na qualificação (etapa 2)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A3" name="Etapa 3" sourceRef="Event_LinkE03Humano" targetRef="Task_Especialista"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador pede ajuda na cotação (etapa 3)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A4" name="Etapa 5" sourceRef="Event_LinkE05Humano" targetRef="Task_Especialista"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador pede ajuda no aceite (etapa 5)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A5" name="Resposta pronta" sourceRef="Task_Especialista" targetRef="Gateway_Copiloto" />
+      <bpmn:sequenceFlow id="Flow_CopilotoOff" name="OFF — clique humano" sourceRef="Gateway_Copiloto" targetRef="EndEvent_EnvioHumano" />
+      <bpmn:sequenceFlow id="Flow_CopilotoVariante" name="variante não ativa: SC-03.D1 + SC-03.O1" sourceRef="Gateway_Copiloto" targetRef="Task_CopilotoRascunho"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: SC-03.D1 (DPO) ratificado e flag SC-03.O1 ligado pelo dono-deploy</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_A6" name="Rascunho pronto" sourceRef="Task_CopilotoRascunho" targetRef="EndEvent_RascunhoCopiloto" />
+      <bpmn:sequenceFlow id="Flow_B1" name="link/QR (SC-04)" sourceRef="Event_LinkCorretorEntrada" targetRef="Gateway_PortaoCorretor" />
+      <bpmn:sequenceFlow id="Flow_CorretorFechado" name="não habilitado (FECHADO)" sourceRef="Gateway_PortaoCorretor" targetRef="EndEvent_CorretorFechado" />
+      <bpmn:sequenceFlow id="Flow_CorretorVariante" name="variante não ativa: GTM-03/J1–J4 + SC-04.D1 + SC-05.J1" sourceRef="Gateway_PortaoCorretor" targetRef="Task_FaixaNeutra"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: GTM-03/J1–J4 ratificados + SC-04.D1 (DPO) + SC-05.J1 (texto ratificado)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_B2" name="comprador decide" sourceRef="Task_FaixaNeutra" targetRef="EndEvent_AceiteComprador" />
+      <bpmn:sequenceFlow id="Flow_D1" name="origem.vinculada" sourceRef="Event_LinkE02Origem" targetRef="Gateway_PortaoComissao" />
+      <bpmn:sequenceFlow id="Flow_ComissaoFechado" name="sem fato gerador (FECHADO)" sourceRef="Gateway_PortaoComissao" targetRef="EndEvent_SemComissao" />
+      <bpmn:sequenceFlow id="Flow_ComissaoVariante" name="variante não ativa: GTM-02/J1 + GTM-02/D1 ratificados" sourceRef="Gateway_PortaoComissao" targetRef="EndEvent_ExtratoVariante"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RL-SF-081 (GTM-02/J1) ratificado + GTM-02/D1 (RL-SF-084) fechado</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_J1" name="parecer em pauta" sourceRef="StartEvent_ParecerQ8" targetRef="Task_RatificaLegitimidade" />
+      <bpmn:sequenceFlow id="Flow_J2" name="minuta pronta" sourceRef="Task_RatificaLegitimidade" targetRef="Gateway_RatificadoColetivo" />
+      <bpmn:sequenceFlow id="Flow_JPendente" name="não ratificado (FECHADO)" sourceRef="Gateway_RatificadoColetivo" targetRef="EndEvent_MultaDegrau" />
+      <bpmn:sequenceFlow id="Flow_JRatifica" name="variante não ativa: ratificação registrada (RL-SF-020)" sourceRef="Gateway_RatificadoColetivo" targetRef="EndEvent_ParecerRatificado"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RL-SF-020/RL-REG-08 ratificado pelo Diretor Jurídico</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:textAnnotation id="Annotation_Corretor"><bpmn:text>PORTÃO FECHADO — CANAL DO CORRETOR (RL-SF-086/RL-SF-087/RL-SF-088/RL-SF-089 = GTM-03/J1–J4, jurídico; RATIFY L94–97: fallback comum 'Canal fechado'; J4: PF-only permanente): aguarda também SC-04.D1 (DPO — área do corretor sem posição individual; contagens agregadas sob piso) e SC-05.J1 (jurídico — texto da faixa neutra; SEM texto ratificado o botão NÃO é exibido). Link/QR só com parâmetros NÃO pessoais (SC-04); faixa neutra 'atendimento iniciado por parceiro' + 'Falar com a operadora' (SC-05) só VARIANTE ANOTADA; ACEITE sempre do comprador (SC-05). Pool externo = PAPEL, nunca nome de empresa. NÍVEL 2: E-SF-18 (PR 1276 em CI) + E-SF-ADD01-04 (onda 2, bloqueado por GTM-03/J1–J4, D1, O1, SC-04.D1, SC-05.J1, GTM-02/J2).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Comissao"><bpmn:text>PORTÃO FECHADO — COMISSÃO (RL-SF-081 = GTM-02/J1, jurídico trio A8: natureza da relação operadora–corretor e fato gerador lícito; RATIFY L89: registrar Forma 2 mesmo na negativa; 0029 DRAFT-only; staff_commission_policies=False): SEM valor de comissão em nenhum rótulo (missão §8); SEM comparação entre operadoras (CADE); disclosure ao consumidor = GTM-02/J2 (RL-SF-082 — CDC 6º III/31, pendente); classe de campo/k-anon do extrato = GTM-02/D1 (RL-SF-084 — DPO). origem.vinculada = proposta ANOTADA (SC-06 — recomendação no 1º prospect.save; attribution agregada/manual FORA da plataforma; OP15 UNMEASURED); extrato com estados e motivos em centavos, 'liberar após a janela' (SC-06) = E-SF-ADD01-05 aguarda (sem linha executável). GAP-NORM: RN 518/2022 sem dispositivo pinado de disclosure na baseline (só dever de REPORT operadora→ANS — âncora herdada L321, conclusão L323).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Copiloto"><bpmn:text>COPILOTO STAFF_ASSIST — FLAG OFF (SC-03.O1 OWNER-DEPLOY; inferência que lê snapshot do prospect = portão SC-03.D1 DPO pendente — ADDENDUM-01.md:82/102): enquanto pendente, copiloto desligado ou só conteúdo de produto; ENVIO SEMPRE POR CLIQUE HUMANO (SC-03; missão §6: agente de IA só prepara e encaminha — nunca decide/envia). NÍVEL 2: E-SF-ADD01-03 (copiloto staff_assist flag off — onda 2, bloqueado por portão).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_UrgenciaColetivo"><bpmn:text>LEGITIMIDADE COLETIVA — RATIFICAÇÃO MAIS URGENTE (RL-SF-020/RL-REG-08, Q8; jurídico — Diretor Jurídico; RATIFY L28/L220): fundamento RN 659/2025 art. 2º → art. 23-A da RN 489/2022 (baseline L267) + Anexo (L269) — multa-base escalonada com DEGRAU em 2027-01-01 ('a 46 dias de 2026-11-16' — ADDENDUM-01.md:399; prioridade (1) do orquestrador — RATIFY L207). Enquanto pendente: (i) coletivo NÃO em self-service — só rota humana interna (EP-REG-08a, NÃO bloqueada); (ii) consumo futuro do parecer = OP21 maezo; (iii) recusa em linguagem neutra sem caracterizar o canal (RATIFY L220). EP-REG-08a não espera; E-SF-20r bloqueado até enforcing (RL-SF-126 — RATIFY L134). Quem destrava: Diretor Jurídico ratifica; SC-08.D1 (DPO — fonte externa de PJ com quadro societário; default 'CNPJ digitado; verificação manual pelo staff', ADDENDUM-01.md:105/388) segue pendente para a tela. Épico E-SF-20 (não iniciado) + E-SF-ADD01-06.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Corretor" sourceRef="Gateway_PortaoCorretor" targetRef="Annotation_Corretor" />
+    <bpmn:association id="Association_Comissao" sourceRef="Gateway_PortaoComissao" targetRef="Annotation_Comissao" />
+    <bpmn:association id="Association_CopilotoRascunho" sourceRef="Task_CopilotoRascunho" targetRef="Annotation_Copiloto" />
+    <bpmn:association id="Association_UrgenciaColetivo" sourceRef="Gateway_RatificadoColetivo" targetRef="Annotation_UrgenciaColetivo" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_F03">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_F03" bpmnElement="Collaboration_FUNIL_F03">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2500" height="620" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Omni_di" bpmnElement="Participant_Omni" isHorizontal="true"><dc:Bounds x="40" y="740" width="2500" height="560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="1380" width="2500" height="1560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Corretor_di" bpmnElement="Participant_Corretor" isHorizontal="true"><dc:Bounds x="40" y="3020" width="2500" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_AMH_di" bpmnElement="Participant_AMH" isHorizontal="true"><dc:Bounds x="40" y="3320" width="2500" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comprador_di" bpmnElement="Lane_Comprador" isHorizontal="true"><dc:Bounds x="70" y="70" width="2470" height="590" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="770" width="2470" height="530" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ComercialCanal_di" bpmnElement="Lane_ComercialCanal" isHorizontal="true"><dc:Bounds x="70" y="1410" width="2470" height="770" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_JuridicoPortoes_di" bpmnElement="Lane_JuridicoPortoes" isHorizontal="true"><dc:Bounds x="70" y="2180" width="2470" height="760" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_EntradaCanal_di" bpmnElement="StartEvent_EntradaCanal">
+        <dc:Bounds x="90" y="180" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="226" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeEspecialista_di" bpmnElement="Task_PedeEspecialista">
+        <dc:Bounds x="190" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AguardaEspecialista_di" bpmnElement="EndEvent_AguardaEspecialista">
+        <dc:Bounds x="350" y="180" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="336" y="226" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Superficie_di" bpmnElement="StartEvent_Superficie">
+        <dc:Bounds x="90" y="880" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="52" y="926" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConsoleEspecialista_di" bpmnElement="Task_ConsoleEspecialista">
+        <dc:Bounds x="190" y="860" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Encaminhado_di" bpmnElement="EndEvent_Encaminhado">
+        <dc:Bounds x="350" y="880" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="336" y="790" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE04Leg_di" bpmnElement="Event_LinkE04Leg">
+        <dc:Bounds x="90" y="1110" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="52" y="1156" width="124" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoColetivo_di" bpmnElement="Gateway_PortaoColetivo" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="190" y="1090" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="60" y="1046" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ColetivoHumano_di" bpmnElement="EndEvent_ColetivoHumano" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="310" y="1110" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="352" y="1160" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_TelaLegitimidade_di" bpmnElement="Task_TelaLegitimidade">
+        <dc:Bounds x="190" y="1210" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_F3LegValida_di" bpmnElement="Event_F3LegValida">
+        <dc:Bounds x="340" y="1230" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="326" y="1272" width="76" height="26" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ColetivoValido_di" bpmnElement="EndEvent_ColetivoValido">
+        <dc:Bounds x="420" y="1230" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="406" y="1272" width="130" height="26" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE01Humano_di" bpmnElement="Event_LinkE01Humano">
+        <dc:Bounds x="90" y="1440" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="1488" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE02Humano_di" bpmnElement="Event_LinkE02Humano">
+        <dc:Bounds x="90" y="1520" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="1568" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE03Humano_di" bpmnElement="Event_LinkE03Humano">
+        <dc:Bounds x="90" y="1600" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="1648" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE05Humano_di" bpmnElement="Event_LinkE05Humano">
+        <dc:Bounds x="90" y="1680" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="1728" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Especialista_di" bpmnElement="Task_Especialista">
+        <dc:Bounds x="240" y="1480" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Copiloto_di" bpmnElement="Gateway_Copiloto" isMarkerVisible="true">
+        <dc:Bounds x="420" y="1490" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="398" y="1424" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_EnvioHumano_di" bpmnElement="EndEvent_EnvioHumano">
+        <dc:Bounds x="530" y="1500" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="556" y="1546" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CopilotoRascunho_di" bpmnElement="Task_CopilotoRascunho">
+        <dc:Bounds x="420" y="1620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RascunhoCopiloto_di" bpmnElement="EndEvent_RascunhoCopiloto">
+        <dc:Bounds x="570" y="1640" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="556" y="1682" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkCorretorEntrada_di" bpmnElement="Event_LinkCorretorEntrada">
+        <dc:Bounds x="90" y="1810" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="1854" width="150" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoCorretor_di" bpmnElement="Gateway_PortaoCorretor" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="190" y="1800" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="110" y="1766" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CorretorFechado_di" bpmnElement="EndEvent_CorretorFechado" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="310" y="1810" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="296" y="1854" width="220" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_FaixaNeutra_di" bpmnElement="Task_FaixaNeutra">
+        <dc:Bounds x="190" y="1920" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteComprador_di" bpmnElement="EndEvent_AceiteComprador">
+        <dc:Bounds x="340" y="1940" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="326" y="1982" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_LinkE02Origem_di" bpmnElement="Event_LinkE02Origem">
+        <dc:Bounds x="90" y="2060" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="46" y="2104" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoComissao_di" bpmnElement="Gateway_PortaoComissao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="190" y="2050" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="110" y="2016" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_SemComissao_di" bpmnElement="EndEvent_SemComissao" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="310" y="2060" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="352" y="2064" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ExtratoVariante_di" bpmnElement="EndEvent_ExtratoVariante">
+        <dc:Bounds x="310" y="2130" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="352" y="2134" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Corretor_di" bpmnElement="Annotation_Corretor">
+        <dc:Bounds x="540" y="1850" width="520" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Comissao_di" bpmnElement="Annotation_Comissao">
+        <dc:Bounds x="540" y="2030" width="520" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Copiloto_di" bpmnElement="Annotation_Copiloto">
+        <dc:Bounds x="720" y="1460" width="420" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ParecerQ8_di" bpmnElement="StartEvent_ParecerQ8">
+        <dc:Bounds x="90" y="2240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="52" y="2286" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RatificaLegitimidade_di" bpmnElement="Task_RatificaLegitimidade">
+        <dc:Bounds x="190" y="2220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_RatificadoColetivo_di" bpmnElement="Gateway_RatificadoColetivo" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="340" y="2230" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="300" y="2196" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_MultaDegrau_di" bpmnElement="EndEvent_MultaDegrau" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="450" y="2240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="436" y="2286" width="220" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ParecerRatificado_di" bpmnElement="EndEvent_ParecerRatificado">
+        <dc:Bounds x="450" y="2340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="436" y="2386" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_UrgenciaColetivo_di" bpmnElement="Annotation_UrgenciaColetivo">
+        <dc:Bounds x="560" y="2340" width="540" height="170" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Convencao_di" bpmnElement="Annotation_Convencao">
+        <dc:Bounds x="620" y="860" width="420" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_SC08_di" bpmnElement="Annotation_SC08">
+        <dc:Bounds x="620" y="1060" width="420" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Atribuicao_di" bpmnElement="Annotation_Atribuicao">
+        <dc:Bounds x="1100" y="860" width="540" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Escopo_di" bpmnElement="Annotation_Escopo">
+        <dc:Bounds x="90" y="3640" width="700" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="850" y="3640" width="700" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1600" y="3640" width="560" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_C1_di" bpmnElement="Flow_C1"><di:waypoint x="126" y="200" /><di:waypoint x="190" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="172" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_di" bpmnElement="Flow_C2"><di:waypoint x="290" y="200" /><di:waypoint x="350" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="292" y="172" width="44" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O1_di" bpmnElement="Flow_O1"><di:waypoint x="126" y="900" /><di:waypoint x="190" y="900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="872" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O2_di" bpmnElement="Flow_O2"><di:waypoint x="290" y="900" /><di:waypoint x="350" y="900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="292" y="872" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O3_di" bpmnElement="Flow_O3"><di:waypoint x="126" y="1130" /><di:waypoint x="190" y="1130" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1102" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ColetivoFechado_di" bpmnElement="Flow_ColetivoFechado"><di:waypoint x="240" y="1130" /><di:waypoint x="310" y="1130" />
+        <bpmndi:BPMNLabel><dc:Bounds x="242" y="1136" width="57" height="70" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ColetivoVariante_di" bpmnElement="Flow_ColetivoVariante"><di:waypoint x="215" y="1140" /><di:waypoint x="215" y="1210" />
+        <bpmndi:BPMNLabel><dc:Bounds x="52" y="1204" width="124" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O4_di" bpmnElement="Flow_O4"><di:waypoint x="290" y="1250" /><di:waypoint x="340" y="1250" />
+        <bpmndi:BPMNLabel><dc:Bounds x="306" y="1180" width="44" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O5_di" bpmnElement="Flow_O5"><di:waypoint x="376" y="1250" /><di:waypoint x="420" y="1250" />
+        <bpmndi:BPMNLabel><dc:Bounds x="460" y="1236" width="58" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A1_di" bpmnElement="Flow_A1"><di:waypoint x="126" y="1462" /><di:waypoint x="190" y="1462" /><di:waypoint x="190" y="1490" /><di:waypoint x="240" y="1490" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1436" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A2_di" bpmnElement="Flow_A2"><di:waypoint x="126" y="1542" /><di:waypoint x="190" y="1542" /><di:waypoint x="190" y="1510" /><di:waypoint x="240" y="1510" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1516" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A3_di" bpmnElement="Flow_A3"><di:waypoint x="126" y="1622" /><di:waypoint x="190" y="1622" /><di:waypoint x="190" y="1530" /><di:waypoint x="240" y="1530" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1596" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A4_di" bpmnElement="Flow_A4"><di:waypoint x="126" y="1702" /><di:waypoint x="190" y="1702" /><di:waypoint x="190" y="1550" /><di:waypoint x="240" y="1550" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1676" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A5_di" bpmnElement="Flow_A5"><di:waypoint x="340" y="1520" /><di:waypoint x="420" y="1520" />
+        <bpmndi:BPMNLabel><dc:Bounds x="344" y="1494" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CopilotoOff_di" bpmnElement="Flow_CopilotoOff"><di:waypoint x="470" y="1520" /><di:waypoint x="530" y="1520" />
+        <bpmndi:BPMNLabel><dc:Bounds x="474" y="1480" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CopilotoVariante_di" bpmnElement="Flow_CopilotoVariante"><di:waypoint x="445" y="1540" /><di:waypoint x="445" y="1620" />
+        <bpmndi:BPMNLabel><dc:Bounds x="451" y="1560" width="60" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A6_di" bpmnElement="Flow_A6"><di:waypoint x="520" y="1660" /><di:waypoint x="570" y="1660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="524" y="1634" width="44" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B1_di" bpmnElement="Flow_B1"><di:waypoint x="126" y="1828" /><di:waypoint x="190" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="1836" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CorretorFechado_di" bpmnElement="Flow_CorretorFechado"><di:waypoint x="240" y="1828" /><di:waypoint x="310" y="1828" />
+        <bpmndi:BPMNLabel><dc:Bounds x="302" y="1760" width="62" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CorretorVariante_di" bpmnElement="Flow_CorretorVariante"><di:waypoint x="215" y="1850" /><di:waypoint x="215" y="1920" />
+        <bpmndi:BPMNLabel><dc:Bounds x="60" y="1906" width="116" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B2_di" bpmnElement="Flow_B2"><di:waypoint x="290" y="1960" /><di:waypoint x="340" y="1960" />
+        <bpmndi:BPMNLabel><dc:Bounds x="294" y="1934" width="44" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_D1_di" bpmnElement="Flow_D1"><di:waypoint x="126" y="2078" /><di:waypoint x="190" y="2078" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="2084" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ComissaoFechado_di" bpmnElement="Flow_ComissaoFechado"><di:waypoint x="240" y="2078" /><di:waypoint x="310" y="2078" />
+        <bpmndi:BPMNLabel><dc:Bounds x="244" y="2084" width="64" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ComissaoVariante_di" bpmnElement="Flow_ComissaoVariante"><di:waypoint x="215" y="2100" /><di:waypoint x="215" y="2148" /><di:waypoint x="310" y="2148" />
+        <bpmndi:BPMNLabel><dc:Bounds x="221" y="2154" width="86" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J1_di" bpmnElement="Flow_J1"><di:waypoint x="126" y="2260" /><di:waypoint x="190" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="2234" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J2_di" bpmnElement="Flow_J2"><di:waypoint x="290" y="2260" /><di:waypoint x="340" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="294" y="2226" width="46" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_JPendente_di" bpmnElement="Flow_JPendente"><di:waypoint x="390" y="2260" /><di:waypoint x="450" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="394" y="2268" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_JRatifica_di" bpmnElement="Flow_JRatifica"><di:waypoint x="365" y="2280" /><di:waypoint x="365" y="2360" /><di:waypoint x="450" y="2360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="369" y="2364" width="78" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PedeEspecialista_di" bpmnElement="MsgFlow_PedeEspecialista"><di:waypoint x="280" y="240" /><di:waypoint x="280" y="860" />
+        <bpmndi:BPMNLabel><dc:Bounds x="296" y="480" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_EncaminhaEspecialista_di" bpmnElement="MsgFlow_EncaminhaEspecialista"><di:waypoint x="240" y="940" /><di:waypoint x="300" y="940" /><di:waypoint x="300" y="1480" />
+        <bpmndi:BPMNLabel><dc:Bounds x="452" y="960" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Corretor_di" bpmnElement="Association_Corretor"><di:waypoint x="240" y="1808" /><di:waypoint x="300" y="1808" /><di:waypoint x="300" y="1852" /><di:waypoint x="540" y="1852" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Comissao_di" bpmnElement="Association_Comissao"><di:waypoint x="240" y="2058" /><di:waypoint x="300" y="2058" /><di:waypoint x="300" y="2028" /><di:waypoint x="540" y="2028" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CopilotoRascunho_di" bpmnElement="Association_CopilotoRascunho"><di:waypoint x="450" y="1700" /><di:waypoint x="450" y="1740" /><di:waypoint x="720" y="1740" /><di:waypoint x="720" y="1598" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_UrgenciaColetivo_di" bpmnElement="Association_UrgenciaColetivo"><di:waypoint x="340" y="2266" /><di:waypoint x="310" y="2266" /><di:waypoint x="310" y="2330" /><di:waypoint x="560" y="2330" /><di:waypoint x="560" y="2340" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Convencao_di" bpmnElement="Association_Convencao"><di:waypoint x="386" y="916" /><di:waypoint x="386" y="1040" /><di:waypoint x="620" y="1040" /><di:waypoint x="620" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Coletivo_di" bpmnElement="Association_Coletivo"><di:waypoint x="240" y="1105" /><di:waypoint x="620" y="1105" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_SC08_di" bpmnElement="Association_SC08"><di:waypoint x="240" y="1210" /><di:waypoint x="240" y="1050" /><di:waypoint x="620" y="1050" /><di:waypoint x="620" y="1060" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Atribuicao_di" bpmnElement="Association_Atribuicao"><di:waypoint x="240" y="860" /><di:waypoint x="240" y="820" /><di:waypoint x="1100" y="820" /><di:waypoint x="1100" y="860" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

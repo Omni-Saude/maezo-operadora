@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E03" targetNamespace="urn:funil:descritivo:etapa3" exporter="build_etapa03.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E03" name="Etapa 3 — Cotação e comparador">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do comprador/proponente. Pool externo (caixa-preta): solicita a cotação após concluir a qualificação (etapa 2) e recebe orientação do comparador, informações pré-contratuais e a oferta. Nenhuma tarefa é inventada neste pool.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Comparador SÓ DE ORIENTAÇÃO, sem ranking (TSV L101 — E-SF-39; CADE), checklist pré-contratual antes da decisão (RN 413 art. 4º, baseline L115/116/129 — GAP-10) e exibição da oferta. Portão A2 residual (RL-SF-002). Épico E-SF-38 (mesclado, omni 40).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora), raia comercial. Composição de preço exibida SÓ DA PRÓPRIA OPERADORA (RL-SF-019 pendente; CADE — baseline L25; ADD-SALES-CHANNEL.md:18) e oferta com 'preço válido até' lendo o catálogo de prazos DMN (GAP-DMN-PV1). Épicos E-SF-52/E-SF-08 (mesclados).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago" processRef="Process_ExecutorAMH"><bpmn:documentation>Executor comercial e lago (amh-data-platform). Gera e publica a cotação qualificada da fonte — preço por faixa etária como FATO PÚBLICO QUALIFICADO (Lei 9.656 arts. 15 e 35-E §1º I; baseline L96/L99). Boundary de erro/incerteza na fonte. Épico E-SF-52 (mesclado, amh 413). isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_SolicitaCotacao" name="Solicita cotação (pós-qualificação)" sourceRef="Participant_Comprador" targetRef="StartEvent_SessaoCotacao" />
+    <bpmn:messageFlow id="MsgFlow_PedeCotacaoFonte" name="Solicitação de cotação" sourceRef="Task_EnviaSolicitacaoCotacao" targetRef="StartEvent_CotacaoSolicitada" />
+    <bpmn:messageFlow id="MsgFlow_CotacaoQualificada" name="Cotação qualificada (fatos públicos)" sourceRef="Task_PublicaCotacaoQualificada" targetRef="StartEvent_ComposicaoDevida" />
+    <bpmn:messageFlow id="MsgFlow_OfertaOperadora" name="Oferta da operadora" sourceRef="Task_RegistraOfertaSemValidade" targetRef="Task_RecebeOferta" />
+    <bpmn:messageFlow id="MsgFlow_ExibeOferta" name="Exibe orientação, pré-contratuais e oferta" sourceRef="Task_ApresentaPreContratuais" targetRef="Participant_Comprador" />
+    <bpmn:messageFlow id="MsgFlow_AbandonoSessao" name="Abandona a sessão" sourceRef="Participant_Comprador" targetRef="Event_AbandonoSessao" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO ou caminho conservador ATIVO por regra (A2/RL-SF-002; RL-SF-019; vedação CADE; GAP-DMN-PV1 'preço válido até'). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Comparador SÓ DE ORIENTAÇÃO, sem ranking (TSV L101 — E-SF-39; CADE), checklist pré-contratual antes da decisão (RN 413 art. 4º, baseline L115/116/129 — GAP-10) e exibição da oferta. Portão A2 residual (RL-SF-002). Épico E-SF-38 (mesclado, omni 40).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície">
+        <bpmn:flowNodeRef>StartEvent_SessaoCotacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CarregaSessaoA2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateA2Sessao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeCotacaoPersonalizada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeCotacaoGenerica</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinCotacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaSolicitacaoCotacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecebeOferta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoSessao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateComparacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ComparaOpcoes</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApresentaPreContratuais</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OfertaExibida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ComparacaoVedada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE03</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_HumanoE03</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:intermediateThrowEvent id="Event_AbandonoE03" name="Abandono da cotação — link 'ABANDONO-E03' (par F2)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F2 — Recuperação de abandono e mensagens (FUNIL-F02-recuperacao-e-mensagens.bpmn): o catch de 'ABANDONO-E03' captura linkEventDefinition com este nome (grafia idêntica à de F02). Missão §5.2: a frente LIGA às etapas e não duplica as tarefas delas; recuperação só com consentimento, nunca a beneficiário, janela encerra antes dos 25 dias (BM-08). Épico E-SF-61.</bpmn:documentation><bpmn:incoming>Flow_S13_Abandono</bpmn:incoming><bpmn:outgoing>Flow_S13a_Fim</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE03" name="ABANDONO-E03" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_HumanoE03" name="Humano a um toque na cotação — link 'E03-HUMANO' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): Event_LinkE03Humano captura linkEventDefinition name='E03-HUMANO' (grafia idêntica à de F03). Momento: o especialista orienta na cotação, SEM ranking e SEM comparação entre operadoras (CADE). Nenhum botão ou tarefa de especialista desenhado aqui (a frente é a dona do atendimento). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_S11_PreContratuais</bpmn:incoming><bpmn:outgoing>Flow_S11a_PreContratuais</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_HumanoE03" name="E03-HUMANO" /></bpmn:intermediateThrowEvent>
+      <bpmn:startEvent id="StartEvent_SessaoCotacao" name="Cotação solicitada"><bpmn:documentation>Message start: o comprador solicita a cotação após concluir a qualificação (etapa 2 — formulário ≤5 dados, zero saúde). Sessão de prospect sob o portão A2 (RL-SF-002). Épico E-SF-38 (mesclado, omni 40).</bpmn:documentation><bpmn:outgoing>Flow_S1_Inicio</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_SessaoCotacao" messageRef="Message_SolicitaCotacao" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_CarregaSessaoA2" name="Carrega estado da sessão de prospect"><bpmn:documentation>Carrega o estado da sessão de prospect (presente/ausente, consentimentos pendentes) — insumo do portão A2; custódia da sessão no BFF (RN 413 art. 3º, baseline L114). Zero saúde: nenhum campo derivado de dado de saúde (LGPD art. 11 §5º, baseline L185). Portão A2 (RL-SF-002). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S1_Inicio</bpmn:incoming><bpmn:outgoing>Flow_S0_Sessao</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_GateA2Sessao" name="Sessão de prospect válida? (A2)" default="Flow_S3_Generica"><bpmn:documentation>PORTÃO A2 FECHADO (RL-SF-002, DPO — RATIFY-LATER-REGISTER.md:10; residual da etapa 2 nesta etapa): a cotação personalizada depende de sessão de prospect válida. Default conservador: sessão sem conta → cotação genérica — NÃO bloqueia a etapa inteira. Base legal pendente (LGPD art. 7º V, baseline L178; art. 11 §5º, L185). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO, TSV L68).</bpmn:documentation><bpmn:incoming>Flow_S0_Sessao</bpmn:incoming><bpmn:outgoing>Flow_S2_Personalizada</bpmn:outgoing><bpmn:outgoing>Flow_S3_Generica</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_PedeCotacaoPersonalizada" name="Solicita cotação personalizada da sessão"><bpmn:documentation>Cotação personalizada com os dados declarados na qualificação (≤5 campos). Zero saúde: nenhum campo, score ou roteamento derivado de dado de saúde (LGPD art. 11 §5º, baseline L185; RN 558 art. 10 §ú, L153). Portão A2 (RL-SF-002). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S2_Personalizada</bpmn:incoming><bpmn:outgoing>Flow_S4_JoinPers</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_PedeCotacaoGenerica" name="Solicita cotação genérica (sem conta)"><bpmn:documentation>DEFAULT A2 (RL-SF-002): cotação genérica — só fatos públicos da fonte, sem dado pessoal além do declarado; base legal da sessão pendente (LGPD art. 7º V, baseline L178). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S3_Generica</bpmn:incoming><bpmn:outgoing>Flow_S5_JoinGen</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinCotacao" name="Junta solicitações" default="Flow_S6_Envia"><bpmn:documentation>Junção das solicitações de cotação (personalizada × genérica). Default: encaminha à fonte.</bpmn:documentation><bpmn:incoming>Flow_S4_JoinPers</bpmn:incoming><bpmn:incoming>Flow_S5_JoinGen</bpmn:incoming><bpmn:outgoing>Flow_S6_Envia</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_EnviaSolicitacaoCotacao" name="Encaminha solicitação à fonte"><bpmn:documentation>Encaminha a solicitação de cotação ao Executor comercial e lago (messageFlow). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S6_Envia</bpmn:incoming><bpmn:outgoing>Flow_S7_Aguarda</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:receiveTask id="Task_RecebeOferta" name="Aguarda oferta da operadora" messageRef="Message_OfertaOperadora"><bpmn:documentation>Aguarda a oferta montada pela operadora (composição validada; validade conforme catálogo — GAP-DMN-PV1). Host do boundary de abandono. Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S7_Aguarda</bpmn:incoming><bpmn:outgoing>Flow_S8_Recebida</bpmn:outgoing></bpmn:receiveTask>
+      <bpmn:boundaryEvent id="Event_AbandonoSessao" name="Abandono" attachedToRef="Task_RecebeOferta" cancelActivity="true"><bpmn:documentation>Boundary de mensagem: abandono explícito da sessão pelo comprador durante a espera da oferta. GAP: mecanismo de registro de abandono na etapa 3 não definido no pacote. Recuperação = Frente F2 (RL-SF-066 FECHADO — nenhuma mensagem proativa a beneficiário; captura construível).</bpmn:documentation><bpmn:outgoing>Flow_S13_Abandono</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_Event_AbandonoSessao" messageRef="Message_AbandonoSessao" /></bpmn:boundaryEvent>
+      <bpmn:exclusiveGateway id="Gateway_GateComparacao" name="Base do comparativo?" default="Flow_S10_Vedado"><bpmn:documentation>REGRA DE CASA FECHADA (CADE): proibido comparar preços ou comissões entre operadoras de saúde (baseline L25 — estado assentado; L337 — RL-SF-019; ADD-SALES-CHANNEL.md:18 verbatim e :197 — 'ranking de prospects' proibido; ADD-RETENTION.md:15). Comparador orientation-only (TSV L101 — E-SF-39): sem ranking e sem ordenação automática por preço ou comissão. Detalhe exigido/vedado do comparador pendente: RL-SF-051 (jurídico — RATIFY-LATER-REGISTER.md:59). Default: comparativo só com fatos públicos da própria operadora.</bpmn:documentation><bpmn:incoming>Flow_S8_Recebida</bpmn:incoming><bpmn:outgoing>Flow_S9_Orienta</bpmn:outgoing><bpmn:outgoing>Flow_S10_Vedado</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_ComparaOpcoes" name="Comparador — só orientação, sem ranking"><bpmn:documentation>COMPARADOR SÓ DE ORIENTAÇÃO, SEM RANKING: orienta o comprador com fatos públicos qualificados da fonte da própria operadora; nenhuma ordenação por preço/comissão e nenhuma comparação entre operadoras (CADE — baseline L25/L337; ADD-SALES-CHANNEL.md:18/:197; ADD-RETENTION.md:15). Claims comparativos com lastro fático em poder do fornecedor (CDC art. 36 §ú, baseline L219); comparação enganosa vedada (CDC art. 37 §1º/§3º, L220); informação correta/claras/precisas (CDC arts. 30/31, L217/218). Épicos E-SF-38 (mesclado) e E-SF-39 (âncora TSV L101 — 'comparador orientation-only').</bpmn:documentation><bpmn:incoming>Flow_S9_Orienta</bpmn:incoming><bpmn:outgoing>Flow_S11_PreContratuais</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_ApresentaPreContratuais" name="Apresenta informações pré-contratuais"><bpmn:documentation>Informações pré-contratuais ANTES da decisão do comprador (RN 413 art. 4º caput I–IX — baseline L115; §1º documentos para impressão/download, L116). GAP-10 herdado: art. 4º §2º (L129) remete ao Guia de Orientação (RN 413 art. 18) NÃO localizado (baseline L370) — checklist limitado aos incisos I–IX, nenhum item do Guia é inventado. CDC arts. 30/31 (L217/218) e 37 §3º (L220 — nada essencial omitido ao lado do preço). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S11a_PreContratuais</bpmn:incoming><bpmn:outgoing>Flow_S12_Exibe</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_OfertaExibida" name="Orientação, pré-contratuais e oferta exibidos"><bpmn:documentation>Fim nomeado: orientação do comparador (sem ranking), pré-contratuais e oferta exibidos ao comprador. Validade da oferta conforme catálogo (GAP-DMN-PV1). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S12_Exibe</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Sessão abandonada"><bpmn:documentation>Fim nomeado: abandono da sessão de cotação. Recuperação = Frente F2 (RL-SF-066 FECHADO — sem mensagem proativa; encerra antes dos 25 dias).</bpmn:documentation><bpmn:incoming>Flow_S13a_Fim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ComparacaoVedada" name="Comparação entre operadoras vedada (CADE)"><bpmn:documentation>Fim nomeado conservador: qualquer comparativo ENTRE operadoras é recusado — vedação CADE (baseline L25/L337; ADD-SALES-CHANNEL.md:18/:197; ADD-RETENTION.md:15). Épico E-SF-38 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_S10_Vedado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Inicio" name="Solicitação recebida" sourceRef="StartEvent_SessaoCotacao" targetRef="Task_CarregaSessaoA2" />
+      <bpmn:sequenceFlow id="Flow_S0_Sessao" name="Estado da sessão" sourceRef="Task_CarregaSessaoA2" targetRef="Gateway_GateA2Sessao" />
+      <bpmn:sequenceFlow id="Flow_S2_Personalizada" name="Sessão válida" sourceRef="Gateway_GateA2Sessao" targetRef="Task_PedeCotacaoPersonalizada"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">sessão de prospect válida (A2)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S3_Generica" name="Sessão sem conta — cotação genérica (FECHADO)" sourceRef="Gateway_GateA2Sessao" targetRef="Task_PedeCotacaoGenerica" />
+      <bpmn:sequenceFlow id="Flow_S4_JoinPers" name="Solicita personalizada" sourceRef="Task_PedeCotacaoPersonalizada" targetRef="Gateway_JoinCotacao" />
+      <bpmn:sequenceFlow id="Flow_S5_JoinGen" name="Solicita genérica" sourceRef="Task_PedeCotacaoGenerica" targetRef="Gateway_JoinCotacao" />
+      <bpmn:sequenceFlow id="Flow_S6_Envia" name="Encaminha à fonte" sourceRef="Gateway_JoinCotacao" targetRef="Task_EnviaSolicitacaoCotacao" />
+      <bpmn:sequenceFlow id="Flow_S7_Aguarda" name="Aguarda oferta" sourceRef="Task_EnviaSolicitacaoCotacao" targetRef="Task_RecebeOferta" />
+      <bpmn:sequenceFlow id="Flow_S8_Recebida" name="Oferta recebida" sourceRef="Task_RecebeOferta" targetRef="Gateway_GateComparacao" />
+      <bpmn:sequenceFlow id="Flow_S9_Orienta" name="Fatos da própria operadora" sourceRef="Gateway_GateComparacao" targetRef="Task_ComparaOpcoes"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comparativo só com fatos públicos da própria operadora</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_S10_Vedado" name="Entre operadoras — VEDADO (CADE)" sourceRef="Gateway_GateComparacao" targetRef="EndEvent_ComparacaoVedada" />
+      <bpmn:sequenceFlow id="Flow_S11_PreContratuais" name="Orientação exibida — emite 'E03-HUMANO' (par F3)" sourceRef="Task_ComparaOpcoes" targetRef="Event_HumanoE03" />
+      <bpmn:sequenceFlow id="Flow_S11a_PreContratuais" name="Especialista pode orientar (SC-01/SC-02) — a frente é a dona do atendimento" sourceRef="Event_HumanoE03" targetRef="Task_ApresentaPreContratuais" />
+      <bpmn:sequenceFlow id="Flow_S12_Exibe" name="Exibe ao comprador" sourceRef="Task_ApresentaPreContratuais" targetRef="EndEvent_OfertaExibida" />
+      <bpmn:sequenceFlow id="Flow_S13_Abandono" name="Sessão abandonada — emite 'ABANDONO-E03' (par F2)" sourceRef="Event_AbandonoSessao" targetRef="Event_AbandonoE03" />
+      <bpmn:sequenceFlow id="Flow_S13a_Fim" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE03" targetRef="EndEvent_Abandono" />
+      <bpmn:textAnnotation id="Annotation_A2Sessao"><bpmn:text>PORTÃO FECHADO A2 (RL-SF-002, DPO — RATIFY-LATER-REGISTER.md:10): residual — cotação personalizada depende de sessão de prospect. Default: sessão sem conta → cotação genérica (não bloqueia a etapa). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_CadeComparador"><bpmn:text>SEM RANKING / SEM COMPARAÇÃO ENTRE OPERADORAS — CADE: baseline L25 (estado assentado) e L337 (RL-SF-019); ADD-SALES-CHANNEL.md:18 ('Proibido comparar comissões ou preços entre operadoras de saúde (CADE)') e :197 ('ranking de prospects' proibido); ADD-RETENTION.md:15. Orientation-only (TSV L101 — E-SF-39). Pendentes do jurídico: RL-SF-019 (L337) e RL-SF-051 (RATIFY-LATER-REGISTER.md:59).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_A2Sessao" sourceRef="Gateway_GateA2Sessao" targetRef="Annotation_A2Sessao" />
+    <bpmn:association id="Association_CadeGate" sourceRef="Gateway_GateComparacao" targetRef="Annotation_CadeComparador" />
+    <bpmn:association id="Association_CadeTask" sourceRef="Task_ComparaOpcoes" targetRef="Annotation_CadeComparador" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora), raia comercial. Composição de preço exibida SÓ DA PRÓPRIA OPERADORA (RL-SF-019 pendente; CADE — baseline L25; ADD-SALES-CHANNEL.md:18) e oferta com 'preço válido até' lendo o catálogo de prazos DMN (GAP-DMN-PV1). Épicos E-SF-52/E-SF-08 (mesclados).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_ComposicaoDevida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ValidaComposicaoPreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateComposicaoPreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OfertaComComposicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OfertaSemComposicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinComposicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConsultaValidadeCatalogo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateValidadePreco</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraOfertaSemValidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OfertaComValidadePendente</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExibePrecoValidoAte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OfertaComValidadeExibida</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_ComposicaoDevida" name="Cotação qualificada recebida"><bpmn:documentation>Message start: cotação qualificada publicada pela fonte (Executor comercial e lago) — fatos públicos de preço por faixa etária. Épico E-SF-52 (mesclado, amh 413).</bpmn:documentation><bpmn:outgoing>Flow_O1_Recebida</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_ComposicaoDevida" messageRef="Message_CotacaoQualificada" /></bpmn:startEvent>
+      <bpmn:businessRuleTask id="Task_ValidaComposicaoPreco" name="Valida composição — só da própria operadora"><bpmn:documentation>Valida a composição de preço EXIBIDA: só a composição do próprio produto da própria operadora — sem comissão, carregamento, margem ou custo interno, e sem comparar componentes entre operadoras (CADE). Portão RL-SF-019 (formação do preço, RN 413 art. 4º VII — baseline L115; RATIFY-LATER-REGISTER.md:27; baseline L337) pendente do jurídico com antitruste/concorrencial: nível de detalhe exibido = pergunta jurídica aberta. Fallback RL-SF-019: preço total + faixas etárias + mecanismos de regulação (mínimo Lei 9.656 art. 16). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O1_Recebida</bpmn:incoming><bpmn:outgoing>Flow_O1b_Validada</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_GateComposicaoPreco" name="Fonte qualifica composição?" default="Flow_O3_SemComposicao"><bpmn:documentation>PORTÃO FECHADO RL-SF-019 (jurídico com antitruste — RATIFY-LATER-REGISTER.md:27; baseline L337): composição de preço exibida SÓ DA PRÓPRIA OPERADORA; default conservador se a fonte divergir ou não houver lastro — oferta SEM bloco de composição (sem exibição). Sem comparação entre operadoras (CADE — baseline L25; ADD-SALES-CHANNEL.md:18). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O1b_Validada</bpmn:incoming><bpmn:outgoing>Flow_O2_ComComposicao</bpmn:outgoing><bpmn:outgoing>Flow_O3_SemComposicao</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_OfertaComComposicao" name="Monta oferta com composição da própria operadora"><bpmn:documentation>Monta a oferta com o bloco de composição da própria operadora (fato público qualificado da fonte; RN 413 art. 4º VII — baseline L115). Sem valor de comissão (missão §8). Preço numérico herda o portão A1-B2 (RL-SF-001, RATIFY-LATER-REGISTER.md:9): só valor fonte-qualificado por produto/composição/período; 'dado não informado', nunca 'a partir de' (CDC art. 31, baseline L218). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O2_ComComposicao</bpmn:incoming><bpmn:outgoing>Flow_O4_JoinCom</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_OfertaSemComposicao" name="Monta oferta sem bloco de composição (conservador)"><bpmn:documentation>DEFAULT conservador (RL-SF-019): monta a oferta SEM bloco de composição — preço total + faixas etárias + mecanismos de regulação; nada decomposto além do que o jurídico ratificar. Informação correta e precisa (CDC art. 31, baseline L218), sem composição inventada. Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O3_SemComposicao</bpmn:incoming><bpmn:outgoing>Flow_O5_JoinSem</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_JoinComposicao" name="Junta ofertas" default="Flow_O6_Consulta"><bpmn:documentation>Junção das ofertas (com × sem bloco de composição). Default: oferta com composição da própria operadora.</bpmn:documentation><bpmn:incoming>Flow_O4_JoinCom</bpmn:incoming><bpmn:incoming>Flow_O5_JoinSem</bpmn:incoming><bpmn:outgoing>Flow_O6_Consulta</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:businessRuleTask id="Task_ConsultaValidadeCatalogo" name="Consulta 'preço válido até' no catálogo de prazos"><bpmn:documentation>Lê o catálogo de prazos — decision 'funnel_deadline_catalog' (maezo-main/spec/processes/dmn/funnel_deadline_catalog.dmn; v0.1.0 DRAFT: 'NENHUMA entrada ratificada', L9; 'prazo só é exibível com status RATIFIED', L18; 'Prazo regulatório vive AQUI (DMN) — nunca em Python', L22). deadline_ref de validade de preço: SEM regra — só 4 regras existem (L47/L66/L85/L104) e o catch-all devolve prazo_quantidade = -1 (L111) e escopo sem_prazo_catalogado (L116); 'nunca prazo inventado' (L105); buscas validade/válido = 0 ocorrências (grep 2026-11-17) — GAP-DMN-PV1. Referência de decisão, NÃO executável neste desenho descritivo (sem namespace de engine). Épico E-SF-08 (mesclado, PR 1271; EXECUTION-LOG.md:126).</bpmn:documentation><bpmn:incoming>Flow_O6_Consulta</bpmn:incoming><bpmn:outgoing>Flow_O7_Gate</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_GateValidadePreco" name="Regra de validade no catálogo?" default="Flow_O8_SemRegra"><bpmn:documentation>'PREÇO VÁLIDO ATÉ' — GAP-DMN-PV1: não existe regra de validade de preço no funnel_deadline_catalog.dmn (buscas validade/válido = 0; regras L47/L66/L85/L104; catch-all -1 em L111/L116). Resultado: 'sem regra de validade no catálogo — validade não exibida'; NUNCA inventar prazo. Default: registrar a oferta sem validade exibida. Variante (não ativa) só com regra nova RATIFIED no catálogo. Épico E-SF-08 (mesclado); regra nova = proposta registrada no relatório de autoria.</bpmn:documentation><bpmn:incoming>Flow_O7_Gate</bpmn:incoming><bpmn:outgoing>Flow_O8_SemRegra</bpmn:outgoing><bpmn:outgoing>Flow_O9_Variante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_RegistraOfertaSemValidade" name="Registra oferta sem validade exibida"><bpmn:documentation>Registra a oferta SEM 'preço válido até' exibido (default conservador; GAP-DMN-PV1). CDC art. 31 (baseline L218) exige 'prazos de validade' como informação da oferta — sem número no catálogo, nada é exibido nem inventado. Épico E-SF-08 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O8_SemRegra</bpmn:incoming><bpmn:outgoing>Flow_O10_Registra</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_OfertaComValidadePendente" name="Oferta com validade pendente de regra no catálogo"><bpmn:documentation>Fim nomeado: oferta registrada com validade PENDENTE de regra no catálogo (GAP-DMN-PV1) — validade não exibida até existir regra RATIFIED no funnel_deadline_catalog. Épico E-SF-08 (mesclado, PR 1271).</bpmn:documentation><bpmn:incoming>Flow_O10_Registra</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_ExibePrecoValidoAte" name="Exibe 'preço válido até' (variante)"><bpmn:documentation>VARIANTE NÃO ATIVA: exibir 'preço válido até' exige regra nova no DMN com ratificação (DRAFT não exibe — funnel_deadline_catalog.dmn L18); nenhuma norma da baseline fixa prazo de validade de oferta. Proposta registrada no relatório de autoria (épico proposto para a regra de validade). Épico E-SF-08 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O9_Variante</bpmn:incoming><bpmn:outgoing>Flow_O11_VarianteFim</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_OfertaComValidadeExibida" name="Validade exibida (variante)"><bpmn:documentation>Fim da variante (não ativa): 'preço válido até' exibido somente após regra RATIFIED no catálogo (GAP-DMN-PV1). Épico E-SF-08 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_O11_VarianteFim</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_O1_Recebida" name="Cotação recebida" sourceRef="StartEvent_ComposicaoDevida" targetRef="Task_ValidaComposicaoPreco" />
+      <bpmn:sequenceFlow id="Flow_O1b_Validada" name="Composição validada" sourceRef="Task_ValidaComposicaoPreco" targetRef="Gateway_GateComposicaoPreco" />
+      <bpmn:sequenceFlow id="Flow_O2_ComComposicao" name="Fato público qualificado" sourceRef="Gateway_GateComposicaoPreco" targetRef="Task_OfertaComComposicao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">fato público qualificado da própria operadora</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O3_SemComposicao" name="Divergente/sem lastro — sem composição (FECHADO)" sourceRef="Gateway_GateComposicaoPreco" targetRef="Task_OfertaSemComposicao" />
+      <bpmn:sequenceFlow id="Flow_O4_JoinCom" name="Com composição" sourceRef="Task_OfertaComComposicao" targetRef="Gateway_JoinComposicao" />
+      <bpmn:sequenceFlow id="Flow_O5_JoinSem" name="Sem composição" sourceRef="Task_OfertaSemComposicao" targetRef="Gateway_JoinComposicao" />
+      <bpmn:sequenceFlow id="Flow_O6_Consulta" name="Oferta montada" sourceRef="Gateway_JoinComposicao" targetRef="Task_ConsultaValidadeCatalogo" />
+      <bpmn:sequenceFlow id="Flow_O7_Gate" name="Consulta feita" sourceRef="Task_ConsultaValidadeCatalogo" targetRef="Gateway_GateValidadePreco" />
+      <bpmn:sequenceFlow id="Flow_O8_SemRegra" name="Sem regra no catálogo" sourceRef="Gateway_GateValidadePreco" targetRef="Task_RegistraOfertaSemValidade" />
+      <bpmn:sequenceFlow id="Flow_O9_Variante" name="Variante: regra RATIFIED" sourceRef="Gateway_GateValidadePreco" targetRef="Task_ExibePrecoValidoAte"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: regra de validade RATIFIED no catálogo</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O10_Registra" name="Oferta registrada" sourceRef="Task_RegistraOfertaSemValidade" targetRef="EndEvent_OfertaComValidadePendente" />
+      <bpmn:sequenceFlow id="Flow_O11_VarianteFim" name="Validade exibida (variante)" sourceRef="Task_ExibePrecoValidoAte" targetRef="EndEvent_OfertaComValidadeExibida" />
+      <bpmn:textAnnotation id="Annotation_RLSF019"><bpmn:text>PORTÃO FECHADO RL-SF-019 (jurídico com antitruste — RATIFY-LATER-REGISTER.md:27; baseline L337): formação do preço (art. 4º VII) pendente. Default conservador: fonte divergente/sem lastro → oferta SEM bloco de composição. Sem comparação entre operadoras (CADE — baseline L25; ADD-SALES-CHANNEL.md:18).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_ValidadeGap"><bpmn:text>GAP-DMN-PV1 — 'preço válido até': NÃO existe regra no funnel_deadline_catalog.dmn (buscas validade/válido = 0; regras L47/L66/L85/L104; catch-all prazo -1 em L111/L116; DRAFT L9 — prazo só exibível com status RATIFIED, L18; 'nunca prazo inventado', L105). Resultado: sem regra de validade no catálogo — validade não exibida. Épico E-SF-08 (mesclado, PR 1271); regra nova = PROPOSTA (registrada no relatório de autoria).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_RLSF019" sourceRef="Gateway_GateComposicaoPreco" targetRef="Annotation_RLSF019" />
+    <bpmn:association id="Association_ValidadeGap" sourceRef="Gateway_GateValidadePreco" targetRef="Annotation_ValidadeGap" />
+  </bpmn:process>
+  <bpmn:process id="Process_ExecutorAMH" isExecutable="false">
+    <bpmn:documentation>Executor comercial e lago (amh-data-platform). Gera e publica a cotação qualificada da fonte — preço por faixa etária como FATO PÚBLICO QUALIFICADO (Lei 9.656 arts. 15 e 35-E §1º I; baseline L96/L99). Boundary de erro/incerteza na fonte. Épico E-SF-52 (mesclado, amh 413). isExecutable=false.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ExecutorAMH">
+      <bpmn:lane id="Lane_AMH" name="Executor">
+        <bpmn:flowNodeRef>StartEvent_CotacaoSolicitada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GeraCotacaoFonte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ErroCotacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_NotificaIndisponibilidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CotacaoIndisponivel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublicaCotacaoQualificada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CotacaoPublicada</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_CotacaoSolicitada" name="Solicitação de cotação recebida"><bpmn:documentation>Message start: solicitação de cotação da Superfície de vendas (personalizada conforme sessão A2 ou genérica). Épico E-SF-52 (mesclado, amh 413).</bpmn:documentation><bpmn:outgoing>Flow_A1_Gera</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_CotacaoSolicitada" messageRef="Message_PedeCotacaoFonte" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_GeraCotacaoFonte" name="Gera cotação na fonte — preço por faixa etária"><bpmn:documentation>Gera a cotação na fonte: preço por faixa etária como FATO PÚBLICO QUALIFICADO da fonte (Lei 9.656 art. 15 caput+§ú — baseline L96; art. 35-E §1º I — L99; RL-SF-047, RATIFY-LATER-REGISTER.md:55). NORM-GAP-1 residual: norma ANS de faixas etárias NÃO localizada (baseline L360/L38) — o diagrama não cita '7 faixas' nem norma inexistente. Coorte 60+/10+ imune à variação por idade (art. 15 §ú) — sem reajuste por faixa aplicado a ela. Sem 'a partir de' e sem dado não informado como número (CDC art. 31, L218; portão A1-B2 — RL-SF-001, RATIFY-LATER-REGISTER.md:9). Zero saúde: nenhum dado de saúde entra na cotação (LGPD art. 11 §5º, L185). Épico E-SF-52 (mesclado, amh 413).</bpmn:documentation><bpmn:incoming>Flow_A1_Gera</bpmn:incoming><bpmn:outgoing>Flow_A2_Publica</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:boundaryEvent id="Event_ErroCotacao" name="Erro/incerteza na fonte" attachedToRef="Task_GeraCotacaoFonte" cancelActivity="true"><bpmn:documentation>Boundary de erro: falha/incerteza na geração da cotação na fonte → caminho de incerteza explícito (regra transversal 6). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:outgoing>Flow_A4_Erro</bpmn:outgoing><bpmn:errorEventDefinition id="ErrDef_Event_ErroCotacao" errorRef="Error_Cotacao" /></bpmn:boundaryEvent>
+      <bpmn:serviceTask id="Task_NotificaIndisponibilidade" name="Notifica indisponibilidade da cotação"><bpmn:documentation>Notifica a indisponibilidade da cotação à Superfície (messageFlow; sem retentativa automática; nenhuma mensagem proativa a beneficiário). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_A4_Erro</bpmn:incoming><bpmn:outgoing>Flow_A5_Indisponivel</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_CotacaoIndisponivel" name="Cotação indisponível"><bpmn:documentation>Fim nomeado: cotação indisponível — comprador vê estado de indisponibilidade, sem preço inventado. Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_A5_Indisponivel</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_PublicaCotacaoQualificada" name="Publica cotação qualificada (fatos públicos)"><bpmn:documentation>Publica a cotação qualificada (fatos públicos de preço por faixa) para a plataforma da operadora — lastro fático em poder do fornecedor (CDC art. 36 §ú, baseline L219). Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_A2_Publica</bpmn:incoming><bpmn:outgoing>Flow_A3_Publicada</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_CotacaoPublicada" name="Cotação qualificada publicada"><bpmn:documentation>Fim nomeado: cotação qualificada publicada para a operadora. Épico E-SF-52 (mesclado).</bpmn:documentation><bpmn:incoming>Flow_A3_Publicada</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_A1_Gera" name="Gera cotação" sourceRef="StartEvent_CotacaoSolicitada" targetRef="Task_GeraCotacaoFonte" />
+      <bpmn:sequenceFlow id="Flow_A2_Publica" name="Cotação gerada" sourceRef="Task_GeraCotacaoFonte" targetRef="Task_PublicaCotacaoQualificada" />
+      <bpmn:sequenceFlow id="Flow_A3_Publicada" name="Publica" sourceRef="Task_PublicaCotacaoQualificada" targetRef="EndEvent_CotacaoPublicada" />
+      <bpmn:sequenceFlow id="Flow_A4_Erro" name="Erro/incerteza na fonte" sourceRef="Event_ErroCotacao" targetRef="Task_NotificaIndisponibilidade" />
+      <bpmn:sequenceFlow id="Flow_A5_Indisponivel" name="Notificada" sourceRef="Task_NotificaIndisponibilidade" targetRef="EndEvent_CotacaoIndisponivel" />
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: cotação do funil NÃO tem SP-OP-* — GAP (proposta: épico novo de cotação; nada executável criado nesta missão). Catálogo de prazos funnel_deadline_catalog EXISTE (DRAFT v0.1.0) — decision 'funnel_deadline_catalog' citada como referência, não como executável. Épicos E-SF-52/E-SF-38/E-SF-08 mesclados (onda 1).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_GeraCotacaoFonte" targetRef="Annotation_Nivel2" />
+  </bpmn:process>
+  <bpmn:message id="Message_SolicitaCotacao" name="Solicita cotação (pós-qualificação)" />
+  <bpmn:message id="Message_PedeCotacaoFonte" name="Solicitação de cotação à fonte" />
+  <bpmn:message id="Message_CotacaoQualificada" name="Cotação qualificada da fonte" />
+  <bpmn:message id="Message_OfertaOperadora" name="Oferta da operadora" />
+  <bpmn:message id="Message_AbandonoSessao" name="Abandono da sessão de cotação" />
+  <bpmn:error id="Error_Cotacao" name="Erro/incerteza na cotação da fonte" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E03">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E03" bpmnElement="Collaboration_FUNIL_E03">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2280" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="220" width="2280" height="440" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="720" width="2280" height="420" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="1220" width="2280" height="400" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="250" width="2250" height="410" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="750" width="2250" height="390" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_AMH_di" bpmnElement="Lane_AMH" isHorizontal="true"><dc:Bounds x="70" y="1250" width="2250" height="370" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE03_di" bpmnElement="Event_AbandonoE03">
+        <dc:Bounds x="960" y="470" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_HumanoE03_di" bpmnElement="Event_HumanoE03">
+        <dc:Bounds x="1150" y="470" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_SessaoCotacao_di" bpmnElement="StartEvent_SessaoCotacao">
+        <dc:Bounds x="160" y="360" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="120" y="404" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CarregaSessaoA2_di" bpmnElement="Task_CarregaSessaoA2">
+        <dc:Bounds x="250" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateA2Sessao_di" bpmnElement="Gateway_GateA2Sessao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="400" y="350" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="445" y="430" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeCotacaoPersonalizada_di" bpmnElement="Task_PedeCotacaoPersonalizada">
+        <dc:Bounds x="500" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeCotacaoGenerica_di" bpmnElement="Task_PedeCotacaoGenerica">
+        <dc:Bounds x="500" y="520" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinCotacao_di" bpmnElement="Gateway_JoinCotacao" isMarkerVisible="true">
+        <dc:Bounds x="650" y="350" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="430" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaSolicitacaoCotacao_di" bpmnElement="Task_EnviaSolicitacaoCotacao">
+        <dc:Bounds x="750" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RecebeOferta_di" bpmnElement="Task_RecebeOferta">
+        <dc:Bounds x="900" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoSessao_di" bpmnElement="Event_AbandonoSessao">
+        <dc:Bounds x="960" y="400" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="870" y="444" width="76" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateComparacao_di" bpmnElement="Gateway_GateComparacao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1050" y="350" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="440" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ComparaOpcoes_di" bpmnElement="Task_ComparaOpcoes">
+        <dc:Bounds x="1150" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApresentaPreContratuais_di" bpmnElement="Task_ApresentaPreContratuais">
+        <dc:Bounds x="1300" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OfertaExibida_di" bpmnElement="EndEvent_OfertaExibida">
+        <dc:Bounds x="1450" y="360" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1410" y="404" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="960" y="540" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1007" y="584" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ComparacaoVedada_di" bpmnElement="EndEvent_ComparacaoVedada" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1060" y="540" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1130" y="584" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_ComposicaoDevida_di" bpmnElement="StartEvent_ComposicaoDevida">
+        <dc:Bounds x="910" y="870" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="820" y="914" width="106" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ValidaComposicaoPreco_di" bpmnElement="Task_ValidaComposicaoPreco">
+        <dc:Bounds x="1000" y="850" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateComposicaoPreco_di" bpmnElement="Gateway_GateComposicaoPreco" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1160" y="840" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1005" y="935" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OfertaComComposicao_di" bpmnElement="Task_OfertaComComposicao">
+        <dc:Bounds x="1280" y="850" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OfertaSemComposicao_di" bpmnElement="Task_OfertaSemComposicao">
+        <dc:Bounds x="1280" y="1010" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinComposicao_di" bpmnElement="Gateway_JoinComposicao" isMarkerVisible="true">
+        <dc:Bounds x="1440" y="840" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1495" y="935" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ConsultaValidadeCatalogo_di" bpmnElement="Task_ConsultaValidadeCatalogo">
+        <dc:Bounds x="1560" y="850" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateValidadePreco_di" bpmnElement="Gateway_GateValidadePreco" isMarkerVisible="true">
+        <dc:Bounds x="1720" y="840" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1590" y="795" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraOfertaSemValidade_di" bpmnElement="Task_RegistraOfertaSemValidade">
+        <dc:Bounds x="1840" y="850" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OfertaComValidadePendente_di" bpmnElement="EndEvent_OfertaComValidadePendente" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2000" y="870" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2000" y="914" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExibePrecoValidoAte_di" bpmnElement="Task_ExibePrecoValidoAte">
+        <dc:Bounds x="1840" y="1010" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OfertaComValidadeExibida_di" bpmnElement="EndEvent_OfertaComValidadeExibida">
+        <dc:Bounds x="2000" y="1030" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2000" y="1074" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_CotacaoSolicitada_di" bpmnElement="StartEvent_CotacaoSolicitada">
+        <dc:Bounds x="780" y="1340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="640" y="1296" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GeraCotacaoFonte_di" bpmnElement="Task_GeraCotacaoFonte">
+        <dc:Bounds x="870" y="1320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ErroCotacao_di" bpmnElement="Event_ErroCotacao">
+        <dc:Bounds x="900" y="1380" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="928" y="1422" width="96" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_NotificaIndisponibilidade_di" bpmnElement="Task_NotificaIndisponibilidade">
+        <dc:Bounds x="870" y="1480" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CotacaoIndisponivel_di" bpmnElement="EndEvent_CotacaoIndisponivel">
+        <dc:Bounds x="1030" y="1500" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1030" y="1544" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PublicaCotacaoQualificada_di" bpmnElement="Task_PublicaCotacaoQualificada">
+        <dc:Bounds x="1030" y="1320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CotacaoPublicada_di" bpmnElement="EndEvent_CotacaoPublicada">
+        <dc:Bounds x="1190" y="1340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1150" y="1384" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="2360" y="640" width="220" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_A2Sessao_di" bpmnElement="Annotation_A2Sessao">
+        <dc:Bounds x="1600" y="320" width="240" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_CadeComparador_di" bpmnElement="Annotation_CadeComparador">
+        <dc:Bounds x="1880" y="280" width="300" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF019_di" bpmnElement="Annotation_RLSF019">
+        <dc:Bounds x="140" y="860" width="300" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_ValidadeGap_di" bpmnElement="Annotation_ValidadeGap">
+        <dc:Bounds x="460" y="860" width="300" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="200" y="1400" width="260" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_Inicio_di" bpmnElement="Flow_S1_Inicio"><di:waypoint x="196" y="380" /><di:waypoint x="250" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S0_Sessao_di" bpmnElement="Flow_S0_Sessao"><di:waypoint x="350" y="380" /><di:waypoint x="400" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="352" y="340" width="46" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_Personalizada_di" bpmnElement="Flow_S2_Personalizada"><di:waypoint x="450" y="380" /><di:waypoint x="500" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="450" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_Generica_di" bpmnElement="Flow_S3_Generica"><di:waypoint x="425" y="400" /><di:waypoint x="425" y="560" /><di:waypoint x="500" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="470" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_JoinPers_di" bpmnElement="Flow_S4_JoinPers"><di:waypoint x="600" y="380" /><di:waypoint x="650" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="600" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S5_JoinGen_di" bpmnElement="Flow_S5_JoinGen"><di:waypoint x="600" y="560" /><di:waypoint x="675" y="560" /><di:waypoint x="675" y="400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="605" y="596" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S6_Envia_di" bpmnElement="Flow_S6_Envia"><di:waypoint x="700" y="380" /><di:waypoint x="750" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S7_Aguarda_di" bpmnElement="Flow_S7_Aguarda"><di:waypoint x="850" y="380" /><di:waypoint x="900" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="850" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S8_Recebida_di" bpmnElement="Flow_S8_Recebida"><di:waypoint x="1000" y="380" /><di:waypoint x="1050" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1000" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S9_Orienta_di" bpmnElement="Flow_S9_Orienta"><di:waypoint x="1100" y="380" /><di:waypoint x="1150" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1100" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S10_Vedado_di" bpmnElement="Flow_S10_Vedado"><di:waypoint x="1080" y="400" /><di:waypoint x="1080" y="540" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1115" y="505" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S11_PreContratuais_di" bpmnElement="Flow_S11_PreContratuais"><di:waypoint x="1240" y="420" /><di:waypoint x="1240" y="488" /><di:waypoint x="1186" y="488" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1250" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S11a_PreContratuais_di" bpmnElement="Flow_S11a_PreContratuais"><di:waypoint x="1186" y="488" /><di:waypoint x="1270" y="488" /><di:waypoint x="1270" y="380" /><di:waypoint x="1300" y="380" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S12_Exibe_di" bpmnElement="Flow_S12_Exibe"><di:waypoint x="1400" y="380" /><di:waypoint x="1450" y="380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1400" y="340" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S13_Abandono_di" bpmnElement="Flow_S13_Abandono"><di:waypoint x="978" y="436" /><di:waypoint x="978" y="470" />
+        <bpmndi:BPMNLabel><dc:Bounds x="860" y="480" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S13a_Fim_di" bpmnElement="Flow_S13a_Fim"><di:waypoint x="978" y="506" /><di:waypoint x="978" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O1_Recebida_di" bpmnElement="Flow_O1_Recebida"><di:waypoint x="946" y="890" /><di:waypoint x="1000" y="890" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="846" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O1b_Validada_di" bpmnElement="Flow_O1b_Validada"><di:waypoint x="1100" y="870" /><di:waypoint x="1160" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1105" y="832" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O2_ComComposicao_di" bpmnElement="Flow_O2_ComComposicao"><di:waypoint x="1210" y="870" /><di:waypoint x="1280" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1215" y="828" width="64" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O3_SemComposicao_di" bpmnElement="Flow_O3_SemComposicao"><di:waypoint x="1185" y="890" /><di:waypoint x="1185" y="1050" /><di:waypoint x="1280" y="1050" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1190" y="970" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O4_JoinCom_di" bpmnElement="Flow_O4_JoinCom"><di:waypoint x="1380" y="870" /><di:waypoint x="1440" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1385" y="828" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O5_JoinSem_di" bpmnElement="Flow_O5_JoinSem"><di:waypoint x="1380" y="1050" /><di:waypoint x="1465" y="1050" /><di:waypoint x="1465" y="890" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1390" y="1010" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O6_Consulta_di" bpmnElement="Flow_O6_Consulta"><di:waypoint x="1490" y="870" /><di:waypoint x="1560" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1495" y="828" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O7_Gate_di" bpmnElement="Flow_O7_Gate"><di:waypoint x="1660" y="870" /><di:waypoint x="1720" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1665" y="876" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O8_SemRegra_di" bpmnElement="Flow_O8_SemRegra"><di:waypoint x="1770" y="870" /><di:waypoint x="1840" y="870" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1775" y="828" width="64" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O9_Variante_di" bpmnElement="Flow_O9_Variante"><di:waypoint x="1745" y="890" /><di:waypoint x="1745" y="1050" /><di:waypoint x="1840" y="1050" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1750" y="960" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O10_Registra_di" bpmnElement="Flow_O10_Registra"><di:waypoint x="1940" y="890" /><di:waypoint x="2000" y="890" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1945" y="848" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O11_VarianteFim_di" bpmnElement="Flow_O11_VarianteFim"><di:waypoint x="1940" y="1050" /><di:waypoint x="2000" y="1050" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1945" y="1008" width="54" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A1_Gera_di" bpmnElement="Flow_A1_Gera"><di:waypoint x="816" y="1360" /><di:waypoint x="870" y="1360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="820" y="1318" width="46" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A2_Publica_di" bpmnElement="Flow_A2_Publica"><di:waypoint x="970" y="1360" /><di:waypoint x="1030" y="1360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="975" y="1318" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A3_Publicada_di" bpmnElement="Flow_A3_Publicada"><di:waypoint x="1130" y="1360" /><di:waypoint x="1190" y="1360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1135" y="1318" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A4_Erro_di" bpmnElement="Flow_A4_Erro"><di:waypoint x="920" y="1416" /><di:waypoint x="920" y="1480" />
+        <bpmndi:BPMNLabel><dc:Bounds x="940" y="1452" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_A5_Indisponivel_di" bpmnElement="Flow_A5_Indisponivel"><di:waypoint x="970" y="1520" /><di:waypoint x="1030" y="1520" />
+        <bpmndi:BPMNLabel><dc:Bounds x="975" y="1484" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_SolicitaCotacao_di" bpmnElement="MsgFlow_SolicitaCotacao"><di:waypoint x="178" y="140" /><di:waypoint x="178" y="360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="185" y="240" width="130" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PedeCotacaoFonte_di" bpmnElement="MsgFlow_PedeCotacaoFonte"><di:waypoint x="800" y="420" /><di:waypoint x="800" y="1340" />
+        <bpmndi:BPMNLabel><dc:Bounds x="810" y="690" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_CotacaoQualificada_di" bpmnElement="MsgFlow_CotacaoQualificada"><di:waypoint x="1080" y="1320" /><di:waypoint x="1080" y="1180" /><di:waypoint x="930" y="1180" /><di:waypoint x="930" y="906" />
+        <bpmndi:BPMNLabel><dc:Bounds x="930" y="1190" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_OfertaOperadora_di" bpmnElement="MsgFlow_OfertaOperadora"><di:waypoint x="1890" y="850" /><di:waypoint x="1890" y="700" /><di:waypoint x="950" y="700" /><di:waypoint x="950" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1000" y="672" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ExibeOferta_di" bpmnElement="MsgFlow_ExibeOferta"><di:waypoint x="1350" y="340" /><di:waypoint x="1350" y="140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1360" y="240" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_AbandonoSessao_di" bpmnElement="MsgFlow_AbandonoSessao"><di:waypoint x="985" y="140" /><di:waypoint x="985" y="320" /><di:waypoint x="1050" y="320" /><di:waypoint x="1050" y="420" /><di:waypoint x="996" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="995" y="240" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_A2Sessao_di" bpmnElement="Association_A2Sessao"><di:waypoint x="425" y="350" /><di:waypoint x="425" y="300" /><di:waypoint x="1620" y="300" /><di:waypoint x="1620" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CadeGate_di" bpmnElement="Association_CadeGate"><di:waypoint x="1075" y="350" /><di:waypoint x="1075" y="285" /><di:waypoint x="1880" y="285" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CadeTask_di" bpmnElement="Association_CadeTask"><di:waypoint x="1200" y="340" /><di:waypoint x="1200" y="300" /><di:waypoint x="1880" y="300" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF019_di" bpmnElement="Association_RLSF019"><di:waypoint x="1185" y="840" /><di:waypoint x="1185" y="800" /><di:waypoint x="300" y="800" /><di:waypoint x="300" y="860" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ValidadeGap_di" bpmnElement="Association_ValidadeGap"><di:waypoint x="1745" y="840" /><di:waypoint x="1745" y="790" /><di:waypoint x="610" y="790" /><di:waypoint x="610" y="860" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="890" y="1400" /><di:waypoint x="890" y="1450" /><di:waypoint x="460" y="1450" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

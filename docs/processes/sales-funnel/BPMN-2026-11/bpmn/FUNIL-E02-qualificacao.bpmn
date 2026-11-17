@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E02" targetNamespace="urn:funil:descritivo:etapa2" exporter="build_etapa02.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E02" name="Etapa 2 — Qualificação">
+    <bpmn:participant id="Participant_Comprador" name="Comprador" processRef="Process_Comprador"><bpmn:documentation>Papel do comprador/prospect. userTask de preenchimento do formulário de qualificação (até cinco dados: região, modalidade, composição familiar) e captura do aceite único de contato (OS-05). Nenhum campo de saúde, idade ou deficiência como filtro (RN 558 art. 10 §ú, baseline L153; LGPD art. 11 §5º, L185; Lei 9.656 art. 14, L95). isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Apresenta o formulário de schema fechado e cria a sessão de prospect mínima sob o portão A2 (RL-SF-002, DPO). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO). Guarda dos dados é responsabilidade da operadora — RN 413 art. 3º (baseline L114).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, encarregado (DPO). Cerca 'zero saúde' VIGENTE (RN 558 art. 10 §ú, L153; LGPD art. 11 §5º, L185; Lei 9.656 art. 14, L95). Portões FECHADOS: RL-SF-049/TB-03 (jurídico), RL-SF-041/RL-SF-048 (DPO+jurídico — default sem CPF), A2/RL-SF-002 (DPO). Épicos E-SF-04 (PR 1273, em CI após reparo), E-SF-04r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_VitrineEtapa1" name="Prospect entra pela vitrine (etapa 1)" sourceRef="Participant_Comprador" targetRef="StartEvent_LeadDaVitrine" />
+    <bpmn:messageFlow id="MsgFlow_ApresentaFormulario" name="Formulário de até cinco dados" sourceRef="Task_ApresentaFormulario" targetRef="StartEvent_FormularioApresentado" />
+    <bpmn:messageFlow id="MsgFlow_FormularioEnviado" name="Dados declarados (≤5 campos)" sourceRef="Task_PreencheFormulario" targetRef="StartEvent_FormularioRecebido" />
+    <bpmn:messageFlow id="MsgFlow_SessaoAutorizada" name="Sessão mínima sem conta autorizada" sourceRef="Task_AutorizaSessaoMinima" targetRef="StartEvent_SessaoMinima" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO (RL-SF-049/TB-03 jurídico; RL-SF-041/RL-SF-048 DPO+jurídico; A2/RL-SF-002 DPO). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentation. A cerca 'zero saúde' é VIGENTE (regra de lei) — não é portão, não tem cor.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Comprador" isExecutable="false">
+    <bpmn:documentation>Papel do comprador/prospect. userTask de preenchimento do formulário de qualificação (até cinco dados: região, modalidade, composição familiar) e captura do aceite único de contato (OS-05). Nenhum campo de saúde, idade ou deficiência como filtro (RN 558 art. 10 §ú, baseline L153; LGPD art. 11 §5º, L185; Lei 9.656 art. 14, L95). isExecutable=false.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Comprador">
+      <bpmn:lane id="Lane_Comprador" name="Prospect">
+        <bpmn:flowNodeRef>StartEvent_FormularioApresentado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PreencheFormulario</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Continua</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_HumanoE02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CapturaAceiteUnico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteRegistrado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_FormularioApresentado" name="Formulário apresentado ao prospect"><bpmn:documentation>Message start: formulário apresentado pela Superfície de vendas. O preenchimento é ato humano (userTask). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:outgoing>Flow_C1_Apresentado</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_FormularioApresentado" messageRef="Message_FormularioApresentado" /></bpmn:startEvent>
+      <bpmn:userTask id="Task_PreencheFormulario" name="Preenche até cinco dados"><bpmn:documentation>Nome completo: Preenche até cinco dados: região, modalidade, composição familiar.
+
+userTask do comprador: formulário de ATÉ CINCO dados — região, modalidade, composição familiar (nº de vidas). NENHUM campo de saúde, idade ou deficiência como filtro: RN 558 art. 10 §ú (baseline L153); LGPD art. 11 §5º (L185); Lei 9.656 art. 14 (L95). Épico E-SF-40r.</bpmn:documentation><bpmn:incoming>Flow_C1_Apresentado</bpmn:incoming><bpmn:outgoing>Flow_C2_EnviaDados</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_Continua" name="Segue ou abandona?" default="Flow_C3_Abandona"><bpmn:documentation>Escolha do comprador: seguir para o aceite de contato ou abandonar o formulário. Default conservador = abandono (fim nomeado).</bpmn:documentation><bpmn:incoming>Flow_C2_EnviaDados</bpmn:incoming><bpmn:outgoing>Flow_C3_Abandona</bpmn:outgoing><bpmn:outgoing>Flow_C4_Contato</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Abandono da qualificação"><bpmn:documentation>Fim nomeado: abandono do formulário. Recuperação = Frente F2 com aceite único (OS-05) e envio proativo sob RL-SF-066 (FECHADO) — não desenhado aqui.</bpmn:documentation><bpmn:incoming>Flow_C3a_FimAbandono</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_CapturaAceiteUnico" name="Captura telefone e registra aceite único de contato"><bpmn:documentation>userTask: captura do telefone + aceite único de contato do prospect (OS-05). Envio proativo herda o portão RL-SF-066 (FECHADO) — encaminhamento à Frente F2, sem duplicar o fluxo de mensagens aqui. Missão §8: nenhuma mensagem proativa a beneficiário.</bpmn:documentation><bpmn:incoming>Flow_C4_Contato</bpmn:incoming><bpmn:outgoing>Flow_C5_Registra</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_AceiteRegistrado" name="Aceite registrado"><bpmn:documentation>Fim nomeado: aceite único registrado; o prospect aguarda a sessão/cotação.</bpmn:documentation><bpmn:incoming>Flow_C5a_Registra</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateThrowEvent id="Event_HumanoE02" name="Humano a um toque na qualificação — link 'E02-HUMANO' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 — Canal de vendas (FUNIL-F03-canal-de-vendas.bpmn): Event_LinkE02Humano captura linkEventDefinition name='E02-HUMANO' (grafia idêntica à de F03). Momento: 'humano a um toque em toda tela' (SC-01) na qualificação — o contato registrado é o gatilho. ZERO dado de saúde em qualquer contexto assistido (RL-SF-049/TB-03; missão §8). Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_C5_Registra</bpmn:incoming><bpmn:outgoing>Flow_C5a_Registra</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_HumanoE02" name="E02-HUMANO" /></bpmn:intermediateThrowEvent>
+      <bpmn:intermediateThrowEvent id="Event_AbandonoE02" name="Abandono da qualificação — link 'ABANDONO-E02' (par F2)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F2 — Recuperação de abandono e mensagens (FUNIL-F02-recuperacao-e-mensagens.bpmn): o catch de 'ABANDONO-E02' captura linkEventDefinition com este nome (grafia idêntica à de F02). Missão §5.2: a frente LIGA às etapas e não duplica as tarefas delas; recuperação só com consentimento, nunca a beneficiário, janela encerra antes dos 25 dias (BM-08). Épico E-SF-61.</bpmn:documentation><bpmn:incoming>Flow_C3_Abandona</bpmn:incoming><bpmn:outgoing>Flow_C3a_FimAbandono</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE02" name="ABANDONO-E02" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="Flow_C1_Apresentado" name="Formulário apresentado" sourceRef="StartEvent_FormularioApresentado" targetRef="Task_PreencheFormulario" />
+      <bpmn:sequenceFlow id="Flow_C2_EnviaDados" name="Envia dados declarados" sourceRef="Task_PreencheFormulario" targetRef="Gateway_Continua" />
+      <bpmn:sequenceFlow id="Flow_C3_Abandona" name="Abandona o formulário — emite 'ABANDONO-E02' (par F2)" sourceRef="Gateway_Continua" targetRef="Event_AbandonoE02" />
+      <bpmn:sequenceFlow id="Flow_C3a_FimAbandono" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE02" targetRef="EndEvent_Abandono" />
+      <bpmn:sequenceFlow id="Flow_C4_Contato" name="Segue para aceite de contato" sourceRef="Gateway_Continua" targetRef="Task_CapturaAceiteUnico"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador segue para aceite de contato (OS-05)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_C5_Registra" name="Contato registrado — emite 'E02-HUMANO' (par F3)" sourceRef="Task_CapturaAceiteUnico" targetRef="Event_HumanoE02" />
+      <bpmn:sequenceFlow id="Flow_C5a_Registra" name="Aceite de contato registrado" sourceRef="Event_HumanoE02" targetRef="EndEvent_AceiteRegistrado" />
+      <bpmn:textAnnotation id="Annotation_OS05"><bpmn:text>ACEITE ÚNICO DE CONTATO (OS-05) na captura do telefone. Envio proativo = RL-SF-066 FECHADO (Frente F2) — anotado, caminho não desenhado. Nenhuma mensagem proativa a beneficiário (missão §8).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_OS05" sourceRef="Task_CapturaAceiteUnico" targetRef="Annotation_OS05" />
+  </bpmn:process>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Apresenta o formulário de schema fechado e cria a sessão de prospect mínima sob o portão A2 (RL-SF-002, DPO). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO). Guarda dos dados é responsabilidade da operadora — RN 413 art. 3º (baseline L114).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície">
+        <bpmn:flowNodeRef>StartEvent_LeadDaVitrine</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApresentaFormulario</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FormularioApresentado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_SessaoMinima</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CriaSessaoProspectA2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_OrigemE02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Qualificado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:intermediateThrowEvent id="Event_OrigemE02" name="1º prospect.save — link 'E02-ORIGEM' (par F3)"><bpmn:documentation>THROW DE LINK — par de link com a FRENTE F3 (FUNIL-F03): Event_LinkE02Origem captura linkEventDefinition name='E02-ORIGEM' (grafia idêntica à de F03). Momento: o 1º prospect.save PROPORIA o vínculo de originação (SC-06 — recomendação; a REGRA de remuneração é jurídica, GTM-02/J1). Hoje NADA é vinculado: attribution só agregada/manual, FORA da plataforma; OP15 attributionPolicy=UNMEASURED. Épico E-SF-17 | portão nenhum.</bpmn:documentation><bpmn:incoming>Flow_S4_Qualifica</bpmn:incoming><bpmn:outgoing>Flow_S4a_Qualifica</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_OrigemE02" name="E02-ORIGEM" /></bpmn:intermediateThrowEvent>
+      <bpmn:startEvent id="StartEvent_LeadDaVitrine" name="Lead na vitrine (etapa 1)"><bpmn:documentation>Message start: prospect chega da vitrine da etapa 1 (msgflow da etapa 1). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:outgoing>Flow_S1_Vitrine</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_LeadDaVitrine" messageRef="Message_VitrineEtapa1" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_ApresentaFormulario" name="Apresenta formulário de até cinco dados (schema fechado)"><bpmn:documentation>Apresenta formulário de ATÉ CINCO dados: região, modalidade, composição familiar — nenhum outro campo; schema fechado. RN 413 art. 3º (baseline L114); RN 413 art. 4º I-IV (L115) seguem na etapa 3. Nenhum campo de saúde/idade/deficiência (RN 558 art. 10 §ú, L153). Épico E-SF-40r.</bpmn:documentation><bpmn:incoming>Flow_S1_Vitrine</bpmn:incoming><bpmn:outgoing>Flow_S2_Exibe</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_FormularioApresentado" name="Formulário na tela"><bpmn:documentation>Fim do ciclo de apresentação na superfície; o preenchimento é ato do comprador (userTask no pool Comprador).</bpmn:documentation><bpmn:incoming>Flow_S2_Exibe</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_SessaoMinima" name="Sessão mínima autorizada"><bpmn:documentation>Message start: autorização de sessão mínima vinda do portão A2 (RL-SF-002) na plataforma da operadora. Épico E-SF-40r.</bpmn:documentation><bpmn:outgoing>Flow_S3_Sessao</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_SessaoMinima" messageRef="Message_SessaoMinima" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_CriaSessaoProspectA2" name="Cria sessão de prospect sem conta"><bpmn:documentation>Nome completo: Cria sessão de prospect — sem conta, persistência só do declarado.
+
+Cria sessão de prospect SEM conta, com persistência só do declarado (≤5 campos). Portão A2/RL-SF-002 FECHADO (DPO): base legal LGPD art. 7º V (L178) pendente; guarda é responsabilidade da operadora (RN 413 art. 3º, L114). Épico E-SF-40r (AGUARDA-RATIFICAÇÃO). Nível 2: nenhum SP-OP-* de sessão de prospect — GAP.</bpmn:documentation><bpmn:incoming>Flow_S3_Sessao</bpmn:incoming><bpmn:outgoing>Flow_S4_Qualifica</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_Qualificado" name="Prospect qualificado — cotação (etapa 3)"><bpmn:documentation>Fim nomeado: prospect qualificado — segue para cotação e comparador (etapa 3). Composição usada para preço só da própria operadora.</bpmn:documentation><bpmn:incoming>Flow_S4a_Qualifica</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_S1_Vitrine" name="Prospect da vitrine" sourceRef="StartEvent_LeadDaVitrine" targetRef="Task_ApresentaFormulario" />
+      <bpmn:sequenceFlow id="Flow_S2_Exibe" name="Formulário exibido" sourceRef="Task_ApresentaFormulario" targetRef="EndEvent_FormularioApresentado" />
+      <bpmn:sequenceFlow id="Flow_S3_Sessao" name="Sessão autorizada" sourceRef="StartEvent_SessaoMinima" targetRef="Task_CriaSessaoProspectA2" />
+      <bpmn:sequenceFlow id="Flow_S4_Qualifica" name="1º prospect.save — emite 'E02-ORIGEM' (par F3)" sourceRef="Task_CriaSessaoProspectA2" targetRef="Event_OrigemE02" />
+      <bpmn:sequenceFlow id="Flow_S4a_Qualifica" name="Prospect qualificado" sourceRef="Event_OrigemE02" targetRef="EndEvent_Qualificado" />
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: nenhum SP-OP-* de qualificação existe — GAP. Épicos: E-SF-04 cercas de wire zero saúde (PR 1273, em CI após reparo); E-SF-04r (AGUARDA-RATIFICAÇÃO); E-SF-40r entrada de lead/sessão de prospect A2/retomada (AGUARDA-RATIFICAÇÃO, omni). Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_CriaSessaoProspectA2" targetRef="Annotation_Nivel2" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Lanes: comercial, encarregado (DPO). Cerca 'zero saúde' VIGENTE (RN 558 art. 10 §ú, L153; LGPD art. 11 §5º, L185; Lei 9.656 art. 14, L95). Portões FECHADOS: RL-SF-049/TB-03 (jurídico), RL-SF-041/RL-SF-048 (DPO+jurídico — default sem CPF), A2/RL-SF-002 (DPO). Épicos E-SF-04 (PR 1273, em CI após reparo), E-SF-04r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_FormularioRecebido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CercaZeroSaude</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ZeroSaude</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CercaZeroSaudeRecusou</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_RLSF049</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JoinComposicao</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_EncarregadoDPO" name="Encarregado (DPO)">
+        <bpmn:flowNodeRef>Gateway_ConsultaCpf</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_CpfVarianteNaoAtiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PortaoA2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VarianteContaPrimeiroNaoAtiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AutorizaSessaoMinima</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AutorizacaoEnviada</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_FormularioRecebido" name="Formulário recebido"><bpmn:documentation>Message start: dados declarados chegam para a cerca 'zero saúde' na lane comercial (cercas de wire no comercial — épico E-SF-04, PR 1273 em CI após reparo).</bpmn:documentation><bpmn:outgoing>Flow_O1_Recebido</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_FormularioRecebido" messageRef="Message_FormularioRecebido" /></bpmn:startEvent>
+      <bpmn:businessRuleTask id="Task_CercaZeroSaude" name="Cerca 'zero saúde' — valida schema do formulário"><bpmn:documentation>businessRuleTask: cerca 'zero saúde' VIGENTE (regra de lei, NÃO é portão) — recusa qualquer pergunta/campo de saúde, hábitos de vida, sintomas, medicamentos, idade ou deficiência como filtro. RN 558 art. 10 §ú (baseline L153); LGPD art. 11 §5º (L185); Lei 9.656 art. 14 (L95). RL-SF-014 e RL-SF-022 citadas (não respondidas). Épico E-SF-04 (PR 1273, em CI); E-SF-04r aguarda ratificação. GAP: nenhuma decisão DMN existe para esta cerca (missão §6 exige id de decisão DMN em businessRuleTask; implementação real = cerca de wire do épico E-SF-04).</bpmn:documentation><bpmn:incoming>Flow_O1_Recebido</bpmn:incoming><bpmn:outgoing>Flow_O2_Schema</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_ZeroSaude" name="Campo de saúde/idade/deficiência detectado?" default="Flow_O3_RecusaCampo"><bpmn:documentation>Desfecho da cerca vigente. Default conservador: campo vedado ou em dúvida → recusa do CAMPO (nunca do comprador) com protocolo de correção. Caminho regular só com schema verificado sem nenhum campo vedado.</bpmn:documentation><bpmn:incoming>Flow_O2_Schema</bpmn:incoming><bpmn:outgoing>Flow_O3_RecusaCampo</bpmn:outgoing><bpmn:outgoing>Flow_O4_SchemaLimpo</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_CercaZeroSaudeRecusou" name="Campo vedado recusado — correção"><bpmn:documentation>Fim nomeado com protocolo de correção: a cerca recusa o CAMPO, não o comprador — o schema é corrigido e o formulário volta sem o campo vedado. RN 558 art. 10 §ú (L153); LGPD art. 11 §5º (L185).</bpmn:documentation><bpmn:incoming>Flow_O3_RecusaCampo</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_RLSF049" name="Composição com faixa etária? (RL-SF-049/TB-03)" default="Flow_O5_SoNumVidas"><bpmn:documentation>PORTÃO FECHADO RL-SF-049/TB-03 (jurídico; RATIFY-LATER-REGISTER.md:57): default = composição familiar só nº de vidas (conservador). Variante não ativa: faixa etária como fato público qualificado da fonte para preço, NUNCA filtro — Lei 9.656 art. 14 (L95) e art. 15 (L96); épico E-SF-40r.</bpmn:documentation><bpmn:incoming>Flow_O4_SchemaLimpo</bpmn:incoming><bpmn:outgoing>Flow_O5_SoNumVidas</bpmn:outgoing><bpmn:outgoing>Flow_O6_FaixaPreco</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="Gateway_JoinComposicao" name="Junção da composição" default="Flow_O7_JoinComposicao"><bpmn:documentation>Junção das variantes de composição (nº de vidas × variante de faixa etária).</bpmn:documentation><bpmn:incoming>Flow_O5_SoNumVidas</bpmn:incoming><bpmn:incoming>Flow_O6_FaixaPreco</bpmn:incoming><bpmn:outgoing>Flow_O7_JoinComposicao</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="Gateway_ConsultaCpf" name="Consulta por CPF? (RL-SF-041/RL-SF-048)" default="Flow_O9_SemConsultaCpf"><bpmn:documentation>PORTÃO FECHADO RL-SF-041 (RATIFY-LATER-REGISTER.md:49; DPO + jurídico) + RL-SF-048 (:56; DPO): default = sem consulta por CPF em sessão não verificada; nenhum dado de base exibido; coleta manual dos mesmos campos. Variante não ativa: consulta com identidade verificada — base art. 7º V (L178); art. 11, II, g NÃO é base do pré-preenchimento; CPF só na proposta (etapa 4); guarda test_cpf_lookup_refused_without_verified_identity.</bpmn:documentation><bpmn:incoming>Flow_O7_JoinComposicao</bpmn:incoming><bpmn:outgoing>Flow_O8_CpfVariante</bpmn:outgoing><bpmn:outgoing>Flow_O9_SemConsultaCpf</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_CpfVarianteNaoAtiva" name="Consulta CPF — variante não ativa"><bpmn:documentation>Fim nomeado da variante NÃO ATIVA: consulta por CPF só após identidade verificada, a partir da proposta (etapa 4 — RL-SF-041/RL-SF-048).</bpmn:documentation><bpmn:incoming>Flow_O8_CpfVariante</bpmn:incoming></bpmn:endEvent>
+      <bpmn:exclusiveGateway id="Gateway_PortaoA2" name="Portão A2 (RL-SF-002)" default="Flow_O11_SessaoMinima"><bpmn:documentation>PORTÃO FECHADO A2/RL-SF-002 (DPO; RATIFY-LATER-REGISTER.md:10): default = sessão mínima sem conta, sem persistência além do declarado. Fallbacks nomeados: opção A conta primeiro; retomada só na sessão viva; A2 inteira negada = nenhum lead real (caminho crítico inexequível). Base legal LGPD art. 7º V (L178) — inciso pendente; retenção da jornada abandonada art. 16/Q4. Épico E-SF-40r.</bpmn:documentation><bpmn:incoming>Flow_O9_SemConsultaCpf</bpmn:incoming><bpmn:outgoing>Flow_O10_ContaPrimeiro</bpmn:outgoing><bpmn:outgoing>Flow_O11_SessaoMinima</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_VarianteContaPrimeiroNaoAtiva" name="Conta primeiro — variante não ativa"><bpmn:documentation>Fim nomeado da variante NÃO ATIVA: opção A (conta primeiro) — só se o DPO negar a sessão sem conta no portão A2/RL-SF-002.</bpmn:documentation><bpmn:incoming>Flow_O10_ContaPrimeiro</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sendTask id="Task_AutorizaSessaoMinima" name="Autoriza sessão mínima sem conta"><bpmn:documentation>sendTask: encaminha à superfície a autorização de sessão mínima sem conta (default do portão A2/RL-SF-002), sem persistência além do declarado. RN 413 art. 3º (L114). Épico E-SF-40r.</bpmn:documentation><bpmn:incoming>Flow_O11_SessaoMinima</bpmn:incoming><bpmn:outgoing>Flow_O12_Encaminha</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:endEvent id="EndEvent_AutorizacaoEnviada" name="Autorização encaminhada"><bpmn:documentation>Fim nomeado: autorização de sessão mínima encaminhada à superfície de vendas.</bpmn:documentation><bpmn:incoming>Flow_O12_Encaminha</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_O1_Recebido" name="Formulário recebido" sourceRef="StartEvent_FormularioRecebido" targetRef="Task_CercaZeroSaude" />
+      <bpmn:sequenceFlow id="Flow_O2_Schema" name="Schema do formulário" sourceRef="Task_CercaZeroSaude" targetRef="Gateway_ZeroSaude" />
+      <bpmn:sequenceFlow id="Flow_O3_RecusaCampo" name="Campo vedado ou em dúvida — recusa o campo + protocolo de correção" sourceRef="Gateway_ZeroSaude" targetRef="EndEvent_CercaZeroSaudeRecusou" />
+      <bpmn:sequenceFlow id="Flow_O4_SchemaLimpo" name="Schema sem campo vedado" sourceRef="Gateway_ZeroSaude" targetRef="Gateway_RLSF049"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">schema verificado sem nenhum campo de saúde, idade ou deficiência como filtro</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O5_SoNumVidas" name="Composição = só nº de vidas (conservador)" sourceRef="Gateway_RLSF049" targetRef="Gateway_JoinComposicao" />
+      <bpmn:sequenceFlow id="Flow_O6_FaixaPreco" name="Faixa etária como fato de preço (variante não ativa)" sourceRef="Gateway_RLSF049" targetRef="Gateway_JoinComposicao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">faixa etária ratificada como fato público qualificado da fonte para preço, nunca filtro (RL-SF-049/TB-03)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O7_JoinComposicao" name="Composição definida" sourceRef="Gateway_JoinComposicao" targetRef="Gateway_ConsultaCpf" />
+      <bpmn:sequenceFlow id="Flow_O8_CpfVariante" name="Consulta com identidade verificada (variante não ativa)" sourceRef="Gateway_ConsultaCpf" targetRef="EndEvent_CpfVarianteNaoAtiva"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">identidade verificada e RL-SF-041/RL-SF-048 ratificados — só a partir da proposta (etapa 4)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O9_SemConsultaCpf" name="Sem consulta — coleta manual; CPF só na proposta (FECHADO)" sourceRef="Gateway_ConsultaCpf" targetRef="Gateway_PortaoA2" />
+      <bpmn:sequenceFlow id="Flow_O10_ContaPrimeiro" name="Opção A: conta primeiro (variante não ativa)" sourceRef="Gateway_PortaoA2" targetRef="EndEvent_VarianteContaPrimeiroNaoAtiva"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">opção A ratificada pelo DPO: conta primeiro (RL-SF-002)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_O11_SessaoMinima" name="Sessão mínima sem conta (FECHADO)" sourceRef="Gateway_PortaoA2" targetRef="Task_AutorizaSessaoMinima" />
+      <bpmn:sequenceFlow id="Flow_O12_Encaminha" name="Encaminha" sourceRef="Task_AutorizaSessaoMinima" targetRef="EndEvent_AutorizacaoEnviada" />
+      <bpmn:textAnnotation id="Annotation_Cerca"><bpmn:text>CERCA VIGENTE 'zero saúde' (regra de lei — não é portão): recusa qualquer pergunta/campo de saúde, hábitos de vida, sintomas, medicamentos, idade ou deficiência como filtro. RN 558 art. 10 §ú (baseline L153); LGPD art. 11 §5º (L185); Lei 9.656 art. 14 (L95). A cerca recusa o CAMPO, não o comprador. RL-SF-014 e RL-SF-022 citadas (não respondidas). GAP: sem decisão DMN para a cerca (id inexistente; cerca de wire do épico E-SF-04).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RLSF049"><bpmn:text>PORTÃO FECHADO RL-SF-049/TB-03 (jurídico; RATIFY-LATER-REGISTER.md:57): default = composição familiar = só nº de vidas. Faixa etária só como fato público qualificado da fonte para preço, NUNCA filtro (Lei 9.656 art. 14, L95; art. 15, L96).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_CPF"><bpmn:text>PORTÃO FECHADO RL-SF-041 (RATIFY-LATER-REGISTER.md:49) + RL-SF-048 (:56) (DPO + jurídico): default = sem consulta em sessão não verificada; nenhum dado de base exibido; coleta manual dos mesmos campos; CPF só na proposta (etapa 4). Guarda: test_cpf_lookup_refused_without_verified_identity.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_A2"><bpmn:text>PORTÃO FECHADO A2/RL-SF-002 (DPO; RATIFY-LATER-REGISTER.md:10): base legal LGPD art. 7º V (L178) — inciso pendente; retenção da jornada abandonada art. 16/Q4. Fallbacks: opção A conta primeiro; retomada só na sessão viva; A2 inteira negada = nenhum lead real (caminho crítico inexequível). RN 413 art. 3º (L114): guarda é da operadora.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Cerca" sourceRef="Task_CercaZeroSaude" targetRef="Annotation_Cerca" />
+    <bpmn:association id="Association_RLSF049" sourceRef="Gateway_RLSF049" targetRef="Annotation_RLSF049" />
+    <bpmn:association id="Association_CPF" sourceRef="Gateway_ConsultaCpf" targetRef="Annotation_CPF" />
+    <bpmn:association id="Association_A2" sourceRef="Gateway_PortaoA2" targetRef="Annotation_A2" />
+  </bpmn:process>
+  <bpmn:message id="Message_VitrineEtapa1" name="Prospect na vitrine (etapa 1)" />
+  <bpmn:message id="Message_FormularioApresentado" name="Formulário de até cinco dados" />
+  <bpmn:message id="Message_FormularioRecebido" name="Dados declarados do formulário" />
+  <bpmn:message id="Message_SessaoMinima" name="Sessão mínima autorizada" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E02">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E02" bpmnElement="Collaboration_FUNIL_E02">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="1840" height="240" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="340" width="1840" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="660" width="1840" height="560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comprador_di" bpmnElement="Lane_Comprador" isHorizontal="true"><dc:Bounds x="70" y="70" width="1810" height="210" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="370" width="1810" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="690" width="1810" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_EncarregadoDPO_di" bpmnElement="Lane_EncarregadoDPO" isHorizontal="true"><dc:Bounds x="70" y="960" width="1810" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FormularioApresentado_di" bpmnElement="StartEvent_FormularioApresentado">
+        <dc:Bounds x="330" y="140" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="140" y="100" width="200" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PreencheFormulario_di" bpmnElement="Task_PreencheFormulario">
+        <dc:Bounds x="460" y="120" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Continua_di" bpmnElement="Gateway_Continua" isMarkerVisible="true">
+        <dc:Bounds x="650" y="130" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="84" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="660" y="220" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="546" y="258" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CapturaAceiteUnico_di" bpmnElement="Task_CapturaAceiteUnico">
+        <dc:Bounds x="780" y="120" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteRegistrado_di" bpmnElement="EndEvent_AceiteRegistrado">
+        <dc:Bounds x="960" y="140" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="900" y="186" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_HumanoE02_di" bpmnElement="Event_HumanoE02">
+        <dc:Bounds x="900" y="90" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_OrigemE02_di" bpmnElement="Event_OrigemE02">
+        <dc:Bounds x="1340" y="520" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE02_di" bpmnElement="Event_AbandonoE02">
+        <dc:Bounds x="1140" y="220" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_LeadDaVitrine_di" bpmnElement="StartEvent_LeadDaVitrine">
+        <dc:Bounds x="160" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="110" y="464" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApresentaFormulario_di" bpmnElement="Task_ApresentaFormulario">
+        <dc:Bounds x="300" y="400" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FormularioApresentado_di" bpmnElement="EndEvent_FormularioApresentado">
+        <dc:Bounds x="430" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="470" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_SessaoMinima_di" bpmnElement="StartEvent_SessaoMinima">
+        <dc:Bounds x="1470" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1100" y="372" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CriaSessaoProspectA2_di" bpmnElement="Task_CriaSessaoProspectA2">
+        <dc:Bounds x="1560" y="400" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Qualificado_di" bpmnElement="EndEvent_Qualificado">
+        <dc:Bounds x="1740" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1720" y="464" width="140" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FormularioRecebido_di" bpmnElement="StartEvent_FormularioRecebido">
+        <dc:Bounds x="490" y="710" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="430" y="790" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CercaZeroSaude_di" bpmnElement="Task_CercaZeroSaude">
+        <dc:Bounds x="620" y="690" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ZeroSaude_di" bpmnElement="Gateway_ZeroSaude" isMarkerVisible="true">
+        <dc:Bounds x="820" y="700" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="660" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CercaZeroSaudeRecusou_di" bpmnElement="EndEvent_CercaZeroSaudeRecusou">
+        <dc:Bounds x="830" y="830" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="755" y="876" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_RLSF049_di" bpmnElement="Gateway_RLSF049" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="940" y="700" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="880" y="660" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JoinComposicao_di" bpmnElement="Gateway_JoinComposicao" isMarkerVisible="true">
+        <dc:Bounds x="1080" y="700" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="660" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ConsultaCpf_di" bpmnElement="Gateway_ConsultaCpf" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1080" y="1000" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="870" y="970" width="200" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_CpfVarianteNaoAtiva_di" bpmnElement="EndEvent_CpfVarianteNaoAtiva">
+        <dc:Bounds x="1090" y="1130" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="900" y="1136" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_PortaoA2_di" bpmnElement="Gateway_PortaoA2" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1320" y="1000" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1180" y="970" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VarianteContaPrimeiroNaoAtiva_di" bpmnElement="EndEvent_VarianteContaPrimeiroNaoAtiva">
+        <dc:Bounds x="1330" y="1130" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="1136" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AutorizaSessaoMinima_di" bpmnElement="Task_AutorizaSessaoMinima">
+        <dc:Bounds x="1440" y="980" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AutorizacaoEnviada_di" bpmnElement="EndEvent_AutorizacaoEnviada">
+        <dc:Bounds x="1620" y="1000" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1560" y="1040" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1920" y="340" width="220" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Cerca_di" bpmnElement="Annotation_Cerca">
+        <dc:Bounds x="100" y="720" width="300" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF049_di" bpmnElement="Annotation_RLSF049">
+        <dc:Bounds x="100" y="860" width="300" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_CPF_di" bpmnElement="Annotation_CPF">
+        <dc:Bounds x="100" y="1000" width="300" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_A2_di" bpmnElement="Annotation_A2">
+        <dc:Bounds x="1420" y="1100" width="280" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_OS05_di" bpmnElement="Annotation_OS05">
+        <dc:Bounds x="1090" y="90" width="200" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="1560" y="500" width="320" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_C1_Apresentado_di" bpmnElement="Flow_C1_Apresentado"><di:waypoint x="368" y="160" /><di:waypoint x="460" y="160" />
+        <bpmndi:BPMNLabel><dc:Bounds x="370" y="116" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_EnviaDados_di" bpmnElement="Flow_C2_EnviaDados"><di:waypoint x="560" y="160" /><di:waypoint x="650" y="160" />
+        <bpmndi:BPMNLabel><dc:Bounds x="566" y="116" width="80" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C3_Abandona_di" bpmnElement="Flow_C3_Abandona"><di:waypoint x="675" y="185" /><di:waypoint x="675" y="218" /><di:waypoint x="1158" y="218" /><di:waypoint x="1158" y="220" />
+        <bpmndi:BPMNLabel><dc:Bounds x="890" y="240" width="170" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C3a_FimAbandono_di" bpmnElement="Flow_C3a_FimAbandono"><di:waypoint x="1158" y="256" /><di:waypoint x="1158" y="276" /><di:waypoint x="720" y="276" /><di:waypoint x="720" y="238" /><di:waypoint x="696" y="238" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C4_Contato_di" bpmnElement="Flow_C4_Contato"><di:waypoint x="700" y="160" /><di:waypoint x="780" y="160" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="190" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C5_Registra_di" bpmnElement="Flow_C5_Registra"><di:waypoint x="830" y="120" /><di:waypoint x="830" y="80" /><di:waypoint x="918" y="80" /><di:waypoint x="918" y="90" />
+        <bpmndi:BPMNLabel><dc:Bounds x="760" y="242" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C5a_Registra_di" bpmnElement="Flow_C5a_Registra"><di:waypoint x="918" y="126" /><di:waypoint x="918" y="158" /><di:waypoint x="960" y="158" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S1_Vitrine_di" bpmnElement="Flow_S1_Vitrine"><di:waypoint x="196" y="440" /><di:waypoint x="300" y="440" />
+        <bpmndi:BPMNLabel><dc:Bounds x="200" y="396" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_Exibe_di" bpmnElement="Flow_S2_Exibe"><di:waypoint x="400" y="440" /><di:waypoint x="430" y="440" />
+        <bpmndi:BPMNLabel><dc:Bounds x="390" y="380" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_Sessao_di" bpmnElement="Flow_S3_Sessao"><di:waypoint x="1506" y="440" /><di:waypoint x="1560" y="440" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1500" y="486" width="60" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_Qualifica_di" bpmnElement="Flow_S4_Qualifica"><di:waypoint x="1580" y="400" /><di:waypoint x="1580" y="390" /><di:waypoint x="1358" y="390" /><di:waypoint x="1358" y="538" /><di:waypoint x="1376" y="538" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1150" y="406" width="140" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4a_Qualifica_di" bpmnElement="Flow_S4a_Qualifica"><di:waypoint x="1340" y="538" /><di:waypoint x="1300" y="538" /><di:waypoint x="1300" y="390" /><di:waypoint x="1758" y="390" /><di:waypoint x="1758" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1770" y="394" width="108" height="26" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O1_Recebido_di" bpmnElement="Flow_O1_Recebido"><di:waypoint x="526" y="730" /><di:waypoint x="620" y="730" />
+        <bpmndi:BPMNLabel><dc:Bounds x="520" y="680" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O2_Schema_di" bpmnElement="Flow_O2_Schema"><di:waypoint x="720" y="730" /><di:waypoint x="820" y="730" />
+        <bpmndi:BPMNLabel><dc:Bounds x="726" y="736" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O3_RecusaCampo_di" bpmnElement="Flow_O3_RecusaCampo"><di:waypoint x="848" y="750" /><di:waypoint x="848" y="830" />
+        <bpmndi:BPMNLabel><dc:Bounds x="660" y="780" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O4_SchemaLimpo_di" bpmnElement="Flow_O4_SchemaLimpo"><di:waypoint x="870" y="730" /><di:waypoint x="940" y="730" />
+        <bpmndi:BPMNLabel><dc:Bounds x="876" y="736" width="60" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O5_SoNumVidas_di" bpmnElement="Flow_O5_SoNumVidas"><di:waypoint x="965" y="750" /><di:waypoint x="965" y="900" /><di:waypoint x="1085" y="900" /><di:waypoint x="1085" y="750" />
+        <bpmndi:BPMNLabel><dc:Bounds x="970" y="900" width="130" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O6_FaixaPreco_di" bpmnElement="Flow_O6_FaixaPreco"><di:waypoint x="990" y="730" /><di:waypoint x="1080" y="730" />
+        <bpmndi:BPMNLabel><dc:Bounds x="994" y="760" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O7_JoinComposicao_di" bpmnElement="Flow_O7_JoinComposicao"><di:waypoint x="1105" y="750" /><di:waypoint x="1105" y="1000" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1110" y="850" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O8_CpfVariante_di" bpmnElement="Flow_O8_CpfVariante"><di:waypoint x="1108" y="1050" /><di:waypoint x="1108" y="1130" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1130" y="1086" width="140" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O9_SemConsultaCpf_di" bpmnElement="Flow_O9_SemConsultaCpf"><di:waypoint x="1130" y="1025" /><di:waypoint x="1320" y="1025" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1140" y="1035" width="170" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O10_ContaPrimeiro_di" bpmnElement="Flow_O10_ContaPrimeiro"><di:waypoint x="1348" y="1050" /><di:waypoint x="1348" y="1130" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1270" y="1080" width="85" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O11_SessaoMinima_di" bpmnElement="Flow_O11_SessaoMinima"><di:waypoint x="1370" y="1025" /><di:waypoint x="1440" y="1025" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1294" y="970" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O12_Encaminha_di" bpmnElement="Flow_O12_Encaminha"><di:waypoint x="1540" y="1025" /><di:waypoint x="1620" y="1025" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1546" y="981" width="70" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_VitrineEtapa1_di" bpmnElement="MsgFlow_VitrineEtapa1"><di:waypoint x="178" y="280" /><di:waypoint x="178" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="300" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_ApresentaFormulario_di" bpmnElement="MsgFlow_ApresentaFormulario"><di:waypoint x="348" y="400" /><di:waypoint x="348" y="176" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="180" width="180" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_FormularioEnviado_di" bpmnElement="MsgFlow_FormularioEnviado"><di:waypoint x="508" y="200" /><di:waypoint x="508" y="710" />
+        <bpmndi:BPMNLabel><dc:Bounds x="520" y="400" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_SessaoAutorizada_di" bpmnElement="MsgFlow_SessaoAutorizada"><di:waypoint x="1488" y="980" /><di:waypoint x="1488" y="456" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1500" y="700" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Cerca_di" bpmnElement="Association_Cerca"><di:waypoint x="620" y="760" /><di:waypoint x="460" y="760" /><di:waypoint x="460" y="780" /><di:waypoint x="400" y="780" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF049_di" bpmnElement="Association_RLSF049"><di:waypoint x="950" y="750" /><di:waypoint x="950" y="915" /><di:waypoint x="400" y="915" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CPF_di" bpmnElement="Association_CPF"><di:waypoint x="1080" y="1025" /><di:waypoint x="740" y="1025" /><di:waypoint x="740" y="1055" /><di:waypoint x="400" y="1055" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_A2_di" bpmnElement="Association_A2"><di:waypoint x="1370" y="1040" /><di:waypoint x="1395" y="1040" /><di:waypoint x="1395" y="1155" /><di:waypoint x="1420" y="1155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_OS05_di" bpmnElement="Association_OS05"><di:waypoint x="830" y="200" /><di:waypoint x="830" y="230" /><di:waypoint x="1060" y="230" /><di:waypoint x="1060" y="160" /><di:waypoint x="1090" y="160" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="1610" y="480" /><di:waypoint x="1610" y="500" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

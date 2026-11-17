@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_E07" targetNamespace="urn:funil:descritivo:etapa7" exporter="build_etapa07.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_E07" name="Etapa 7 — Declaração de saúde">
+    <bpmn:participant id="Participant_Comprador" name="Comprador"><bpmn:documentation>Papel do comprador/proponente. Pool externo (caixa-preta): recebe a proposta da etapa 4 e sinaliza a entrada na etapa 7. O preenchimento do banco de perguntas e a entrevista digital são atos do comprador — representados como userTask na raia de custódia clínica da plataforma da operadora para manter o dado de saúde isolado (nenhum campo da DS sai da raia clínica; §6 missão). Épico E-SF-44 (superfície DPP — onda 2). Nenhuma tarefa é inventada neste pool.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Superficie" name="Superfície de vendas" processRef="Process_Superficie"><bpmn:documentation>Superfície de vendas (omni_sales_platform). Navegação Carta→DS e recebimento do FATO CPT da ponte (única exceção nomeada de RL-SF-014). RL-SF-039 FECHADO ⇒ DS autosserviço desabilitada para produtos com CPT/agravo — navegação assistida. RN 558 art. 3º §2º (baseline L146). Épicos E-SF-44 (onda 2, não iniciado), E-SF-17.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora"><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: jurídico; médico auditor — custódia clínica (raia própria do dado de saúde); comercial (guarda RL-SF-014). Portões: posição da DS (RL-SF-023/RL-REG-11 — REG-11 §Q10-seq), forma da Carta (RL-SF-039), campo II do intermediário (RL-SF-042). RN 558 (baseline §2.4 L142-161); LGPD art. 11 (§2.5 L182-201). T1 (interlock CPT×urgência) corrigido e mesclado — E-SF-01 (PR 1259 corrigido pelo 1262, EXECUTION-LOG:118): interlock VIGENTE, não é portão.</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_ExecutorAMH" name="Executor comercial e lago"><bpmn:documentation>Executor comercial e lago (amh-data-platform). Lago clínico SEGREGADO: nesta etapa nenhum fluxo do funil escreve ou lê o lago a partir da DS — a custódia clínica é representada no dataStore da raia própria (médico auditor) e o vault clínico tem usos taxativos (RL-SF-023/RL-REG-11, RLR:31/:223). Nenhuma associação nem message flow ligam o dado a este pool. isExecutable=false.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_PropostaPronta" name="Proposta pronta (etapa 4)" sourceRef="Participant_Comprador" targetRef="StartEvent_PropostaPronta" />
+    <bpmn:messageFlow id="MsgFlow_NavegacaoDS" name="Segue para Declaração de Saúde" sourceRef="Participant_Comprador" targetRef="StartEvent_NavegacaoDS" />
+    <bpmn:messageFlow id="MsgFlow_FatoCPT" name="Fato CPT (não dado) — ponte RN 558 art. 6º §1º" sourceRef="Task_RegistraFatoCPT" targetRef="StartEvent_FatoCPT" />
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo VERMELHO = PORTÃO FECHADO (decisão pendente: RL-SF-023/RL-REG-11 §Q10-seq posição da DS; RL-SF-039 forma da Carta; RL-SF-042 campo II). Contorno/fundo AZUL = CUSTÓDIA CLÍNICA (dado de saúde isolado em raia própria — RN 558 art. 12, baseline L154; LGPD art. 11, L182/L185). GUARDA SEM COR = regra VIGENTE (RL-SF-014 — uso comercial da DS vedado). A informação nunca depende só da cor: ids nos nomes, nas anotações e na documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Superficie" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Navegação Carta→DS e recebimento do FATO CPT da ponte (única exceção nomeada de RL-SF-014). RL-SF-039 FECHADO ⇒ DS autosserviço desabilitada para produtos com CPT/agravo — navegação assistida. RN 558 art. 3º §2º (baseline L146). Épicos E-SF-44 (onda 2, não iniciado), E-SF-17.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Superficie">
+      <bpmn:lane id="Lane_Superficie" name="Superfície">
+        <bpmn:flowNodeRef>StartEvent_NavegacaoDS</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_NavegacaoCartaDS</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_DsAssistida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_FatoCPT</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RepassaFatoContratacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FatoNaContratacao</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_NavegacaoDS" name="Comprador direcionado à DS"><bpmn:documentation>Message start: o comprador, com a proposta pronta (etapa 4), entra na etapa 7. No ponta-a-ponta a etapa 7 fica ANTES do aceite (5) — REG-11 §Q10-seq, padrão A (DECISIONS-AND-ANSWERS.md:2814). Épico E-SF-44 (superfície DPP, onda 2).</bpmn:documentation><bpmn:outgoing>Flow_S1_PropostaRecebida</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_NavegacaoDS" messageRef="Message_NavegacaoDS" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_NavegacaoCartaDS" name="Exibe navegação Carta→DS (assistida)"><bpmn:documentation>GAP: a superfície DPP (entrevista E7 + navegação Carta→DS) é o épico E-SF-44 — ONDA 2, não iniciada; modo real de produção depende de RL-SF-132 (RLR:140: 'E7 permanece em modo sintético fail-closed; nenhuma resposta de saúde coletada em produção'). Ordem fixa: Carta imediatamente ANTES do formulário e entregue no momento do preenchimento (RN 558 art. 3º §2º, baseline L146). RL-SF-039 FECHADO ⇒ DS autosserviço desabilitada para produtos com CPT/agravo — via assistida.</bpmn:documentation><bpmn:incoming>Flow_S1_PropostaRecebida</bpmn:incoming><bpmn:outgoing>Flow_S2_NavegacaoExibida</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_DsAssistida" name="DS via assistida — autosserviço desabilitado"><bpmn:documentation>Fim nomeado do papel da Superfície na navegação: enquanto RL-SF-039 FECHADO (RL-REG-33, RLR:47), a Carta é via física/assistida (herda 'Entrega manual permanece', DEC-17) e o autosserviço da DS fica desabilitado para produtos com CPT/agravo. Épico E-SF-44.</bpmn:documentation><bpmn:incoming>Flow_S2_NavegacaoExibida</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_FatoCPT" name="Fato CPT recebido da ponte"><bpmn:documentation>Message start: recebe o FATO da ponte CPT ('existe ou não CPT/agravo + escopo') produzido por decisão humana (userTask do médico auditor) — NUNCA o dado. §6 missão: a ponte para cobertura parcial temporária carrega um fato.</bpmn:documentation><bpmn:outgoing>Flow_S3_FatoRecebido</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_FatoCPT" messageRef="Message_FatoCPT" /></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_RepassaFatoContratacao" name="Encaminha FATO CPT à contratação (etapas 5-6)"><bpmn:documentation>Encaminha o FATO (não o dado) ao fluxo contratual — oferta de cobertura total/CPT/agravo da própria proposta: ÚNICA exceção nomeada de RL-SF-014 (RLR:22 — 'o dado de DS só produz o que a RN 558 manda produzir'), com revisão humana; RN 558 arts. 2º III e 6º §1º (baseline L149). Nenhum campo/derivado da DS segue para comercial, medição, mensagens ou retenção (LGPD art. 11 §5º, baseline L185).</bpmn:documentation><bpmn:incoming>Flow_S3_FatoRecebido</bpmn:incoming><bpmn:outgoing>Flow_S4_Encaminha</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_FatoNaContratacao" name="Fato na contratação — nenhum dado de DS segue"><bpmn:documentation>Fim nomeado: o FATO entra no fluxo da contratação (etapas 5-6). Nenhum dado de saúde segue — LGPD art. 11 §4º (baseline L184); RN 558 art. 12 (L154). Épico E-SF-44.</bpmn:documentation><bpmn:incoming>Flow_S4_Encaminha</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_S1_PropostaRecebida" name="Proposta recebida" sourceRef="StartEvent_NavegacaoDS" targetRef="Task_NavegacaoCartaDS" />
+      <bpmn:sequenceFlow id="Flow_S2_NavegacaoExibida" name="Navegação exibida" sourceRef="Task_NavegacaoCartaDS" targetRef="EndEvent_DsAssistida" />
+      <bpmn:sequenceFlow id="Flow_S3_FatoRecebido" name="Fato CPT recebido" sourceRef="StartEvent_FatoCPT" targetRef="Task_RepassaFatoContratacao" />
+      <bpmn:sequenceFlow id="Flow_S4_Encaminha" name="Encaminha à contratação" sourceRef="Task_RepassaFatoContratacao" targetRef="EndEvent_FatoNaContratacao" />
+      <bpmn:textAnnotation id="Annotation_NavegacaoGap"><bpmn:text>GAP: superfície DPP (entrevista E7 + navegação Carta→DS) = épico E-SF-44 — ONDA 2, não iniciada; modo real depende de RL-SF-132 (RLR:140: 'E7 permanece em modo sintético fail-closed; nenhuma resposta de saúde coletada em produção'). Enquanto RL-SF-039 FECHADO: via assistida.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_FatoExcecao"><bpmn:text>ÚNICA EXCEÇÃO NOMEADA de RL-SF-014: o FATO (existe/não CPT-agravo + escopo) atravessa para a oferta da própria proposta (RN 558 arts. 2º III e 6º §1º, com revisão humana); nenhum campo/derivado da DS segue.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_NavegacaoGap" sourceRef="Task_NavegacaoCartaDS" targetRef="Annotation_NavegacaoGap" />
+    <bpmn:association id="Association_FatoExcecao" sourceRef="Task_RepassaFatoContratacao" targetRef="Annotation_FatoExcecao" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: jurídico; médico auditor — custódia clínica (raia própria do dado de saúde); comercial (guarda RL-SF-014). Portões: posição da DS (RL-SF-023/RL-REG-11 — REG-11 §Q10-seq), forma da Carta (RL-SF-039), campo II do intermediário (RL-SF-042). RN 558 (baseline §2.4 L142-161); LGPD art. 11 (§2.5 L182-201). T1 (interlock CPT×urgência) corrigido e mesclado — E-SF-01 (PR 1259 corrigido pelo 1262, EXECUTION-LOG:118): interlock VIGENTE, não é portão.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Juridico" name="Jurídico">
+        <bpmn:flowNodeRef>StartEvent_PropostaPronta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_PosicaoDS</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_VariantePosContrato</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_MedicoCustodia" name="Médico auditor — custódia clínica">
+        <bpmn:flowNodeRef>Task_EmiteCartaOrientacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_FormaCarta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FormaDigitalVariante</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_BancoPerguntasAprovado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_CampoII</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_KitRecusadoCampoII</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EntrevistaDigital</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GravaCustodiaClinica</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DecisaoClinicaDLP</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RegistraFatoCPT</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FatoRegistrado</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Comercial" name="Comercial">
+        <bpmn:flowNodeRef>StartEvent_DemandaComercial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Gate_SemDerivacaoComercial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_DerivacaoBloqueada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ComercialSemDS</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_PropostaPronta" name="Proposta pronta (etapa 4)"><bpmn:documentation>Message start: proposta pronta da etapa 4 inicia a etapa 7. RN 558 art. 14 (baseline L155): substituição interna de plano &gt;24 meses (mesma operadora, mesma segmentação, sem interrupção) ⇒ NOVA DS VETADA — neste caso o fluxo não solicita DS (restrição documentada; sem ramo desenhado). Épico E-SF-17.</bpmn:documentation><bpmn:outgoing>Flow_J1_IniciaDS</bpmn:outgoing><bpmn:messageEventDefinition id="MsgDef_StartEvent_PropostaPronta" messageRef="Message_PropostaPronta" /></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_Gate_PosicaoDS" name="Posição da DS no funil ratificada?" default="Flow_J2_PosPadrao"><bpmn:documentation>PORTÃO FECHADO RL-SF-023/RL-REG-11 — REG-11 §Q10-seq (jurídico; RATIFY-LATER-REGISTER.md:31; DECISIONS-AND-ANSWERS.md:2787-2830, default A em :2814, fallback :2829): sequenciamento DS × aceite/emissão pendente de ratificação. Default = A 'DS antes do aceite/emissão' (padrão seguro: acceptance.record favorável e contract.issue com cláusula CPT/agravo exigem DS assinada atual ou dispensa explícita da fonte). Variante 'depois do contrato' = ANOTADA, nunca caminho ativo ('nenhum épico implementa B', D&amp;A:2817). TABELA-ETAPAS.md:20. RN 558 art. 6º §2º (baseline L150 — janela única na adesão puxa a DS para antes do aceite). Épico E-SF-17.</bpmn:documentation><bpmn:incoming>Flow_J1_IniciaDS</bpmn:incoming><bpmn:outgoing>Flow_J2_PosPadrao</bpmn:outgoing><bpmn:outgoing>Flow_J3_VariantePos</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_VariantePosContrato" name="Variante pós-contrato — não ativa"><bpmn:documentation>Fim nomeado da VARIANTE ANOTADA (não caminho ativo): 'depois do contrato' só existiria com ratificação jurídica da posição (REG-11 §Q10-seq; RL-SF-023/RL-REG-11, RLR:31). Nenhum épico implementa B enquanto o jurídico não ratificar (D&amp;A:2817).</bpmn:documentation><bpmn:incoming>Flow_J3_VariantePos</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_EmiteCartaOrientacao" name="Emite Carta de Orientação — transcrição verbatim + imagem oficial anexa (proposta)"><bpmn:documentation>Carta de Orientação ao Beneficiário existe onde há CPT/agravo (RN 558 art. 3º caput, baseline L144); documento padronizado da ANS com identificação/assinatura/data do beneficiário (art. 3º §1º caput+I, L159); ordem fixa: imediatamente ANTES do formulário da DS, entregue no momento do preenchimento (art. 3º §2º, L146). Modelo do Anexo em sua íntegra; só Carta sem rasura/modificação vale em processo DLP (art. 4º caput+§ú, L160). FORMA = PORTÃO RL-SF-039 (gateway a seguir): a 'transcrição verbatim + imagem oficial anexa' é PROPOSTA — forma aprovada NÃO inventada (GAP-9, baseline L369). Épicos E-SF-44/E-SF-01.</bpmn:documentation><bpmn:incoming>Flow_J2_PosPadrao</bpmn:incoming><bpmn:outgoing>Flow_M1_KitCarta</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_Gate_FormaCarta" name="Forma da Carta ratificada?" default="Flow_M3_FormaDefault"><bpmn:documentation>PORTÃO FECHADO RL-SF-039 (jurídico; RL-REG-33, RATIFY-LATER-REGISTER.md:47/:239): forma da Carta pendente — GAP-9 (texto do Anexo fechado no DOU; forma TNR 12/'sem modificação' ABERTA, baseline L369). O que abre: jurídico ratifica a forma (art. 94 RN 489 red. RN 659). Enquanto fechado: Carta somente em via física/assistida (herda 'Entrega manual permanece', DEC-17); DS autosserviço desabilitada para produtos com CPT/agravo; bloco E7 permanece gated. RN 558 art. 4º caput+§ú (baseline L160).</bpmn:documentation><bpmn:incoming>Flow_M1_KitCarta</bpmn:incoming><bpmn:outgoing>Flow_M2_FormaVariante</bpmn:outgoing><bpmn:outgoing>Flow_M3_FormaDefault</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_FormaDigitalVariante" name="Forma digital ratificada — variante não ativa"><bpmn:documentation>Fim nomeado da VARIANTE ANOTADA: forma digital da Carta só com RL-SF-039 ratificado (RL-REG-33, RLR:47); GAP-9 (baseline L369). Não é caminho ativo.</bpmn:documentation><bpmn:incoming>Flow_M2_FormaVariante</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_BancoPerguntasAprovado" name="Banco de perguntas aprovado — preenchimento da DS pelo comprador"><bpmn:documentation>userTask do comprador (via superfície DPP — E-SF-44, onda 2; ato humano na raia clínica para manter o dado isolado, §6 missão). Formulário da operadora com conteúdo obrigatório (RN 558 art. 10 caput, baseline L152: definição de CPT e de Agravo; direito de ser orientado sem ônus por médico indicado pela operadora; consequências de rescisão e responsabilidade por despesas). Art. 10 §ú (L153): VETADO perguntar hábitos de vida, sintomas ou uso de medicamentos — banco validado contra o veto. Campo II do intermediário (art. 3º §1º II, L145) = PORTÃO RL-SF-042 (gateway a seguir).</bpmn:documentation><bpmn:incoming>Flow_M3_FormaDefault</bpmn:incoming><bpmn:outgoing>Flow_M4_Preenchido</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_Gate_CampoII" name="Campo II do intermediário completo?" default="Flow_M5_CampoIIDefault"><bpmn:documentation>PORTÃO FECHADO RL-SF-042 (jurídico regulatório ANS; trabalhista se a assinatura gerar efeito no vínculo; RL-REG-43, RATIFY-LATER-REGISTER.md:50/:247): quem assina o campo II do intermediário na venda direta — pendente. O que abre: jurídico responde quem assina na venda direta. Fallback: campo II nunca em branco na Faixa Assistida; sem pessoa natural presente, contract.issue recusado (CARTA_INCOMPLETE); se negado: venda com CPT/agravo exige terceiro presente ou só presencial em papel. RN 558 art. 3º §1º II (baseline L145). Épico E-SF-17 (persona comercial/Faixa Assistida — PASS em ramo, EXECUTION-LOG:132).</bpmn:documentation><bpmn:incoming>Flow_M4_Preenchido</bpmn:incoming><bpmn:outgoing>Flow_M5_CampoIIDefault</bpmn:outgoing><bpmn:outgoing>Flow_M6_CampoIIOk</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_KitRecusadoCampoII" name="Kit DS recusado — campo II incompleto (CARTA_INCOMPLETE)"><bpmn:documentation>Fim nomeado conservador (default): campo II em branco/sem intermediário definido ⇒ kit tratado como incompleto e contract.issue recusado (CARTA_INCOMPLETE — RL-SF-042, RLR:50). Adjacente CITADA (não respondida): RL-SF-017/RL-REG-05 (RLR:25 — até o jurídico responder, a operadora não coleta DS em autosserviço sem intermediário presente).</bpmn:documentation><bpmn:incoming>Flow_M5_CampoIIDefault</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_EntrevistaDigital" name="Entrevista digital qualificada — conduzida com o comprador"><bpmn:documentation>userTask do comprador com suporte da superfície DPP (E-SF-44, onda 2 — GAP: não iniciada; RL-SF-132, RLR:140: modo sintético fail-closed). Direito de ser orientado sem ônus por médico indicado (RN 558 art. 10 III, baseline L152). Art. 5º §4º (L148): realizada entrevista/qualquer exame ⇒ VEDADA a alegação de omissão de DLP — a entrevista não é filtro de recusa (nenhum ramo de recusa na ponte CPT). GAP-2r: art. 5º caput com duas redações divergentes (L161) — nenhuma condição de fluxo de DS/CPT em coletivo até RL-REG-26/RL-SF-034 (RLR:42).</bpmn:documentation><bpmn:incoming>Flow_M6_CampoIIOk</bpmn:incoming><bpmn:outgoing>Flow_M7_Respostas</bpmn:outgoing></bpmn:userTask>
+      <bpmn:serviceTask id="Task_GravaCustodiaClinica" name="Grava respostas da DS na custódia clínica"><bpmn:documentation>Gravação EXCLUSIVAMENTE na custódia clínica desta raia (dataStore abaixo — §6 missão: dado de saúde isolado). Consentimento específico e destacado para finalidade específica (LGPD art. 11 caput+I, baseline L182). RN 558 art. 12 (L154): proteger as informações da DS; vedada divulgação/fornecimento a terceiros sem anuência expressa. Vault clínico RL-SF-023/RL-REG-11 (RLR:31/:223 — usos taxativos). Nenhuma associação/message flow sai deste dado para raia comercial, de medição, de mensagens ou de retenção. Épicos E-SF-01/E-SF-44.</bpmn:documentation><bpmn:incoming>Flow_M7_Respostas</bpmn:incoming><bpmn:outgoing>Flow_M8_CustodiaRegistrada</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:dataStoreReference id="DataStore_CustodiaClinica" name="Custódia clínica — Declaração de Saúde (isolado)"><bpmn:documentation>DADO DE SAÚDE ISOLADO (§6 missão, integral): dataStoreReference de custódia clínica em raia própria (médico auditor). NENHUMA associação de dados nem message flow leva este dado a raia comercial, de medição, de mensagens ou de retenção — o verificador falha nisso (regra 4a). Só o FATO da ponte CPT (decisão humana) atravessa. RN 558 art. 12 (L154); LGPD art. 11 §4º (L184) e §5º (L185 — vedado tratamento para seleção de riscos na contratação); RL-SF-014 (RLR:22); RL-SF-023/RL-REG-11 (RLR:31/:223).</bpmn:documentation></bpmn:dataStoreReference>
+      <bpmn:userTask id="Task_DecisaoClinicaDLP" name="Médico auditor decide DLP: cobertura total OU CPT obrigatória (agravo facultativo)"><bpmn:documentation>DECISÃO HUMANA OBRIGATÓRIA (§6 missão: decisão clínica nunca sai de tarefa de serviço ou de agente): userTask na raia do médico auditor, com base na custódia clínica. DLP constatada (perícia, entrevista qualificada ou declaração expressa) ⇒ cobertura total sem ônus OU CPT obrigatória, agravo facultativo — NENHUM ramo de recusa (RN 558 art. 6º caput+§1º, baseline L149). GAP-2r (art. 5º caput, L161; RL-REG-26/RL-SF-034, RLR:42). Épico E-SF-01r (AGUARDA-RATIFICAÇÃO).</bpmn:documentation><bpmn:incoming>Flow_M8_CustodiaRegistrada</bpmn:incoming><bpmn:outgoing>Flow_M9_FatoProduzido</bpmn:outgoing></bpmn:userTask>
+      <bpmn:businessRuleTask id="Task_RegistraFatoCPT" name="Registra FATO da ponte CPT: existe/não CPT-agravo + escopo"><bpmn:documentation>businessRuleTask aplica a decisão humana registrada e produz o FATO estruturado ('existe ou não CPT/agravo + escopo') — não decide. Escopo da CPT: teto de 24 meses ininterruptos, só PAC/leitos de alta tecnologia/cirurgias ligados à DLP declarada (RN 558 art. 2º II, baseline L142). T1 (interlock CPT×urgência em carencia_check.dmn) CORRIGIDO e mesclado — E-SF-01 (PR 1259, corrigido pelo 1262; EXECUTION-LOG:118): interlock VIGENTE (fato), NÃO é portão. O fato (não o dado) segue por message flow ao fluxo contratual; RN 558 art. 6º §1º (L149).</bpmn:documentation><bpmn:incoming>Flow_M9_FatoProduzido</bpmn:incoming><bpmn:outgoing>Flow_M10_PonteEmitida</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:endEvent id="EndEvent_FatoRegistrado" name="Fato CPT registrado — ponte emitida"><bpmn:documentation>Fim nomeado do ramo clínico: FATO da ponte CPT registrado e emitido ao fluxo contratual (message flow para a Superfície de vendas). O dado permanece na custódia clínica. Épico E-SF-44.</bpmn:documentation><bpmn:incoming>Flow_M10_PonteEmitida</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_DemandaComercial" name="Demanda comercial do funil"><bpmn:documentation>Início simples (sem mensagem): qualquer demanda comercial do funil (score, propensity, segmentação, preço, ordem de exibição, oferta personalizada, cadência de recuperação, atribuição de mídia). Épico E-SF-17.</bpmn:documentation><bpmn:outgoing>Flow_C1_Demanda</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_Gate_SemDerivacaoComercial" name="Origem do dado comercial?" default="Flow_C2_DSVedado"><bpmn:documentation>GUARDA 'nenhuma derivação comercial de DS' — REGRA VIGENTE (estado A já é o desenho; 'nenhum épico é bloqueado por A', RLR:22), NÃO portão de ratificação: nenhuma variável comercial (individual ou agregada, inclusive por proxies como existência de CPT/agravo, 'DS com resposta positiva' ou abandono na etapa da DS) pode ser derivada de qualquer campo da DS (RL-SF-014, RLR:22). Única exceção nomeada: oferta de cobertura total/CPT/agravo da própria proposta no fluxo regulatório da RN 558 (arts. 2º III e 6º §1º), com revisão humana — via FATO da ponte. LGPD art. 11 §5º (baseline L185); RN 558 art. 12 (L154).</bpmn:documentation><bpmn:incoming>Flow_C1_Demanda</bpmn:incoming><bpmn:outgoing>Flow_C2_DSVedado</bpmn:outgoing><bpmn:outgoing>Flow_C3_FontesProprias</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_DerivacaoBloqueada" name="Derivação de DS bloqueada"><bpmn:documentation>Fim nomeado: qualquer tentativa de derivação comercial de campo/derivado da DS é bloqueada (RL-SF-014, RLR:22; LGPD art. 11 §5º, baseline L185).</bpmn:documentation><bpmn:incoming>Flow_C2_DSVedado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_ComercialSemDS" name="Comercial segue sem dado de DS"><bpmn:documentation>Fim nomeado: o comercial opera só com fontes próprias sem dado de DS (catálogo da etapa 1, cadastro) — a DS não alimenta comercial, medição, mensagens ou retenção (§8 missão).</bpmn:documentation><bpmn:incoming>Flow_C3_FontesProprias</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_J1_IniciaDS" name="Inicia etapa DS" sourceRef="StartEvent_PropostaPronta" targetRef="Gateway_Gate_PosicaoDS" />
+      <bpmn:sequenceFlow id="Flow_J2_PosPadrao" name="Não ratificada — DS antes do aceite (padrão seguro)" sourceRef="Gateway_Gate_PosicaoDS" targetRef="Task_EmiteCartaOrientacao" />
+      <bpmn:sequenceFlow id="Flow_J3_VariantePos" name="Ratificada pós-contrato (variante)" sourceRef="Gateway_Gate_PosicaoDS" targetRef="EndEvent_VariantePosContrato"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">jurídico ratifica posição pós-contrato (variante não ativa — REG-11 §Q10-seq)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_M1_KitCarta" name="Carta + kit DS" sourceRef="Task_EmiteCartaOrientacao" targetRef="Gateway_Gate_FormaCarta" />
+      <bpmn:sequenceFlow id="Flow_M2_FormaVariante" name="Forma digital ratificada (variante)" sourceRef="Gateway_Gate_FormaCarta" targetRef="EndEvent_FormaDigitalVariante"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">jurídico ratifica forma digital da Carta (variante não ativa — RL-SF-039)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_M3_FormaDefault" name="Não ratificada — via física/assistida (FECHADO)" sourceRef="Gateway_Gate_FormaCarta" targetRef="Task_BancoPerguntasAprovado" />
+      <bpmn:sequenceFlow id="Flow_M4_Preenchido" name="Preenchimento concluído" sourceRef="Task_BancoPerguntasAprovado" targetRef="Gateway_Gate_CampoII" />
+      <bpmn:sequenceFlow id="Flow_M5_CampoIIDefault" name="Sem intermediário — recusado (CARTA_INCOMPLETE) (FECHADO)" sourceRef="Gateway_Gate_CampoII" targetRef="EndEvent_KitRecusadoCampoII" />
+      <bpmn:sequenceFlow id="Flow_M6_CampoIIOk" name="Intermediário presente — campo II completo" sourceRef="Gateway_Gate_CampoII" targetRef="Task_EntrevistaDigital"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">intermediário presente — nome+CPF+assinatura (art. 3º §1º II)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_M7_Respostas" name="Respostas para custódia" sourceRef="Task_EntrevistaDigital" targetRef="Task_GravaCustodiaClinica" />
+      <bpmn:sequenceFlow id="Flow_M8_CustodiaRegistrada" name="Custódia registrada" sourceRef="Task_GravaCustodiaClinica" targetRef="Task_DecisaoClinicaDLP" />
+      <bpmn:sequenceFlow id="Flow_M9_FatoProduzido" name="Fato CPT produzido" sourceRef="Task_DecisaoClinicaDLP" targetRef="Task_RegistraFatoCPT" />
+      <bpmn:sequenceFlow id="Flow_M10_PonteEmitida" name="Ponte emitida" sourceRef="Task_RegistraFatoCPT" targetRef="EndEvent_FatoRegistrado" />
+      <bpmn:sequenceFlow id="Flow_C1_Demanda" name="Avalia origem do dado" sourceRef="StartEvent_DemandaComercial" targetRef="Gateway_Gate_SemDerivacaoComercial" />
+      <bpmn:sequenceFlow id="Flow_C2_DSVedado" name="Da DS — VEDADO (RL-SF-014)" sourceRef="Gateway_Gate_SemDerivacaoComercial" targetRef="EndEvent_DerivacaoBloqueada" />
+      <bpmn:sequenceFlow id="Flow_C3_FontesProprias" name="Fontes próprias sem dado de DS" sourceRef="Gateway_Gate_SemDerivacaoComercial" targetRef="EndEvent_ComercialSemDS"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">origem = fontes próprias do comercial (catálogo da etapa 1, cadastro) — sem qualquer campo ou derivado da DS</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:textAnnotation id="Annotation_GatePosicaoDS"><bpmn:text>PORTÃO FECHADO — POSIÇÃO DA DS NO FUNIL (jurídico): REG-11 §Q10-seq, registro-mãe RL-SF-023/RL-REG-11 (RLR:31; D&amp;A:2787-2830, default A em :2814, fallback :2829). O que abre: jurídico ratifica o sequenciamento DS × aceite/emissão. Default = 'DS antes do aceite' (padrão seguro). Variante 'depois do contrato' = ANOTADA ('nenhum épico implementa B', D&amp;A:2817). RN 558 art. 6º §2º (L150). Épico E-SF-17.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2/GAP: SP-OP-AUTH-001 existe (autorização prévia) — NÃO é a DS de contratação da RN 558; não alterado. Nenhum SP-OP-* cobre a DS de contratação — GAP; épico proposto E-SF-44 (superfície DPP, onda 2) e E-SF-01r (correção T1, AGUARDA-RATIFICAÇÃO). Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Art14"><bpmn:text>RN 558 art. 14 (baseline L155): substituição interna de plano &gt;24 meses (mesma operadora, mesma segmentação assistencial, sem interrupção) ⇒ NOVA DS VETADA — este fluxo não solicita DS nesse caso (sem ramo desenhado; restrição documentada no início da etapa).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RLSF039"><bpmn:text>PORTÃO FECHADO RL-SF-039 (RL-REG-33, RLR:47; GAP-9, L369): forma da Carta pendente. Default: via física/assistida, transcrição verbatim + imagem oficial anexa = PROPOSTA (forma aprovada não inventada). Abre: jurídico ratifica a forma. RN 558 art. 4º (L160).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RLSF042"><bpmn:text>PORTÃO FECHADO RL-SF-042 (RL-REG-43, RLR:50): quem assina o campo II na venda direta — pendente. Fallback: nunca em branco na Faixa Assistida; sem pessoa natural, contract.issue recusado (CARTA_INCOMPLETE). Adjacente RL-SF-017 (RLR:25). RN 558 art. 3º §1º II (L145). Épico E-SF-17.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Custodia"><bpmn:text>CUSTÓDIA CLÍNICA ISOLADA (§6 missão): toda a entrevista/perguntas/custódia vive nesta raia; NENHUMA associação nem message flow leva o dado a raia comercial, de medição, de mensagens ou de retenção — só o FATO da ponte CPT sai (decisão humana). RN 558 art. 12 (L154); LGPD art. 11 caput+I (L182), §4º (L184), §5º (L185); RL-SF-023/RL-REG-11 (RLR:31/:223).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_PonteCPT"><bpmn:text>PONTE CPT — FATO (não dado): 'existe ou não CPT/agravo + escopo', produzido por decisão humana (userTask do médico auditor); segue por message flow ao fluxo contratual. DLP constatada ⇒ cobertura total sem ônus OU CPT obrigatória, agravo facultativo — nenhum ramo de recusa (RN 558 art. 6º caput+§1º, L149); CPT: 24 meses, só PAC/alta tecnologia/cirurgias da DLP declarada (art. 2º II, L142); janela única na adesão (art. 6º §2º, L150). Art. 5º §4º (L148): examinou ⇒ vedada alegação de omissão. T1 (interlock CPT×urgência) CORRIGIDO e mesclado — E-SF-01 (PR 1259 corrigido pelo 1262, EXECUTION-LOG:118): interlock VIGENTE, não é portão. GAP-2r: art. 5º caput (L161) fora do fluxo até RL-REG-26/RL-SF-034 (RLR:42).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_RLSF014"><bpmn:text>REGRA VIGENTE — NÃO portão: RL-SF-014 (RLR:22) veda qualquer derivação comercial de campo/derivado da DS (score, propensity, segmentação, preço, ordem de exibição, oferta personalizada, cadência de recuperação, atribuição de mídia — inclusive por proxies: existência de CPT/agravo, 'DS com resposta positiva', abandono na DS). ÚNICA exceção nomeada: a oferta de cobertura total/CPT/agravo da própria proposta (RN 558 arts. 2º III e 6º §1º), com revisão humana — via FATO da ponte. LGPD art. 11 §5º (L185); RN 558 art. 12 (L154). Estado A = desenho atual (RLR:22).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_BancoVeto"><bpmn:text>RN 558 art. 10 §ú (baseline L153): a DS faz referência EXCLUSIVA a doenças/lesões que o beneficiário sabe portar no momento da contratação — VETADO perguntar hábitos de vida, sintomas ou uso de medicamentos (banco validado contra o veto). Conteúdo obrigatório do art. 10 caput (L152). Ato do comprador (userTask) na raia clínica para manter o dado isolado (§6 missão); épico E-SF-44 (onda 2).</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_GatePosicaoDS" sourceRef="Gateway_Gate_PosicaoDS" targetRef="Annotation_GatePosicaoDS" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Gateway_Gate_PosicaoDS" targetRef="Annotation_Nivel2" />
+    <bpmn:association id="Association_Art14" sourceRef="StartEvent_PropostaPronta" targetRef="Annotation_Art14" />
+    <bpmn:association id="Association_RLSF039" sourceRef="Gateway_Gate_FormaCarta" targetRef="Annotation_RLSF039" />
+    <bpmn:association id="Association_RLSF042" sourceRef="Gateway_Gate_CampoII" targetRef="Annotation_RLSF042" />
+    <bpmn:association id="Association_Custodia" sourceRef="DataStore_CustodiaClinica" targetRef="Annotation_Custodia" />
+    <bpmn:association id="Association_PonteCPT" sourceRef="Task_RegistraFatoCPT" targetRef="Annotation_PonteCPT" />
+    <bpmn:association id="Association_BancoVeto" sourceRef="Task_BancoPerguntasAprovado" targetRef="Annotation_BancoVeto" />
+    <bpmn:association id="Association_RLSF014" sourceRef="Gateway_Gate_SemDerivacaoComercial" targetRef="Annotation_RLSF014" />
+    <bpmn:association id="Association_GravaCustodia" sourceRef="Task_GravaCustodiaClinica" targetRef="DataStore_CustodiaClinica" />
+    <bpmn:association id="Association_LeCustodia" sourceRef="DataStore_CustodiaClinica" targetRef="Task_DecisaoClinicaDLP" />
+  </bpmn:process>
+  <bpmn:message id="Message_PropostaPronta" name="Proposta pronta" />
+  <bpmn:message id="Message_NavegacaoDS" name="Direcionamento à DS" />
+  <bpmn:message id="Message_FatoCPT" name="Fato CPT da DS" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_E07">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_E07" bpmnElement="Collaboration_FUNIL_E07">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2040" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Superficie_di" bpmnElement="Participant_Superficie" isHorizontal="true"><dc:Bounds x="40" y="220" width="2040" height="260" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="560" width="2040" height="900" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_ExecutorAMH_di" bpmnElement="Participant_ExecutorAMH" isHorizontal="true"><dc:Bounds x="40" y="1540" width="2040" height="100" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="250" width="2010" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Juridico_di" bpmnElement="Lane_Juridico" isHorizontal="true"><dc:Bounds x="70" y="590" width="2010" height="220" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_MedicoCustodia_di" bpmnElement="Lane_MedicoCustodia" isHorizontal="true"><dc:Bounds x="70" y="810" width="2010" height="440" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="1250" width="2010" height="210" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_NavegacaoDS_di" bpmnElement="StartEvent_NavegacaoDS">
+        <dc:Bounds x="280" y="340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="420" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_NavegacaoCartaDS_di" bpmnElement="Task_NavegacaoCartaDS">
+        <dc:Bounds x="400" y="320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_DsAssistida_di" bpmnElement="EndEvent_DsAssistida">
+        <dc:Bounds x="580" y="340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="500" y="250" width="200" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FatoCPT_di" bpmnElement="StartEvent_FatoCPT">
+        <dc:Bounds x="1240" y="340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1180" y="430" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RepassaFatoContratacao_di" bpmnElement="Task_RepassaFatoContratacao">
+        <dc:Bounds x="1360" y="320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FatoNaContratacao_di" bpmnElement="EndEvent_FatoNaContratacao">
+        <dc:Bounds x="1540" y="340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1650" y="280" width="200" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_PropostaPronta_di" bpmnElement="StartEvent_PropostaPronta">
+        <dc:Bounds x="180" y="660" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="70" y="700" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_PosicaoDS_di" bpmnElement="Gateway_Gate_PosicaoDS" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="320" y="650" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="230" y="596" width="220" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_VariantePosContrato_di" bpmnElement="EndEvent_VariantePosContrato">
+        <dc:Bounds x="520" y="660" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="440" y="710" width="160" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EmiteCartaOrientacao_di" bpmnElement="Task_EmiteCartaOrientacao">
+        <dc:Bounds x="460" y="870" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_FormaCarta_di" bpmnElement="Gateway_Gate_FormaCarta" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="660" y="890" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="780" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FormaDigitalVariante_di" bpmnElement="EndEvent_FormaDigitalVariante">
+        <dc:Bounds x="840" y="892" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="790" y="935" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_BancoPerguntasAprovado_di" bpmnElement="Task_BancoPerguntasAprovado">
+        <dc:Bounds x="860" y="1030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_CampoII_di" bpmnElement="Gateway_Gate_CampoII" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1060" y="1040" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="930" y="980" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_KitRecusadoCampoII_di" bpmnElement="EndEvent_KitRecusadoCampoII" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1060" y="1160" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="970" y="1210" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EntrevistaDigital_di" bpmnElement="Task_EntrevistaDigital">
+        <dc:Bounds x="1360" y="1030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GravaCustodiaClinica_di" bpmnElement="Task_GravaCustodiaClinica" bioc:stroke="#1B6EC2" bioc:fill="#DCEBFA">
+        <dc:Bounds x="1560" y="1030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DataStore_CustodiaClinica_di" bpmnElement="DataStore_CustodiaClinica" bioc:stroke="#1B6EC2" bioc:fill="#DCEBFA">
+        <dc:Bounds x="1580" y="1160" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1420" y="1120" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DecisaoClinicaDLP_di" bpmnElement="Task_DecisaoClinicaDLP">
+        <dc:Bounds x="1560" y="870" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RegistraFatoCPT_di" bpmnElement="Task_RegistraFatoCPT">
+        <dc:Bounds x="1760" y="870" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FatoRegistrado_di" bpmnElement="EndEvent_FatoRegistrado">
+        <dc:Bounds x="1940" y="892" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1900" y="940" width="180" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_DemandaComercial_di" bpmnElement="StartEvent_DemandaComercial">
+        <dc:Bounds x="180" y="1330" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="1372" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Gate_SemDerivacaoComercial_di" bpmnElement="Gateway_Gate_SemDerivacaoComercial" isMarkerVisible="true">
+        <dc:Bounds x="340" y="1320" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="290" y="1272" width="210" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_DerivacaoBloqueada_di" bpmnElement="EndEvent_DerivacaoBloqueada">
+        <dc:Bounds x="480" y="1320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="1400" width="180" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ComercialSemDS_di" bpmnElement="EndEvent_ComercialSemDS">
+        <dc:Bounds x="620" y="1320" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="580" y="1288" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="2140" y="40" width="280" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_GatePosicaoDS_di" bpmnElement="Annotation_GatePosicaoDS">
+        <dc:Bounds x="1490" y="600" width="300" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="900" y="630" width="260" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Art14_di" bpmnElement="Annotation_Art14">
+        <dc:Bounds x="1820" y="700" width="260" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF039_di" bpmnElement="Annotation_RLSF039">
+        <dc:Bounds x="110" y="940" width="230" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF042_di" bpmnElement="Annotation_RLSF042">
+        <dc:Bounds x="1180" y="1060" width="170" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Custodia_di" bpmnElement="Annotation_Custodia">
+        <dc:Bounds x="1150" y="1250" width="230" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PonteCPT_di" bpmnElement="Annotation_PonteCPT">
+        <dc:Bounds x="1400" y="1250" width="360" height="210" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_RLSF014_di" bpmnElement="Annotation_RLSF014">
+        <dc:Bounds x="840" y="1250" width="290" height="210" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_NavegacaoGap_di" bpmnElement="Annotation_NavegacaoGap">
+        <dc:Bounds x="700" y="300" width="240" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_FatoExcecao_di" bpmnElement="Annotation_FatoExcecao">
+        <dc:Bounds x="1860" y="280" width="220" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_BancoVeto_di" bpmnElement="Annotation_BancoVeto">
+        <dc:Bounds x="110" y="1090" width="260" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_S1_PropostaRecebida_di" bpmnElement="Flow_S1_PropostaRecebida"><di:waypoint x="316" y="358" /><di:waypoint x="400" y="358" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="420" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_NavegacaoExibida_di" bpmnElement="Flow_S2_NavegacaoExibida"><di:waypoint x="500" y="358" /><di:waypoint x="580" y="358" />
+        <bpmndi:BPMNLabel><dc:Bounds x="505" y="310" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_FatoRecebido_di" bpmnElement="Flow_S3_FatoRecebido"><di:waypoint x="1276" y="358" /><di:waypoint x="1360" y="358" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1200" y="270" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S4_Encaminha_di" bpmnElement="Flow_S4_Encaminha"><di:waypoint x="1460" y="358" /><di:waypoint x="1540" y="358" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1470" y="380" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J1_IniciaDS_di" bpmnElement="Flow_J1_IniciaDS"><di:waypoint x="216" y="678" /><di:waypoint x="320" y="678" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="700" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J2_PosPadrao_di" bpmnElement="Flow_J2_PosPadrao"><di:waypoint x="345" y="700" /><di:waypoint x="345" y="910" /><di:waypoint x="460" y="910" />
+        <bpmndi:BPMNLabel><dc:Bounds x="150" y="880" width="180" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J3_VariantePos_di" bpmnElement="Flow_J3_VariantePos"><di:waypoint x="370" y="678" /><di:waypoint x="520" y="678" />
+        <bpmndi:BPMNLabel><dc:Bounds x="380" y="780" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M1_KitCarta_di" bpmnElement="Flow_M1_KitCarta"><di:waypoint x="560" y="915" /><di:waypoint x="660" y="915" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="885" width="90" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M2_FormaVariante_di" bpmnElement="Flow_M2_FormaVariante"><di:waypoint x="710" y="910" /><di:waypoint x="840" y="910" />
+        <bpmndi:BPMNLabel><dc:Bounds x="700" y="780" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M3_FormaDefault_di" bpmnElement="Flow_M3_FormaDefault"><di:waypoint x="685" y="940" /><di:waypoint x="685" y="1070" /><di:waypoint x="860" y="1070" />
+        <bpmndi:BPMNLabel><dc:Bounds x="500" y="975" width="180" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M4_Preenchido_di" bpmnElement="Flow_M4_Preenchido"><di:waypoint x="960" y="1070" /><di:waypoint x="1060" y="1070" />
+        <bpmndi:BPMNLabel><dc:Bounds x="960" y="1090" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M5_CampoIIDefault_di" bpmnElement="Flow_M5_CampoIIDefault"><di:waypoint x="1085" y="1090" /><di:waypoint x="1085" y="1160" />
+        <bpmndi:BPMNLabel><dc:Bounds x="880" y="1120" width="200" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M6_CampoIIOk_di" bpmnElement="Flow_M6_CampoIIOk"><di:waypoint x="1085" y="1040" /><di:waypoint x="1085" y="990" /><di:waypoint x="1400" y="990" /><di:waypoint x="1400" y="1030" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1120" y="1000" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M7_Respostas_di" bpmnElement="Flow_M7_Respostas"><di:waypoint x="1460" y="1070" /><di:waypoint x="1560" y="1070" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1470" y="1000" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M8_CustodiaRegistrada_di" bpmnElement="Flow_M8_CustodiaRegistrada"><di:waypoint x="1610" y="1030" /><di:waypoint x="1610" y="950" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1480" y="960" width="120" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M9_FatoProduzido_di" bpmnElement="Flow_M9_FatoProduzido"><di:waypoint x="1660" y="910" /><di:waypoint x="1760" y="910" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1690" y="960" width="110" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_M10_PonteEmitida_di" bpmnElement="Flow_M10_PonteEmitida"><di:waypoint x="1860" y="910" /><di:waypoint x="1940" y="910" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1690" y="980" width="90" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C1_Demanda_di" bpmnElement="Flow_C1_Demanda"><di:waypoint x="216" y="1348" /><di:waypoint x="340" y="1348" />
+        <bpmndi:BPMNLabel><dc:Bounds x="220" y="1320" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_DSVedado_di" bpmnElement="Flow_C2_DSVedado"><di:waypoint x="390" y="1338" /><di:waypoint x="480" y="1338" />
+        <bpmndi:BPMNLabel><dc:Bounds x="660" y="1410" width="160" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C3_FontesProprias_di" bpmnElement="Flow_C3_FontesProprias"><di:waypoint x="365" y="1370" /><di:waypoint x="365" y="1400" /><di:waypoint x="638" y="1400" /><di:waypoint x="638" y="1356" />
+        <bpmndi:BPMNLabel><dc:Bounds x="420" y="1404" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PropostaPronta_di" bpmnElement="MsgFlow_PropostaPronta"><di:waypoint x="198" y="140" /><di:waypoint x="198" y="660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="210" y="380" width="180" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_NavegacaoDS_di" bpmnElement="MsgFlow_NavegacaoDS"><di:waypoint x="298" y="140" /><di:waypoint x="298" y="340" />
+        <bpmndi:BPMNLabel><dc:Bounds x="310" y="190" width="190" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_FatoCPT_di" bpmnElement="MsgFlow_FatoCPT"><di:waypoint x="1810" y="870" /><di:waypoint x="1810" y="420" /><di:waypoint x="1258" y="420" /><di:waypoint x="1258" y="376" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1830" y="600" width="220" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_GatePosicaoDS_di" bpmnElement="Association_GatePosicaoDS"><di:waypoint x="330" y="700" /><di:waypoint x="330" y="830" /><di:waypoint x="1490" y="830" /><di:waypoint x="1490" y="675" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="370" y="700" /><di:waypoint x="370" y="770" /><di:waypoint x="900" y="770" /><di:waypoint x="900" y="720" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Art14_di" bpmnElement="Association_Art14"><di:waypoint x="206" y="696" /><di:waypoint x="206" y="756" /><di:waypoint x="1820" y="756" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF039_di" bpmnElement="Association_RLSF039"><di:waypoint x="660" y="940" /><di:waypoint x="660" y="970" /><di:waypoint x="340" y="970" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF042_di" bpmnElement="Association_RLSF042"><di:waypoint x="1110" y="1085" /><di:waypoint x="1180" y="1085" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Custodia_di" bpmnElement="Association_Custodia"><di:waypoint x="1600" y="1210" /><di:waypoint x="1600" y="1245" /><di:waypoint x="1230" y="1245" /><di:waypoint x="1230" y="1250" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PonteCPT_di" bpmnElement="Association_PonteCPT"><di:waypoint x="1810" y="950" /><di:waypoint x="1810" y="1240" /><di:waypoint x="1740" y="1240" /><di:waypoint x="1740" y="1250" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_BancoVeto_di" bpmnElement="Association_BancoVeto"><di:waypoint x="870" y="1110" /><di:waypoint x="870" y="1140" /><di:waypoint x="370" y="1140" /><di:waypoint x="370" y="1190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_RLSF014_di" bpmnElement="Association_RLSF014"><di:waypoint x="390" y="1365" /><di:waypoint x="840" y="1365" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_NavegacaoGap_di" bpmnElement="Association_NavegacaoGap"><di:waypoint x="450" y="400" /><di:waypoint x="450" y="430" /><di:waypoint x="700" y="430" /><di:waypoint x="700" y="390" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_FatoExcecao_di" bpmnElement="Association_FatoExcecao"><di:waypoint x="1410" y="320" /><di:waypoint x="1410" y="250" /><di:waypoint x="1960" y="250" /><di:waypoint x="1960" y="280" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_GravaCustodia_di" bpmnElement="Association_GravaCustodia"><di:waypoint x="1610" y="1110" /><di:waypoint x="1610" y="1160" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_LeCustodia_di" bpmnElement="Association_LeCustodia"><di:waypoint x="1630" y="1185" /><di:waypoint x="1680" y="1185" /><di:waypoint x="1680" y="890" /><di:waypoint x="1660" y="890" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,558 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_FUNIL_F02" targetNamespace="urn:funil:descritivo:frente2" exporter="build_frente02.py" exporterVersion="1.0.0">
+  <bpmn:collaboration id="Collaboration_FUNIL_F02" name="Frente F2 — Recuperação de abandono e mensagens">
+    <bpmn:participant id="Participant_Comprador" name="Comprador / Prospect" processRef="Process_Comprador" ><bpmn:documentation>Comprador / Prospect (pool ativo nesta frente). Raias: Comprador / Prospect — informa o telefone e dá o ACEITE ÚNICO de contato (OS-05), exerce a oposição e retoma por iniciativa própria (1:1 inbound — fallback RL-SF-093). A fase de contratação (etapas 2-6) permanece nos diagramas das etapas; a frente LIGA por link events ABANDONO-E02..E06 e NÃO duplica tarefas (missão §5.2).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Omni" name="Superfície de vendas" processRef="Process_Omni" ><bpmn:documentation>Superfície de vendas (omni_sales_platform). Raia Superfície: CAPTURA do aceite único ao informar o telefone (E-SF-61 — construível; captura ≠ envio), deep link passivo 'retomar' exibido só no momento do abandono e na página de acompanhamento (RL-SF-066) e gatilhos de abandono por link (etapas 2-6). NENHUM envio parte da superfície sem herdar o portão RL-SF-066 (missão §8).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_Operadora" name="Plataforma da operadora" processRef="Process_Operadora" ><bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (mensagens) — OutboundGate (E-SF-13/NOTIF-001), cerca GT-2 VIGENTE, portão de consentimento (RL-SF-066 + Q-OS05-1) e cadência com limite P25D (BM-08); Encarregado (DPO) — oposição via SP-OP-SUPP-001 existente (GT-4/A6/E-SF-12) e termo de contato do beneficiário só como minuta (E-SF-62; RT-D4 — nenhuma mensagem proativa a beneficiário).</bpmn:documentation></bpmn:participant>
+    <bpmn:participant id="Participant_AMH" name="Executor comercial e lago" ><bpmn:documentation>Executor comercial e lago (amh-data-platform) — BLACK-BOX nesta frente: nenhuma tarefa da frente roda aqui. A recuperação não executa contrato, não consulta o lago e não altera o relógio de 25 dias (RL-SF-066; GTM-05/J1 — portão jurídico: enquanto pendente, o relógio corre independentemente e nenhum nó de mensagem suspende o timer). O registro do aceite (consent-record) tem molde em sucessor AMH (ADD-A9-CONSENT.md:303-311) — NÍVEL 2, sem fluxo ativo desenhado. O lago NÃO recebe dados desta frente.</bpmn:documentation></bpmn:participant>
+    <bpmn:messageFlow id="MsgFlow_Aceite" name="telefone + aceite único de contato" sourceRef="Task_AceiteUnico" targetRef="Task_CapturaAceite" />
+    <bpmn:messageFlow id="MsgFlow_DeepLink" name="deep link 'retomar' (passivo — só no abandono e na página de acompanhamento)" sourceRef="Task_DeepLink" targetRef="Task_RetomaPassiva" />
+    <bpmn:messageFlow id="MsgFlow_PedeEnvio" name="pedido de envio de lembrete (variante)" sourceRef="Task_PedeEnvio" targetRef="Task_OutboundGate" />
+    <bpmn:messageFlow id="MsgFlow_Oposicao" name="oposição ao contato (pedido de não-contato)" sourceRef="Task_Oposicao" targetRef="Task_SuppOpp" />
+    <bpmn:messageFlow id="MsgFlow_Lembrete" name="lembrete por WhatsApp (variante — herda portão RL-SF-066)" sourceRef="Task_EnviaWhatsApp" targetRef="Participant_Comprador" />
+    <bpmn:textAnnotation id="Annotation_Escopo"><bpmn:text>FRENTE F2 — RECUPERAÇÃO DE ABANDONO E MENSAGENS (missão §5.2 verbatim: 'Lembretes por WhatsApp; aceite único do prospect; oposição | Só com consentimento; nenhum dado de saúde; encerra antes do prazo de 25 dias. Nenhuma mensagem proativa a beneficiário'). A frente LIGA às etapas 2-6 por link events ABANDONO-E02..E06 e por message flow para a raia certa (Comercial-mensagens; Encarregado-DPO) — NÃO duplica as tarefas das etapas. Gatilho: abandono → PORTÃO ENVIO PROATIVO FECHADO (RL-SF-066 + Q-OS05-1) → variante anotada herda o portão. AMH: pool black-box — nenhuma tarefa desta frente roda no executor; o lago não recebe dados da frente.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:textAnnotation id="Annotation_Legenda"><bpmn:text>LEGENDA — contorno/fundo vermelho = PORTÃO FECHADO e caminho conservador: envio proativo (RL-SF-066 + Q-OS05-1), portão da operadora fechado, recusa GT-3/GT-2, oposição fail-closed (A6/GT-4), mensagens a beneficiário fechadas (RT-D4 + OS05-J1). Timer P25D = LIMITE BM-08 (encerra antes do 26º dia). Links ABANDONO-E0n = convenção com as etapas. A informação nunca depende só da cor: ids nos nomes, anotações e documentação.</bpmn:text></bpmn:textAnnotation>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Comprador" isExecutable="false">
+    <bpmn:documentation>Comprador / Prospect (pool ativo nesta frente). Raias: Comprador / Prospect — informa o telefone e dá o ACEITE ÚNICO de contato (OS-05), exerce a oposição e retoma por iniciativa própria (1:1 inbound — fallback RL-SF-093). A fase de contratação (etapas 2-6) permanece nos diagramas das etapas; a frente LIGA por link events ABANDONO-E02..E06 e NÃO duplica tarefas (missão §5.2).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Comprador">
+      <bpmn:lane id="Lane_Comprador" name="Comprador / Prospect">
+        <bpmn:flowNodeRef>StartEvent_Sessao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AceiteUnico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_CompradorDecide</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_SegueJornada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Abandono</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Oposicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OposicaoEnviada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RetomaPassiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RetomadaPassiva</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_Sessao" name="Prospect em sessão de contratação (etapas 2-6)"><bpmn:documentation>Início da frente na raia do comprador: o prospect está em sessão nas ETAPAS 2-6 — o abandono é sinalizado por link (ABANDONO-E02..E06, gatilho da frente) e NÃO duplica tarefas das etapas (missão §5.2). Épico E-SF-40r | entrada de lead, cotação, sessão de prospect e retomada A2 (EPICS-PLAN.tsv:68 — AGUARDA-RATIFICAÇÃO; portões restantes ADD-A9-CONSENT.md:397) | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:outgoing>Flow_Inicio</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_AceiteUnico" name="Informa telefone e dá o ACEITE ÚNICO de contato"><bpmn:documentation>ATO HUMANO (userTask — regra transversal 2): o prospect manifesta vontade de forma AFIRMATIVA, não pré-marcada, no momento em que informa o telefone, na entrada (OS-05, ADDENDUM-01.md:24; A9, ADD-A9-CONSENT.md:296-302). O texto do aceite é exibido ANTES do envio (LGPD art. 9º §1º, baseline L198); sem aceite, o telefone não é usado para contato e contact.request não é emitido (A9 L302). UM aceite, sem escolha canal a canal; canal coberto: só WhatsApp (OS-05 item 3). CAPTURA ≠ ENVIO: capturar é construível (E-SF-61); o ENVIO proativo herda o portão RL-SF-066 (missão §8). Épico E-SF-61 | LGPD art. 8º caput L179, art. 8º §4º L181 (finalidades determinadas — Q-OS05-1), art. 9º §1º L198 | OS-05.</bpmn:documentation><bpmn:incoming>Flow_Inicio</bpmn:incoming><bpmn:outgoing>Flow_AceiteGate</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_CompradorDecide" name="Prospect decide" default="Flow_Prossegue"><bpmn:documentation>Divisão do comportamento do titular na frente: seguir a jornada (default — fora do escopo da frente), abandonar a sessão (gatilho ABANDONO-E0n), exercer a oposição (direito A6/REG-20) ou iniciar contato por iniciativa própria (1:1 inbound — fallback RL-SF-093, RATIFY-LATER-REGISTER.md:101: 'só retomada por iniciativa do titular'). Nenhum caminho termina em silêncio: todos levam a fim nomeado.</bpmn:documentation><bpmn:incoming>Flow_AceiteGate</bpmn:incoming><bpmn:outgoing>Flow_Prossegue</bpmn:outgoing><bpmn:outgoing>Flow_Abandona</bpmn:outgoing><bpmn:outgoing>Flow_Oposicao</bpmn:outgoing><bpmn:outgoing>Flow_Retoma</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_SegueJornada" name="Segue na contratação — fora do escopo da frente"><bpmn:documentation>Fim nomeado: a contratação continua pelas ETAPAS 2-6 (diagramas próprios) — a frente F2 não duplica essas tarefas (missão §5.2). Épico E-SF-40r | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:incoming>Flow_Prossegue</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_Abandono" name="Abandono na etapa — LINK↔ABANDONO-E0n (gatilho da frente)"><bpmn:documentation>Fim nomeado do abandono: a etapa correspondente (2-6) sinaliza o abandono pelo link ABANDONO-E0n, que dispara o portão de recuperação na Superfície (missão §5.2: ligar por link events; não duplicar tarefas). Épico E-SF-40r | E-SF-16r | portão RL-SF-066.</bpmn:documentation><bpmn:incoming>Flow_Abandona</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_Oposicao" name="Exerce a oposição ao contato (não-contato)"><bpmn:documentation>ATO HUMANO (userTask): o titular (vendedor ou lead — cobertura atual de SP-OP-SUPP-001, ADD-A9-CONSENT.md:325) exerce a OPOSIÇÃO ao tratamento/contato (LGPD art. 18 §2º, baseline L204). A oposição PREVALECE sobre o consentimento (GT-4: beneficiário com oposição 'registered' nunca é 'delivered' — A9 L490) e OS-05 não a dispensa: consentimento revogável sem caminho executável não se sustenta (art. 8º §2º — REG-20, ADD-A9-CONSENT.md:52). Épico E-SF-12/12r (EPICS-PLAN.tsv:21-22) | portão A6 (registro de supressão) + GT-4.</bpmn:documentation><bpmn:incoming>Flow_Oposicao</bpmn:incoming><bpmn:outgoing>Flow_OpEnv</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_OposicaoEnviada" name="Oposição enviada ao encarregado (SP-OP-SUPP-001)"><bpmn:documentation>Fim nomeado: o pedido de não-contato seguiu por message flow à raia certa (Encarregado/DPO) — missão §5.2. Épico E-SF-12/12r | LGPD art. 18 §2º (baseline L204) | portão A6 + GT-4.</bpmn:documentation><bpmn:incoming>Flow_OpEnv</bpmn:incoming></bpmn:endEvent>
+      <bpmn:userTask id="Task_RetomaPassiva" name="Inicia retomada por iniciativa própria (1:1 inbound)"><bpmn:documentation>ATO HUMANO (userTask): ÚNICA resposta no estado atual — contato INICIADO PELO COMPRADOR (deep link passivo exibido pela Superfície; fallback RL-SF-066 RATIFY-LATER-REGISTER.md:74: 'o link retomar é exibido somente no próprio momento do abandono e na página de acompanhamento'; RL-SF-093 RATIFY L101: 'só retomada por iniciativa do titular; 1:1 inbound'). O deep link restaura a sessão A2 sem nova coleta de consentimento (BM-08: 'O consentimento é o único da entrada (decisão do dono), não um novo' — ADD-SALES-CHANNEL.md:40). Épico E-SF-40r | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:incoming>Flow_Retoma</bpmn:incoming><bpmn:outgoing>Flow_RetEnd</bpmn:outgoing></bpmn:userTask>
+      <bpmn:endEvent id="EndEvent_RetomadaPassiva" name="Retomada iniciada pelo prospect (passiva)"><bpmn:documentation>Fim nomeado: retomada 1:1 por iniciativa do titular — o estado conservador vigente (nenhuma mensagem proativa expedida). Épico E-SF-40r | RL-SF-093 (RATIFY L101) | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:incoming>Flow_RetEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_Inicio" name="inicia" sourceRef="StartEvent_Sessao" targetRef="Task_AceiteUnico" />
+      <bpmn:sequenceFlow id="Flow_AceiteGate" name="manifesta vontade" sourceRef="Task_AceiteUnico" targetRef="Gateway_CompradorDecide" />
+      <bpmn:sequenceFlow id="Flow_Prossegue" name="segue a jornada (default)" sourceRef="Gateway_CompradorDecide" targetRef="EndEvent_SegueJornada" />
+      <bpmn:sequenceFlow id="Flow_Abandona" name="abandona a sessão" sourceRef="Gateway_CompradorDecide" targetRef="EndEvent_Abandono"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">prospect abandona a sessão na etapa (LINK ABANDONO-E0n)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Oposicao" name="exerce oposição" sourceRef="Gateway_CompradorDecide" targetRef="Task_Oposicao"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">titular exerce a oposição ao contato (LGPD art. 18 §2º — REG-20)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Retoma" name="inicia contato (1:1 inbound)" sourceRef="Gateway_CompradorDecide" targetRef="Task_RetomaPassiva"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">titular inicia contato por iniciativa própria (deep link passivo)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_OpEnv" name="envia pedido" sourceRef="Task_Oposicao" targetRef="EndEvent_OposicaoEnviada" />
+      <bpmn:sequenceFlow id="Flow_RetEnd" name="retoma" sourceRef="Task_RetomaPassiva" targetRef="EndEvent_RetomadaPassiva" />
+      <bpmn:textAnnotation id="Annotation_CompradorDecide"><bpmn:text>DECISÕES DO TITULAR: a oposição é direito do titular (PORTÃO A6 — registro de supressão; GT-4: a oposição PREVALECE sobre o consentimento; OS-05 não a dispensa — consentimento revogável sem caminho executável de revogação não se sustenta, art. 8º §2º — REG-20). A retomada por iniciativa própria (1:1 inbound) é o fallback dos registros de ratificação posteriores — só contato iniciado pelo titular. Segue a jornada = fora do escopo da frente; abandono = gatilho LINK ABANDONO-E0n. O aceite único (OS-05) NÃO substitui a oposição.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_CompradorDecide" sourceRef="Gateway_CompradorDecide" targetRef="Annotation_CompradorDecide" />
+  </bpmn:process>
+  <bpmn:process id="Process_Omni" isExecutable="false">
+    <bpmn:documentation>Superfície de vendas (omni_sales_platform). Raia Superfície: CAPTURA do aceite único ao informar o telefone (E-SF-61 — construível; captura ≠ envio), deep link passivo 'retomar' exibido só no momento do abandono e na página de acompanhamento (RL-SF-066) e gatilhos de abandono por link (etapas 2-6). NENHUM envio parte da superfície sem herdar o portão RL-SF-066 (missão §8).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Omni">
+      <bpmn:lane id="Lane_Superficie" name="Superfície (captura, retomada e gatilhos)">
+        <bpmn:flowNodeRef>StartEvent_Captura</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CapturaAceite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AceiteRegistrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE02</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE03</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE04</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE05</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_AbandonoE06</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JuntaAbandonos</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateEnvioProativo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DeepLink</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Passivo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PedeEnvio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PedidoEncaminhado</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_Captura" name="Prospect informa o telefone na entrada (OS-05)"><bpmn:documentation>Início da captura: o aceite aparece no MESMO componente em que o telefone é informado (A9, ADD-A9-CONSENT.md:298); o preço NUNCA é condicionado ao telefone nem ao aceite (TB-02). Épico E-SF-61 | OS-05 (ADDENDUM-01.md:24) | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:outgoing>Flow_CaptStart</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Task_CapturaAceite" name="Captura e registra o ACEITE ÚNICO (E-SF-61)"><bpmn:documentation>CAPTURA ≠ ENVIO (missão §8): a captura do aceite único é CONSTRUÍVEL e pode ser desenhada; o ENVIO proativo herda o portão jurídico RL-SF-066. Registro consent-record (molde consent-record.openapi.yaml:120-176, sucessor AMH — A9 L303-311): prospect_ref opaco (nunca o telefone no registro), consent_text_version+sha256, canal 'whatsapp' (OS-05 não cobre outros), finalidade = SLOT OBRIGATÓRIO sem default (Q-OS05-1), granted/revoked em log append-only. Épico E-SF-61 (ADDENDUM-01.md:272 — omni_sales_platform, onda 2, sem execução registrada) | LGPD art. 8º L179/L181, art. 9º §1º L198 | OS-05 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_CaptStart</bpmn:incoming><bpmn:outgoing>Flow_CaptEnd</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_AceiteRegistrado" name="Aceite registrado — captura ≠ envio"><bpmn:documentation>Fim nomeado da captura: o aceite registrado NÃO autoriza envio por si só — o envio proativo permanece no portão RL-SF-066 + Q-OS05-1 (missão §8: 'a captura pode ser desenhada; o envio proativo herda o portão jurídico'). Épico E-SF-61 | OS-05.</bpmn:documentation><bpmn:incoming>Flow_CaptEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="Event_AbandonoE02" name="Abandono na etapa 2 (LINK↔ABANDONO-E02)"><bpmn:documentation>LINK↔ABANDONO-E02 (linkEventDefinition): par de link com a etapa 2 (FUNIL-E02) — convenção da missão §5.2: a frente LIGA às etapas por link events e NÃO duplica as tarefas delas; o throw correspondente é declarado pelo diagrama da etapa no momento do abandono. Gatilho do portão de recuperação. Épico E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO, EPICS-PLAN.tsv:30; portões restantes ADD-A9-CONSENT.md:393) | portão RL-SF-066.</bpmn:documentation><bpmn:outgoing>Flow_AbE02</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE02" name="ABANDONO-E02" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_AbandonoE03" name="Abandono na etapa 3 (LINK↔ABANDONO-E03)"><bpmn:documentation>LINK↔ABANDONO-E03 (linkEventDefinition): par de link com a etapa 3 (FUNIL-E03) — convenção da missão §5.2: a frente LIGA às etapas por link events e NÃO duplica as tarefas delas; o throw correspondente é declarado pelo diagrama da etapa no momento do abandono. Gatilho do portão de recuperação. Épico E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO, EPICS-PLAN.tsv:30; portões restantes ADD-A9-CONSENT.md:393) | portão RL-SF-066.</bpmn:documentation><bpmn:outgoing>Flow_AbE03</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE03" name="ABANDONO-E03" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_AbandonoE04" name="Abandono na etapa 4 (LINK↔ABANDONO-E04)"><bpmn:documentation>LINK↔ABANDONO-E04 (linkEventDefinition): par de link com a etapa 4 (FUNIL-E04) — convenção da missão §5.2: a frente LIGA às etapas por link events e NÃO duplica as tarefas delas; o throw correspondente é declarado pelo diagrama da etapa no momento do abandono. Gatilho do portão de recuperação. Épico E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO, EPICS-PLAN.tsv:30; portões restantes ADD-A9-CONSENT.md:393) | portão RL-SF-066.</bpmn:documentation><bpmn:outgoing>Flow_AbE04</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE04" name="ABANDONO-E04" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_AbandonoE05" name="Abandono na etapa 5 (LINK↔ABANDONO-E05)"><bpmn:documentation>LINK↔ABANDONO-E05 (linkEventDefinition): par de link com a etapa 5 (FUNIL-E05) — convenção da missão §5.2: a frente LIGA às etapas por link events e NÃO duplica as tarefas delas; o throw correspondente é declarado pelo diagrama da etapa no momento do abandono. Gatilho do portão de recuperação. Épico E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO, EPICS-PLAN.tsv:30; portões restantes ADD-A9-CONSENT.md:393) | portão RL-SF-066.</bpmn:documentation><bpmn:outgoing>Flow_AbE05</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE05" name="ABANDONO-E05" /></bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_AbandonoE06" name="Abandono na etapa 6 (LINK↔ABANDONO-E06)"><bpmn:documentation>LINK↔ABANDONO-E06 (linkEventDefinition): par de link com a etapa 6 (FUNIL-E06) — convenção da missão §5.2: a frente LIGA às etapas por link events e NÃO duplica as tarefas delas; o throw correspondente é declarado pelo diagrama da etapa no momento do abandono. Gatilho do portão de recuperação. Épico E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO, EPICS-PLAN.tsv:30; portões restantes ADD-A9-CONSENT.md:393) | portão RL-SF-066.</bpmn:documentation><bpmn:outgoing>Flow_AbE06</bpmn:outgoing><bpmn:linkEventDefinition id="LinkDef_Event_AbandonoE06" name="ABANDONO-E06" /></bpmn:intermediateCatchEvent>
+      <bpmn:exclusiveGateway id="Gateway_JuntaAbandonos" name="Abandono em qualquer etapa (junção)" default="Flow_JoinGate"><bpmn:documentation>Junção correspondente aos cinco gatilhos de abandono (etapas 2-6) — higiene da missão §6 (todo gateway de divisão tem o de junção correspondente). Une os cinco links e segue ao portão único de envio proativo. Épico E-SF-16r | portão RL-SF-066.</bpmn:documentation><bpmn:incoming>Flow_AbE02</bpmn:incoming><bpmn:incoming>Flow_AbE03</bpmn:incoming><bpmn:incoming>Flow_AbE04</bpmn:incoming><bpmn:incoming>Flow_AbE05</bpmn:incoming><bpmn:incoming>Flow_AbE06</bpmn:incoming><bpmn:outgoing>Flow_JoinGate</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="Gateway_GateEnvioProativo" name="Portão: envio proativo de recuperação?" default="Flow_PortaoPassivo"><bpmn:documentation>PORTÃO RL-SF-066 FECHADO-EM-EXECUÇÃO (RATIFY-LATER-REGISTER.md:74 — jurídico): default = RECUPERAÇÃO PASSIVA SEM MENSAGEM — deep link passivo; resposta só a contato iniciado pelo comprador (herdado de IDE §7 nº 16, refinado no registro). Base exclusivamente consentimento específico por finalidade e canal (LGPD art. 7º I + art. 8º caput/§2º/§4º); identificação expressa como publicidade (CDC art. 36, baseline L219 — TB-18); efeito da mensagem sobre o relógio de 25 dias = portão jurídico GTM-05/J1 (A9 L59; L592). Quem destrava: jurídico ratifica RL-SF-066 + dono nomeia as finalidades (Q-OS05-1, ADDENDUM-01.md:72/L381). A VARIANTE (envio) é anotada e HERDA este portão. Épico E-SF-16r | CDC art. 36 L219 | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_JoinGate</bpmn:incoming><bpmn:outgoing>Flow_PortaoPassivo</bpmn:outgoing><bpmn:outgoing>Flow_PortaoVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="Task_DeepLink" name="Exibe deep link 'retomar' (passivo)"><bpmn:documentation>Caminho FECHADO conservador (default): 'o link retomar é exibido somente no próprio momento do abandono e na página de acompanhamento' (RL-SF-066, RATIFY-LATER-REGISTER.md:74). Deep link opaco com sessão A2 — restaura a sessão sem nova coleta (SC-09; BM-08). NENHUMA mensagem é enviada; a resposta só existe se o comprador iniciar contato (message flow de volta à raia do comprador — raia certa, missão §5.2). Épico E-SF-40r | RL-SF-093 (RATIFY L101) | portão RL-SF-066 (fallback).</bpmn:documentation><bpmn:incoming>Flow_PortaoPassivo</bpmn:incoming><bpmn:outgoing>Flow_DeepEnd</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_Passivo" name="Recuperação passiva — nada expedido (FECHADO)"><bpmn:documentation>Fim nomeado do estado atual: NENHUMA mensagem proativa expedida; só deep link passivo + resposta a contato iniciado pelo comprador (missão §5.2 F2: 'Só com consentimento' + fallback RL-SF-066). Épico E-SF-16r | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_DeepEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_PedeEnvio" name="Encaminha pedido de envio ao OutboundGate (variante)"><bpmn:documentation>VARIANTE NÃO ATIVA: só com RL-SF-066 ratificado (jurídico) + finalidades nomeadas (Q-OS05-1, dono). O pedido segue por message flow à RAIA CERTA (Comercial — mensagens, missão §5.2) e HERDA o mesmo portão no destino (OutboundGate + Gate de consentimento). A superfície nunca envia direto ao WhatsApp. Épico E-SF-16r | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_PortaoVariante</bpmn:incoming><bpmn:outgoing>Flow_PedeEnd</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="EndEvent_PedidoEncaminhado" name="Pedido encaminhado — herda portão (variante)"><bpmn:documentation>Fim nomeado da variante na superfície: o pedido seguiu à raia certa; o resultado pertence ao portão da operadora (RL-SF-066 + Q-OS05-1 + GT-2/GT-3). Épico E-SF-16r | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_PedeEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_CaptStart" name="informa" sourceRef="StartEvent_Captura" targetRef="Task_CapturaAceite" />
+      <bpmn:sequenceFlow id="Flow_CaptEnd" name="registra" sourceRef="Task_CapturaAceite" targetRef="EndEvent_AceiteRegistrado" />
+      <bpmn:sequenceFlow id="Flow_AbE02" name="abandono etapa 2" sourceRef="Event_AbandonoE02" targetRef="Gateway_JuntaAbandonos" />
+      <bpmn:sequenceFlow id="Flow_AbE03" name="abandono etapa 3" sourceRef="Event_AbandonoE03" targetRef="Gateway_JuntaAbandonos" />
+      <bpmn:sequenceFlow id="Flow_AbE04" name="abandono etapa 4" sourceRef="Event_AbandonoE04" targetRef="Gateway_JuntaAbandonos" />
+      <bpmn:sequenceFlow id="Flow_AbE05" name="abandono etapa 5" sourceRef="Event_AbandonoE05" targetRef="Gateway_JuntaAbandonos" />
+      <bpmn:sequenceFlow id="Flow_AbE06" name="abandono etapa 6" sourceRef="Event_AbandonoE06" targetRef="Gateway_JuntaAbandonos" />
+      <bpmn:sequenceFlow id="Flow_JoinGate" name="abandono confirmado" sourceRef="Gateway_JuntaAbandonos" targetRef="Gateway_GateEnvioProativo" />
+      <bpmn:sequenceFlow id="Flow_PortaoPassivo" name="recuperação passiva — SEM mensagem (default)" sourceRef="Gateway_GateEnvioProativo" targetRef="Task_DeepLink" />
+      <bpmn:sequenceFlow id="Flow_PortaoVariante" name="variante não ativa: portões ratificados (RL-SF-066 + Q-OS05-1)" sourceRef="Gateway_GateEnvioProativo" targetRef="Task_PedeEnvio"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RL-SF-066 ratificado (jurídico) + finalidades nomeadas (Q-OS05-1)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_DeepEnd" name="exibe deep link" sourceRef="Task_DeepLink" targetRef="EndEvent_Passivo" />
+      <bpmn:sequenceFlow id="Flow_PedeEnd" name="encaminha" sourceRef="Task_PedeEnvio" targetRef="EndEvent_PedidoEncaminhado" />
+      <bpmn:textAnnotation id="Annotation_Captura"><bpmn:text>ACEITE ÚNICO — CAPTURA ≠ ENVIO (OS-05; missão §8): captura CONSTRUÍVEL ao informar o telefone (E-SF-61 — omni, onda 2, sem execução registrada: ADDENDUM-01.md:272); o ENVIO proativo herda o portão RL-SF-066. Controle afirmativo, NÃO pré-marcado (A9 L300 — LGPD art. 8º caput, L179); texto exibido antes do envio (A9 L301; LGPD art. 9º §1º, L198); sem aceite: telefone não é usado e contact.request não é emitido (A9 L302). Registro consent-record (sucessor AMH — A9 L303-311): finalidade = SLOT OBRIGATÓRIO sem default (Q-OS05-1 — ADDENDUM-01.md:381); canal coberto: SÓ whatsapp (OS-05 item 3); provisionamento do número = pergunta ao dono (GTM-04/O1 OWNER-DEPLOY — OS-05 não decide (l)).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_PortaoEnvio"><bpmn:text>PORTÃO ENVIO PROATIVO FECHADO (RL-SF-066, RATIFY-LATER-REGISTER.md:74 — jurídico; Q-OS05-1, ADDENDUM-01.md:72/L381 — dono): default = 'recuperação passiva SEM mensagem — deep link passivo; resposta só a contato iniciado pelo comprador'. Base legal EXCLUSIVAMENTE consentimento específico por finalidade e canal (LGPD art. 7º I + art. 8º caput/§2º/§4º — L179/L181); identificação expressa como PUBLICIDADE (CDC art. 36, baseline L219 — TB-18 jurídico). Quem destrava: (1) jurídico ratifica RL-SF-066 (validade do aceite, publicidade, efeito no relógio); (2) dono nomeia as finalidades (Q-OS05-1 — sem elas, GT-3 recusa). Efeito da mensagem sobre o relógio de 25 dias (RN 413 art. 5º §6º, L120) = portão jurídico GTM-05/J1 (TB-18; A9 L59/L592): enquanto pendente, o relógio corre independentemente da recuperação. RL-SF-093 (i)+(ii) restantes = DPO (RATIFY L101: fallback 'só retomada por iniciativa do titular; 1:1 inbound').</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Convencao"><bpmn:text>CONVENÇÃO DE LINKS (missão §5.2): a frente LIGA às etapas 2-6 por link events ABANDONO-E02..E06 (catch) — os throws correspondentes são declarados pelos diagramas FUNIL-E02..E06 no momento do abandono; a frente NÃO duplica as tarefas das etapas. Épicos: E-SF-40r (sessão de prospect e retomada A2 — AGUARDA-RATIFICAÇÃO; portões ADD-A9-CONSENT.md:397) e E-SF-16r (recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO; portões L393).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_JuntaPortao"><bpmn:text>JUNÇÃO DOS GATILHOS (etapas 2-6): gateway de JUNÇÃO correspondente à divisão de abandono (higiene missão §6) — une ABANDONO-E02..E06 e segue ao PORTÃO RL-SF-066 único (ver Annotation_PortaoEnvio). Nenhuma decisão aqui: o default conservador pertence ao portão. Épico E-SF-16r.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_Captura" sourceRef="Task_CapturaAceite" targetRef="Annotation_Captura" />
+    <bpmn:association id="Association_PortaoEnvio" sourceRef="Gateway_GateEnvioProativo" targetRef="Annotation_PortaoEnvio" />
+    <bpmn:association id="Association_Convencao" sourceRef="Event_AbandonoE02" targetRef="Annotation_Convencao" />
+    <bpmn:association id="Association_JuntaPortao" sourceRef="Gateway_JuntaAbandonos" targetRef="Annotation_JuntaPortao" />
+  </bpmn:process>
+  <bpmn:process id="Process_Operadora" isExecutable="false">
+    <bpmn:documentation>Plataforma da operadora (maezo-operadora). Raias: Comercial (mensagens) — OutboundGate (E-SF-13/NOTIF-001), cerca GT-2 VIGENTE, portão de consentimento (RL-SF-066 + Q-OS05-1) e cadência com limite P25D (BM-08); Encarregado (DPO) — oposição via SP-OP-SUPP-001 existente (GT-4/A6/E-SF-12) e termo de contato do beneficiário só como minuta (E-SF-62; RT-D4 — nenhuma mensagem proativa a beneficiário).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_Operadora">
+      <bpmn:lane id="Lane_Comercial" name="Comercial (mensagens)">
+        <bpmn:flowNodeRef>StartEvent_FrenteOperadora</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_DistribuiControles</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_PortaoFechado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OutboundGate</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CercaZeroSaude</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateConsentimento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_EnvioRecusado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Cadencia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_TimerP25D</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Janela</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EnviaWhatsApp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ErroWhatsApp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_FalhaEnvio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_LembreteEnviado</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Encarregado" name="Encarregado (DPO)">
+        <bpmn:flowNodeRef>Task_SuppOpp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateOposicao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OpFechado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_SupressaoAtiva</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>StartEvent_Beneficiario</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_MinutaTermo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_GateTermoBenef</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_BenefFechado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_TermoVigente</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="StartEvent_FrenteOperadora" name="Frente F2 na operadora — controles de mensagem (estado atual)"><bpmn:documentation>Início descritivo dos controles da operadora (nenhum gatilho externo no estado atual: o portão de envio está FECHADO — RL-SF-066 + Q-OS05-1 pendentes). Épico E-SF-13 | E-SF-16r | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:outgoing>Flow_OpStart</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:exclusiveGateway id="Gateway_DistribuiControles" name="Controle acionado?" default="Flow_DistribDefault"><bpmn:documentation>Distribui os quatro controles da operadora: default = nenhum controle acionado — portão fechado, nada expedido; pedido de envio de lembrete (variante); pedido de oposição do titular (A6/GT-4); termo de contato do beneficiário (minuta E-SF-62 → RT-D4). Épico E-SF-13 | E-SF-16r | portão RL-SF-066 + Q-OS05-1 + A6 + RT-D4.</bpmn:documentation><bpmn:incoming>Flow_OpStart</bpmn:incoming><bpmn:outgoing>Flow_DistribDefault</bpmn:outgoing><bpmn:outgoing>Flow_DistribEnvio</bpmn:outgoing><bpmn:outgoing>Flow_DistribOposicao</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_PortaoFechado" name="Nenhum envio proativo expedido (FECHADO)"><bpmn:documentation>Fim nomeado do estado atual da operadora: nenhum lembrete é expedido — portão RL-SF-066 (jurídico) + Q-OS05-1 (dono) pendentes; recuperação 100% passiva. Missão §5.2 F2: 'Só com consentimento'. Épico E-SF-16r | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_DistribDefault</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_OutboundGate" name="OutboundGate: valida consentimento, finalidade nomeada e template"><bpmn:documentation>OutboundGate + registro de templates + catálogo de mensagens + NOTIF-001 (E-SF-13, EPICS-PLAN.tsv:23 — maezo-operadora, Onda 1; 'PR aberto, pronto — 1274 — sem a migração 0036 (depende do DPO)' EXECUTION-LOG.md:130). NOTIF-001 é PROPOSTA (nível 2: nenhum executável criado nesta missão; isExecutable=false). Valida: base = consentimento (LGPD art. 7º I via OS-05 item 1 — NUNCA legítimo interesse), finalidade nomeada no slot (Q-OS05-1 — sem elas, GT-3 recusa: ADDENDUM-01.md:381), template do catálogo (E-SF-13) citado, lista de supressão honrada (REG-20: lista indisponível/desconhecida ⇒ não envia). GT-2/GT-3 re-especificados por OS-05 (ADDENDUM-01.md:68). Épico E-SF-13 | OS-05 | portão RL-SF-066 + Q-OS05-1 + A6.</bpmn:documentation><bpmn:incoming>Flow_DistribEnvio</bpmn:incoming><bpmn:outgoing>Flow_OutGateCerca</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:businessRuleTask id="Task_CercaZeroSaude" name="Cerca: zero dado de saúde em mensagem (GT-2) — VIGENTE"><bpmn:documentation>businessRuleTask — regra em vigor (NÃO é portão fechado): GT-2 'test_outbound_message_with_health_data_is_refused' recusa mensagem com cpt, dps_status, stage=dpp_pending, padrão de CID, recusa_motivo=saude ou utilização assistencial — ZERO chamadas ao transporte (A9 L488). A linha 'Contrato emitido pendente de DPP' SAIU do catálogo de recuperação (A9 L337; IDE §6). Fundamento: LGPD art. 11 §5º (baseline L185 — vedado tratamento de dado de saúde para seleção de riscos na contratação); RN 558 art. 12 (L154 — firewall da DS: vedada divulgação/fornecimento sem anuência expressa). Rege TODO template do catálogo E-SF-13, inclusive o de recuperação. Épico E-SF-13 | LGPD art. 11 §5º L185; RN 558 art. 12 L154 | OS-05 item 5 + GT-2.</bpmn:documentation><bpmn:incoming>Flow_OutGateCerca</bpmn:incoming><bpmn:outgoing>Flow_CercaGate</bpmn:outgoing></bpmn:businessRuleTask>
+      <bpmn:exclusiveGateway id="Gateway_GateConsentimento" name="Consentimento válido com finalidade nomeada?" default="Flow_EnvioRecusado"><bpmn:documentation>PORTÃO RL-SF-066 FECHADO-EM-EXECUÇÃO (RATIFY-LATER-REGISTER.md:74 — jurídico): default = RECUSA DO ENVIO. Validade jurídica do aceite único pendente (base exclusivamente consentimento específico por finalidade e canal — LGPD art. 7º I + art. 8º caput/§2º/§4º; art. 8º §4º L181: finalidades determinadas, autorizações genéricas NULAS). Q-OS05-1 (dono, ADDENDUM-01.md:72/L381): 'Slot sem valor. Sem finalidades nomeadas no texto, o aceite não autoriza mensagem proativa (GT-3 recusa); só respostas a pedido'. Identificação como publicidade = CDC art. 36 (L219) na recuperação com natureza promocional (TB-18). Quem destrava: jurídico (RL-SF-066) + dono (Q-OS05-1). Épico E-SF-16r | CDC art. 36 L219 | portão RL-SF-066 + Q-OS05-1.</bpmn:documentation><bpmn:incoming>Flow_CercaGate</bpmn:incoming><bpmn:outgoing>Flow_EnvioRecusado</bpmn:outgoing><bpmn:outgoing>Flow_GateVariante</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_EnvioRecusado" name="Envio recusado — GT-3/GT-2 (FECHADO)"><bpmn:documentation>Fim nomeado da recusa: sem finalidades nomeadas (Q-OS05-1) ou com conteúdo sensível (GT-2), o OutboundGate recusa e NADA é expedido. Épico E-SF-13 | portão RL-SF-066 + Q-OS05-1 + GT-2.</bpmn:documentation><bpmn:incoming>Flow_EnvioRecusado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:serviceTask id="Task_Cadencia" name="Executa cadência de lembretes por WhatsApp (C9)"><bpmn:documentation>VARIANTE NÃO ATIVA: cadência de lembretes de recuperação (C9) no Maezo — E-SF-16r (EPICS-PLAN.tsv:30, AGUARDA-RATIFICAÇÃO; portões restantes ADD-A9-CONSENT.md:393: GTM-05/J1; TB-18 (CDC 36, relógio); TB-18/D (vocabulário) etc.). A cadência deve ENCERRAR ANTES do relógio de 25 dias (BM-08 — ver boundary P25D). Efeito jurídico da mensagem sobre o relógio (conta como 'resposta' — RN 413 art. 5º §6º — ou suspende, §7º) = portão GTM-05/J1 (TB-18; A9 L592): enquanto pendente, o relógio corre independentemente e NENHUM nó de mensagem suspende o timer. Épico E-SF-16r | ADD-SALES-CHANNEL.md:40 (BM-08) | portão RL-SF-066 + GTM-05/J1.</bpmn:documentation><bpmn:incoming>Flow_GateVariante</bpmn:incoming><bpmn:outgoing>Flow_CadEnvia</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:boundaryEvent id="Event_TimerP25D" name="P25D — LIMITE BM-08: encerra ANTES do 26º dia" attachedToRef="Task_Cadencia" cancelActivity="false"><bpmn:documentation>Boundary NÃO interruptivo na cadência: timerEventDefinition ISO 8601 P25D como LIMITE (vence ANTES do 26º dia) — 'O prazo da retomada não pode passar do relógio-sombra de 25 dias (GTM-05, BASE:94, BASE:96)' (BM-08, ADD-SALES-CHANNEL.md:40). Valor do catálogo DMN funnel_deadline_catalog (decision funnel_deadline_catalog, entrada deadline_ref; regra r_rn413_art5_par2 = P25D) — RN 413 art. 5º §2º (baseline L118: 25 dias corridos) e §6º (L120: vigência automática no 26º dia — relógio-MESTRE da etapa 6, não duplicado aqui). Ao disparar: a cadência É ENCERRADA — nunca cruza o 26º dia. Épico E-SF-16r | RN 413 art. 5º §§2º/6º L118/L120 | BM-08 + GTM-05/J1.</bpmn:documentation><bpmn:outgoing>Flow_TimerEnd</bpmn:outgoing><bpmn:timerEventDefinition id="TimerDef_Event_TimerP25D"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P25D</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+      <bpmn:endEvent id="EndEvent_Janela" name="Cadência encerrada antes do relógio fechar (BM-08)"><bpmn:documentation>Fim nomeado da janela: a cadência de recuperação encerra ANTES do fim do relógio de 25 dias — missão §5.2 F2: 'encerra antes do prazo de 25 dias'; BM-08 (ADD-SALES-CHANNEL.md:40). O relógio de 25 dias e o caminho do 26º dia pertencem à etapa 6 (RN 413 art. 5º §§2º/6º, L118/L120) e NÃO são duplicados aqui. Épico E-SF-16r | BM-08 | GTM-05/J1.</bpmn:documentation><bpmn:incoming>Flow_TimerEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sendTask id="Task_EnviaWhatsApp" name="Envia lembrete por WhatsApp (template do catálogo — E-SF-13)"><bpmn:documentation>VARIANTE NÃO ATIVA: envio por WhatsApp com template do catálogo (E-SF-13) já aprovado pela cerca GT-2 e pelo portão RL-SF-066 + Q-OS05-1; identificação expressa como publicidade (CDC art. 36, L219) quando natureza promocional. WhatsApp ANOTADO: canal coberto pelo aceite único (OS-05 item 3); canais além do WhatsApp = OS-05 não decide (c); PROVISIONAMENTO DO NÚMERO = pergunta ao dono (GTM-04/O1, OWNER-DEPLOY — OS-05 não decide (l)). Épico E-SF-13 | E-SF-16r | CDC art. 36 L219 | portão RL-SF-066 + Q-OS05-1 + GT-2.</bpmn:documentation><bpmn:incoming>Flow_CadEnvia</bpmn:incoming><bpmn:outgoing>Flow_EnviaEnd</bpmn:outgoing></bpmn:sendTask>
+      <bpmn:boundaryEvent id="Event_ErroWhatsApp" name="Falha no envio/provisionamento" attachedToRef="Task_EnviaWhatsApp" cancelActivity="false"><bpmn:documentation>Boundary de erro do envio externo (regra da missão §6: todo serviceTask/sendTask que chama sistema externo tem evento de borda de erro ou caminho de incerteza): provisionamento do número WhatsApp indefinido (GTM-04/O1 — OWNER-DEPLOY, pergunta ao dono; OS-05 não decide (l)). Nenhuma retentativa automática; retorno para decisão humana. Épico E-SF-13 | GTM-04/O1 | portão RL-SF-066 (variante).</bpmn:documentation><bpmn:outgoing>Flow_ErroEnd</bpmn:outgoing><bpmn:errorEventDefinition id="ErrDef_Event_ErroWhatsApp" /></bpmn:boundaryEvent>
+      <bpmn:endEvent id="EndEvent_FalhaEnvio" name="Falha — sem retentativa (decisão humana)"><bpmn:documentation>Fim nomeado do erro: falha de transporte/provisionamento NUNCA é recriada nem gera retentativa automática; volta como incerteza para decisão humana (missão §6 — nenhum caminho termina em silêncio). Épico E-SF-13 | GTM-04/O1.</bpmn:documentation><bpmn:incoming>Flow_ErroEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_LembreteEnviado" name="Lembrete expedido (variante não ativa)"><bpmn:documentation>Fim nomeado da variante: lembrete expedido pelo transporte (provisionamento pendente — GTM-04/O1) dentro da janela BM-08, após todos os controles (RL-SF-066 + Q-OS05-1 + GT-2 + supressão A6). Épico E-SF-13 | E-SF-16r | portão RL-SF-066 + Q-OS05-1 + GT-2.</bpmn:documentation><bpmn:incoming>Flow_EnviaEnd</bpmn:incoming></bpmn:endEvent>
+      <bpmn:callActivity id="Task_SuppOpp" name="SP-OP-SUPP-001 — Direitos de Não Contato (existente; nível 2)" calledElement="SP-OP-SUPP-001"><bpmn:documentation>NÍVEL 2 — processo EXISTENTE apontado por callActivity (NADA criado nesta missão; isExecutable=false): SP-OP-SUPP-001 'Direitos de Nao Contato (supressao vendor)' (deliver/spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn, process id SP-OP-SUPP-001; cobre 'titular = vendedor ou lead' — A9 L325). A oposição PREVALECE sobre o consentimento (GT-4: beneficiário com oposição 'registered' nunca 'delivered' — estado suppressed/ERR_SUPP_SUBJECT_UNRESOLVED; A9 L490). Promoção do processo = E-SF-12/12r (EPICS-PLAN.tsv:21-22, AGUARDA-RATIFICAÇÃO). Lista honrada como pré-requisito de campanha + contrassinatura DPO do desenho (REG-20, ADD-A9-CONSENT.md:52: 'lista indisponível ou desconhecida ⇒ não envia'). Épico E-SF-12/12r | LGPD art. 18 §2º (baseline L204) | portão A6 + GT-4.</bpmn:documentation><bpmn:incoming>Flow_DistribOposicao</bpmn:incoming><bpmn:outgoing>Flow_SuppGate</bpmn:outgoing></bpmn:callActivity>
+      <bpmn:exclusiveGateway id="Gateway_GateOposicao" name="Titular e lista de supressão resolvidos?" default="Flow_OpNaoResolvido"><bpmn:documentation>PORTÃO A6 FECHADO-EM-EXECUÇÃO (registro de admissão da supressão — commercial_suppression_admission exige owner (origem) + DPO (origem); REG-20, ADD-A9-CONSENT.md:52): default = NÃO RESOLVIDO → NÃO ENVIA (fail-closed; 'desconhecido nunca vira zero' — GT-4, A9 L490). Variante: titular e lista resolvidos → supressão honrada (a oposição PREVALECE sobre o consentimento). Para BENEFICIÁRIO: SUPP-001 ainda não tem tipo_titular=beneficiario (GTM-04/D4 aberto — A9 L326-328): mensagem proativa a beneficiário fica FECHADA mesmo com consentimento de admissão. Épico E-SF-12/12r | REG-20 | portão A6 + GT-4 + GTM-04/D4.</bpmn:documentation><bpmn:incoming>Flow_SuppGate</bpmn:incoming><bpmn:outgoing>Flow_OpNaoResolvido</bpmn:outgoing><bpmn:outgoing>Flow_OpResolvido</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_OpFechado" name="Sem envio — oposição prevalece (FECHADO)"><bpmn:documentation>Fim nomeado fail-closed: titular/lista não resolvidos (ou beneficiário sem suporte em SUPP-001) → NENHUM envio — a oposição prevalece sobre o consentimento (GT-4, A9 L490: 'desconhecido nunca vira zero'). Épico E-SF-12/12r | portão A6 + GT-4.</bpmn:documentation><bpmn:incoming>Flow_OpNaoResolvido</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_SupressaoAtiva" name="Supressão honrada — contato bloqueado (variante)"><bpmn:documentation>Fim nomeado da variante: registro honrado na lista de supressão — nenhum canal envia ao titular enquanto a oposição vigora (revogação de consentimento art. 18 IX + oposição art. 18 §2º — REG-20). Épico E-SF-12/12r | LGPD art. 18 §2º L204 | portão A6.</bpmn:documentation><bpmn:incoming>Flow_OpResolvido</bpmn:incoming></bpmn:endEvent>
+      <bpmn:startEvent id="StartEvent_Beneficiario" name="Beneficiário admitido — consentimento de admissão (termo NÃO existe)"><bpmn:documentation>Início do caminho do beneficiário: o consentimento colhido na admissão basta em tese (OS-05 item 4), PORÉM o termo de consentimento de contato da admissão NÃO EXISTE — GAP-CONSENT-ADMISSAO ('O único texto é o wa-consent-v2, restrito a atendimento nesta conversa' — A9 §8 L567; ADDENDUM-01.md:415); beneficiários já admitidos sem consentimento demonstrável = GAP-BENEF-LEGADO (ADDENDUM-01.md:416; default Q-BEN-1 L391: 'Sem contato proativo até nova coleta com o texto de E-SF-62'). Épico E-SF-62 | OS-05 (não decide (b)/(e)) | GAP-CONSENT-ADMISSAO.</bpmn:documentation><bpmn:outgoing>Flow_BenefStart</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:userTask id="Task_MinutaTermo" name="Elabora minuta do termo de contato na admissão (E-SF-62)"><bpmn:documentation>ATO HUMANO DOCUMENTAL (userTask): minuta do termo de contato na admissão (lista fechada de finalidades, ROPA, oposição antes do 1º envio) — 'texto proposto entregue à orquestradora, sem PR (CD-14) — minuta 0.1.1; revisão PASS' (EXECUTION-LOG.md:146). Adoção do termo = E-SF-62r, aguarda RL-SF-093 (ii) (DPO) + OS05-J1 (jurídico) (ADDENDUM-01.md:273/L316/L347; L245-249 — 'RL-SF-066 trata do aceite único do prospect e NÃO é estendida ao termo do beneficiário'). Termo existe SÓ COMO MINUTA (missão §8). Épico E-SF-62 | RL-SF-093 (RATIFY L101) + OS05-J1 | GAP-CONSENT-ADMISSAO.</bpmn:documentation><bpmn:incoming>Flow_BenefStart</bpmn:incoming><bpmn:outgoing>Flow_MinutaGate</bpmn:outgoing></bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_GateTermoBenef" name="Termo adotado + oposição executável?" default="Flow_BenefFechado"><bpmn:documentation>PORTÃO RT-D4 FECHADO-EM-EXECUÇÃO (DPO, ADDENDUM-01.md:142; pergunta íntegra ADD-RETENTION.md:563; contradição de origem ADD-RETENTION.md:283) + OS05-J1 (jurídico — ADDENDUM-01.md:245-249) sobre RL-SF-093 (ii) (RATIFY-LATER-REGISTER.md:101): default = TERMOS NÃO ADOTADOS → NENHUMA MENSAGEM PROATIVA A BENEFICIÁRIO — LEMBRETE DE COBRANÇA INCLUÍDO (missão §8; RT-D4 reusado por RT-06; ADD-RETENTION.md:283: 'nenhum lembrete proativo a beneficiário (flag segue desligada); 2ª via e informação de vencimento só em resposta a conversa iniciada pelo beneficiário'). Falha também por GT-4/GTM-04/D4 (oposição não executável para beneficiário). Quem destrava: DPO (RT-D4) + jurídico (OS05-J1) + adoção do termo pelo dono (E-SF-62r). Épico E-SF-62 | RT-D4 + OS05-J1 | RL-SF-093 (ii).</bpmn:documentation><bpmn:incoming>Flow_MinutaGate</bpmn:incoming><bpmn:outgoing>Flow_BenefFechado</bpmn:outgoing><bpmn:outgoing>Flow_TermoVigente</bpmn:outgoing></bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_BenefFechado" name="Nenhuma mensagem proativa a beneficiário — lembrete de cobrança incluído (FECHADO)"><bpmn:documentation>Fim nomeado do estado atual (fail-closed): NENHUMA mensagem proativa a beneficiário — lembrete de cobrança INCLUÍDO (missão §8; RT-D4; ADD-RETENTION.md:283). Retenção segue variante: 2ª via/vencimento só em resposta a conversa iniciada pelo beneficiário. Épico E-SF-62 | RT-D4 | missão §8.</bpmn:documentation><bpmn:incoming>Flow_BenefFechado</bpmn:incoming></bpmn:endEvent>
+      <bpmn:endEvent id="EndEvent_TermoVigente" name="Termo adotado e ratificado (variante não ativa — portão próprio)"><bpmn:documentation>Fim nomeado da VARIANTE NÃO ATIVA: termo adotado (E-SF-62r) + RT-D4 respondida (DPO) + OS05-J1 ratificado (jurídico) + oposição executável para beneficiário (GTM-04/D4). Mesmo na variante, QUALQUER mensagem proativa a beneficiário exige avaliação própria por portão — este diagrama NÃO desenha envio a beneficiário (missão §8: 'O diagrama mostra o portão; não o resolve'). Épico E-SF-62 | RT-D4 + OS05-J1 + GTM-04/D4.</bpmn:documentation><bpmn:incoming>Flow_TermoVigente</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_OpStart" name="aciona" sourceRef="StartEvent_FrenteOperadora" targetRef="Gateway_DistribuiControles" />
+      <bpmn:sequenceFlow id="Flow_DistribDefault" name="nenhum controle — portão fechado (default)" sourceRef="Gateway_DistribuiControles" targetRef="EndEvent_PortaoFechado" />
+      <bpmn:sequenceFlow id="Flow_DistribEnvio" name="pedido de envio de lembrete (variante não ativa)" sourceRef="Gateway_DistribuiControles" targetRef="Task_OutboundGate"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">pedido de envio de lembrete chega (variante não ativa — RL-SF-066)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_DistribOposicao" name="pedido de oposição do titular" sourceRef="Gateway_DistribuiControles" targetRef="Task_SuppOpp"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">pedido de oposição do titular (A6/GT-4 — SP-OP-SUPP-001)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_OutGateCerca" name="valida" sourceRef="Task_OutboundGate" targetRef="Task_CercaZeroSaude" />
+      <bpmn:sequenceFlow id="Flow_CercaGate" name="aplica cerca" sourceRef="Task_CercaZeroSaude" targetRef="Gateway_GateConsentimento" />
+      <bpmn:sequenceFlow id="Flow_EnvioRecusado" name="recusa: GT-3 sem finalidade / GT-2 conteúdo (default)" sourceRef="Gateway_GateConsentimento" targetRef="EndEvent_EnvioRecusado" />
+      <bpmn:sequenceFlow id="Flow_GateVariante" name="consentimento válido — cadência (variante)" sourceRef="Gateway_GateConsentimento" targetRef="Task_Cadencia"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: RL-SF-066 ratificado + Q-OS05-1 respondido + GT-2 limpo</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_TimerEnd" name="P25D — vence antes do 26º dia (BM-08)" sourceRef="Event_TimerP25D" targetRef="EndEvent_Janela" />
+      <bpmn:sequenceFlow id="Flow_CadEnvia" name="expede" sourceRef="Task_Cadencia" targetRef="Task_EnviaWhatsApp" />
+      <bpmn:sequenceFlow id="Flow_EnviaEnd" name="expedido" sourceRef="Task_EnviaWhatsApp" targetRef="EndEvent_LembreteEnviado" />
+      <bpmn:sequenceFlow id="Flow_ErroEnd" name="falha — sem retentativa (GTM-04/O1)" sourceRef="Event_ErroWhatsApp" targetRef="EndEvent_FalhaEnvio" />
+      <bpmn:sequenceFlow id="Flow_SuppGate" name="consulta supressão" sourceRef="Task_SuppOpp" targetRef="Gateway_GateOposicao" />
+      <bpmn:sequenceFlow id="Flow_OpNaoResolvido" name="não resolvido — fail-closed (default)" sourceRef="Gateway_GateOposicao" targetRef="EndEvent_OpFechado" />
+      <bpmn:sequenceFlow id="Flow_OpResolvido" name="resolvido — supressão honrada (GT-4)" sourceRef="Gateway_GateOposicao" targetRef="EndEvent_SupressaoAtiva"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante: titular resolvido e lista honrada (SP-OP-SUPP-001; E-SF-12r)</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_BenefStart" name="minuta" sourceRef="StartEvent_Beneficiario" targetRef="Task_MinutaTermo" />
+      <bpmn:sequenceFlow id="Flow_MinutaGate" name="propõe texto" sourceRef="Task_MinutaTermo" targetRef="Gateway_GateTermoBenef" />
+      <bpmn:sequenceFlow id="Flow_BenefFechado" name="termo não adotado (default)" sourceRef="Gateway_GateTermoBenef" targetRef="EndEvent_BenefFechado" />
+      <bpmn:sequenceFlow id="Flow_TermoVigente" name="termo ratificado (variante)" sourceRef="Gateway_GateTermoBenef" targetRef="EndEvent_TermoVigente"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">variante não ativa: E-SF-62r adotado + RT-D4 + OS05-J1 + GTM-04/D4</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:textAnnotation id="Annotation_CercaGT2"><bpmn:text>CERCA GT-2 VIGENTE (não é portão fechado): zero dado de saúde em QUALQUER mensagem — variáveis de template e texto livre proibidos: resposta/etapa de DS/DPP, CPT/agravo, CID ou condição, recusa por motivo de saúde, utilização assistencial (GT-2 'test_outbound_message_with_health_data_is_refused' — A9 L488: recusa com ZERO chamadas ao transporte). 'Contrato emitido pendente de DPP' SAIU do catálogo de recuperação (A9 L337). Fundamento: LGPD art. 11 §5º (baseline L185) e RN 558 art. 12 (L154 — firewall da DS sem anuência expressa). Rege os templates do catálogo E-SF-13 (GT-2/GT-3 re-especificados por OS-05 — ADDENDUM-01.md:68). Cerca irmã já em build: test_template_registry_rejects_health_variable.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Oposicao"><bpmn:text>OPOSIÇÃO PREVALECE SOBRE CONSENTIMENTO (GT-4, A9 L490: beneficiário com oposição 'registered' + consentimento válido NUNCA 'delivered' — estado suppressed; 'desconhecido nunca vira zero'). PORTÃO A6 (registro de supressão — owner+DPO; REG-20, ADD-A9-CONSENT.md:52: lista indisponível/desconhecida ⇒ não envia; contrassinatura DPO do desenho SUPP-001). SP-OP-SUPP-001 EXISTENTE apontado por callActivity — cobre 'vendedor ou lead' (A9 L325); beneficiário SEM suporte (GTM-04/D4 aberto — A9 L326-328: fail-closed mesmo com consentimento de admissão). Promoção = E-SF-12/12r (EPICS-PLAN.tsv:21-22, AGUARDA-RATIFICAÇÃO). OS-05 NÃO dispensa a oposição: consentimento revogável sem caminho executável de revogação não se sustenta (art. 8º §2º — REG-20). NÍVEL 2: nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_TermoBenef"><bpmn:text>PORTÃO RT-D4 (DPO — ADDENDUM-01.md:142; ADD-RETENTION.md:563; fallback L283: 'nenhum lembrete proativo a beneficiário (flag desligada); 2ª via e vencimento só em resposta a conversa iniciada pelo beneficiário') + OS-05 (item 4/b: termo de admissão NÃO existe — GAP-CONSENT-ADMISSAO, A9 L567; ADDENDUM-01.md:415) + OS05-J1 (jurídico — ADDENDUM-01.md:245-249) sobre RL-SF-093 (ii) (RATIFY L101). MISSÃO §8: 'Nenhuma mensagem proativa a beneficiário, lembrete de cobrança incluído. O termo existe só como minuta.' E-SF-62: minuta 0.1.1 entregue, sem PR (EXECUTION-LOG.md:146); adoção = E-SF-62r (L316). GAP-BENEF-LEGADO (L416; default Q-BEN-1 L391). GT-4/GTM-04/D4: oposição não executável para beneficiário (A9 L326-328). Nenhuma mensagem proativa a beneficiário em NENHUMA variante deste diagrama.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2 — GAPs e apontamentos (nada executável criado; isExecutable=false): (1) SP-OP-SUPP-001 EXISTENTE apontado por callActivity (deliver/spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn; promoção = E-SF-12/12r — EPICS-PLAN.tsv:21-22, AGUARDA-RATIFICAÇÃO). (2) NOTIF-001 = PROPOSTA E-SF-13 (OutboundGate + registro de templates + catálogo — EPICS-PLAN.tsv:23; 'PR aberto, pronto — 1274 — sem a migração 0036 (depende do DPO)' — EXECUTION-LOG.md:130). (3) E-SF-16r recuperação C9 no Maezo — AGUARDA-RATIFICAÇÃO; portões restantes (A9 L393): GTM-05/J1; D1 (retenção); D2 (elegibilidade/região); GTM-04/O1; RL-REG-09/32/20; TB-18 (CDC 36, relógio); TB-18/D; TB-09. (4) E-SF-40r sessão A2/retomada — AGUARDA-RATIFICAÇÃO; portões restantes (A9 L397): CORE-02 (a-c), RL-REG-01, TB-02, CORE-09 (item (d) superado pelo aceite OS-05). (5) E-SF-61 captura do aceite — omni, onda 2, SEM execução registrada (ADDENDUM-01.md:272). (6) E-SF-62 minuta do termo — texto entregue, sem PR (L273/L347; EXECUTION-LOG.md:146). GAPs: GAP-CONSENT-ADMISSAO (L415), GAP-BENEF-LEGADO (L416).</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_DistribuiPortao"><bpmn:text>DISTRIBUIÇÃO DOS CONTROLES DA OPERADORA (estado atual): default = portão FECHADO — nenhum envio proativo expedido (RL-SF-066 + Q-OS05-1 pendentes). Controles: (1) pedido de envio (variante) → OutboundGate + cerca GT-2 + portão de consentimento (RL-SF-066); (2) oposição do titular → SP-OP-SUPP-001 (A6/GT-4); (3) termo do beneficiário (minuta E-SF-62) → RT-D4 + OS05-J1. Épicos E-SF-13/E-SF-16r/E-SF-12/E-SF-62.</bpmn:text></bpmn:textAnnotation>
+      <bpmn:textAnnotation id="Annotation_Consentimento"><bpmn:text>PORTÃO RL-SF-066 (validade do aceite único — RATIFY-LATER-REGISTER.md:74, jurídico) + Q-OS05-1 (finalidades nomeadas — ADDENDUM-01.md:381, dono): default = RECUSA DO ENVIO. LGPD art. 8º §4º (baseline L181): finalidades determinadas — autorizações genéricas NULAS; art. 9º §1º (L198): nulo se informação enganosa/sem transparência. GT-3 recusa sem finalidades nomeadas. Identificação como publicidade = CDC art. 36 (L219; TB-18). Destrava: jurídico (RL-SF-066) + dono (Q-OS05-1). Variante só com GT-2 limpo e supressão A6 honrada.</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Association_CercaGT2" sourceRef="Task_CercaZeroSaude" targetRef="Annotation_CercaGT2" />
+    <bpmn:association id="Association_Oposicao" sourceRef="Gateway_GateOposicao" targetRef="Annotation_Oposicao" />
+    <bpmn:association id="Association_TermoBenef" sourceRef="Gateway_GateTermoBenef" targetRef="Annotation_TermoBenef" />
+    <bpmn:association id="Association_Nivel2" sourceRef="Task_SuppOpp" targetRef="Annotation_Nivel2" />
+    <bpmn:association id="Association_PortaoConsentimento" sourceRef="Gateway_GateConsentimento" targetRef="Annotation_Consentimento" />
+    <bpmn:association id="Association_DistribuiPortao" sourceRef="Gateway_DistribuiControles" targetRef="Annotation_DistribuiPortao" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_FUNIL_F02">
+    <bpmndi:BPMNPlane id="BPMNPlane_FUNIL_F02" bpmnElement="Collaboration_FUNIL_F02">
+      <bpmndi:BPMNShape id="Participant_Comprador_di" bpmnElement="Participant_Comprador" isHorizontal="true"><dc:Bounds x="40" y="40" width="2500" height="1000" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Omni_di" bpmnElement="Participant_Omni" isHorizontal="true"><dc:Bounds x="40" y="1120" width="2500" height="900" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_Operadora_di" bpmnElement="Participant_Operadora" isHorizontal="true"><dc:Bounds x="40" y="2100" width="2500" height="1560" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_AMH_di" bpmnElement="Participant_AMH" isHorizontal="true"><dc:Bounds x="40" y="3740" width="2500" height="300" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comprador_di" bpmnElement="Lane_Comprador" isHorizontal="true"><dc:Bounds x="70" y="70" width="2430" height="970" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Superficie_di" bpmnElement="Lane_Superficie" isHorizontal="true"><dc:Bounds x="70" y="1150" width="2430" height="870" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Comercial_di" bpmnElement="Lane_Comercial" isHorizontal="true"><dc:Bounds x="70" y="2130" width="2430" height="640" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Encarregado_di" bpmnElement="Lane_Encarregado" isHorizontal="true"><dc:Bounds x="70" y="2770" width="2430" height="890" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Sessao_di" bpmnElement="StartEvent_Sessao">
+        <dc:Bounds x="110" y="300" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="74" y="348" width="130" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AceiteUnico_di" bpmnElement="Task_AceiteUnico">
+        <dc:Bounds x="210" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_CompradorDecide_di" bpmnElement="Gateway_CompradorDecide" isMarkerVisible="true">
+        <dc:Bounds x="380" y="290" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="352" y="240" width="120" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_SegueJornada_di" bpmnElement="EndEvent_SegueJornada">
+        <dc:Bounds x="500" y="300" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="544" y="344" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Abandono_di" bpmnElement="EndEvent_Abandono">
+        <dc:Bounds x="390" y="480" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="266" y="486" width="84" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Oposicao_di" bpmnElement="Task_Oposicao">
+        <dc:Bounds x="620" y="520" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OposicaoEnviada_di" bpmnElement="EndEvent_OposicaoEnviada">
+        <dc:Bounds x="800" y="540" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="760" y="476" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RetomaPassiva_di" bpmnElement="Task_RetomaPassiva">
+        <dc:Bounds x="940" y="560" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RetomadaPassiva_di" bpmnElement="EndEvent_RetomadaPassiva">
+        <dc:Bounds x="1120" y="580" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1080" y="516" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Captura_di" bpmnElement="StartEvent_Captura">
+        <dc:Bounds x="110" y="1270" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="74" y="1336" width="140" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CapturaAceite_di" bpmnElement="Task_CapturaAceite">
+        <dc:Bounds x="210" y="1250" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AceiteRegistrado_di" bpmnElement="EndEvent_AceiteRegistrado">
+        <dc:Bounds x="380" y="1270" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="336" y="1318" width="140" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE02_di" bpmnElement="Event_AbandonoE02">
+        <dc:Bounds x="310" y="1470" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="1494" width="216" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE03_di" bpmnElement="Event_AbandonoE03">
+        <dc:Bounds x="310" y="1550" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="1574" width="216" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE04_di" bpmnElement="Event_AbandonoE04">
+        <dc:Bounds x="310" y="1630" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="1654" width="216" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE05_di" bpmnElement="Event_AbandonoE05">
+        <dc:Bounds x="310" y="1710" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="1734" width="216" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_AbandonoE06_di" bpmnElement="Event_AbandonoE06">
+        <dc:Bounds x="310" y="1790" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="80" y="1814" width="216" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_JuntaAbandonos_di" bpmnElement="Gateway_JuntaAbandonos" isMarkerVisible="true">
+        <dc:Bounds x="700" y="1610" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="560" y="1500" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateEnvioProativo_di" bpmnElement="Gateway_GateEnvioProativo" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="820" y="1610" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="732" y="1568" width="50" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DeepLink_di" bpmnElement="Task_DeepLink">
+        <dc:Bounds x="940" y="1600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Passivo_di" bpmnElement="EndEvent_Passivo" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1120" y="1620" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1076" y="1568" width="180" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PedeEnvio_di" bpmnElement="Task_PedeEnvio">
+        <dc:Bounds x="990" y="1800" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PedidoEncaminhado_di" bpmnElement="EndEvent_PedidoEncaminhado">
+        <dc:Bounds x="1190" y="1820" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1130" y="1770" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_FrenteOperadora_di" bpmnElement="StartEvent_FrenteOperadora">
+        <dc:Bounds x="110" y="2240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="60" y="2330" width="110" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_DistribuiControles_di" bpmnElement="Gateway_DistribuiControles" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="210" y="2230" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="166" y="2160" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_PortaoFechado_di" bpmnElement="EndEvent_PortaoFechado" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="340" y="2240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="386" y="2234" width="150" height="48" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OutboundGate_di" bpmnElement="Task_OutboundGate">
+        <dc:Bounds x="990" y="2220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CercaZeroSaude_di" bpmnElement="Task_CercaZeroSaude">
+        <dc:Bounds x="1160" y="2220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateConsentimento_di" bpmnElement="Gateway_GateConsentimento" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1330" y="2230" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1240" y="2160" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_EnvioRecusado_di" bpmnElement="EndEvent_EnvioRecusado" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1450" y="2240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1402" y="2160" width="134" height="48" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Cadencia_di" bpmnElement="Task_Cadencia">
+        <dc:Bounds x="1290" y="2400" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_TimerP25D_di" bpmnElement="Event_TimerP25D">
+        <dc:Bounds x="1370" y="2380" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1414" y="2450" width="130" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Janela_di" bpmnElement="EndEvent_Janela">
+        <dc:Bounds x="1500" y="2340" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1560" y="2384" width="190" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EnviaWhatsApp_di" bpmnElement="Task_EnviaWhatsApp">
+        <dc:Bounds x="1500" y="2520" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ErroWhatsApp_di" bpmnElement="Event_ErroWhatsApp">
+        <dc:Bounds x="1530" y="2580" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1556" y="2624" width="88" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_FalhaEnvio_di" bpmnElement="EndEvent_FalhaEnvio">
+        <dc:Bounds x="1700" y="2660" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1746" y="2644" width="190" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_LembreteEnviado_di" bpmnElement="EndEvent_LembreteEnviado">
+        <dc:Bounds x="1660" y="2540" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1620" y="2470" width="150" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SuppOpp_di" bpmnElement="Task_SuppOpp">
+        <dc:Bounds x="710" y="2860" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateOposicao_di" bpmnElement="Gateway_GateOposicao" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="880" y="2870" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="786" y="2940" width="90" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OpFechado_di" bpmnElement="EndEvent_OpFechado" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1000" y="2880" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1010" y="2760" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_SupressaoAtiva_di" bpmnElement="EndEvent_SupressaoAtiva">
+        <dc:Bounds x="890" y="3060" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="850" y="3104" width="190" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Beneficiario_di" bpmnElement="StartEvent_Beneficiario">
+        <dc:Bounds x="1700" y="3240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1650" y="3304" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_MinutaTermo_di" bpmnElement="Task_MinutaTermo">
+        <dc:Bounds x="1780" y="3220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_GateTermoBenef_di" bpmnElement="Gateway_GateTermoBenef" isMarkerVisible="true" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="1960" y="3230" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1840" y="3160" width="120" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_BenefFechado_di" bpmnElement="EndEvent_BenefFechado" bioc:stroke="#B42318" bioc:fill="#F9DEDC">
+        <dc:Bounds x="2080" y="3240" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2030" y="3300" width="190" height="72" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TermoVigente_di" bpmnElement="EndEvent_TermoVigente">
+        <dc:Bounds x="1970" y="3400" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1900" y="3444" width="200" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Captura_di" bpmnElement="Annotation_Captura">
+        <dc:Bounds x="500" y="1190" width="420" height="190" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_PortaoEnvio_di" bpmnElement="Annotation_PortaoEnvio">
+        <dc:Bounds x="1900" y="1440" width="540" height="280" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Convencao_di" bpmnElement="Annotation_Convencao">
+        <dc:Bounds x="500" y="1900" width="420" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_CercaGT2_di" bpmnElement="Annotation_CercaGT2">
+        <dc:Bounds x="1160" y="2560" width="320" height="200" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Oposicao_di" bpmnElement="Annotation_Oposicao">
+        <dc:Bounds x="1300" y="2860" width="540" height="280" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_TermoBenef_di" bpmnElement="Annotation_TermoBenef">
+        <dc:Bounds x="2260" y="3140" width="240" height="340" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
+        <dc:Bounds x="110" y="3260" width="480" height="360" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Escopo_di" bpmnElement="Annotation_Escopo">
+        <dc:Bounds x="90" y="4120" width="700" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Legenda_di" bpmnElement="Annotation_Legenda">
+        <dc:Bounds x="1620" y="4120" width="560" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_JuntaPortao_di" bpmnElement="Annotation_JuntaPortao">
+        <dc:Bounds x="700" y="1770" width="220" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_CompradorDecide_di" bpmnElement="Annotation_CompradorDecide">
+        <dc:Bounds x="700" y="700" width="280" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_DistribuiPortao_di" bpmnElement="Annotation_DistribuiPortao">
+        <dc:Bounds x="110" y="2440" width="300" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Annotation_Consentimento_di" bpmnElement="Annotation_Consentimento">
+        <dc:Bounds x="1560" y="2220" width="240" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_Inicio_di" bpmnElement="Flow_Inicio"><di:waypoint x="146" y="320" /><di:waypoint x="210" y="320" />
+        <bpmndi:BPMNLabel><dc:Bounds x="148" y="290" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AceiteGate_di" bpmnElement="Flow_AceiteGate"><di:waypoint x="310" y="320" /><di:waypoint x="380" y="320" />
+        <bpmndi:BPMNLabel><dc:Bounds x="312" y="286" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Prossegue_di" bpmnElement="Flow_Prossegue"><di:waypoint x="430" y="320" /><di:waypoint x="500" y="320" />
+        <bpmndi:BPMNLabel><dc:Bounds x="438" y="196" width="120" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Abandona_di" bpmnElement="Flow_Abandona"><di:waypoint x="410" y="340" /><di:waypoint x="410" y="480" />
+        <bpmndi:BPMNLabel><dc:Bounds x="432" y="364" width="110" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Oposicao_di" bpmnElement="Flow_Oposicao"><di:waypoint x="385" y="340" /><di:waypoint x="385" y="560" /><di:waypoint x="620" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="432" y="462" width="110" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Retoma_di" bpmnElement="Flow_Retoma"><di:waypoint x="430" y="338" /><di:waypoint x="430" y="600" /><di:waypoint x="940" y="600" />
+        <bpmndi:BPMNLabel><dc:Bounds x="450" y="620" width="130" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_OpEnv_di" bpmnElement="Flow_OpEnv"><di:waypoint x="720" y="560" /><di:waypoint x="800" y="560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="724" y="558" width="70" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RetEnd_di" bpmnElement="Flow_RetEnd"><di:waypoint x="1040" y="600" /><di:waypoint x="1120" y="600" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1044" y="614" width="70" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CaptStart_di" bpmnElement="Flow_CaptStart"><di:waypoint x="146" y="1290" /><di:waypoint x="210" y="1290" />
+        <bpmndi:BPMNLabel><dc:Bounds x="148" y="1256" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CaptEnd_di" bpmnElement="Flow_CaptEnd"><di:waypoint x="310" y="1290" /><di:waypoint x="380" y="1290" />
+        <bpmndi:BPMNLabel><dc:Bounds x="312" y="1256" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AbE02_di" bpmnElement="Flow_AbE02"><di:waypoint x="346" y="1488" /><di:waypoint x="730" y="1488" /><di:waypoint x="730" y="1610" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1462" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AbE03_di" bpmnElement="Flow_AbE03"><di:waypoint x="346" y="1568" /><di:waypoint x="710" y="1568" /><di:waypoint x="710" y="1610" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1542" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AbE04_di" bpmnElement="Flow_AbE04"><di:waypoint x="346" y="1648" /><di:waypoint x="700" y="1648" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1622" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AbE05_di" bpmnElement="Flow_AbE05"><di:waypoint x="346" y="1728" /><di:waypoint x="660" y="1728" /><di:waypoint x="660" y="1660" /><di:waypoint x="700" y="1660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1702" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_AbE06_di" bpmnElement="Flow_AbE06"><di:waypoint x="346" y="1808" /><di:waypoint x="690" y="1808" /><di:waypoint x="690" y="1660" /><di:waypoint x="700" y="1660" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="1782" width="90" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_JoinGate_di" bpmnElement="Flow_JoinGate"><di:waypoint x="750" y="1640" /><di:waypoint x="820" y="1640" />
+        <bpmndi:BPMNLabel><dc:Bounds x="752" y="1652" width="64" height="24" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PortaoPassivo_di" bpmnElement="Flow_PortaoPassivo"><di:waypoint x="870" y="1640" /><di:waypoint x="940" y="1640" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1092" y="1508" width="170" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PortaoVariante_di" bpmnElement="Flow_PortaoVariante"><di:waypoint x="825" y="1660" /><di:waypoint x="825" y="1690" /><di:waypoint x="1040" y="1690" /><di:waypoint x="1040" y="1800" />
+        <bpmndi:BPMNLabel><dc:Bounds x="848" y="1700" width="180" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DeepEnd_di" bpmnElement="Flow_DeepEnd"><di:waypoint x="1040" y="1640" /><di:waypoint x="1120" y="1640" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1040" y="1612" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PedeEnd_di" bpmnElement="Flow_PedeEnd"><di:waypoint x="1090" y="1840" /><di:waypoint x="1190" y="1840" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1130" y="1856" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_OpStart_di" bpmnElement="Flow_OpStart"><di:waypoint x="146" y="2260" /><di:waypoint x="210" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="148" y="2226" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DistribDefault_di" bpmnElement="Flow_DistribDefault"><di:waypoint x="260" y="2260" /><di:waypoint x="340" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="306" y="2160" width="120" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DistribEnvio_di" bpmnElement="Flow_DistribEnvio"><di:waypoint x="225" y="2280" /><di:waypoint x="225" y="2320" /><di:waypoint x="940" y="2320" /><di:waypoint x="940" y="2260" /><di:waypoint x="990" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="230" y="2348" width="180" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DistribOposicao_di" bpmnElement="Flow_DistribOposicao"><di:waypoint x="215" y="2280" /><di:waypoint x="215" y="2420" /><di:waypoint x="660" y="2420" /><di:waypoint x="660" y="2900" /><di:waypoint x="710" y="2900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="668" y="2460" width="140" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_OutGateCerca_di" bpmnElement="Flow_OutGateCerca"><di:waypoint x="1090" y="2260" /><di:waypoint x="1160" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1092" y="2226" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CercaGate_di" bpmnElement="Flow_CercaGate"><di:waypoint x="1260" y="2260" /><di:waypoint x="1330" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1262" y="2226" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EnvioRecusado_di" bpmnElement="Flow_EnvioRecusado"><di:waypoint x="1380" y="2260" /><di:waypoint x="1450" y="2260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1384" y="2278" width="120" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_GateVariante_di" bpmnElement="Flow_GateVariante"><di:waypoint x="1345" y="2280" /><di:waypoint x="1345" y="2400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1230" y="2300" width="140" height="50" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_TimerEnd_di" bpmnElement="Flow_TimerEnd"><di:waypoint x="1406" y="2398" /><di:waypoint x="1406" y="2360" /><di:waypoint x="1500" y="2360" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1416" y="2366" width="84" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_CadEnvia_di" bpmnElement="Flow_CadEnvia"><di:waypoint x="1340" y="2480" /><di:waypoint x="1340" y="2560" /><di:waypoint x="1500" y="2560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1344" y="2520" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_EnviaEnd_di" bpmnElement="Flow_EnviaEnd"><di:waypoint x="1600" y="2560" /><di:waypoint x="1660" y="2560" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1620" y="2576" width="150" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ErroEnd_di" bpmnElement="Flow_ErroEnd"><di:waypoint x="1548" y="2616" /><di:waypoint x="1548" y="2680" /><di:waypoint x="1700" y="2680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1540" y="2724" width="150" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SuppGate_di" bpmnElement="Flow_SuppGate"><di:waypoint x="810" y="2900" /><di:waypoint x="880" y="2900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="812" y="2864" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_OpNaoResolvido_di" bpmnElement="Flow_OpNaoResolvido"><di:waypoint x="930" y="2900" /><di:waypoint x="1000" y="2900" />
+        <bpmndi:BPMNLabel><dc:Bounds x="932" y="2836" width="120" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_OpResolvido_di" bpmnElement="Flow_OpResolvido"><di:waypoint x="905" y="2920" /><di:waypoint x="905" y="3060" />
+        <bpmndi:BPMNLabel><dc:Bounds x="912" y="2960" width="150" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BenefStart_di" bpmnElement="Flow_BenefStart"><di:waypoint x="1736" y="3260" /><di:waypoint x="1780" y="3260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1738" y="3226" width="40" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_MinutaGate_di" bpmnElement="Flow_MinutaGate"><di:waypoint x="1880" y="3260" /><di:waypoint x="1960" y="3260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1884" y="3226" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BenefFechado_di" bpmnElement="Flow_BenefFechado"><di:waypoint x="2010" y="3260" /><di:waypoint x="2080" y="3260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2012" y="3080" width="100" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_TermoVigente_di" bpmnElement="Flow_TermoVigente"><di:waypoint x="1985" y="3280" /><di:waypoint x="1985" y="3400" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1856" y="3320" width="120" height="44" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Aceite_di" bpmnElement="MsgFlow_Aceite"><di:waypoint x="260" y="360" /><di:waypoint x="260" y="1250" />
+        <bpmndi:BPMNLabel><dc:Bounds x="276" y="760" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_DeepLink_di" bpmnElement="MsgFlow_DeepLink"><di:waypoint x="990" y="1600" /><di:waypoint x="990" y="640" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1006" y="1300" width="170" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_PedeEnvio_di" bpmnElement="MsgFlow_PedeEnvio"><di:waypoint x="1040" y="1880" /><di:waypoint x="1040" y="2220" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1056" y="1960" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Oposicao_di" bpmnElement="MsgFlow_Oposicao"><di:waypoint x="670" y="600" /><di:waypoint x="670" y="1090" /><di:waypoint x="60" y="1090" /><di:waypoint x="60" y="2820" /><di:waypoint x="760" y="2820" /><di:waypoint x="760" y="2860" />
+        <bpmndi:BPMNLabel><dc:Bounds x="76" y="1880" width="150" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MsgFlow_Lembrete_di" bpmnElement="MsgFlow_Lembrete"><di:waypoint x="1550" y="2520" /><di:waypoint x="1550" y="1040" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1566" y="1300" width="160" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Captura_di" bpmnElement="Association_Captura"><di:waypoint x="260" y="1250" /><di:waypoint x="260" y="1170" /><di:waypoint x="700" y="1170" /><di:waypoint x="700" y="1190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoEnvio_di" bpmnElement="Association_PortaoEnvio"><di:waypoint x="845" y="1610" /><di:waypoint x="845" y="1560" /><di:waypoint x="1900" y="1560" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Convencao_di" bpmnElement="Association_Convencao"><di:waypoint x="328" y="1506" /><di:waypoint x="328" y="1524" /><di:waypoint x="370" y="1524" /><di:waypoint x="370" y="1900" /><di:waypoint x="500" y="1900" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CercaGT2_di" bpmnElement="Association_CercaGT2"><di:waypoint x="1210" y="2300" /><di:waypoint x="1210" y="2560" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Oposicao_di" bpmnElement="Association_Oposicao"><di:waypoint x="905" y="2870" /><di:waypoint x="905" y="2830" /><di:waypoint x="1280" y="2830" /><di:waypoint x="1280" y="2900" /><di:waypoint x="1300" y="2900" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_TermoBenef_di" bpmnElement="Association_TermoBenef"><di:waypoint x="1985" y="3230" /><di:waypoint x="1985" y="3160" /><di:waypoint x="2260" y="3160" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_Nivel2_di" bpmnElement="Association_Nivel2"><di:waypoint x="760" y="2940" /><di:waypoint x="760" y="3460" /><di:waypoint x="590" y="3460" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_CompradorDecide_di" bpmnElement="Association_CompradorDecide"><di:waypoint x="380" y="338" /><di:waypoint x="355" y="338" /><di:waypoint x="355" y="760" /><di:waypoint x="700" y="760" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_PortaoConsentimento_di" bpmnElement="Association_PortaoConsentimento"><di:waypoint x="1355" y="2230" /><di:waypoint x="1355" y="2210" /><di:waypoint x="1540" y="2210" /><di:waypoint x="1540" y="2250" /><di:waypoint x="1560" y="2250" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_JuntaPortao_di" bpmnElement="Association_JuntaPortao"><di:waypoint x="725" y="1660" /><di:waypoint x="725" y="1770" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_DistribuiPortao_di" bpmnElement="Association_DistribuiPortao"><di:waypoint x="210" y="2250" /><di:waypoint x="175" y="2250" /><di:waypoint x="175" y="2440" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
