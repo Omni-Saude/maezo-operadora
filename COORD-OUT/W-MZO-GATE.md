@@ -158,3 +158,7 @@ Status enviado à mescladora.
 
 - #1287 (E-SF-36) mesclado; main 7a64eb94.
 - E-SF-20, o último da janela: main trazida por merge num clone isolado (diff de 17 arquivos, todos do épico). Antes do push estão rodando: Python (ci, adapters, ports, gateway, portal, platform, docs, agents, comercial, validate, check_program_dark_flags) e web (npm ci, tsc, vitest).
+
+## 2026-11-17 ~07:40Z
+
+- PR #1288 (E-SF-20) aberto, head b63fffbc13857999cd263c83ca19c07bcc1730af. No topo da descrição: flag OFF, Q-03 PROVISÓRIO e GAP-ESF20-TERMS. A citação normativa passou para `docs/compliance/legal/textos-base/RN-659-2025.md`, seguindo a regra nova da mescladora; não há referência ao pacote do omni nos arquivos do PR. Antes do push: ruff e mypy verdes; validate com 0 erros; dark flags ok; tsc ok; vitest 786/786; check:generated em paridade; 30124 passed, só com as falhas ambientais.
