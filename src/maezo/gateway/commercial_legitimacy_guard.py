@@ -67,6 +67,7 @@ from maezo.gateway.commercial_legitimacy_screen import (
     ContractKind,
     LegitimacyScreenRecord,
     LegitimacyScreenStore,
+    LegitimacyScreenStoreError,
 )
 from maezo.portal.contracts.models import OpaqueRef
 from maezo.ports.commercial import (
@@ -251,6 +252,14 @@ _OUTCOME_EVENT_KINDS: Final[dict[str, LegitimacyEventKind]] = {
 LegitimacyScreenGuardFactory = Callable[[CommercialGateway], "LegitimacyScreenGateway"]
 
 
+class _RevisionContendedError(Exception):
+    """A releitura após `revision_taken` colidiu de novo: carrega a avaliação relida."""
+
+    def __init__(self, evaluation: LegitimacyScreenEvaluation) -> None:
+        super().__init__("revision_taken")
+        self.evaluation = evaluation
+
+
 # ----------------------------------------------------------------------------------
 # O guard: SUBCLASSE de `CommercialGateway` (desenho §2 item 3). O wrap é por herança —
 # o objeto composto É o gateway do caminho comercial (o `isinstance` do router congelado
@@ -332,7 +341,9 @@ class LegitimacyScreenGateway(CommercialGateway):
         PENDENTE ≠ APROVADO por omissão (registry OP21). `would_block` é o que o
         enforcing decidiria: recibo vigente único por PJ é pré-condição do bound set.
         """
-        receipt = await self.store.latest_for_legal_entity(self.tenant, scope.legal_entity_ref)
+        return self._judge(await self.store.latest_for_legal_entity(self.tenant, scope.legal_entity_ref))
+
+    def _judge(self, receipt: LegitimacyScreenRecord | None) -> LegitimacyScreenEvaluation:
         if receipt is None:
             return LegitimacyScreenEvaluation(
                 outcome="blocked",
@@ -367,39 +378,65 @@ class LegitimacyScreenGateway(CommercialGateway):
         anchor = ART39_TWIN_ANCHOR if contract_kind == "empresario_individual" else ART39_SIGNAL_ANCHOR
         return LegitimacyArt39Signal(anchor=anchor, consequence=ART39_SIGNAL_CONSEQUENCE)  # type: ignore[arg-type]
 
-    async def _register(self, evaluation: LegitimacyScreenEvaluation) -> None:
+    async def _register(
+        self, evaluation: LegitimacyScreenEvaluation, scope: CommercialScope
+    ) -> LegitimacyScreenEvaluation:
         """A perna REGISTRAR: só a observação que a cabeça AINDA não registra.
 
-        Nova revisão da MESMA instância (mesmo `screen_ref`/`opportunity_ref`), critérios
-        do recibo copiados (critério→resultado→referência — o guard não inventa critério),
-        `would_block`/`art39_signaled` da postura, âncora canônica do art. 39. Cabeça que
-        já carrega o par `would_block`+`art39_signaled`, aprovação, e PJ sem recibo: nada a
-        escrever (linha do aniversário, `would_block` sem art. 39, não conta)."""
+        Nova revisão da MESMA instância, critérios do recibo copiados (o guard não inventa
+        critério), `would_block`/`art39_signaled`, âncora canônica do art. 39. Cabeça com o
+        par `would_block`+`art39_signaled`, aprovação e PJ sem recibo: nada a escrever.
+        Corrida (`revision_taken`, outro escritor gravou a revisão antes): relê a cabeça UMA
+        vez e decide sobre a revisão vigente, registrando sobre ela no máximo uma vez; nova
+        colisão levanta `_RevisionContendedError` com a avaliação relida. Devolve a avaliação
+        sobre a qual a postura decide."""
+        if not self._needs_row(evaluation):
+            return evaluation
+        try:
+            await self.store.save(self._observation(evaluation.receipt))  # type: ignore[arg-type]
+            return evaluation
+        except LegitimacyScreenStoreError as exc:
+            if exc.code != "revision_taken":
+                raise
+        reread = await self._evaluate(scope)
+        if not self._needs_row(reread):
+            return reread
+        try:
+            await self.store.save(self._observation(reread.receipt))  # type: ignore[arg-type]
+        except LegitimacyScreenStoreError as exc:
+            if exc.code == "revision_taken":
+                raise _RevisionContendedError(reread) from None
+            raise
+        return reread
+
+    @staticmethod
+    def _needs_row(evaluation: LegitimacyScreenEvaluation) -> bool:
         receipt = evaluation.receipt
-        if receipt is None or not evaluation.would_block or (receipt.would_block and receipt.art39_signaled):
-            return
+        return not (
+            receipt is None or not evaluation.would_block or (receipt.would_block and receipt.art39_signaled)
+        )
+
+    def _observation(self, receipt: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
         now = self._clock()
-        await self.store.save(
-            LegitimacyScreenRecord(
-                tenant=receipt.tenant,
-                screen_ref=receipt.screen_ref,
-                screen_revision=receipt.screen_revision + 1,
-                legal_entity_ref=receipt.legal_entity_ref,
-                opportunity_ref=receipt.opportunity_ref,
-                contract_kind=receipt.contract_kind,
-                contracting_form=receipt.contracting_form,
-                criteria=receipt.criteria,
-                status=receipt.status,
-                would_block=True,
-                art39_signaled=True,
-                # Literal inline (mypy não aceita variável em Literal) — byte-igual a
-                # ART39_ANCHOR/ART39_SIGNAL_ANCHOR, igualdade que o teste pina.
-                art39_anchor="RN 557/2022, art. 39",
-                reconfirmation_due_at=receipt.reconfirmation_due_at,
-                created_by=GUARD_ACTOR,
-                created_at=now,
-                updated_at=now,
-            )
+        return LegitimacyScreenRecord(
+            tenant=receipt.tenant,
+            screen_ref=receipt.screen_ref,
+            screen_revision=receipt.screen_revision + 1,
+            legal_entity_ref=receipt.legal_entity_ref,
+            opportunity_ref=receipt.opportunity_ref,
+            contract_kind=receipt.contract_kind,
+            contracting_form=receipt.contracting_form,
+            criteria=receipt.criteria,
+            status=receipt.status,
+            would_block=True,
+            art39_signaled=True,
+            # Literal inline (mypy não aceita variável em Literal) — byte-igual a
+            # ART39_ANCHOR/ART39_SIGNAL_ANCHOR, igualdade que o teste pina.
+            art39_anchor="RN 557/2022, art. 39",
+            reconfirmation_due_at=receipt.reconfirmation_due_at,
+            created_by=GUARD_ACTOR,
+            created_at=now,
+            updated_at=now,
         )
 
     def _signal(self, evaluation: LegitimacyScreenEvaluation) -> None:
@@ -446,7 +483,11 @@ class LegitimacyScreenShadow(LegitimacyScreenGateway):
         with suppress(Exception):
             async with asyncio.timeout(self.timeout_seconds):
                 evaluation = await self._evaluate(scope)
-                await self._register(evaluation)
+                try:
+                    evaluation = await self._register(evaluation, scope)
+                except _RevisionContendedError as raced:
+                    # Corrida dupla: sem linha nesta tentativa (o próximo comando relê); sinal sai.
+                    evaluation = raced.evaluation
                 self._signal(evaluation)
 
 
@@ -483,11 +524,13 @@ class LegitimacyScreenEnforcing(LegitimacyScreenGateway):
             # comando pendurado — e nunca passagem sem triagem.
             async with asyncio.timeout(self.timeout_seconds):
                 evaluation = await self._evaluate(scope)
-                if not evaluation.would_block:
-                    self._signal(evaluation)
-                    return
-                await self._register(evaluation)
+                if evaluation.would_block:
+                    # Corrida: decide sobre a cabeça relida (vigente segue); colisão dupla
+                    # ou releitura que falha caem no par fixo de indisponibilidade.
+                    evaluation = await self._register(evaluation, scope)
                 self._signal(evaluation)
+                if not evaluation.would_block:
+                    return
         except Exception:
             # Fail-closed: nenhum defeito da triagem vira passagem. PENDENTE/UNKNOWN não é
             # APROVADO por omissão (registry OP21) e o par de indisponibilidade é FIXO —

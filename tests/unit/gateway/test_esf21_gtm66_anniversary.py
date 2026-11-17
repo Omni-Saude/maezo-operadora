@@ -211,15 +211,18 @@ class _AnniversaryRace(_Store):
 
 @pytest.mark.asyncio
 async def test_gatilho_trata_stale_revision_quando_perde_a_corrida() -> None:
-    # A staff (ou o guard) gravou N+1 entre a leitura da cabeça e o save do gatilho: o
-    # store recusa `revision_taken`, nada do gatilho é gravado e ele não reporta escrita.
+    # A staff gravou N+1 entre a leitura da cabeça e o save do gatilho: o store recusa
+    # `revision_taken` e nada do gatilho é gravado nessa tentativa. O gatilho relê a cabeça
+    # UMA vez (E-SF-20r) e, com a reconfirmação ainda vencida, registra sobre ela, uma vez.
     head = _valid_head()
     rival = _receipt(**{**head.model_dump(), "screen_revision": 2, "created_by": "staff-op21"})
     racing = _AnniversaryRace(head, rival)
-    assert await _trigger(racing).on_anniversary("entity-a") is None
-    assert racing.save_calls == 1
+    written = await _trigger(racing).on_anniversary("entity-a")
+    assert written is not None and written.screen_revision == 3
+    assert written.created_by == ANNIVERSARY_ACTOR
+    assert racing.save_calls == 2
     assert racing.rows[(head.tenant, head.screen_ref, 2)] == rival
-    assert len(racing.rows) == 2
+    assert len(racing.rows) == 3
 
 
 @pytest.mark.asyncio
@@ -242,28 +245,32 @@ def _anniversary_row(head: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
 @pytest.mark.asyncio
 async def test_guarda_shadow_na_corrida_com_o_aniversario_nao_altera_a_resposta() -> None:
     # O guard lê N (vencido), o gatilho grava N+1 antes: o save do guard é `revision_taken`.
-    # A shadow engole o defeito e a resposta comercial é byte-idêntica à de flag OFF.
+    # A shadow relê a cabeça (a linha do aniversário, sem art. 39), registra o art. 39 sobre
+    # ela uma vez, e a resposta comercial é byte-idêntica à de flag OFF.
     head = _valid_head()
     racing = _AnniversaryRace(head, _anniversary_row(head))
     shadow, _, _ = _gateway(LegitimacyScreenShadow, racing)
     off, _, _ = _flag_off()
     assert (await _execute(shadow)).wire_bytes == (await _execute(off)).wire_bytes
-    assert racing.save_calls == 1
-    assert racing.head("tenant-a", "entity-a").created_by == ANNIVERSARY_ACTOR  # type: ignore[union-attr]
+    assert racing.save_calls == 2
+    assert racing.rows[("tenant-a", head.screen_ref, 2)].created_by == ANNIVERSARY_ACTOR
+    guard_row = racing.head("tenant-a", "entity-a")
+    assert guard_row is not None and guard_row.screen_revision == 3
+    assert guard_row.created_by == GUARD_ACTOR and guard_row.art39_signaled
 
 
 @pytest.mark.asyncio
-async def test_guarda_enforcing_na_corrida_com_o_aniversario_recusa_indisponivel() -> None:
-    # Na enforcing a mesma corrida nunca vira passagem: recusa com o par fixo de
-    # indisponibilidade, antes de qualquer passo de fonte.
-    # O motivo (`source_unavailable` em vez de `legitimacy_unproven`) é o comportamento
-    # atual da enforcing não montada, não contrato: o PR que montar a enforcing decide.
+async def test_guarda_enforcing_na_corrida_com_o_aniversario_recusa_nao_comprovada() -> None:
+    # Na enforcing a mesma corrida nunca vira passagem (E-SF-20r, motivo definitivo): a
+    # cabeça relida é a do aniversário, sem recibo vigente, então a recusa é a de
+    # legitimidade não comprovada, antes de qualquer passo de fonte.
     head = _valid_head()
     racing = _AnniversaryRace(head, _anniversary_row(head))
     gateway, _, source = _enforcing(racing)
     result = await _execute_enforcing(gateway)
-    assert (result.status, result.reason_code) == ("unavailable", "source_unavailable")
+    assert (result.status, result.reason_code) == ("denied", "legitimacy_unproven")
     assert "execute" not in source.calls
+    assert racing.save_calls == 2
 
 
 @pytest.mark.asyncio
