@@ -829,6 +829,26 @@ def record_rco_sombra(desfecho: str) -> None:
         logger.debug("rco_sombra_metric_emit_failed", exc_info=True)
 
 
+#: DL-0173: vocabulario FECHADO de `maezo_rco_composicao_revisao_humana_total` (= os motivos de
+#: `platform.rco_composicao`, paridade fixada em teste). Valor fora do conjunto vira `outro`.
+RCO_COMPOSICAO_MOTIVOS: Final[frozenset[str]] = frozenset(
+    {"violacao_prova_rco", "avaliador_falhou", "resultado_invalido"}
+)
+
+
+def record_rco_composicao_revisao(motivo: str) -> None:
+    """Count ONE rco K1 composition routed to human review — `maezo_rco_composicao_revisao_humana_total`.
+
+    Unico sitio de chamada: `platform.rco_composicao`. Rotulo fechado; nunca dado de caso. Best-effort:
+    a telemetria nunca muda o desfecho (que ja e `revisao_humana`).
+    """
+    rotulo = motivo if motivo in RCO_COMPOSICAO_MOTIVOS else "outro"
+    try:
+        _get_metrics_collector().rco_composicao_revisao_total.labels(motivo=rotulo).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_composicao_metric_emit_failed", exc_info=True)
+
+
 #: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
 PEP_DECISION_ALLOW: Final[str] = "allow"
 PEP_DECISION_DENY: Final[str] = "deny"

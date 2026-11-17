@@ -42,7 +42,8 @@ gate de CI: formato MAJOR 1 ou 2 LIDO, mas o pin exige 2.1.0+ com `provas[]` nao
 (`rco_manifesto.provas_ausentes_no_pin`, decisao da ROOT de 16/11/2026; as provas rodam no CIB Seven
 no shard de integracao, `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos exatos,
 prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegra` emitidos =
-`regras[]`, linha adversa preenchida.
+`regras[]`, linha adversa preenchida e, no 2.2.0 (DL-0173), `composicoes[]` bem formada (exposta em
+`RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`).
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
 `provenance` a `origem` dele. Manifesto 2.0.0 (contrato estavel na branch `prog/rco/ativacao-k1` do
 rco, commit 75015304, ainda nao em `main` do rco) com regra fora de `ativacao: plena` sem aditivo e
@@ -164,6 +165,15 @@ class RcoRulesPin:
     #: (`rco_entradas.carregar_dicionario_entradas`) sem reler o pin. `None` sem pacote.
     manifesto: rco_manifesto.ManifestoK1 | None = None
     k1_dir: Path | None = None
+
+    @property
+    def composicoes(self) -> tuple[rco_manifesto.ComposicaoK1, ...]:
+        """`composicoes[]` do manifesto pinado (formato 2.2.0, DL-0173); vazio sem pacote ou abaixo de 2.2.
+
+        Nenhuma decisao de um grupo (padrao inclusive) e avaliada sozinha: quem avalia usa
+        `maezo.platform.rco_composicao.exigir_avaliacao_isolada` antes e `compor` para o grupo.
+        """
+        return self.manifesto.composicoes if self.manifesto is not None else ()
 
 
 def is_rco_decision(decision_key: str) -> bool:
