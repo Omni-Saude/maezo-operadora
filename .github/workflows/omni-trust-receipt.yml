@@ -1,0 +1,171 @@
+name: omni-trust-receipt
+
+# ---------------------------------------------------------------------------
+# EP-CORE-10a (epico E-SF-33; registro CORE-10, degrau T2): reproduz, num runner Maezo-side, a
+# verificacao de qualidade de UM sha do omni_sales_platform e produz o recibo
+# OMNI-TRUST-RECEIPT-<sha>.json como ARTEFATO do run. Nao commita nada: o recibo so entra em
+# docs/governance/omni-trust/ por PR humano, e so serve para consumo por copia (A) ou in-place (C);
+# o caminho B (sala limpa) nao exige recibo (CORE-10 regra 2). Consumidor: scripts/docs/omni_trust_receipt.py.
+#
+# So workflow_dispatch: NUNCA roda em push, pull_request ou schedule (o teste
+# tests/governance/test_omni_trust_receipt.py falha se outro gatilho aparecer).
+#
+# Runtime exato do omni (omni@b3de4b4: .node-version 24.21.0; package.json engines npm 11.19.0) — sem ele
+# nada e comparavel (CORE-10, falha Q1). Audit sem override (omni CONTRIBUTING:9): o passo apenas roda
+# `npm run audit` e registra o exit code.
+#
+# GAP (credencial): o omni_sales_platform e privado e o maezo-operadora nao tem hoje credencial de
+# leitura cruzada. Este workflow DECLARA o segredo de que precisa — OMNI_SALES_READ_TOKEN (token de
+# leitura, escopo contents:read so no omni_sales_platform) — e falha na primeira etapa se ele nao
+# existir. Provisionar o segredo e ato do dono do repo; nenhum recibo foi produzido ate la.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      omni_sha:
+        description: "sha COMPLETO (40 hex) do commit do omni_sales_platform a reproduzir"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omni-trust-receipt-${{ inputs.omni_sha }}
+  cancel-in-progress: false
+
+jobs:
+  recibo:
+    name: recibo T2 (omni ${{ inputs.omni_sha }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_PIN: v24.21.0
+      NPM_PIN: 11.19.0
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Entrada e credencial presentes?
+        env:
+          OMNI_SHA: ${{ inputs.omni_sha }}
+          HAS_TOKEN: ${{ secrets.OMNI_SALES_READ_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          [[ "${OMNI_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::omni_sha precisa ter 40 hex"; exit 1; }
+          [ "${HAS_TOKEN}" = "true" ] || { echo "::error::segredo OMNI_SALES_READ_TOKEN ausente (GAP: leitura do repo privado omni_sales_platform)"; exit 1; }
+
+      - name: Checkout read-only do sha omni
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: Omni-Saude/omni_sales_platform
+          ref: ${{ inputs.omni_sha }}
+          token: ${{ secrets.OMNI_SALES_READ_TOKEN }}
+          persist-credentials: false
+          path: omni
+
+      - name: O checkout e o sha pedido?
+        env:
+          OMNI_SHA: ${{ inputs.omni_sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git -C omni rev-parse HEAD)" = "${OMNI_SHA}" ] || { echo "::error::HEAD do checkout != omni_sha"; exit 1; }
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+
+      - name: Fixa npm 11.19.0 e registra o runtime
+        run: |
+          set -euo pipefail
+          if [ "$(npm --version)" != "${NPM_PIN}" ]; then npm install -g "npm@${NPM_PIN}"; fi
+          node --version > "${RUNNER_TEMP}/node.txt"
+          npm --version > "${RUNNER_TEMP}/npm.txt"
+          cat "${RUNNER_TEMP}/node.txt" "${RUNNER_TEMP}/npm.txt"
+
+      - name: Reproduz os passos de qualidade do omni (registra exit de cada um)
+        working-directory: omni
+        run: |
+          set -uo pipefail
+          r="${RUNNER_TEMP}/exits.txt"; : > "$r"
+          passo() { local nome="$1"; shift; "$@"; echo "${nome} $?" >> "$r"; }
+          passo npm_ci npm ci
+          passo audit npm run audit
+          passo lint npm run lint
+          passo typecheck npm run typecheck
+          passo test npm test -- --reporter=default --reporter=json --outputFile="${RUNNER_TEMP}/vitest.json"
+          # A prova server-only e a do PROPRIO omni no sha lido: o corpo do passo e extraido do
+          # workflow app-quality.yml do checkout e executado ali (nada do omni e copiado para o Maezo).
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user "pyyaml==6.0.2"
+          python3 - "${RUNNER_TEMP}/server-only.sh" <<'PY'
+          import sys, yaml
+          wf = yaml.safe_load(open(".github/workflows/app-quality.yml"))
+          nome = "Prove production compiler enforces server-only boundary"
+          corpo = [s["run"] for s in wf["jobs"]["application"]["steps"] if s.get("name") == nome]
+          if len(corpo) != 1:
+              sys.exit("passo server-only ausente no app-quality.yml do sha")
+          open(sys.argv[1], "w").write(corpo[0])
+          PY
+          if [ -s "${RUNNER_TEMP}/server-only.sh" ]; then
+            passo server_only_proof bash -e "${RUNNER_TEMP}/server-only.sh"
+          else
+            echo "server_only_proof 127" >> "$r"
+          fi
+          passo build npm run build
+          cat "$r"
+
+      - name: Grava OMNI-TRUST-RECEIPT-<sha>.json
+        if: always()
+        env:
+          OMNI_SHA: ${{ inputs.omni_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MAEZO_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json, os, pathlib
+          tmp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          ler = lambda n: (tmp / n).read_text().strip() if (tmp / n).exists() else None
+          exits = {}
+          if (tmp / "exits.txt").exists():
+              for linha in (tmp / "exits.txt").read_text().split("\n"):
+                  if linha.strip():
+                      nome, cod = linha.split()
+                      exits[nome] = {"exit": int(cod)}
+          contagem = -1
+          if (tmp / "vitest.json").exists():
+              contagem = int(json.loads((tmp / "vitest.json").read_text()).get("numTotalTests", -1))
+          sha = os.environ["OMNI_SHA"]
+          recibo = {
+              "schema_version": "1.0.0",
+              "omni_repository": "Omni-Saude/omni_sales_platform",
+              "omni_sha": sha,
+              "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
+              "runtime": {"node": ler("node.txt"), "npm": ler("npm.txt")},
+              "steps": exits,
+              "tests_executed": contagem,
+              "producer": {"workflow": ".github/workflows/omni-trust-receipt.yml",
+                           "maezo_sha": os.environ["MAEZO_SHA"], "run_url": os.environ["RUN_URL"]},
+          }
+          (tmp / f"OMNI-TRUST-RECEIPT-{sha}.json").write_text(json.dumps(recibo, indent=2) + "\n")
+          print(json.dumps(recibo, indent=2))
+          PY
+
+      - name: Publica o recibo como artefato do run
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: omni-trust-receipt-${{ inputs.omni_sha }}
+          path: ${{ runner.temp }}/OMNI-TRUST-RECEIPT-${{ inputs.omni_sha }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Todos os passos verdes?
+        run: |
+          set -euo pipefail
+          r="${RUNNER_TEMP}/exits.txt"
+          [ -f "$r" ] || { echo "::error::nenhum passo registrado"; exit 1; }
+          [ "$(wc -l < "$r")" -eq 7 ] || { echo "::error::esperados 7 passos registrados"; exit 1; }
+          if awk '$2 != 0 {bad=1} END {exit !bad}' "$r"; then
+            echo "::error::passo do omni com exit != 0 — o recibo registra qual; nao serve para consumo"; exit 1
+          fi
