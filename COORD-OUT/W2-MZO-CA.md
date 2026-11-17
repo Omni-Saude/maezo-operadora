@@ -86,3 +86,8 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 
 - maezo-operadora #1303 (ADD01-02) mesclado; main `093357a2`.
 - maezo-operadora #1304 (variáveis em classe fechada; CD-87, CD-88, CD-91) aberto, head `aa79b405436e763f34071099c02c9cc4173ae06b`, contém `093357a2`. Edição autorizada em `tests/unit/platform/lembretes/test_optout_config_envio.py` listada no corpo.
+
+## 2026-11-17 ~22:00Z — resposta à observação do #1303 (projeção da jornada × detector por lista)
+
+Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a lista de campos permitidos (`CAMPOS_DA_VISAO`) garante por construção que nenhum CAMPO clínico sai (só `journey_ref`, `revision`, `observed_at`, `prospect_ref`, `account_ref`, `party_ref`). Mas o VALOR desses campos não é validado por classe: `_ref` aceita qualquer `str` não vazia, `observed_at` qualquer `str`, e o tipo `Ref` do contrato é `string` sem padrão. Hoje, um valor de referência com texto clínico só é barrado pelo detector por lista (a varredura do snapshot inteiro). Portanto: campo = por construção; valor = depende da lista.
+- ACHADO / pedido de linha: validar os seis valores por classe fechada (referência opaca estrita, revisão inteira, instante ISO-8601 com fuso), no mesmo molde do #1304 (`valor_valido_para_classe`), recusando o que não passa. Arquivo: `src/maezo/portal/api/specialist_console.py` e o teste dele (minha posse). Proponho entrar como PR pequeno depois do #1304, antes de GTM-E-63; aguardo CD (sigo a fila publicada se não houver resposta).
