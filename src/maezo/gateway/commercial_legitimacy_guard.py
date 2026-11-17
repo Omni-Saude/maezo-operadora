@@ -486,7 +486,7 @@ class LegitimacyScreenShadow(LegitimacyScreenGateway):
                 try:
                     evaluation = await self._register(evaluation, scope)
                 except _RevisionContended as raced:
-                    # Corrida dupla: a linha é de outro escritor; o sinal segue, uma vez.
+                    # Corrida dupla: sem linha nesta tentativa (o próximo comando relê); sinal sai.
                     evaluation = raced.evaluation
                 self._signal(evaluation)
 
