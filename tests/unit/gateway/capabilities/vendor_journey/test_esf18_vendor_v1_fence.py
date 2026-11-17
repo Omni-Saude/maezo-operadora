@@ -51,5 +51,5 @@ def test_importing_the_vendor_v1_surface_never_loads_the_op16_machine() -> None:
     )
     done = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=False, timeout=60
-    )  # noqa: S603
+    )
     assert done.returncode == 0, done.stderr

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from xml.etree import ElementTree as ET  # noqa: S405 -- repo-owned spec files, not untrusted input
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -48,13 +48,13 @@ def declared_outputs(root: ET.Element) -> list[str]:
 
 
 def forbidden_outputs(xml: str) -> list[str]:
-    return [name for name in declared_outputs(ET.fromstring(xml)) if _FORBIDDEN_OUTPUT.search(name)]  # noqa: S314
+    return [name for name in declared_outputs(ET.fromstring(xml)) if _FORBIDDEN_OUTPUT.search(name)]
 
 
 def test_the_sweep_covers_the_real_dmn_set() -> None:
     files = sorted(DMN_DIR.glob("*.dmn"))
     assert len(files) >= 50
-    assert sum(len(declared_outputs(ET.parse(path).getroot())) for path in files) > 100  # noqa: S314
+    assert sum(len(declared_outputs(ET.parse(path).getroot())) for path in files) > 100
 
 
 @pytest.mark.parametrize("path", sorted(DMN_DIR.glob("*.dmn")), ids=lambda p: p.name)
