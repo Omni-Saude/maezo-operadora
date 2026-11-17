@@ -417,7 +417,12 @@ async def test_live_delegation_audit_fires_chain_valid_and_phi_safe(
         tenant=tenant_schema,
         budget=Budget(tokens=64, time_ms=60_000, cost_per_hop=1),
         payload_ref="fhir://Coverage/livepg-phi-probe",
-        payload_meta={"numero_guia_tiss": "GUIA-LIVEPG-PHI", "cpf_beneficiario": synthetic_cpf},
+        # DL-0170: o Rafael exige carater canonico; "eletivo" aqui e' dado de teste deliberado.
+        payload_meta={
+            "numero_guia_tiss": "GUIA-LIVEPG-PHI",
+            "carater_atendimento": "eletivo",
+            "cpf_beneficiario": synthetic_cpf,
+        },
     )
     phi_result = await dispatcher.delegate(phi_envelope)
     assert phi_result.success
